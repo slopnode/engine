@@ -2,6 +2,7 @@
 
 #include "core/package.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string>

@@ -4,6 +4,8 @@
 
 #include <raylib.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <span>
 #include <string_view>

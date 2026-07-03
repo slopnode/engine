@@ -2,6 +2,7 @@
 #include "assets/skeleton_loader.hpp"
 
 #include <charconv>
+#include <cstdint>
 #include <cstring>
 #include <optional>
 #include <string>
