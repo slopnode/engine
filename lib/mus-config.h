@@ -1,0 +1,9 @@
+#ifndef MUS_CONFIG_H
+#define MUS_CONFIG_H
+
+#define MUS_CONFIG_H_LOADED 1
+#define _CRT_SECURE_NO_WARNINGS 1
+#define _CRT_SECURE_NO_DEPRECATE 1
+#define _CRT_NONSTDC_NO_DEPRECATE 1
+
+#endif

@@ -1,3 +1,4 @@
+#include "mus-config.h"
 #include "s7.h"
 
 #ifdef _MSC_VER
@@ -8,4 +9,4 @@ static bool is_decodable(s7_scheme *sc, s7_pointer p) {
 }
 #endif
 
-#include "s7/s7.c"
+#include "s7_patched.c"
