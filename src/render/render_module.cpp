@@ -318,10 +318,19 @@ void registerDemoScene(flecs::world& world, AssetStore& assets) {
     }
 
     const Model humanSource = assets.getGeoModel(kHumanAsset);
-    const Model humanModel = cloneGeoModelInstance(humanSource);
+    Model humanModel = cloneGeoModelInstance(humanSource);
     if (humanModel.meshCount == 0) {
         TraceLog(LOG_WARNING, "Failed to load demo geometry at geometry/%s", kHumanAsset);
         return;
+    }
+
+    if (humanModel.materials != nullptr) {
+        const Material male1591Material = assets.resolveMaterial("male1591");
+        const Material highPolyMaterial = assets.resolveMaterial("high-poly");
+        for (int meshIndex = 0; meshIndex < humanModel.meshCount; ++meshIndex) {
+            humanModel.materials[meshIndex] =
+                meshIndex == 0 ? male1591Material : highPolyMaterial;
+        }
     }
 
     AnimationPlayer humanAnimation{};

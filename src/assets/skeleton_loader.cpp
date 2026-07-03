@@ -400,6 +400,14 @@ void applyBindPoseFromGlobalMatrices(Model& model, const std::vector<Matrix>& bi
 
 Model cloneGeoModelInstance(const Model& source) {
     Model instance = source;
+
+    if (source.materialCount > 0 && source.materials != nullptr) {
+        instance.materials = static_cast<Material*>(RL_CALLOC(source.materialCount, sizeof(Material)));
+        for (int index = 0; index < source.materialCount; ++index) {
+            instance.materials[index] = source.materials[index];
+        }
+    }
+
     if (source.skeleton.boneCount <= 0 || source.skeleton.bones == nullptr) {
         return instance;
     }
