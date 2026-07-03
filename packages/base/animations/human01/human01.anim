@@ -1,0 +1,14 @@
+(anim
+  (skeleton "human01")
+  (clips
+   (
+    (name "pose"
+     fps 30
+     duration 0
+     tracks "human01_pose.tracks")
+    (name "wave"
+     fps 30
+     duration 2.96667
+     tracks "human01_wave.tracks")
+   ))
+)

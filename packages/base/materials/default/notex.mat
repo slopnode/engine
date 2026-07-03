@@ -1,0 +1,5 @@
+(material
+  (shader "default")
+  (params
+    (base-color 1 1 1 1)
+    (texture "default/notex")))

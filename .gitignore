@@ -1,0 +1,8 @@
+build/
+out/
+.vs/
+.vscode/
+compile_commands.json
+CMakeUserPresets.json
+*.blend
+*.blend1

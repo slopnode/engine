@@ -1,0 +1,11 @@
+(skeleton
+  (id "worm")
+  (version 1)
+  (bones
+   (
+    (name "Bone" parent -1 bind (t 0 0 0) (r 0.707107 0 0 0.707107) (s 1 1 1))
+    (name "Bone.001" parent 0 bind (t 0 0 -2) (r 0 0 0 1) (s 1 1 1))
+    (name "Bone.002" parent 1 bind (t 0 0 -2) (r 0 0 0 1) (s 1 1 1))
+    (name "Bone.003" parent 2 bind (t 0 0 -2) (r 0 0 0 1) (s 1 1 1))
+    (name "Tail" parent 3 bind (t 0 0 -2) (r 0 0 0 1) (s 1 1 1))
+   )))

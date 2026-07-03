@@ -1,0 +1,9 @@
+[submodule "lib/raylib"]
+	path = lib/raylib
+	url = https://github.com/raysan5/raylib.git
+[submodule "lib/s7"]
+	path = lib/s7
+	url = https://github.com/abramsba/s7.git
+[submodule "lib/flecs"]
+	path = lib/flecs
+	url = https://github.com/SanderMertens/flecs.git

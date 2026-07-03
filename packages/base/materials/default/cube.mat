@@ -1,0 +1,4 @@
+(material
+  (shader "default")
+  (params
+    (base-color 0.8 0.8 0.8 1.0)))

@@ -1,0 +1,6 @@
+(skeleton
+  (id "biped")
+  (version 1)
+  (bones
+    ((name "root" parent -1 bind (t 0 0 0) (r 0 0 0 1) (s 1 1 1))
+     (name "spine" parent 0 bind (t 0 1 0) (r 0 0 0 1) (s 1 1 1)))))

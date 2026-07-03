@@ -1,0 +1,17 @@
+schema_version = "1.0.0"
+
+id = "daggerlike_exporter"
+version = "0.1.0"
+name = "Daggerlike Exporter"
+tagline = "Export daggerlike skeleton, geo, and anim assets"
+maintainer = "Daggerlike"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+[permissions]
+files = "Write exported skeleton, geo, and anim files to disk"

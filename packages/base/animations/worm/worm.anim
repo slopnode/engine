@@ -1,0 +1,10 @@
+(anim
+  (skeleton "worm")
+  (clips
+   (
+    (name "pose"
+     fps 30
+     duration 4.96667
+     tracks "worm_pose.tracks")
+   ))
+)

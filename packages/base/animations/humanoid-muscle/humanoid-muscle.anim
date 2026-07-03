@@ -1,0 +1,14 @@
+(anim
+  (skeleton "humanoid-muscle")
+  (clips
+   (
+    (name "wave"
+     fps 60
+     duration 2.98333
+     tracks "humanoid-muscle_wave.tracks")
+    (name "pose"
+     fps 60
+     duration 0
+     tracks "humanoid-muscle_pose.tracks")
+   ))
+)
