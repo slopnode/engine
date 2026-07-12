@@ -2,11 +2,13 @@
 
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "camera/components.hpp"
+#include "interact/components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/transform.hpp"
+#include "ui/ui_module.hpp"
 
-#include "imgui.h"
 #include "rlImGui.h"
 
 #include <cmath>
@@ -279,13 +281,9 @@ void registerRenderSystems(flecs::world& world) {
 
     world.system("ImGuiOverlay")
         .kind(flecs::PostUpdate)
-        .run([](flecs::iter&) {
-            static bool showDemoWindow = true;
-
+        .run([](flecs::iter& it) {
             rlImGuiBegin();
-            if (showDemoWindow) {
-                ImGui::ShowDemoWindow(&showDemoWindow);
-            }
+            drawUi(it.world());
             rlImGuiEnd();
         });
 
@@ -299,15 +297,21 @@ void registerRenderSystems(flecs::world& world) {
 
 void registerDemoScene(flecs::world& world, AssetStore& assets) {
     Lens lens{};
-    lens.camera.position = {20.0f, 20.0f, 20.0f};
-    lens.camera.target = {0.0f, 5.0f, 0.0f};
+    lens.camera.position = {0.0f, 1.7f, 8.0f};
+    lens.camera.target = {0.0f, 1.7f, 7.0f};
     lens.camera.up = {0.0f, 1.0f, 0.0f};
-    lens.camera.fovy = 45.0f;
+    lens.camera.fovy = 75.0f;
     lens.camera.projection = CAMERA_PERSPECTIVE;
 
+    FirstPersonController controller{};
+    controller.yaw = PI;
+    controller.pitch = -0.05f;
+
     world.entity("MainCamera")
+        .add<PlayerCamera>()
         .add<WorldSpace>()
-        .set<Lens>(lens);
+        .set<Lens>(lens)
+        .set<FirstPersonController>(controller);
 
     constexpr const char* kHumanAsset = "human01/human01";
 
@@ -398,7 +402,12 @@ void registerDemoScene(flecs::world& world, AssetStore& assets) {
                 .scale = {1.0f, 1.0f, 1.0f},
                 .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
             })
-            .set<Model3D>({obstacleModel, WHITE});
+            .set<Model3D>({obstacleModel, WHITE})
+            .set<Interactable>({
+                .prompt = "Inspect obstacle",
+                .eventName = "obstacle_inspect",
+                .maxDistance = 6.0f,
+            });
     }
 
     constexpr const char* kCubeAsset = "default/cube";

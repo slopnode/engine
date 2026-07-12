@@ -1,6 +1,10 @@
 #include "game/app.hpp"
 
+#include "camera/camera_module.hpp"
+#include "input/input_module.hpp"
+#include "interact/interact_module.hpp"
 #include "render/render_module.hpp"
+#include "ui/ui_module.hpp"
 
 #include "rlImGui.h"
 
@@ -16,6 +20,10 @@ App::App(AppConfig config)
     init_window();
     rlImGuiSetup(true);
     init_script();
+    registerInputModule(world_);
+    registerUiModule(world_);
+    registerCameraModule(world_);
+    registerInteractModule(world_);
     registerRenderModule(world_, assetStore_);
     running_ = true;
 }
@@ -39,6 +47,9 @@ void App::init_window() {
 
 void App::init_script() {
     scheme_ = s7_init();
+    if (!assetStore_.loadScript(scheme_, "init.s7")) {
+        TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
+    }
 }
 
 void App::shutdown() {

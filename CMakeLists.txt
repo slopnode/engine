@@ -22,6 +22,10 @@ add_executable(slopengine
     src/assets/anim_loader.cpp
     src/game/app_config.cpp
     src/game/app.cpp
+    src/input/input_module.cpp
+    src/camera/camera_module.cpp
+    src/interact/interact_module.cpp
+    src/ui/ui_module.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/render_module.cpp
