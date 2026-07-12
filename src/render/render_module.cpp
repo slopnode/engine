@@ -6,11 +6,14 @@
 #include "render/components.hpp"
 #include "render/transform.hpp"
 
+#include "imgui.h"
+#include "rlImGui.h"
+
 #include <cmath>
 
 #include <rlgl.h>
 
-namespace daggerlike {
+namespace slopengine {
 
 namespace {
 
@@ -274,6 +277,18 @@ void registerRenderSystems(flecs::world& world) {
             EndMode3D();
         });
 
+    world.system("ImGuiOverlay")
+        .kind(flecs::PostUpdate)
+        .run([](flecs::iter&) {
+            static bool showDemoWindow = true;
+
+            rlImGuiBegin();
+            if (showDemoWindow) {
+                ImGui::ShowDemoWindow(&showDemoWindow);
+            }
+            rlImGuiEnd();
+        });
+
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter&) {
@@ -350,6 +365,41 @@ void registerDemoScene(flecs::world& world, AssetStore& assets) {
         })
         .set<Model3D>({humanModel, WHITE})
         .set<AnimationPlayer>(humanAnimation);
+
+    // Add a ground plane for the world to move in
+    Model groundModel = LoadModelFromMesh(GenMeshPlane(10.0f, 10.0f, 10, 10));
+    if (groundModel.meshCount > 0) {
+        // Apply ground material
+        const Material groundMaterial = assets.resolveMaterial("default/ground");
+        for (int i = 0; i < groundModel.materialCount; ++i) {
+            groundModel.materials[i] = groundMaterial;
+        }
+        world.entity("GroundPlane")
+            .add<WorldSpace>()
+            .set<LocalTransformation>({
+                .position = {0.0f, 0.0f, 0.0f},
+                .scale = {1.0f, 1.0f, 1.0f},
+                .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+            })
+            .set<Model3D>({groundModel, WHITE});
+    }
+
+    // Add a simple obstacle for the world to move around
+    Model obstacleModel = LoadModelFromMesh(GenMeshCube(2.0f, 2.0f, 2.0f));
+    if (obstacleModel.meshCount > 0) {
+        const Material defaultMaterial = assets.resolveMaterial("default/cube");
+        for (int i = 0; i < obstacleModel.materialCount; ++i) {
+            obstacleModel.materials[i] = defaultMaterial;
+        }
+        world.entity("WorldObstacle")
+            .add<WorldSpace>()
+            .set<LocalTransformation>({
+                .position = {5.0f, 1.0f, 5.0f},
+                .scale = {1.0f, 1.0f, 1.0f},
+                .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+            })
+            .set<Model3D>({obstacleModel, WHITE});
+    }
 
     constexpr const char* kCubeAsset = "default/cube";
     Model cubeModel = {};

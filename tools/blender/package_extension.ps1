@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$source = Join-Path $PSScriptRoot "daggerlike_exporter"
-$output = Join-Path $PSScriptRoot "daggerlike_exporter.zip"
+$source = Join-Path $PSScriptRoot "slopengine_exporter"
+$output = Join-Path $PSScriptRoot "slopengine_exporter.zip"
 
 if (-not (Test-Path $source)) {
     throw "Missing extension source folder: $source"

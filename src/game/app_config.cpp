@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-namespace daggerlike {
+namespace slopengine {
 
 void AppConfig::printUsage(const char* program) {
     std::cerr

@@ -20,9 +20,9 @@ from .format_utils import (
 )
 
 
-class EXPORT_OT_daggerlike_geo(bpy.types.Operator, ExportHelper):
-    bl_idname = "export_scene.daggerlike_geo"
-    bl_label = "Export Daggerlike Geo"
+class EXPORT_OT_slopengine_geo(bpy.types.Operator, ExportHelper):
+    bl_idname = "export_scene.slopengine_geo"
+    bl_label = "Export Slopengine Geo"
     bl_description = "Export selection into one .geo container with shared vertex buffers"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -211,5 +211,5 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
 
 
 classes = (
-    EXPORT_OT_daggerlike_geo,
+    EXPORT_OT_slopengine_geo,
 )

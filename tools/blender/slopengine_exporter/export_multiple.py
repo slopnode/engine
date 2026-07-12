@@ -8,9 +8,9 @@ from .export_skeleton import export_skeleton_asset
 from .format_utils import active_armature, bind_pose_context, sanitize_name
 
 
-class EXPORT_OT_daggerlike_multiple(bpy.types.Operator):
-    bl_idname = "export_scene.daggerlike_multiple"
-    bl_label = "Export Daggerlike Multiple"
+class EXPORT_OT_slopengine_multiple(bpy.types.Operator):
+    bl_idname = "export_scene.slopengine_multiple"
+    bl_label = "Export Slopengine Multiple"
     bl_description = (
         "Export skeleton, geometry, and animation for one asset into "
         "project geometry, skeletons, and animations folders"
@@ -168,5 +168,5 @@ class EXPORT_OT_daggerlike_multiple(bpy.types.Operator):
 
 
 classes = (
-    EXPORT_OT_daggerlike_multiple,
+    EXPORT_OT_slopengine_multiple,
 )

@@ -10,7 +10,7 @@
 #include <raymath.h>
 #include <rlgl.h>
 
-namespace daggerlike {
+namespace slopengine {
 
 namespace {
 

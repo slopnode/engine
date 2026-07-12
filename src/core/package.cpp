@@ -1,6 +1,6 @@
 #include "core/package.hpp"
 
-namespace daggerlike {
+namespace slopengine {
 
 Package::Package(std::filesystem::path root)
     : root_{std::move(root)} {

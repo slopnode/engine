@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-project(daggerlike LANGUAGES C CXX)
+project(slopengine LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,7 +11,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(lib)
 
-add_executable(daggerlike
+add_executable(slopengine
     src/main.cpp
     src/core/package.cpp
     src/core/vfs.cpp
@@ -27,16 +27,20 @@ add_executable(daggerlike
     src/render/render_module.cpp
 )
 
-target_include_directories(daggerlike PRIVATE src)
+target_include_directories(slopengine PRIVATE src)
 
-target_link_libraries(daggerlike PRIVATE
+target_link_libraries(slopengine PRIVATE
     flecs::flecs_static
     raylib
     s7
+    Jolt::Jolt
+    rlImGui
 )
 
 if(MSVC)
-    target_compile_options(daggerlike PRIVATE /W4 /permissive-)
+    target_compile_options(slopengine PRIVATE /W4 /permissive-)
 else()
-    target_compile_options(daggerlike PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(slopengine PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+include(cmake/Doxygen.cmake)

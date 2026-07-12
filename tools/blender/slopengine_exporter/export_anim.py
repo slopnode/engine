@@ -13,9 +13,9 @@ from .format_utils import (
 )
 
 
-class EXPORT_OT_daggerlike_anim(bpy.types.Operator, ExportHelper):
-    bl_idname = "export_scene.daggerlike_anim"
-    bl_label = "Export Daggerlike Anim"
+class EXPORT_OT_slopengine_anim(bpy.types.Operator, ExportHelper):
+    bl_idname = "export_scene.slopengine_anim"
+    bl_label = "Export Slopengine Anim"
     bl_description = "Export all actions assigned to the selected armature as one .anim file"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -175,5 +175,5 @@ def export_anim_asset(context, filepath, skeleton_id, fps=30.0):
 
 
 classes = (
-    EXPORT_OT_daggerlike_anim,
+    EXPORT_OT_slopengine_anim,
 )

@@ -4,7 +4,7 @@
 #include <optional>
 #include <string>
 
-namespace daggerlike {
+namespace slopengine {
 
 namespace {
 

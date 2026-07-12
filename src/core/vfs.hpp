@@ -9,8 +9,9 @@
 #include <string_view>
 #include <vector>
 
-namespace daggerlike {
+namespace slopengine {
 
+/** Asset categories mapped to package subdirectories. */
 enum class AssetKind {
     Texture,
     Material,
@@ -28,11 +29,15 @@ enum class AssetKind {
 
 class AssetStore;
 
+/** Layered virtual filesystem backed by mounted packages. */
 class VirtualFileSystem {
     friend class AssetStore;
 
 public:
+    /** Replaces all mounted packages with a single base package. */
     void setBasePackage(Package package);
+
+    /** Appends a package; later packages override earlier ones for asset lookup. */
     void addPackage(Package package);
 
 private:

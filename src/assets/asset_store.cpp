@@ -8,7 +8,7 @@
 #include <functional>
 #include <stdexcept>
 
-namespace daggerlike {
+namespace slopengine {
 
 namespace {
 

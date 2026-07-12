@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace daggerlike {
+namespace slopengine {
 
 struct SkeletonBone {
     std::string name;

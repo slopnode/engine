@@ -1,10 +1,10 @@
 schema_version = "1.0.0"
 
-id = "daggerlike_exporter"
+id = "slopengine_exporter"
 version = "0.1.0"
-name = "Daggerlike Exporter"
-tagline = "Export daggerlike skeleton, geo, and anim assets"
-maintainer = "Daggerlike"
+name = "Slopengine Exporter"
+tagline = "Export slopengine skeleton, geo, and anim assets"
+maintainer = "Slopengine"
 type = "add-on"
 
 blender_version_min = "4.2.0"

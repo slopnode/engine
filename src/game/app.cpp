@@ -2,16 +2,19 @@
 
 #include "render/render_module.hpp"
 
+#include "rlImGui.h"
+
 #include <raylib.h>
 #include <s7.h>
 
-namespace daggerlike {
+namespace slopengine {
 
 App::App(AppConfig config)
     : config_{std::move(config)}
     , assetStore_{config_}
     , world_{} {
     init_window();
+    rlImGuiSetup(true);
     init_script();
     registerRenderModule(world_, assetStore_);
     running_ = true;
@@ -31,7 +34,7 @@ int App::run() {
 
 void App::init_window() {
     SetConfigFlags(FLAG_VSYNC_HINT);
-    InitWindow(1280, 720, "daggerlike");
+    InitWindow(1280, 720, "slopengine");
 }
 
 void App::init_script() {
@@ -45,6 +48,7 @@ void App::shutdown() {
     }
 
     if (IsWindowReady()) {
+        rlImGuiShutdown();
         CloseWindow();
     }
 }

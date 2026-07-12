@@ -16,9 +16,9 @@ from .format_utils import (
 )
 
 
-class EXPORT_OT_daggerlike_skeleton(bpy.types.Operator, ExportHelper):
-    bl_idname = "export_scene.daggerlike_skeleton"
-    bl_label = "Export Daggerlike Skeleton"
+class EXPORT_OT_slopengine_skeleton(bpy.types.Operator, ExportHelper):
+    bl_idname = "export_scene.slopengine_skeleton"
+    bl_label = "Export Slopengine Skeleton"
     bl_description = "Export the selected armature as a .skel file"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -129,5 +129,5 @@ def export_skeleton_asset(context, filepath, skeleton_id, scene_pose_locked=Fals
 
 
 classes = (
-    EXPORT_OT_daggerlike_skeleton,
+    EXPORT_OT_slopengine_skeleton,
 )

@@ -1,6 +1,6 @@
 #include "render/animation_player.hpp"
 
-namespace daggerlike {
+namespace slopengine {
 
 void AnimationPlayer::play(std::string_view clip, bool shouldLoop, float playbackSpeed) {
     clipName = std::string{clip};

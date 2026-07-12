@@ -1,6 +1,6 @@
 #include "render/transform.hpp"
 
-namespace daggerlike {
+namespace slopengine {
 
 void updateTransform(flecs::entity entity, LocalTransformation& local, GlobalTransformation& global) {
     Matrix mLocal = MatrixIdentity();

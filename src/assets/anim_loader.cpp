@@ -9,7 +9,7 @@
 
 #include <raymath.h>
 
-namespace daggerlike {
+namespace slopengine {
 
 namespace {
 

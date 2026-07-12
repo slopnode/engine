@@ -8,6 +8,17 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_subdirectory(raylib)
 target_compile_definitions(raylib PUBLIC SUPPORT_GPU_SKINNING=1)
 
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)
+set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
+set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+set(JPH_USE_CPU_COMPUTE ON CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+add_subdirectory(JoltPhysics/Build)
+
 set(S7_UPSTREAM "${CMAKE_CURRENT_SOURCE_DIR}/s7/s7.c")
 set(S7_PATCHED "${CMAKE_CURRENT_BINARY_DIR}/s7_patched.c")
 set(S7_PREPARE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/prepare_s7.cmake")
@@ -51,7 +62,7 @@ else()
 endif()
 
 if(MSVC)
-    foreach(lib_target flecs_static raylib s7 glfw)
+    foreach(lib_target flecs_static raylib s7 glfw Jolt)
         if(TARGET ${lib_target})
             set_property(TARGET ${lib_target} PROPERTY
                 MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -62,3 +73,26 @@ endif()
 if(UNIX AND NOT APPLE)
     target_link_libraries(s7 PUBLIC m dl)
 endif()
+
+set(IMGUI_SOURCES
+    imgui/imgui.cpp
+    imgui/imgui_draw.cpp
+    imgui/imgui_widgets.cpp
+    imgui/imgui_tables.cpp
+    imgui/imgui_demo.cpp
+)
+
+add_library(imgui STATIC ${IMGUI_SOURCES})
+target_include_directories(imgui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+target_compile_definitions(imgui PUBLIC
+    IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+    IMGUI_DISABLE_OBSOLETE_KEYIO
+)
+
+set(RLIMGUI_SOURCES
+    rlImGui/rlImGui.cpp
+)
+
+add_library(rlImGui STATIC ${RLIMGUI_SOURCES})
+target_include_directories(rlImGui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui)
+target_link_libraries(rlImGui PUBLIC imgui raylib)

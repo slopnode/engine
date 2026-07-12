@@ -21,13 +21,13 @@ On Windows with Visual Studio, open the generated solution in `build/` or use th
 ## Run
 
 ```bash
-build/daggerlike --base-game packages/base
+build/slopengine --base-game packages/base
 ```
 
 Optional mods load on top of the base package:
 
 ```bash
-build/daggerlike --base-game packages/base --mod path/to/my-mod
+build/slopengine --base-game packages/base --mod path/to/my-mod
 ```
 
 ## Packages
@@ -49,7 +49,7 @@ Paths inside a package are virtual (e.g. `human01/human01` for `geometry/human01
 
 ## Blender exporter
 
-Source: `tools/blender/daggerlike_exporter/`
+Source: `tools/blender/slopengine_exporter/`
 
 Requires Blender 4.2+. Package it as a zip:
 
@@ -57,9 +57,9 @@ Requires Blender 4.2+. Package it as a zip:
 tools/blender/package_extension.ps1
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → (menu) → Install from Disk** and select `tools/blender/daggerlike_exporter.zip`.
+In Blender: **Edit → Preferences → Get Extensions → (menu) → Install from Disk** and select `tools/blender/slopengine_exporter.zip`.
 
-Exports are under **File → Export → Daggerlike**:
+Exports are under **File → Export → Slopengine**:
 
 - **Multiple** — skeleton, geometry, and animation into a package folder
 - **Geometry**, **Animation**, **Skeleton** — individual exports

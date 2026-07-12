@@ -17,51 +17,113 @@
 
 struct s7_scheme;
 
-namespace daggerlike {
+namespace slopengine {
 
+/** Cached asset loader backed by mounted packages. */
 class AssetStore {
 public:
+    /** Mounts packages from @p config and prepares the asset store. */
     explicit AssetStore(const AppConfig& config);
+
     ~AssetStore();
 
     AssetStore(const AssetStore&) = delete;
     AssetStore& operator=(const AssetStore&) = delete;
 
+    /** Returns true when a texture exists at @p path. */
     bool hasTexture(std::string_view path) const;
+
+    /** Returns true when a material exists at @p path. */
     bool hasMaterial(std::string_view path) const;
+
+    /** Returns true when a mesh exists at @p path. */
     bool hasMesh(std::string_view path) const;
+
+    /** Returns true when a shader exists at @p path. */
     bool hasShader(std::string_view path) const;
+
+    /** Returns true when a script exists at @p path. */
     bool hasScript(std::string_view path) const;
+
+    /** Returns true when a skeleton exists at @p path. */
     bool hasSkeleton(std::string_view path) const;
+
+    /** Returns true when a geometry asset exists at @p path. */
     bool hasGeo(std::string_view path) const;
+
+    /** Returns true when a geometry vertex buffer exists at @p path. */
     bool hasGeoVert(std::string_view path) const;
+
+    /** Returns true when a geometry weights buffer exists at @p path. */
     bool hasGeoWeights(std::string_view path) const;
+
+    /** Returns true when an animation asset exists at @p path. */
     bool hasAnim(std::string_view path) const;
+
+    /** Returns true when animation track data exists at @p path. */
     bool hasAnimTracks(std::string_view path) const;
 
+    /** Returns a cached texture, loading it when needed. */
     Texture2D getTexture(std::string_view path);
+
+    /** Returns a cached mesh model, loading it when needed. */
     Model getModel(std::string_view path);
+
+    /** Returns a cached rigged geometry model, loading it when needed. */
     Model getGeoModel(std::string_view path);
+
+    /** Resolves and returns a raylib material for @p path. */
     Material resolveMaterial(std::string_view path);
+
+    /** Returns a cached skeleton asset, loading it when needed. */
     const SkeletonAsset* getSkeletonAsset(std::string_view path);
+
+    /** Returns bind-pose matrices for @p skeletonPath, loading them when needed. */
     const std::vector<Matrix>* getSkeletonBindMatrices(std::string_view skeletonPath);
+
+    /** Returns a cached animation bank, loading it when needed. */
     const AnimBank* getAnimBank(std::string_view path);
+
+    /** Removes a cached texture and unloads its GPU resources. */
     void unloadTexture(std::string_view path);
 
+    /** Returns the text source of the shader at @p path. */
     std::string getShaderSource(std::string_view path);
+
+    /** Returns the text source of the material at @p path. */
     std::string getMaterialSource(std::string_view path);
+
+    /** Returns the text source of the script at @p path. */
     std::string getScriptSource(std::string_view path);
+
+    /** Returns the text source of the skeleton at @p path. */
     std::string getSkeletonSource(std::string_view path);
+
+    /** Returns the text source of the geometry asset at @p path. */
     std::string getGeoSource(std::string_view path);
+
+    /** Returns the text source of the animation asset at @p path. */
     std::string getAnimSource(std::string_view path);
 
+    /** Reads the full binary contents of an asset identified by @p kind. */
     std::vector<std::byte> readBinary(std::string_view path, AssetKind kind);
+
+    /** Reads up to @p out.size() bytes from an asset at @p offset into @p out. */
     bool readBinary(std::string_view path, AssetKind kind, std::span<std::byte> out, std::size_t offset = 0) const;
+
+    /** Reads the vertex buffer associated with the geometry at @p geoPath. */
     std::vector<std::byte> readGeoVert(std::string_view geoPath) const;
+
+    /** Reads the skinning weights associated with the geometry at @p geoPath. */
     std::vector<std::byte> readGeoWeights(std::string_view geoPath) const;
+
+    /** Reads animation track data associated with the animation at @p animPath. */
     std::vector<std::byte> readAnimTracks(std::string_view animPath) const;
+
+    /** Reads track data for a specific @p clip within the animation at @p animPath. */
     std::vector<std::byte> readAnimTracksForClip(std::string_view animPath, const AnimClip& clip) const;
 
+    /** Loads and evaluates the Scheme script at @p path in @p scheme. */
     bool loadScript(s7_scheme* scheme, std::string_view path);
 
 private:

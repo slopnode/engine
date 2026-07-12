@@ -5,7 +5,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace daggerlike {
+namespace slopengine {
 
 void VirtualFileSystem::setBasePackage(Package package) {
     packages_.clear();
