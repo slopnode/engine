@@ -282,6 +282,7 @@ void registerRenderSystems(flecs::world& world) {
     world.system("ImGuiOverlay")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
+            prepareUiInput(it.world());
             rlImGuiBegin();
             drawUi(it.world());
             rlImGuiEnd();

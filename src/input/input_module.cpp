@@ -55,6 +55,31 @@ void registerSystems(flecs::world& world) {
 
 }
 
+void syncCursorCapture(const InputContextStack& contexts) {
+    static bool uiCursorActive = false;
+    const bool wantUiCursor = contexts.blocksWorldInput() || !IsWindowFocused();
+
+    if (wantUiCursor) {
+        if (!uiCursorActive) {
+            EnableCursor();
+            uiCursorActive = true;
+        } else {
+            ShowCursor();
+        }
+        return;
+    }
+
+    if (uiCursorActive) {
+        DisableCursor();
+        uiCursorActive = false;
+        return;
+    }
+
+    if (!IsCursorHidden()) {
+        DisableCursor();
+    }
+}
+
 void registerInputModule(flecs::world& world) {
     registerComponents(world);
     world.set<InputState>({});

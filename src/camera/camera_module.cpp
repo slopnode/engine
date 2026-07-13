@@ -24,14 +24,6 @@ Vector3 forwardFromYawPitch(float yaw, float pitch) {
     });
 }
 
-void syncMouseCapture(const InputContextStack& contexts) {
-    if (contexts.allowsGameplay() && IsWindowFocused()) {
-        DisableCursor();
-    } else {
-        EnableCursor();
-    }
-}
-
 void registerComponents(flecs::world& world) {
     world.component<PlayerCamera>();
     world.component<FirstPersonController>();
@@ -43,7 +35,6 @@ void registerSystems(flecs::world& world) {
         .run([](flecs::iter& it) {
             InputState& input = it.world().get_mut<InputState>();
             InputContextStack& contexts = it.world().get_mut<InputContextStack>();
-            syncMouseCapture(contexts);
 
             if (!contexts.allowsGameplay()) {
                 return;

@@ -119,6 +119,7 @@ void registerSystems(flecs::world& world) {
             }
 
             contexts.push(InputContext::InteractUI);
+            input.mouseDelta = {};
         });
 }
 

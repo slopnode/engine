@@ -2,6 +2,7 @@
 
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
+#include "input/input_module.hpp"
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
 #include "ui/ui_state.hpp"
@@ -109,6 +110,15 @@ void drawInteractionPrompt(const InteractionTarget& target, const InputContextSt
     ImGui::End();
 }
 
+void applyImGuiCursorPolicy(const InputContextStack& contexts) {
+    ImGuiIO& io = ImGui::GetIO();
+    if (contexts.blocksWorldInput()) {
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+    } else {
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    }
+}
+
 void registerComponents(flecs::world& world) {
     world.component<ConsoleState>();
 }
@@ -151,10 +161,20 @@ void registerUiModule(flecs::world& world) {
     registerSystems(world);
 }
 
+void prepareUiInput(flecs::world world) {
+    const InputContextStack& contexts = world.get<InputContextStack>();
+    syncCursorCapture(contexts);
+    if (ImGui::GetCurrentContext() != nullptr) {
+        applyImGuiCursorPolicy(contexts);
+    }
+}
+
 void drawUi(flecs::world world) {
     InputContextStack& contexts = world.get_mut<InputContextStack>();
     InteractionTarget& target = world.get_mut<InteractionTarget>();
     ConsoleState& console = world.get_mut<ConsoleState>();
+
+    applyImGuiCursorPolicy(contexts);
 
     drawInteractionPrompt(target, contexts);
 
