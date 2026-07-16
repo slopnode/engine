@@ -48,6 +48,9 @@ public:
     /** Returns true when a map CSG script exists at @p path. */
     bool hasMapCsg(std::string_view path) const;
 
+    /** Returns true when a map meta file exists at @p path. */
+    bool hasMapMeta(std::string_view path) const;
+
     /** Returns true when a skeleton exists at @p path. */
     bool hasSkeleton(std::string_view path) const;
 
@@ -101,6 +104,15 @@ public:
 
     /** Returns the text source of the script at @p path. */
     std::string getScriptSource(std::string_view path);
+
+    /** Returns the text source of the map meta at @p path. */
+    std::string getMapMetaSource(std::string_view path);
+
+    /** Returns mounted package metadata in mount order. */
+    const std::vector<Package>& packages() const;
+
+    /** Returns true when a mounted package with @p packageId exists. */
+    bool hasPackageId(std::string_view packageId) const;
 
     /** Returns the text source of the skeleton at @p path. */
     std::string getSkeletonSource(std::string_view path);

@@ -1,7 +1,9 @@
 #include "map/csg_script.hpp"
 
 #include "map/brush.hpp"
+#include "map/bsp.hpp"
 #include "map/csg_compile.hpp"
+#include "map/map_meta.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -144,6 +146,13 @@ s7_pointer g_material(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "material", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_role(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail");
+    }
+    return makeTaggedList(sc, "role", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_uv_shift(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args))) {
         return s7_wrong_type_arg_error(sc, "uv-shift", 0, args, "x y");
@@ -193,6 +202,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
 
     std::string id;
     std::string material = "default/cube";
+    BrushRole role = BrushRole::Hull;
     Vector3 mins{};
     Vector3 maxs{};
     bool haveMins = false;
@@ -212,6 +222,15 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
             readString(sc, s7_car(rest), id);
         } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), material);
+        } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
+            std::string roleName;
+            if (readString(sc, s7_car(rest), roleName)) {
+                if (roleName == "detail") {
+                    role = BrushRole::Detail;
+                } else if (roleName == "hull") {
+                    role = BrushRole::Hull;
+                }
+            }
         } else if (std::strcmp(tag, "mins") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -240,7 +259,8 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "brush-box requires id, mins, and maxs")));
     }
 
-    g_builder->brushes.push_back(makeBrushBox(std::move(id), mins, maxs, material, overrides));
+    g_builder->brushes.push_back(
+        makeBrushBox(std::move(id), mins, maxs, material, overrides, role));
     return s7_t(sc);
 }
 
@@ -249,6 +269,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "mins", g_mins, 3, 0, false, "(mins x y z)");
     s7_define_function(sc, "maxs", g_maxs, 3, 0, false, "(maxs x y z)");
     s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
+    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "faces", g_faces, 0, 0, true, "(faces face...)");
     s7_define_function(sc, "top", g_top, 0, 0, true, "(top props...)");
@@ -272,10 +293,47 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     const std::string virtualPath = std::string(mapName) + "/static";
+    const std::string metaPath = std::string(mapName) + "/map";
     if (!assets.hasMapCsg(virtualPath)) {
         TraceLog(LOG_WARNING, "MAP: missing maps/%s.csg", virtualPath.c_str());
         return std::nullopt;
     }
+    if (!assets.hasMapMeta(metaPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s.meta", metaPath.c_str());
+        return std::nullopt;
+    }
+
+    MapMeta mapMeta;
+    if (!parseMapMeta(assets.getMapMetaSource(metaPath), mapMeta)) {
+        TraceLog(LOG_WARNING, "MAP: invalid maps/%s.meta", metaPath.c_str());
+        return std::nullopt;
+    }
+    if (!assets.hasPackageId(mapMeta.package)) {
+        TraceLog(
+            LOG_WARNING,
+            "MAP: map '%s' package '%s' is not mounted",
+            mapMeta.id.c_str(),
+            mapMeta.package.c_str());
+        return std::nullopt;
+    }
+    for (const std::string& depend : mapMeta.depends) {
+        if (!assets.hasPackageId(depend)) {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: map '%s' depends on missing package '%s'",
+                mapMeta.id.c_str(),
+                depend.c_str());
+            return std::nullopt;
+        }
+    }
+
+    TraceLog(
+        LOG_INFO,
+        "MAP: meta id='%s' name='%s' package='%s' depends=%d",
+        mapMeta.id.c_str(),
+        mapMeta.name.c_str(),
+        mapMeta.package.c_str(),
+        static_cast<int>(mapMeta.depends.size()));
 
     CsgBuilder builder;
     g_builder = &builder;
@@ -293,6 +351,65 @@ std::optional<LoadedMap> loadAndCompileMap(
         TraceLog(LOG_WARNING, "MAP: no brushes in maps/%s.csg", virtualPath.c_str());
         return std::nullopt;
     }
+
+    int hullCount = 0;
+    int detailCount = 0;
+    for (const Brush& brush : builder.brushes) {
+        if (brush.role == BrushRole::Detail) {
+            ++detailCount;
+        } else {
+            ++hullCount;
+        }
+    }
+
+    BspTree bsp = buildBspFromHullBrushes(builder.brushes);
+
+    if (detailCount > 0) {
+        std::vector<Brush> asAllHull = builder.brushes;
+        for (Brush& brush : asAllHull) {
+            brush.role = BrushRole::Hull;
+        }
+        const BspTree bspWithDetail = buildBspFromHullBrushes(asAllHull);
+        if (bspWithDetail.leaves.size() != bsp.leaves.size()) {
+            TraceLog(
+                LOG_INFO,
+                "MAP: detail ignored by BSP (%d detail brush(es); hull leaves=%d, all-as-hull leaves=%d)",
+                detailCount,
+                static_cast<int>(bsp.leaves.size()),
+                static_cast<int>(bspWithDetail.leaves.size()));
+        } else {
+            TraceLog(
+                LOG_INFO,
+                "MAP: %d detail brush(es) present; BSP leaf count unchanged vs treating them as hull",
+                detailCount);
+        }
+    }
+
+    int emptyLeaves = 0;
+    int solidLeaves = 0;
+    int neighborLinks = 0;
+    for (const BspLeaf& leaf : bsp.leaves) {
+        if (leaf.solid) {
+            ++solidLeaves;
+        } else {
+            ++emptyLeaves;
+            neighborLinks += static_cast<int>(leaf.neighbors.size());
+        }
+    }
+
+    const std::int32_t spawnLeaf = pointLeaf(bsp, Vector3{0.0f, 1.5f, 0.0f});
+    TraceLog(
+        LOG_INFO,
+        "MAP: BSP hull=%d detail=%d nodes=%d emptyLeaves=%d solidLeaves=%d neighborEdges=%d surfaceFaces=%d spawnLeaf=%d empty=%s",
+        hullCount,
+        detailCount,
+        static_cast<int>(bsp.nodes.size()),
+        emptyLeaves,
+        solidLeaves,
+        neighborLinks / 2,
+        static_cast<int>(bsp.surfaceFaces.size()),
+        spawnLeaf,
+        leafIsEmpty(bsp, spawnLeaf) ? "yes" : "no");
 
     const CsgCompileResult compiled = compileBrushesToGeo(
         builder.brushes,
@@ -336,6 +453,8 @@ std::optional<LoadedMap> loadAndCompileMap(
     LoadedMap result;
     result.model = model;
     result.brushes = std::move(builder.brushes);
+    result.bsp = std::move(bsp);
+    result.meta = std::move(mapMeta);
     return result;
 }
 

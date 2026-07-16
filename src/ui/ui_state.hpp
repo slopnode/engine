@@ -26,4 +26,12 @@ struct SettingsUiState {
     int rebindingAction = -1;
 };
 
+struct DebugUiState {
+    bool showBspOutlines = false;
+    bool showBspLeafFaces = false;
+    bool showBspPortals = false;
+    bool showBspSurfaceFaces = false;
+    bool showBspCurrentLeafOnly = false;
+};
+
 }

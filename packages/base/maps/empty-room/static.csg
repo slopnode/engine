@@ -13,7 +13,7 @@
 (brush-box
   (id "a-wall-west")
   (mins -4.25 0.0 -4.0)
-  (maxs -4.0 3.0 4.0)
+  (maxs -4.0 3.0 4.25)
   (material "texture-test"))
 
 (brush-box
@@ -266,4 +266,11 @@
   (id "alcove-wall-s")
   (mins -4.0 0.0 8.0)
   (maxs -1.0 2.4 8.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "detail-crate")
+  (role "detail")
+  (mins 2.2 0.0 2.2)
+  (maxs 2.8 0.8 2.8)
   (material "texture-test"))

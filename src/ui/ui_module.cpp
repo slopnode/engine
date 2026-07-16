@@ -286,7 +286,11 @@ void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
     }
 }
 
-void drawMainMenuBar(QuitRequest& quit, SettingsUiState& settingsUi, const UserSettings& settings) {
+void drawMainMenuBar(
+    QuitRequest& quit,
+    SettingsUiState& settingsUi,
+    DebugUiState& debugUi,
+    const UserSettings& settings) {
     if (!ImGui::BeginMainMenuBar()) {
         return;
     }
@@ -305,6 +309,15 @@ void drawMainMenuBar(QuitRequest& quit, SettingsUiState& settingsUi, const UserS
         if (ImGui::MenuItem("Controls")) {
             openControlsSettings(settingsUi, settings);
         }
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Debug")) {
+        ImGui::MenuItem("BSP Outlines", nullptr, &debugUi.showBspOutlines);
+        ImGui::MenuItem("BSP Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
+        ImGui::MenuItem("BSP Portals", nullptr, &debugUi.showBspPortals);
+        ImGui::MenuItem("BSP Surface Faces", nullptr, &debugUi.showBspSurfaceFaces);
+        ImGui::MenuItem("BSP Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
         ImGui::EndMenu();
     }
 
@@ -409,6 +422,7 @@ void registerComponents(flecs::world& world) {
     world.component<ConsoleState>();
     world.component<QuitRequest>();
     world.component<SettingsUiState>();
+    world.component<DebugUiState>();
 }
 
 void registerSystems(flecs::world& world) {
@@ -477,6 +491,7 @@ void registerUiModule(flecs::world& world) {
     world.set<ConsoleState>({});
     world.set<QuitRequest>({});
     world.set<SettingsUiState>({});
+    world.set<DebugUiState>({});
     registerSystems(world);
 }
 
@@ -501,7 +516,8 @@ void drawUi(flecs::world world) {
     drawInteractionPrompt(target, contexts);
 
     if (contexts.contains(InputContext::MainMenu)) {
-        drawMainMenuBar(quit, settingsUi, settings);
+        DebugUiState& debugUi = world.get_mut<DebugUiState>();
+        drawMainMenuBar(quit, settingsUi, debugUi, settings);
         drawGraphicsSettings(settingsUi, settings);
         drawControlsSettings(settingsUi, settings);
     }

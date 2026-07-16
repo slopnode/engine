@@ -1,0 +1,62 @@
+{
+  "name": "Slopengine",
+  "scopeName": "source.slopengine",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#keyword" },
+    { "include": "#paren" },
+    { "include": "#symbol" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.semicolon.slopengine",
+          "match": ";.*$"
+        },
+        {
+          "name": "comment.block.slopengine",
+          "begin": "#\\|",
+          "end": "\\|#"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.slopengine",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.slopengine",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "number": {
+      "name": "constant.numeric.slopengine",
+      "match": "(?<![\\w.-])-?(?:\\d+\\.\\d+|\\.\\d+|\\d+)(?![\\w.])"
+    },
+    "keyword": {
+      "name": "keyword.control.slopengine",
+      "match": "(?<=\\()(?:brush-box|package|map|material|geo|anim|skeleton|id|name|version|depends|mins|maxs|role|faces|uv-shift|top|bottom|north|south|east|west|hull|detail|shader|texture|texel-size|base-color|vertices|primitives|vertex-offset|vertex-count|index-offset|index-count|clips|skeleton|fps|duration|tracks|bones|parent|bind|define|lambda|if|cond|let|let\\*|begin|quote|set!|t|r|s)\\b"
+    },
+    "paren": {
+      "patterns": [
+        {
+          "name": "punctuation.section.parens.begin.slopengine",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.section.parens.end.slopengine",
+          "match": "\\)"
+        }
+      ]
+    },
+    "symbol": {
+      "name": "variable.other.slopengine",
+      "match": "[-A-Za-z0-9_./!?+*<>=]+"
+    }
+  }
+}

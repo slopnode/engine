@@ -2,6 +2,8 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
+#include "map/bsp.hpp"
+#include "map/map_meta.hpp"
 
 #include <raylib.h>
 
@@ -16,6 +18,8 @@ namespace slopengine {
 struct LoadedMap {
     Model model{};
     std::vector<Brush> brushes;
+    BspTree bsp{};
+    MapMeta meta{};
 };
 
 std::optional<LoadedMap> loadAndCompileMap(

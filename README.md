@@ -32,17 +32,39 @@ build/slopengine --base-game packages/base --mod path/to/my-mod
 
 ## Packages
 
-A package is a folder of game content. The engine looks up assets by type:
+A package is a folder of game content with a root `package.meta`:
+
+```
+(package
+  (id "slopengine.base")
+  (name "Slopengine Base")
+  (version "0.1.0")
+  (depends))
+```
+
+The engine looks up assets by type:
 
 ```
 packages/base/
+  package.meta
   animations/   .anim, .tracks
   geometry/     .geo, .vert, .weights
+  maps/         <map>/map.meta, <map>/static.csg
   materials/    .mat
   scripts/      .s7
   shaders/      .glsl
   skeletons/    .skel, .bind
   textures/     .png
+```
+
+Maps declare owning package and dependencies in `map.meta`:
+
+```
+(map
+  (id "empty-room")
+  (name "Empty Room")
+  (package "slopengine.base")
+  (depends "slopengine.base"))
 ```
 
 Paths inside a package are virtual (e.g. `human01/human01` for `geometry/human01/human01.geo`). Later mods override earlier packages for the same path.

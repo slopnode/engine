@@ -31,6 +31,7 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::Anim: return "animations";
     case AssetKind::AnimTracks: return "animations";
     case AssetKind::MapCsg: return "maps";
+    case AssetKind::MapMeta: return "maps";
     }
     return "";
 }
@@ -50,6 +51,7 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::Anim: return ".anim";
     case AssetKind::AnimTracks: return ".tracks";
     case AssetKind::MapCsg: return ".csg";
+    case AssetKind::MapMeta: return ".meta";
     }
     return "";
 }

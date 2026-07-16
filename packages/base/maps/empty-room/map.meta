@@ -1,0 +1,5 @@
+(map
+  (id "empty-room")
+  (name "Empty Room")
+  (package "slopengine.base")
+  (depends "slopengine.base"))

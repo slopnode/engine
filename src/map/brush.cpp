@@ -118,14 +118,24 @@ const char* brushBoxSideName(BrushBoxSide side) {
     return "unknown";
 }
 
+const char* brushRoleName(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull: return "hull";
+    case BrushRole::Detail: return "detail";
+    }
+    return "unknown";
+}
+
 Brush makeBrushBox(
     std::string id,
     Vector3 mins,
     Vector3 maxs,
     const std::string& defaultMaterial,
-    const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides) {
+    const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides,
+    BrushRole role) {
     Brush brush;
     brush.id = std::move(id);
+    brush.role = role;
     brush.mins = mins;
     brush.maxs = maxs;
 

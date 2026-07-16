@@ -5,6 +5,7 @@
 #include "camera/components.hpp"
 #include "interact/components.hpp"
 #include "map/csg_script.hpp"
+#include "map/bsp.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
 #include "physics/physics_module.hpp"
@@ -13,9 +14,11 @@
 #include "render/transform.hpp"
 #include "ui/ui_module.hpp"
 
+#include "ui/ui_state.hpp"
 #include "rlImGui.h"
 
 #include <cmath>
+#include <cstdint>
 #include <string_view>
 
 #include <rlgl.h>
@@ -66,6 +69,187 @@ void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPla
 
     rlEnableDepthMask();
     rlEnableDepthTest();
+}
+
+Color bspLeafDebugColor(std::int32_t leafIndex, bool solid, unsigned char alpha) {
+    const std::uint32_t h = static_cast<std::uint32_t>(leafIndex) * 2654435761u;
+    Color color{
+        static_cast<unsigned char>(40 + (h & 0x7Fu)),
+        static_cast<unsigned char>(40 + ((h >> 8) & 0x7Fu)),
+        static_cast<unsigned char>(40 + ((h >> 16) & 0x7Fu)),
+        alpha,
+    };
+    if (solid) {
+        color.r = static_cast<unsigned char>(std::min(255, static_cast<int>(color.r) + 80));
+        color.g = static_cast<unsigned char>(color.g / 2);
+        color.b = static_cast<unsigned char>(color.b / 2);
+    }
+    return color;
+}
+
+void drawDebugQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color) {
+    DrawTriangle3D(a, b, c, color);
+    DrawTriangle3D(a, c, d, color);
+    DrawTriangle3D(a, d, c, color);
+    DrawTriangle3D(a, c, b, color);
+}
+
+void drawBspLeafFaces(const BspLeaf& leaf, Color color) {
+    const Vector3& mn = leaf.mins;
+    const Vector3& mx = leaf.maxs;
+    const Vector3 p000{mn.x, mn.y, mn.z};
+    const Vector3 p001{mn.x, mn.y, mx.z};
+    const Vector3 p010{mn.x, mx.y, mn.z};
+    const Vector3 p011{mn.x, mx.y, mx.z};
+    const Vector3 p100{mx.x, mn.y, mn.z};
+    const Vector3 p101{mx.x, mn.y, mx.z};
+    const Vector3 p110{mx.x, mx.y, mn.z};
+    const Vector3 p111{mx.x, mx.y, mx.z};
+    drawDebugQuad(p000, p010, p011, p001, color);
+    drawDebugQuad(p100, p101, p111, p110, color);
+    drawDebugQuad(p000, p001, p101, p100, color);
+    drawDebugQuad(p010, p110, p111, p011, color);
+    drawDebugQuad(p000, p100, p110, p010, color);
+    drawDebugQuad(p001, p011, p111, p101, color);
+}
+
+bool portalQuadBetweenLeaves(
+    const BspLeaf& a,
+    const BspLeaf& b,
+    Vector3& q0,
+    Vector3& q1,
+    Vector3& q2,
+    Vector3& q3) {
+    constexpr float kEps = 1e-4f;
+    for (int axis = 0; axis < 3; ++axis) {
+        const int u = (axis + 1) % 3;
+        const int v = (axis + 2) % 3;
+        const float* aMins = &a.mins.x;
+        const float* aMaxs = &a.maxs.x;
+        const float* bMins = &b.mins.x;
+        const float* bMaxs = &b.maxs.x;
+
+        float plane = 0.0f;
+        if (std::fabs(aMaxs[axis] - bMins[axis]) <= kEps) {
+            plane = aMaxs[axis];
+        } else if (std::fabs(bMaxs[axis] - aMins[axis]) <= kEps) {
+            plane = bMaxs[axis];
+        } else {
+            continue;
+        }
+
+        const float u0 = std::max(aMins[u], bMins[u]);
+        const float u1 = std::min(aMaxs[u], bMaxs[u]);
+        const float v0 = std::max(aMins[v], bMins[v]);
+        const float v1 = std::min(aMaxs[v], bMaxs[v]);
+        if (u1 - u0 <= kEps || v1 - v0 <= kEps) {
+            continue;
+        }
+
+        auto setCorner = [&](Vector3& out, float uu, float vv) {
+            float* p = &out.x;
+            p[axis] = plane;
+            p[u] = uu;
+            p[v] = vv;
+        };
+        setCorner(q0, u0, v0);
+        setCorner(q1, u1, v0);
+        setCorner(q2, u1, v1);
+        setCorner(q3, u0, v1);
+        return true;
+    }
+    return false;
+}
+
+void drawDebugQuadOutline(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color) {
+    DrawLine3D(a, b, color);
+    DrawLine3D(b, c, color);
+    DrawLine3D(c, d, color);
+    DrawLine3D(d, a, color);
+}
+
+void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std::int32_t currentLeaf) {
+    const bool any = debugUi.showBspOutlines || debugUi.showBspLeafFaces || debugUi.showBspPortals
+        || debugUi.showBspSurfaceFaces;
+    if (!any) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    const std::int32_t leafCount = static_cast<std::int32_t>(tree.leaves.size());
+    for (std::int32_t i = 0; i < leafCount; ++i) {
+        if (debugUi.showBspCurrentLeafOnly && i != currentLeaf) {
+            continue;
+        }
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (debugUi.showBspOutlines) {
+            Color color = leaf.solid ? Color{180, 60, 60, 255} : Color{60, 180, 220, 255};
+            if (i == currentLeaf) {
+                color = leaf.solid ? Color{255, 220, 40, 255} : Color{40, 255, 120, 255};
+            }
+            DrawBoundingBox(BoundingBox{leaf.mins, leaf.maxs}, color);
+        }
+        if (debugUi.showBspLeafFaces) {
+            const unsigned char alpha = i == currentLeaf ? static_cast<unsigned char>(140)
+                                                        : static_cast<unsigned char>(70);
+            drawBspLeafFaces(leaf, bspLeafDebugColor(i, leaf.solid, alpha));
+        }
+    }
+
+    if (debugUi.showBspPortals) {
+        for (std::int32_t i = 0; i < leafCount; ++i) {
+            const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+            if (leaf.solid) {
+                continue;
+            }
+            if (debugUi.showBspCurrentLeafOnly && i != currentLeaf) {
+                continue;
+            }
+            for (std::int32_t neighbor : leaf.neighbors) {
+                if (neighbor <= i && !debugUi.showBspCurrentLeafOnly) {
+                    continue;
+                }
+                if (neighbor < 0 || neighbor >= leafCount) {
+                    continue;
+                }
+                const BspLeaf& other = tree.leaves[static_cast<std::size_t>(neighbor)];
+                if (other.solid) {
+                    continue;
+                }
+                Vector3 q0{};
+                Vector3 q1{};
+                Vector3 q2{};
+                Vector3 q3{};
+                if (!portalQuadBetweenLeaves(leaf, other, q0, q1, q2, q3)) {
+                    continue;
+                }
+                const bool involvesCurrent = i == currentLeaf || neighbor == currentLeaf;
+                const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
+                                                         : Color{255, 80, 220, 100};
+                drawDebugQuad(q0, q1, q2, q3, portalColor);
+            }
+        }
+    }
+
+    if (debugUi.showBspSurfaceFaces) {
+        for (std::size_t faceIndex = 0; faceIndex < tree.surfaceFaces.size(); ++faceIndex) {
+            const BspSurfaceFace& face = tree.surfaceFaces[faceIndex];
+            if (debugUi.showBspCurrentLeafOnly && face.emptyLeaf != currentLeaf) {
+                continue;
+            }
+            const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 90);
+            const Color outline = face.emptyLeaf == currentLeaf ? Color{40, 255, 120, 255}
+                                                               : Color{255, 255, 255, 220};
+            drawDebugQuad(face.corners[0], face.corners[1], face.corners[2], face.corners[3], fill);
+            drawDebugQuadOutline(
+                face.corners[0], face.corners[1], face.corners[2], face.corners[3], outline);
+        }
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
 }
 
 void renderWorldModel(
@@ -262,7 +446,8 @@ void registerRenderSystems(flecs::world& world) {
         .with<WorldSpace>()
         .kind(flecs::PostUpdate)
         .each([](flecs::iter& it, size_t, const Lens& lens) {
-            RenderContext& context = it.world().get_mut<RenderContext>();
+            flecs::world world = it.world();
+            RenderContext& context = world.get_mut<RenderContext>();
             BeginMode3D(lens.camera);
             DrawGrid(10, 1.0f);
             context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
@@ -281,6 +466,18 @@ void registerRenderSystems(flecs::world& world) {
                 drawSkeletonOverlay(model.model, &animationPlayer);
                 rlPopMatrix();
             });
+
+            if (world.has<DebugUiState>() && world.has<MapBsp>()) {
+                const DebugUiState& debugUi = world.get<DebugUiState>();
+                const MapBsp& mapBsp = world.get<MapBsp>();
+                std::int32_t currentLeaf = -1;
+                flecs::entity camera = world.lookup("MainCamera");
+                if (camera.is_valid() && camera.has<Lens>()) {
+                    currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
+                }
+                drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
+            }
+
             EndMode3D();
         });
 
@@ -295,7 +492,32 @@ void registerRenderSystems(flecs::world& world) {
 
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
-        .run([](flecs::iter&) {
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (world.has<MapBsp>()) {
+                const MapBsp& mapBsp = world.get<MapBsp>();
+                Vector3 sample{0.0f, 1.5f, 0.0f};
+                flecs::entity camera = world.lookup("MainCamera");
+                if (camera.is_valid() && camera.has<Lens>()) {
+                    sample = camera.get<Lens>().camera.position;
+                }
+                const std::int32_t leaf = pointLeaf(mapBsp.tree, sample);
+                const bool empty = leafIsEmpty(mapBsp.tree, leaf);
+                const int neighborCount =
+                    leaf >= 0 ? static_cast<int>(leafNeighbors(mapBsp.tree, leaf).size()) : 0;
+                const char* label = TextFormat(
+                    "BSP leaf %d (%s) neighbors %d",
+                    leaf,
+                    empty ? "empty" : (leaf < 0 ? "out" : "solid"),
+                    neighborCount);
+                constexpr int kFontSize = 16;
+                constexpr int kPad = 8;
+                const int barHeight = kFontSize + kPad * 2;
+                const int screenW = GetScreenWidth();
+                const int screenH = GetScreenHeight();
+                DrawRectangle(0, screenH - barHeight, screenW, barHeight, Color{0, 0, 0, 160});
+                DrawText(label, kPad, screenH - barHeight + kPad, kFontSize, LIME);
+            }
             EndDrawing();
         });
 }
@@ -334,6 +556,8 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
             .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
         })
         .set<Model3D>({loaded->model, WHITE});
+
+    world.set<MapBsp>(MapBsp{std::move(loaded->bsp)});
 
     CharacterMotor motor{};
     FirstPersonController controller{};

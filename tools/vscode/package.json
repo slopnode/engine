@@ -1,0 +1,41 @@
+{
+  "name": "slopengine",
+  "displayName": "Slopengine",
+  "description": "Syntax highlighting for Slopengine package assets (.csg, .meta, .mat, .s7, .geo, .anim, .skel)",
+  "version": "0.1.0",
+  "publisher": "slopengine",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "slopengine",
+        "aliases": [
+          "Slopengine",
+          "slopengine"
+        ],
+        "extensions": [
+          ".csg",
+          ".meta",
+          ".mat",
+          ".s7",
+          ".geo",
+          ".anim",
+          ".skel"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "slopengine",
+        "scopeName": "source.slopengine",
+        "path": "./syntaxes/slopengine.tmLanguage.json"
+      }
+    ]
+  }
+}

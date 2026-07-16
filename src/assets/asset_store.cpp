@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace slopengine {
 
@@ -116,6 +117,9 @@ void AssetStore::mountPackages(const AppConfig& config) {
     if (!base.valid()) {
         throw std::runtime_error("base game package not found: " + config.base_game.string());
     }
+    if (!base.hasMeta()) {
+        throw std::runtime_error("base game missing package.meta: " + config.base_game.string());
+    }
 
     vfs_.setBasePackage(std::move(base));
 
@@ -124,7 +128,30 @@ void AssetStore::mountPackages(const AppConfig& config) {
         if (!mod.valid()) {
             throw std::runtime_error("mod package not found: " + modPath.string());
         }
+        if (!mod.hasMeta()) {
+            throw std::runtime_error("mod missing package.meta: " + modPath.string());
+        }
         vfs_.addPackage(std::move(mod));
+    }
+
+    std::unordered_map<std::string, std::filesystem::path> ids;
+    for (const Package& package : vfs_.packages()) {
+        const auto& meta = package.meta();
+        if (ids.contains(meta.id)) {
+            throw std::runtime_error(
+                "duplicate package id '" + meta.id + "': " + package.root().string()
+                + " conflicts with " + ids[meta.id].string());
+        }
+        ids.emplace(meta.id, package.root());
+    }
+
+    for (const Package& package : vfs_.packages()) {
+        for (const std::string& depend : package.meta().depends) {
+            if (!ids.contains(depend)) {
+                throw std::runtime_error(
+                    "package '" + package.meta().id + "' depends on missing package '" + depend + "'");
+            }
+        }
     }
 }
 
@@ -154,6 +181,10 @@ bool AssetStore::hasScript(std::string_view path) const {
 
 bool AssetStore::hasMapCsg(std::string_view path) const {
     return vfs_.exists(AssetKind::MapCsg, path);
+}
+
+bool AssetStore::hasMapMeta(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapMeta, path);
 }
 
 bool AssetStore::hasSkeleton(std::string_view path) const {
@@ -494,6 +525,23 @@ const AnimBank* AssetStore::getAnimBank(std::string_view path) {
 
 std::string AssetStore::getScriptSource(std::string_view path) {
     return vfs_.readText(AssetKind::Script, path);
+}
+
+std::string AssetStore::getMapMetaSource(std::string_view path) {
+    return vfs_.readText(AssetKind::MapMeta, path);
+}
+
+const std::vector<Package>& AssetStore::packages() const {
+    return vfs_.packages();
+}
+
+bool AssetStore::hasPackageId(std::string_view packageId) const {
+    for (const Package& package : vfs_.packages()) {
+        if (package.meta().id == packageId) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string AssetStore::getSkeletonSource(std::string_view path) {

@@ -1,0 +1,5 @@
+(package
+  (id "slopengine.base")
+  (name "Slopengine Base")
+  (version "0.1.0")
+  (depends))

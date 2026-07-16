@@ -26,6 +26,7 @@ enum class AssetKind {
     Anim,
     AnimTracks,
     MapCsg,
+    MapMeta,
 };
 
 class AssetStore;
@@ -40,6 +41,8 @@ public:
 
     /** Appends a package; later packages override earlier ones for asset lookup. */
     void addPackage(Package package);
+
+    const std::vector<Package>& packages() const { return packages_; }
 
 private:
     bool exists(AssetKind kind, std::string_view virtualPath) const;

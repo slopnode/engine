@@ -18,6 +18,11 @@ enum class BrushBoxSide {
     West,
 };
 
+enum class BrushRole {
+    Hull,
+    Detail,
+};
+
 struct BrushFace {
     std::string id;
     std::string material;
@@ -28,18 +33,21 @@ struct BrushFace {
 
 struct Brush {
     std::string id;
+    BrushRole role = BrushRole::Hull;
     Vector3 mins{};
     Vector3 maxs{};
     std::vector<BrushFace> faces;
 };
 
 const char* brushBoxSideName(BrushBoxSide side);
+const char* brushRoleName(BrushRole role);
 
 Brush makeBrushBox(
     std::string id,
     Vector3 mins,
     Vector3 maxs,
     const std::string& defaultMaterial,
-    const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides);
+    const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides,
+    BrushRole role = BrushRole::Hull);
 
 }
