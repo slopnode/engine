@@ -1,0 +1,269 @@
+(brush-box
+  (id "a-floor")
+  (mins -4.0 -0.25 -4.0)
+  (maxs 4.0 0.0 4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-ceiling")
+  (mins -4.0 3.0 -4.0)
+  (maxs 4.0 3.25 4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-wall-west")
+  (mins -4.25 0.0 -4.0)
+  (maxs -4.0 3.0 4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-wall-east-n")
+  (mins 4.0 0.0 -4.0)
+  (maxs 4.25 3.0 -1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-wall-east-s")
+  (mins 4.0 0.0 1.25)
+  (maxs 4.25 3.0 4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-door-east-lintel")
+  (mins 4.0 2.2 -1.25)
+  (maxs 4.25 3.0 1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-door-east-floor")
+  (mins 4.0 -0.25 -1.25)
+  (maxs 4.25 0.0 1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-wall-north-w")
+  (mins -4.0 0.0 -4.25)
+  (maxs -1.25 3.0 -4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-wall-north-e")
+  (mins 1.25 0.0 -4.25)
+  (maxs 4.0 3.0 -4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-door-north-lintel")
+  (mins -1.25 2.2 -4.25)
+  (maxs 1.25 3.0 -4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-door-north-floor")
+  (mins -1.25 -0.25 -4.25)
+  (maxs 1.25 0.0 -4.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-wall-south-mid")
+  (mins -1.0 0.0 4.0)
+  (maxs 4.0 3.0 4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-door-south-lintel")
+  (mins -4.0 2.2 4.0)
+  (maxs -1.0 3.0 4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "a-door-south-floor")
+  (mins -4.0 -0.25 4.0)
+  (maxs -1.0 0.0 4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-e-floor")
+  (mins 4.25 -0.25 -1.25)
+  (maxs 9.75 0.0 1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-e-ceiling")
+  (mins 4.25 2.2 -1.25)
+  (maxs 9.75 2.45 1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-e-wall-n")
+  (mins 4.25 0.0 -1.5)
+  (maxs 9.75 2.2 -1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-e-wall-s")
+  (mins 4.25 0.0 1.25)
+  (maxs 9.75 2.2 1.5)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-floor")
+  (mins 10.0 -0.25 -5.0)
+  (maxs 18.0 0.0 5.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-ceiling")
+  (mins 10.0 4.0 -5.0)
+  (maxs 18.0 4.25 5.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-wall-west-n")
+  (mins 9.75 0.0 -5.0)
+  (maxs 10.0 4.0 -1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-wall-west-s")
+  (mins 9.75 0.0 1.25)
+  (maxs 10.0 4.0 5.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-door-west-lintel")
+  (mins 9.75 2.2 -1.25)
+  (maxs 10.0 4.0 1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-door-west-floor")
+  (mins 9.75 -0.25 -1.25)
+  (maxs 10.0 0.0 1.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-wall-east")
+  (mins 18.0 0.0 -5.0)
+  (maxs 18.25 4.0 5.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-wall-north")
+  (mins 10.0 0.0 -5.25)
+  (maxs 18.0 4.0 -5.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "b-wall-south")
+  (mins 10.0 0.0 5.0)
+  (maxs 18.0 4.0 5.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-n-floor")
+  (mins -1.25 -0.25 -9.75)
+  (maxs 1.25 0.0 -4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-n-ceiling")
+  (mins -1.25 2.2 -9.75)
+  (maxs 1.25 2.45 -4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-n-wall-w")
+  (mins -1.5 0.0 -9.75)
+  (maxs -1.25 2.2 -4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "hall-n-wall-e")
+  (mins 1.25 0.0 -9.75)
+  (maxs 1.5 2.2 -4.25)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-floor")
+  (mins -5.0 -0.25 -16.0)
+  (maxs 5.0 0.0 -10.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-ceiling")
+  (mins -5.0 2.6 -16.0)
+  (maxs 5.0 2.85 -10.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-wall-south-w")
+  (mins -5.0 0.0 -10.0)
+  (maxs -1.25 2.6 -9.75)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-wall-south-e")
+  (mins 1.25 0.0 -10.0)
+  (maxs 5.0 2.6 -9.75)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-door-south-lintel")
+  (mins -1.25 2.2 -10.0)
+  (maxs 1.25 2.6 -9.75)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-door-south-floor")
+  (mins -1.25 -0.25 -10.0)
+  (maxs 1.25 0.0 -9.75)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-wall-north")
+  (mins -5.0 0.0 -16.25)
+  (maxs 5.0 2.6 -16.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-wall-west")
+  (mins -5.25 0.0 -16.0)
+  (maxs -5.0 2.6 -10.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "c-wall-east")
+  (mins 5.0 0.0 -16.0)
+  (maxs 5.25 2.6 -10.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "alcove-floor")
+  (mins -4.0 -0.25 4.25)
+  (maxs -1.0 0.0 8.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "alcove-ceiling")
+  (mins -4.0 2.4 4.25)
+  (maxs -1.0 2.65 8.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "alcove-wall-w")
+  (mins -4.25 0.0 4.25)
+  (maxs -4.0 2.4 8.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "alcove-wall-e")
+  (mins -1.0 0.0 4.25)
+  (maxs -0.75 2.4 8.0)
+  (material "texture-test"))
+
+(brush-box
+  (id "alcove-wall-s")
+  (mins -4.0 0.0 8.0)
+  (maxs -1.0 2.4 8.25)
+  (material "texture-test"))

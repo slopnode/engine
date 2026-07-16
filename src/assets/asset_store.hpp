@@ -45,6 +45,9 @@ public:
     /** Returns true when a script exists at @p path. */
     bool hasScript(std::string_view path) const;
 
+    /** Returns true when a map CSG script exists at @p path. */
+    bool hasMapCsg(std::string_view path) const;
+
     /** Returns true when a skeleton exists at @p path. */
     bool hasSkeleton(std::string_view path) const;
 
@@ -74,6 +77,9 @@ public:
 
     /** Resolves and returns a raylib material for @p path. */
     Material resolveMaterial(std::string_view path);
+
+    /** Returns the cached parsed material asset for @p path, loading it when needed. */
+    const MaterialAsset* getMaterialAsset(std::string_view path);
 
     /** Returns a cached skeleton asset, loading it when needed. */
     const SkeletonAsset* getSkeletonAsset(std::string_view path);
@@ -125,6 +131,9 @@ public:
 
     /** Loads and evaluates the Scheme script at @p path in @p scheme. */
     bool loadScript(s7_scheme* scheme, std::string_view path);
+
+    /** Loads and evaluates the map CSG script at @p path in @p scheme. */
+    bool loadMapCsg(s7_scheme* scheme, std::string_view path);
 
 private:
     static std::string cacheKey(std::string_view path);

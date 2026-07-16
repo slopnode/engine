@@ -25,6 +25,7 @@ enum class AssetKind {
     GeoWeights,
     Anim,
     AnimTracks,
+    MapCsg,
 };
 
 class AssetStore;

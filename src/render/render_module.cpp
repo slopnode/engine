@@ -4,6 +4,10 @@
 #include "assets/skeleton_loader.hpp"
 #include "camera/components.hpp"
 #include "interact/components.hpp"
+#include "map/csg_script.hpp"
+#include "physics/components.hpp"
+#include "physics/map_collision.hpp"
+#include "physics/physics_module.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/transform.hpp"
@@ -12,6 +16,7 @@
 #include "rlImGui.h"
 
 #include <cmath>
+#include <string_view>
 
 #include <rlgl.h>
 
@@ -291,21 +296,20 @@ void registerRenderSystems(flecs::world& world) {
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter&) {
-            DrawFPS(8, 8);
             EndDrawing();
         });
 }
 
-void registerDemoScene(flecs::world& world, AssetStore& assets) {
+void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, float yaw) {
     Lens lens{};
-    lens.camera.position = {0.0f, 1.7f, 8.0f};
-    lens.camera.target = {0.0f, 1.7f, 7.0f};
+    lens.camera.position = position;
+    lens.camera.target = target;
     lens.camera.up = {0.0f, 1.0f, 0.0f};
     lens.camera.fovy = 75.0f;
     lens.camera.projection = CAMERA_PERSPECTIVE;
 
     FirstPersonController controller{};
-    controller.yaw = PI;
+    controller.yaw = yaw;
     controller.pitch = -0.05f;
 
     world.entity("MainCamera")
@@ -313,6 +317,94 @@ void registerDemoScene(flecs::world& world, AssetStore& assets) {
         .add<WorldSpace>()
         .set<Lens>(lens)
         .set<FirstPersonController>(controller);
+}
+
+void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view mapName) {
+    auto loaded = loadAndCompileMap(scheme, assets, mapName);
+    if (!loaded) {
+        TraceLog(LOG_WARNING, "MAP: failed to spawn map '%.*s'", static_cast<int>(mapName.size()), mapName.data());
+        return;
+    }
+
+    world.entity("MapStatic")
+        .add<WorldSpace>()
+        .set<LocalTransformation>({
+            .position = {0.0f, 0.0f, 0.0f},
+            .scale = {1.0f, 1.0f, 1.0f},
+            .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+        })
+        .set<Model3D>({loaded->model, WHITE});
+
+    CharacterMotor motor{};
+    FirstPersonController controller{};
+    controller.yaw = PI;
+    controller.pitch = -0.05f;
+    controller.eyeHeight = motor.eyeHeight;
+    controller.moveSpeed = motor.moveSpeed;
+
+    Lens lens{};
+    lens.camera.position = {0.0f, motor.eyeHeight, 0.0f};
+    lens.camera.target = {0.0f, motor.eyeHeight, -1.0f};
+    lens.camera.up = {0.0f, 1.0f, 0.0f};
+    lens.camera.fovy = 75.0f;
+    lens.camera.projection = CAMERA_PERSPECTIVE;
+
+    world.entity("MainCamera")
+        .add<PlayerCamera>()
+        .add<WorldSpace>()
+        .set<Lens>(lens)
+        .set<FirstPersonController>(controller)
+        .set<CharacterMotor>(motor);
+
+    if (world.has<PhysicsContext>()) {
+        PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
+        if (physics != nullptr) {
+            addStaticBrushes(*physics, loaded->brushes);
+            physics->createPlayerCharacter(0.0f, 0.1f, 0.0f, motor);
+        }
+    }
+
+    constexpr const char* kHumanAsset = "human01/human01";
+    if (assets.hasGeo(kHumanAsset) && assets.hasAnim(kHumanAsset)) {
+        const AnimBank* animBank = assets.getAnimBank(kHumanAsset);
+        if (animBank != nullptr &&
+            animBank->clipIndexByName.find("wave") != animBank->clipIndexByName.end()) {
+            const Model humanSource = assets.getGeoModel(kHumanAsset);
+            Model humanModel = cloneGeoModelInstance(humanSource);
+            if (humanModel.meshCount > 0) {
+                if (humanModel.materials != nullptr) {
+                    const Material male1591Material = assets.resolveMaterial("male1591");
+                    const Material highPolyMaterial = assets.resolveMaterial("high-poly");
+                    for (int meshIndex = 0; meshIndex < humanModel.meshCount; ++meshIndex) {
+                        humanModel.materials[meshIndex] =
+                            meshIndex == 0 ? male1591Material : highPolyMaterial;
+                    }
+                }
+
+                AnimationPlayer humanAnimation{};
+                humanAnimation.animBankPath = kHumanAsset;
+                humanAnimation.play("wave", true);
+
+                world.entity("MapHuman01")
+                    .add<WorldSpace>()
+                    .set<LocalTransformation>({
+                        .position = {2.0f, 0.0f, -2.0f},
+                        .scale = {0.1f, 0.1f, 0.1f},
+                        .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+                    })
+                    .set<Spin>({
+                        .axis = {0.0f, 1.0f, 0.0f},
+                        .speed = 0.4f,
+                    })
+                    .set<Model3D>({humanModel, WHITE})
+                    .set<AnimationPlayer>(humanAnimation);
+            }
+        }
+    }
+}
+
+void registerDemoScene(flecs::world& world, AssetStore& assets) {
+    spawnMainCamera(world, {0.0f, 1.7f, 8.0f}, {0.0f, 1.7f, 7.0f}, PI);
 
     constexpr const char* kHumanAsset = "human01/human01";
 
@@ -450,7 +542,11 @@ void registerDemoScene(flecs::world& world, AssetStore& assets) {
 
 }
 
-void registerRenderModule(flecs::world& world, AssetStore& assets) {
+void registerRenderModule(
+    flecs::world& world,
+    AssetStore& assets,
+    const AppConfig& config,
+    s7_scheme* scheme) {
     registerComponents(world);
 
     world.set<AssetServices>(AssetServices{&assets});
@@ -463,7 +559,12 @@ void registerRenderModule(flecs::world& world, AssetStore& assets) {
     registerAnimationClipFlipTestSystem(world);
     registerTransformSystems(world);
     registerRenderSystems(world);
-    registerDemoScene(world, assets);
+
+    if (config.map) {
+        registerMapScene(world, assets, scheme, *config.map);
+    } else {
+        registerDemoScene(world, assets);
+    }
 }
 
 }

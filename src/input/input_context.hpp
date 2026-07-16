@@ -9,6 +9,7 @@ enum class InputContext {
     PauseMenu,
     InteractUI,
     Console,
+    MainMenu,
 };
 
 struct InputContextStack {

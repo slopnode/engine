@@ -13,6 +13,7 @@ struct MaterialAsset {
     std::string shader = "default";
     Color baseColor = WHITE;
     std::string albedoTexture;
+    float pixelsPerMeter = 64.0f;
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;

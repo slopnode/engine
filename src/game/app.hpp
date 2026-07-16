@@ -2,8 +2,12 @@
 
 #include "assets/asset_store.hpp"
 #include "game/app_config.hpp"
+#include "game/user_settings.hpp"
+#include "physics/physics_world.hpp"
 
 #include <flecs.h>
+
+#include <memory>
 
 struct s7_scheme;
 
@@ -35,8 +39,10 @@ private:
     void shutdown();
 
     AppConfig config_;
+    UserSettings userSettings_;
     AssetStore assetStore_;
     flecs::world world_;
+    std::unique_ptr<PhysicsWorld> physicsWorld_;
     s7_scheme* scheme_ = nullptr;
     bool running_ = false;
 };

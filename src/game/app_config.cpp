@@ -6,10 +6,11 @@ namespace slopengine {
 
 void AppConfig::printUsage(const char* program) {
     std::cerr
-        << "Usage: " << program << " --base-game <path> [--mod <path>]...\n"
+        << "Usage: " << program << " --base-game <path> [--mod <path>]... [--map <name>]\n"
         << "\n"
         << "  --base-game   Base game package directory (required)\n"
-        << "  --mod         Additional mod package directory (repeatable)\n";
+        << "  --mod         Additional mod package directory (repeatable)\n"
+        << "  --map         Map folder name under maps/ (loads maps/<name>/static.csg)\n";
 }
 
 std::optional<AppConfig> AppConfig::parse(int argc, char* argv[]) {
@@ -31,6 +32,14 @@ std::optional<AppConfig> AppConfig::parse(int argc, char* argv[]) {
                 return std::nullopt;
             }
             config.mods.push_back(argv[++i]);
+            continue;
+        }
+
+        if (arg == "--map") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            config.map = argv[++i];
             continue;
         }
 

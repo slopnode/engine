@@ -4,6 +4,7 @@
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
+#include "physics/components.hpp"
 #include "render/components.hpp"
 
 #include <cmath>
@@ -48,28 +49,35 @@ void registerSystems(flecs::world& world) {
 
             Lens& lens = camera.get_mut<Lens>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
+            const bool physicsDriven = camera.has<CharacterMotor>();
 
             const float dt = GetFrameTime();
-            const Vector3 forwardFlat = Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
-            const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-            Vector3 movement{};
 
-            if (input.down(Action::MoveForward)) {
-                movement = Vector3Add(movement, forwardFlat);
-            }
-            if (input.down(Action::MoveBackward)) {
-                movement = Vector3Subtract(movement, forwardFlat);
-            }
-            if (input.down(Action::MoveLeft)) {
-                movement = Vector3Subtract(movement, right);
-            }
-            if (input.down(Action::MoveRight)) {
-                movement = Vector3Add(movement, right);
-            }
+            if (!physicsDriven) {
+                const Vector3 forwardFlat =
+                    Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
+                const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
+                Vector3 movement{};
 
-            if (Vector3LengthSqr(movement) > 0.0f) {
-                movement = Vector3Scale(Vector3Normalize(movement), controller.moveSpeed * dt);
-                lens.camera.position = Vector3Add(lens.camera.position, movement);
+                if (input.down(Action::MoveForward)) {
+                    movement = Vector3Add(movement, forwardFlat);
+                }
+                if (input.down(Action::MoveBackward)) {
+                    movement = Vector3Subtract(movement, forwardFlat);
+                }
+                if (input.down(Action::MoveLeft)) {
+                    movement = Vector3Subtract(movement, right);
+                }
+                if (input.down(Action::MoveRight)) {
+                    movement = Vector3Add(movement, right);
+                }
+
+                if (Vector3LengthSqr(movement) > 0.0f) {
+                    movement = Vector3Scale(Vector3Normalize(movement), controller.moveSpeed * dt);
+                    lens.camera.position = Vector3Add(lens.camera.position, movement);
+                }
+
+                lens.camera.position.y = controller.eyeHeight;
             }
 
             controller.yaw -= input.mouseDelta.x * controller.lookSensitivity;
@@ -83,10 +91,11 @@ void registerSystems(flecs::world& world) {
                 controller.pitch = -kMaxPitch;
             }
 
-            lens.camera.position.y = controller.eyeHeight;
-            const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
-            lens.camera.target = Vector3Add(lens.camera.position, forward);
-            lens.camera.up = {0.0f, 1.0f, 0.0f};
+            if (!physicsDriven) {
+                const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
+                lens.camera.target = Vector3Add(lens.camera.position, forward);
+                lens.camera.up = {0.0f, 1.0f, 0.0f};
+            }
         });
 }
 

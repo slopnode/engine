@@ -95,6 +95,12 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
                 return false;
             }
             asset.baseColor = colorFromNormalized(rgba[0], rgba[1], rgba[2], rgba[3]);
+        } else if (line.rfind("(texel-size ", 0) == 0) {
+            float texelSize = 64.0f;
+            if (!readFloats(line.substr(std::string_view("(texel-size ").size()), 1, &texelSize)) {
+                return false;
+            }
+            asset.pixelsPerMeter = texelSize;
         }
 
         if (lineEnd == std::string_view::npos) {
@@ -112,6 +118,7 @@ Material createRaylibMaterial(const MaterialAsset& asset, const TextureResolver&
     if (!asset.albedoTexture.empty() && resolveTexture) {
         const Texture2D texture = resolveTexture(asset.albedoTexture);
         if (texture.id != 0) {
+            SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
             SetMaterialTexture(&material, MATERIAL_MAP_ALBEDO, texture);
         }
     }

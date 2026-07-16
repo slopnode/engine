@@ -152,6 +152,10 @@ bool AssetStore::hasScript(std::string_view path) const {
     return vfs_.exists(AssetKind::Script, path);
 }
 
+bool AssetStore::hasMapCsg(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapCsg, path);
+}
+
 bool AssetStore::hasSkeleton(std::string_view path) const {
     return vfs_.exists(AssetKind::Skeleton, path);
 }
@@ -346,10 +350,18 @@ Material AssetStore::resolveMaterial(std::string_view path) {
         return getTexture(texturePath);
     };
 
+    const MaterialAsset* asset = getMaterialAsset(path);
+    if (asset == nullptr) {
+        return createRaylibMaterial({}, resolveTexture);
+    }
+    return createRaylibMaterial(*asset, resolveTexture);
+}
+
+const MaterialAsset* AssetStore::getMaterialAsset(std::string_view path) {
     const std::string key = cacheKey(path.empty() ? "default/unassigned" : path);
     const auto existing = materialAssets_.find(key);
     if (existing != materialAssets_.end()) {
-        return createRaylibMaterial(existing->second, resolveTexture);
+        return &existing->second;
     }
 
     MaterialAsset asset{};
@@ -364,8 +376,7 @@ Material AssetStore::resolveMaterial(std::string_view path) {
         asset = {};
     }
 
-    materialAssets_.emplace(key, asset);
-    return createRaylibMaterial(asset, resolveTexture);
+    return &materialAssets_.emplace(key, std::move(asset)).first->second;
 }
 
 const SkeletonAsset* AssetStore::getSkeletonAsset(std::string_view path) {
@@ -535,6 +546,16 @@ std::vector<std::byte> AssetStore::readAnimTracksForClip(std::string_view animPa
 
 bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
     const auto resolved = vfs_.resolve(AssetKind::Script, path);
+    if (!resolved) {
+        return false;
+    }
+
+    s7_load(scheme, resolved->string().c_str());
+    return true;
+}
+
+bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path) {
+    const auto resolved = vfs_.resolve(AssetKind::MapCsg, path);
     if (!resolved) {
         return false;
     }

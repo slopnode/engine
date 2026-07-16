@@ -11,6 +11,7 @@ namespace slopengine {
 struct AppConfig {
     std::filesystem::path base_game;
     std::vector<std::filesystem::path> mods;
+    std::optional<std::string> map;
 
     /** Parses @p argc/@p argv into an AppConfig, or returns nullopt on error. */
     static std::optional<AppConfig> parse(int argc, char* argv[]);

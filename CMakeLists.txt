@@ -15,17 +15,25 @@ add_executable(slopengine
     src/main.cpp
     src/core/package.cpp
     src/core/vfs.cpp
+    src/core/user_paths.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/material_loader.cpp
     src/assets/skeleton_loader.cpp
     src/assets/anim_loader.cpp
     src/game/app_config.cpp
+    src/game/user_settings.cpp
     src/game/app.cpp
     src/input/input_module.cpp
     src/camera/camera_module.cpp
     src/interact/interact_module.cpp
     src/ui/ui_module.cpp
+    src/map/brush.cpp
+    src/map/csg_compile.cpp
+    src/map/csg_script.cpp
+    src/physics/physics_world.cpp
+    src/physics/physics_module.cpp
+    src/physics/map_collision.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/render_module.cpp

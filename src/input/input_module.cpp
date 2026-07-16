@@ -1,5 +1,6 @@
 #include "input/input_module.hpp"
 
+#include "game/user_settings.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
 
@@ -9,32 +10,16 @@ namespace slopengine {
 
 namespace {
 
-struct ActionBinding {
-    Action action;
-    int key;
-};
-
-constexpr ActionBinding kDefaultBindings[] = {
-    {Action::MoveForward, KEY_W},
-    {Action::MoveBackward, KEY_S},
-    {Action::MoveLeft, KEY_A},
-    {Action::MoveRight, KEY_D},
-    {Action::Jump, KEY_SPACE},
-    {Action::Pause, KEY_ESCAPE},
-    {Action::Interact, KEY_E},
-    {Action::Console, KEY_GRAVE},
-};
-
-void pollInput(InputState& input) {
+void pollInput(InputState& input, const ControlsSettings& controls) {
     for (int i = 0; i < actionCount; ++i) {
-        input.actionPressed[i] = false;
-        input.actionDown[i] = false;
-    }
-
-    for (const ActionBinding& binding : kDefaultBindings) {
-        const int index = static_cast<int>(binding.action);
-        input.actionDown[index] = IsKeyDown(binding.key);
-        input.actionPressed[index] = IsKeyPressed(binding.key);
+        const int key = controls.keys[i];
+        if (key == KEY_NULL) {
+            input.actionPressed[i] = false;
+            input.actionDown[i] = false;
+            continue;
+        }
+        input.actionDown[i] = IsKeyDown(key);
+        input.actionPressed[i] = IsKeyPressed(key);
     }
 
     input.mouseDelta = GetMouseDelta();
@@ -49,7 +34,9 @@ void registerSystems(flecs::world& world) {
     world.system("PollInput")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
-            pollInput(it.world().get_mut<InputState>());
+            pollInput(
+                it.world().get_mut<InputState>(),
+                it.world().get<UserSettings>().controls);
         });
 }
 

@@ -11,6 +11,7 @@ enum class Action {
     Pause,
     Interact,
     Console,
+    MainMenu,
     Count
 };
 
