@@ -32,6 +32,8 @@ struct DebugUiState {
     bool showBspPortals = false;
     bool showBspSurfaceFaces = false;
     bool showBspCurrentLeafOnly = false;
+    bool showSpriteMasks = false;
+    bool showSpriteAim = false;
     bool unlit = false;
     bool noclip = false;
 };

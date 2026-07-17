@@ -118,7 +118,7 @@ Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skel
 
 ### Sprites
 
-`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations and optional mirroring. Sibling `.spanim` files define named clips (fps, loop, frame lists) for the same virtual path. Source PNGs live under `textures/`.
+`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations and optional mirroring. Sibling `.spanim` files define named clips (fps, loop, frame lists) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part …)` entries configure multi-part hits. See [Sprites](sprites.md).
 
 ### Maps
 

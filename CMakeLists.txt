@@ -63,6 +63,7 @@ add_executable(slopengine
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
+    src/render/sprite_billboard.cpp
     src/render/render_module.cpp
 )
 

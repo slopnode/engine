@@ -4,8 +4,10 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -15,6 +17,71 @@ namespace {
 
 constexpr int kAtlasPadding = 1;
 constexpr int kDefaultAtlasSize = 512;
+
+SpriteHitmask bakeSingleHitmask(const Image& albedo) {
+    SpriteHitmask mask{};
+    mask.width = albedo.width;
+    mask.height = albedo.height;
+    if (mask.width <= 0 || mask.height <= 0 || albedo.data == nullptr) {
+        return mask;
+    }
+
+    const int pixelCount = mask.width * mask.height;
+    mask.parts.assign(static_cast<std::size_t>(pixelCount), 0);
+    mask.partNames = {"default"};
+    for (int y = 0; y < mask.height; ++y) {
+        for (int x = 0; x < mask.width; ++x) {
+            const Color color = GetImageColor(albedo, x, y);
+            if (color.a < kSpriteHitmaskAlphaThreshold) {
+                continue;
+            }
+            mask.parts[static_cast<std::size_t>(y * mask.width + x)] = 1;
+        }
+    }
+    return mask;
+}
+
+std::uint8_t matchHitPart(
+    const Color& color,
+    const std::vector<SpriteHitPartDef>& hitParts) {
+    for (std::size_t index = 0; index < hitParts.size(); ++index) {
+        const SpriteHitPartDef& part = hitParts[index];
+        if (color.r == part.r && color.g == part.g && color.b == part.b) {
+            return static_cast<std::uint8_t>(index + 1);
+        }
+    }
+    return 0;
+}
+
+SpriteHitmask bakeColoredHitmask(
+    const Image& hitImage,
+    const std::vector<SpriteHitPartDef>& hitParts) {
+    SpriteHitmask mask{};
+    mask.width = hitImage.width;
+    mask.height = hitImage.height;
+    if (mask.width <= 0 || mask.height <= 0 || hitImage.data == nullptr || hitParts.empty()) {
+        return mask;
+    }
+
+    const int pixelCount = mask.width * mask.height;
+    mask.parts.assign(static_cast<std::size_t>(pixelCount), 0);
+    mask.partNames.reserve(hitParts.size());
+    for (const SpriteHitPartDef& part : hitParts) {
+        mask.partNames.push_back(part.name);
+    }
+
+    for (int y = 0; y < mask.height; ++y) {
+        for (int x = 0; x < mask.width; ++x) {
+            const Color color = GetImageColor(hitImage, x, y);
+            if (color.a < kSpriteHitmaskAlphaThreshold) {
+                continue;
+            }
+            mask.parts[static_cast<std::size_t>(y * mask.width + x)] =
+                matchHitPart(color, hitParts);
+        }
+    }
+    return mask;
+}
 
 std::string_view trim(std::string_view value) {
     while (!value.empty() && (value.front() == ' ' || value.front() == '\t' || value.front() == '\r')) {
@@ -95,6 +162,14 @@ bool lineContainsMirror(std::string_view line) {
     return lower.find("mirror") != std::string::npos;
 }
 
+std::optional<std::string> readHitMaskPath(std::string_view line) {
+    const std::size_t hitPos = line.find("hit ");
+    if (hitPos == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return readQuotedField(line.substr(hitPos), "hit ");
+}
+
 int nextPowerOfTwo(int value) {
     int power = 1;
     while (power < value) {
@@ -126,6 +201,23 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
                 return false;
             }
             asset.pixelsPerMeter = texelSize;
+        } else if (auto partName = readQuotedField(line, "(hit-part ")) {
+            std::string_view rest = line;
+            const std::size_t nameEnd = rest.find('"', rest.find('"') + 1);
+            if (nameEnd == std::string_view::npos) {
+                return false;
+            }
+            rest = trim(rest.substr(nameEnd + 1));
+            float rgb[3] = {};
+            if (!readFloats(rest, 3, rgb)) {
+                return false;
+            }
+            SpriteHitPartDef part{};
+            part.name = *partName;
+            part.r = static_cast<unsigned char>(std::clamp(rgb[0], 0.0f, 255.0f));
+            part.g = static_cast<unsigned char>(std::clamp(rgb[1], 0.0f, 255.0f));
+            part.b = static_cast<unsigned char>(std::clamp(rgb[2], 0.0f, 255.0f));
+            asset.hitParts.push_back(std::move(part));
         } else if (auto frameId = readQuotedField(line, "(frame ")) {
             asset.frames.push_back(SpriteFrame{});
             currentFrame = &asset.frames.back();
@@ -156,6 +248,7 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             SpriteRotation entry{};
             entry.texturePath = std::string{rest.substr(quoteStart + 1, quoteEnd - quoteStart - 1)};
             entry.mirror = lineContainsMirror(line);
+            entry.hitMaskPath = readHitMaskPath(line);
             currentFrame->rotations[rotation] = std::move(entry);
         }
 
@@ -175,14 +268,18 @@ SpriteAtlas buildSpriteAtlas(
 
     std::vector<std::string> uniquePaths;
     std::unordered_set<std::string> seen;
+    std::unordered_map<std::string, std::string> textureHitPaths;
     for (const SpriteFrame& frame : asset.frames) {
         for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
             if (!frame.rotations[rotation].has_value()) {
                 continue;
             }
-            const std::string& path = frame.rotations[rotation]->texturePath;
-            if (seen.insert(path).second) {
-                uniquePaths.push_back(path);
+            const SpriteRotation& entry = *frame.rotations[rotation];
+            if (seen.insert(entry.texturePath).second) {
+                uniquePaths.push_back(entry.texturePath);
+            }
+            if (entry.hitMaskPath.has_value()) {
+                textureHitPaths.emplace(entry.texturePath, *entry.hitMaskPath);
             }
         }
     }
@@ -300,6 +397,41 @@ SpriteAtlas buildSpriteAtlas(
         };
         atlas.rects.emplace(image.path, rect);
 
+        SpriteHitmask hitmask{};
+        const auto hitPathIt = textureHitPaths.find(image.path);
+        if (hitPathIt != textureHitPaths.end() && !asset.hitParts.empty()) {
+            const auto resolvedHit = resolveTexturePath(hitPathIt->second);
+            if (resolvedHit) {
+                Image hitImage = LoadImage(resolvedHit->string().c_str());
+                if (hitImage.data != nullptr) {
+                    ImageFormat(&hitImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                    if (hitImage.width == image.width && hitImage.height == image.height) {
+                        hitmask = bakeColoredHitmask(hitImage, asset.hitParts);
+                    } else {
+                        TraceLog(
+                            LOG_WARNING,
+                            "Sprite hit mask size mismatch for %s (%dx%d vs %dx%d), using alpha",
+                            hitPathIt->second.c_str(),
+                            hitImage.width,
+                            hitImage.height,
+                            image.width,
+                            image.height);
+                        hitmask = bakeSingleHitmask(image.image);
+                    }
+                    UnloadImage(hitImage);
+                } else {
+                    TraceLog(LOG_WARNING, "Failed to load sprite hit mask: %s", hitPathIt->second.c_str());
+                    hitmask = bakeSingleHitmask(image.image);
+                }
+            } else {
+                TraceLog(LOG_WARNING, "Sprite hit mask not found: %s", hitPathIt->second.c_str());
+                hitmask = bakeSingleHitmask(image.image);
+            }
+        } else {
+            hitmask = bakeSingleHitmask(image.image);
+        }
+        atlas.hitmasks.emplace(image.path, std::move(hitmask));
+
         shelf->cursorX += image.packWidth;
         shelf->rowHeight = std::max(shelf->rowHeight, image.packHeight);
 
@@ -331,6 +463,47 @@ void unloadSpriteAtlas(SpriteAtlas& atlas) {
     }
     atlas.textures.clear();
     atlas.rects.clear();
+    atlas.hitmasks.clear();
+}
+
+std::uint8_t hitmaskPartAt(const SpriteHitmask& mask, int x, int y) {
+    if (x < 0 || y < 0 || x >= mask.width || y >= mask.height || mask.parts.empty()) {
+        return 0;
+    }
+    return mask.parts[static_cast<std::size_t>(y * mask.width + x)];
+}
+
+bool hitmaskTest(const SpriteHitmask& mask, int x, int y) {
+    return hitmaskPartAt(mask, x, y) != 0;
+}
+
+bool hitmaskTestUv(const SpriteHitmask& mask, float u, float v, bool mirror) {
+    if (mask.width <= 0 || mask.height <= 0) {
+        return false;
+    }
+    if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f) {
+        return false;
+    }
+
+    int x = static_cast<int>(std::floor(u * static_cast<float>(mask.width)));
+    int y = static_cast<int>(std::floor((1.0f - v) * static_cast<float>(mask.height)));
+    if (x >= mask.width) {
+        x = mask.width - 1;
+    }
+    if (y >= mask.height) {
+        y = mask.height - 1;
+    }
+    if (mirror) {
+        x = mask.width - 1 - x;
+    }
+    return hitmaskTest(mask, x, y);
+}
+
+const char* hitmaskPartName(const SpriteHitmask& mask, std::uint8_t part) {
+    if (part == 0 || part > mask.partNames.size()) {
+        return "none";
+    }
+    return mask.partNames[static_cast<std::size_t>(part - 1)].c_str();
 }
 
 const SpriteFrame* findSpriteFrame(const SpriteAsset& asset, std::string_view frameId) {

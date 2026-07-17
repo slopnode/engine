@@ -14,6 +14,7 @@
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
+#include "render/sprite_billboard.hpp"
 #include "render/transform.hpp"
 #include "ui/ui_module.hpp"
 
@@ -23,6 +24,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -309,17 +313,6 @@ Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
 }
 
-Vector3 scaleFromMatrix(const Matrix& matrix) {
-    const Vector3 xAxis{matrix.m0, matrix.m1, matrix.m2};
-    const Vector3 yAxis{matrix.m4, matrix.m5, matrix.m6};
-    const Vector3 zAxis{matrix.m8, matrix.m9, matrix.m10};
-    return {
-        Vector3Length(xAxis),
-        Vector3Length(yAxis),
-        Vector3Length(zAxis),
-    };
-}
-
 void drawWorldSprite(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
@@ -328,84 +321,23 @@ void drawWorldSprite(
     const MapLighting* lighting,
     const BspTree* bspTree,
     bool unlit) {
-    if (sprite.sprite.empty()) {
-        return;
-    }
-
-    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
-    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
-    if (asset == nullptr || atlas == nullptr || atlas->textures.empty()) {
-        return;
-    }
-
-    const SpriteFrame* frame = findSpriteFrame(*asset, sprite.frame);
-    if (frame == nullptr) {
-        return;
-    }
-
-    const Vector3 position = translationFromMatrix(global.matrix);
-    const Vector3 toCamera{
-        lens.camera.position.x - position.x,
-        0.0f,
-        lens.camera.position.z - position.z,
-    };
-    if (Vector3LengthSqr(toCamera) < 0.000001f) {
-        return;
-    }
-
-    const float viewYaw = std::atan2(toCamera.x, toCamera.z);
-    const int rotation = doomRotationFromViewYaw(viewYaw - sprite.facingYaw);
-    const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
-    if (selected == nullptr) {
-        return;
-    }
-
-    const auto rectIt = atlas->rects.find(selected->texturePath);
-    if (rectIt == atlas->rects.end()) {
-        return;
-    }
-
-    const SpriteAtlasRect& atlasRect = rectIt->second;
-    if (atlasRect.atlasIndex < 0 ||
-        atlasRect.atlasIndex >= static_cast<int>(atlas->textures.size())) {
-        return;
-    }
-
-    const Texture2D& texture = atlas->textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
-    if (texture.id == 0) {
-        return;
-    }
-
-    Rectangle source = atlasRect.source;
-    if (selected->mirror) {
-        source.x += source.width;
-        source.width = -source.width;
-    }
-
-    const Vector3 scale = scaleFromMatrix(global.matrix);
-    const float pixelsPerMeter = asset->pixelsPerMeter > 0.0f ? asset->pixelsPerMeter : 64.0f;
-    const float pixelW =
-        selected->pixelWidth > 0 ? static_cast<float>(selected->pixelWidth) : std::fabs(source.width);
-    const float pixelH =
-        selected->pixelHeight > 0 ? static_cast<float>(selected->pixelHeight)
-                                  : std::fabs(source.height);
-    const Vector2 size{
-        (pixelW / pixelsPerMeter) * scale.x,
-        (pixelH / pixelsPerMeter) * scale.y,
-    };
-    if (size.x <= 0.0f || size.y <= 0.0f) {
+    const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
+    if (!billboard || billboard->texture == nullptr) {
         return;
     }
 
     Color colorFeet = WHITE;
     Color colorHead = WHITE;
     if (!unlit && lighting != nullptr && lighting->available && bspTree != nullptr) {
-        const Vector3 feetOrigin{position.x, position.y + 0.05f, position.z};
+        const Vector3 feetOrigin{billboard->position.x, billboard->position.y + 0.05f, billboard->position.z};
         if (auto feet = sampleMapLight(*lighting, *bspTree, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
             colorFeet = *feet;
         }
 
-        const Vector3 headPos{position.x, position.y + size.y, position.z};
+        const Vector3 headPos{
+            billboard->position.x,
+            billboard->position.y + billboard->size.y,
+            billboard->position.z};
         Vector3 headDir{
             lens.camera.position.x - headPos.x,
             0.0f,
@@ -424,26 +356,8 @@ void drawWorldSprite(
         }
     }
 
-    const Matrix matView = MatrixLookAt(lens.camera.position, lens.camera.target, lens.camera.up);
-    Vector3 right{matView.m0, matView.m4, matView.m8};
-    right = Vector3Scale(right, size.x);
-    const Vector3 up{0.0f, size.y, 0.0f};
-
-    const Vector2 origin{size.x * 0.5f, 0.0f};
-    const Vector3 origin3D = Vector3Add(
-        Vector3Scale(Vector3Normalize(right), origin.x),
-        Vector3Scale(Vector3Normalize(up), origin.y));
-
-    Vector3 points[4] = {
-        Vector3Zero(),
-        right,
-        Vector3Add(up, right),
-        up,
-    };
-    for (Vector3& point : points) {
-        point = Vector3Add(Vector3Subtract(point, origin3D), position);
-    }
-
+    const Texture2D& texture = *billboard->texture;
+    const Rectangle source = billboard->source;
     const float texW = static_cast<float>(texture.width);
     const float texH = static_cast<float>(texture.height);
     const Vector2 texcoords[4] = {
@@ -459,10 +373,101 @@ void drawWorldSprite(
     for (int i = 0; i < 4; ++i) {
         rlColor4ub(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
         rlTexCoord2f(texcoords[i].x, texcoords[i].y);
-        rlVertex3f(points[i].x, points[i].y, points[i].z);
+        rlVertex3f(billboard->points[i].x, billboard->points[i].y, billboard->points[i].z);
     }
     rlEnd();
     rlSetTexture(0);
+}
+
+Ray spriteAimRay(const Lens& lens) {
+    Ray ray{};
+    ray.position = lens.camera.position;
+    ray.direction = Vector3Normalize(Vector3Subtract(lens.camera.target, lens.camera.position));
+    return ray;
+}
+
+constexpr float kSpriteAimMaxDistance = 100.0f;
+
+std::string drawSpriteDebugOverlays(
+    const Lens& lens,
+    AssetStore& assets,
+    const DebugUiState& debugUi,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
+    std::string aimStatus;
+    if (!debugUi.showSpriteMasks && !debugUi.showSpriteAim) {
+        return aimStatus;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthTest();
+    rlDisableDepthMask();
+
+    if (debugUi.showSpriteMasks) {
+        spriteQuery.each(
+            [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
+                if (!entity.has<WorldSpace>()) {
+                    return;
+                }
+                if (const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets)) {
+                    drawSpriteMaskDebug(*billboard);
+                }
+            });
+    }
+
+    if (debugUi.showSpriteAim) {
+        const Ray ray = spriteAimRay(lens);
+        std::optional<SpriteBillboardHit> bestHit;
+        std::string hitSprite;
+        std::string hitFrame;
+        float bestDistance = kSpriteAimMaxDistance;
+
+        spriteQuery.each(
+            [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
+                if (!entity.has<WorldSpace>()) {
+                    return;
+                }
+                const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
+                if (!billboard) {
+                    return;
+                }
+                if (const auto hit = raycastSpriteBillboard(ray, *billboard, bestDistance)) {
+                    bestDistance = hit->distance;
+                    bestHit = *hit;
+                    hitSprite = sprite.sprite;
+                    hitFrame = sprite.frame;
+                }
+            });
+
+        const Vector3 rayEnd = bestHit
+            ? bestHit->point
+            : Vector3Add(ray.position, Vector3Scale(ray.direction, kSpriteAimMaxDistance));
+        DrawLine3D(ray.position, rayEnd, bestHit ? Color{80, 255, 120, 255} : Color{255, 220, 40, 255});
+
+        if (bestHit) {
+            DrawSphereWires(bestHit->point, 0.04f, 6, 6, Color{80, 255, 120, 255});
+            const Vector3 tickEnd = Vector3Add(bestHit->point, Vector3Scale(ray.direction, -0.12f));
+            DrawLine3D(bestHit->point, tickEnd, Color{255, 255, 255, 255});
+            char buffer[256];
+            std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "Sprite aim: %s frame=%s part=%s px=(%d,%d) dist=%.2f",
+                hitSprite.c_str(),
+                hitFrame.c_str(),
+                bestHit->partName.c_str(),
+                bestHit->pixelX,
+                bestHit->pixelY,
+                bestHit->distance);
+            aimStatus = buffer;
+        } else {
+            aimStatus = "Sprite aim: no hit";
+        }
+    }
+
+    rlEnableDepthMask();
+    rlEnableDepthTest();
+    EndBlendMode();
+    return aimStatus;
 }
 
 void registerComponents(flecs::world& world) {
@@ -722,6 +727,7 @@ void registerRenderSystems(flecs::world& world) {
                 rlPopMatrix();
             });
 
+            std::string spriteAimStatus;
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 AssetStore& assets = *world.get_mut<AssetServices>().store;
                 const MapLighting* lighting =
@@ -772,6 +778,14 @@ void registerRenderSystems(flecs::world& world) {
                 }
                 rlEnableDepthMask();
                 EndBlendMode();
+
+                if (world.has<DebugUiState>()) {
+                    spriteAimStatus = drawSpriteDebugOverlays(
+                        lens,
+                        assets,
+                        world.get<DebugUiState>(),
+                        context.worldSpriteQuery);
+                }
             }
 
             if (world.has<DebugUiState>() && world.has<MapBsp>()) {
@@ -786,6 +800,22 @@ void registerRenderSystems(flecs::world& world) {
             }
 
             EndMode3D();
+
+            if (!spriteAimStatus.empty()) {
+                const int screenW = GetScreenWidth();
+                const int fontSize = 18;
+                const int textW = MeasureText(spriteAimStatus.c_str(), fontSize);
+                DrawText(
+                    spriteAimStatus.c_str(),
+                    (screenW - textW) / 2,
+                    24,
+                    fontSize,
+                    Color{80, 255, 120, 255});
+                const int cx = screenW / 2;
+                const int cy = GetScreenHeight() / 2;
+                DrawLine(cx - 8, cy, cx + 8, cy, Color{255, 255, 255, 200});
+                DrawLine(cx, cy - 8, cx, cy + 8, Color{255, 255, 255, 200});
+            }
         });
 
     world.system("ImGuiOverlay")
