@@ -75,7 +75,7 @@ PNG images under `textures/`. Materials reference them by virtual path without t
 
 ### Materials
 
-`.mat` files under `materials/`. Surface tint, textures, UV density, and emission. See [Materials, textures, and shaders](materials.md).
+`.mat` files under `materials/`. Albedo tint/texture, UV density, and emission (no normal or PBR maps). See [Materials, textures, and shaders](materials.md).
 
 ```text
 (material

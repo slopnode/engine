@@ -14,7 +14,7 @@ That style favors clarity and direct editing over locking content behind one off
 
 ## First-person levels
 
-Level work is built around first-person spaces: rooms and solids authored as convex brush CSG (with box sugar for common cases), compiled for collision and structure, then lightmapped with offline tools. Props and characters come in separately as meshes from a modelling tool. The split mirrors the classic approach of world geometry versus placeable models, with tooling focused on walking through baked indoor spaces rather than open-world streaming or cinematic pipelines.
+Level work is built around first-person spaces: rooms and solids authored as convex brush CSG (with box sugar for common cases), compiled for collision and structure, then lightmapped with offline tools. Lighting is offline lightmaps on diffuse (albedo) surfaces, not a runtime PBR pipeline. Props and characters come in separately as meshes from a modelling tool. The split mirrors the classic approach of world geometry versus placeable models, with tooling focused on walking through baked indoor spaces rather than open-world streaming or cinematic pipelines.
 
 ## Working with Blender and free tools
 

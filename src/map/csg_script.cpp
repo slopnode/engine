@@ -171,6 +171,11 @@ s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "nodraw", s7_nil(sc));
 }
 
+s7_pointer g_nocollide(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "nocollide", s7_nil(sc));
+}
+
 s7_pointer g_faces(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "faces", args);
 }
@@ -236,6 +241,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     Vector3 maxs{};
     bool haveMins = false;
     bool haveMaxs = false;
+    bool nocollide = false;
     std::vector<std::pair<BrushBoxSide, BrushFace>> overrides;
 
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -260,6 +266,8 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
                     role = BrushRole::Hull;
                 }
             }
+        } else if (std::strcmp(tag, "nocollide") == 0) {
+            nocollide = true;
         } else if (std::strcmp(tag, "mins") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -288,8 +296,9 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "brush-box requires id, mins, and maxs")));
     }
 
-    g_builder->brushes.push_back(
-        makeBrushBox(std::move(id), mins, maxs, material, overrides, role));
+    Brush brush = makeBrushBox(std::move(id), mins, maxs, material, overrides, role);
+    brush.nocollide = nocollide;
+    g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
 }
 
@@ -355,6 +364,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     std::string id;
     std::string defaultMaterial = "default/cube";
     BrushRole role = BrushRole::Hull;
+    bool nocollide = false;
     std::vector<BrushFace> faces;
 
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -377,6 +387,8 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
                     role = BrushRole::Hull;
                 }
             }
+        } else if (std::strcmp(tag, "nocollide") == 0) {
+            nocollide = true;
         } else if (std::strcmp(tag, "faces") == 0) {
             for (s7_pointer faceCursor = rest; s7_is_pair(faceCursor); faceCursor = s7_cdr(faceCursor)) {
                 BrushFace face{};
@@ -405,6 +417,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "csg-error"),
             s7_list(sc, 1, s7_make_string(sc, error.c_str())));
     }
+    brush->nocollide = nocollide;
     g_builder->brushes.push_back(std::move(*brush));
     return s7_t(sc);
 }
@@ -417,6 +430,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
+    s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
     s7_define_function(sc, "faces", g_faces, 0, 0, true, "(faces face...)");
     s7_define_function(sc, "face", g_face, 0, 0, true, "(face props...)");
     s7_define_function(sc, "verts", g_verts, 0, 0, true, "(verts (v x y z)...)");
@@ -518,6 +532,34 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     if (!loaded || builder.brushes.empty()) {
         return std::nullopt;
     }
+
+    int hullCount = 0;
+    int detailCount = 0;
+    int boxCount = 0;
+    int nocollideCount = 0;
+    for (const Brush& brush : builder.brushes) {
+        if (brush.box) {
+            ++boxCount;
+        }
+        if (brush.nocollide) {
+            ++nocollideCount;
+        }
+        if (brush.role == BrushRole::Detail) {
+            ++detailCount;
+        } else {
+            ++hullCount;
+        }
+    }
+    TraceLog(
+        LOG_INFO,
+        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d box=%d nocollide=%d",
+        virtualPath.c_str(),
+        static_cast<int>(builder.brushes.size()),
+        hullCount,
+        detailCount,
+        boxCount,
+        nocollideCount);
+
     return std::move(builder.brushes);
 }
 
@@ -614,7 +656,15 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     int hullCount = 0;
     int detailCount = 0;
+    int boxCount = 0;
+    int nocollideCount = 0;
     for (const Brush& brush : *brushes) {
+        if (brush.box) {
+            ++boxCount;
+        }
+        if (brush.nocollide) {
+            ++nocollideCount;
+        }
         if (brush.role == BrushRole::Detail) {
             ++detailCount;
         } else {
@@ -634,9 +684,11 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     TraceLog(
         LOG_INFO,
-        "MAP: BSP hull=%d detail=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaceFaces=%d charts=%d",
+        "MAP: BSP hull=%d detail=%d box=%d nocollide=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaceFaces=%d charts=%d",
         hullCount,
         detailCount,
+        boxCount,
+        nocollideCount,
         static_cast<int>(bsp->nodes.size()),
         emptyLeaves,
         solidLeaves,

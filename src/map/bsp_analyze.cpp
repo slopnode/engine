@@ -1,5 +1,7 @@
 #include "map/bsp_analyze.hpp"
 
+#include <raylib.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -256,22 +258,51 @@ void collectDetailWarnings(
 MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& brushes) {
     MapHullAnalysis analysis;
     if (tree.leaves.empty()) {
+        TraceLog(LOG_WARNING, "BSP: analyze skipped (empty tree)");
         return analysis;
     }
 
+    TraceLog(
+        LOG_INFO,
+        "BSP: analyze start leaves=%d surfaces=%d brushes=%d",
+        static_cast<int>(tree.leaves.size()),
+        static_cast<int>(tree.surfaceFaces.size()),
+        static_cast<int>(brushes.size()));
+
     floodExterior(tree, analysis.exteriorEmpty);
 
+    int exteriorEmpty = 0;
+    int interiorEmpty = 0;
+    int solidLeaves = 0;
     bool anyInteriorEmpty = false;
     for (std::size_t i = 0; i < tree.leaves.size(); ++i) {
-        if (!tree.leaves[i].solid && analysis.exteriorEmpty[i] == 0) {
+        if (tree.leaves[i].solid) {
+            ++solidLeaves;
+            continue;
+        }
+        if (analysis.exteriorEmpty[i] == 0) {
             anyInteriorEmpty = true;
-            break;
+            ++interiorEmpty;
+        } else {
+            ++exteriorEmpty;
         }
     }
     analysis.sealed = anyInteriorEmpty;
 
+    TraceLog(
+        LOG_INFO,
+        "BSP: flood exteriorEmpty=%d interiorEmpty=%d solid=%d sealed=%s",
+        exteriorEmpty,
+        interiorEmpty,
+        solidLeaves,
+        analysis.sealed ? "yes" : "no");
+
     if (!analysis.sealed) {
         buildLeakPath(tree, brushes, analysis.leakPathFaceIds);
+        TraceLog(
+            LOG_WARNING,
+            "BSP: leak detected pathSteps=%d",
+            static_cast<int>(analysis.leakPathFaceIds.size()));
         return analysis;
     }
 
@@ -282,6 +313,12 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
     std::sort(analysis.inferredNodrawFaceIds.begin(), analysis.inferredNodrawFaceIds.end());
 
     collectDetailWarnings(tree, analysis.exteriorEmpty, brushes, analysis.detailOutsideWarnings);
+
+    TraceLog(
+        LOG_INFO,
+        "BSP: analyze done inferredNodraw=%d detailWarnings=%d",
+        static_cast<int>(analysis.inferredNodrawFaceIds.size()),
+        static_cast<int>(analysis.detailOutsideWarnings.size()));
     return analysis;
 }
 

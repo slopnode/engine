@@ -39,6 +39,8 @@ struct Brush {
     Vector3 mins{};
     Vector3 maxs{};
     std::vector<BrushFace> faces;
+    bool box = false;
+    bool nocollide = false;
 };
 
 const char* brushBoxSideName(BrushBoxSide side);

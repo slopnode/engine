@@ -1,5 +1,7 @@
 #include "map/bsp_io.hpp"
 
+#include <raylib.h>
+
 #include <cstring>
 #include <fstream>
 #include <unordered_map>
@@ -170,12 +172,27 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
     std::filesystem::create_directories(path.parent_path());
     std::ofstream file(path, std::ios::binary);
     if (!file) {
+        TraceLog(LOG_WARNING, "BSP: failed to open for write '%s'", path.string().c_str());
         return false;
     }
     file.write(
         reinterpret_cast<const char*>(writer.buffer().data()),
         static_cast<std::streamsize>(writer.buffer().size()));
-    return static_cast<bool>(file);
+    if (!file) {
+        TraceLog(LOG_WARNING, "BSP: failed to write '%s'", path.string().c_str());
+        return false;
+    }
+
+    TraceLog(
+        LOG_INFO,
+        "BSP: wrote '%s' bytes=%d nodes=%d leaves=%d surfaces=%d strings=%d",
+        path.string().c_str(),
+        static_cast<int>(writer.buffer().size()),
+        static_cast<int>(tree.nodes.size()),
+        static_cast<int>(tree.leaves.size()),
+        static_cast<int>(tree.surfaceFaces.size()),
+        static_cast<int>(strings.size()));
+    return true;
 }
 
 std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
@@ -279,19 +296,36 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
 std::optional<BspTree> readBspFile(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
+        TraceLog(LOG_WARNING, "BSP: failed to open for read '%s'", path.string().c_str());
         return std::nullopt;
     }
     const auto size = file.tellg();
     if (size <= 0) {
+        TraceLog(LOG_WARNING, "BSP: empty file '%s'", path.string().c_str());
         return std::nullopt;
     }
     std::vector<std::byte> buffer(static_cast<std::size_t>(size));
     file.seekg(0);
     file.read(reinterpret_cast<char*>(buffer.data()), size);
     if (!file) {
+        TraceLog(LOG_WARNING, "BSP: failed to read '%s'", path.string().c_str());
         return std::nullopt;
     }
-    return readBspBytes(buffer);
+    auto tree = readBspBytes(buffer);
+    if (!tree) {
+        TraceLog(LOG_WARNING, "BSP: invalid contents '%s' bytes=%d", path.string().c_str(), static_cast<int>(size));
+        return std::nullopt;
+    }
+    TraceLog(
+        LOG_INFO,
+        "BSP: read '%s' bytes=%d nodes=%d leaves=%d surfaces=%d root=%d",
+        path.string().c_str(),
+        static_cast<int>(size),
+        static_cast<int>(tree->nodes.size()),
+        static_cast<int>(tree->leaves.size()),
+        static_cast<int>(tree->surfaceFaces.size()),
+        tree->root);
+    return tree;
 }
 
 }

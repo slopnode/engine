@@ -78,11 +78,6 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
             motor.wishX = wish.x;
             motor.wishZ = wish.z;
-
-            const bool noclip =
-                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
-            const float dt = GetFrameTime();
-            physics.world->applyPlayerInput(motor, motor.wishX, motor.wishZ, dt, noclip);
         });
 
     world.system("PhysicsStep")
@@ -93,23 +88,23 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             }
 
             PhysicsContext& physics = it.world().get_mut<PhysicsContext>();
-            if (physics.world == nullptr) {
+            if (physics.world == nullptr || !physics.world->hasPlayer()) {
                 return;
             }
 
-            const bool noclip =
-                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
-            physics.world->update(GetFrameTime(), noclip);
-
             const flecs::entity camera = it.world().lookup("MainCamera");
             if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<Lens>() ||
-                !camera.has<FirstPersonController>() || !physics.world->hasPlayer()) {
+                !camera.has<FirstPersonController>()) {
                 return;
             }
 
             CharacterMotor& motor = camera.get_mut<CharacterMotor>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
             Lens& lens = camera.get_mut<Lens>();
+
+            const bool noclip =
+                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
+            physics.world->update(GetFrameTime(), motor, noclip);
 
             const JPH::RVec3 feet = physics.world->playerPosition();
             lens.camera.position = {

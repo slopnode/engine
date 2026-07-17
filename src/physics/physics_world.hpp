@@ -32,13 +32,16 @@ struct PhysicsWorld {
         float wishZ,
         float dt,
         bool noclip = false);
-    void update(float dt, bool noclip = false);
+    void update(float frameDt, const CharacterMotor& motor, bool noclip = false);
 
     bool hasPlayer() const { return character_ != nullptr; }
     JPH::RVec3 playerPosition() const;
     bool playerSupported() const;
 
 private:
+    static constexpr float kFixedDt = 1.0f / 60.0f;
+    static constexpr int kMaxSubsteps = 4;
+
     std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator_;
     std::unique_ptr<JPH::JobSystemThreadPool> jobSystem_;
     std::unique_ptr<JPH::BroadPhaseLayerInterface> broadPhaseLayerInterface_;
@@ -48,6 +51,7 @@ private:
     JPH::Ref<JPH::CharacterVirtual> character_;
     JPH::RefConst<JPH::Shape> characterShape_;
     std::vector<JPH::BodyID> staticBodies_;
+    float accumulator_ = 0.0f;
     bool factoryInitialized_ = false;
 };
 

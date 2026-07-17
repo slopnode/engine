@@ -1,5 +1,7 @@
 #include "map/bsp.hpp"
 
+#include <raylib.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -651,13 +653,34 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     BspTree tree;
     std::vector<Brush> hulls;
     hulls.reserve(brushes.size());
+    int detailCount = 0;
+    int boxCount = 0;
+    int nocollideCount = 0;
     for (const Brush& brush : brushes) {
+        if (brush.box) {
+            ++boxCount;
+        }
+        if (brush.nocollide) {
+            ++nocollideCount;
+        }
         if (brush.role == BrushRole::Hull) {
             hulls.push_back(brush);
+        } else {
+            ++detailCount;
         }
     }
 
+    TraceLog(
+        LOG_INFO,
+        "BSP: build start brushes=%d hull=%d detail=%d box=%d nocollide=%d",
+        static_cast<int>(brushes.size()),
+        static_cast<int>(hulls.size()),
+        detailCount,
+        boxCount,
+        nocollideCount);
+
     if (hulls.empty()) {
+        TraceLog(LOG_WARNING, "BSP: no hull brushes; empty tree");
         return tree;
     }
 
@@ -689,12 +712,44 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     tree.boundsMins = mins;
     tree.boundsMaxs = maxs;
 
+    TraceLog(
+        LOG_INFO,
+        "BSP: world bounds (%.2f,%.2f,%.2f)-(%.2f,%.2f,%.2f) pad=%.2f",
+        mins.x,
+        mins.y,
+        mins.z,
+        maxs.x,
+        maxs.y,
+        maxs.z,
+        kBoundsPad);
+
     std::vector<BspPlane> splits;
     collectSplits(hulls, splits);
+    TraceLog(LOG_INFO, "BSP: split planes=%d", static_cast<int>(splits.size()));
+
     const Polyhedron world = makeBoundsPolyhedron(mins, maxs);
     tree.root = buildNode(tree, world, hulls, splits);
     buildAdjacency(tree);
     buildSurfaceFaces(tree, hulls);
+
+    int emptyLeaves = 0;
+    int solidLeaves = 0;
+    for (const BspLeaf& leaf : tree.leaves) {
+        if (leaf.solid) {
+            ++solidLeaves;
+        } else {
+            ++emptyLeaves;
+        }
+    }
+
+    TraceLog(
+        LOG_INFO,
+        "BSP: build done root=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaces=%d",
+        tree.root,
+        static_cast<int>(tree.nodes.size()),
+        emptyLeaves,
+        solidLeaves,
+        static_cast<int>(tree.surfaceFaces.size()));
     return tree;
 }
 

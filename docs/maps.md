@@ -99,7 +99,7 @@ You can edit `.csg` by hand, generate it from another program, or build a dedica
 
 ### Materials on brushes
 
-Face materials drive diffuse appearance and bake sampling. `texel-size` on the material controls how densely the texture tiles in world space. Emission fields on the material feed radiosity (see the materials guide). After changing materials or emitters that affect a map, re-run `sloprad` if you rely on baked lighting.
+Face materials drive diffuse appearance and bake sampling (albedo + emission only; no normal maps). `texel-size` on the material controls how densely the texture tiles in world space. Emission fields on the material feed radiosity (see the materials guide). After changing materials or emitters that affect a map, re-run `sloprad` if you rely on baked lighting.
 
 ## Compile order
 
@@ -150,7 +150,7 @@ Bake outline as implemented today:
 1. Analyze the hull (same exterior flood as `slopbsp`): if sealed, OR inferred nodraw onto hull faces; if leaky, warn and keep authored `(nodraw)` only.
 2. Collect lightmap faces from every brush face that is not nodraw (hull and detail).
 3. Pack faces into charts on one or more atlases.
-4. Resolve materials; sample albedo and emission using the same planar UV rules as the game (`texel-size`, texture size, `uv-shift`).
+4. Resolve materials; sample albedo and emission using the same planar UV rules as the game (`texel-size`, texture size, `uv-shift`). Lighting uses flat brush face normals only—no normal maps.
 5. Build acceleration structures: BSP surfaces for occlusion, lightmap faces for gathering light.
 6. Seed receivers with map ambient plus emission; build emitter patches from bright emission luxels.
 7. Compute direct lighting with form factors and BSP occlusion tests.

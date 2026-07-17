@@ -6,6 +6,7 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/RegisterTypes.h>
@@ -180,33 +181,73 @@ PhysicsWorld::~PhysicsWorld() {
 
 void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
     JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    int boxCount = 0;
+    int hullShapeCount = 0;
+    int skippedNocollide = 0;
 
     for (const Brush& brush : brushes) {
-        JPH::Array<JPH::Vec3> points;
-        for (const BrushFace& face : brush.faces) {
-            for (const Vector3& v : face.vertices) {
-                points.push_back(JPH::Vec3(v.x, v.y, v.z));
-            }
-        }
-        if (points.size() < 4) {
+        if (brush.nocollide) {
+            ++skippedNocollide;
             continue;
         }
 
-        JPH::ConvexHullShapeSettings hullSettings(points);
-        hullSettings.mMaxConvexRadius = 0.05f;
-        auto result = hullSettings.Create();
-        if (result.HasError()) {
-            TraceLog(
-                LOG_WARNING,
-                "PHYSICS: convex hull failed for brush '%s': %s",
-                brush.id.c_str(),
-                result.GetError().c_str());
-            continue;
+        JPH::RefConst<JPH::Shape> shape;
+        JPH::RVec3 position = JPH::RVec3::sZero();
+
+        if (brush.box) {
+            const float hx = 0.5f * (brush.maxs.x - brush.mins.x);
+            const float hy = 0.5f * (brush.maxs.y - brush.mins.y);
+            const float hz = 0.5f * (brush.maxs.z - brush.mins.z);
+            if (hx <= 0.0f || hy <= 0.0f || hz <= 0.0f) {
+                TraceLog(LOG_WARNING, "PHYSICS: invalid box extents for brush '%s'", brush.id.c_str());
+                continue;
+            }
+
+            JPH::BoxShapeSettings boxSettings(JPH::Vec3(hx, hy, hz));
+            auto result = boxSettings.Create();
+            if (result.HasError()) {
+                TraceLog(
+                    LOG_WARNING,
+                    "PHYSICS: box shape failed for brush '%s': %s",
+                    brush.id.c_str(),
+                    result.GetError().c_str());
+                continue;
+            }
+            shape = result.Get();
+            position = JPH::RVec3(
+                0.5 * (static_cast<double>(brush.mins.x) + static_cast<double>(brush.maxs.x)),
+                0.5 * (static_cast<double>(brush.mins.y) + static_cast<double>(brush.maxs.y)),
+                0.5 * (static_cast<double>(brush.mins.z) + static_cast<double>(brush.maxs.z)));
+            ++boxCount;
+        } else {
+            JPH::Array<JPH::Vec3> points;
+            for (const BrushFace& face : brush.faces) {
+                for (const Vector3& v : face.vertices) {
+                    points.push_back(JPH::Vec3(v.x, v.y, v.z));
+                }
+            }
+            if (points.size() < 4) {
+                continue;
+            }
+
+            JPH::ConvexHullShapeSettings hullSettings(points);
+            hullSettings.mMaxConvexRadius = 0.05f;
+            auto result = hullSettings.Create();
+            if (result.HasError()) {
+                TraceLog(
+                    LOG_WARNING,
+                    "PHYSICS: convex hull failed for brush '%s': %s",
+                    brush.id.c_str(),
+                    result.GetError().c_str());
+                continue;
+            }
+            shape = result.Get();
+            ++hullShapeCount;
         }
 
         JPH::BodyCreationSettings settings(
-            result.Get(),
-            JPH::RVec3::sZero(),
+            shape,
+            position,
             JPH::Quat::sIdentity(),
             JPH::EMotionType::Static,
             Layers::NON_MOVING);
@@ -217,7 +258,13 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
     }
 
     system_->OptimizeBroadPhase();
-    TraceLog(LOG_INFO, "PHYSICS: added %d static brush bodies", static_cast<int>(staticBodies_.size()));
+    TraceLog(
+        LOG_INFO,
+        "PHYSICS: added %d static brush bodies (box=%d hull=%d skipped %d nocollide)",
+        static_cast<int>(staticBodies_.size()),
+        boxCount,
+        hullShapeCount,
+        skippedNocollide);
 }
 
 void PhysicsWorld::createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor) {
@@ -282,19 +329,34 @@ void PhysicsWorld::applyPlayerInput(
     character_->SetLinearVelocity(newVelocity);
 }
 
-void PhysicsWorld::update(float dt, bool noclip) {
-    if (character_ != nullptr) {
+void PhysicsWorld::update(float frameDt, const CharacterMotor& motor, bool noclip) {
+    if (character_ == nullptr) {
+        return;
+    }
+
+    constexpr float kMaxFrameDt = 0.25f;
+    if (frameDt > kMaxFrameDt) {
+        frameDt = kMaxFrameDt;
+    } else if (frameDt < 0.0f) {
+        frameDt = 0.0f;
+    }
+
+    accumulator_ += frameDt;
+    int steps = 0;
+    while (accumulator_ >= kFixedDt && steps < kMaxSubsteps) {
+        applyPlayerInput(motor, motor.wishX, motor.wishZ, kFixedDt, noclip);
+
         if (noclip) {
             const JPH::RVec3 pos = character_->GetPosition();
             const JPH::Vec3 vel = character_->GetLinearVelocity();
             character_->SetPosition(JPH::RVec3(
-                pos.GetX() + static_cast<double>(vel.GetX()) * static_cast<double>(dt),
+                pos.GetX() + static_cast<double>(vel.GetX()) * static_cast<double>(kFixedDt),
                 pos.GetY(),
-                pos.GetZ() + static_cast<double>(vel.GetZ()) * static_cast<double>(dt)));
+                pos.GetZ() + static_cast<double>(vel.GetZ()) * static_cast<double>(kFixedDt)));
         } else {
             JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
             character_->ExtendedUpdate(
-                dt,
+                kFixedDt,
                 -character_->GetUp() * system_->GetGravity().Length(),
                 updateSettings,
                 system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
@@ -303,9 +365,12 @@ void PhysicsWorld::update(float dt, bool noclip) {
                 {},
                 *tempAllocator_);
         }
-    }
 
-    system_->Update(dt, 1, tempAllocator_.get(), jobSystem_.get());
+        system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
+
+        accumulator_ -= kFixedDt;
+        ++steps;
+    }
 }
 
 JPH::RVec3 PhysicsWorld::playerPosition() const {

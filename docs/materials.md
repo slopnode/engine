@@ -1,6 +1,8 @@
 # Materials, textures, and shaders
 
-Surfaces are described by `.mat` files. Materials optionally reference textures and a shader name. At runtime the engine builds a raylib `Material`: albedo color/texture from the `.mat`, then the draw pipeline may replace the shader (maps with lightmaps do this today).
+Surfaces are described by `.mat` files. Materials are **albedo + emission**, not a PBR stack: there are no normal, roughness, or metallic maps. Detail comes from the diffuse texture and from offline lightmaps; special effects use emission fields and/or custom shaders.
+
+Materials optionally reference textures and a shader name. At runtime the engine builds a raylib `Material`: albedo color/texture from the `.mat`, then the draw pipeline may replace the shader (maps with lightmaps do this today).
 
 | Asset | Package dir | Extension | Virtual path example |
 |-------|-------------|-----------|----------------------|
@@ -119,11 +121,16 @@ brush/face material "surfaces/stone"
 ```text
 getMaterialAsset + LoadImage albedo / emission PNGs
   → sample albedo and emission with planar UVs (same texel-size rules)
+  → lighting directions use flat brush face normals (no normal maps)
   → emission ≈ emission-color * emission-power * emission-texel
   → write atlases + static.rad
 ```
 
 Emission **textures** matter at bake time. At runtime the lightmap shader adds a flat emit from `emission-color` when `emission-power > 0`; it does not sample the emission map again.
+
+## Special effects
+
+Glow and lit surfaces use the emission fields above. Other effects (scroll, pulse, fake specular, and so on) belong in custom shaders, not in additional material map types. Do not add normal/roughness/metallic maps for surface detail.
 
 ## Emission summary
 

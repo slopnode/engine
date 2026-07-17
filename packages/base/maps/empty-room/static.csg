@@ -2,7 +2,7 @@
   (id "a-floor")
   (mins -4.0 -0.25 -4.0)
   (maxs 4.0 0.0 4.0)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "a-ceiling")
@@ -38,7 +38,7 @@
   (id "a-door-east-floor")
   (mins 4.0 -0.25 -1.25)
   (maxs 4.25 0.0 1.25)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "a-wall-north-w")
@@ -62,7 +62,7 @@
   (id "a-door-north-floor")
   (mins -1.25 -0.25 -4.25)
   (maxs 1.25 0.0 -4.0)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "a-wall-south-mid")
@@ -80,13 +80,13 @@
   (id "a-door-south-floor")
   (mins -4.0 -0.25 4.0)
   (maxs -1.0 0.0 4.25)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "hall-e-floor")
   (mins 4.25 -0.25 -1.25)
   (maxs 9.75 0.0 1.25)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "hall-e-ceiling")
@@ -110,7 +110,7 @@
   (id "b-floor")
   (mins 10.0 -0.25 -5.0)
   (maxs 18.0 0.0 5.0)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "b-ceiling")
@@ -140,7 +140,7 @@
   (id "b-door-west-floor")
   (mins 9.75 -0.25 -1.25)
   (maxs 10.0 0.0 1.25)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "b-wall-east")
@@ -164,7 +164,7 @@
   (id "hall-n-floor")
   (mins -1.25 -0.25 -9.75)
   (maxs 1.25 0.0 -4.25)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "hall-n-ceiling")
@@ -188,7 +188,7 @@
   (id "c-floor")
   (mins -5.0 -0.25 -16.0)
   (maxs 5.0 0.0 -10.0)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "c-ceiling")
@@ -218,7 +218,7 @@
   (id "c-door-south-floor")
   (mins -1.25 -0.25 -10.0)
   (maxs 1.25 0.0 -9.75)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "c-wall-north")
@@ -242,7 +242,7 @@
   (id "alcove-floor")
   (mins -4.0 -0.25 4.25)
   (maxs -1.0 0.0 8.0)
-  (material "texture-test"))
+  (material "surfaces/floor-tile"))
 
 (brush-box
   (id "alcove-ceiling")
@@ -281,6 +281,30 @@
   (mins -2.8 0.0 -2.8)
   (maxs -2.2 0.8 -2.2)
   (material "emission-red"))
+
+(brush-box
+  (id "ceil-light-green")
+  (role "detail")
+  (nocollide)
+  (mins 13.2 3.85 -0.6)
+  (maxs 14.8 3.98 0.6)
+  (material "emission-green"))
+
+(brush-box
+  (id "ceil-light-yellow")
+  (role "detail")
+  (nocollide)
+  (mins -0.8 2.45 -13.8)
+  (maxs 0.8 2.58 -12.2)
+  (material "emission-yellow"))
+
+(brush-box
+  (id "ceil-light-blue")
+  (role "detail")
+  (nocollide)
+  (mins -3.2 2.25 5.4)
+  (maxs -1.8 2.38 6.8)
+  (material "emission-blue"))
 
 (brush-convex
   (id "detail-wedge")

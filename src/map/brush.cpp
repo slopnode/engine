@@ -241,6 +241,7 @@ Brush makeBrushBox(
     brush.role = role;
     brush.mins = mins;
     brush.maxs = maxs;
+    brush.box = true;
 
     constexpr BrushBoxSide kSides[] = {
         BrushBoxSide::Top,
