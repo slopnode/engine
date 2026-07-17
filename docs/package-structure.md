@@ -48,6 +48,7 @@ my-package/
   scripts/        # .s7
   shaders/        # .glsl
   skeletons/      # .skel, .bind
+  sprites/        # .spr, .spanim
   textures/       # .png
 ```
 
@@ -63,6 +64,7 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `skeletons/` | `.skel`, `.bind` | `character` → `skeletons/character.skel` |
 | `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` → `geometry/props/crate.geo` |
 | `animations/` | `.anim`, `.tracks` | `character/walk` → `animations/character/walk.anim` |
+| `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
 | `maps/` | see below | `<name>/static` → `maps/<name>/static.csg` |
 
 Nested folders under each category are allowed. Related assets are often grouped by shared name under `geometry/`, `skeletons/`, and `animations/`.
@@ -113,6 +115,10 @@ Prop and character meshes use `.geo` / `.vert` / optional `.weights` under `geom
 ### Animations
 
 Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skeleton id. See [Animation](animation.md). Rigid object motion uses component animator systems on entities, not this export path.
+
+### Sprites
+
+`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations and optional mirroring. Sibling `.spanim` files define named clips (fps, loop, frame lists) for the same virtual path. Source PNGs live under `textures/`.
 
 ### Maps
 

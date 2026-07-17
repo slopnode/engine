@@ -1,0 +1,98 @@
+(sprite
+  (texel-size 32)
+  (frame "A"
+    (rot 1 "sprites/usmc/UMCAA1")
+    (rot 2 "sprites/usmc/UMCAA2A8")
+    (rot 8 "sprites/usmc/UMCAA2A8" mirror)
+    (rot 3 "sprites/usmc/UMCAA3A7")
+    (rot 7 "sprites/usmc/UMCAA3A7" mirror)
+    (rot 4 "sprites/usmc/UMCAA4A6")
+    (rot 6 "sprites/usmc/UMCAA4A6" mirror)
+    (rot 5 "sprites/usmc/UMCAA5"))
+  (frame "B"
+    (rot 1 "sprites/usmc/UMCAB1")
+    (rot 2 "sprites/usmc/UMCAB2B8")
+    (rot 8 "sprites/usmc/UMCAB2B8" mirror)
+    (rot 3 "sprites/usmc/UMCAB3B7")
+    (rot 7 "sprites/usmc/UMCAB3B7" mirror)
+    (rot 4 "sprites/usmc/UMCAB4B6")
+    (rot 6 "sprites/usmc/UMCAB4B6" mirror)
+    (rot 5 "sprites/usmc/UMCAB5"))
+  (frame "C"
+    (rot 1 "sprites/usmc/UMCAC1")
+    (rot 2 "sprites/usmc/UMCAC2C8")
+    (rot 8 "sprites/usmc/UMCAC2C8" mirror)
+    (rot 3 "sprites/usmc/UMCAC3C7")
+    (rot 7 "sprites/usmc/UMCAC3C7" mirror)
+    (rot 4 "sprites/usmc/UMCAC4C6")
+    (rot 6 "sprites/usmc/UMCAC4C6" mirror)
+    (rot 5 "sprites/usmc/UMCAC5"))
+  (frame "D"
+    (rot 1 "sprites/usmc/UMCAD1")
+    (rot 2 "sprites/usmc/UMCAD2D8")
+    (rot 8 "sprites/usmc/UMCAD2D8" mirror)
+    (rot 3 "sprites/usmc/UMCAD3D7")
+    (rot 7 "sprites/usmc/UMCAD3D7" mirror)
+    (rot 4 "sprites/usmc/UMCAD4D6")
+    (rot 6 "sprites/usmc/UMCAD4D6" mirror)
+    (rot 5 "sprites/usmc/UMCAD5"))
+  (frame "E"
+    (rot 1 "sprites/usmc/UMCAE1")
+    (rot 2 "sprites/usmc/UMCAE2E8")
+    (rot 8 "sprites/usmc/UMCAE2E8" mirror)
+    (rot 3 "sprites/usmc/UMCAE3E7")
+    (rot 7 "sprites/usmc/UMCAE3E7" mirror)
+    (rot 4 "sprites/usmc/UMCAE4E6")
+    (rot 6 "sprites/usmc/UMCAE4E6" mirror)
+    (rot 5 "sprites/usmc/UMCAE5"))
+  (frame "F"
+    (rot 1 "sprites/usmc/UMCAF1")
+    (rot 2 "sprites/usmc/UMCAF2F8")
+    (rot 8 "sprites/usmc/UMCAF2F8" mirror)
+    (rot 3 "sprites/usmc/UMCAF3F7")
+    (rot 7 "sprites/usmc/UMCAF3F7" mirror)
+    (rot 4 "sprites/usmc/UMCAF4F6")
+    (rot 6 "sprites/usmc/UMCAF4F6" mirror)
+    (rot 5 "sprites/usmc/UMCAF5"))
+  (frame "G"
+    (rot 1 "sprites/usmc/UMCAG1")
+    (rot 2 "sprites/usmc/UMCAG2G8")
+    (rot 8 "sprites/usmc/UMCAG2G8" mirror)
+    (rot 3 "sprites/usmc/UMCAG3G7")
+    (rot 7 "sprites/usmc/UMCAG3G7" mirror)
+    (rot 4 "sprites/usmc/UMCAG4G6")
+    (rot 6 "sprites/usmc/UMCAG4G6" mirror)
+    (rot 5 "sprites/usmc/UMCAG5"))
+  (frame "H"
+    (rot 0 "sprites/usmc/UMCAH0"))
+  (frame "I"
+    (rot 0 "sprites/usmc/UMCAI0"))
+  (frame "J"
+    (rot 0 "sprites/usmc/UMCAJ0"))
+  (frame "K"
+    (rot 0 "sprites/usmc/UMCAK0"))
+  (frame "L"
+    (rot 0 "sprites/usmc/UMCAL0"))
+  (frame "M"
+    (rot 0 "sprites/usmc/UMCAM0"))
+  (frame "N"
+    (rot 0 "sprites/usmc/UMCAN0"))
+  (frame "O"
+    (rot 0 "sprites/usmc/UMCAO0"))
+  (frame "P"
+    (rot 0 "sprites/usmc/UMCAP0"))
+  (frame "Q"
+    (rot 0 "sprites/usmc/UMCAQ0"))
+  (frame "R"
+    (rot 0 "sprites/usmc/UMCAR0"))
+  (frame "S"
+    (rot 0 "sprites/usmc/UMCAS0"))
+  (frame "T"
+    (rot 0 "sprites/usmc/UMCAT0"))
+  (frame "U"
+    (rot 0 "sprites/usmc/UMCAU0"))
+  (frame "V"
+    (rot 0 "sprites/usmc/UMCAV0"))
+  (frame "W"
+    (rot 0 "sprites/usmc/UMCAW0"))
+)

@@ -30,6 +30,8 @@ enum class AssetKind {
     MapBsp,
     MapRad,
     MapLightmap,
+    Sprite,
+    SpriteAnim,
 };
 
 class AssetStore;

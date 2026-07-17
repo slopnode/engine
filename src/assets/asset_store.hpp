@@ -3,6 +3,8 @@
 #include "assets/anim_loader.hpp"
 #include "assets/material_loader.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "assets/sprite_anim_loader.hpp"
+#include "assets/sprite_loader.hpp"
 #include "core/vfs.hpp"
 #include "game/app_config.hpp"
 
@@ -80,6 +82,12 @@ public:
     /** Returns true when animation track data exists at @p path. */
     bool hasAnimTracks(std::string_view path) const;
 
+    /** Returns true when a sprite asset exists at @p path. */
+    bool hasSprite(std::string_view path) const;
+
+    /** Returns true when a sprite animation bank exists at @p path. */
+    bool hasSpriteAnim(std::string_view path) const;
+
     /** Returns a cached texture, loading it when needed. */
     Texture2D getTexture(std::string_view path);
 
@@ -103,6 +111,15 @@ public:
 
     /** Returns a cached animation bank, loading it when needed. */
     const AnimBank* getAnimBank(std::string_view path);
+
+    /** Returns a cached sprite asset with runtime atlas, loading when needed. */
+    const SpriteAsset* getSpriteAsset(std::string_view path);
+
+    /** Returns the runtime atlas for a previously loaded sprite asset. */
+    const SpriteAtlas* getSpriteAtlas(std::string_view path);
+
+    /** Returns a cached sprite animation bank, loading it when needed. */
+    const SpriteAnimBank* getSpriteAnimBank(std::string_view path);
 
     /** Removes a cached texture and unloads its GPU resources. */
     void unloadTexture(std::string_view path);
@@ -133,6 +150,12 @@ public:
 
     /** Returns the text source of the animation asset at @p path. */
     std::string getAnimSource(std::string_view path);
+
+    /** Returns the text source of the sprite asset at @p path. */
+    std::string getSpriteSource(std::string_view path);
+
+    /** Returns the text source of the sprite animation bank at @p path. */
+    std::string getSpriteAnimSource(std::string_view path);
 
     /** Reads the full binary contents of an asset identified by @p kind. */
     std::vector<std::byte> readBinary(std::string_view path, AssetKind kind);
@@ -175,6 +198,9 @@ private:
     std::unordered_map<std::string, SkeletonAsset> skeletons_;
     std::unordered_map<std::string, std::vector<Matrix>> skeletonBindMatrices_;
     std::unordered_map<std::string, AnimBank> animBanks_;
+    std::unordered_map<std::string, SpriteAsset> spriteAssets_;
+    std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
+    std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
 };
 
 }

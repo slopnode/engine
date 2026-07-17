@@ -706,18 +706,22 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     if (result.hasLightmaps) {
         result.lightmapAtlases.reserve(rad.atlases.size());
+        result.lightmapAtlasImages.reserve(rad.atlases.size());
         for (const LightmapAtlasInfo& atlas : rad.atlases) {
             const std::string atlasPath = std::string(mapName) + "/rad/" + atlas.texturePath;
             const auto resolved = assets.resolvePath(AssetKind::MapLightmap, atlasPath);
             Texture2D texture{};
+            Image image{};
             if (resolved) {
                 texture = LoadTexture(resolved->string().c_str());
                 if (texture.id != 0) {
                     SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
                     SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
                 }
+                image = LoadImage(resolved->string().c_str());
             }
             result.lightmapAtlases.push_back(texture);
+            result.lightmapAtlasImages.push_back(image);
         }
     }
 

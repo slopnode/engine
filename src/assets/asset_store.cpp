@@ -97,6 +97,9 @@ AssetStore::~AssetStore() {
     for (auto& [_, bank] : animBanks_) {
         unloadAnimBank(bank);
     }
+    for (auto& [_, atlas] : spriteAtlases_) {
+        unloadSpriteAtlas(atlas);
+    }
     for (auto& [_, texture] : textures_) {
         UnloadTexture(texture);
     }
@@ -221,6 +224,14 @@ bool AssetStore::hasAnim(std::string_view path) const {
 
 bool AssetStore::hasAnimTracks(std::string_view path) const {
     return vfs_.exists(AssetKind::AnimTracks, path);
+}
+
+bool AssetStore::hasSprite(std::string_view path) const {
+    return vfs_.exists(AssetKind::Sprite, path);
+}
+
+bool AssetStore::hasSpriteAnim(std::string_view path) const {
+    return vfs_.exists(AssetKind::SpriteAnim, path);
 }
 
 Texture2D AssetStore::getTexture(std::string_view path) {
@@ -535,6 +546,79 @@ const AnimBank* AssetStore::getAnimBank(std::string_view path) {
     return &inserted.first->second;
 }
 
+const SpriteAsset* AssetStore::getSpriteAsset(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto existing = spriteAssets_.find(key);
+    if (existing != spriteAssets_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasSprite(path)) {
+        TraceLog(LOG_WARNING, "Sprite not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    SpriteAsset asset{};
+    if (!parseSpriteAsset(getSpriteSource(path), asset)) {
+        TraceLog(LOG_WARNING, "Failed to parse sprite: %s", key.c_str());
+        return nullptr;
+    }
+
+    SpriteAtlas atlas = buildSpriteAtlas(asset, [this](std::string_view texturePath) {
+        return resolvePath(AssetKind::Texture, texturePath);
+    });
+
+    for (SpriteFrame& frame : asset.frames) {
+        for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
+            if (!frame.rotations[rotation].has_value()) {
+                continue;
+            }
+            SpriteRotation& entry = *frame.rotations[rotation];
+            const auto rectIt = atlas.rects.find(entry.texturePath);
+            if (rectIt == atlas.rects.end()) {
+                continue;
+            }
+            entry.pixelWidth = static_cast<int>(rectIt->second.source.width);
+            entry.pixelHeight = static_cast<int>(rectIt->second.source.height);
+        }
+    }
+
+    spriteAtlases_.emplace(key, std::move(atlas));
+    return &spriteAssets_.emplace(key, std::move(asset)).first->second;
+}
+
+const SpriteAtlas* AssetStore::getSpriteAtlas(std::string_view path) {
+    if (getSpriteAsset(path) == nullptr) {
+        return nullptr;
+    }
+    const auto it = spriteAtlases_.find(cacheKey(path));
+    if (it == spriteAtlases_.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+const SpriteAnimBank* AssetStore::getSpriteAnimBank(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto existing = spriteAnimBanks_.find(key);
+    if (existing != spriteAnimBanks_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasSpriteAnim(path)) {
+        TraceLog(LOG_WARNING, "Sprite anim not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    SpriteAnimBank bank{};
+    if (!parseSpriteAnimBank(getSpriteAnimSource(path), bank)) {
+        TraceLog(LOG_WARNING, "Failed to parse sprite anim: %s", key.c_str());
+        return nullptr;
+    }
+
+    return &spriteAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
 std::string AssetStore::getScriptSource(std::string_view path) {
     return vfs_.readText(AssetKind::Script, path);
 }
@@ -566,6 +650,14 @@ std::string AssetStore::getGeoSource(std::string_view path) {
 
 std::string AssetStore::getAnimSource(std::string_view path) {
     return vfs_.readText(AssetKind::Anim, path);
+}
+
+std::string AssetStore::getSpriteSource(std::string_view path) {
+    return vfs_.readText(AssetKind::Sprite, path);
+}
+
+std::string AssetStore::getSpriteAnimSource(std::string_view path) {
+    return vfs_.readText(AssetKind::SpriteAnim, path);
 }
 
 std::vector<std::byte> AssetStore::readBinary(std::string_view path, AssetKind kind) {

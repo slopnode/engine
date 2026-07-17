@@ -25,6 +25,7 @@ struct LoadedMap {
     bool hasLightmaps = false;
     Shader lightmapShader{};
     std::vector<Texture2D> lightmapAtlases;
+    std::vector<Image> lightmapAtlasImages;
     int useLightmapLoc = -1;
 };
 

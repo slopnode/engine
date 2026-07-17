@@ -2,21 +2,25 @@
 
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
 #include "interact/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
+#include "map/light_sample.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
 #include "physics/physics_module.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
+#include "render/sprite_animator.hpp"
 #include "render/transform.hpp"
 #include "ui/ui_module.hpp"
 
 #include "ui/ui_state.hpp"
 #include "rlImGui.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string_view>
@@ -34,6 +38,7 @@ struct AssetServices {
 
 struct RenderContext {
     flecs::query<Model3D, GlobalTransformation> worldModelQuery;
+    flecs::query<SpriteInstance, GlobalTransformation> worldSpriteQuery;
 };
 
 void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPlayer) {
@@ -300,6 +305,166 @@ void renderWorldModel(
     rlPopMatrix();
 }
 
+Vector3 translationFromMatrix(const Matrix& matrix) {
+    return {matrix.m12, matrix.m13, matrix.m14};
+}
+
+Vector3 scaleFromMatrix(const Matrix& matrix) {
+    const Vector3 xAxis{matrix.m0, matrix.m1, matrix.m2};
+    const Vector3 yAxis{matrix.m4, matrix.m5, matrix.m6};
+    const Vector3 zAxis{matrix.m8, matrix.m9, matrix.m10};
+    return {
+        Vector3Length(xAxis),
+        Vector3Length(yAxis),
+        Vector3Length(zAxis),
+    };
+}
+
+void drawWorldSprite(
+    const SpriteInstance& sprite,
+    const GlobalTransformation& global,
+    const Lens& lens,
+    AssetStore& assets,
+    const MapLighting* lighting,
+    const BspTree* bspTree,
+    bool unlit) {
+    if (sprite.sprite.empty()) {
+        return;
+    }
+
+    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
+    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
+    if (asset == nullptr || atlas == nullptr || atlas->textures.empty()) {
+        return;
+    }
+
+    const SpriteFrame* frame = findSpriteFrame(*asset, sprite.frame);
+    if (frame == nullptr) {
+        return;
+    }
+
+    const Vector3 position = translationFromMatrix(global.matrix);
+    const Vector3 toCamera{
+        lens.camera.position.x - position.x,
+        0.0f,
+        lens.camera.position.z - position.z,
+    };
+    if (Vector3LengthSqr(toCamera) < 0.000001f) {
+        return;
+    }
+
+    const float viewYaw = std::atan2(toCamera.x, toCamera.z);
+    const int rotation = doomRotationFromViewYaw(viewYaw - sprite.facingYaw);
+    const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
+    if (selected == nullptr) {
+        return;
+    }
+
+    const auto rectIt = atlas->rects.find(selected->texturePath);
+    if (rectIt == atlas->rects.end()) {
+        return;
+    }
+
+    const SpriteAtlasRect& atlasRect = rectIt->second;
+    if (atlasRect.atlasIndex < 0 ||
+        atlasRect.atlasIndex >= static_cast<int>(atlas->textures.size())) {
+        return;
+    }
+
+    const Texture2D& texture = atlas->textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
+    if (texture.id == 0) {
+        return;
+    }
+
+    Rectangle source = atlasRect.source;
+    if (selected->mirror) {
+        source.x += source.width;
+        source.width = -source.width;
+    }
+
+    const Vector3 scale = scaleFromMatrix(global.matrix);
+    const float pixelsPerMeter = asset->pixelsPerMeter > 0.0f ? asset->pixelsPerMeter : 64.0f;
+    const float pixelW =
+        selected->pixelWidth > 0 ? static_cast<float>(selected->pixelWidth) : std::fabs(source.width);
+    const float pixelH =
+        selected->pixelHeight > 0 ? static_cast<float>(selected->pixelHeight)
+                                  : std::fabs(source.height);
+    const Vector2 size{
+        (pixelW / pixelsPerMeter) * scale.x,
+        (pixelH / pixelsPerMeter) * scale.y,
+    };
+    if (size.x <= 0.0f || size.y <= 0.0f) {
+        return;
+    }
+
+    Color colorFeet = WHITE;
+    Color colorHead = WHITE;
+    if (!unlit && lighting != nullptr && lighting->available && bspTree != nullptr) {
+        const Vector3 feetOrigin{position.x, position.y + 0.05f, position.z};
+        if (auto feet = sampleMapLight(*lighting, *bspTree, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            colorFeet = *feet;
+        }
+
+        const Vector3 headPos{position.x, position.y + size.y, position.z};
+        Vector3 headDir{
+            lens.camera.position.x - headPos.x,
+            0.0f,
+            lens.camera.position.z - headPos.z,
+        };
+        const float headLenSq = Vector3LengthSqr(headDir);
+        if (headLenSq > 1e-8f) {
+            headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
+            if (auto head = sampleMapLight(*lighting, *bspTree, headPos, headDir, 4.0f)) {
+                colorHead = *head;
+            } else {
+                colorHead = colorFeet;
+            }
+        } else {
+            colorHead = colorFeet;
+        }
+    }
+
+    const Matrix matView = MatrixLookAt(lens.camera.position, lens.camera.target, lens.camera.up);
+    Vector3 right{matView.m0, matView.m4, matView.m8};
+    right = Vector3Scale(right, size.x);
+    const Vector3 up{0.0f, size.y, 0.0f};
+
+    const Vector2 origin{size.x * 0.5f, 0.0f};
+    const Vector3 origin3D = Vector3Add(
+        Vector3Scale(Vector3Normalize(right), origin.x),
+        Vector3Scale(Vector3Normalize(up), origin.y));
+
+    Vector3 points[4] = {
+        Vector3Zero(),
+        right,
+        Vector3Add(up, right),
+        up,
+    };
+    for (Vector3& point : points) {
+        point = Vector3Add(Vector3Subtract(point, origin3D), position);
+    }
+
+    const float texW = static_cast<float>(texture.width);
+    const float texH = static_cast<float>(texture.height);
+    const Vector2 texcoords[4] = {
+        {source.x / texW, (source.y + source.height) / texH},
+        {(source.x + source.width) / texW, (source.y + source.height) / texH},
+        {(source.x + source.width) / texW, source.y / texH},
+        {source.x / texW, source.y / texH},
+    };
+    const Color colors[4] = {colorFeet, colorFeet, colorHead, colorHead};
+
+    rlSetTexture(texture.id);
+    rlBegin(RL_QUADS);
+    for (int i = 0; i < 4; ++i) {
+        rlColor4ub(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
+        rlTexCoord2f(texcoords[i].x, texcoords[i].y);
+        rlVertex3f(points[i].x, points[i].y, points[i].z);
+    }
+    rlEnd();
+    rlSetTexture(0);
+}
+
 void registerComponents(flecs::world& world) {
     world.component<LocalTransformation>()
         .add(flecs::With, world.component<GlobalTransformation>());
@@ -309,6 +474,8 @@ void registerComponents(flecs::world& world) {
     world.component<Lens>();
     world.component<Spin>();
     world.component<Model3D>();
+    world.component<SpriteInstance>();
+    world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
     world.component<AnimationClipFlipTest>();
     world.component<ShaderCavity>()
@@ -434,6 +601,63 @@ void registerAnimationClipFlipTestSystem(flecs::world& world) {
         });
 }
 
+void registerSpriteAnimatorSystem(flecs::world& world) {
+    world.system<SpriteAnimator, SpriteInstance>("AdvanceSpriteAnimator")
+        .kind(flecs::OnUpdate)
+        .each([](flecs::iter& it, size_t, SpriteAnimator& animator, SpriteInstance& sprite) {
+            animator.justFinished = false;
+            const bool startedThisFrame = animator.justStarted;
+            animator.justStarted = false;
+
+            if (!animator.playing || animator.clipName.empty() || animator.animPath.empty()) {
+                return;
+            }
+
+            AssetServices& services = it.world().get_mut<AssetServices>();
+            if (services.store == nullptr) {
+                return;
+            }
+
+            const SpriteAnimBank* bank = services.store->getSpriteAnimBank(animator.animPath);
+            if (bank == nullptr) {
+                return;
+            }
+
+            const auto clipIt = bank->clipIndexByName.find(animator.clipName);
+            if (clipIt == bank->clipIndexByName.end() || clipIt->second >= bank->clips.size()) {
+                return;
+            }
+
+            const SpriteAnimClip& clip = bank->clips[clipIt->second];
+            if (clip.frames.empty() || clip.fps <= 0.0f) {
+                return;
+            }
+
+            const bool useLoop = animator.loop;
+            if (!startedThisFrame) {
+                animator.time += GetFrameTime() * animator.speed;
+            }
+
+            const float frameFloat = animator.time * clip.fps;
+            const int frameCount = static_cast<int>(clip.frames.size());
+            int frameIndex = static_cast<int>(std::floor(frameFloat));
+
+            if (useLoop) {
+                frameIndex %= frameCount;
+                if (frameIndex < 0) {
+                    frameIndex += frameCount;
+                }
+            } else if (frameIndex >= frameCount) {
+                frameIndex = frameCount - 1;
+                animator.playing = false;
+                animator.justFinished = true;
+                animator.time = static_cast<float>(frameCount) / clip.fps;
+            }
+
+            sprite.frame = clip.frames[static_cast<std::size_t>(frameIndex)];
+        });
+}
+
 void registerTransformSystems(flecs::world& world) {
     world.system("UpdateGlobalTransforms")
         .kind(flecs::OnUpdate)
@@ -497,6 +721,58 @@ void registerRenderSystems(flecs::world& world) {
                 drawSkeletonOverlay(model.model, &animationPlayer);
                 rlPopMatrix();
             });
+
+            if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                AssetStore& assets = *world.get_mut<AssetServices>().store;
+                const MapLighting* lighting =
+                    world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+                const BspTree* bspTree =
+                    world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
+
+                struct SpriteDrawItem {
+                    const SpriteInstance* sprite = nullptr;
+                    const GlobalTransformation* global = nullptr;
+                    float distSq = 0.0f;
+                };
+                std::vector<SpriteDrawItem> spriteDrawList;
+                spriteDrawList.reserve(32);
+                context.worldSpriteQuery.each(
+                    [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
+                        if (!spriteEntity.has<WorldSpace>()) {
+                            return;
+                        }
+                        const Vector3 position = translationFromMatrix(global.matrix);
+                        const float dx = position.x - lens.camera.position.x;
+                        const float dy = position.y - lens.camera.position.y;
+                        const float dz = position.z - lens.camera.position.z;
+                        spriteDrawList.push_back(SpriteDrawItem{
+                            &sprite,
+                            &global,
+                            dx * dx + dy * dy + dz * dz,
+                        });
+                    });
+                std::sort(
+                    spriteDrawList.begin(),
+                    spriteDrawList.end(),
+                    [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
+                        return a.distSq > b.distSq;
+                    });
+
+                BeginBlendMode(BLEND_ALPHA);
+                rlDisableDepthMask();
+                for (const SpriteDrawItem& item : spriteDrawList) {
+                    drawWorldSprite(
+                        *item.sprite,
+                        *item.global,
+                        lens,
+                        assets,
+                        lighting,
+                        bspTree,
+                        unlit);
+                }
+                rlEnableDepthMask();
+                EndBlendMode();
+            }
 
             if (world.has<DebugUiState>() && world.has<MapBsp>()) {
                 const DebugUiState& debugUi = world.get<DebugUiState>();
@@ -593,7 +869,19 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         .set<Model3D>({loaded->model, WHITE})
         .set<MapLightmapState>(lightmapState);
 
-    world.set<MapBsp>(MapBsp{std::move(loaded->bsp)});
+    MapBsp mapBsp{std::move(loaded->bsp)};
+    Color ambientColor{
+        static_cast<unsigned char>(std::clamp(loaded->meta.ambient.x * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(loaded->meta.ambient.y * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(loaded->meta.ambient.z * 255.0f, 0.0f, 255.0f)),
+        255,
+    };
+    world.set<MapLighting>(buildMapLighting(
+        mapBsp.tree,
+        std::move(loaded->rad),
+        std::move(loaded->lightmapAtlasImages),
+        ambientColor));
+    world.set<MapBsp>(std::move(mapBsp));
 
     CharacterMotor motor{};
     FirstPersonController controller{};
@@ -624,41 +912,36 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         }
     }
 
-    constexpr const char* kHumanAsset = "human01/human01";
-    if (assets.hasGeo(kHumanAsset) && assets.hasAnim(kHumanAsset)) {
-        const AnimBank* animBank = assets.getAnimBank(kHumanAsset);
-        if (animBank != nullptr &&
-            animBank->clipIndexByName.find("wave") != animBank->clipIndexByName.end()) {
-            const Model humanSource = assets.getGeoModel(kHumanAsset);
-            Model humanModel = cloneGeoModelInstance(humanSource);
-            if (humanModel.meshCount > 0) {
-                if (humanModel.materials != nullptr) {
-                    const Material male1591Material = assets.resolveMaterial("male1591");
-                    const Material highPolyMaterial = assets.resolveMaterial("high-poly");
-                    for (int meshIndex = 0; meshIndex < humanModel.meshCount; ++meshIndex) {
-                        humanModel.materials[meshIndex] =
-                            meshIndex == 0 ? male1591Material : highPolyMaterial;
-                    }
-                }
+    if (assets.hasSprite("usmc/umca")) {
+        const struct {
+            const char* name;
+            Vector3 position;
+            float facingYaw;
+            const char* clip;
+            bool loop;
+        } soldiers[] = {
+            {"MapSpriteUmcaA", {-2.0f, 0.0f, -2.0f}, 0.0f, "walk", true},
+            {"MapSpriteUmcaB", {2.0f, 0.0f, -2.0f}, PI * 0.5f, "walk", true},
+            {"MapSpriteUmcaC", {0.0f, 0.0f, 2.0f}, PI, "fall", false},
+        };
+        for (const auto& soldier : soldiers) {
+            SpriteAnimator animator{};
+            animator.animPath = "usmc/umca";
+            animator.play(soldier.clip, soldier.loop);
 
-                AnimationPlayer humanAnimation{};
-                humanAnimation.animBankPath = kHumanAsset;
-                humanAnimation.play("wave", true);
-
-                world.entity("MapHuman01")
-                    .add<WorldSpace>()
-                    .set<LocalTransformation>({
-                        .position = {2.0f, 0.0f, -2.0f},
-                        .scale = {0.1f, 0.1f, 0.1f},
-                        .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-                    })
-                    .set<Spin>({
-                        .axis = {0.0f, 1.0f, 0.0f},
-                        .speed = 0.4f,
-                    })
-                    .set<Model3D>({humanModel, WHITE})
-                    .set<AnimationPlayer>(humanAnimation);
-            }
+            world.entity(soldier.name)
+                .add<WorldSpace>()
+                .set<LocalTransformation>({
+                    .position = soldier.position,
+                    .scale = {1.0f, 1.0f, 1.0f},
+                    .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
+                })
+                .set<SpriteInstance>({
+                    .sprite = "usmc/umca",
+                    .frame = "A",
+                    .facingYaw = soldier.facingYaw,
+                })
+                .set<SpriteAnimator>(animator);
         }
     }
 }
@@ -812,11 +1095,13 @@ void registerRenderModule(
     world.set<AssetServices>(AssetServices{&assets});
     world.set<RenderContext>({
         world.query<Model3D, GlobalTransformation>(),
+        world.query<SpriteInstance, GlobalTransformation>(),
     });
 
     registerSpinSystem(world);
     registerAnimationSystems(world);
     registerAnimationClipFlipTestSystem(world);
+    registerSpriteAnimatorSystem(world);
     registerTransformSystems(world);
     registerRenderSystems(world);
 

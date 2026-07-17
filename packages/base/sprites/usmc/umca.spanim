@@ -1,0 +1,9 @@
+(sprite-anim
+  (clip "walk"
+    (fps 8)
+    (loop 1)
+    (frames "A" "B" "C" "D" "E" "F" "G"))
+  (clip "fall"
+    (fps 10)
+    (loop 0)
+    (frames "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W")))

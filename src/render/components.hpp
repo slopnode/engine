@@ -48,4 +48,10 @@ struct AnimationClipFlipTest {
     std::string clipB = "default";
 };
 
+struct SpriteInstance {
+    std::string sprite;
+    std::string frame = "A";
+    float facingYaw = 0.0f;
+};
+
 }
