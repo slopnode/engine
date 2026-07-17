@@ -2,6 +2,7 @@
 
 #include "map/brush.hpp"
 #include "map/bsp.hpp"
+#include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_compile.hpp"
 #include "map/lightmap.hpp"
@@ -109,6 +110,8 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
                    s7_is_number(s7_cadr(rest))) {
             face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
+        } else if (std::strcmp(tag, "nodraw") == 0) {
+            face.nodraw = true;
         }
     }
 
@@ -163,8 +166,31 @@ s7_pointer g_uv_shift(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "uv-shift", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
 }
 
+s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "nodraw", s7_nil(sc));
+}
+
 s7_pointer g_faces(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "faces", args);
+}
+
+s7_pointer g_face(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "face", args);
+}
+
+s7_pointer g_verts(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "verts", args);
+}
+
+s7_pointer g_v(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "v", 0, args, "x y z");
+    }
+    return makeTaggedList(
+        sc,
+        "v",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
 }
 
 s7_pointer makeSideForm(s7_scheme* sc, const char* side, s7_pointer args) {
@@ -267,6 +293,122 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
+    if (!s7_is_pair(form) || !s7_is_symbol(s7_car(form))) {
+        return false;
+    }
+    if (std::strcmp(s7_symbol_name(s7_car(form)), "face") != 0) {
+        return false;
+    }
+
+    for (s7_pointer cursor = s7_cdr(form); s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            continue;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer rest = s7_cdr(clause);
+        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), face.id);
+        } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), face.material);
+        } else if (std::strcmp(tag, "uv-shift") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_number(s7_car(rest)) &&
+                   s7_is_number(s7_cadr(rest))) {
+            face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
+        } else if (std::strcmp(tag, "nodraw") == 0) {
+            face.nodraw = true;
+        } else if (std::strcmp(tag, "verts") == 0) {
+            for (s7_pointer vertCursor = rest; s7_is_pair(vertCursor); vertCursor = s7_cdr(vertCursor)) {
+                s7_pointer vert = s7_car(vertCursor);
+                if (!s7_is_pair(vert) || !s7_is_symbol(s7_car(vert))) {
+                    continue;
+                }
+                if (std::strcmp(s7_symbol_name(s7_car(vert)), "v") != 0) {
+                    continue;
+                }
+                s7_pointer coords = s7_cdr(vert);
+                if (!s7_is_pair(coords) || !s7_is_pair(s7_cdr(coords)) || !s7_is_pair(s7_cddr(coords))) {
+                    continue;
+                }
+                Vector3 point{};
+                if (readVec3(sc, s7_car(coords), s7_cadr(coords), s7_caddr(coords), point)) {
+                    face.vertices.push_back(point);
+                }
+            }
+        }
+    }
+    return face.vertices.size() >= 3;
+}
+
+s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
+    if (g_builder == nullptr) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "brush-convex called outside map load")));
+    }
+
+    std::string id;
+    std::string defaultMaterial = "default/cube";
+    BrushRole role = BrushRole::Hull;
+    std::vector<BrushFace> faces;
+
+    for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            continue;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer rest = s7_cdr(clause);
+        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), id);
+        } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), defaultMaterial);
+        } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
+            std::string roleName;
+            if (readString(sc, s7_car(rest), roleName)) {
+                if (roleName == "detail") {
+                    role = BrushRole::Detail;
+                } else if (roleName == "hull") {
+                    role = BrushRole::Hull;
+                }
+            }
+        } else if (std::strcmp(tag, "faces") == 0) {
+            for (s7_pointer faceCursor = rest; s7_is_pair(faceCursor); faceCursor = s7_cdr(faceCursor)) {
+                BrushFace face{};
+                if (parseConvexFace(sc, s7_car(faceCursor), face)) {
+                    if (face.material.empty()) {
+                        face.material = defaultMaterial;
+                    }
+                    faces.push_back(std::move(face));
+                }
+            }
+        }
+    }
+
+    if (id.empty() || faces.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "brush-convex requires id and faces")));
+    }
+
+    std::string error;
+    auto brush = makeBrushConvex(std::move(id), std::move(faces), role, error);
+    if (!brush) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, error.c_str())));
+    }
+    g_builder->brushes.push_back(std::move(*brush));
+    return s7_t(sc);
+}
+
 void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
     s7_define_function(sc, "mins", g_mins, 3, 0, false, "(mins x y z)");
@@ -274,7 +416,11 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
     s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
+    s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
     s7_define_function(sc, "faces", g_faces, 0, 0, true, "(faces face...)");
+    s7_define_function(sc, "face", g_face, 0, 0, true, "(face props...)");
+    s7_define_function(sc, "verts", g_verts, 0, 0, true, "(verts (v x y z)...)");
+    s7_define_function(sc, "v", g_v, 3, 0, false, "(v x y z)");
     s7_define_function(sc, "top", g_top, 0, 0, true, "(top props...)");
     s7_define_function(sc, "bottom", g_bottom, 0, 0, true, "(bottom props...)");
     s7_define_function(sc, "north", g_north, 0, 0, true, "(north props...)");
@@ -282,6 +428,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "east", g_east, 0, 0, true, "(east props...)");
     s7_define_function(sc, "west", g_west, 0, 0, true, "(west props...)");
     s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
+    s7_define_function(sc, "brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)");
 }
 
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
@@ -432,6 +579,22 @@ std::optional<LoadedMap> loadAndCompileMap(
     if (!bsp) {
         TraceLog(LOG_WARNING, "MAP: failed to read bsp for '%s'", virtualPath.c_str());
         return std::nullopt;
+    }
+
+    const MapHullAnalysis analysis = analyzeMapHull(*bsp, *brushes);
+    if (!analysis.sealed) {
+        TraceLog(
+            LOG_WARNING,
+            "MAP: hull is not sealed; skipping auto-nodraw (authored nodraw only)");
+    } else {
+        applyInferredNodraw(*brushes, analysis);
+        TraceLog(
+            LOG_INFO,
+            "MAP: auto-nodraw faces=%d",
+            static_cast<int>(analysis.inferredNodrawFaceIds.size()));
+        for (const std::string& warning : analysis.detailOutsideWarnings) {
+            TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
+        }
     }
 
     RadFile rad{};

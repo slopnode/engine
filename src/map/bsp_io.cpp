@@ -87,6 +87,27 @@ std::uint32_t internString(
     return index;
 }
 
+void writePolygon(BinaryWriter& writer, const std::vector<Vector3>& verts) {
+    writer.writePod(static_cast<std::uint32_t>(verts.size()));
+    for (const Vector3& v : verts) {
+        writer.writePod(v);
+    }
+}
+
+bool readPolygon(BinaryReader& reader, std::vector<Vector3>& verts) {
+    std::uint32_t count = 0;
+    if (!reader.readPod(count)) {
+        return false;
+    }
+    verts.resize(count);
+    for (Vector3& v : verts) {
+        if (!reader.readPod(v)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
@@ -103,7 +124,7 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
 
     writer.writePod(static_cast<std::uint32_t>(tree.nodes.size()));
     for (const BspNode& node : tree.nodes) {
-        writer.writePod(node.plane.axis);
+        writer.writePod(node.plane.normal);
         writer.writePod(node.plane.distance);
         writer.writePod(node.front);
         writer.writePod(node.back);
@@ -115,6 +136,10 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
         writer.writePod(solid);
         writer.writePod(leaf.mins);
         writer.writePod(leaf.maxs);
+        writer.writePod(static_cast<std::uint32_t>(leaf.faces.size()));
+        for (const auto& face : leaf.faces) {
+            writePolygon(writer, face);
+        }
         writer.writePod(static_cast<std::uint32_t>(leaf.neighbors.size()));
         for (std::int32_t neighbor : leaf.neighbors) {
             writer.writePod(neighbor);
@@ -129,9 +154,7 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
     for (const BspSurfaceFace& face : tree.surfaceFaces) {
         idIndices.push_back(internString(stringTable, strings, face.id));
         materialIndices.push_back(internString(stringTable, strings, face.material));
-        for (const Vector3& corner : face.corners) {
-            writer.writePod(corner);
-        }
+        writePolygon(writer, face.vertices);
         writer.writePod(face.normal);
         writer.writePod(face.emptyLeaf);
         writer.writePod(face.uvShiftPixels);
@@ -177,7 +200,7 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
     }
     tree.nodes.resize(nodeCount);
     for (BspNode& node : tree.nodes) {
-        if (!reader.readPod(node.plane.axis) || !reader.readPod(node.plane.distance)
+        if (!reader.readPod(node.plane.normal) || !reader.readPod(node.plane.distance)
             || !reader.readPod(node.front) || !reader.readPod(node.back)) {
             return std::nullopt;
         }
@@ -190,12 +213,22 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
     tree.leaves.resize(leafCount);
     for (BspLeaf& leaf : tree.leaves) {
         std::uint8_t solid = 0;
+        std::uint32_t faceCount = 0;
         std::uint32_t neighborCount = 0;
         if (!reader.readPod(solid) || !reader.readPod(leaf.mins) || !reader.readPod(leaf.maxs)
-            || !reader.readPod(neighborCount)) {
+            || !reader.readPod(faceCount)) {
             return std::nullopt;
         }
         leaf.solid = solid != 0;
+        leaf.faces.resize(faceCount);
+        for (auto& face : leaf.faces) {
+            if (!readPolygon(reader, face)) {
+                return std::nullopt;
+            }
+        }
+        if (!reader.readPod(neighborCount)) {
+            return std::nullopt;
+        }
         leaf.neighbors.resize(neighborCount);
         for (std::int32_t& neighbor : leaf.neighbors) {
             if (!reader.readPod(neighbor)) {
@@ -213,12 +246,8 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
     tree.surfaceFaces.resize(faceCount);
     for (std::uint32_t i = 0; i < faceCount; ++i) {
         BspSurfaceFace& face = tree.surfaceFaces[i];
-        for (Vector3& corner : face.corners) {
-            if (!reader.readPod(corner)) {
-                return std::nullopt;
-            }
-        }
-        if (!reader.readPod(face.normal) || !reader.readPod(face.emptyLeaf)
+        if (!readPolygon(reader, face.vertices)
+            || !reader.readPod(face.normal) || !reader.readPod(face.emptyLeaf)
             || !reader.readPod(face.uvShiftPixels) || !reader.readPod(idIndices[i])
             || !reader.readPod(materialIndices[i])) {
             return std::nullopt;

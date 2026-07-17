@@ -6,6 +6,7 @@
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
 #include "render/components.hpp"
+#include "ui/ui_state.hpp"
 
 #include <raylib.h>
 #include <raymath.h>
@@ -78,8 +79,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             motor.wishX = wish.x;
             motor.wishZ = wish.z;
 
+            const bool noclip =
+                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
             const float dt = GetFrameTime();
-            physics.world->applyPlayerInput(motor, motor.wishX, motor.wishZ, dt);
+            physics.world->applyPlayerInput(motor, motor.wishX, motor.wishZ, dt, noclip);
         });
 
     world.system("PhysicsStep")
@@ -94,7 +97,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 return;
             }
 
-            physics.world->update(GetFrameTime());
+            const bool noclip =
+                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
+            physics.world->update(GetFrameTime(), noclip);
 
             const flecs::entity camera = it.world().lookup("MainCamera");
             if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<Lens>() ||

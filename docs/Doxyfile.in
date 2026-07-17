@@ -6,9 +6,9 @@ CREATE_SUBDIRS         = NO
 OUTPUT_LANGUAGE        = English
 
 INPUT                  = "@DOXYGEN_INPUT_DIRECTORY@" \
-                         "@DOXYGEN_MAINPAGE@"
+                         "@CMAKE_SOURCE_DIR@/docs"
 RECURSIVE              = YES
-FILE_PATTERNS          = *.hpp
+FILE_PATTERNS          = *.hpp *.md
 EXCLUDE                =
 EXCLUDE_PATTERNS       =
 

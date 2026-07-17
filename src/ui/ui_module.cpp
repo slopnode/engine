@@ -319,6 +319,7 @@ void drawMainMenuBar(
         ImGui::MenuItem("BSP Surface Faces", nullptr, &debugUi.showBspSurfaceFaces);
         ImGui::MenuItem("BSP Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
         ImGui::MenuItem("Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
+        ImGui::MenuItem("Noclip", nullptr, &debugUi.noclip);
         ImGui::EndMenu();
     }
 

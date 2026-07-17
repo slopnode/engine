@@ -24,13 +24,16 @@ CsgCompileResult compileBrushesToGeo(
 
     for (const Brush& brush : brushes) {
         for (const BrushFace& face : brush.faces) {
+            if (face.nodraw || face.vertices.size() < 3) {
+                continue;
+            }
             GeoPrimitive primitive;
             primitive.name = face.id;
             primitive.material = face.material;
             primitive.vertexOffset = result.buffer.positions.size();
-            primitive.vertexCount = 4;
+            primitive.vertexCount = face.vertices.size();
             primitive.indexOffset = result.buffer.indices.size();
-            primitive.indexCount = 6;
+            primitive.indexCount = (face.vertices.size() - 2) * 3;
 
             MaterialUvInfo materialUv{};
             if (resolveMaterialUv) {
@@ -51,11 +54,11 @@ CsgCompileResult compileBrushesToGeo(
             float uMax = 0.0f;
             float vMin = 0.0f;
             float vMax = 0.0f;
-            for (std::size_t i = 0; i < face.corners.size(); ++i) {
+            for (std::size_t i = 0; i < face.vertices.size(); ++i) {
                 const float u =
-                    face.corners[i].x * uAxis.x + face.corners[i].y * uAxis.y + face.corners[i].z * uAxis.z;
+                    face.vertices[i].x * uAxis.x + face.vertices[i].y * uAxis.y + face.vertices[i].z * uAxis.z;
                 const float v =
-                    face.corners[i].x * vAxis.x + face.corners[i].y * vAxis.y + face.corners[i].z * vAxis.z;
+                    face.vertices[i].x * vAxis.x + face.vertices[i].y * vAxis.y + face.vertices[i].z * vAxis.z;
                 if (i == 0) {
                     uMin = uMax = u;
                     vMin = vMax = v;
@@ -69,7 +72,7 @@ CsgCompileResult compileBrushesToGeo(
             const float uSpan = uMax - uMin > 1e-5f ? uMax - uMin : 1.0f;
             const float vSpan = vMax - vMin > 1e-5f ? vMax - vMin : 1.0f;
 
-            for (const Vector3& corner : face.corners) {
+            for (const Vector3& corner : face.vertices) {
                 result.buffer.positions.push_back(corner);
                 result.buffer.normals.push_back(face.normal);
                 result.buffer.texcoords.push_back(
@@ -90,12 +93,11 @@ CsgCompileResult compileBrushesToGeo(
             }
 
             const std::uint32_t base = static_cast<std::uint32_t>(primitive.vertexOffset);
-            result.buffer.indices.push_back(base + 0);
-            result.buffer.indices.push_back(base + 1);
-            result.buffer.indices.push_back(base + 2);
-            result.buffer.indices.push_back(base + 0);
-            result.buffer.indices.push_back(base + 2);
-            result.buffer.indices.push_back(base + 3);
+            for (std::uint32_t i = 1; i + 1 < static_cast<std::uint32_t>(face.vertices.size()); ++i) {
+                result.buffer.indices.push_back(base);
+                result.buffer.indices.push_back(base + i);
+                result.buffer.indices.push_back(base + i + 1);
+            }
 
             result.asset.primitives.push_back(std::move(primitive));
         }

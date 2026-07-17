@@ -3,6 +3,7 @@
 #include <raylib.h>
 
 #include <array>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,8 +28,9 @@ struct BrushFace {
     std::string id;
     std::string material;
     Vector3 normal{};
-    std::array<Vector3, 4> corners{};
+    std::vector<Vector3> vertices;
     Vector2 uvShiftPixels{};
+    bool nodraw = false;
 };
 
 struct Brush {
@@ -42,7 +44,16 @@ struct Brush {
 const char* brushBoxSideName(BrushBoxSide side);
 const char* brushRoleName(BrushRole role);
 
-Vector3 faceNormalFromCorners(const std::array<Vector3, 4>& corners);
+Vector3 faceNormalFromVertices(const std::vector<Vector3>& vertices);
+void recomputeBrushBounds(Brush& brush);
+bool pointInsideBrush(Vector3 point, const Brush& brush, float epsilon = 1e-4f);
+bool pointInsideBrushInclusive(Vector3 point, const Brush& brush, float epsilon = 1e-4f);
+
+struct BrushConvexError {
+    std::string message;
+};
+
+std::optional<BrushConvexError> validateBrushConvex(const Brush& brush);
 
 Brush makeBrushBox(
     std::string id,
@@ -51,5 +62,13 @@ Brush makeBrushBox(
     const std::string& defaultMaterial,
     const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides,
     BrushRole role = BrushRole::Hull);
+
+std::optional<Brush> makeBrushConvex(
+    std::string id,
+    std::vector<BrushFace> faces,
+    BrushRole role,
+    std::string& errorOut);
+
+std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& vertices);
 
 }

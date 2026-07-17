@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string_view>
+#include <vector>
 
 #include <rlgl.h>
 
@@ -87,76 +88,98 @@ Color bspLeafDebugColor(std::int32_t leafIndex, bool solid, unsigned char alpha)
     return color;
 }
 
-void drawDebugQuad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color) {
-    DrawTriangle3D(a, b, c, color);
-    DrawTriangle3D(a, c, d, color);
-    DrawTriangle3D(a, d, c, color);
-    DrawTriangle3D(a, c, b, color);
+void drawDebugPolygon(const std::vector<Vector3>& verts, Color color) {
+    if (verts.size() < 3) {
+        return;
+    }
+    for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+        DrawTriangle3D(verts[0], verts[i], verts[i + 1], color);
+        DrawTriangle3D(verts[0], verts[i + 1], verts[i], color);
+    }
+}
+
+void drawDebugPolygonOutline(const std::vector<Vector3>& verts, Color color) {
+    if (verts.size() < 2) {
+        return;
+    }
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        DrawLine3D(verts[i], verts[(i + 1) % verts.size()], color);
+    }
 }
 
 void drawBspLeafFaces(const BspLeaf& leaf, Color color) {
-    const Vector3& mn = leaf.mins;
-    const Vector3& mx = leaf.maxs;
-    const Vector3 p000{mn.x, mn.y, mn.z};
-    const Vector3 p001{mn.x, mn.y, mx.z};
-    const Vector3 p010{mn.x, mx.y, mn.z};
-    const Vector3 p011{mn.x, mx.y, mx.z};
-    const Vector3 p100{mx.x, mn.y, mn.z};
-    const Vector3 p101{mx.x, mn.y, mx.z};
-    const Vector3 p110{mx.x, mx.y, mn.z};
-    const Vector3 p111{mx.x, mx.y, mx.z};
-    drawDebugQuad(p000, p010, p011, p001, color);
-    drawDebugQuad(p100, p101, p111, p110, color);
-    drawDebugQuad(p000, p001, p101, p100, color);
-    drawDebugQuad(p010, p110, p111, p011, color);
-    drawDebugQuad(p000, p100, p110, p010, color);
-    drawDebugQuad(p001, p011, p111, p101, color);
+    for (const auto& face : leaf.faces) {
+        drawDebugPolygon(face, color);
+    }
 }
 
-bool portalQuadBetweenLeaves(
-    const BspLeaf& a,
-    const BspLeaf& b,
-    Vector3& q0,
-    Vector3& q1,
-    Vector3& q2,
-    Vector3& q3) {
-    constexpr float kEps = 1e-4f;
-    for (int axis = 0; axis < 3; ++axis) {
-        const int u = (axis + 1) % 3;
-        const int v = (axis + 2) % 3;
-        const float* aMins = &a.mins.x;
-        const float* aMaxs = &a.maxs.x;
-        const float* bMins = &b.mins.x;
-        const float* bMaxs = &b.maxs.x;
+bool portalPolygonBetweenLeaves(const BspLeaf& a, const BspLeaf& b, std::vector<Vector3>& out) {
+    constexpr float kEps = 1e-3f;
+    auto normalOf = [](const std::vector<Vector3>& verts) -> Vector3 {
+        if (verts.size() < 3) {
+            return {};
+        }
+        Vector3 accum{};
+        for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+            const Vector3 e0{
+                verts[i].x - verts[0].x,
+                verts[i].y - verts[0].y,
+                verts[i].z - verts[0].z,
+            };
+            const Vector3 e1{
+                verts[i + 1].x - verts[0].x,
+                verts[i + 1].y - verts[0].y,
+                verts[i + 1].z - verts[0].z,
+            };
+            accum.x += e0.y * e1.z - e0.z * e1.y;
+            accum.y += e0.z * e1.x - e0.x * e1.z;
+            accum.z += e0.x * e1.y - e0.y * e1.x;
+        }
+        const float len = std::sqrt(accum.x * accum.x + accum.y * accum.y + accum.z * accum.z);
+        if (len < 1e-8f) {
+            return {};
+        }
+        return {accum.x / len, accum.y / len, accum.z / len};
+    };
 
-        float plane = 0.0f;
-        if (std::fabs(aMaxs[axis] - bMins[axis]) <= kEps) {
-            plane = aMaxs[axis];
-        } else if (std::fabs(bMaxs[axis] - aMins[axis]) <= kEps) {
-            plane = bMaxs[axis];
-        } else {
+    for (const auto& fa : a.faces) {
+        const Vector3 na = normalOf(fa);
+        if (na.x == 0.0f && na.y == 0.0f && na.z == 0.0f) {
             continue;
         }
-
-        const float u0 = std::max(aMins[u], bMins[u]);
-        const float u1 = std::min(aMaxs[u], bMaxs[u]);
-        const float v0 = std::max(aMins[v], bMins[v]);
-        const float v1 = std::min(aMaxs[v], bMaxs[v]);
-        if (u1 - u0 <= kEps || v1 - v0 <= kEps) {
-            continue;
+        for (const auto& fb : b.faces) {
+            const Vector3 nb = normalOf(fb);
+            const float align = na.x * nb.x + na.y * nb.y + na.z * nb.z;
+            if (align > -0.99f) {
+                continue;
+            }
+            Vector3 ca{};
+            for (const Vector3& v : fa) {
+                ca.x += v.x;
+                ca.y += v.y;
+                ca.z += v.z;
+            }
+            ca.x /= static_cast<float>(fa.size());
+            ca.y /= static_cast<float>(fa.size());
+            ca.z /= static_cast<float>(fa.size());
+            Vector3 cb{};
+            for (const Vector3& v : fb) {
+                cb.x += v.x;
+                cb.y += v.y;
+                cb.z += v.z;
+            }
+            cb.x /= static_cast<float>(fb.size());
+            cb.y /= static_cast<float>(fb.size());
+            cb.z /= static_cast<float>(fb.size());
+            const float dx = ca.x - cb.x;
+            const float dy = ca.y - cb.y;
+            const float dz = ca.z - cb.z;
+            if (std::fabs(dx * na.x + dy * na.y + dz * na.z) > kEps * 8.0f) {
+                continue;
+            }
+            out = fa;
+            return true;
         }
-
-        auto setCorner = [&](Vector3& out, float uu, float vv) {
-            float* p = &out.x;
-            p[axis] = plane;
-            p[u] = uu;
-            p[v] = vv;
-        };
-        setCorner(q0, u0, v0);
-        setCorner(q1, u1, v0);
-        setCorner(q2, u1, v1);
-        setCorner(q3, u0, v1);
-        return true;
     }
     return false;
 }
@@ -218,17 +241,14 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
                 if (other.solid) {
                     continue;
                 }
-                Vector3 q0{};
-                Vector3 q1{};
-                Vector3 q2{};
-                Vector3 q3{};
-                if (!portalQuadBetweenLeaves(leaf, other, q0, q1, q2, q3)) {
+                std::vector<Vector3> portal;
+                if (!portalPolygonBetweenLeaves(leaf, other, portal)) {
                     continue;
                 }
                 const bool involvesCurrent = i == currentLeaf || neighbor == currentLeaf;
                 const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
                                                          : Color{255, 80, 220, 100};
-                drawDebugQuad(q0, q1, q2, q3, portalColor);
+                drawDebugPolygon(portal, portalColor);
             }
         }
     }
@@ -242,9 +262,8 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
             const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 90);
             const Color outline = face.emptyLeaf == currentLeaf ? Color{40, 255, 120, 255}
                                                                : Color{255, 255, 255, 220};
-            drawDebugQuad(face.corners[0], face.corners[1], face.corners[2], face.corners[3], fill);
-            drawDebugQuadOutline(
-                face.corners[0], face.corners[1], face.corners[2], face.corners[3], outline);
+            drawDebugPolygon(face.vertices, fill);
+            drawDebugPolygonOutline(face.vertices, outline);
         }
     }
 

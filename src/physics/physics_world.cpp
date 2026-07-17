@@ -5,7 +5,7 @@
 
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
-#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/RegisterTypes.h>
@@ -182,22 +182,31 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
     JPH::BodyInterface& bodies = system_->GetBodyInterface();
 
     for (const Brush& brush : brushes) {
-        const float hx = 0.5f * (brush.maxs.x - brush.mins.x);
-        const float hy = 0.5f * (brush.maxs.y - brush.mins.y);
-        const float hz = 0.5f * (brush.maxs.z - brush.mins.z);
-        if (hx <= 0.0f || hy <= 0.0f || hz <= 0.0f) {
+        JPH::Array<JPH::Vec3> points;
+        for (const BrushFace& face : brush.faces) {
+            for (const Vector3& v : face.vertices) {
+                points.push_back(JPH::Vec3(v.x, v.y, v.z));
+            }
+        }
+        if (points.size() < 4) {
             continue;
         }
 
-        const JPH::Vec3 halfExtents(hx, hy, hz);
-        const JPH::Vec3 center(
-            0.5f * (brush.mins.x + brush.maxs.x),
-            0.5f * (brush.mins.y + brush.maxs.y),
-            0.5f * (brush.mins.z + brush.maxs.z));
+        JPH::ConvexHullShapeSettings hullSettings(points);
+        hullSettings.mMaxConvexRadius = 0.05f;
+        auto result = hullSettings.Create();
+        if (result.HasError()) {
+            TraceLog(
+                LOG_WARNING,
+                "PHYSICS: convex hull failed for brush '%s': %s",
+                brush.id.c_str(),
+                result.GetError().c_str());
+            continue;
+        }
 
         JPH::BodyCreationSettings settings(
-            new JPH::BoxShape(halfExtents),
-            JPH::RVec3(center),
+            result.Get(),
+            JPH::RVec3::sZero(),
             JPH::Quat::sIdentity(),
             JPH::EMotionType::Static,
             Layers::NON_MOVING);
@@ -238,7 +247,8 @@ void PhysicsWorld::applyPlayerInput(
     const CharacterMotor& motor,
     float wishX,
     float wishZ,
-    float dt) {
+    float dt,
+    bool noclip) {
     if (character_ == nullptr) {
         return;
     }
@@ -248,6 +258,11 @@ void PhysicsWorld::applyPlayerInput(
         wish = wish.Normalized() * motor.moveSpeed;
     } else {
         wish = JPH::Vec3::sZero();
+    }
+
+    if (noclip) {
+        character_->SetLinearVelocity(wish);
+        return;
     }
 
     const JPH::Vec3 currentVertical =
@@ -267,18 +282,27 @@ void PhysicsWorld::applyPlayerInput(
     character_->SetLinearVelocity(newVelocity);
 }
 
-void PhysicsWorld::update(float dt) {
+void PhysicsWorld::update(float dt, bool noclip) {
     if (character_ != nullptr) {
-        JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
-        character_->ExtendedUpdate(
-            dt,
-            -character_->GetUp() * system_->GetGravity().Length(),
-            updateSettings,
-            system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
-            system_->GetDefaultLayerFilter(Layers::MOVING),
-            {},
-            {},
-            *tempAllocator_);
+        if (noclip) {
+            const JPH::RVec3 pos = character_->GetPosition();
+            const JPH::Vec3 vel = character_->GetLinearVelocity();
+            character_->SetPosition(JPH::RVec3(
+                pos.GetX() + static_cast<double>(vel.GetX()) * static_cast<double>(dt),
+                pos.GetY(),
+                pos.GetZ() + static_cast<double>(vel.GetZ()) * static_cast<double>(dt)));
+        } else {
+            JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+            character_->ExtendedUpdate(
+                dt,
+                -character_->GetUp() * system_->GetGravity().Length(),
+                updateSettings,
+                system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+                system_->GetDefaultLayerFilter(Layers::MOVING),
+                {},
+                {},
+                *tempAllocator_);
+        }
     }
 
     system_->Update(dt, 1, tempAllocator_.get(), jobSystem_.get());

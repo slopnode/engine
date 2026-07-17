@@ -79,9 +79,9 @@ private:
 float faceExtent(const LightmapFace& face, Vector3 axis) {
     float minV = 0.0f;
     float maxV = 0.0f;
-    for (std::size_t i = 0; i < face.corners.size(); ++i) {
+    for (std::size_t i = 0; i < face.vertices.size(); ++i) {
         const float value =
-            face.corners[i].x * axis.x + face.corners[i].y * axis.y + face.corners[i].z * axis.z;
+            face.vertices[i].x * axis.x + face.vertices[i].y * axis.y + face.vertices[i].z * axis.z;
         if (i == 0) {
             minV = maxV = value;
         } else {
@@ -98,11 +98,14 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
     std::vector<LightmapFace> faces;
     for (const Brush& brush : brushes) {
         for (const BrushFace& brushFace : brush.faces) {
+            if (brushFace.nodraw) {
+                continue;
+            }
             LightmapFace face;
             face.id = brushFace.id;
             face.material = brushFace.material;
             face.normal = brushFace.normal;
-            face.corners = brushFace.corners;
+            face.vertices = brushFace.vertices;
             face.uvShiftPixels = brushFace.uvShiftPixels;
             faces.push_back(std::move(face));
         }

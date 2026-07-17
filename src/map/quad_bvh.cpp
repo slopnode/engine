@@ -1,5 +1,7 @@
 #include "map/quad_bvh.hpp"
 
+#include "map/brush.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -43,11 +45,11 @@ Vector3 max3(Vector3 a, Vector3 b) {
 }
 
 void primBounds(QuadBvh::Prim& prim) {
-    prim.mins = prim.corners[0];
-    prim.maxs = prim.corners[0];
-    for (int i = 1; i < 4; ++i) {
-        prim.mins = min3(prim.mins, prim.corners[i]);
-        prim.maxs = max3(prim.maxs, prim.corners[i]);
+    prim.mins = prim.tri[0];
+    prim.maxs = prim.tri[0];
+    for (int i = 1; i < 3; ++i) {
+        prim.mins = min3(prim.mins, prim.tri[i]);
+        prim.maxs = max3(prim.maxs, prim.tri[i]);
     }
     prim.centroid = scale3(add3(prim.mins, prim.maxs), 0.5f);
 }
@@ -84,29 +86,6 @@ bool rayTriangle(
         return false;
     }
     outT = t;
-    return true;
-}
-
-bool rayQuad(
-    Vector3 origin,
-    Vector3 direction,
-    const std::array<Vector3, 4>& corners,
-    float maxDistance,
-    float& outT) {
-    float t0 = 0.0f;
-    float t1 = 0.0f;
-    const bool hit0 = rayTriangle(origin, direction, corners[0], corners[1], corners[2], maxDistance, t0);
-    const bool hit1 = rayTriangle(origin, direction, corners[0], corners[2], corners[3], maxDistance, t1);
-    if (!hit0 && !hit1) {
-        return false;
-    }
-    outT = std::numeric_limits<float>::max();
-    if (hit0) {
-        outT = std::min(outT, t0);
-    }
-    if (hit1) {
-        outT = std::min(outT, t1);
-    }
     return true;
 }
 
@@ -206,21 +185,22 @@ std::int32_t buildRecursive(
 
 } // namespace
 
-QuadBvh buildQuadBvh(
-    const std::array<Vector3, 4>* corners,
+QuadBvh buildTriangleBvh(
+    const std::array<Vector3, 3>* tris,
     const Vector3* normals,
+    const std::int32_t* faceIndices,
     std::size_t count) {
     QuadBvh bvh;
-    if (corners == nullptr || normals == nullptr || count == 0) {
+    if (tris == nullptr || normals == nullptr || faceIndices == nullptr || count == 0) {
         return bvh;
     }
     bvh.prims.resize(count);
     std::vector<std::int32_t> buildIndices(count);
     for (std::size_t i = 0; i < count; ++i) {
         QuadBvh::Prim& prim = bvh.prims[i];
-        prim.corners = corners[i];
+        prim.tri = tris[i];
         prim.normal = normals[i];
-        prim.faceIndex = static_cast<std::int32_t>(i);
+        prim.faceIndex = faceIndices[i];
         primBounds(prim);
         buildIndices[i] = static_cast<std::int32_t>(i);
     }
@@ -235,27 +215,36 @@ QuadBvh buildQuadBvh(
 }
 
 QuadBvh buildBspSurfaceBvh(const BspTree& tree) {
-    std::vector<std::array<Vector3, 4>> corners;
+    std::vector<std::array<Vector3, 3>> tris;
     std::vector<Vector3> normals;
-    corners.reserve(tree.surfaceFaces.size());
-    normals.reserve(tree.surfaceFaces.size());
-    for (const BspSurfaceFace& face : tree.surfaceFaces) {
-        corners.push_back(face.corners);
-        normals.push_back(face.normal);
+    std::vector<std::int32_t> faceIndices;
+    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(tree.surfaceFaces.size());
+         ++faceIndex) {
+        const BspSurfaceFace& face = tree.surfaceFaces[static_cast<std::size_t>(faceIndex)];
+        const auto faceTris = triangulateFace(face.vertices);
+        for (const auto& tri : faceTris) {
+            tris.push_back(tri);
+            normals.push_back(face.normal);
+            faceIndices.push_back(faceIndex);
+        }
     }
-    return buildQuadBvh(corners.data(), normals.data(), corners.size());
+    return buildTriangleBvh(tris.data(), normals.data(), faceIndices.data(), tris.size());
 }
 
 QuadBvh buildLightmapFaceBvh(const std::vector<LightmapFace>& faces) {
-    std::vector<std::array<Vector3, 4>> corners;
+    std::vector<std::array<Vector3, 3>> tris;
     std::vector<Vector3> normals;
-    corners.reserve(faces.size());
-    normals.reserve(faces.size());
-    for (const LightmapFace& face : faces) {
-        corners.push_back(face.corners);
-        normals.push_back(face.normal);
+    std::vector<std::int32_t> faceIndices;
+    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
+        const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
+        const auto faceTris = triangulateFace(face.vertices);
+        for (const auto& tri : faceTris) {
+            tris.push_back(tri);
+            normals.push_back(face.normal);
+            faceIndices.push_back(faceIndex);
+        }
     }
-    return buildQuadBvh(corners.data(), normals.data(), corners.size());
+    return buildTriangleBvh(tris.data(), normals.data(), faceIndices.data(), tris.size());
 }
 
 std::optional<QuadBvhHit> raycastQuadBvh(
@@ -298,7 +287,7 @@ std::optional<QuadBvhHit> raycastQuadBvh(
                     continue;
                 }
                 float t = 0.0f;
-                if (!rayQuad(origin, dir, prim.corners, bestT, t)) {
+                if (!rayTriangle(origin, dir, prim.tri[0], prim.tri[1], prim.tri[2], bestT, t)) {
                     continue;
                 }
                 if (best && t >= best->distance) {

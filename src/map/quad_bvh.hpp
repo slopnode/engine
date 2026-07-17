@@ -30,7 +30,7 @@ struct QuadBvh {
     };
 
     struct Prim {
-        std::array<Vector3, 4> corners{};
+        std::array<Vector3, 3> tri{};
         Vector3 normal{};
         std::int32_t faceIndex = -1;
         Vector3 mins{};
@@ -45,9 +45,10 @@ struct QuadBvh {
     bool empty() const { return root < 0 || prims.empty(); }
 };
 
-QuadBvh buildQuadBvh(
-    const std::array<Vector3, 4>* corners,
+QuadBvh buildTriangleBvh(
+    const std::array<Vector3, 3>* tris,
     const Vector3* normals,
+    const std::int32_t* faceIndices,
     std::size_t count);
 
 QuadBvh buildBspSurfaceBvh(const BspTree& tree);

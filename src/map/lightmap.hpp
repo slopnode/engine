@@ -2,7 +2,6 @@
 
 #include "map/brush.hpp"
 
-#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -19,7 +18,7 @@ struct LightmapFace {
     std::string id;
     std::string material;
     Vector3 normal{};
-    std::array<Vector3, 4> corners{};
+    std::vector<Vector3> vertices;
     Vector2 uvShiftPixels{};
 };
 

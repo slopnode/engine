@@ -22,6 +22,7 @@ set(SLOPLIB_SOURCES
     src/assets/anim_loader.cpp
     src/game/app_config.cpp
     src/map/brush.cpp
+    src/map/bsp_analyze.cpp
     src/map/bsp_build.cpp
     src/map/bsp_io.cpp
     src/map/bsp_ray.cpp

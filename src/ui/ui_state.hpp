@@ -33,6 +33,7 @@ struct DebugUiState {
     bool showBspSurfaceFaces = false;
     bool showBspCurrentLeafOnly = false;
     bool unlit = false;
+    bool noclip = false;
 };
 
 }

@@ -1,6 +1,7 @@
 #include "assets/asset_store.hpp"
 #include "game/app_config.hpp"
 #include "map/bsp.hpp"
+#include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_script.hpp"
 
@@ -56,6 +57,44 @@ int main(int argc, char* argv[]) {
         static_cast<int>(tree.nodes.size()),
         static_cast<int>(tree.leaves.size()),
         static_cast<int>(tree.surfaceFaces.size()));
+
+    const MapHullAnalysis analysis = analyzeMapHull(tree, *brushes);
+    int exteriorEmpty = 0;
+    int interiorEmpty = 0;
+    for (std::size_t i = 0; i < tree.leaves.size(); ++i) {
+        if (tree.leaves[i].solid) {
+            continue;
+        }
+        if (analysis.exteriorEmpty[i] != 0) {
+            ++exteriorEmpty;
+        } else {
+            ++interiorEmpty;
+        }
+    }
+
+    if (!analysis.sealed) {
+        TraceLog(LOG_ERROR, "slopbsp: LEAK — exterior empty reaches the playable volume");
+        TraceLog(
+            LOG_ERROR,
+            "slopbsp: exteriorEmpty=%d interiorEmpty=%d",
+            exteriorEmpty,
+            interiorEmpty);
+        for (const std::string& step : analysis.leakPathFaceIds) {
+            TraceLog(LOG_ERROR, "slopbsp: leak path %s", step.c_str());
+        }
+        s7_quit(scheme);
+        return 1;
+    }
+
+    TraceLog(
+        LOG_INFO,
+        "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d inferredNodraw=%d",
+        exteriorEmpty,
+        interiorEmpty,
+        static_cast<int>(analysis.inferredNodrawFaceIds.size()));
+    for (const std::string& warning : analysis.detailOutsideWarnings) {
+        TraceLog(LOG_WARNING, "slopbsp: %s", warning.c_str());
+    }
 
     s7_quit(scheme);
     return 0;

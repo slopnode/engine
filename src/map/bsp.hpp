@@ -4,7 +4,6 @@
 
 #include <raylib.h>
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,7 +11,7 @@
 namespace slopengine {
 
 struct BspPlane {
-    std::int32_t axis = 0;
+    Vector3 normal{};
     float distance = 0.0f;
 };
 
@@ -26,11 +25,12 @@ struct BspLeaf {
     bool solid = false;
     Vector3 mins{};
     Vector3 maxs{};
+    std::vector<std::vector<Vector3>> faces;
     std::vector<std::int32_t> neighbors;
 };
 
 struct BspSurfaceFace {
-    std::array<Vector3, 4> corners{};
+    std::vector<Vector3> vertices;
     Vector3 normal{};
     std::int32_t emptyLeaf = -1;
     std::string id;
@@ -52,6 +52,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes);
 std::int32_t pointLeaf(const BspTree& tree, Vector3 point);
 bool leafIsEmpty(const BspTree& tree, std::int32_t leafIndex);
 const std::vector<std::int32_t>& leafNeighbors(const BspTree& tree, std::int32_t leafIndex);
+Vector3 leafCentroid(const BspLeaf& leaf);
 
 struct MapBsp {
     BspTree tree{};

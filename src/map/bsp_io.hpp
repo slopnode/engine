@@ -12,8 +12,8 @@
 
 namespace slopengine {
 
-constexpr std::uint32_t kBspMagic = 0x31505342u; // "BSP1" LE
-constexpr std::uint32_t kBspVersion = 1;
+constexpr std::uint32_t kBspMagic = 0x32505342u; // "BSP2" LE
+constexpr std::uint32_t kBspVersion = 2;
 
 bool writeBspFile(const std::filesystem::path& path, const BspTree& tree);
 std::optional<BspTree> readBspFile(const std::filesystem::path& path);

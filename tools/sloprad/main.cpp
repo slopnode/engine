@@ -1,6 +1,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/material_loader.hpp"
 #include "game/app_config.hpp"
+#include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_script.hpp"
 #include "map/lightmap.hpp"
@@ -163,6 +164,25 @@ int main(int argc, char* argv[]) {
     if (!brushes) {
         std::cerr << "sloprad: failed to load map brushes\n";
         return 1;
+    }
+
+    const MapHullAnalysis analysis = analyzeMapHull(*tree, *brushes);
+    if (!analysis.sealed) {
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: map hull is not sealed; skipping auto-nodraw (authored nodraw only)");
+        for (const std::string& step : analysis.leakPathFaceIds) {
+            TraceLog(LOG_WARNING, "sloprad: leak path %s", step.c_str());
+        }
+    } else {
+        applyInferredNodraw(*brushes, analysis);
+        TraceLog(
+            LOG_INFO,
+            "sloprad: auto-nodraw faces=%d",
+            static_cast<int>(analysis.inferredNodrawFaceIds.size()));
+        for (const std::string& warning : analysis.detailOutsideWarnings) {
+            TraceLog(LOG_WARNING, "sloprad: %s", warning.c_str());
+        }
     }
 
     const std::vector<LightmapFace> faces = collectLightmapFaces(*brushes);

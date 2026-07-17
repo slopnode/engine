@@ -26,8 +26,13 @@ struct PhysicsWorld {
 
     void addStaticBrushes(const std::vector<Brush>& brushes);
     void createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor);
-    void applyPlayerInput(const CharacterMotor& motor, float wishX, float wishZ, float dt);
-    void update(float dt);
+    void applyPlayerInput(
+        const CharacterMotor& motor,
+        float wishX,
+        float wishZ,
+        float dt,
+        bool noclip = false);
+    void update(float dt, bool noclip = false);
 
     bool hasPlayer() const { return character_ != nullptr; }
     JPH::RVec3 playerPosition() const;
