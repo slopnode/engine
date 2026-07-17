@@ -2,7 +2,9 @@
 
 #include "map/brush.hpp"
 #include "map/bsp.hpp"
+#include "map/bsp_io.hpp"
 #include "map/csg_compile.hpp"
+#include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 
 #include <raylib.h>
@@ -11,6 +13,7 @@
 #include <cstring>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -281,7 +284,95 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
 }
 
+Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
+    useLightmapLoc = -1;
+    const std::string vert = assets.getShaderSource("default/lightmap_vert");
+    const std::string frag = assets.getShaderSource("default/lightmap_frag");
+    if (vert.empty() || frag.empty()) {
+        TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
+        return {};
+    }
+    Shader shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (shader.id == 0) {
+        TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
+        return {};
+    }
+    shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
+    shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
+    shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
+    shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
+    useLightmapLoc = GetShaderLocation(shader, "useLightmap");
+    int useLightmap = 1;
+    if (useLightmapLoc >= 0) {
+        SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
+    }
+    return shader;
+}
+
+MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPath) {
+    MaterialUvInfo info{};
+    const MaterialAsset* asset = assets.getMaterialAsset(materialPath);
+    if (asset != nullptr) {
+        info.pixelsPerMeter = asset->pixelsPerMeter;
+        if (!asset->albedoTexture.empty()) {
+            const Texture2D texture = assets.getTexture(asset->albedoTexture);
+            if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
+                info.textureWidth = static_cast<float>(texture.width);
+                info.textureHeight = static_cast<float>(texture.height);
+            }
+        }
+    }
+    return info;
+}
+
 } // namespace
+
+std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName) {
+    const std::string metaPath = std::string(mapName) + "/map";
+    if (!assets.hasMapMeta(metaPath)) {
+        return std::nullopt;
+    }
+    MapMeta mapMeta;
+    if (!parseMapMeta(assets.getMapMetaSource(metaPath), mapMeta)) {
+        return std::nullopt;
+    }
+    if (!assets.hasPackageId(mapMeta.package)) {
+        return std::nullopt;
+    }
+    for (const std::string& depend : mapMeta.depends) {
+        if (!assets.hasPackageId(depend)) {
+            return std::nullopt;
+        }
+    }
+    return mapMeta;
+}
+
+std::optional<std::vector<Brush>> loadMapBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view mapName) {
+    if (scheme == nullptr) {
+        return std::nullopt;
+    }
+
+    const std::string virtualPath = std::string(mapName) + "/static";
+    if (!assets.hasMapCsg(virtualPath)) {
+        return std::nullopt;
+    }
+    if (!loadMapMeta(assets, mapName)) {
+        return std::nullopt;
+    }
+
+    CsgBuilder builder;
+    g_builder = &builder;
+    bindCsgApi(scheme);
+    const bool loaded = assets.loadMapCsg(scheme, virtualPath);
+    g_builder = nullptr;
+    if (!loaded || builder.brushes.empty()) {
+        return std::nullopt;
+    }
+    return std::move(builder.brushes);
+}
 
 std::optional<LoadedMap> loadAndCompileMap(
     s7_scheme* scheme,
@@ -293,6 +384,7 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     const std::string virtualPath = std::string(mapName) + "/static";
+    const std::string radVirtualPath = std::string(mapName) + "/rad/static";
     const std::string metaPath = std::string(mapName) + "/map";
     if (!assets.hasMapCsg(virtualPath)) {
         TraceLog(LOG_WARNING, "MAP: missing maps/%s.csg", virtualPath.c_str());
@@ -302,59 +394,64 @@ std::optional<LoadedMap> loadAndCompileMap(
         TraceLog(LOG_WARNING, "MAP: missing maps/%s.meta", metaPath.c_str());
         return std::nullopt;
     }
+    if (!assets.hasMapBsp(virtualPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s.bsp (run slopbsp)", virtualPath.c_str());
+        return std::nullopt;
+    }
 
-    MapMeta mapMeta;
-    if (!parseMapMeta(assets.getMapMetaSource(metaPath), mapMeta)) {
+    auto mapMeta = loadMapMeta(assets, mapName);
+    if (!mapMeta) {
         TraceLog(LOG_WARNING, "MAP: invalid maps/%s.meta", metaPath.c_str());
         return std::nullopt;
-    }
-    if (!assets.hasPackageId(mapMeta.package)) {
-        TraceLog(
-            LOG_WARNING,
-            "MAP: map '%s' package '%s' is not mounted",
-            mapMeta.id.c_str(),
-            mapMeta.package.c_str());
-        return std::nullopt;
-    }
-    for (const std::string& depend : mapMeta.depends) {
-        if (!assets.hasPackageId(depend)) {
-            TraceLog(
-                LOG_WARNING,
-                "MAP: map '%s' depends on missing package '%s'",
-                mapMeta.id.c_str(),
-                depend.c_str());
-            return std::nullopt;
-        }
     }
 
     TraceLog(
         LOG_INFO,
-        "MAP: meta id='%s' name='%s' package='%s' depends=%d",
-        mapMeta.id.c_str(),
-        mapMeta.name.c_str(),
-        mapMeta.package.c_str(),
-        static_cast<int>(mapMeta.depends.size()));
+        "MAP: meta id='%s' name='%s' package='%s' depends=%d ambient=(%.3f %.3f %.3f)",
+        mapMeta->id.c_str(),
+        mapMeta->name.c_str(),
+        mapMeta->package.c_str(),
+        static_cast<int>(mapMeta->depends.size()),
+        mapMeta->ambient.x,
+        mapMeta->ambient.y,
+        mapMeta->ambient.z);
 
-    CsgBuilder builder;
-    g_builder = &builder;
-    bindCsgApi(scheme);
-
-    const bool loaded = assets.loadMapCsg(scheme, virtualPath);
-    g_builder = nullptr;
-
-    if (!loaded) {
+    auto brushes = loadMapBrushes(scheme, assets, mapName);
+    if (!brushes) {
         TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.csg", virtualPath.c_str());
         return std::nullopt;
     }
 
-    if (builder.brushes.empty()) {
-        TraceLog(LOG_WARNING, "MAP: no brushes in maps/%s.csg", virtualPath.c_str());
+    const auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);
+    if (!bspPath) {
+        TraceLog(LOG_WARNING, "MAP: failed to resolve bsp path");
         return std::nullopt;
+    }
+
+    auto bsp = readBspFile(*bspPath);
+    if (!bsp) {
+        TraceLog(LOG_WARNING, "MAP: failed to read bsp for '%s'", virtualPath.c_str());
+        return std::nullopt;
+    }
+
+    RadFile rad{};
+    const bool hasRad = assets.hasMapRad(radVirtualPath);
+    if (hasRad) {
+        const auto radPath = assets.resolvePath(AssetKind::MapRad, radVirtualPath);
+        if (radPath) {
+            if (auto loadedRad = readRadFile(*radPath)) {
+                rad = std::move(*loadedRad);
+            } else {
+                TraceLog(LOG_WARNING, "MAP: failed to read rad; rendering unlit");
+            }
+        }
+    } else {
+        TraceLog(LOG_INFO, "MAP: no rad bake present; rendering unlit");
     }
 
     int hullCount = 0;
     int detailCount = 0;
-    for (const Brush& brush : builder.brushes) {
+    for (const Brush& brush : *brushes) {
         if (brush.role == BrushRole::Detail) {
             ++detailCount;
         } else {
@@ -362,81 +459,95 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
     }
 
-    BspTree bsp = buildBspFromHullBrushes(builder.brushes);
-
-    if (detailCount > 0) {
-        std::vector<Brush> asAllHull = builder.brushes;
-        for (Brush& brush : asAllHull) {
-            brush.role = BrushRole::Hull;
-        }
-        const BspTree bspWithDetail = buildBspFromHullBrushes(asAllHull);
-        if (bspWithDetail.leaves.size() != bsp.leaves.size()) {
-            TraceLog(
-                LOG_INFO,
-                "MAP: detail ignored by BSP (%d detail brush(es); hull leaves=%d, all-as-hull leaves=%d)",
-                detailCount,
-                static_cast<int>(bsp.leaves.size()),
-                static_cast<int>(bspWithDetail.leaves.size()));
-        } else {
-            TraceLog(
-                LOG_INFO,
-                "MAP: %d detail brush(es) present; BSP leaf count unchanged vs treating them as hull",
-                detailCount);
-        }
-    }
-
     int emptyLeaves = 0;
     int solidLeaves = 0;
-    int neighborLinks = 0;
-    for (const BspLeaf& leaf : bsp.leaves) {
+    for (const BspLeaf& leaf : bsp->leaves) {
         if (leaf.solid) {
             ++solidLeaves;
         } else {
             ++emptyLeaves;
-            neighborLinks += static_cast<int>(leaf.neighbors.size());
         }
     }
 
-    const std::int32_t spawnLeaf = pointLeaf(bsp, Vector3{0.0f, 1.5f, 0.0f});
     TraceLog(
         LOG_INFO,
-        "MAP: BSP hull=%d detail=%d nodes=%d emptyLeaves=%d solidLeaves=%d neighborEdges=%d surfaceFaces=%d spawnLeaf=%d empty=%s",
+        "MAP: BSP hull=%d detail=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaceFaces=%d charts=%d",
         hullCount,
         detailCount,
-        static_cast<int>(bsp.nodes.size()),
+        static_cast<int>(bsp->nodes.size()),
         emptyLeaves,
         solidLeaves,
-        neighborLinks / 2,
-        static_cast<int>(bsp.surfaceFaces.size()),
-        spawnLeaf,
-        leafIsEmpty(bsp, spawnLeaf) ? "yes" : "no");
+        static_cast<int>(bsp->surfaceFaces.size()),
+        static_cast<int>(rad.charts.size()));
 
-    const CsgCompileResult compiled = compileBrushesToGeo(
-        builder.brushes,
-        [&assets](std::string_view materialPath) {
-            MaterialUvInfo info{};
-            const MaterialAsset* asset = assets.getMaterialAsset(materialPath);
-            if (asset != nullptr) {
-                info.pixelsPerMeter = asset->pixelsPerMeter;
-                if (!asset->albedoTexture.empty()) {
-                    const Texture2D texture = assets.getTexture(asset->albedoTexture);
-                    if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
-                        info.textureWidth = static_cast<float>(texture.width);
-                        info.textureHeight = static_cast<float>(texture.height);
-                    }
+    LoadedMap result;
+    result.hasLightmaps = !rad.charts.empty() && !rad.atlases.empty();
+    if (result.hasLightmaps) {
+        result.lightmapShader = loadLightmapShader(assets, result.useLightmapLoc);
+        if (result.lightmapShader.id == 0) {
+            result.hasLightmaps = false;
+        }
+    }
+
+    if (result.hasLightmaps) {
+        result.lightmapAtlases.reserve(rad.atlases.size());
+        for (const LightmapAtlasInfo& atlas : rad.atlases) {
+            const std::string atlasPath = std::string(mapName) + "/rad/" + atlas.texturePath;
+            const auto resolved = assets.resolvePath(AssetKind::MapLightmap, atlasPath);
+            Texture2D texture{};
+            if (resolved) {
+                texture = LoadTexture(resolved->string().c_str());
+                if (texture.id != 0) {
+                    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+                    SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
                 }
             }
-            return info;
-        });
+            result.lightmapAtlases.push_back(texture);
+        }
+    }
 
-    for (const GeoPrimitive& primitive : compiled.asset.primitives) {
-        TraceLog(LOG_INFO, "MAP: face '%s' material '%s'", primitive.name.c_str(), primitive.material.c_str());
+    const RadFile* lightmaps = result.hasLightmaps ? &rad : nullptr;
+    const CsgCompileResult compiled = compileBrushesToGeo(
+        *brushes,
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); },
+        lightmaps);
+
+    std::unordered_map<std::string, std::int32_t> faceAtlasById;
+    for (const LightmapChart& chart : rad.charts) {
+        faceAtlasById[chart.faceId] = chart.atlasIndex;
     }
 
     Model model = buildModelFromGeo(
         compiled.asset,
         compiled.buffer,
-        [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+        [&](std::string_view path) {
+            Material material = assets.resolveMaterial(path);
+            if (result.hasLightmaps) {
+                material.shader = result.lightmapShader;
+                if (!result.lightmapAtlases.empty() && result.lightmapAtlases[0].id != 0) {
+                    SetMaterialTexture(&material, MATERIAL_MAP_METALNESS, result.lightmapAtlases[0]);
+                }
+            }
+            return material;
+        });
+
+    if (model.meshCount > 0 && result.hasLightmaps) {
+        for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+            const std::string& faceId = compiled.asset.primitives[static_cast<std::size_t>(meshIndex)].name;
+            std::int32_t atlasIndex = 0;
+            const auto atlasIt = faceAtlasById.find(faceId);
+            if (atlasIt != faceAtlasById.end()) {
+                atlasIndex = atlasIt->second;
+            }
+            if (atlasIndex >= 0 && atlasIndex < static_cast<std::int32_t>(result.lightmapAtlases.size())) {
+                const Texture2D lightmap = result.lightmapAtlases[static_cast<std::size_t>(atlasIndex)];
+                if (lightmap.id != 0) {
+                    SetMaterialTexture(&model.materials[meshIndex], MATERIAL_MAP_METALNESS, lightmap);
+                }
+            }
+            model.materials[meshIndex].shader = result.lightmapShader;
+        }
+    }
 
     if (model.meshCount <= 0) {
         TraceLog(LOG_WARNING, "MAP: compile produced empty model for '%s'", virtualPath.c_str());
@@ -445,16 +556,17 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     TraceLog(
         LOG_INFO,
-        "MAP: loaded '%s' (%d brushes, %d meshes)",
+        "MAP: loaded '%s' (%d brushes, %d meshes, lightmaps=%s)",
         virtualPath.c_str(),
-        static_cast<int>(builder.brushes.size()),
-        model.meshCount);
+        static_cast<int>(brushes->size()),
+        model.meshCount,
+        result.hasLightmaps ? "yes" : "no");
 
-    LoadedMap result;
     result.model = model;
-    result.brushes = std::move(builder.brushes);
-    result.bsp = std::move(bsp);
-    result.meta = std::move(mapMeta);
+    result.brushes = std::move(*brushes);
+    result.bsp = std::move(*bsp);
+    result.rad = std::move(rad);
+    result.meta = std::move(*mapMeta);
     return result;
 }
 

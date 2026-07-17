@@ -2,4 +2,5 @@
   (id "empty-room")
   (name "Empty Room")
   (package "slopengine.base")
-  (depends "slopengine.base"))
+  (depends "slopengine.base")
+  (ambient 0.03 0.03 0.04))

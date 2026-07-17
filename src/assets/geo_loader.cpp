@@ -309,6 +309,14 @@ Mesh buildPrimitiveMesh(
             mesh.vertexCount * 2 * sizeof(float));
     }
 
+    if (buffer.texcoords2.size() >= primitive.vertexOffset + primitive.vertexCount) {
+        mesh.texcoords2 = static_cast<float*>(RL_MALLOC(mesh.vertexCount * 2 * sizeof(float)));
+        std::memcpy(
+            mesh.texcoords2,
+            buffer.texcoords2.data() + primitive.vertexOffset,
+            mesh.vertexCount * 2 * sizeof(float));
+    }
+
     mesh.indices = static_cast<unsigned short*>(RL_MALLOC(primitive.indexCount * sizeof(unsigned short)));
     for (std::size_t index = 0; index < primitive.indexCount; ++index) {
         const std::uint32_t sourceIndex = buffer.indices[primitive.indexOffset + index];

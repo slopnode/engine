@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace slopengine {
@@ -30,7 +31,11 @@ struct BspLeaf {
 
 struct BspSurfaceFace {
     std::array<Vector3, 4> corners{};
+    Vector3 normal{};
     std::int32_t emptyLeaf = -1;
+    std::string id;
+    std::string material;
+    Vector2 uvShiftPixels{};
 };
 
 struct BspTree {
@@ -50,6 +55,11 @@ const std::vector<std::int32_t>& leafNeighbors(const BspTree& tree, std::int32_t
 
 struct MapBsp {
     BspTree tree{};
+};
+
+struct MapLightmapState {
+    bool available = false;
+    int useLightmapLoc = -1;
 };
 
 }

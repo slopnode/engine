@@ -1,6 +1,7 @@
 #include "map/map_meta.hpp"
 
 #include <cctype>
+#include <charconv>
 #include <optional>
 #include <string>
 
@@ -44,6 +45,28 @@ std::optional<std::string> readQuotedField(std::string_view line, std::string_vi
     }
     std::size_t cursor = prefix.size();
     return readQuoted(line, cursor);
+}
+
+bool readFloats(std::string_view text, std::size_t count, float* out) {
+    std::string_view value = text;
+    for (std::size_t index = 0; index < count; ++index) {
+        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+            value.remove_prefix(1);
+        }
+        if (value.empty()) {
+            return false;
+        }
+        float parsed = 0.0f;
+        const auto* begin = value.data();
+        const auto* end = value.data() + value.size();
+        const auto result = std::from_chars(begin, end, parsed);
+        if (result.ec != std::errc{} || result.ptr == begin) {
+            return false;
+        }
+        out[index] = parsed;
+        value.remove_prefix(static_cast<std::size_t>(result.ptr - begin));
+    }
+    return true;
 }
 
 bool readDepends(std::string_view line, std::vector<std::string>& out) {
@@ -93,6 +116,12 @@ bool parseMapMeta(std::string_view source, MapMeta& out) {
             if (!readDepends(line, out.depends)) {
                 return false;
             }
+        } else if (line.rfind("(ambient ", 0) == 0) {
+            float rgb[3] = {0.02f, 0.02f, 0.025f};
+            if (!readFloats(line.substr(std::string_view("(ambient ").size()), 3, rgb)) {
+                return false;
+            }
+            out.ambient = {rgb[0], rgb[1], rgb[2]};
         }
 
         if (lineEnd == std::string_view::npos) {

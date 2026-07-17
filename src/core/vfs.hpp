@@ -27,6 +27,9 @@ enum class AssetKind {
     AnimTracks,
     MapCsg,
     MapMeta,
+    MapBsp,
+    MapRad,
+    MapLightmap,
 };
 
 class AssetStore;
@@ -44,11 +47,12 @@ public:
 
     const std::vector<Package>& packages() const { return packages_; }
 
-private:
     bool exists(AssetKind kind, std::string_view virtualPath) const;
     std::optional<std::filesystem::path> resolve(AssetKind kind, std::string_view virtualPath) const;
     std::string readText(AssetKind kind, std::string_view virtualPath) const;
     std::vector<std::byte> readBinary(AssetKind kind, std::string_view virtualPath) const;
+
+private:
 
     static const char* kindDirectory(AssetKind kind);
     static const char* implicitExtension(AssetKind kind);

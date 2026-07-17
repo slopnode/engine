@@ -42,6 +42,8 @@ struct Brush {
 const char* brushBoxSideName(BrushBoxSide side);
 const char* brushRoleName(BrushRole role);
 
+Vector3 faceNormalFromCorners(const std::array<Vector3, 4>& corners);
+
 Brush makeBrushBox(
     std::string id,
     Vector3 mins,

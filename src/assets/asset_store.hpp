@@ -9,6 +9,8 @@
 #include <raylib.h>
 
 #include <cstddef>
+#include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -50,6 +52,15 @@ public:
 
     /** Returns true when a map meta file exists at @p path. */
     bool hasMapMeta(std::string_view path) const;
+
+    /** Returns true when a compiled map BSP exists at @p path. */
+    bool hasMapBsp(std::string_view path) const;
+
+    /** Returns true when a compiled map radiosity file exists at @p path. */
+    bool hasMapRad(std::string_view path) const;
+
+    /** Resolves an asset to a filesystem path when present. */
+    std::optional<std::filesystem::path> resolvePath(AssetKind kind, std::string_view path) const;
 
     /** Returns true when a skeleton exists at @p path. */
     bool hasSkeleton(std::string_view path) const;

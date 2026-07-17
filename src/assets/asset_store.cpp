@@ -187,6 +187,18 @@ bool AssetStore::hasMapMeta(std::string_view path) const {
     return vfs_.exists(AssetKind::MapMeta, path);
 }
 
+bool AssetStore::hasMapBsp(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapBsp, path);
+}
+
+bool AssetStore::hasMapRad(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapRad, path);
+}
+
+std::optional<std::filesystem::path> AssetStore::resolvePath(AssetKind kind, std::string_view path) const {
+    return vfs_.resolve(kind, path);
+}
+
 bool AssetStore::hasSkeleton(std::string_view path) const {
     return vfs_.exists(AssetKind::Skeleton, path);
 }

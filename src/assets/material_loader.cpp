@@ -101,6 +101,20 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
                 return false;
             }
             asset.pixelsPerMeter = texelSize;
+        } else if (auto emission = readQuotedField(line, "(emission ")) {
+            asset.emissionTexture = *emission;
+        } else if (line.rfind("(emission-color ", 0) == 0) {
+            float rgba[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            if (!readFloats(line.substr(std::string_view("(emission-color ").size()), 4, rgba)) {
+                return false;
+            }
+            asset.emissionColor = colorFromNormalized(rgba[0], rgba[1], rgba[2], rgba[3]);
+        } else if (line.rfind("(emission-power ", 0) == 0) {
+            float power = 0.0f;
+            if (!readFloats(line.substr(std::string_view("(emission-power ").size()), 1, &power)) {
+                return false;
+            }
+            asset.emissionPower = power;
         }
 
         if (lineEnd == std::string_view::npos) {
@@ -121,6 +135,13 @@ Material createRaylibMaterial(const MaterialAsset& asset, const TextureResolver&
             SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
             SetMaterialTexture(&material, MATERIAL_MAP_ALBEDO, texture);
         }
+    }
+
+    if (asset.emissionPower > 0.0f) {
+        material.maps[MATERIAL_MAP_SPECULAR].color = asset.emissionColor;
+        material.maps[MATERIAL_MAP_SPECULAR].color.a = 255;
+    } else {
+        material.maps[MATERIAL_MAP_SPECULAR].color = {0, 0, 0, 255};
     }
     return material;
 }

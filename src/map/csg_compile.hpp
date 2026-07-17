@@ -3,6 +3,7 @@
 #include "assets/geo_loader.hpp"
 #include "assets/rigged_assets.hpp"
 #include "map/brush.hpp"
+#include "map/lightmap.hpp"
 
 #include <functional>
 #include <string_view>
@@ -25,6 +26,7 @@ struct CsgCompileResult {
 
 CsgCompileResult compileBrushesToGeo(
     const std::vector<Brush>& brushes,
-    const MaterialUvResolver& resolveMaterialUv = {});
+    const MaterialUvResolver& resolveMaterialUv = {},
+    const RadFile* lightmaps = nullptr);
 
 }

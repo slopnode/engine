@@ -1,0 +1,607 @@
+#include "map/radiosity.hpp"
+
+#include "map/bsp_ray.hpp"
+#include "map/quad_bvh.hpp"
+#include "map/uv_math.hpp"
+
+#include <raylib.h>
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <random>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+namespace slopengine {
+
+namespace {
+
+struct Color3 {
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+
+    Color3& operator+=(const Color3& other) {
+        r += other.r;
+        g += other.g;
+        b += other.b;
+        return *this;
+    }
+
+    Color3 operator*(float s) const { return {r * s, g * s, b * s}; }
+
+    Color3 operator*(const Color3& other) const { return {r * other.r, g * other.g, b * other.b}; }
+};
+
+Color3 operator+(Color3 a, const Color3& b) {
+    a += b;
+    return a;
+}
+
+float dot3(Vector3 a, Vector3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vector3 add3(Vector3 a, Vector3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vector3 sub3(Vector3 a, Vector3 b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Vector3 scale3(Vector3 a, float s) {
+    return {a.x * s, a.y * s, a.z * s};
+}
+
+Vector3 normalize3(Vector3 v) {
+    const float len = std::sqrt(dot3(v, v));
+    if (len < 1e-8f) {
+        return {0.0f, 1.0f, 0.0f};
+    }
+    return scale3(v, 1.0f / len);
+}
+
+Color3 colorFromRaylib(Color c) {
+    return {
+        static_cast<float>(c.r) / 255.0f,
+        static_cast<float>(c.g) / 255.0f,
+        static_cast<float>(c.b) / 255.0f,
+    };
+}
+
+float luminance(const Color3& c) {
+    return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+}
+
+Color3 sampleImageUv(const Image& image, float u, float v) {
+    if (image.data == nullptr || image.width <= 0 || image.height <= 0) {
+        return {1.0f, 1.0f, 1.0f};
+    }
+    u = u - std::floor(u);
+    v = v - std::floor(v);
+    const int x = std::clamp(static_cast<int>(u * static_cast<float>(image.width)), 0, image.width - 1);
+    const int y = std::clamp(static_cast<int>(v * static_cast<float>(image.height)), 0, image.height - 1);
+    return colorFromRaylib(GetImageColor(image, x, y));
+}
+
+struct FaceBasis {
+    Vector3 normal{};
+    Vector3 uAxis{};
+    Vector3 vAxis{};
+    float planeD = 0.0f;
+    float uMin = 0.0f;
+    float uMax = 0.0f;
+    float vMin = 0.0f;
+    float vMax = 0.0f;
+};
+
+FaceBasis makeFaceBasis(const LightmapFace& face) {
+    FaceBasis basis;
+    basis.normal = face.normal;
+    axialUvAxes(face.normal, basis.uAxis, basis.vAxis);
+    basis.planeD = dot3(face.corners[0], face.normal);
+    for (std::size_t i = 0; i < face.corners.size(); ++i) {
+        const float u = dot3(face.corners[i], basis.uAxis);
+        const float v = dot3(face.corners[i], basis.vAxis);
+        if (i == 0) {
+            basis.uMin = basis.uMax = u;
+            basis.vMin = basis.vMax = v;
+        } else {
+            basis.uMin = std::min(basis.uMin, u);
+            basis.uMax = std::max(basis.uMax, u);
+            basis.vMin = std::min(basis.vMin, v);
+            basis.vMax = std::max(basis.vMax, v);
+        }
+    }
+    return basis;
+}
+
+Vector3 luxelWorldPos(const FaceBasis& basis, const LightmapChart& chart, int x, int y) {
+    const float fu = (static_cast<float>(x) + 0.5f) / static_cast<float>(chart.luxelWidth);
+    const float fv = (static_cast<float>(y) + 0.5f) / static_cast<float>(chart.luxelHeight);
+    const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
+    const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
+    return add3(
+        add3(scale3(basis.uAxis, u), scale3(basis.vAxis, v)),
+        scale3(basis.normal, basis.planeD));
+}
+
+struct EmitterPatch {
+    Vector3 position{};
+    Vector3 normal{};
+    Color3 radiance{};
+    float area = 0.0f;
+    std::int32_t faceIndex = -1;
+};
+
+struct FaceLuxelGrid {
+    bool valid = false;
+    std::size_t luxelBase = 0;
+    int luxelWidth = 0;
+    int luxelHeight = 0;
+};
+
+Color3 emissionAt(
+    const LightmapFace& face,
+    const MaterialBakeInfo& material,
+    Vector3 worldPos) {
+    Color3 emitColor{
+        static_cast<float>(material.asset.emissionColor.r) / 255.0f,
+        static_cast<float>(material.asset.emissionColor.g) / 255.0f,
+        static_cast<float>(material.asset.emissionColor.b) / 255.0f,
+    };
+    emitColor = emitColor * material.asset.emissionPower;
+
+    if (material.hasEmissionImage) {
+        Vector3 uAxis{};
+        Vector3 vAxis{};
+        axialUvAxes(face.normal, uAxis, vAxis);
+        MaterialUvInfo uvInfo{};
+        uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
+        uvInfo.textureWidth = static_cast<float>(material.emissionImage.width);
+        uvInfo.textureHeight = static_cast<float>(material.emissionImage.height);
+        const Vector2 uv = worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, uvInfo);
+        const Color3 texel = sampleImageUv(material.emissionImage, uv.x, uv.y);
+        if (luminance(texel) < 1.0f / 255.0f) {
+            return {};
+        }
+        if (material.asset.emissionPower <= 0.0f && luminance(emitColor) <= 0.0f) {
+            return texel;
+        }
+        return emitColor * texel;
+    }
+
+    if (material.asset.emissionPower <= 0.0f || luminance(emitColor) <= 0.0f) {
+        return {};
+    }
+    return emitColor;
+}
+
+Color3 albedoAt(
+    const LightmapFace& face,
+    const MaterialBakeInfo& material,
+    Vector3 worldPos) {
+    Color3 base{
+        static_cast<float>(material.asset.baseColor.r) / 255.0f,
+        static_cast<float>(material.asset.baseColor.g) / 255.0f,
+        static_cast<float>(material.asset.baseColor.b) / 255.0f,
+    };
+    if (!material.hasAlbedoImage) {
+        return base;
+    }
+    Vector3 uAxis{};
+    Vector3 vAxis{};
+    axialUvAxes(face.normal, uAxis, vAxis);
+    MaterialUvInfo uvInfo{};
+    uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
+    uvInfo.textureWidth = static_cast<float>(material.albedoImage.width);
+    uvInfo.textureHeight = static_cast<float>(material.albedoImage.height);
+    const Vector2 uv = worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, uvInfo);
+    return base * sampleImageUv(material.albedoImage, uv.x, uv.y);
+}
+
+Vector3 cosineHemisphere(Vector3 normal, float u1, float u2) {
+    float ax = std::fabs(normal.x);
+    float ay = std::fabs(normal.y);
+    float az = std::fabs(normal.z);
+    Vector3 helper = ax < ay ? (ax < az ? Vector3{1, 0, 0} : Vector3{0, 0, 1})
+                             : (ay < az ? Vector3{0, 1, 0} : Vector3{0, 0, 1});
+    Vector3 tangent = normalize3(Vector3{
+        normal.y * helper.z - normal.z * helper.y,
+        normal.z * helper.x - normal.x * helper.z,
+        normal.x * helper.y - normal.y * helper.x,
+    });
+    Vector3 bitangent = Vector3{
+        normal.y * tangent.z - normal.z * tangent.y,
+        normal.z * tangent.x - normal.x * tangent.z,
+        normal.x * tangent.y - normal.y * tangent.x,
+    };
+    const float r = std::sqrt(u1);
+    const float theta = 2.0f * PI * u2;
+    const float x = r * std::cos(theta);
+    const float y = r * std::sin(theta);
+    const float z = std::sqrt(std::max(0.0f, 1.0f - u1));
+    return normalize3(add3(add3(scale3(tangent, x), scale3(bitangent, y)), scale3(normal, z)));
+}
+
+unsigned char tonemapByte(float value) {
+    const float mapped = value / (1.0f + value);
+    return static_cast<unsigned char>(std::clamp(mapped * 255.0f, 0.0f, 255.0f));
+}
+
+void logStage(const char* message) {
+    TraceLog(LOG_INFO, "sloprad: %s", message);
+    std::fflush(stdout);
+}
+
+void logProgress(const char* stage, std::size_t done, std::size_t total) {
+    if (total == 0) {
+        return;
+    }
+    const int percent = static_cast<int>((done * 100) / total);
+    TraceLog(LOG_INFO, "sloprad: %s %zu/%zu (%d%%)", stage, done, total, percent);
+    std::fflush(stdout);
+}
+
+template <typename Fn>
+void parallelFor(std::size_t count, Fn&& fn) {
+    if (count == 0) {
+        return;
+    }
+    const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
+    const std::size_t threadCount = std::min<std::size_t>(hw, count);
+    if (threadCount == 1) {
+        fn(0, count);
+        return;
+    }
+    std::vector<std::thread> threads;
+    threads.reserve(threadCount);
+    const std::size_t chunk = (count + threadCount - 1) / threadCount;
+    for (std::size_t t = 0; t < threadCount; ++t) {
+        const std::size_t begin = t * chunk;
+        if (begin >= count) {
+            break;
+        }
+        const std::size_t end = std::min(count, begin + chunk);
+        threads.emplace_back([&, begin, end]() { fn(begin, end); });
+    }
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+}
+
+Color3 luxelAt(
+    const FaceLuxelGrid& grid,
+    const std::vector<Color3>& previous,
+    int x,
+    int y,
+    Color3 fallback) {
+    x = std::clamp(x, 0, grid.luxelWidth - 1);
+    y = std::clamp(y, 0, grid.luxelHeight - 1);
+    const std::size_t index =
+        grid.luxelBase + static_cast<std::size_t>(y) * static_cast<std::size_t>(grid.luxelWidth)
+        + static_cast<std::size_t>(x);
+    if (index >= previous.size()) {
+        return fallback;
+    }
+    return previous[index];
+}
+
+Color3 sampleFaceRadiance(
+    const FaceLuxelGrid& grid,
+    const FaceBasis& basis,
+    const std::vector<Color3>& previous,
+    Vector3 point,
+    Color3 fallback) {
+    if (!grid.valid || grid.luxelWidth <= 0 || grid.luxelHeight <= 0) {
+        return fallback;
+    }
+    const float uSpan = basis.uMax - basis.uMin;
+    const float vSpan = basis.vMax - basis.vMin;
+    if (uSpan < 1e-8f || vSpan < 1e-8f) {
+        return fallback;
+    }
+    const float u = dot3(point, basis.uAxis);
+    const float v = dot3(point, basis.vAxis);
+    const float fu = (u - basis.uMin) / uSpan;
+    const float fv = (v - basis.vMin) / vSpan;
+    const float fx = fu * static_cast<float>(grid.luxelWidth) - 0.5f;
+    const float fy = fv * static_cast<float>(grid.luxelHeight) - 0.5f;
+    const int x0 = static_cast<int>(std::floor(fx));
+    const int y0 = static_cast<int>(std::floor(fy));
+    const float tx = fx - static_cast<float>(x0);
+    const float ty = fy - static_cast<float>(y0);
+    const Color3 c00 = luxelAt(grid, previous, x0, y0, fallback);
+    const Color3 c10 = luxelAt(grid, previous, x0 + 1, y0, fallback);
+    const Color3 c01 = luxelAt(grid, previous, x0, y0 + 1, fallback);
+    const Color3 c11 = luxelAt(grid, previous, x0 + 1, y0 + 1, fallback);
+    const Color3 c0 = c00 * (1.0f - tx) + c10 * tx;
+    const Color3 c1 = c01 * (1.0f - tx) + c11 * tx;
+    return c0 * (1.0f - ty) + c1 * ty;
+}
+
+} // namespace
+
+RadiosityBakeResult bakeRadiosity(
+    const std::vector<LightmapFace>& faces,
+    const BspTree& occlusionTree,
+    const MapMeta& meta,
+    const MaterialBakeResolver& resolveMaterial,
+    const RadiositySettings& settings) {
+    TraceLog(
+        LOG_INFO,
+        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f)",
+        static_cast<int>(faces.size()),
+        settings.luxelsPerMeter,
+        settings.bounces,
+        settings.samples,
+        settings.atlasSize,
+        meta.ambient.x,
+        meta.ambient.y,
+        meta.ambient.z);
+    std::fflush(stdout);
+
+    logStage("packing lightmap charts...");
+    LightmapPackResult packed = packLightmapCharts(faces, settings.luxelsPerMeter, settings.atlasSize);
+    RadiosityBakeResult result;
+    result.rad = packed.rad;
+    TraceLog(
+        LOG_INFO,
+        "sloprad: packed charts=%d atlases=%d",
+        static_cast<int>(packed.rad.charts.size()),
+        static_cast<int>(packed.rad.atlases.size()));
+    std::fflush(stdout);
+
+    std::unordered_map<std::string, MaterialBakeInfo> materialCache;
+    auto materialFor = [&](const std::string& path) -> const MaterialBakeInfo& {
+        auto it = materialCache.find(path);
+        if (it == materialCache.end()) {
+            it = materialCache.emplace(path, resolveMaterial(path)).first;
+            const MaterialBakeInfo& info = it->second;
+            TraceLog(
+                LOG_INFO,
+                "sloprad: material '%s' emissionPower=%.2f emissionMap=%s",
+                path.c_str(),
+                info.asset.emissionPower,
+                info.hasEmissionImage ? "yes" : "no");
+            std::fflush(stdout);
+        }
+        return it->second;
+    };
+
+    std::vector<FaceBasis> bases(faces.size());
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        bases[i] = makeFaceBasis(faces[i]);
+    }
+
+    logStage("building acceleration structures...");
+    const QuadBvh occlusionBvh = buildBspSurfaceBvh(occlusionTree);
+    const QuadBvh gatherBvh = buildLightmapFaceBvh(faces);
+    TraceLog(
+        LOG_INFO,
+        "sloprad: occlusion prims=%d gather prims=%d threads=%u",
+        static_cast<int>(occlusionBvh.prims.size()),
+        static_cast<int>(gatherBvh.prims.size()),
+        std::max(1u, std::thread::hardware_concurrency()));
+    std::fflush(stdout);
+
+    logStage("collecting emitter patches...");
+    std::vector<EmitterPatch> emitters;
+    for (std::size_t chartIndex = 0; chartIndex < packed.rad.charts.size(); ++chartIndex) {
+        const LightmapChart& chart = packed.rad.charts[chartIndex];
+        if (chart.faceIndex < 0 || chart.faceIndex >= static_cast<std::int32_t>(faces.size())) {
+            continue;
+        }
+        const LightmapFace& face = faces[static_cast<std::size_t>(chart.faceIndex)];
+        const MaterialBakeInfo& material = materialFor(face.material);
+        const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
+        const float patchArea =
+            ((basis.uMax - basis.uMin) * (basis.vMax - basis.vMin))
+            / static_cast<float>(std::max(1, chart.luxelWidth * chart.luxelHeight));
+
+        for (int y = 0; y < chart.luxelHeight; ++y) {
+            for (int x = 0; x < chart.luxelWidth; ++x) {
+                const Vector3 pos = luxelWorldPos(basis, chart, x, y);
+                const Color3 emit = emissionAt(face, material, pos);
+                if (luminance(emit) <= 0.0f) {
+                    continue;
+                }
+                EmitterPatch patch;
+                patch.position = add3(pos, scale3(face.normal, 0.02f));
+                patch.normal = face.normal;
+                patch.radiance = emit;
+                patch.area = patchArea;
+                patch.faceIndex = chart.faceIndex;
+                emitters.push_back(patch);
+            }
+        }
+        if ((chartIndex + 1) % 32 == 0 || chartIndex + 1 == packed.rad.charts.size()) {
+            logProgress("emitters from charts", chartIndex + 1, packed.rad.charts.size());
+        }
+    }
+    TraceLog(LOG_INFO, "sloprad: emitter patches=%d", static_cast<int>(emitters.size()));
+    std::fflush(stdout);
+
+    const Color3 ambient{meta.ambient.x, meta.ambient.y, meta.ambient.z};
+
+    struct LuxelSample {
+        Vector3 position{};
+        Vector3 normal{};
+        Color3 albedo{};
+        Color3 irradiance{};
+        std::int32_t faceIndex = -1;
+        std::int32_t atlasIndex = 0;
+        int atlasX = 0;
+        int atlasY = 0;
+    };
+
+    logStage("building receiving luxels...");
+    std::vector<LuxelSample> luxels;
+    luxels.reserve(packed.rad.charts.size() * 16);
+    std::vector<FaceLuxelGrid> faceGrids(faces.size());
+    for (const LightmapChart& chart : packed.rad.charts) {
+        if (chart.faceIndex < 0 || chart.faceIndex >= static_cast<std::int32_t>(faces.size())) {
+            continue;
+        }
+        const LightmapFace& face = faces[static_cast<std::size_t>(chart.faceIndex)];
+        const MaterialBakeInfo& material = materialFor(face.material);
+        const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
+
+        FaceLuxelGrid& grid = faceGrids[static_cast<std::size_t>(chart.faceIndex)];
+        grid.valid = true;
+        grid.luxelBase = luxels.size();
+        grid.luxelWidth = chart.luxelWidth;
+        grid.luxelHeight = chart.luxelHeight;
+
+        for (int y = 0; y < chart.luxelHeight; ++y) {
+            for (int x = 0; x < chart.luxelWidth; ++x) {
+                LuxelSample sample;
+                const Vector3 pos = luxelWorldPos(basis, chart, x, y);
+                sample.position = add3(pos, scale3(face.normal, 0.02f));
+                sample.normal = face.normal;
+                sample.albedo = albedoAt(face, material, pos);
+                sample.irradiance = ambient + emissionAt(face, material, pos);
+                sample.faceIndex = chart.faceIndex;
+                sample.atlasIndex = chart.atlasIndex;
+                sample.atlasX = chart.atlasX + x;
+                sample.atlasY = chart.atlasY + y;
+                luxels.push_back(sample);
+            }
+        }
+    }
+    TraceLog(LOG_INFO, "sloprad: receiving luxels=%d", static_cast<int>(luxels.size()));
+    std::fflush(stdout);
+
+    logStage("direct lighting...");
+    const std::size_t luxelTotal = luxels.size();
+    std::atomic<std::size_t> directDone{0};
+    const std::size_t directStep = std::max<std::size_t>(1, luxelTotal / 20);
+    parallelFor(luxelTotal, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            LuxelSample& luxel = luxels[i];
+            for (const EmitterPatch& emitter : emitters) {
+                if (emitter.faceIndex == luxel.faceIndex) {
+                    continue;
+                }
+                Vector3 toLight = sub3(emitter.position, luxel.position);
+                const float dist2 = dot3(toLight, toLight);
+                if (dist2 < 1e-6f) {
+                    continue;
+                }
+                const float dist = std::sqrt(dist2);
+                toLight = scale3(toLight, 1.0f / dist);
+                const float nDotL = dot3(luxel.normal, toLight);
+                const float nDotV = -dot3(emitter.normal, toLight);
+                if (nDotL <= 0.0f || nDotV <= 0.0f) {
+                    continue;
+                }
+                if (bspSegmentOccluded(occlusionBvh, luxel.position, emitter.position, -1, -1)) {
+                    continue;
+                }
+                const float form = nDotL * nDotV * emitter.area / (dist2 * PI);
+                luxel.irradiance += emitter.radiance * form;
+            }
+            const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (done % directStep == 0 || done == luxelTotal) {
+                logProgress("direct", done, luxelTotal);
+            }
+        }
+    });
+
+    for (int bounce = 0; bounce < settings.bounces; ++bounce) {
+        TraceLog(LOG_INFO, "sloprad: bounce %d/%d...", bounce + 1, settings.bounces);
+        std::fflush(stdout);
+
+        std::vector<Color3> previous;
+        previous.reserve(luxels.size());
+        for (const LuxelSample& luxel : luxels) {
+            previous.push_back(luxel.irradiance * luxel.albedo);
+        }
+
+        std::atomic<std::size_t> bounceDone{0};
+        const std::size_t bounceStep = std::max<std::size_t>(1, luxels.size() / 20);
+        const int sampleCount = std::max(1, settings.samples);
+        parallelFor(luxels.size(), [&](std::size_t begin, std::size_t end) {
+            std::mt19937 rng(42u + static_cast<unsigned>(begin) * 2654435761u);
+            std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+            for (std::size_t i = begin; i < end; ++i) {
+                LuxelSample& luxel = luxels[i];
+                Color3 gathered{};
+                for (int s = 0; s < sampleCount; ++s) {
+                    const Vector3 dir = cosineHemisphere(luxel.normal, unit(rng), unit(rng));
+                    const auto hit =
+                        raycastQuadBvh(gatherBvh, luxel.position, dir, 1000.0f, luxel.faceIndex);
+                    if (!hit) {
+                        continue;
+                    }
+                    Color3 hitRadiance = ambient * 0.25f;
+                    if (hit->faceIndex >= 0
+                        && hit->faceIndex < static_cast<std::int32_t>(faceGrids.size())) {
+                        hitRadiance = sampleFaceRadiance(
+                            faceGrids[static_cast<std::size_t>(hit->faceIndex)],
+                            bases[static_cast<std::size_t>(hit->faceIndex)],
+                            previous,
+                            hit->point,
+                            hitRadiance);
+                    }
+                    gathered += hitRadiance;
+                }
+                luxel.irradiance += gathered * (1.0f / static_cast<float>(sampleCount));
+                const std::size_t done = bounceDone.fetch_add(1, std::memory_order_relaxed) + 1;
+                if (done % bounceStep == 0 || done == luxels.size()) {
+                    TraceLog(
+                        LOG_INFO,
+                        "sloprad: bounce %d/%d luxels %zu/%zu (%d%%)",
+                        bounce + 1,
+                        settings.bounces,
+                        done,
+                        luxels.size(),
+                        static_cast<int>((done * 100) / luxels.size()));
+                    std::fflush(stdout);
+                }
+            }
+        });
+    }
+
+    logStage("rasterizing lightmap atlases...");
+    for (std::size_t atlas = 0; atlas < packed.atlasRgb.size(); ++atlas) {
+        Image image = GenImageColor(
+            packed.rad.atlases[atlas].width,
+            packed.rad.atlases[atlas].height,
+            BLACK);
+        result.atlasImages.push_back(image);
+    }
+
+    for (const LuxelSample& luxel : luxels) {
+        if (luxel.atlasIndex < 0 || luxel.atlasIndex >= static_cast<std::int32_t>(result.atlasImages.size())) {
+            continue;
+        }
+        Image& image = result.atlasImages[static_cast<std::size_t>(luxel.atlasIndex)];
+        const Color pixel{
+            tonemapByte(luxel.irradiance.r),
+            tonemapByte(luxel.irradiance.g),
+            tonemapByte(luxel.irradiance.b),
+            255,
+        };
+        ImageDrawPixel(&image, luxel.atlasX, luxel.atlasY, pixel);
+    }
+
+    for (auto& [path, info] : materialCache) {
+        (void)path;
+        if (info.hasAlbedoImage) {
+            UnloadImage(info.albedoImage);
+        }
+        if (info.hasEmissionImage) {
+            UnloadImage(info.emissionImage);
+        }
+    }
+
+    logStage("bake complete");
+    return result;
+}
+
+}

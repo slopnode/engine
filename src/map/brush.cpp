@@ -5,8 +5,6 @@
 
 namespace slopengine {
 
-namespace {
-
 Vector3 faceNormalFromCorners(const std::array<Vector3, 4>& corners) {
     const Vector3 e0 = {
         corners[1].x - corners[0].x,
@@ -31,6 +29,8 @@ Vector3 faceNormalFromCorners(const std::array<Vector3, 4>& corners) {
     }
     return normal;
 }
+
+namespace {
 
 BrushFace makeBoxFace(
     BrushBoxSide side,

@@ -1,54 +1,26 @@
 #include "map/csg_compile.hpp"
 
-#include <cmath>
+#include "map/uv_math.hpp"
+
+#include <algorithm>
+#include <unordered_map>
 
 namespace slopengine {
 
-namespace {
-
-float vec3Dot(Vector3 a, Vector3 b) {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-void axialUvAxes(Vector3 normal, Vector3& uAxis, Vector3& vAxis) {
-    const float ax = std::fabs(normal.x);
-    const float ay = std::fabs(normal.y);
-    const float az = std::fabs(normal.z);
-
-    if (ay >= ax && ay >= az) {
-        uAxis = {1.0f, 0.0f, 0.0f};
-        vAxis = {0.0f, 0.0f, -1.0f};
-    } else if (ax >= ay && ax >= az) {
-        uAxis = {0.0f, 0.0f, 1.0f};
-        vAxis = {0.0f, -1.0f, 0.0f};
-    } else {
-        uAxis = {1.0f, 0.0f, 0.0f};
-        vAxis = {0.0f, -1.0f, 0.0f};
-    }
-}
-
-Vector2 worldPlanarUv(
-    Vector3 position,
-    Vector3 uAxis,
-    Vector3 vAxis,
-    Vector2 uvShiftPixels,
-    const MaterialUvInfo& materialUv) {
-    const float metersU = vec3Dot(position, uAxis);
-    const float metersV = vec3Dot(position, vAxis);
-    const float width = materialUv.textureWidth > 0.0f ? materialUv.textureWidth : 64.0f;
-    const float height = materialUv.textureHeight > 0.0f ? materialUv.textureHeight : 64.0f;
-    return Vector2{
-        (metersU * materialUv.pixelsPerMeter + uvShiftPixels.x) / width,
-        (metersV * materialUv.pixelsPerMeter + uvShiftPixels.y) / height,
-    };
-}
-
-} // namespace
-
 CsgCompileResult compileBrushesToGeo(
     const std::vector<Brush>& brushes,
-    const MaterialUvResolver& resolveMaterialUv) {
+    const MaterialUvResolver& resolveMaterialUv,
+    const RadFile* lightmaps) {
     CsgCompileResult result;
+
+    std::unordered_map<std::string, const LightmapChart*> chartByFaceId;
+    if (lightmaps != nullptr) {
+        for (const LightmapChart& chart : lightmaps->charts) {
+            if (!chart.faceId.empty()) {
+                chartByFaceId[chart.faceId] = &chart;
+            }
+        }
+    }
 
     for (const Brush& brush : brushes) {
         for (const BrushFace& face : brush.faces) {
@@ -69,11 +41,52 @@ CsgCompileResult compileBrushesToGeo(
             Vector3 vAxis{};
             axialUvAxes(face.normal, uAxis, vAxis);
 
+            const LightmapChart* chart = nullptr;
+            const auto chartIt = chartByFaceId.find(face.id);
+            if (chartIt != chartByFaceId.end()) {
+                chart = chartIt->second;
+            }
+
+            float uMin = 0.0f;
+            float uMax = 0.0f;
+            float vMin = 0.0f;
+            float vMax = 0.0f;
+            for (std::size_t i = 0; i < face.corners.size(); ++i) {
+                const float u =
+                    face.corners[i].x * uAxis.x + face.corners[i].y * uAxis.y + face.corners[i].z * uAxis.z;
+                const float v =
+                    face.corners[i].x * vAxis.x + face.corners[i].y * vAxis.y + face.corners[i].z * vAxis.z;
+                if (i == 0) {
+                    uMin = uMax = u;
+                    vMin = vMax = v;
+                } else {
+                    uMin = std::min(uMin, u);
+                    uMax = std::max(uMax, u);
+                    vMin = std::min(vMin, v);
+                    vMax = std::max(vMax, v);
+                }
+            }
+            const float uSpan = uMax - uMin > 1e-5f ? uMax - uMin : 1.0f;
+            const float vSpan = vMax - vMin > 1e-5f ? vMax - vMin : 1.0f;
+
             for (const Vector3& corner : face.corners) {
                 result.buffer.positions.push_back(corner);
                 result.buffer.normals.push_back(face.normal);
                 result.buffer.texcoords.push_back(
                     worldPlanarUv(corner, uAxis, vAxis, face.uvShiftPixels, materialUv));
+
+                Vector2 lightUv{0.0f, 0.0f};
+                if (chart != nullptr) {
+                    const float u =
+                        corner.x * uAxis.x + corner.y * uAxis.y + corner.z * uAxis.z;
+                    const float v =
+                        corner.x * vAxis.x + corner.y * vAxis.y + corner.z * vAxis.z;
+                    const float fu = (u - uMin) / uSpan;
+                    const float fv = (v - vMin) / vSpan;
+                    lightUv.x = chart->u0 + (chart->u1 - chart->u0) * fu;
+                    lightUv.y = chart->v0 + (chart->v1 - chart->v0) * fv;
+                }
+                result.buffer.texcoords2.push_back(lightUv);
             }
 
             const std::uint32_t base = static_cast<std::uint32_t>(primitive.vertexOffset);

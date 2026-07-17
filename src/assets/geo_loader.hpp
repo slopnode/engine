@@ -20,6 +20,7 @@ struct VertBuffer {
     std::vector<Vector3> positions;
     std::vector<Vector3> normals;
     std::vector<Vector2> texcoords;
+    std::vector<Vector2> texcoords2;
     std::vector<std::uint32_t> indices;
 };
 

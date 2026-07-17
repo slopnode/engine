@@ -449,10 +449,22 @@ void registerRenderSystems(flecs::world& world) {
             flecs::world world = it.world();
             RenderContext& context = world.get_mut<RenderContext>();
             BeginMode3D(lens.camera);
-            DrawGrid(10, 1.0f);
+            const bool unlit =
+                world.has<DebugUiState>() && world.get<DebugUiState>().unlit;
             context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
                 if (!modelEntity.has<WorldSpace>()) {
                     return;
+                }
+                if (modelEntity.has<MapLightmapState>()) {
+                    const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
+                    if (lightmaps.available && lightmaps.useLightmapLoc >= 0 && model.model.materialCount > 0) {
+                        const int useLightmap = (!unlit) ? 1 : 0;
+                        SetShaderValue(
+                            model.model.materials[0].shader,
+                            lightmaps.useLightmapLoc,
+                            &useLightmap,
+                            SHADER_UNIFORM_INT);
+                    }
                 }
                 renderWorldModel(modelEntity, model, global, lens);
             });
@@ -548,6 +560,10 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         return;
     }
 
+    MapLightmapState lightmapState{};
+    lightmapState.available = loaded->hasLightmaps;
+    lightmapState.useLightmapLoc = loaded->useLightmapLoc;
+
     world.entity("MapStatic")
         .add<WorldSpace>()
         .set<LocalTransformation>({
@@ -555,7 +571,8 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
             .scale = {1.0f, 1.0f, 1.0f},
             .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
         })
-        .set<Model3D>({loaded->model, WHITE});
+        .set<Model3D>({loaded->model, WHITE})
+        .set<MapLightmapState>(lightmapState);
 
     world.set<MapBsp>(MapBsp{std::move(loaded->bsp)});
 

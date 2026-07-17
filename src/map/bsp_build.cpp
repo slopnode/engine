@@ -4,6 +4,8 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <string>
+#include <utility>
 
 namespace slopengine {
 
@@ -229,7 +231,73 @@ void buildAdjacency(BspTree& tree) {
     }
 }
 
-void buildSurfaceFaces(BspTree& tree) {
+bool pointInsideBrushInclusive(Vector3 point, const Brush& brush) {
+    return point.x >= brush.mins.x - kPlaneEps && point.x <= brush.maxs.x + kPlaneEps
+        && point.y >= brush.mins.y - kPlaneEps && point.y <= brush.maxs.y + kPlaneEps
+        && point.z >= brush.mins.z - kPlaneEps && point.z <= brush.maxs.z + kPlaneEps;
+}
+
+void orientSurfaceWinding(BspSurfaceFace& face) {
+    const Vector3 windingNormal = faceNormalFromCorners(face.corners);
+    const float alignment =
+        windingNormal.x * face.normal.x
+        + windingNormal.y * face.normal.y
+        + windingNormal.z * face.normal.z;
+    if (alignment < 0.0f) {
+        std::swap(face.corners[1], face.corners[3]);
+    }
+}
+
+void assignSurfaceMaterials(BspTree& tree, const std::vector<Brush>& hulls) {
+    for (std::size_t faceIndex = 0; faceIndex < tree.surfaceFaces.size(); ++faceIndex) {
+        BspSurfaceFace& face = tree.surfaceFaces[faceIndex];
+        const Vector3 faceCenter{
+            0.25f * (face.corners[0].x + face.corners[1].x + face.corners[2].x + face.corners[3].x),
+            0.25f * (face.corners[0].y + face.corners[1].y + face.corners[2].y + face.corners[3].y),
+            0.25f * (face.corners[0].z + face.corners[1].z + face.corners[2].z + face.corners[3].z),
+        };
+        const Vector3 solidProbe{
+            faceCenter.x - face.normal.x * 0.02f,
+            faceCenter.y - face.normal.y * 0.02f,
+            faceCenter.z - face.normal.z * 0.02f,
+        };
+
+        const BrushFace* bestFace = nullptr;
+        float bestScore = -1.0f;
+        for (const Brush& brush : hulls) {
+            if (!pointInsideBrushInclusive(solidProbe, brush)) {
+                continue;
+            }
+            for (const BrushFace& brushFace : brush.faces) {
+                const float alignment =
+                    brushFace.normal.x * face.normal.x
+                    + brushFace.normal.y * face.normal.y
+                    + brushFace.normal.z * face.normal.z;
+                if (alignment < 0.5f) {
+                    continue;
+                }
+                if (alignment > bestScore) {
+                    bestScore = alignment;
+                    bestFace = &brushFace;
+                }
+            }
+        }
+
+        if (bestFace != nullptr) {
+            face.id = bestFace->id;
+            face.material = bestFace->material;
+            face.uvShiftPixels = bestFace->uvShiftPixels;
+            face.normal = bestFace->normal;
+        } else if (face.id.empty()) {
+            face.id = "surface/" + std::to_string(faceIndex);
+            face.material = "default/unassigned";
+        }
+
+        orientSurfaceWinding(face);
+    }
+}
+
+void buildSurfaceFaces(BspTree& tree, const std::vector<Brush>& hulls) {
     tree.surfaceFaces.clear();
     constexpr float kNudge = 0.005f;
     const std::int32_t leafCount = static_cast<std::int32_t>(tree.leaves.size());
@@ -267,14 +335,28 @@ void buildSurfaceFaces(BspTree& tree) {
             };
             const float len = std::sqrt(
                 toEmpty.x * toEmpty.x + toEmpty.y * toEmpty.y + toEmpty.z * toEmpty.z);
+            face.normal = faceNormalFromCorners(face.corners);
             if (len > kPlaneEps) {
-                toEmpty.x = toEmpty.x / len * kNudge;
-                toEmpty.y = toEmpty.y / len * kNudge;
-                toEmpty.z = toEmpty.z / len * kNudge;
+                const float towardEmpty =
+                    face.normal.x * toEmpty.x
+                    + face.normal.y * toEmpty.y
+                    + face.normal.z * toEmpty.z;
+                if (towardEmpty < 0.0f) {
+                    face.normal.x = -face.normal.x;
+                    face.normal.y = -face.normal.y;
+                    face.normal.z = -face.normal.z;
+                    std::swap(face.corners[1], face.corners[3]);
+                }
+                const float invLen = kNudge / len;
+                const Vector3 nudge{
+                    toEmpty.x * invLen,
+                    toEmpty.y * invLen,
+                    toEmpty.z * invLen,
+                };
                 for (Vector3& corner : face.corners) {
-                    corner.x += toEmpty.x;
-                    corner.y += toEmpty.y;
-                    corner.z += toEmpty.z;
+                    corner.x += nudge.x;
+                    corner.y += nudge.y;
+                    corner.z += nudge.z;
                 }
             }
 
@@ -282,6 +364,8 @@ void buildSurfaceFaces(BspTree& tree) {
             tree.surfaceFaces.push_back(face);
         }
     }
+
+    assignSurfaceMaterials(tree, hulls);
 }
 
 } // namespace
@@ -332,7 +416,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     collectSplits(hulls, splits);
     tree.root = buildNode(tree, mins, maxs, hulls, splits);
     buildAdjacency(tree);
-    buildSurfaceFaces(tree);
+    buildSurfaceFaces(tree, hulls);
     return tree;
 }
 

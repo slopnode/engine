@@ -273,4 +273,11 @@
   (role "detail")
   (mins 2.2 0.0 2.2)
   (maxs 2.8 0.8 2.8)
-  (material "texture-test"))
+  (material "emission-test"))
+
+(brush-box
+  (id "detail-crate-red")
+  (role "detail")
+  (mins -2.8 0.0 -2.8)
+  (maxs -2.2 0.8 -2.2)
+  (material "emission-red"))
