@@ -49,7 +49,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 return;
             }
 
-            const flecs::entity camera = it.world().lookup("MainCamera");
+            const flecs::entity camera = it.world().lookup("Player");
             if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<FirstPersonController>()) {
                 return;
             }
@@ -92,7 +92,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 return;
             }
 
-            const flecs::entity camera = it.world().lookup("MainCamera");
+            const flecs::entity camera = it.world().lookup("Player");
             if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<Lens>() ||
                 !camera.has<FirstPersonController>()) {
                 return;

@@ -65,7 +65,7 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` → `geometry/props/crate.geo` |
 | `animations/` | `.anim`, `.tracks` | `character/walk` → `animations/character/walk.anim` |
 | `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
-| `maps/` | see below | `<name>/static` → `maps/<name>/static.csg` |
+| `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/entities` → `maps/<name>/entities.s7` |
 
 Nested folders under each category are allowed. Related assets are often grouped by shared name under `geometry/`, `skeletons/`, and `animations/`.
 
@@ -92,7 +92,7 @@ GLSL sources under `shaders/`. Vertex and fragment programs are separate virtual
 
 ### Scripts
 
-Scheme (s7) sources under `scripts/`.
+Scheme (s7) sources under `scripts/`. The game loads `init` then `entities` at startup; map placement is a separate `maps/<name>/entities.s7`. See [Entities](entities.md).
 
 ### Skeletons
 
@@ -122,6 +122,6 @@ Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skel
 
 ### Maps
 
-Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg` and compiled `static.bsp` plus optional `rad/`. See [Maps](maps.md) for authoring, BSP, and radiosity.
+Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `entities.s7`, and compiled `static.bsp` plus optional `rad/`. See [Maps](maps.md) for authoring, BSP, entities, and radiosity.
 
 A package is created by adding a `package.meta` with a unique `id`, the category folders you need, and mounting it with `--base-game` or `--mod`. Dependencies listed in `(depends ...)` must also be mounted.

@@ -186,6 +186,10 @@ bool AssetStore::hasMapCsg(std::string_view path) const {
     return vfs_.exists(AssetKind::MapCsg, path);
 }
 
+bool AssetStore::hasMapEntities(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapEntities, path);
+}
+
 bool AssetStore::hasMapMeta(std::string_view path) const {
     return vfs_.exists(AssetKind::MapMeta, path);
 }
@@ -708,6 +712,16 @@ bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
 
 bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path) {
     const auto resolved = vfs_.resolve(AssetKind::MapCsg, path);
+    if (!resolved) {
+        return false;
+    }
+
+    s7_load(scheme, resolved->string().c_str());
+    return true;
+}
+
+bool AssetStore::loadMapEntities(s7_scheme* scheme, std::string_view path) {
+    const auto resolved = vfs_.resolve(AssetKind::MapEntities, path);
     if (!resolved) {
         return false;
     }

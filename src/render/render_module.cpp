@@ -1,12 +1,12 @@
 #include "render/render_module.hpp"
 
+#include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
-#include "assets/skeleton_loader.hpp"
 #include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
-#include "interact/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
+#include "map/entity_script.hpp"
 #include "map/light_sample.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
@@ -16,6 +16,7 @@
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "render/transform.hpp"
+#include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
 
 #include "ui/ui_state.hpp"
@@ -35,10 +36,6 @@
 namespace slopengine {
 
 namespace {
-
-struct AssetServices {
-    AssetStore* store = nullptr;
-};
 
 struct RenderContext {
     flecs::query<Model3D, GlobalTransformation> worldModelQuery;
@@ -792,7 +789,7 @@ void registerRenderSystems(flecs::world& world) {
                 const DebugUiState& debugUi = world.get<DebugUiState>();
                 const MapBsp& mapBsp = world.get<MapBsp>();
                 std::int32_t currentLeaf = -1;
-                flecs::entity camera = world.lookup("MainCamera");
+                flecs::entity camera = world.lookup("Player");
                 if (camera.is_valid() && camera.has<Lens>()) {
                     currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
                 }
@@ -834,7 +831,7 @@ void registerRenderSystems(flecs::world& world) {
             if (world.has<MapBsp>()) {
                 const MapBsp& mapBsp = world.get<MapBsp>();
                 Vector3 sample{0.0f, 1.5f, 0.0f};
-                flecs::entity camera = world.lookup("MainCamera");
+                flecs::entity camera = world.lookup("Player");
                 if (camera.is_valid() && camera.has<Lens>()) {
                     sample = camera.get<Lens>().camera.position;
                 }
@@ -871,7 +868,7 @@ void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, floa
     controller.yaw = yaw;
     controller.pitch = -0.05f;
 
-    world.entity("MainCamera")
+    world.entity("Player")
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
@@ -913,21 +910,41 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         ambientColor));
     world.set<MapBsp>(std::move(mapBsp));
 
+    if (world.has<PhysicsContext>()) {
+        PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
+        if (physics != nullptr) {
+            addStaticBrushes(*physics, loaded->brushes);
+        }
+    }
+
+    const PlayerStart playerStart = loadMapEntities(scheme, world, assets, mapName);
+
     CharacterMotor motor{};
     FirstPersonController controller{};
-    controller.yaw = PI;
+    controller.yaw = playerStart.yaw;
     controller.pitch = -0.05f;
     controller.eyeHeight = motor.eyeHeight;
     controller.moveSpeed = motor.moveSpeed;
 
+    const float cosPitch = std::cos(controller.pitch);
+    const Vector3 forward = {
+        std::sin(controller.yaw) * cosPitch,
+        std::sin(controller.pitch),
+        std::cos(controller.yaw) * cosPitch,
+    };
+
     Lens lens{};
-    lens.camera.position = {0.0f, motor.eyeHeight, 0.0f};
-    lens.camera.target = {0.0f, motor.eyeHeight, -1.0f};
+    lens.camera.position = {
+        playerStart.position.x,
+        playerStart.position.y + motor.eyeHeight,
+        playerStart.position.z,
+    };
+    lens.camera.target = Vector3Add(lens.camera.position, forward);
     lens.camera.up = {0.0f, 1.0f, 0.0f};
     lens.camera.fovy = 75.0f;
     lens.camera.projection = CAMERA_PERSPECTIVE;
 
-    world.entity("MainCamera")
+    world.entity("Player")
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
@@ -937,180 +954,13 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
-            addStaticBrushes(*physics, loaded->brushes);
-            physics->createPlayerCharacter(0.0f, 0.1f, 0.0f, motor);
+            physics->createPlayerCharacter(
+                playerStart.position.x,
+                playerStart.position.y,
+                playerStart.position.z,
+                motor);
         }
     }
-
-    if (assets.hasSprite("usmc/umca")) {
-        const struct {
-            const char* name;
-            Vector3 position;
-            float facingYaw;
-            const char* clip;
-            bool loop;
-        } soldiers[] = {
-            {"MapSpriteUmcaA", {-2.0f, 0.0f, -2.0f}, 0.0f, "walk", true},
-            {"MapSpriteUmcaB", {2.0f, 0.0f, -2.0f}, PI * 0.5f, "walk", true},
-            {"MapSpriteUmcaC", {0.0f, 0.0f, 2.0f}, PI, "fall", false},
-        };
-        for (const auto& soldier : soldiers) {
-            SpriteAnimator animator{};
-            animator.animPath = "usmc/umca";
-            animator.play(soldier.clip, soldier.loop);
-
-            world.entity(soldier.name)
-                .add<WorldSpace>()
-                .set<LocalTransformation>({
-                    .position = soldier.position,
-                    .scale = {1.0f, 1.0f, 1.0f},
-                    .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-                })
-                .set<SpriteInstance>({
-                    .sprite = "usmc/umca",
-                    .frame = "A",
-                    .facingYaw = soldier.facingYaw,
-                })
-                .set<SpriteAnimator>(animator);
-        }
-    }
-}
-
-void registerDemoScene(flecs::world& world, AssetStore& assets) {
-    spawnMainCamera(world, {0.0f, 1.7f, 8.0f}, {0.0f, 1.7f, 7.0f}, PI);
-
-    constexpr const char* kHumanAsset = "human01/human01";
-
-    if (!assets.hasGeo(kHumanAsset)) {
-        TraceLog(LOG_WARNING, "Demo geometry not found at geometry/%s", kHumanAsset);
-        return;
-    }
-
-    if (!assets.hasAnim(kHumanAsset)) {
-        TraceLog(LOG_WARNING, "Demo animation not found at animations/%s", kHumanAsset);
-        return;
-    }
-
-    const AnimBank* animBank = assets.getAnimBank(kHumanAsset);
-    if (animBank == nullptr) {
-        TraceLog(LOG_WARNING, "Failed to load animation bank at animations/%s", kHumanAsset);
-        return;
-    }
-
-    if (animBank->clipIndexByName.find("wave") == animBank->clipIndexByName.end()) {
-        TraceLog(LOG_WARNING, "Animation bank '%s' has no 'wave' clip", kHumanAsset);
-        return;
-    }
-
-    const Model humanSource = assets.getGeoModel(kHumanAsset);
-    Model humanModel = cloneGeoModelInstance(humanSource);
-    if (humanModel.meshCount == 0) {
-        TraceLog(LOG_WARNING, "Failed to load demo geometry at geometry/%s", kHumanAsset);
-        return;
-    }
-
-    if (humanModel.materials != nullptr) {
-        const Material male1591Material = assets.resolveMaterial("male1591");
-        const Material highPolyMaterial = assets.resolveMaterial("high-poly");
-        for (int meshIndex = 0; meshIndex < humanModel.meshCount; ++meshIndex) {
-            humanModel.materials[meshIndex] =
-                meshIndex == 0 ? male1591Material : highPolyMaterial;
-        }
-    }
-
-    AnimationPlayer humanAnimation{};
-    humanAnimation.animBankPath = kHumanAsset;
-    humanAnimation.play("wave", true);
-
-    flecs::entity human = world.entity("Human01")
-        .add<WorldSpace>()
-        .set<LocalTransformation>({
-            .position = {0.0f, 0.0f, 0.0f},
-            .scale = {1.0f, 1.0f, 1.0f},
-            .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-        })
-        .set<Spin>({
-            .axis = {0.0f, 1.0f, 0.0f},
-            .speed = 0.4f,
-        })
-        .set<Model3D>({humanModel, WHITE})
-        .set<AnimationPlayer>(humanAnimation);
-
-    // Add a ground plane for the world to move in
-    Model groundModel = LoadModelFromMesh(GenMeshPlane(10.0f, 10.0f, 10, 10));
-    if (groundModel.meshCount > 0) {
-        // Apply ground material
-        const Material groundMaterial = assets.resolveMaterial("default/ground");
-        for (int i = 0; i < groundModel.materialCount; ++i) {
-            groundModel.materials[i] = groundMaterial;
-        }
-        world.entity("GroundPlane")
-            .add<WorldSpace>()
-            .set<LocalTransformation>({
-                .position = {0.0f, 0.0f, 0.0f},
-                .scale = {1.0f, 1.0f, 1.0f},
-                .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-            })
-            .set<Model3D>({groundModel, WHITE});
-    }
-
-    // Add a simple obstacle for the world to move around
-    Model obstacleModel = LoadModelFromMesh(GenMeshCube(2.0f, 2.0f, 2.0f));
-    if (obstacleModel.meshCount > 0) {
-        const Material defaultMaterial = assets.resolveMaterial("default/cube");
-        for (int i = 0; i < obstacleModel.materialCount; ++i) {
-            obstacleModel.materials[i] = defaultMaterial;
-        }
-        world.entity("WorldObstacle")
-            .add<WorldSpace>()
-            .set<LocalTransformation>({
-                .position = {5.0f, 1.0f, 5.0f},
-                .scale = {1.0f, 1.0f, 1.0f},
-                .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-            })
-            .set<Model3D>({obstacleModel, WHITE})
-            .set<Interactable>({
-                .prompt = "Inspect obstacle",
-                .eventName = "obstacle_inspect",
-                .maxDistance = 6.0f,
-            });
-    }
-
-    constexpr const char* kCubeAsset = "default/cube";
-    Model cubeModel = {};
-    if (assets.hasGeo(kCubeAsset)) {
-        const Model cubeSource = assets.getGeoModel(kCubeAsset);
-        cubeModel = cloneGeoModelInstance(cubeSource);
-    }
-    if (cubeModel.meshCount == 0) {
-        cubeModel = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
-    }
-
-    flecs::entity parentCube = world.entity("Human01Cube")
-        .child_of(human)
-        .add<WorldSpace>()
-        .set<LocalTransformation>({
-            .position = {15.0f, 0.0f, 0.0f},
-            .scale = {5.0f, 5.0f, 5.0f},
-            .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-        })
-        .set<Spin>({
-            .axis = {0.0f, 0.0f, 1.0f},
-            .speed = 0.4f,
-        })
-        .set<Model3D>({cubeModel, RED});
-
-    const Model childCubeModel = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
-
-    world.entity("Human01CubeChild")
-        .child_of(parentCube)
-        .add<WorldSpace>()
-        .set<LocalTransformation>({
-            .position = {3.0f, 0.0f, 0.0f},
-            .scale = {3.0f, 3.0f, 3.0f},
-            .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
-        })
-        .set<Model3D>({childCubeModel, BLUE});
 }
 
 }
@@ -1123,6 +973,7 @@ void registerRenderModule(
     registerComponents(world);
 
     world.set<AssetServices>(AssetServices{&assets});
+    world.set<ScriptContext>(ScriptContext{scheme});
     world.set<RenderContext>({
         world.query<Model3D, GlobalTransformation>(),
         world.query<SpriteInstance, GlobalTransformation>(),
@@ -1138,7 +989,8 @@ void registerRenderModule(
     if (config.map) {
         registerMapScene(world, assets, scheme, *config.map);
     } else {
-        registerDemoScene(world, assets);
+        TraceLog(LOG_WARNING, "RENDER: no --map specified; spawning free camera only");
+        spawnMainCamera(world, {0.0f, 1.7f, 8.0f}, {0.0f, 1.7f, 7.0f}, PI);
     }
 }
 

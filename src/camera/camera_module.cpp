@@ -41,7 +41,7 @@ void registerSystems(flecs::world& world) {
                 return;
             }
 
-            const flecs::entity camera = it.world().lookup("MainCamera");
+            const flecs::entity camera = it.world().lookup("Player");
             if (!camera.is_valid() || !camera.has<PlayerCamera>() || !camera.has<Lens>() ||
                 !camera.has<FirstPersonController>()) {
                 return;

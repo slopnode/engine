@@ -36,6 +36,9 @@ struct DebugUiState {
     bool showSpriteAim = false;
     bool unlit = false;
     bool noclip = false;
+    bool entityListOpen = false;
+    bool entityDetailOpen = false;
+    flecs::entity inspectedEntity{};
 };
 
 }

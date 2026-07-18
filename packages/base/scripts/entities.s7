@@ -1,0 +1,2 @@
+(define (on-use-test entity-id)
+  (format #t "used ~a~%" entity-id))

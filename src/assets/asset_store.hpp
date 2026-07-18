@@ -52,6 +52,9 @@ public:
     /** Returns true when a map CSG script exists at @p path. */
     bool hasMapCsg(std::string_view path) const;
 
+    /** Returns true when a map entities script exists at @p path. */
+    bool hasMapEntities(std::string_view path) const;
+
     /** Returns true when a map meta file exists at @p path. */
     bool hasMapMeta(std::string_view path) const;
 
@@ -180,6 +183,9 @@ public:
 
     /** Loads and evaluates the map CSG script at @p path in @p scheme. */
     bool loadMapCsg(s7_scheme* scheme, std::string_view path);
+
+    /** Loads and evaluates the map entities script at @p path in @p scheme. */
+    bool loadMapEntities(s7_scheme* scheme, std::string_view path);
 
 private:
     static std::string cacheKey(std::string_view path);

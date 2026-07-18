@@ -1,0 +1,13 @@
+(player-start
+  (id "start")
+  (at 0.0 0.1 0.0)
+  (yaw 3.141592653589793))
+
+(usable
+  (id "use-test")
+  (at 1.5 0.0 0.0)
+  (yaw 0.0)
+  (sprite "usmc/umca")
+  (frame "A")
+  (prompt "Test use")
+  (on-use "on-use-test"))

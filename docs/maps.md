@@ -12,6 +12,7 @@ Each map is a directory under `maps/<name>/`:
 maps/<name>/
   map.meta
   static.csg
+  entities.s7
   static.bsp
   rad/
     static.rad
@@ -19,9 +20,9 @@ maps/<name>/
     ...
 ```
 
-`map.meta` and `static.csg` are authored. `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
+`map.meta` and `static.csg` are authored. `entities.s7` places props and usables (optional). `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
 
-Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG and BSP, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
+Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG and BSP, `<name>/entities` for entity placement, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
 
 ## Authoring
 
@@ -76,6 +77,41 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
 ```
 
 `id`, `mins`, and `maxs` are required on `brush-box`. Optional `(faces ...)` overrides individual sides (`top`, `bottom`, `north`, `south`, `east`, `west`) with their own `id`, `material`, `(uv-shift x y)`, or `(nodraw)`. Future sugar such as `brush-circle` may expand other primitives the same way; the compiler always sees convexes.
+
+### entities.s7
+
+Optional Scheme file loaded after map geometry. Engine bindings create flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
+
+```text
+(player-start
+  (id "start")
+  (at 0.0 0.1 0.0)
+  (yaw 3.14159))
+
+(prop
+  (id "guard-a")
+  (at -2.0 0.0 -2.0)
+  (yaw 0.0)
+  (sprite "usmc/umca")
+  (anim "walk" #t))
+
+(usable
+  (id "use-test")
+  (at 1.5 0.0 0.0)
+  (yaw 0.0)
+  (sprite "usmc/umca")
+  (frame "A")
+  (prompt "Test use")
+  (on-use "on-use-test"))
+```
+
+| Form | Required | Notes |
+|------|----------|-------|
+| `player-start` | `id`, `at` | First wins; sets player spawn pose. Optional `yaw` (radians). See [Player](player.md). |
+| `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Entities](entities.md). |
+| `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Entities](entities.md). |
+
+`on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, actors, and scripting are covered in [Entities](entities.md).
 
 `(nodraw)` marks a face as out of bounds for rendering: it is omitted from the compiled mesh and from radiosity charts, so it does not consume lightmap atlas space. The brush stays solid for physics and BSP occlusion. You can still set it explicitly on any face when you want nodraw true:
 
@@ -163,7 +199,7 @@ Bake outline as implemented today:
 
 With `--map <name>`, the game validates meta and package dependencies, loads CSG brushes, reads `static.bsp`, and optionally reads `rad/`. If the BSP hull is sealed, the same auto-nodraw pass as `sloprad` runs before mesh compile. Brushes are compiled into render meshes (skipping nodraw faces): diffuse UVs from materials, lightmap UVs from charts when a bake is present. If radiosity data and atlases load successfully, materials on the map use the lightmap shader and bind the atlases. Otherwise the map draws without baked lighting.
 
-All brushes from the CSG are registered as static convex physics hulls. Missing BSP stops the load; missing rad only skips lightmaps.
+All brushes from the CSG are registered as static convex physics hulls. Missing BSP stops the load; missing rad only skips lightmaps. After geometry is up, the game evaluates `entities.s7` when present, then spawns the player at `player-start` (or the default pose).
 
 ## Custom tooling
 

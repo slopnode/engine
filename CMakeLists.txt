@@ -60,6 +60,7 @@ add_executable(slopengine
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/map_collision.cpp
+    src/map/entity_script.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp

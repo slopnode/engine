@@ -1,16 +1,22 @@
 #include "ui/ui_module.hpp"
 
+#include "camera/components.hpp"
 #include "game/user_settings.hpp"
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_module.hpp"
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
+#include "physics/components.hpp"
+#include "render/animation_player.hpp"
+#include "render/components.hpp"
+#include "render/sprite_animator.hpp"
 #include "ui/ui_state.hpp"
 
 #include "imgui.h"
 
 #include <cstdio>
+#include <cstring>
 #include <raylib.h>
 #include <vector>
 
@@ -313,15 +319,22 @@ void drawMainMenuBar(
     }
 
     if (ImGui::BeginMenu("Debug")) {
-        ImGui::MenuItem("BSP Outlines", nullptr, &debugUi.showBspOutlines);
-        ImGui::MenuItem("BSP Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
-        ImGui::MenuItem("BSP Portals", nullptr, &debugUi.showBspPortals);
-        ImGui::MenuItem("BSP Surface Faces", nullptr, &debugUi.showBspSurfaceFaces);
-        ImGui::MenuItem("BSP Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
-        ImGui::MenuItem("Sprite Masks", nullptr, &debugUi.showSpriteMasks);
-        ImGui::MenuItem("Sprite Aim", nullptr, &debugUi.showSpriteAim);
+        if (ImGui::BeginMenu("BSP")) {
+            ImGui::MenuItem("Outlines", nullptr, &debugUi.showBspOutlines);
+            ImGui::MenuItem("Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
+            ImGui::MenuItem("Portals", nullptr, &debugUi.showBspPortals);
+            ImGui::MenuItem("Surface Faces", nullptr, &debugUi.showBspSurfaceFaces);
+            ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Sprites")) {
+            ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
+            ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
+            ImGui::EndMenu();
+        }
         ImGui::MenuItem("Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
         ImGui::MenuItem("Noclip", nullptr, &debugUi.noclip);
+        ImGui::MenuItem("Entities", nullptr, &debugUi.entityListOpen);
         ImGui::EndMenu();
     }
 
@@ -337,6 +350,276 @@ void drawMainMenuBar(
     ImGui::TextUnformatted(fpsLabel);
 
     ImGui::EndMainMenuBar();
+}
+
+const char* entityKindLabel(flecs::entity entity) {
+    if (entity.has<PlayerCamera>()) {
+        return "player";
+    }
+    const char* name = entity.name();
+    if (name != nullptr && std::strcmp(name, "MapStatic") == 0) {
+        return "map";
+    }
+    if (entity.has<Interactable>()) {
+        return "usable";
+    }
+    if (entity.has<SpriteInstance>() || entity.has<Model3D>()) {
+        return "prop";
+    }
+    return "entity";
+}
+
+Vector3 entityListPosition(flecs::entity entity) {
+    if (entity.has<LocalTransformation>()) {
+        return entity.get<LocalTransformation>().position;
+    }
+    if (entity.has<Lens>()) {
+        return entity.get<Lens>().camera.position;
+    }
+    return {0.0f, 0.0f, 0.0f};
+}
+
+void drawEntityComponentDetails(flecs::entity entity) {
+    if (entity.has<LocalTransformation>()) {
+        const LocalTransformation& local = entity.get<LocalTransformation>();
+        if (ImGui::TreeNode("LocalTransformation")) {
+            ImGui::Text(
+                "Position: %.3f, %.3f, %.3f",
+                static_cast<double>(local.position.x),
+                static_cast<double>(local.position.y),
+                static_cast<double>(local.position.z));
+            ImGui::Text(
+                "Scale: %.3f, %.3f, %.3f",
+                static_cast<double>(local.scale.x),
+                static_cast<double>(local.scale.y),
+                static_cast<double>(local.scale.z));
+            ImGui::Text(
+                "Rotation: %.3f, %.3f, %.3f, %.3f",
+                static_cast<double>(local.rotation.x),
+                static_cast<double>(local.rotation.y),
+                static_cast<double>(local.rotation.z),
+                static_cast<double>(local.rotation.w));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<Lens>()) {
+        const Lens& lens = entity.get<Lens>();
+        if (ImGui::TreeNode("Lens")) {
+            ImGui::Text(
+                "Position: %.3f, %.3f, %.3f",
+                static_cast<double>(lens.camera.position.x),
+                static_cast<double>(lens.camera.position.y),
+                static_cast<double>(lens.camera.position.z));
+            ImGui::Text(
+                "Target: %.3f, %.3f, %.3f",
+                static_cast<double>(lens.camera.target.x),
+                static_cast<double>(lens.camera.target.y),
+                static_cast<double>(lens.camera.target.z));
+            ImGui::Text("Fovy: %.2f", static_cast<double>(lens.camera.fovy));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<FirstPersonController>()) {
+        const FirstPersonController& controller = entity.get<FirstPersonController>();
+        if (ImGui::TreeNode("FirstPersonController")) {
+            ImGui::Text("Yaw: %.3f", static_cast<double>(controller.yaw));
+            ImGui::Text("Pitch: %.3f", static_cast<double>(controller.pitch));
+            ImGui::Text("Move Speed: %.2f", static_cast<double>(controller.moveSpeed));
+            ImGui::Text("Eye Height: %.2f", static_cast<double>(controller.eyeHeight));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<CharacterMotor>()) {
+        const CharacterMotor& motor = entity.get<CharacterMotor>();
+        if (ImGui::TreeNode("CharacterMotor")) {
+            ImGui::Text("Radius: %.2f", static_cast<double>(motor.radius));
+            ImGui::Text("Height: %.2f", static_cast<double>(motor.height));
+            ImGui::Text("Move Speed: %.2f", static_cast<double>(motor.moveSpeed));
+            ImGui::Text("Eye Height: %.2f", static_cast<double>(motor.eyeHeight));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<Interactable>()) {
+        const Interactable& interactable = entity.get<Interactable>();
+        if (ImGui::TreeNode("Interactable")) {
+            ImGui::Text("Prompt: %s", interactable.prompt.c_str());
+            ImGui::Text("Event: %s", interactable.eventName.c_str());
+            ImGui::Text("Max Distance: %.2f", static_cast<double>(interactable.maxDistance));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<SpriteInstance>()) {
+        const SpriteInstance& sprite = entity.get<SpriteInstance>();
+        if (ImGui::TreeNode("SpriteInstance")) {
+            ImGui::Text("Sprite: %s", sprite.sprite.c_str());
+            ImGui::Text("Frame: %s", sprite.frame.c_str());
+            ImGui::Text("Facing Yaw: %.3f", static_cast<double>(sprite.facingYaw));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<SpriteAnimator>()) {
+        const SpriteAnimator& animator = entity.get<SpriteAnimator>();
+        if (ImGui::TreeNode("SpriteAnimator")) {
+            ImGui::Text("Anim: %s", animator.animPath.c_str());
+            ImGui::Text("Clip: %s", animator.clipName.c_str());
+            ImGui::Text("Time: %.3f", static_cast<double>(animator.time));
+            ImGui::Text("Playing: %s", animator.playing ? "true" : "false");
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<Model3D>()) {
+        if (ImGui::TreeNode("Model3D")) {
+            ImGui::TextUnformatted("Model present");
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<AnimationPlayer>()) {
+        const AnimationPlayer& player = entity.get<AnimationPlayer>();
+        if (ImGui::TreeNode("AnimationPlayer")) {
+            ImGui::Text("Bank: %s", player.animBankPath.c_str());
+            ImGui::Text("Clip: %s", player.clipName.c_str());
+            ImGui::Text("Time: %.3f", static_cast<double>(player.time));
+            ImGui::Text("Playing: %s", player.playing ? "true" : "false");
+            ImGui::TreePop();
+        }
+    }
+}
+
+void drawEntityDetail(DebugUiState& debugUi) {
+    if (!debugUi.entityDetailOpen) {
+        return;
+    }
+
+    if (!debugUi.inspectedEntity.is_alive()) {
+        debugUi.entityDetailOpen = false;
+        debugUi.inspectedEntity = {};
+        return;
+    }
+
+    flecs::entity entity = debugUi.inspectedEntity;
+    const char* name = entity.name();
+    if (name == nullptr) {
+        name = "(anon)";
+    }
+
+    char title[256];
+    std::snprintf(
+        title,
+        sizeof(title),
+        "Entity: %s###EntityDetail",
+        name);
+
+    ImGui::SetNextWindowSize({420.0f, 480.0f}, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin(title, &debugUi.entityDetailOpen, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("Name: %s", name);
+    ImGui::Text("Id: %llu", static_cast<unsigned long long>(entity.id()));
+    ImGui::Text("Kind: %s", entityKindLabel(entity));
+
+    const Vector3 position = entityListPosition(entity);
+    ImGui::Text(
+        "Position: %.3f, %.3f, %.3f",
+        static_cast<double>(position.x),
+        static_cast<double>(position.y),
+        static_cast<double>(position.z));
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Components");
+    if (ImGui::BeginChild("EntityComponents", {0.0f, 0.0f}, true)) {
+        const flecs::entity_t identifierId = entity.world().id<flecs::Identifier>();
+        entity.each([&](flecs::id id) {
+            if (id.is_pair() && id.first() == identifierId) {
+                return;
+            }
+            flecs::string idStr = id.str();
+            ImGui::BulletText("%s", idStr.c_str());
+        });
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Details");
+        drawEntityComponentDetails(entity);
+    }
+    ImGui::EndChild();
+
+    ImGui::End();
+
+    if (!debugUi.entityDetailOpen) {
+        debugUi.inspectedEntity = {};
+    }
+}
+
+void drawEntityList(flecs::world world, DebugUiState& debugUi) {
+    if (!debugUi.entityListOpen) {
+        return;
+    }
+
+    ImGui::SetNextWindowSize({520.0f, 360.0f}, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Entities", &debugUi.entityListOpen, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextUnformatted("Double-click a row to inspect.");
+
+    constexpr ImGuiTableFlags tableFlags =
+        ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders
+        | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable;
+    if (ImGui::BeginTable("EntityListTable", 4, tableFlags)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Id");
+        ImGui::TableSetupColumn("Kind");
+        ImGui::TableSetupColumn("Position");
+        ImGui::TableHeadersRow();
+
+        world.query<WorldSpace>().each([&debugUi](flecs::entity entity, WorldSpace) {
+            const char* name = entity.name();
+            if (name == nullptr) {
+                name = "(anon)";
+            }
+
+            const Vector3 position = entityListPosition(entity);
+            const bool selected =
+                debugUi.entityDetailOpen && debugUi.inspectedEntity == entity;
+
+            char label[256];
+            std::snprintf(
+                label,
+                sizeof(label),
+                "%s##ent%llu",
+                name,
+                static_cast<unsigned long long>(entity.id()));
+
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Selectable(
+                label,
+                selected,
+                ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                debugUi.inspectedEntity = entity;
+                debugUi.entityDetailOpen = true;
+            }
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%llu", static_cast<unsigned long long>(entity.id()));
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(entityKindLabel(entity));
+            ImGui::TableNextColumn();
+            ImGui::Text(
+                "%.2f, %.2f, %.2f",
+                static_cast<double>(position.x),
+                static_cast<double>(position.y),
+                static_cast<double>(position.z));
+        });
+
+        ImGui::EndTable();
+    }
+
+    ImGui::End();
 }
 
 void drawInteractPanel(InputContextStack& contexts, InteractionTarget& target) {
@@ -524,6 +807,8 @@ void drawUi(flecs::world world) {
         drawMainMenuBar(quit, settingsUi, debugUi, settings);
         drawGraphicsSettings(settingsUi, settings);
         drawControlsSettings(settingsUi, settings);
+        drawEntityList(world, debugUi);
+        drawEntityDetail(debugUi);
     }
 
     if (contexts.contains(InputContext::PauseMenu)) {

@@ -59,8 +59,11 @@ void App::init_window() {
 
 void App::init_script() {
     scheme_ = s7_init();
-    if (!assetStore_.loadScript(scheme_, "init.s7")) {
+    if (!assetStore_.loadScript(scheme_, "init")) {
         TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
+    }
+    if (!assetStore_.loadScript(scheme_, "entities")) {
+        TraceLog(LOG_WARNING, "SCRIPT: entities.s7 not loaded");
     }
 }
 
