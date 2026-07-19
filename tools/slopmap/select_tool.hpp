@@ -23,20 +23,28 @@ struct SelectTool {
     Vector3 translateOrigin{};
     Vector3 mouseGrabWorld{};
     std::vector<slopengine::Brush> brushSnapshot;
+    Vector3 instanceAtSnapshot{};
     bool numericActive = false;
 
-    void update(Editor& editor, const Camera3D& camera, bool uiWantsMouse, bool uiWantsKeyboard);
+    void update(
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        const Camera3D& camera,
+        bool uiWantsMouse,
+        bool uiWantsKeyboard);
     void cancelTranslate(Editor& editor);
+    void toggleSelectedUvLock(Editor& editor);
     bool active() const { return translating; }
 
 private:
     void beginTranslate(Editor& editor, const Camera3D& camera);
-    void applyTranslate(Editor& editor, Vector3 delta);
-    void confirmTranslate(Editor& editor);
-    void handleNumeric(Editor& editor, bool uiWantsKeyboard);
+    void applyTranslate(Editor& editor, slopengine::AssetStore& assets, Vector3 delta);
+    void confirmTranslate(Editor& editor, slopengine::AssetStore& assets);
+    void handleNumeric(Editor& editor, slopengine::AssetStore& assets, bool uiWantsKeyboard);
     void pick(Editor& editor, const Camera3D& camera);
-    void deleteSelected(Editor& editor);
+    void deleteSelected(Editor& editor, slopengine::AssetStore& assets);
     void duplicateSelected(Editor& editor, const Camera3D& camera);
+    void rotateSelectedInstance(Editor& editor, slopengine::AssetStore& assets);
 };
 
 std::optional<float> rayBrushHitDistance(Ray ray, const slopengine::Brush& brush);

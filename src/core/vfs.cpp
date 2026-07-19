@@ -36,6 +36,8 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::MapRad: return "maps";
     case AssetKind::MapLightmap: return "maps";
     case AssetKind::MapEntities: return "maps";
+    case AssetKind::PrefabCsg: return "prefabs";
+    case AssetKind::PrefabEntities: return "prefabs";
     case AssetKind::Sprite: return "sprites";
     case AssetKind::SpriteAnim: return "sprites";
     }
@@ -62,6 +64,8 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::MapRad: return ".rad";
     case AssetKind::MapLightmap: return ".png";
     case AssetKind::MapEntities: return ".s7";
+    case AssetKind::PrefabCsg: return ".csg";
+    case AssetKind::PrefabEntities: return ".s7";
     case AssetKind::Sprite: return ".spr";
     case AssetKind::SpriteAnim: return ".spanim";
     }

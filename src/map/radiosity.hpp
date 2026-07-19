@@ -1,11 +1,11 @@
 #pragma once
 
 #include "assets/material_loader.hpp"
-#include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 
 #include <functional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -16,6 +16,11 @@ struct RadiositySettings {
     int bounces = 2;
     int samples = 32;
     int atlasSize = 512;
+    float directWrap = 0.35f;
+    float coplanarFill = 0.15f;
+    float ambientScale = 1.25f;
+    bool preferGpu = true;
+    std::string directComputeShaderSource;
 };
 
 struct MaterialBakeInfo {
@@ -35,7 +40,6 @@ struct RadiosityBakeResult {
 
 RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
-    const BspTree& occlusionTree,
     const MapMeta& meta,
     const MaterialBakeResolver& resolveMaterial,
     const RadiositySettings& settings);

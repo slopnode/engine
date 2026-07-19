@@ -6,8 +6,10 @@
 #include "map/csg_script.hpp"
 #include "map/lightmap.hpp"
 #include "map/radiosity.hpp"
+#include "map/radiosity_gpu.hpp"
 
 #include <raylib.h>
+
 #include <s7.h>
 
 #include <charconv>
@@ -88,6 +90,10 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.samples = parsed;
+        } else if (arg == "--gpu") {
+            cli.settings.preferGpu = true;
+        } else if (arg == "--cpu") {
+            cli.settings.preferGpu = false;
         } else {
             return std::nullopt;
         }
@@ -108,12 +114,40 @@ int main(int argc, char* argv[]) {
     if (!cli) {
         std::cerr
             << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
-            << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n";
+            << "       [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]\n";
         return 1;
     }
 
     SetTraceLogLevel(LOG_INFO);
+    SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    InitWindow(16, 16, "sloprad");
+    if (!IsWindowReady()) {
+        std::cerr << "sloprad: failed to create OpenGL context\n";
+        return 1;
+    }
+
     AssetStore assets(cli->config);
+
+    if (cli->settings.preferGpu) {
+        cli->settings.directComputeShaderSource = assets.getShaderSource("tools/rad_direct_comp");
+        if (cli->settings.directComputeShaderSource.empty()) {
+            TraceLog(
+                LOG_WARNING,
+                "sloprad: missing shaders/tools/rad_direct_comp.glsl; GPU direct lighting disabled");
+            std::fflush(stdout);
+        } else if (!radiosityGpuContextReady()) {
+            TraceLog(
+                LOG_WARNING,
+                "sloprad: OpenGL compute unavailable; GPU direct lighting disabled");
+            std::fflush(stdout);
+        } else {
+            TraceLog(LOG_INFO, "sloprad: GPU direct lighting enabled");
+            std::fflush(stdout);
+        }
+    } else {
+        TraceLog(LOG_INFO, "sloprad: CPU direct lighting forced");
+        std::fflush(stdout);
+    }
 
     TraceLog(LOG_INFO, "sloprad: map='%s'", cli->config.map->c_str());
     std::fflush(stdout);
@@ -121,6 +155,7 @@ int main(int argc, char* argv[]) {
     auto mapMeta = loadMapMeta(assets, *cli->config.map);
     if (!mapMeta) {
         std::cerr << "sloprad: failed to load map meta\n";
+        CloseWindow();
         return 1;
     }
     TraceLog(
@@ -136,6 +171,7 @@ int main(int argc, char* argv[]) {
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, bspVirtualPath);
     if (!bspPath) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".bsp (run slopbsp first)\n";
+        CloseWindow();
         return 1;
     }
 
@@ -144,6 +180,7 @@ int main(int argc, char* argv[]) {
     auto tree = readBspFile(*bspPath);
     if (!tree) {
         std::cerr << "sloprad: failed to read " << *bspPath << "\n";
+        CloseWindow();
         return 1;
     }
     TraceLog(
@@ -157,12 +194,14 @@ int main(int argc, char* argv[]) {
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
         std::cerr << "sloprad: failed to init scheme\n";
+        CloseWindow();
         return 1;
     }
     auto brushes = loadMapBrushes(scheme, assets, *cli->config.map);
     s7_quit(scheme);
     if (!brushes) {
         std::cerr << "sloprad: failed to load map brushes\n";
+        CloseWindow();
         return 1;
     }
 
@@ -222,13 +261,17 @@ int main(int argc, char* argv[]) {
     std::filesystem::create_directories(radDir);
 
     RadiosityBakeResult baked =
-        bakeRadiosity(faces, *tree, *mapMeta, resolveMaterial, cli->settings);
+        bakeRadiosity(faces, *mapMeta, resolveMaterial, cli->settings);
 
     const auto radPath = radDir / "static.rad";
     TraceLog(LOG_INFO, "sloprad: writing %s", radPath.string().c_str());
     std::fflush(stdout);
     if (!writeRadFile(radPath, baked.rad)) {
         std::cerr << "sloprad: failed to write " << radPath << "\n";
+        for (Image& image : baked.atlasImages) {
+            UnloadImage(image);
+        }
+        CloseWindow();
         return 1;
     }
 
@@ -236,6 +279,10 @@ int main(int argc, char* argv[]) {
         const auto pngPath = radDir / (baked.rad.atlases[i].texturePath + ".png");
         if (!ExportImage(baked.atlasImages[i], pngPath.string().c_str())) {
             std::cerr << "sloprad: failed to write " << pngPath << "\n";
+            for (Image& image : baked.atlasImages) {
+                UnloadImage(image);
+            }
+            CloseWindow();
             return 1;
         }
         UnloadImage(baked.atlasImages[i]);
@@ -250,5 +297,6 @@ int main(int argc, char* argv[]) {
         static_cast<int>(baked.rad.atlases.size()),
         static_cast<int>(baked.rad.charts.size()));
     std::fflush(stdout);
+    CloseWindow();
     return 0;
 }

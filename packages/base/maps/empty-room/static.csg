@@ -2,7 +2,7 @@
   (id "a-floor")
   (mins -4 -0.25 -4)
   (maxs 4 0 4)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
@@ -16,21 +16,21 @@
   (id "a-wall-west")
   (mins -4.25 0 -4)
   (maxs -4 3 4.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "a-wall-east-n")
   (mins 4 0 -4)
   (maxs 4.25 3 -1.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "a-wall-east-s")
   (mins 4 0 1.25)
   (maxs 4.25 3 4)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
@@ -44,21 +44,21 @@
   (id "a-door-east-floor")
   (mins 4 -0.25 -1.25)
   (maxs 4.25 0 1.25)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
   (id "a-wall-north-w")
   (mins -4 0 -4.25)
   (maxs -1.25 3 -4)
-  (material "emission-green")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "a-wall-north-e")
   (mins 1.25 0 -4.25)
   (maxs 4 3 -4)
-  (material "emission-red")
+  (material "surfaces/bricks")
 )
 
 (brush-box
@@ -72,14 +72,14 @@
   (id "a-door-north-floor")
   (mins -1.25 -0.25 -4.25)
   (maxs 1.25 0 -4)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
   (id "a-wall-south-mid")
   (mins -1 0 4)
   (maxs 4 3 4.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
@@ -93,14 +93,14 @@
   (id "a-door-south-floor")
   (mins -4 -0.25 4)
   (maxs -1 0 4.25)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
   (id "hall-e-floor")
   (mins 4.25 -0.25 -1.25)
   (maxs 9.75 0 1.25)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
@@ -114,21 +114,21 @@
   (id "hall-e-wall-n")
   (mins 4.25 0 -1.5)
   (maxs 9.75 2.2 -1.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "hall-e-wall-s")
   (mins 4.25 0 1.25)
   (maxs 9.75 2.2 1.5)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "b-floor")
   (mins 10 -0.25 -5)
   (maxs 18 0 5)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
@@ -142,14 +142,14 @@
   (id "b-wall-west-n")
   (mins 9.75 0 -5)
   (maxs 10 4 -1.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "b-wall-west-s")
   (mins 9.75 0 1.25)
   (maxs 10 4 5)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
@@ -163,35 +163,35 @@
   (id "b-door-west-floor")
   (mins 9.75 -0.25 -1.25)
   (maxs 10 0 1.25)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
   (id "b-wall-east")
   (mins 18 0 -5)
   (maxs 18.25 4 5)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "b-wall-north")
   (mins 10 0 -5.25)
   (maxs 18 4 -5)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "b-wall-south")
   (mins 10 0 5)
   (maxs 18 4 5.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "hall-n-floor")
   (mins -1.25 -0.25 -9.75)
   (maxs 1.25 0 -4.25)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
@@ -205,21 +205,21 @@
   (id "hall-n-wall-w")
   (mins -1.5 0 -9.75)
   (maxs -1.25 2.2 -4.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "hall-n-wall-e")
   (mins 1.25 0 -9.75)
   (maxs 1.5 2.2 -4.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "c-floor")
   (mins -5 -0.25 -16)
   (maxs 5 0 -10)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
@@ -233,14 +233,14 @@
   (id "c-wall-south-w")
   (mins -5 0 -10)
   (maxs -1.25 2.6 -9.75)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "c-wall-south-e")
   (mins 1.25 0 -10)
   (maxs 5 2.6 -9.75)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
@@ -254,35 +254,35 @@
   (id "c-door-south-floor")
   (mins -1.25 -0.25 -10)
   (maxs 1.25 0 -9.75)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
   (id "c-wall-north")
   (mins -5 0 -16.25)
   (maxs 5 2.6 -16)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "c-wall-west")
   (mins -5.25 0 -16)
   (maxs -5 2.6 -10)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "c-wall-east")
   (mins 5 0 -16)
   (maxs 5.25 2.6 -10)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "alcove-floor")
   (mins -4 -0.25 4.25)
   (maxs -1 0 8)
-  (material "surfaces/floor-tile")
+  (material "surfaces/floor")
 )
 
 (brush-box
@@ -296,28 +296,28 @@
   (id "alcove-wall-w")
   (mins -4.25 0 4.25)
   (maxs -4 2.4 8)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "alcove-wall-e")
   (mins -1 0 4.25)
   (maxs -0.75 2.4 8)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "alcove-wall-s")
   (mins -4 0 8)
   (maxs -1 2.4 8.25)
-  (material "texture-test")
+  (material "surfaces/bricks")
 )
 
 (brush-box
   (id "detail-crate")
   (mins 2.2 0 2.2)
   (maxs 2.8 0.8 2.8)
-  (material "emission-test")
+  (material "texture-test")
   (role "detail")
 )
 
@@ -327,6 +327,60 @@
   (maxs -2.2 0.8 -2.2)
   (material "surfaces/floor-tile")
   (role "detail")
+)
+
+(brush-box
+  (id "desk-lamp-a")
+  (mins -1.6 0.78 -1.6)
+  (maxs -1.4 0.95 -1.4)
+  (material "emission-warm")
+  (role "detail")
+  (nocollide)
+)
+
+(brush-box
+  (id "desk-lamp-b")
+  (mins 1.4 0.78 0.9)
+  (maxs 1.6 0.95 1.1)
+  (material "emission-warm")
+  (role "detail")
+  (nocollide)
+)
+
+(brush-box
+  (id "ceil-light-a1")
+  (mins -2.5 2.88 -2.5)
+  (maxs -0.5 2.98 -0.5)
+  (material "emission-warm-soft")
+  (role "detail")
+  (nocollide)
+)
+
+(brush-box
+  (id "ceil-light-a2")
+  (mins 0.5 2.88 0.5)
+  (maxs 2.5 2.98 2.5)
+  (material "emission-warm-soft")
+  (role "detail")
+  (nocollide)
+)
+
+(brush-box
+  (id "ceil-light-hall-e")
+  (mins 6.2 2.08 -0.5)
+  (maxs 7.8 2.18 0.5)
+  (material "emission-warm-soft")
+  (role "detail")
+  (nocollide)
+)
+
+(brush-box
+  (id "ceil-light-hall-n")
+  (mins -0.5 2.08 -7.8)
+  (maxs 0.5 2.18 -6.2)
+  (material "emission-warm-soft")
+  (role "detail")
+  (nocollide)
 )
 
 (brush-box
@@ -363,16 +417,28 @@
   (faces
     (face
       (id "detail-wedge/bottom")
-      (verts (v 1 0 0.5) (v 2 0 0.5) (v 1.5 0 1.2)))
+      (verts (v -1.75 0 1) (v -0.75 0 1) (v -1.25 0 1.7)))
     (face
       (id "detail-wedge/ab")
-      (verts (v 1 0 0.5) (v 1.5 0.7 0.7) (v 2 0 0.5)))
+      (verts (v -1.75 0 1) (v -1.25 0.7 1.2) (v -0.75 0 1)))
     (face
       (id "detail-wedge/bc")
-      (verts (v 2 0 0.5) (v 1.5 0.7 0.7) (v 1.5 0 1.2)))
+      (verts (v -0.75 0 1) (v -1.25 0.7 1.2) (v -1.25 0 1.7)))
     (face
       (id "detail-wedge/ca")
-      (verts (v 1.5 0 1.2) (v 1.5 0.7 0.7) (v 1 0 0.5)))
+      (verts (v -1.25 0 1.7) (v -1.25 0.7 1.2) (v -1.75 0 1)))
   )
+)
+
+(prefab "furniture/desk"
+  (id "desk-a")
+  (at -1.5 0 -1.5)
+  (angles 0 0 0)
+)
+
+(prefab "furniture/desk"
+  (id "desk-b")
+  (at 1.5 0 1)
+  (angles 0 1.5708 0)
 )
 

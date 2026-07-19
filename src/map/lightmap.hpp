@@ -20,6 +20,9 @@ struct LightmapFace {
     Vector3 normal{};
     std::vector<Vector3> vertices;
     Vector2 uvShiftPixels{};
+    Vector3 uvUAxis{};
+    Vector3 uvVAxis{};
+    bool uvLock = false;
 };
 
 struct LightmapChart {

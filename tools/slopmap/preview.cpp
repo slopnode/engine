@@ -99,7 +99,66 @@ Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
     };
 }
 
-void drawBrushFaceOutlines(const slopengine::Brush& brush, Color color) {
+void drawThickLine3D(Vector3 a, Vector3 b, Color color, float width, Vector3 eye) {
+    const Vector3 delta{b.x - a.x, b.y - a.y, b.z - a.z};
+    const float lenSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+    if (lenSq < 1e-12f || width <= 0.0f) {
+        return;
+    }
+    const float len = std::sqrt(lenSq);
+    const Vector3 dir{delta.x / len, delta.y / len, delta.z / len};
+    const Vector3 mid{
+        0.5f * (a.x + b.x),
+        0.5f * (a.y + b.y),
+        0.5f * (a.z + b.z),
+    };
+    Vector3 toEye{eye.x - mid.x, eye.y - mid.y, eye.z - mid.z};
+    float toEyeLen = std::sqrt(toEye.x * toEye.x + toEye.y * toEye.y + toEye.z * toEye.z);
+    if (toEyeLen < 1e-6f) {
+        toEye = {0.0f, 1.0f, 0.0f};
+        toEyeLen = 1.0f;
+    } else {
+        toEye = {toEye.x / toEyeLen, toEye.y / toEyeLen, toEye.z / toEyeLen};
+    }
+
+    Vector3 side{
+        dir.y * toEye.z - dir.z * toEye.y,
+        dir.z * toEye.x - dir.x * toEye.z,
+        dir.x * toEye.y - dir.y * toEye.x,
+    };
+    float sideLen = std::sqrt(side.x * side.x + side.y * side.y + side.z * side.z);
+    if (sideLen < 1e-5f) {
+        const Vector3 fallback = std::fabs(dir.y) < 0.9f ? Vector3{0.0f, 1.0f, 0.0f}
+                                                         : Vector3{1.0f, 0.0f, 0.0f};
+        side = {
+            dir.y * fallback.z - dir.z * fallback.y,
+            dir.z * fallback.x - dir.x * fallback.z,
+            dir.x * fallback.y - dir.y * fallback.x,
+        };
+        sideLen = std::sqrt(side.x * side.x + side.y * side.y + side.z * side.z);
+        if (sideLen < 1e-5f) {
+            DrawLine3D(a, b, color);
+            return;
+        }
+    }
+    const float half = width * 0.5f / sideLen;
+    side = {side.x * half, side.y * half, side.z * half};
+
+    const Vector3 a1{a.x + side.x, a.y + side.y, a.z + side.z};
+    const Vector3 a2{a.x - side.x, a.y - side.y, a.z - side.z};
+    const Vector3 b1{b.x + side.x, b.y + side.y, b.z + side.z};
+    const Vector3 b2{b.x - side.x, b.y - side.y, b.z - side.z};
+    DrawTriangle3D(a1, b1, b2, color);
+    DrawTriangle3D(a1, b2, a2, color);
+    DrawTriangle3D(a1, b2, b1, color);
+    DrawTriangle3D(a1, a2, b2, color);
+}
+
+void drawBrushFaceOutlines(
+    const slopengine::Brush& brush,
+    Color color,
+    Vector3 eye,
+    float lineWidth) {
     for (const slopengine::BrushFace& face : brush.faces) {
         if (face.vertices.size() < 2) {
             continue;
@@ -107,7 +166,7 @@ void drawBrushFaceOutlines(const slopengine::Brush& brush, Color color) {
         for (std::size_t i = 0; i < face.vertices.size(); ++i) {
             const Vector3& a = face.vertices[i];
             const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
-            DrawLine3D(a, b, color);
+            drawThickLine3D(a, b, color, lineWidth, eye);
         }
     }
 }
@@ -115,11 +174,17 @@ void drawBrushFaceOutlines(const slopengine::Brush& brush, Color color) {
 void MapPreview::draw(
     bool wireframe,
     const std::vector<slopengine::Brush>& brushes,
-    int selectedBrush) const {
+    int selectedBrush,
+    Vector3 eye,
+    float lineWidth) const {
     if (wireframe) {
         for (std::size_t i = 0; i < brushes.size(); ++i) {
             const bool selected = static_cast<int>(i) == selectedBrush;
-            drawBrushFaceOutlines(brushes[i], brushOutlineColor(brushes[i], selected));
+            drawBrushFaceOutlines(
+                brushes[i],
+                brushOutlineColor(brushes[i], selected),
+                eye,
+                lineWidth);
         }
         return;
     }
@@ -161,12 +226,12 @@ void drawBrushAabbWires(const slopengine::Brush& brush, Color color) {
     drawAabbWires(brush.mins, brush.maxs, color);
 }
 
-void drawGridY0(float halfExtent, float step, Color color) {
+void drawGridY0(float halfExtent, float step, Color color, Vector3 eye, float lineWidth) {
     for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-        DrawLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color);
+        drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
     }
     for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-        DrawLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color);
+        drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
     }
 }
 

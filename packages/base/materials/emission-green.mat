@@ -2,5 +2,5 @@
   (shader "default")
   (texel-size 64)
   (emission-color 0.15 1.0 0.2 1.0)
-  (emission-power 80.0)
+  (emission-power 3.0)
   (base-color 0.15 1 0.2 1))

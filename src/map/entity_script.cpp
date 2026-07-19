@@ -9,10 +9,12 @@
 #include <raymath.h>
 #include <s7.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace slopengine {
 
@@ -23,6 +25,11 @@ struct EntityLoadContext {
     AssetStore* assets = nullptr;
     PlayerStart playerStart{};
     std::unordered_set<std::string> usedIds;
+    std::string idPrefix;
+    bool inPrefab = false;
+    Vector3 prefabAt{};
+    Vector3 prefabAngles{};
+    std::vector<std::string> nestStack;
 };
 
 EntityLoadContext* g_context = nullptr;
@@ -84,6 +91,16 @@ s7_pointer g_yaw(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "yaw", 1, args, "radians");
     }
     return makeTaggedList(sc, "yaw", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_angles(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "angles", 0, args, "pitch yaw roll");
+    }
+    return makeTaggedList(
+        sc,
+        "angles",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
 }
 
 s7_pointer g_sprite(s7_scheme* sc, s7_pointer args) {
@@ -193,6 +210,17 @@ bool parseSpawnClauses(s7_scheme* sc, s7_pointer args, SpawnCommon& out) {
     return true;
 }
 
+void applyPrefabInstancePose(SpawnCommon& common) {
+    if (g_context == nullptr || !g_context->inPrefab) {
+        return;
+    }
+    if (!g_context->idPrefix.empty()) {
+        common.id = g_context->idPrefix + "/" + common.id;
+    }
+    const Matrix rotation = MatrixRotateXYZ(g_context->prefabAngles);
+    common.position = Vector3Add(Vector3Transform(common.position, rotation), g_context->prefabAt);
+}
+
 bool applyPresentation(flecs::entity entity, const SpawnCommon& common) {
     const bool hasSprite = !common.sprite.empty();
     const bool hasGeo = !common.geo.empty();
@@ -204,10 +232,19 @@ bool applyPresentation(flecs::entity entity, const SpawnCommon& common) {
         return false;
     }
 
+    float facingYaw = common.yaw;
     LocalTransformation local{};
     local.position = common.position;
     local.scale = {1.0f, 1.0f, 1.0f};
     local.rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, common.yaw);
+    if (g_context != nullptr && g_context->inPrefab) {
+        const Quaternion instanceRotation = QuaternionFromEuler(
+            g_context->prefabAngles.x,
+            g_context->prefabAngles.y,
+            g_context->prefabAngles.z);
+        local.rotation = QuaternionMultiply(instanceRotation, local.rotation);
+        facingYaw = common.yaw + g_context->prefabAngles.y;
+    }
 
     entity.add<WorldSpace>().set<LocalTransformation>(local);
 
@@ -220,7 +257,7 @@ bool applyPresentation(flecs::entity entity, const SpawnCommon& common) {
         entity.set<SpriteInstance>({
             .sprite = common.sprite,
             .frame = common.frame.empty() ? "A" : common.frame,
-            .facingYaw = common.yaw,
+            .facingYaw = facingYaw,
         });
 
         if (common.haveAnim) {
@@ -258,6 +295,7 @@ s7_pointer g_player_start(s7_scheme* sc, s7_pointer args) {
 
     SpawnCommon common{};
     parseSpawnClauses(sc, args, common);
+    applyPrefabInstancePose(common);
 
     if (common.id.empty() || !common.haveAt) {
         return s7_error(
@@ -275,6 +313,9 @@ s7_pointer g_player_start(s7_scheme* sc, s7_pointer args) {
 
     g_context->playerStart.position = common.position;
     g_context->playerStart.yaw = common.yaw;
+    if (g_context->inPrefab) {
+        g_context->playerStart.yaw += g_context->prefabAngles.y;
+    }
     g_context->playerStart.found = true;
     return s7_t(sc);
 }
@@ -289,6 +330,7 @@ s7_pointer g_prop(s7_scheme* sc, s7_pointer args) {
 
     SpawnCommon common{};
     parseSpawnClauses(sc, args, common);
+    applyPrefabInstancePose(common);
 
     if (common.id.empty() || !common.haveAt) {
         return s7_error(
@@ -319,6 +361,7 @@ s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
 
     SpawnCommon common{};
     parseSpawnClauses(sc, args, common);
+    applyPrefabInstancePose(common);
 
     if (common.id.empty() || !common.haveAt) {
         return s7_error(
@@ -345,10 +388,121 @@ s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
+    if (g_context == nullptr || g_context->assets == nullptr) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "entity-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab called outside entity load")));
+    }
+
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "prefab", 1, args, "path");
+    }
+
+    std::string path;
+    if (!readString(sc, s7_car(args), path) || path.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "entity-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab requires a path")));
+    }
+
+    std::string id;
+    Vector3 at{};
+    Vector3 angles{};
+
+    for (s7_pointer cursor = s7_cdr(args); s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            continue;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer rest = s7_cdr(clause);
+        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), id);
+        } else if (std::strcmp(tag, "at") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), at);
+        } else if (std::strcmp(tag, "angles") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), angles);
+        }
+    }
+
+    if (id.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "entity-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab requires id")));
+    }
+
+    if (!g_context->assets->hasPrefabEntities(path)) {
+        return s7_t(sc);
+    }
+
+    if (std::find(g_context->nestStack.begin(), g_context->nestStack.end(), path) !=
+        g_context->nestStack.end()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "entity-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab cycle detected")));
+    }
+
+    const std::string savedPrefix = g_context->idPrefix;
+    const bool savedInPrefab = g_context->inPrefab;
+    const Vector3 savedAt = g_context->prefabAt;
+    const Vector3 savedAngles = g_context->prefabAngles;
+
+    std::string instancePrefix = id;
+    if (!savedPrefix.empty()) {
+        instancePrefix = savedPrefix + "/" + id;
+    }
+
+    Vector3 worldAt = at;
+    Vector3 worldAngles = angles;
+    if (savedInPrefab) {
+        const Matrix parentRotation = MatrixRotateXYZ(savedAngles);
+        worldAt = Vector3Add(Vector3Transform(at, parentRotation), savedAt);
+        worldAngles = {
+            savedAngles.x + angles.x,
+            savedAngles.y + angles.y,
+            savedAngles.z + angles.z,
+        };
+    }
+
+    g_context->idPrefix = instancePrefix;
+    g_context->inPrefab = true;
+    g_context->prefabAt = worldAt;
+    g_context->prefabAngles = worldAngles;
+    g_context->nestStack.push_back(path);
+
+    const bool loaded = g_context->assets->loadPrefabEntities(sc, path);
+
+    g_context->nestStack.pop_back();
+    g_context->idPrefix = savedPrefix;
+    g_context->inPrefab = savedInPrefab;
+    g_context->prefabAt = savedAt;
+    g_context->prefabAngles = savedAngles;
+
+    if (!loaded) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "entity-error"),
+            s7_list(sc, 1, s7_make_string(sc, "failed to load prefab entities")));
+    }
+    return s7_t(sc);
+}
+
 void bindEntityApi(s7_scheme* sc) {
     s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
     s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
     s7_define_function(sc, "yaw", g_yaw, 1, 0, false, "(yaw radians)");
+    s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
     s7_define_function(sc, "sprite", g_sprite, 1, 0, false, "(sprite path)");
     s7_define_function(sc, "geo", g_geo, 1, 0, false, "(geo path)");
     s7_define_function(sc, "frame", g_frame, 1, 0, false, "(frame id)");
@@ -358,6 +512,7 @@ void bindEntityApi(s7_scheme* sc) {
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
+    s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
 }
 
 } // namespace

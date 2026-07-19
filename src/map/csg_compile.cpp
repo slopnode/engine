@@ -2,7 +2,10 @@
 
 #include "map/uv_math.hpp"
 
+#include <raylib.h>
+
 #include <algorithm>
+#include <string>
 #include <unordered_map>
 
 namespace slopengine {
@@ -21,6 +24,9 @@ CsgCompileResult compileBrushesToGeo(
             }
         }
     }
+
+    int missingChartCount = 0;
+    std::string missingChartSample;
 
     for (const Brush& brush : brushes) {
         for (const BrushFace& face : brush.faces) {
@@ -42,12 +48,17 @@ CsgCompileResult compileBrushesToGeo(
 
             Vector3 uAxis{};
             Vector3 vAxis{};
-            axialUvAxes(face.normal, uAxis, vAxis);
+            faceUvAxes(face, uAxis, vAxis);
 
             const LightmapChart* chart = nullptr;
             const auto chartIt = chartByFaceId.find(face.id);
             if (chartIt != chartByFaceId.end()) {
                 chart = chartIt->second;
+            } else if (lightmaps != nullptr) {
+                ++missingChartCount;
+                if (missingChartSample.empty()) {
+                    missingChartSample = face.id;
+                }
             }
 
             float uMin = 0.0f;
@@ -101,6 +112,14 @@ CsgCompileResult compileBrushesToGeo(
 
             result.asset.primitives.push_back(std::move(primitive));
         }
+    }
+
+    if (missingChartCount > 0) {
+        TraceLog(
+            LOG_WARNING,
+            "MAP: %d drawn face(s) missing lightmap charts (e.g. '%s'); rebake with sloprad",
+            missingChartCount,
+            missingChartSample.c_str());
     }
 
     result.asset.verticesImplicit = false;

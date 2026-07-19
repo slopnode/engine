@@ -63,7 +63,8 @@ void MaterialBrowser::rescan(const slopengine::AssetStore& assets) {
 }
 
 std::string selectionMaterialLabel(const EditorDocument& doc) {
-    if (doc.selectedBrush < 0 || doc.selectedBrush >= static_cast<int>(doc.brushes.size())) {
+    if (doc.selection != SelectionTarget::Brush || doc.selectedBrush < 0 ||
+        doc.selectedBrush >= static_cast<int>(doc.brushes.size())) {
         return "none";
     }
     const slopengine::Brush& brush = doc.brushes[static_cast<std::size_t>(doc.selectedBrush)];
@@ -88,26 +89,26 @@ std::string selectionMaterialLabel(const EditorDocument& doc) {
 }
 
 bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
-    editor.doc.defaultMaterial = materialPath;
+    EditorDocument& d = editor.doc();
+    d.defaultMaterial = materialPath;
 
-    if (editor.doc.selectedBrush < 0 ||
-        editor.doc.selectedBrush >= static_cast<int>(editor.doc.brushes.size())) {
+    if (d.selection != SelectionTarget::Brush || d.selectedBrush < 0 ||
+        d.selectedBrush >= static_cast<int>(d.brushes.size())) {
         editor.statusMessage = "Active material: " + materialPath;
         return false;
     }
 
-    slopengine::Brush& brush = editor.doc.brushes[static_cast<std::size_t>(editor.doc.selectedBrush)];
-    if (editor.doc.scope == SelectionScope::Face) {
-        if (editor.doc.selectedFace < 0 ||
-            editor.doc.selectedFace >= static_cast<int>(brush.faces.size())) {
+    slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
+    if (d.scope == SelectionScope::Face) {
+        if (d.selectedFace < 0 || d.selectedFace >= static_cast<int>(brush.faces.size())) {
             editor.statusMessage = "Active material: " + materialPath;
             return false;
         }
-        brush.faces[static_cast<std::size_t>(editor.doc.selectedFace)].material = materialPath;
+        brush.faces[static_cast<std::size_t>(d.selectedFace)].material = materialPath;
         editor.markDirty();
         editor.statusMessage =
             "Applied " + materialPath + " to " +
-            brush.faces[static_cast<std::size_t>(editor.doc.selectedFace)].id;
+            brush.faces[static_cast<std::size_t>(d.selectedFace)].id;
         return true;
     }
 
@@ -138,11 +139,11 @@ MaterialBrowserResult MaterialBrowser::draw(Editor& editor, float posX, float po
     ImGui::Text("%d materials", static_cast<int>(materials.size()));
 
     ImGui::InputTextWithHint("##matfilter", "Filter…", filter, sizeof(filter));
-    ImGui::Text("Active: %s", editor.doc.defaultMaterial.c_str());
+    ImGui::Text("Active: %s", editor.doc().defaultMaterial.c_str());
     ImGui::Text(
         "Selection (%s): %s",
-        editor.doc.scope == SelectionScope::Face ? "face" : "brush",
-        selectionMaterialLabel(editor.doc).c_str());
+        editor.doc().scope == SelectionScope::Face ? "face" : "brush",
+        selectionMaterialLabel(editor.doc()).c_str());
 
     ImGui::Separator();
     if (ImGui::BeginChild("##matlist", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
@@ -151,7 +152,7 @@ MaterialBrowserResult MaterialBrowser::draw(Editor& editor, float posX, float po
             if (!containsIgnoreCase(path, filterStr)) {
                 continue;
             }
-            const bool isActive = path == editor.doc.defaultMaterial;
+            const bool isActive = path == editor.doc().defaultMaterial;
             if (ImGui::Selectable(path.c_str(), isActive)) {
                 result.applied = applyMaterialToSelection(editor, path);
             }

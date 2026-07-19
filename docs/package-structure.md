@@ -45,6 +45,7 @@ my-package/
   maps/           # map folders
   materials/      # .mat
   meshes/         # .glb (optional; supported by VFS)
+  prefabs/        # brush assemblies (+ optional entity sidecars)
   scripts/        # .s7
   shaders/        # .glsl
   skeletons/      # .skel, .bind
@@ -65,6 +66,7 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` → `geometry/props/crate.geo` |
 | `animations/` | `.anim`, `.tracks` | `character/walk` → `animations/character/walk.anim` |
 | `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
+| `prefabs/` | `.csg`, `.s7` | `furniture/desk` → `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
 | `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/entities` → `maps/<name>/entities.s7` |
 
 Nested folders under each category are allowed. Related assets are often grouped by shared name under `geometry/`, `skeletons/`, and `animations/`.
@@ -119,6 +121,10 @@ Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skel
 ### Sprites
 
 `.spr` files under `sprites/` describe named billboard sprites with per-frame rotations and optional mirroring. Sibling `.spanim` files define named clips (fps, loop, frame lists) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part …)` entries configure multi-part hits. See [Sprites](sprites.md).
+
+### Prefabs
+
+Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-box` / `brush-convex` forms as maps. An optional sibling `.s7` holds entity attachments for that prefab. Maps instance them with `(prefab …)`; see [Maps](maps.md).
 
 ### Maps
 

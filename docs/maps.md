@@ -64,7 +64,9 @@ The canonical solid is a **convex polyhedron** of polygonal faces. Each face is 
       (verts (v 1.5 0.0 1.2) (v 1.5 0.7 0.7) (v 1.0 0.0 0.5)))))
 ```
 
-`brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role "hull")` or `(role "detail")` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(nodraw)`, and `(verts (v x y z)...)`.
+`brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role "hull")` or `(role "detail")` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes ux uy uz vx vy vz)`, `(nodraw)`, and `(verts (v x y z)...)`.
+
+`(uv-lock)` pins planar texture coordinates to the face. Locked faces store UV axes (defaulting to the usual world-axial basis for the face normal). Prefab placement and editor transforms rotate those axes with the geometry and adjust `uv-shift`, so the texture stays glued under move and rotate. Optional `(uv-axes …)` overrides the basis when it differs from axial. Omit `(uv-lock)` to keep world-aligned tiling (default).
 
 For convenience, `brush-box` expands an axis-aligned box into a six-face convex (same runtime representation):
 
@@ -76,7 +78,20 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
   (material "surfaces/stone"))
 ```
 
-`id`, `mins`, and `maxs` are required on `brush-box`. Optional `(faces ...)` overrides individual sides (`top`, `bottom`, `north`, `south`, `east`, `west`) with their own `id`, `material`, `(uv-shift x y)`, or `(nodraw)`. Future sugar such as `brush-circle` may expand other primitives the same way; the compiler always sees convexes.
+`id`, `mins`, and `maxs` are required on `brush-box`. Optional `(faces ...)` overrides individual sides (`top`, `bottom`, `north`, `south`, `east`, `west`) with their own `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes …)`, or `(nodraw)`. Future sugar such as `brush-circle` may expand other primitives the same way; the compiler always sees convexes.
+
+`(prefab …)` instances a brush assembly from `prefabs/<path>.csg`. Required: path string argument and `(id …)`. Optional `(at x y z)` (default origin) and `(angles pitch yaw roll)` in radians (default zero). No scale. At load/compile the prefab expands into ordinary brushes: local brush/face ids become `<instance-id>/<local-id>`, vertices are rotated then translated, and rotated boxes are no longer treated as axis-aligned. Faces marked `(uv-lock)` in the prefab keep their local texture placement under that transform. Brush `role` / `nocollide` come from the prefab author (hull modular rooms and detail furniture both work). Prefabs may nest; cycles error. Map files keep `(prefab …)` references (they are not baked on save).
+
+```text
+(prefab "furniture/desk"
+  (id "desk-a")
+  (at -1.5 0.0 -1.5)
+  (angles 0.0 0.0 0.0))
+```
+
+### slopmap prefabs
+
+`slopmap` has a separate **Prefab** scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the base package; the path you choose is the virtual path used for placement. In the **Level** scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role switches hull/detail. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
 
 ### entities.s7
 
@@ -110,6 +125,7 @@ Optional Scheme file loaded after map geometry. Engine bindings create flecs ent
 | `player-start` | `id`, `at` | First wins; sets player spawn pose. Optional `yaw` (radians). See [Player](player.md). |
 | `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Entities](entities.md). |
 | `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Entities](entities.md). |
+| `prefab` | path, `id` | Loads optional `prefabs/<path>.s7` with the same `at` / `angles` as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
 `on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, actors, and scripting are covered in [Entities](entities.md).
 

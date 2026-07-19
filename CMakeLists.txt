@@ -34,8 +34,10 @@ set(SLOPLIB_SOURCES
     src/map/lightmap.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp
+    src/map/prefab.cpp
     src/map/quad_bvh.cpp
     src/map/radiosity.cpp
+    src/map/radiosity_gpu.cpp
     src/map/uv_math.cpp
 )
 
@@ -105,7 +107,9 @@ add_executable(slopmap
     tools/slopmap/preview.cpp
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
+    tools/slopmap/place_tool.cpp
     tools/slopmap/material_browser.cpp
+    tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
 )
 target_include_directories(slopmap PRIVATE tools/slopmap)

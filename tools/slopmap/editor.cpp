@@ -45,11 +45,27 @@ bool ensureMapFiles(
     return true;
 }
 
+bool ensurePrefabPath(
+    const std::filesystem::path& baseGame,
+    const std::string& prefabPath,
+    std::filesystem::path& outCsgPath) {
+    if (prefabPath.empty()) {
+        return false;
+    }
+    outCsgPath = baseGame / "prefabs" / (prefabPath + ".csg");
+    std::error_code ec;
+    std::filesystem::create_directories(outCsgPath.parent_path(), ec);
+    return !ec;
+}
+
 void resetSelectionSerial(EditorDocument& doc) {
+    doc.selection = SelectionTarget::None;
     doc.selectedBrush = -1;
     doc.selectedFace = -1;
+    doc.selectedInstance = -1;
     doc.scope = SelectionScope::Brush;
     doc.nextBrushSerial = 1;
+    doc.nextPrefabSerial = 1;
     for (const slopengine::Brush& brush : doc.brushes) {
         if (brush.id.rfind("brush-", 0) == 0) {
             try {
@@ -59,6 +75,23 @@ void resetSelectionSerial(EditorDocument& doc) {
             }
         }
     }
+    for (const slopengine::PrefabInstance& instance : doc.instances) {
+        if (instance.id.rfind("prefab-", 0) == 0) {
+            try {
+                const int serial = std::stoi(instance.id.substr(7));
+                doc.nextPrefabSerial = std::max(doc.nextPrefabSerial, serial + 1);
+            } catch (...) {
+            }
+        }
+    }
+}
+
+void resetCamera(Editor& editor) {
+    editor.camera.position = {0.0f, 2.5f, 8.0f};
+    editor.camera.yaw = 3.14159265f;
+    editor.camera.pitch = -0.35f;
+    editor.camera.orthographic = false;
+    editor.viewPlane = ViewPlane::PerspectiveY0;
 }
 
 } // namespace
@@ -124,6 +157,60 @@ Vector2 worldToViewportScreen(Vector3 world, const Camera3D& camera, Rectangle v
     return {local.x + viewport.x, local.y + viewport.y};
 }
 
+float length3(Vector3 v) {
+    return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+float dot3(Vector3 a, Vector3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vector3 add3(Vector3 a, Vector3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vector3 sub3(Vector3 a, Vector3 b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Vector3 scale3(Vector3 a, float s) {
+    return {a.x * s, a.y * s, a.z * s};
+}
+
+Vector3 cross3(Vector3 a, Vector3 b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+Vector3 normalize3(Vector3 v) {
+    const float len = length3(v);
+    if (len < 1e-8f) {
+        return {0.0f, 1.0f, 0.0f};
+    }
+    return {v.x / len, v.y / len, v.z / len};
+}
+
+Vector3 cameraForward(const Camera3D& camera) {
+    return normalize3({
+        camera.target.x - camera.position.x,
+        camera.target.y - camera.position.y,
+        camera.target.z - camera.position.z,
+    });
+}
+
+Vector3 dragPlaneNormalForAxis(Vector3 axis, Vector3 viewForward) {
+    Vector3 n = cross3(axis, viewForward);
+    if (length3(n) < 1e-5f) {
+        const Vector3 fallback = std::fabs(axis.y) < 0.9f ? Vector3{0.0f, 1.0f, 0.0f}
+                                                         : Vector3{1.0f, 0.0f, 0.0f};
+        n = cross3(axis, fallback);
+    }
+    return normalize3(n);
+}
+
 ConstructionPlane constructionPlaneForView(ViewPlane view) {
     ConstructionPlane plane{};
     switch (view) {
@@ -151,44 +238,148 @@ ConstructionPlane constructionPlaneForView(ViewPlane view) {
     return plane;
 }
 
-void Editor::newMap(const std::string& mapName) {
-    doc.mapName = mapName.empty() ? "untitled" : mapName;
-    doc.brushes.clear();
-    doc.dirty = false;
-    resetSelectionSerial(doc);
-    preview.clear();
-    camera.position = {0.0f, 2.5f, 8.0f};
-    camera.yaw = 3.14159265f;
-    camera.pitch = -0.35f;
-    camera.orthographic = false;
-    viewPlane = ViewPlane::PerspectiveY0;
-    statusMessage = "New map '" + doc.mapName + "'";
+ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin) {
+    ConstructionPlane plane{};
+    plane.origin = origin;
+    plane.normal = normalize3(face.normal);
+
+    Vector3 edge{};
+    if (face.vertices.size() >= 2) {
+        edge = {
+            face.vertices[1].x - face.vertices[0].x,
+            face.vertices[1].y - face.vertices[0].y,
+            face.vertices[1].z - face.vertices[0].z,
+        };
+        const float along = dot3(edge, plane.normal);
+        edge = {
+            edge.x - plane.normal.x * along,
+            edge.y - plane.normal.y * along,
+            edge.z - plane.normal.z * along,
+        };
+    }
+    if (length3(edge) < 1e-5f && face.vertices.size() >= 3) {
+        edge = {
+            face.vertices[2].x - face.vertices[0].x,
+            face.vertices[2].y - face.vertices[0].y,
+            face.vertices[2].z - face.vertices[0].z,
+        };
+        const float along = dot3(edge, plane.normal);
+        edge = {
+            edge.x - plane.normal.x * along,
+            edge.y - plane.normal.y * along,
+            edge.z - plane.normal.z * along,
+        };
+    }
+    if (length3(edge) < 1e-5f) {
+        const Vector3 fallback = std::fabs(plane.normal.y) < 0.9f ? Vector3{0.0f, 1.0f, 0.0f}
+                                                                 : Vector3{1.0f, 0.0f, 0.0f};
+        edge = cross3(fallback, plane.normal);
+    }
+    plane.axisU = normalize3(edge);
+    plane.axisV = normalize3(cross3(plane.normal, plane.axisU));
+    return plane;
 }
 
-bool Editor::load(slopengine::AssetStore& assets, s7_scheme* scheme, const std::string& mapName) {
-    auto brushes = slopengine::loadMapBrushes(scheme, assets, mapName);
-    if (!brushes) {
+EditorDocument& Editor::doc() {
+    return scene == EditorScene::Level ? levelDoc : prefabDoc;
+}
+
+const EditorDocument& Editor::doc() const {
+    return scene == EditorScene::Level ? levelDoc : prefabDoc;
+}
+
+void Editor::clearSelection() {
+    EditorDocument& d = doc();
+    d.selection = SelectionTarget::None;
+    d.selectedBrush = -1;
+    d.selectedFace = -1;
+    d.selectedInstance = -1;
+}
+
+void Editor::newMap(const std::string& mapName) {
+    scene = EditorScene::Level;
+    levelDoc.assetPath = mapName.empty() ? "untitled" : mapName;
+    levelDoc.brushes.clear();
+    levelDoc.instances.clear();
+    levelDoc.dirty = false;
+    resetSelectionSerial(levelDoc);
+    expandedInstanceBrushes.clear();
+    expandedInstanceOwners.clear();
+    preview.clear();
+    resetCamera(*this);
+    statusMessage = "New map '" + levelDoc.assetPath + "'";
+}
+
+void Editor::newPrefab() {
+    scene = EditorScene::Prefab;
+    prefabDoc.assetPath.clear();
+    prefabDoc.brushes.clear();
+    prefabDoc.instances.clear();
+    prefabDoc.dirty = false;
+    resetSelectionSerial(prefabDoc);
+    expandedInstanceBrushes.clear();
+    expandedInstanceOwners.clear();
+    preview.clear();
+    resetCamera(*this);
+    mode = EditorMode::Create;
+    statusMessage = "New prefab";
+}
+
+bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std::string& mapName) {
+    scheme = schemeIn;
+    auto loaded = slopengine::loadMapCsgDocument(scheme, assets, mapName);
+    if (!loaded) {
         statusMessage = "Load failed: " + mapName;
         return false;
     }
 
-    doc.mapName = mapName;
-    doc.brushes = std::move(*brushes);
-    doc.dirty = false;
-    resetSelectionSerial(doc);
+    scene = EditorScene::Level;
+    levelDoc.assetPath = mapName;
+    levelDoc.brushes = std::move(loaded->brushes);
+    levelDoc.instances = std::move(loaded->instances);
+    levelDoc.dirty = false;
+    resetSelectionSerial(levelDoc);
     rebuildPreview(assets);
     frameSelection();
-    statusMessage = "Loaded " + mapName + " (" + std::to_string(doc.brushes.size()) + " brushes)";
+    statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
+        " brushes, " + std::to_string(levelDoc.instances.size()) + " prefabs)";
+    return true;
+}
+
+bool Editor::loadPrefab(
+    slopengine::AssetStore& assets,
+    s7_scheme* schemeIn,
+    const std::string& prefabPath) {
+    scheme = schemeIn;
+    auto brushes = slopengine::loadPrefabBrushes(scheme, assets, prefabPath);
+    if (!brushes) {
+        statusMessage = "Load prefab failed: " + prefabPath;
+        return false;
+    }
+
+    scene = EditorScene::Prefab;
+    prefabDoc.assetPath = prefabPath;
+    prefabDoc.brushes = std::move(*brushes);
+    prefabDoc.instances.clear();
+    prefabDoc.dirty = false;
+    resetSelectionSerial(prefabDoc);
+    rebuildPreview(assets);
+    frameSelection();
+    statusMessage =
+        "Loaded prefab " + prefabPath + " (" + std::to_string(prefabDoc.brushes.size()) + " brushes)";
     return true;
 }
 
 bool Editor::save(slopengine::AssetStore& assets) {
-    if (doc.mapName.empty() || doc.mapName == "untitled") {
+    if (scene == EditorScene::Prefab) {
+        return savePrefab(assets);
+    }
+    if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
         showSaveAsModal = true;
-        modalMapName = doc.mapName == "untitled" ? "" : doc.mapName;
+        modalMapName = levelDoc.assetPath == "untitled" ? "" : levelDoc.assetPath;
         return false;
     }
-    return saveAs(assets, doc.mapName);
+    return saveAs(assets, levelDoc.assetPath);
 }
 
 bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) {
@@ -208,23 +399,92 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
         }
     }
 
-    if (!slopengine::writeMapBrushes(csgPath, doc.brushes)) {
+    if (!slopengine::writeMapCsgDocument(csgPath, levelDoc.brushes, levelDoc.instances)) {
         statusMessage = "Save failed: write error";
         return false;
     }
 
-    doc.mapName = mapName;
-    doc.dirty = false;
+    levelDoc.assetPath = mapName;
+    levelDoc.dirty = false;
     statusMessage = "Saved " + csgPath.string();
     return true;
 }
 
+bool Editor::savePrefab(slopengine::AssetStore& assets) {
+    if (prefabDoc.assetPath.empty()) {
+        showSavePrefabAsModal = true;
+        modalPrefabPath.clear();
+        return false;
+    }
+    return savePrefabAs(assets, prefabDoc.assetPath);
+}
+
+bool Editor::savePrefabAs(slopengine::AssetStore& assets, const std::string& prefabPath) {
+    (void)assets;
+    if (prefabPath.empty()) {
+        statusMessage = "Save prefab failed: empty path";
+        return false;
+    }
+
+    std::filesystem::path csgPath;
+    if (!ensurePrefabPath(baseGamePath, prefabPath, csgPath)) {
+        statusMessage = "Save prefab failed: could not create folders";
+        return false;
+    }
+
+    if (!slopengine::writeMapBrushes(csgPath, prefabDoc.brushes)) {
+        statusMessage = "Save prefab failed: write error";
+        return false;
+    }
+
+    prefabDoc.assetPath = prefabPath;
+    prefabDoc.dirty = false;
+    statusMessage = "Saved prefab " + csgPath.string();
+    return true;
+}
+
+bool Editor::switchScene(EditorScene next, bool force) {
+    if (scene == next) {
+        return true;
+    }
+    if (!force && doc().dirty) {
+        pendingScene = next;
+        showSwitchSceneModal = true;
+        return false;
+    }
+    scene = next;
+    if (mode == EditorMode::Place && scene != EditorScene::Level) {
+        mode = EditorMode::Select;
+    }
+    clearSelection();
+    statusMessage = scene == EditorScene::Level ? "Level scene" : "Prefab scene";
+    return true;
+}
+
 void Editor::markDirty() {
-    doc.dirty = true;
+    doc().dirty = true;
 }
 
 void Editor::rebuildPreview(slopengine::AssetStore& assets) {
-    preview.rebuild(assets, doc.brushes);
+    EditorDocument& d = doc();
+    expandedInstanceBrushes.clear();
+    expandedInstanceOwners.clear();
+
+    std::vector<slopengine::Brush> combined = d.brushes;
+    if (scheme != nullptr && !d.instances.empty()) {
+        for (std::size_t i = 0; i < d.instances.size(); ++i) {
+            auto expanded = slopengine::expandPrefabInstance(scheme, assets, d.instances[i]);
+            if (!expanded) {
+                continue;
+            }
+            for (slopengine::Brush& brush : *expanded) {
+                expandedInstanceOwners.push_back(static_cast<int>(i));
+                expandedInstanceBrushes.push_back(brush);
+                combined.push_back(brush);
+            }
+        }
+    }
+    preview.rebuild(assets, combined);
 }
 
 void Editor::cycleGrid(int direction) {
@@ -274,7 +534,11 @@ void Editor::toggleOrthoTop() {
 }
 
 std::string Editor::allocateBrushId() {
-    return "brush-" + std::to_string(doc.nextBrushSerial++);
+    return "brush-" + std::to_string(doc().nextBrushSerial++);
+}
+
+std::string Editor::allocatePrefabId() {
+    return "prefab-" + std::to_string(doc().nextPrefabSerial++);
 }
 
 void Editor::frameSelection() {
@@ -284,18 +548,24 @@ void Editor::frameSelection() {
 }
 
 Vector3 Editor::selectionCenter() const {
-    if (doc.selectedBrush >= 0 && doc.selectedBrush < static_cast<int>(doc.brushes.size())) {
-        const slopengine::Brush& brush = doc.brushes[static_cast<std::size_t>(doc.selectedBrush)];
+    const EditorDocument& d = doc();
+    if (d.selection == SelectionTarget::Instance && d.selectedInstance >= 0 &&
+        d.selectedInstance < static_cast<int>(d.instances.size())) {
+        return d.instances[static_cast<std::size_t>(d.selectedInstance)].at;
+    }
+    if (d.selection == SelectionTarget::Brush && d.selectedBrush >= 0 &&
+        d.selectedBrush < static_cast<int>(d.brushes.size())) {
+        const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
         return {
             0.5f * (brush.mins.x + brush.maxs.x),
             0.5f * (brush.mins.y + brush.maxs.y),
             0.5f * (brush.mins.z + brush.maxs.z),
         };
     }
-    if (!doc.brushes.empty()) {
-        Vector3 mins = doc.brushes[0].mins;
-        Vector3 maxs = doc.brushes[0].maxs;
-        for (const slopengine::Brush& brush : doc.brushes) {
+    if (!d.brushes.empty()) {
+        Vector3 mins = d.brushes[0].mins;
+        Vector3 maxs = d.brushes[0].maxs;
+        for (const slopengine::Brush& brush : d.brushes) {
             mins.x = std::min(mins.x, brush.mins.x);
             mins.y = std::min(mins.y, brush.mins.y);
             mins.z = std::min(mins.z, brush.mins.z);
@@ -309,7 +579,23 @@ Vector3 Editor::selectionCenter() const {
             0.5f * (mins.z + maxs.z),
         };
     }
+    if (!d.instances.empty()) {
+        return d.instances.front().at;
+    }
     return {0.0f, 1.0f, 0.0f};
+}
+
+void Editor::toggleSelectedBrushRole() {
+    EditorDocument& d = doc();
+    if (d.selection != SelectionTarget::Brush || d.selectedBrush < 0 ||
+        d.selectedBrush >= static_cast<int>(d.brushes.size())) {
+        return;
+    }
+    slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
+    brush.role = brush.role == slopengine::BrushRole::Detail ? slopengine::BrushRole::Hull
+                                                             : slopengine::BrushRole::Detail;
+    markDirty();
+    statusMessage = std::string("Role: ") + slopengine::brushRoleName(brush.role) + " (" + brush.id + ")";
 }
 
 }

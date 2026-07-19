@@ -1,0 +1,42 @@
+(brush-box
+  (id "top")
+  (mins -0.6 0.7 -0.35)
+  (maxs 0.6 0.78 0.35)
+  (material "surfaces/floor-tile")
+  (role "detail")
+  (faces
+    (top (uv-lock))
+    (bottom (uv-lock)))
+)
+
+(brush-box
+  (id "leg-fl")
+  (mins -0.55 0 -0.3)
+  (maxs -0.47 0.7 -0.22)
+  (material "texture-test")
+  (role "detail")
+)
+
+(brush-box
+  (id "leg-fr")
+  (mins 0.47 0 -0.3)
+  (maxs 0.55 0.7 -0.22)
+  (material "texture-test")
+  (role "detail")
+)
+
+(brush-box
+  (id "leg-bl")
+  (mins -0.55 0 0.22)
+  (maxs -0.47 0.7 0.3)
+  (material "texture-test")
+  (role "detail")
+)
+
+(brush-box
+  (id "leg-br")
+  (mins 0.47 0 0.22)
+  (maxs 0.55 0.7 0.3)
+  (material "texture-test")
+  (role "detail")
+)

@@ -31,6 +31,8 @@ enum class AssetKind {
     MapRad,
     MapLightmap,
     MapEntities,
+    PrefabCsg,
+    PrefabEntities,
     Sprite,
     SpriteAnim,
 };

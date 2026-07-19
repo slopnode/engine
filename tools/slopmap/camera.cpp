@@ -75,14 +75,16 @@ void FlyCamera::update(bool allowInput) {
         const float step = speed * dt;
 
         Vector3 move{};
-        const Vector3 fwd = forwardFlat();
+        const Vector3 fwd = forward();
         const Vector3 right = rightFlat();
         if (IsKeyDown(KEY_W)) {
             move.x += fwd.x;
+            move.y += fwd.y;
             move.z += fwd.z;
         }
         if (IsKeyDown(KEY_S)) {
             move.x -= fwd.x;
+            move.y -= fwd.y;
             move.z -= fwd.z;
         }
         if (IsKeyDown(KEY_D)) {

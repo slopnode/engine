@@ -1,5 +1,7 @@
 #include "map/brush.hpp"
 
+#include "map/uv_math.hpp"
+
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -266,8 +268,12 @@ Brush makeBrushBox(
             }
             face.uvShiftPixels = overrideFace.uvShiftPixels;
             face.nodraw = overrideFace.nodraw;
+            face.uvLock = overrideFace.uvLock;
+            face.uvUAxis = overrideFace.uvUAxis;
+            face.uvVAxis = overrideFace.uvVAxis;
             break;
         }
+        ensureFaceUvAxes(face);
         brush.faces.push_back(std::move(face));
     }
 
@@ -289,6 +295,7 @@ std::optional<Brush> makeBrushConvex(
             face.id = brush.id + "/" + std::to_string(i);
         }
         face.normal = faceNormalFromVertices(face.vertices);
+        ensureFaceUvAxes(face);
     }
     recomputeBrushBounds(brush);
     if (const auto err = validateBrushConvex(brush)) {

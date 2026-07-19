@@ -7,7 +7,9 @@
 #include "map/csg_compile.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
+#include "map/prefab.hpp"
 
+#include <algorithm>
 #include <raylib.h>
 #include <s7.h>
 
@@ -23,10 +25,25 @@ namespace slopengine {
 namespace {
 
 struct CsgBuilder {
+    AssetStore* assets = nullptr;
     std::vector<Brush> brushes;
+    std::vector<PrefabInstance> instances;
+    std::vector<std::string> nestStack;
+    bool recordTopLevelInstances = false;
 };
 
 CsgBuilder* g_builder = nullptr;
+
+void bindCsgApi(s7_scheme* sc);
+
+MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPath);
+
+bool expandPrefabIntoBrushes(
+    s7_scheme* sc,
+    AssetStore& assets,
+    const PrefabInstance& instance,
+    const std::vector<std::string>& parentNest,
+    std::vector<Brush>& outBrushes);
 
 s7_pointer makeTaggedList(s7_scheme* sc, const char* tag, s7_pointer rest) {
     return s7_cons(sc, s7_make_symbol(sc, tag), rest);
@@ -52,6 +69,21 @@ bool readVec3(s7_scheme* sc, s7_pointer x, s7_pointer y, s7_pointer z, Vector3& 
     out.x = static_cast<float>(s7_number_to_real(sc, x));
     out.y = static_cast<float>(s7_number_to_real(sc, y));
     out.z = static_cast<float>(s7_number_to_real(sc, z));
+    return true;
+}
+
+bool readUvAxes(s7_scheme* sc, s7_pointer rest, BrushFace& face) {
+    s7_pointer cursor = rest;
+    float values[6]{};
+    for (int i = 0; i < 6; ++i) {
+        if (!s7_is_pair(cursor) || !s7_is_number(s7_car(cursor))) {
+            return false;
+        }
+        values[i] = static_cast<float>(s7_number_to_real(sc, s7_car(cursor)));
+        cursor = s7_cdr(cursor);
+    }
+    face.uvUAxis = {values[0], values[1], values[2]};
+    face.uvVAxis = {values[3], values[4], values[5]};
     return true;
 }
 
@@ -112,6 +144,10 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
         } else if (std::strcmp(tag, "nodraw") == 0) {
             face.nodraw = true;
+        } else if (std::strcmp(tag, "uv-lock") == 0) {
+            face.uvLock = true;
+        } else if (std::strcmp(tag, "uv-axes") == 0) {
+            readUvAxes(sc, rest, face);
         }
     }
 
@@ -171,6 +207,22 @@ s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "nodraw", s7_nil(sc));
 }
 
+s7_pointer g_uv_lock(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "uv-lock", s7_nil(sc));
+}
+
+s7_pointer g_uv_axes(s7_scheme* sc, s7_pointer args) {
+    s7_pointer cursor = args;
+    for (int i = 0; i < 6; ++i) {
+        if (!s7_is_pair(cursor)) {
+            return s7_wrong_type_arg_error(sc, "uv-axes", 0, args, "ux uy uz vx vy vz");
+        }
+        cursor = s7_cdr(cursor);
+    }
+    return makeTaggedList(sc, "uv-axes", args);
+}
+
 s7_pointer g_nocollide(s7_scheme* sc, s7_pointer args) {
     (void)args;
     return makeTaggedList(sc, "nocollide", s7_nil(sc));
@@ -224,6 +276,159 @@ s7_pointer g_east(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_west(s7_scheme* sc, s7_pointer args) {
     return makeSideForm(sc, "west", args);
+}
+
+s7_pointer g_at(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "at", 0, args, "x y z");
+    }
+    return makeTaggedList(sc, "at", s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_angles(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "angles", 0, args, "pitch yaw roll");
+    }
+    return makeTaggedList(
+        sc,
+        "angles",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+bool expandPrefabIntoBrushes(
+    s7_scheme* sc,
+    AssetStore& assets,
+    const PrefabInstance& instance,
+    const std::vector<std::string>& parentNest,
+    std::vector<Brush>& outBrushes) {
+    if (std::find(parentNest.begin(), parentNest.end(), instance.path) != parentNest.end()) {
+        return false;
+    }
+    if (!assets.hasPrefabCsg(instance.path)) {
+        return false;
+    }
+
+    CsgBuilder child;
+    child.assets = &assets;
+    child.recordTopLevelInstances = false;
+    child.nestStack = parentNest;
+    child.nestStack.push_back(instance.path);
+
+    CsgBuilder* previous = g_builder;
+    g_builder = &child;
+    bindCsgApi(sc);
+    const bool loaded = assets.loadPrefabCsg(sc, instance.path);
+    g_builder = previous;
+    if (!loaded || child.brushes.empty()) {
+        return false;
+    }
+
+    for (Brush& brush : child.brushes) {
+        remapBrushIds(brush, instance.id);
+        transformBrush(
+            brush,
+            instance.at,
+            instance.angles,
+            [&assets](std::string_view materialPath) {
+                return resolveMaterialUv(assets, materialPath);
+            });
+        outBrushes.push_back(std::move(brush));
+    }
+    return true;
+}
+
+s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
+    if (g_builder == nullptr || g_builder->assets == nullptr) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab called outside map load")));
+    }
+
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "prefab", 1, args, "path");
+    }
+
+    std::string path;
+    if (!readString(sc, s7_car(args), path) || path.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab requires a path")));
+    }
+
+    std::string id;
+    Vector3 at{};
+    Vector3 angles{};
+
+    for (s7_pointer cursor = s7_cdr(args); s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            continue;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer rest = s7_cdr(clause);
+        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), id);
+        } else if (std::strcmp(tag, "at") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), at);
+        } else if (std::strcmp(tag, "angles") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), angles);
+        }
+    }
+
+    if (id.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab requires id")));
+    }
+
+    if (!g_builder->assets->hasPrefabCsg(path)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab CSG not found")));
+    }
+
+    PrefabInstance instance;
+    instance.path = path;
+    instance.id = id;
+    instance.at = at;
+    instance.angles = angles;
+
+    if (g_builder->recordTopLevelInstances && g_builder->nestStack.empty()) {
+        g_builder->instances.push_back(std::move(instance));
+        return s7_t(sc);
+    }
+
+    if (std::find(g_builder->nestStack.begin(), g_builder->nestStack.end(), path) !=
+        g_builder->nestStack.end()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab cycle detected")));
+    }
+
+    if (!expandPrefabIntoBrushes(
+            sc,
+            *g_builder->assets,
+            instance,
+            g_builder->nestStack,
+            g_builder->brushes)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "csg-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab produced no brushes")));
+    }
+
+    return s7_t(sc);
 }
 
 s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
@@ -330,6 +535,10 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
         } else if (std::strcmp(tag, "nodraw") == 0) {
             face.nodraw = true;
+        } else if (std::strcmp(tag, "uv-lock") == 0) {
+            face.uvLock = true;
+        } else if (std::strcmp(tag, "uv-axes") == 0) {
+            readUvAxes(sc, rest, face);
         } else if (std::strcmp(tag, "verts") == 0) {
             for (s7_pointer vertCursor = rest; s7_is_pair(vertCursor); vertCursor = s7_cdr(vertCursor)) {
                 s7_pointer vert = s7_car(vertCursor);
@@ -430,7 +639,11 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
+    s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
+    s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
     s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
+    s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
+    s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
     s7_define_function(sc, "faces", g_faces, 0, 0, true, "(faces face...)");
     s7_define_function(sc, "face", g_face, 0, 0, true, "(face props...)");
     s7_define_function(sc, "verts", g_verts, 0, 0, true, "(verts (v x y z)...)");
@@ -443,6 +656,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "west", g_west, 0, 0, true, "(west props...)");
     s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
     s7_define_function(sc, "brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)");
+    s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
 }
 
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
@@ -508,7 +722,7 @@ std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName)
     return mapMeta;
 }
 
-std::optional<std::vector<Brush>> loadMapBrushes(
+std::optional<MapCsgDocument> loadMapCsgDocument(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
@@ -525,19 +739,48 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     }
 
     CsgBuilder builder;
+    builder.assets = &assets;
+    builder.recordTopLevelInstances = true;
     g_builder = &builder;
     bindCsgApi(scheme);
     const bool loaded = assets.loadMapCsg(scheme, virtualPath);
     g_builder = nullptr;
-    if (!loaded || builder.brushes.empty()) {
+    if (!loaded || (builder.brushes.empty() && builder.instances.empty())) {
         return std::nullopt;
+    }
+
+    MapCsgDocument doc;
+    doc.brushes = std::move(builder.brushes);
+    doc.instances = std::move(builder.instances);
+    return doc;
+}
+
+std::optional<std::vector<Brush>> loadMapBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view mapName) {
+    auto doc = loadMapCsgDocument(scheme, assets, mapName);
+    if (!doc) {
+        return std::nullopt;
+    }
+
+    std::vector<Brush> brushes = std::move(doc->brushes);
+    for (const PrefabInstance& instance : doc->instances) {
+        if (!expandPrefabIntoBrushes(scheme, assets, instance, {}, brushes)) {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: failed to expand prefab '%s' id='%s'",
+                instance.path.c_str(),
+                instance.id.c_str());
+            return std::nullopt;
+        }
     }
 
     int hullCount = 0;
     int detailCount = 0;
     int boxCount = 0;
     int nocollideCount = 0;
-    for (const Brush& brush : builder.brushes) {
+    for (const Brush& brush : brushes) {
         if (brush.box) {
             ++boxCount;
         }
@@ -550,17 +793,68 @@ std::optional<std::vector<Brush>> loadMapBrushes(
             ++hullCount;
         }
     }
+    const std::string virtualPath = std::string(mapName) + "/static";
     TraceLog(
         LOG_INFO,
-        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d box=%d nocollide=%d",
+        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d box=%d nocollide=%d instances=%d",
         virtualPath.c_str(),
-        static_cast<int>(builder.brushes.size()),
+        static_cast<int>(brushes.size()),
         hullCount,
         detailCount,
         boxCount,
-        nocollideCount);
+        nocollideCount,
+        static_cast<int>(doc->instances.size()));
 
+    return brushes;
+}
+
+std::optional<std::vector<Brush>> loadPrefabBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view prefabPath) {
+    if (scheme == nullptr || prefabPath.empty() || !assets.hasPrefabCsg(prefabPath)) {
+        return std::nullopt;
+    }
+
+    CsgBuilder builder;
+    builder.assets = &assets;
+    builder.recordTopLevelInstances = false;
+    g_builder = &builder;
+    bindCsgApi(scheme);
+    const bool loaded = assets.loadPrefabCsg(scheme, prefabPath);
+    g_builder = nullptr;
+    if (!loaded || builder.brushes.empty()) {
+        return std::nullopt;
+    }
     return std::move(builder.brushes);
+}
+
+std::optional<std::vector<Brush>> expandPrefabInstance(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    const PrefabInstance& instance) {
+    if (scheme == nullptr) {
+        return std::nullopt;
+    }
+    std::vector<Brush> brushes;
+    if (!expandPrefabIntoBrushes(scheme, assets, instance, {}, brushes)) {
+        return std::nullopt;
+    }
+    return brushes;
+}
+
+std::vector<Brush> expandPrefabInstances(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    const std::vector<PrefabInstance>& instances) {
+    std::vector<Brush> brushes;
+    if (scheme == nullptr) {
+        return brushes;
+    }
+    for (const PrefabInstance& instance : instances) {
+        expandPrefabIntoBrushes(scheme, assets, instance, {}, brushes);
+    }
+    return brushes;
 }
 
 std::optional<LoadedMap> loadAndCompileMap(

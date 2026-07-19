@@ -2,6 +2,7 @@
 
 #include "map/bsp_ray.hpp"
 #include "map/quad_bvh.hpp"
+#include "map/radiosity_gpu.hpp"
 #include "map/uv_math.hpp"
 
 #include <raylib.h>
@@ -40,6 +41,14 @@ struct Color3 {
 Color3 operator+(Color3 a, const Color3& b) {
     a += b;
     return a;
+}
+
+Color3 operator-(Color3 a, const Color3& b) {
+    return {a.r - b.r, a.g - b.g, a.b - b.b};
+}
+
+Color3 max0(Color3 c) {
+    return {std::max(0.0f, c.r), std::max(0.0f, c.g), std::max(0.0f, c.b)};
 }
 
 float dot3(Vector3 a, Vector3 b) {
@@ -103,7 +112,7 @@ struct FaceBasis {
 FaceBasis makeFaceBasis(const LightmapFace& face) {
     FaceBasis basis;
     basis.normal = face.normal;
-    axialUvAxes(face.normal, basis.uAxis, basis.vAxis);
+    faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, basis.uAxis, basis.vAxis);
     basis.planeD = dot3(face.vertices[0], face.normal);
     for (std::size_t i = 0; i < face.vertices.size(); ++i) {
         const float u = dot3(face.vertices[i], basis.uAxis);
@@ -160,7 +169,7 @@ Color3 emissionAt(
     if (material.hasEmissionImage) {
         Vector3 uAxis{};
         Vector3 vAxis{};
-        axialUvAxes(face.normal, uAxis, vAxis);
+        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
         MaterialUvInfo uvInfo{};
         uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
         uvInfo.textureWidth = static_cast<float>(material.emissionImage.width);
@@ -196,7 +205,7 @@ Color3 albedoAt(
     }
     Vector3 uAxis{};
     Vector3 vAxis{};
-    axialUvAxes(face.normal, uAxis, vAxis);
+    faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
     MaterialUvInfo uvInfo{};
     uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
     uvInfo.textureWidth = static_cast<float>(material.albedoImage.width);
@@ -419,6 +428,7 @@ struct LuxelSample {
     Vector3 normal{};
     Color3 albedo{};
     Color3 irradiance{};
+    Color3 emission{};
     std::int32_t faceIndex = -1;
     std::int32_t atlasIndex = 0;
     int atlasX = 0;
@@ -427,6 +437,154 @@ struct LuxelSample {
     int localY = 0;
     bool covered = false;
 };
+
+float wrapCosine(float cosine, float wrap) {
+    const float w = std::max(0.0f, wrap);
+    return std::max(0.0f, (cosine + w) / (1.0f + w));
+}
+
+void accumulateDirectLightingCpu(
+    std::vector<LuxelSample>& luxels,
+    const std::vector<EmitterPatch>& emitters,
+    const QuadBvh& occlusionBvh,
+    const RadiositySettings& settings) {
+    const std::size_t luxelTotal = luxels.size();
+    std::atomic<std::size_t> directDone{0};
+    const std::size_t directStep = std::max<std::size_t>(1, luxelTotal / 20);
+    const float wrap = settings.directWrap;
+    const float coplanarFill = std::max(0.0f, settings.coplanarFill);
+    const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
+    const float minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
+    constexpr float kCoplanarSoft = 0.25f;
+    constexpr float kCoplanarAlignMin = 0.85f;
+    parallelFor(luxelTotal, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            LuxelSample& luxel = luxels[i];
+            if (luxel.covered) {
+                const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
+                if (done % directStep == 0 || done == luxelTotal) {
+                    logProgress("direct", done, luxelTotal);
+                }
+                continue;
+            }
+            for (const EmitterPatch& emitter : emitters) {
+                Vector3 delta = sub3(emitter.position, luxel.position);
+                const float dist2Raw = dot3(delta, delta);
+                if (dist2Raw < 1e-6f) {
+                    continue;
+                }
+                const float dist = std::sqrt(dist2Raw);
+                const Vector3 toLight = scale3(delta, 1.0f / dist);
+                const float dist2 = std::max(dist2Raw, minDist2);
+                const bool occluded = bspSegmentOccluded(
+                    occlusionBvh,
+                    luxel.position,
+                    emitter.position,
+                    luxel.faceIndex,
+                    emitter.faceIndex);
+                if (occluded) {
+                    continue;
+                }
+
+                if (emitter.faceIndex != luxel.faceIndex) {
+                    const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
+                    const float nDotV = wrapCosine(-dot3(emitter.normal, toLight), wrap);
+                    if (nDotL > 0.0f && nDotV > 0.0f) {
+                        const float form = nDotL * nDotV * emitter.area / (dist2 * PI);
+                        luxel.irradiance += emitter.radiance * form;
+                    }
+                }
+
+                if (coplanarFill > 0.0f && emitter.faceIndex != luxel.faceIndex) {
+                    const float align = dot3(luxel.normal, emitter.normal);
+                    if (align > kCoplanarAlignMin) {
+                        const float planeSep = std::fabs(dot3(delta, luxel.normal));
+                        const float lateral2 = std::max(0.0f, dist2Raw - planeSep * planeSep);
+                        const float weight = align * std::exp(-planeSep / kCoplanarSoft)
+                            / (lateral2 + minDist2);
+                        const float fill = emitter.area * coplanarFill * weight / (4.0f * PI);
+                        luxel.irradiance += emitter.radiance * fill;
+                    }
+                }
+            }
+            const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (done % directStep == 0 || done == luxelTotal) {
+                logProgress("direct", done, luxelTotal);
+            }
+        }
+    });
+}
+
+bool accumulateDirectLighting(
+    std::vector<LuxelSample>& luxels,
+    const std::vector<EmitterPatch>& emitters,
+    const QuadBvh& occlusionBvh,
+    const RadiositySettings& settings) {
+    if (settings.preferGpu && !settings.directComputeShaderSource.empty()) {
+        std::vector<RadGpuLuxel> gpuLuxels;
+        std::vector<std::size_t> denseToSrc;
+        gpuLuxels.reserve(luxels.size());
+        denseToSrc.reserve(luxels.size());
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            const LuxelSample& src = luxels[i];
+            if (src.covered) {
+                continue;
+            }
+            RadGpuLuxel dst;
+            dst.position = src.position;
+            dst.normal = src.normal;
+            dst.irradianceR = src.irradiance.r;
+            dst.irradianceG = src.irradiance.g;
+            dst.irradianceB = src.irradiance.b;
+            dst.faceIndex = src.faceIndex;
+            dst.covered = 0;
+            gpuLuxels.push_back(dst);
+            denseToSrc.push_back(i);
+        }
+        std::vector<RadGpuEmitter> gpuEmitters(emitters.size());
+        for (std::size_t i = 0; i < emitters.size(); ++i) {
+            const EmitterPatch& src = emitters[i];
+            RadGpuEmitter& dst = gpuEmitters[i];
+            dst.position = src.position;
+            dst.normal = src.normal;
+            dst.radianceR = src.radiance.r;
+            dst.radianceG = src.radiance.g;
+            dst.radianceB = src.radiance.b;
+            dst.area = src.area;
+            dst.faceIndex = src.faceIndex;
+        }
+        RadGpuDirectParams gpuParams;
+        gpuParams.directWrap = settings.directWrap;
+        gpuParams.coplanarFill = settings.coplanarFill;
+        gpuParams.coplanarSoft = 0.25f;
+        const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
+        gpuParams.minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
+        if (accumulateDirectLightingGpu(
+                gpuLuxels,
+                gpuEmitters,
+                occlusionBvh,
+                settings.directComputeShaderSource,
+                gpuParams)) {
+            for (std::size_t d = 0; d < gpuLuxels.size(); ++d) {
+                LuxelSample& dst = luxels[denseToSrc[d]];
+                dst.irradiance.r = gpuLuxels[d].irradianceR;
+                dst.irradiance.g = gpuLuxels[d].irradianceG;
+                dst.irradiance.b = gpuLuxels[d].irradianceB;
+            }
+            return true;
+        }
+        TraceLog(LOG_WARNING, "sloprad: GPU direct lighting failed; falling back to CPU");
+        std::fflush(stdout);
+    } else if (settings.preferGpu) {
+        TraceLog(LOG_WARNING, "sloprad: GPU direct lighting requested but shader source missing; using CPU");
+        std::fflush(stdout);
+    }
+
+    TraceLog(LOG_INFO, "sloprad: CPU direct lighting");
+    std::fflush(stdout);
+    accumulateDirectLightingCpu(luxels, emitters, occlusionBvh, settings);
+    return false;
+}
 
 void inpaintCoveredLuxels(
     std::vector<LuxelSample>& luxels,
@@ -498,7 +656,6 @@ void inpaintCoveredLuxels(
 
 RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
-    const BspTree& occlusionTree,
     const MapMeta& meta,
     const MaterialBakeResolver& resolveMaterial,
     const RadiositySettings& settings) {
@@ -559,17 +716,20 @@ RadiosityBakeResult bakeRadiosity(
     std::fflush(stdout);
 
     logStage("building acceleration structures...");
-    const QuadBvh occlusionBvh = buildBspSurfaceBvh(occlusionTree);
-    const QuadBvh gatherBvh = buildLightmapFaceBvh(faces);
+    const QuadBvh sceneBvh = buildLightmapFaceBvh(faces);
     TraceLog(
         LOG_INFO,
-        "sloprad: occlusion prims=%d gather prims=%d threads=%u",
-        static_cast<int>(occlusionBvh.prims.size()),
-        static_cast<int>(gatherBvh.prims.size()),
+        "sloprad: scene prims=%d threads=%u",
+        static_cast<int>(sceneBvh.prims.size()),
         std::max(1u, std::thread::hardware_concurrency()));
     std::fflush(stdout);
 
     logStage("collecting emitter patches...");
+    constexpr float kMaxEmitterPatchesPerMeter = 8.0f;
+    const int emitterStride = std::max(
+        1,
+        static_cast<int>(std::lround(
+            settings.luxelsPerMeter / std::max(kMaxEmitterPatchesPerMeter, 1e-3f))));
     std::vector<EmitterPatch> emitters;
     for (std::size_t chartIndex = 0; chartIndex < packed.rad.charts.size(); ++chartIndex) {
         const LightmapChart& chart = packed.rad.charts[chartIndex];
@@ -579,22 +739,24 @@ RadiosityBakeResult bakeRadiosity(
         const LightmapFace& face = faces[static_cast<std::size_t>(chart.faceIndex)];
         const MaterialBakeInfo& material = materialFor(face.material);
         const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
-        const float patchArea =
+        const float luxelArea =
             ((basis.uMax - basis.uMin) * (basis.vMax - basis.vMin))
             / static_cast<float>(std::max(1, chart.luxelWidth * chart.luxelHeight));
 
-        for (int y = 0; y < chart.luxelHeight; ++y) {
-            for (int x = 0; x < chart.luxelWidth; ++x) {
+        for (int y = 0; y < chart.luxelHeight; y += emitterStride) {
+            for (int x = 0; x < chart.luxelWidth; x += emitterStride) {
                 const Vector3 pos = luxelWorldPos(basis, chart, x, y);
                 const Color3 emit = emissionAt(face, material, pos);
                 if (luminance(emit) <= 0.0f) {
                     continue;
                 }
+                const int cellsX = std::min(emitterStride, chart.luxelWidth - x);
+                const int cellsY = std::min(emitterStride, chart.luxelHeight - y);
                 EmitterPatch patch;
                 patch.position = add3(pos, scale3(face.normal, 0.02f));
                 patch.normal = face.normal;
                 patch.radiance = emit;
-                patch.area = patchArea;
+                patch.area = luxelArea * static_cast<float>(cellsX * cellsY);
                 patch.faceIndex = chart.faceIndex;
                 emitters.push_back(patch);
             }
@@ -603,10 +765,16 @@ RadiosityBakeResult bakeRadiosity(
             logProgress("emitters from charts", chartIndex + 1, packed.rad.charts.size());
         }
     }
-    TraceLog(LOG_INFO, "sloprad: emitter patches=%d", static_cast<int>(emitters.size()));
+    TraceLog(
+        LOG_INFO,
+        "sloprad: emitter patches=%d stride=%d (max %.1f/m)",
+        static_cast<int>(emitters.size()),
+        emitterStride,
+        kMaxEmitterPatchesPerMeter);
     std::fflush(stdout);
 
-    const Color3 ambient{meta.ambient.x, meta.ambient.y, meta.ambient.z};
+    const Color3 ambientRaw{meta.ambient.x, meta.ambient.y, meta.ambient.z};
+    const Color3 ambient = ambientRaw * std::max(0.0f, settings.ambientScale);
 
     logStage("building receiving luxels...");
     std::vector<LuxelSample> luxels;
@@ -635,7 +803,8 @@ RadiosityBakeResult bakeRadiosity(
                 sample.position = add3(pos, scale3(face.normal, 0.02f));
                 sample.normal = face.normal;
                 sample.albedo = albedoAt(face, material, pos);
-                sample.irradiance = ambient + emissionAt(face, material, pos);
+                sample.emission = emissionAt(face, material, pos);
+                sample.irradiance = ambient + sample.emission;
                 sample.faceIndex = chart.faceIndex;
                 sample.atlasIndex = chart.atlasIndex;
                 sample.atlasX = chart.atlasX + x;
@@ -659,61 +828,26 @@ RadiosityBakeResult bakeRadiosity(
     std::fflush(stdout);
 
     logStage("direct lighting...");
-    const std::size_t luxelTotal = luxels.size();
-    std::atomic<std::size_t> directDone{0};
-    const std::size_t directStep = std::max<std::size_t>(1, luxelTotal / 20);
-    parallelFor(luxelTotal, [&](std::size_t begin, std::size_t end) {
-        for (std::size_t i = begin; i < end; ++i) {
-            LuxelSample& luxel = luxels[i];
-            if (luxel.covered) {
-                const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
-                if (done % directStep == 0 || done == luxelTotal) {
-                    logProgress("direct", done, luxelTotal);
-                }
-                continue;
-            }
-            for (const EmitterPatch& emitter : emitters) {
-                if (emitter.faceIndex == luxel.faceIndex) {
-                    continue;
-                }
-                Vector3 toLight = sub3(emitter.position, luxel.position);
-                const float dist2 = dot3(toLight, toLight);
-                if (dist2 < 1e-6f) {
-                    continue;
-                }
-                const float dist = std::sqrt(dist2);
-                toLight = scale3(toLight, 1.0f / dist);
-                const float nDotL = dot3(luxel.normal, toLight);
-                const float nDotV = -dot3(emitter.normal, toLight);
-                if (nDotL <= 0.0f || nDotV <= 0.0f) {
-                    continue;
-                }
-                if (bspSegmentOccluded(occlusionBvh, luxel.position, emitter.position, -1, -1)) {
-                    continue;
-                }
-                const float form = nDotL * nDotV * emitter.area / (dist2 * PI);
-                luxel.irradiance += emitter.radiance * form;
-            }
-            const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
-            if (done % directStep == 0 || done == luxelTotal) {
-                logProgress("direct", done, luxelTotal);
-            }
-        }
-    });
+    accumulateDirectLighting(luxels, emitters, sceneBvh, settings);
 
     logStage("inpainting covered luxels...");
     inpaintCoveredLuxels(luxels, faceGrids);
+
+    std::vector<Color3> shoot(luxels.size());
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        const LuxelSample& luxel = luxels[i];
+        if (luxel.covered) {
+            shoot[i] = {};
+            continue;
+        }
+        shoot[i] = max0(luxel.irradiance - luxel.emission) * luxel.albedo;
+    }
 
     for (int bounce = 0; bounce < settings.bounces; ++bounce) {
         TraceLog(LOG_INFO, "sloprad: bounce %d/%d...", bounce + 1, settings.bounces);
         std::fflush(stdout);
 
-        std::vector<Color3> previous;
-        previous.reserve(luxels.size());
-        for (const LuxelSample& luxel : luxels) {
-            previous.push_back(luxel.irradiance * luxel.albedo);
-        }
-
+        std::vector<Color3> gatheredLuxels(luxels.size());
         std::atomic<std::size_t> bounceDone{0};
         const std::size_t bounceStep = std::max<std::size_t>(1, luxels.size() / 20);
         const int sampleCount = std::max(1, settings.samples);
@@ -741,23 +875,25 @@ RadiosityBakeResult bakeRadiosity(
                 for (int s = 0; s < sampleCount; ++s) {
                     const Vector3 dir = cosineHemisphere(luxel.normal, unit(rng), unit(rng));
                     const auto hit =
-                        raycastQuadBvh(gatherBvh, luxel.position, dir, 1000.0f, luxel.faceIndex);
+                        raycastQuadBvh(sceneBvh, luxel.position, dir, 1000.0f, luxel.faceIndex);
                     if (!hit) {
                         continue;
                     }
-                    Color3 hitRadiance = ambient * 0.25f;
+                    Color3 hitRadiance = ambientRaw * 0.25f;
                     if (hit->faceIndex >= 0
                         && hit->faceIndex < static_cast<std::int32_t>(faceGrids.size())) {
                         hitRadiance = sampleFaceRadiance(
                             faceGrids[static_cast<std::size_t>(hit->faceIndex)],
                             bases[static_cast<std::size_t>(hit->faceIndex)],
-                            previous,
+                            shoot,
                             hit->point,
                             hitRadiance);
                     }
                     gathered += hitRadiance;
                 }
-                luxel.irradiance += gathered * (1.0f / static_cast<float>(sampleCount));
+                gathered = gathered * (1.0f / static_cast<float>(sampleCount));
+                gatheredLuxels[i] = gathered;
+                luxel.irradiance += gathered;
                 const std::size_t done = bounceDone.fetch_add(1, std::memory_order_relaxed) + 1;
                 if (done % bounceStep == 0 || done == luxels.size()) {
                     TraceLog(
@@ -772,7 +908,20 @@ RadiosityBakeResult bakeRadiosity(
                 }
             }
         });
+
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            if (luxels[i].covered) {
+                shoot[i] = {};
+            } else {
+                shoot[i] = gatheredLuxels[i] * luxels[i].albedo;
+            }
+        }
         inpaintCoveredLuxels(luxels, faceGrids);
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            if (luxels[i].covered) {
+                shoot[i] = {};
+            }
+        }
     }
 
     logStage("rasterizing lightmap atlases...");

@@ -5,6 +5,7 @@
 #include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
+#include "map/prefab.hpp"
 
 #include <raylib.h>
 
@@ -29,12 +30,37 @@ struct LoadedMap {
     int useLightmapLoc = -1;
 };
 
+struct MapCsgDocument {
+    std::vector<Brush> brushes;
+    std::vector<PrefabInstance> instances;
+};
+
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName);
+
+std::optional<MapCsgDocument> loadMapCsgDocument(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view mapName);
 
 std::optional<std::vector<Brush>> loadMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName);
+
+std::optional<std::vector<Brush>> loadPrefabBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view prefabPath);
+
+std::optional<std::vector<Brush>> expandPrefabInstance(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    const PrefabInstance& instance);
+
+std::vector<Brush> expandPrefabInstances(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    const std::vector<PrefabInstance>& instances);
 
 std::optional<LoadedMap> loadAndCompileMap(
     s7_scheme* scheme,

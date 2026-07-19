@@ -1,6 +1,5 @@
 (material
   (shader "default")
+  (texture "bricks")
   (texel-size 64)
-  (emission-color 1.0 1.0 1.0 1.0)
-  (emission-power 2.0)
   (base-color 1 1 1 1))

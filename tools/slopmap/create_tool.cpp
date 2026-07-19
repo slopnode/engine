@@ -1,10 +1,12 @@
 #include "create_tool.hpp"
 
 #include "map/brush.hpp"
+#include "select_tool.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace slopmap {
 
@@ -22,22 +24,40 @@ Vector3 combineAxes(const ConstructionPlane& plane, float u, float v, float n) {
     };
 }
 
-float screenNormalSense(
-    const Camera3D& camera,
-    Rectangle viewport,
-    Vector3 worldPoint,
-    Vector3 normal) {
-    const Vector2 a = worldToViewportScreen(worldPoint, camera, viewport);
-    const Vector2 b = worldToViewportScreen(
-        {
-            worldPoint.x + normal.x,
-            worldPoint.y + normal.y,
-            worldPoint.z + normal.z,
-        },
-        camera,
-        viewport);
-    const float dy = a.y - b.y;
-    return dy >= 0.0f ? 1.0f : -1.0f;
+bool pickCreatePlane(Editor& editor, const Ray& ray, ConstructionPlane& outPlane, Vector3& outHit) {
+    float bestFaceT = std::numeric_limits<float>::max();
+    int bestBrush = -1;
+    int bestFace = -1;
+    const EditorDocument& d = editor.doc();
+    for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+        float faceT = 0.0f;
+        const auto face = rayBrushFaceIndex(ray, d.brushes[i], &faceT);
+        if (face && faceT < bestFaceT) {
+            bestFaceT = faceT;
+            bestBrush = static_cast<int>(i);
+            bestFace = *face;
+        }
+    }
+
+    if (bestBrush >= 0 && bestFace >= 0) {
+        const slopengine::BrushFace& face =
+            d.brushes[static_cast<std::size_t>(bestBrush)].faces[static_cast<std::size_t>(bestFace)];
+        const Vector3 hit{
+            ray.position.x + ray.direction.x * bestFaceT,
+            ray.position.y + ray.direction.y * bestFaceT,
+            ray.position.z + ray.direction.z * bestFaceT,
+        };
+        outHit = snapToGrid(hit, editor.gridSize);
+        outPlane = constructionPlaneFromFace(face, outHit);
+        return true;
+    }
+
+    outPlane = constructionPlaneForView(editor.viewPlane);
+    if (!rayPlaneIntersection(ray, outPlane.origin, outPlane.normal, outHit)) {
+        return false;
+    }
+    outHit = snapToGrid(outHit, editor.gridSize);
+    return true;
 }
 
 } // namespace
@@ -48,8 +68,6 @@ void CreateTool::reset() {
     corner1 = {};
     thickness = 0.0f;
     thicknessFromNumeric = false;
-    extrudeMouseStart = {};
-    extrudeThicknessStart = 0.0f;
 }
 
 bool CreateTool::footprintBounds(Vector3& mins, Vector3& maxs) const {
@@ -124,18 +142,24 @@ void CreateTool::commit(Editor& editor) {
         return;
     }
 
+    const slopengine::BrushRole role = editor.scene == EditorScene::Prefab
+        ? slopengine::BrushRole::Detail
+        : slopengine::BrushRole::Hull;
     slopengine::Brush brush = slopengine::makeBrushBox(
         editor.allocateBrushId(),
         mins,
         maxs,
-        editor.doc.defaultMaterial,
+        editor.doc().defaultMaterial,
         {},
-        slopengine::BrushRole::Hull);
-    editor.doc.brushes.push_back(std::move(brush));
-    editor.doc.selectedBrush = static_cast<int>(editor.doc.brushes.size()) - 1;
-    editor.doc.selectedFace = -1;
+        role);
+    EditorDocument& d = editor.doc();
+    d.brushes.push_back(std::move(brush));
+    d.selection = SelectionTarget::Brush;
+    d.selectedBrush = static_cast<int>(d.brushes.size()) - 1;
+    d.selectedFace = -1;
+    d.selectedInstance = -1;
     editor.markDirty();
-    editor.statusMessage = "Created " + editor.doc.brushes.back().id;
+    editor.statusMessage = "Created " + d.brushes.back().id;
     editor.numericBuffer.clear();
     reset();
 }
@@ -209,10 +233,9 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
 
     if (phase == CreatePhase::Idle) {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            plane = constructionPlaneForView(editor.viewPlane);
             Vector3 hit{};
-            if (rayPlaneIntersection(ray, plane.origin, plane.normal, hit)) {
-                corner0 = snapToGrid(hit, editor.gridSize);
+            if (pickCreatePlane(editor, ray, plane, hit)) {
+                corner0 = hit;
                 corner1 = corner0;
                 phase = CreatePhase::DrawingBase;
                 editor.numericBuffer.clear();
@@ -236,8 +259,6 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
             thickness = editor.gridSize;
             thicknessFromNumeric = false;
             editor.numericBuffer.clear();
-            extrudeMouseStart = GetMousePosition();
-            extrudeThicknessStart = thickness;
             phase = CreatePhase::Extruding;
         }
         return;
@@ -250,12 +271,14 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
                 0.5f * (corner0.y + corner1.y),
                 0.5f * (corner0.z + corner1.z),
             };
-            const float sense = screenNormalSense(camera, editor.contentViewport, mid, plane.normal);
-            const float dy = extrudeMouseStart.y - GetMousePosition().y;
-            const float worldPerPixel = editor.gridSize / 8.0f;
-            thickness = snapToGrid(extrudeThicknessStart + sense * dy * worldPerPixel, editor.gridSize);
-            if (std::fabs(thickness) < editor.gridSize * 0.5f) {
-                thickness = thickness < 0.0f ? -editor.gridSize : editor.gridSize;
+            const float n0 = projectAxis(plane.origin, plane.normal);
+            const Vector3 dragNormal = dragPlaneNormalForAxis(plane.normal, cameraForward(camera));
+            Vector3 hit{};
+            if (rayPlaneIntersection(ray, mid, dragNormal, hit)) {
+                thickness = snapToGrid(projectAxis(hit, plane.normal) - n0, editor.gridSize);
+                if (std::fabs(thickness) < editor.gridSize * 0.5f) {
+                    thickness = thickness < 0.0f ? -editor.gridSize : editor.gridSize;
+                }
             }
         }
 

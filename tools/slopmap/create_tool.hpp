@@ -19,8 +19,6 @@ struct CreateTool {
     Vector3 corner1{};
     float thickness = 0.0f;
     bool thicknessFromNumeric = false;
-    Vector2 extrudeMouseStart{};
-    float extrudeThicknessStart = 0.0f;
 
     void reset();
     void update(Editor& editor, const Camera3D& camera, bool uiWantsMouse, bool uiWantsKeyboard);

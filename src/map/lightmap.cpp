@@ -107,6 +107,9 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
             face.normal = brushFace.normal;
             face.vertices = brushFace.vertices;
             face.uvShiftPixels = brushFace.uvShiftPixels;
+            face.uvUAxis = brushFace.uvUAxis;
+            face.uvVAxis = brushFace.uvVAxis;
+            face.uvLock = brushFace.uvLock;
             faces.push_back(std::move(face));
         }
     }
@@ -152,7 +155,7 @@ LightmapPackResult packLightmapCharts(
         const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
         Vector3 uAxis{};
         Vector3 vAxis{};
-        axialUvAxes(face.normal, uAxis, vAxis);
+        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
         const float widthMeters = faceExtent(face, uAxis);
         const float heightMeters = faceExtent(face, vAxis);
         const int luxelW = std::clamp(

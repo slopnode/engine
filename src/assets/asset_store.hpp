@@ -55,6 +55,12 @@ public:
     /** Returns true when a map entities script exists at @p path. */
     bool hasMapEntities(std::string_view path) const;
 
+    /** Returns true when a prefab CSG script exists at @p path. */
+    bool hasPrefabCsg(std::string_view path) const;
+
+    /** Returns true when a prefab entities script exists at @p path. */
+    bool hasPrefabEntities(std::string_view path) const;
+
     /** Returns true when a map meta file exists at @p path. */
     bool hasMapMeta(std::string_view path) const;
 
@@ -186,6 +192,12 @@ public:
 
     /** Loads and evaluates the map entities script at @p path in @p scheme. */
     bool loadMapEntities(s7_scheme* scheme, std::string_view path);
+
+    /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
+    bool loadPrefabCsg(s7_scheme* scheme, std::string_view path);
+
+    /** Loads and evaluates the prefab entities script at @p path in @p scheme. */
+    bool loadPrefabEntities(s7_scheme* scheme, std::string_view path);
 
 private:
     static std::string cacheKey(std::string_view path);

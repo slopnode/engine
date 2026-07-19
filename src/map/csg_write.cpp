@@ -1,9 +1,13 @@
 #include "map/csg_write.hpp"
 
+#include "map/uv_math.hpp"
+
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace slopengine {
 
@@ -13,6 +17,27 @@ std::string formatFloat(float value) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.6g", static_cast<double>(value));
     return buf;
+}
+
+bool faceHasCustomUvAxes(const BrushFace& face) {
+    if (!face.uvLock) {
+        return false;
+    }
+    Vector3 axialU{};
+    Vector3 axialV{};
+    axialUvAxes(face.normal, axialU, axialV);
+    constexpr float kEps = 1e-4f;
+    const float du = std::fabs(face.uvUAxis.x - axialU.x) + std::fabs(face.uvUAxis.y - axialU.y) +
+        std::fabs(face.uvUAxis.z - axialU.z);
+    const float dv = std::fabs(face.uvVAxis.x - axialV.x) + std::fabs(face.uvVAxis.y - axialV.y) +
+        std::fabs(face.uvVAxis.z - axialV.z);
+    return du > kEps || dv > kEps;
+}
+
+void writeUvAxesClause(std::ostringstream& out, const BrushFace& face) {
+    out << "(uv-axes " << formatFloat(face.uvUAxis.x) << " " << formatFloat(face.uvUAxis.y) << " "
+        << formatFloat(face.uvUAxis.z) << " " << formatFloat(face.uvVAxis.x) << " "
+        << formatFloat(face.uvVAxis.y) << " " << formatFloat(face.uvVAxis.z) << ")";
 }
 
 std::string formatVec3(Vector3 v) {
@@ -62,6 +87,12 @@ bool faceNeedsOverride(const BrushFace& face, const std::string& brushId, BrushB
     if (face.nodraw) {
         return true;
     }
+    if (face.uvLock) {
+        return true;
+    }
+    if (faceHasCustomUvAxes(face)) {
+        return true;
+    }
     if (face.uvShiftPixels.x != 0.0f || face.uvShiftPixels.y != 0.0f) {
         return true;
     }
@@ -88,6 +119,13 @@ void writeFaceOverride(
     }
     if (face.nodraw) {
         out << "\n      (nodraw)";
+    }
+    if (face.uvLock) {
+        out << "\n      (uv-lock)";
+    }
+    if (faceHasCustomUvAxes(face)) {
+        out << "\n      ";
+        writeUvAxesClause(out, face);
     }
     out << ")\n";
 }
@@ -177,6 +215,14 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
         if (face.nodraw) {
             out << "      (nodraw)\n";
         }
+        if (face.uvLock) {
+            out << "      (uv-lock)\n";
+        }
+        if (faceHasCustomUvAxes(face)) {
+            out << "      ";
+            writeUvAxesClause(out, face);
+            out << "\n";
+        }
         out << "      (verts";
         for (const Vector3& v : face.vertices) {
             out << " (v " << formatVec3(v) << ")";
@@ -187,9 +233,15 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     out << ")\n\n";
 }
 
-} // namespace
+void writePrefabInstance(std::ostringstream& out, const PrefabInstance& instance) {
+    out << "(prefab " << escapeSchemeString(instance.path) << "\n";
+    out << "  (id " << escapeSchemeString(instance.id) << ")\n";
+    out << "  (at " << formatVec3(instance.at) << ")\n";
+    out << "  (angles " << formatVec3(instance.angles) << ")\n";
+    out << ")\n\n";
+}
 
-std::string brushesToCsgText(const std::vector<Brush>& brushes) {
+std::string buildBrushesText(const std::vector<Brush>& brushes) {
     std::ostringstream out;
     for (const Brush& brush : brushes) {
         if (brush.box) {
@@ -201,12 +253,47 @@ std::string brushesToCsgText(const std::vector<Brush>& brushes) {
     return out.str();
 }
 
+std::string buildMapCsgDocumentText(
+    const std::vector<Brush>& brushes,
+    const std::vector<PrefabInstance>& instances) {
+    std::ostringstream out;
+    out << buildBrushesText(brushes);
+    for (const PrefabInstance& instance : instances) {
+        writePrefabInstance(out, instance);
+    }
+    return out.str();
+}
+
+} // namespace
+
+std::string brushesToCsgText(const std::vector<Brush>& brushes) {
+    return buildBrushesText(brushes);
+}
+
+std::string mapCsgDocumentToText(
+    const std::vector<Brush>& brushes,
+    const std::vector<PrefabInstance>& instances) {
+    return buildMapCsgDocumentText(brushes, instances);
+}
+
 bool writeMapBrushes(const std::filesystem::path& path, const std::vector<Brush>& brushes) {
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file) {
         return false;
     }
     file << brushesToCsgText(brushes);
+    return static_cast<bool>(file);
+}
+
+bool writeMapCsgDocument(
+    const std::filesystem::path& path,
+    const std::vector<Brush>& brushes,
+    const std::vector<PrefabInstance>& instances) {
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) {
+        return false;
+    }
+    file << mapCsgDocumentToText(brushes, instances);
     return static_cast<bool>(file);
 }
 
