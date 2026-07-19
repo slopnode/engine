@@ -100,6 +100,9 @@ AssetStore::~AssetStore() {
     for (auto& [_, atlas] : spriteAtlases_) {
         unloadSpriteAtlas(atlas);
     }
+    for (auto& [_, atlas] : iconAtlases_) {
+        unloadIconAtlas(atlas);
+    }
     for (auto& [_, texture] : textures_) {
         UnloadTexture(texture);
     }
@@ -244,6 +247,72 @@ bool AssetStore::hasSprite(std::string_view path) const {
 
 bool AssetStore::hasSpriteAnim(std::string_view path) const {
     return vfs_.exists(AssetKind::SpriteAnim, path);
+}
+
+bool AssetStore::hasIconAtlas(std::string_view set) const {
+    return vfs_.exists(AssetKind::IconMap, set);
+}
+
+const IconAtlas* AssetStore::getIconAtlas(std::string_view set) {
+    const std::string key = cacheKey(set);
+    const auto existing = iconAtlases_.find(key);
+    if (existing != iconAtlases_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasIconAtlas(set)) {
+        TraceLog(LOG_WARNING, "Icon atlas not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    IconAtlas atlas{};
+    if (!parseIconMap(vfs_.readText(AssetKind::IconMap, set), atlas)) {
+        TraceLog(LOG_WARNING, "Failed to parse iconmap: %s", key.c_str());
+        return nullptr;
+    }
+
+    const std::string atlasVirtual =
+        atlas.atlasPath.empty() ? key : atlas.atlasPath;
+    const auto resolved = vfs_.resolve(AssetKind::Icon, atlasVirtual);
+    if (!resolved) {
+        TraceLog(LOG_WARNING, "Icon atlas texture not found: %s", atlasVirtual.c_str());
+        return nullptr;
+    }
+
+    atlas.texture = LoadTexture(resolved->string().c_str());
+    if (atlas.texture.id == 0) {
+        TraceLog(LOG_WARNING, "Failed to load icon atlas texture: %s", atlasVirtual.c_str());
+        return nullptr;
+    }
+
+    return &iconAtlases_.emplace(key, std::move(atlas)).first->second;
+}
+
+std::optional<Rectangle> AssetStore::getIconRect(std::string_view set, std::string_view id) {
+    const IconAtlas* atlas = getIconAtlas(set);
+    if (atlas == nullptr) {
+        return std::nullopt;
+    }
+    return findIconRect(*atlas, id);
+}
+
+bool AssetStore::drawIcon(std::string_view set, std::string_view id, Vector2 position, float size) {
+    const IconAtlas* atlas = getIconAtlas(set);
+    if (atlas == nullptr || atlas->texture.id == 0) {
+        return false;
+    }
+    const auto rect = findIconRect(*atlas, id);
+    if (!rect) {
+        return false;
+    }
+    DrawTexturePro(
+        atlas->texture,
+        *rect,
+        Rectangle{position.x, position.y, size, size},
+        Vector2{0.0f, 0.0f},
+        0.0f,
+        WHITE);
+    return true;
 }
 
 Texture2D AssetStore::getTexture(std::string_view path) {

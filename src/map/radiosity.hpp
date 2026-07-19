@@ -38,10 +38,26 @@ struct RadiosityBakeResult {
     std::vector<Image> atlasImages;
 };
 
+enum class RadiosityLightKind {
+    Point,
+    Spot,
+};
+
+struct RadiosityLight {
+    RadiosityLightKind kind = RadiosityLightKind::Point;
+    Vector3 position{};
+    Vector3 direction{0.0f, 0.0f, 1.0f};
+    Vector3 color{1.0f, 1.0f, 1.0f};
+    float intensity = 1.0f;
+    float range = 8.0f;
+    float coneAngle = 0.7f;
+};
+
 RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
     const MapMeta& meta,
     const MaterialBakeResolver& resolveMaterial,
-    const RadiositySettings& settings);
+    const RadiositySettings& settings,
+    const std::vector<RadiosityLight>& lights = {});
 
 }

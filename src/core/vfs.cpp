@@ -40,6 +40,8 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::PrefabEntities: return "prefabs";
     case AssetKind::Sprite: return "sprites";
     case AssetKind::SpriteAnim: return "sprites";
+    case AssetKind::Icon: return "icons";
+    case AssetKind::IconMap: return "icons";
     }
     return "";
 }
@@ -68,6 +70,8 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::PrefabEntities: return ".s7";
     case AssetKind::Sprite: return ".spr";
     case AssetKind::SpriteAnim: return ".spanim";
+    case AssetKind::Icon: return ".png";
+    case AssetKind::IconMap: return ".iconmap";
     }
     return "";
 }

@@ -443,9 +443,73 @@ float wrapCosine(float cosine, float wrap) {
     return std::max(0.0f, (cosine + w) / (1.0f + w));
 }
 
+float smoothstep(float edge0, float edge1, float x) {
+    if (edge0 == edge1) {
+        return x < edge0 ? 0.0f : 1.0f;
+    }
+    const float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+void accumulateEntityLight(
+    LuxelSample& luxel,
+    const RadiosityLight& light,
+    const QuadBvh& occlusionBvh,
+    float wrap,
+    float minDist2) {
+    Vector3 delta = sub3(light.position, luxel.position);
+    const float dist2Raw = dot3(delta, delta);
+    if (dist2Raw < 1e-6f) {
+        return;
+    }
+    const float dist = std::sqrt(dist2Raw);
+    const float range = std::max(light.range, 1e-4f);
+    if (dist > range) {
+        return;
+    }
+    const Vector3 toLight = scale3(delta, 1.0f / dist);
+    const float dist2 = std::max(dist2Raw, minDist2);
+    if (bspSegmentOccluded(occlusionBvh, luxel.position, light.position, luxel.faceIndex, -1)) {
+        return;
+    }
+
+    const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
+    if (nDotL <= 0.0f) {
+        return;
+    }
+
+    const float t = dist / range;
+    float atten = std::max(0.0f, 1.0f - t * t);
+    atten *= atten;
+
+    float spot = 1.0f;
+    if (light.kind == RadiosityLightKind::Spot) {
+        const float forwardLen = std::sqrt(dot3(light.direction, light.direction));
+        if (forwardLen < 1e-6f) {
+            return;
+        }
+        const Vector3 forward = scale3(light.direction, 1.0f / forwardLen);
+        const float cosTheta = dot3(scale3(toLight, -1.0f), forward);
+        const float cosOuter = std::cos(light.coneAngle);
+        const float cosInner = std::cos(light.coneAngle * 0.8f);
+        spot = smoothstep(cosOuter, cosInner, cosTheta);
+        if (spot <= 0.0f) {
+            return;
+        }
+    }
+
+    const Color3 intensity{
+        light.color.x * light.intensity,
+        light.color.y * light.intensity,
+        light.color.z * light.intensity,
+    };
+    luxel.irradiance += intensity * (nDotL * atten * spot / dist2);
+}
+
 void accumulateDirectLightingCpu(
     std::vector<LuxelSample>& luxels,
     const std::vector<EmitterPatch>& emitters,
+    const std::vector<RadiosityLight>& lights,
     const QuadBvh& occlusionBvh,
     const RadiositySettings& settings) {
     const std::size_t luxelTotal = luxels.size();
@@ -507,6 +571,9 @@ void accumulateDirectLightingCpu(
                     }
                 }
             }
+            for (const RadiosityLight& light : lights) {
+                accumulateEntityLight(luxel, light, occlusionBvh, wrap, minDist2);
+            }
             const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
             if (done % directStep == 0 || done == luxelTotal) {
                 logProgress("direct", done, luxelTotal);
@@ -518,6 +585,7 @@ void accumulateDirectLightingCpu(
 bool accumulateDirectLighting(
     std::vector<LuxelSample>& luxels,
     const std::vector<EmitterPatch>& emitters,
+    const std::vector<RadiosityLight>& lights,
     const QuadBvh& occlusionBvh,
     const RadiositySettings& settings) {
     if (settings.preferGpu && !settings.directComputeShaderSource.empty()) {
@@ -553,6 +621,18 @@ bool accumulateDirectLighting(
             dst.area = src.area;
             dst.faceIndex = src.faceIndex;
         }
+        std::vector<RadGpuLight> gpuLights(lights.size());
+        for (std::size_t i = 0; i < lights.size(); ++i) {
+            const RadiosityLight& src = lights[i];
+            RadGpuLight& dst = gpuLights[i];
+            dst.position = src.position;
+            dst.direction = src.direction;
+            dst.color = src.color;
+            dst.intensity = src.intensity;
+            dst.range = src.range;
+            dst.coneAngle = src.coneAngle;
+            dst.kind = src.kind == RadiosityLightKind::Spot ? 1 : 0;
+        }
         RadGpuDirectParams gpuParams;
         gpuParams.directWrap = settings.directWrap;
         gpuParams.coplanarFill = settings.coplanarFill;
@@ -562,6 +642,7 @@ bool accumulateDirectLighting(
         if (accumulateDirectLightingGpu(
                 gpuLuxels,
                 gpuEmitters,
+                gpuLights,
                 occlusionBvh,
                 settings.directComputeShaderSource,
                 gpuParams)) {
@@ -582,7 +663,7 @@ bool accumulateDirectLighting(
 
     TraceLog(LOG_INFO, "sloprad: CPU direct lighting");
     std::fflush(stdout);
-    accumulateDirectLightingCpu(luxels, emitters, occlusionBvh, settings);
+    accumulateDirectLightingCpu(luxels, emitters, lights, occlusionBvh, settings);
     return false;
 }
 
@@ -658,10 +739,20 @@ RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
     const MapMeta& meta,
     const MaterialBakeResolver& resolveMaterial,
-    const RadiositySettings& settings) {
+    const RadiositySettings& settings,
+    const std::vector<RadiosityLight>& lights) {
+    int pointCount = 0;
+    int spotCount = 0;
+    for (const RadiosityLight& light : lights) {
+        if (light.kind == RadiosityLightKind::Spot) {
+            ++spotCount;
+        } else {
+            ++pointCount;
+        }
+    }
     TraceLog(
         LOG_INFO,
-        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f)",
+        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d)",
         static_cast<int>(faces.size()),
         settings.luxelsPerMeter,
         settings.bounces,
@@ -669,7 +760,10 @@ RadiosityBakeResult bakeRadiosity(
         settings.atlasSize,
         meta.ambient.x,
         meta.ambient.y,
-        meta.ambient.z);
+        meta.ambient.z,
+        static_cast<int>(lights.size()),
+        pointCount,
+        spotCount);
     std::fflush(stdout);
 
     logStage("packing lightmap charts...");
@@ -828,7 +922,13 @@ RadiosityBakeResult bakeRadiosity(
     std::fflush(stdout);
 
     logStage("direct lighting...");
-    accumulateDirectLighting(luxels, emitters, sceneBvh, settings);
+    TraceLog(
+        LOG_INFO,
+        "sloprad: direct contributors emitters=%d lights=%d",
+        static_cast<int>(emitters.size()),
+        static_cast<int>(lights.size()));
+    std::fflush(stdout);
+    accumulateDirectLighting(luxels, emitters, lights, sceneBvh, settings);
 
     logStage("inpainting covered luxels...");
     inpaintCoveredLuxels(luxels, faceGrids);

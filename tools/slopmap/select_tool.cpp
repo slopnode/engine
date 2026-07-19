@@ -1,5 +1,7 @@
 #include "select_tool.hpp"
 
+#include "placement_draw.hpp"
+
 #include "assets/material_loader.hpp"
 #include "map/brush.hpp"
 #include "map/csg_compile.hpp"
@@ -398,7 +400,21 @@ std::optional<int> rayBrushFaceIndex(Ray ray, const slopengine::Brush& brush, fl
 
 void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
     EditorDocument& d = editor.doc();
-    if (d.selection == SelectionTarget::Instance) {
+    if (d.selection == SelectionTarget::Placement) {
+        if (d.selectedPlacement < 0 ||
+            d.selectedPlacement >= static_cast<int>(d.placements.size())) {
+            return;
+        }
+        translating = true;
+        axisLock = TranslateAxis::None;
+        numericActive = false;
+        editor.numericBuffer.clear();
+        brushSnapshot.clear();
+        placementAtSnapshot = d.placements[static_cast<std::size_t>(d.selectedPlacement)].haveAt
+            ? d.placements[static_cast<std::size_t>(d.selectedPlacement)].at
+            : Vector3{};
+        translateOrigin = placementAtSnapshot;
+    } else if (d.selection == SelectionTarget::Instance) {
         if (d.selectedInstance < 0 || d.selectedInstance >= static_cast<int>(d.instances.size())) {
             return;
         }
@@ -440,6 +456,18 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
 
 void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, Vector3 delta) {
     EditorDocument& d = editor.doc();
+    if (d.selection == SelectionTarget::Placement) {
+        if (d.selectedPlacement < 0 ||
+            d.selectedPlacement >= static_cast<int>(d.placements.size())) {
+            return;
+        }
+        delta = snapToGrid(delta, editor.gridSize);
+        slopengine::Placement& placement =
+            d.placements[static_cast<std::size_t>(d.selectedPlacement)];
+        placement.at = add3(placementAtSnapshot, delta);
+        placement.haveAt = true;
+        return;
+    }
     if (d.selection == SelectionTarget::Instance) {
         if (d.selectedInstance < 0 || d.selectedInstance >= static_cast<int>(d.instances.size())) {
             return;
@@ -519,7 +547,11 @@ void SelectTool::cancelTranslate(Editor& editor) {
         return;
     }
     EditorDocument& d = editor.doc();
-    if (d.selection == SelectionTarget::Instance && d.selectedInstance >= 0 &&
+    if (d.selection == SelectionTarget::Placement && d.selectedPlacement >= 0 &&
+        d.selectedPlacement < static_cast<int>(d.placements.size())) {
+        d.placements[static_cast<std::size_t>(d.selectedPlacement)].at = placementAtSnapshot;
+        d.placements[static_cast<std::size_t>(d.selectedPlacement)].haveAt = true;
+    } else if (d.selection == SelectionTarget::Instance && d.selectedInstance >= 0 &&
         d.selectedInstance < static_cast<int>(d.instances.size())) {
         d.instances[static_cast<std::size_t>(d.selectedInstance)].at = instanceAtSnapshot;
     } else if (!brushSnapshot.empty() && d.selectedBrush >= 0 &&
@@ -647,6 +679,7 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
     int bestBrush = -1;
     int bestFace = -1;
     int bestInstance = -1;
+    int bestPlacement = -1;
 
     for (std::size_t i = 0; i < d.brushes.size(); ++i) {
         float faceT = 0.0f;
@@ -656,6 +689,7 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             bestBrush = static_cast<int>(i);
             bestFace = *face;
             bestInstance = -1;
+            bestPlacement = -1;
             continue;
         }
         const auto hit = rayBrushHitDistance(ray, d.brushes[i]);
@@ -664,6 +698,7 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             bestBrush = static_cast<int>(i);
             bestFace = -1;
             bestInstance = -1;
+            bestPlacement = -1;
         }
     }
 
@@ -674,14 +709,34 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             bestBrush = -1;
             bestFace = -1;
             bestInstance = editor.expandedInstanceOwners[i];
+            bestPlacement = -1;
         }
     }
 
-    if (bestInstance >= 0) {
+    float placementT = 0.0f;
+    const auto placementHit = pickPlacement(d.placements, ray, &placementT);
+    if (placementHit && placementT < bestT) {
+        bestT = placementT;
+        bestBrush = -1;
+        bestFace = -1;
+        bestInstance = -1;
+        bestPlacement = *placementHit;
+    }
+
+    if (bestPlacement >= 0) {
+        d.selection = SelectionTarget::Placement;
+        d.selectedPlacement = bestPlacement;
+        d.selectedBrush = -1;
+        d.selectedFace = -1;
+        d.selectedInstance = -1;
+        editor.statusMessage =
+            "Selected " + d.placements[static_cast<std::size_t>(bestPlacement)].id;
+    } else if (bestInstance >= 0) {
         d.selection = SelectionTarget::Instance;
         d.selectedInstance = bestInstance;
         d.selectedBrush = -1;
         d.selectedFace = -1;
+        d.selectedPlacement = -1;
         editor.statusMessage =
             "Selected instance " + d.instances[static_cast<std::size_t>(bestInstance)].id;
     } else if (bestBrush >= 0) {
@@ -689,6 +744,7 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
         d.selectedBrush = bestBrush;
         d.selectedFace = bestFace;
         d.selectedInstance = -1;
+        d.selectedPlacement = -1;
         editor.statusMessage = "Selected " + d.brushes[static_cast<std::size_t>(bestBrush)].id;
     } else {
         editor.clearSelection();
@@ -698,6 +754,18 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
 
 void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) {
     EditorDocument& d = editor.doc();
+    if (d.selection == SelectionTarget::Placement) {
+        if (d.selectedPlacement < 0 ||
+            d.selectedPlacement >= static_cast<int>(d.placements.size())) {
+            return;
+        }
+        const std::string id = d.placements[static_cast<std::size_t>(d.selectedPlacement)].id;
+        d.placements.erase(d.placements.begin() + d.selectedPlacement);
+        editor.clearSelection();
+        editor.markDirty();
+        editor.statusMessage = "Deleted " + id;
+        return;
+    }
     if (d.selection == SelectionTarget::Instance) {
         if (d.selectedInstance < 0 || d.selectedInstance >= static_cast<int>(d.instances.size())) {
             return;
@@ -723,6 +791,23 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
 
 void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
     EditorDocument& d = editor.doc();
+    if (d.selection == SelectionTarget::Placement) {
+        if (d.selectedPlacement < 0 ||
+            d.selectedPlacement >= static_cast<int>(d.placements.size())) {
+            return;
+        }
+        slopengine::Placement copy = d.placements[static_cast<std::size_t>(d.selectedPlacement)];
+        copy.id = editor.allocatePlacementId(slopengine::placementKindName(copy.kind));
+        d.placements.push_back(std::move(copy));
+        d.selection = SelectionTarget::Placement;
+        d.selectedPlacement = static_cast<int>(d.placements.size()) - 1;
+        d.selectedBrush = -1;
+        d.selectedFace = -1;
+        d.selectedInstance = -1;
+        editor.markDirty();
+        beginTranslate(editor, camera);
+        return;
+    }
     if (d.selection == SelectionTarget::Instance) {
         if (d.selectedInstance < 0 || d.selectedInstance >= static_cast<int>(d.instances.size())) {
             return;
@@ -733,6 +818,7 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
         d.selectedInstance = static_cast<int>(d.instances.size()) - 1;
         d.selectedBrush = -1;
         d.selectedFace = -1;
+        d.selectedPlacement = -1;
         editor.markDirty();
         beginTranslate(editor, camera);
         return;
@@ -756,18 +842,37 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
     d.selectedBrush = static_cast<int>(d.brushes.size()) - 1;
     d.selectedFace = -1;
     d.selectedInstance = -1;
+    d.selectedPlacement = -1;
     d.scope = SelectionScope::Brush;
     editor.markDirty();
     beginTranslate(editor, camera);
 }
 
-void SelectTool::rotateSelectedInstance(Editor& editor, slopengine::AssetStore& assets) {
+void SelectTool::rotateSelected(Editor& editor, slopengine::AssetStore& assets) {
     EditorDocument& d = editor.doc();
+    constexpr float kQuarter = 1.5707963267948966f;
+    if (d.selection == SelectionTarget::Placement) {
+        if (d.selectedPlacement < 0 ||
+            d.selectedPlacement >= static_cast<int>(d.placements.size())) {
+            return;
+        }
+        slopengine::Placement& placement =
+            d.placements[static_cast<std::size_t>(d.selectedPlacement)];
+        placement.yaw += kQuarter;
+        if (placement.yaw >= 6.283185307179586f) {
+            placement.yaw -= 6.283185307179586f;
+        }
+        if (placement.haveAngles) {
+            placement.angles.y = placement.yaw;
+        }
+        editor.markDirty();
+        editor.statusMessage = "Rotated " + placement.id;
+        return;
+    }
     if (d.selection != SelectionTarget::Instance || d.selectedInstance < 0 ||
         d.selectedInstance >= static_cast<int>(d.instances.size())) {
         return;
     }
-    constexpr float kQuarter = 1.5707963267948966f;
     slopengine::PrefabInstance& instance = d.instances[static_cast<std::size_t>(d.selectedInstance)];
     instance.angles.y += kQuarter;
     if (instance.angles.y >= 6.283185307179586f) {
@@ -831,7 +936,8 @@ void SelectTool::update(
 
         const bool canDrag =
             !numericActive &&
-            (editor.doc().selection == SelectionTarget::Instance || !brushSnapshot.empty());
+            (editor.doc().selection == SelectionTarget::Instance ||
+             editor.doc().selection == SelectionTarget::Placement || !brushSnapshot.empty());
         if (canDrag) {
             const Vector3 planeNormal =
                 translateDragPlaneNormal(editor.viewPlane, axisLock, camera);
@@ -871,7 +977,7 @@ void SelectTool::update(
         return;
     }
     if (IsKeyPressed(KEY_R)) {
-        rotateSelectedInstance(editor, assets);
+        rotateSelected(editor, assets);
         return;
     }
     if (IsKeyPressed(KEY_F) && editor.doc().selection == SelectionTarget::Brush) {

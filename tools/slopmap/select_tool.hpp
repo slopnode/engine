@@ -24,6 +24,7 @@ struct SelectTool {
     Vector3 mouseGrabWorld{};
     std::vector<slopengine::Brush> brushSnapshot;
     Vector3 instanceAtSnapshot{};
+    Vector3 placementAtSnapshot{};
     bool numericActive = false;
 
     void update(
@@ -44,7 +45,7 @@ private:
     void pick(Editor& editor, const Camera3D& camera);
     void deleteSelected(Editor& editor, slopengine::AssetStore& assets);
     void duplicateSelected(Editor& editor, const Camera3D& camera);
-    void rotateSelectedInstance(Editor& editor, slopengine::AssetStore& assets);
+    void rotateSelected(Editor& editor, slopengine::AssetStore& assets);
 };
 
 std::optional<float> rayBrushHitDistance(Ray ray, const slopengine::Brush& brush);

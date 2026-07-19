@@ -18,7 +18,10 @@ struct MaterialBrowser {
     char filter[128] = {};
 
     void rescan(const slopengine::AssetStore& assets);
-    MaterialBrowserResult draw(Editor& editor, float posX, float posY, float width, float height);
+    MaterialBrowserResult drawSection(
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        float bodyHeight);
 };
 
 std::string selectionMaterialLabel(const EditorDocument& doc);

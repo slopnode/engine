@@ -20,7 +20,7 @@ maps/<name>/
     ...
 ```
 
-`map.meta` and `static.csg` are authored. `entities.s7` places props and usables (optional). `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
+`map.meta` and `static.csg` are authored. `entities.s7` places props, usables, and lights (optional). `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
 
 Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG and BSP, `<name>/entities` for entity placement, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
 
@@ -95,7 +95,9 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
 
 ### entities.s7
 
-Optional Scheme file loaded after map geometry. Engine bindings create flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
+Optional Scheme file of **placements** loaded after map geometry. Engine bindings spawn flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
+
+`slopmap` loads and saves this file with the level (and optional `prefabs/<path>.s7` sidecars in Prefab scene). Use the **Placements** outliner and Library → Placements palette to place kinds; Select mode moves (`G`) and rotates yaw (`R`).
 
 ```text
 (player-start
@@ -118,16 +120,27 @@ Optional Scheme file loaded after map geometry. Engine bindings create flecs ent
   (frame "A")
   (prompt "Test use")
   (on-use "on-use-test"))
+
+(point-light
+  (id "lamp-a")
+  (at 0.0 2.0 0.0)
+  (color 1.0 0.95 0.9)
+  (intensity 1.0)
+  (range 8.0))
 ```
 
 | Form | Required | Notes |
 |------|----------|-------|
 | `player-start` | `id`, `at` | First wins; sets player spawn pose. Optional `yaw` (radians). See [Player](player.md). |
-| `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Entities](entities.md). |
-| `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Entities](entities.md). |
+| `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Placements](entities.md). |
+| `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Placements](entities.md). |
+| `point-light` | `id`, `at` | Optional `color`, `intensity`, `range`. Authored only; no lighting yet. |
+| `spot-light` | `id`, `at` | Optional `yaw`/`angles`, `color`, `intensity`, `range`, `cone`. |
+| `area-light` | `id`, `at` | Optional `angles`, `color`, `intensity`, `size`. |
+| `sun` | `id` | Optional `at` (gizmo), `angles`/`yaw`, `color`, `intensity`. |
 | `prefab` | path, `id` | Loads optional `prefabs/<path>.s7` with the same `at` / `angles` as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
-`on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, actors, and scripting are covered in [Entities](entities.md).
+`on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Placements](entities.md).
 
 `(nodraw)` marks a face as out of bounds for rendering: it is omitted from the compiled mesh and from radiosity charts, so it does not consume lightmap atlas space. The brush stays solid for physics and BSP occlusion. You can still set it explicitly on any face when you want nodraw true:
 
@@ -170,46 +183,20 @@ Typical sequence:
 
 `--mod` may be repeated on any of these, the same as the game. After editing brushes, rebuild BSP (and radiosity if you use it). After editing only materials or emission for lighting, BSP can stay; re-bake radiosity.
 
-## BSP compilation (`slopbsp`)
+## BSP and radiosity tools
 
 ```bash
 ./build/slopbsp --base-game <package-path> [--mod <path>]... --map <name>
-```
 
-The tool mounts packages, loads map meta and brushes from Scheme, keeps hull brushes for structure, and writes `static.bsp` next to `static.csg`.
-
-Build steps, in outline: gather hull convexes; pad the world bounds slightly; collect unique face planes from hull faces; recursively partition space with general planes into polyhedral solid or empty leaves; record adjacency between empty leaves; emit occlusion surfaces from hull faces that face interior empty space; write a binary `BSP2` file; flood exterior empty leaves from the padded bounds to detect leaks and infer hull auto-nodraw.
-
-If exterior empty reaches the playable volume, `slopbsp` still writes the BSP (for debug) but exits with an error and prints a leaf-center leak path. When the hull is sealed, it logs exterior/interior empty leaf counts and how many hull faces were inferred nodraw. Detail brushes whose centers lie outside sealed interior empty space produce warnings only.
-
-The BSP is structural and occlusion data. It is what radiosity uses when testing whether light is blocked, and what runtime uses for leaf-related debug. The visible level mesh is still compiled from brush faces at load time (triangulated polygons). Player collision uses convex hulls built from each brush’s face vertices through the physics library, not by walking the BSP tree as a mesh.
-
-Detail brushes are skipped when building that tree. If you only change detail solids, you may still want a fresh BSP when face ids or neighboring hulls change in ways that affect surfaces, but detail-only decoration does not add new BSP splits.
-
-## Radiosity compilation (`sloprad`)
-
-```bash
 ./build/sloprad --base-game <package-path> [--mod <path>]... --map <name> \
-  [--luxels-per-meter N] [--bounces N] [--samples N]
+  [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]
 ```
 
-Defaults are 16 luxels per meter, 2 bounces, and 32 samples per luxel per bounce. Atlas resolution is fixed at 512×512 in the current settings (not a CLI flag). Lower luxel density, zero bounces, and few samples are useful for quick previews; higher values cost more time and memory.
+`slopbsp` mounts packages, loads brushes, builds a hull-only tree, and writes `static.bsp` next to `static.csg`. On a leak it still writes the file for debug but exits with an error and a leaf-center path. On a seal it reports exterior/interior empty counts and inferred hull nodraw. Detail brushes do not split the tree and cannot seal.
 
-The tool requires `static.bsp`. It reloads brushes from `static.csg`, clears and recreates `maps/<name>/rad/`, then writes `static.rad` plus `atlas0.png`, `atlas1.png`, and so on as needed.
+`sloprad` requires that BSP. It reloads CSG, applies auto-nodraw when sealed, clears `maps/<name>/rad/`, and writes `static.rad` plus `atlasN.png`. Defaults are 16 luxels per meter, 2 bounces, 32 samples; atlas size is 512² (not a CLI flag). `--bounces 0` keeps ambient, emission, and direct light only. Emission textures matter at bake time; at runtime the lightmap shader uses flat material emission color/power.
 
-Bake outline as implemented today:
-
-1. Analyze the hull (same exterior flood as `slopbsp`): if sealed, OR inferred nodraw onto hull faces; if leaky, warn and keep authored `(nodraw)` only.
-2. Collect lightmap faces from every brush face that is not nodraw (hull and detail).
-3. Pack faces into charts on one or more atlases.
-4. Resolve materials; sample albedo and emission using the same planar UV rules as the game (`texel-size`, texture size, `uv-shift`). Lighting uses flat brush face normals only—no normal maps.
-5. Build acceleration structures: BSP surfaces for occlusion, lightmap faces for gathering light.
-6. Seed receivers with map ambient plus emission; build emitter patches from bright emission luxels.
-7. Compute direct lighting with form factors and BSP occlusion tests.
-8. Run bounce passes with cosine-weighted hemisphere samples (skipped when `--bounces 0`).
-9. Tonemap into RGB atlas images and write the `.rad` sidecar that points at those atlases.
-
-`--bounces 0` keeps ambient, emission, and direct light only—no indirect loop. Emission textures matter during this bake; at runtime the lightmap shader adds a flat emit from the material’s emission color when emission power is set, and does not re-sample the emission map.
+The BSP is structural (sealing, auto-nodraw, runtime leaf debug). Draw meshes come from brush faces; collision from per-brush convex hulls. Bake-time occlusion uses a BVH of lightmap faces. Full algorithms, file formats, settings, and rebuild rules: [BSP and radiosity compilation](bsp-rad.md).
 
 ## Loading in the game
 

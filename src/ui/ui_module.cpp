@@ -7,6 +7,7 @@
 #include "input/input_module.hpp"
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
+#include "map/light_components.hpp"
 #include "physics/components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
@@ -360,6 +361,18 @@ const char* entityKindLabel(flecs::entity entity) {
     if (name != nullptr && std::strcmp(name, "MapStatic") == 0) {
         return "map";
     }
+    if (entity.has<PointLight>()) {
+        return "point-light";
+    }
+    if (entity.has<SpotLight>()) {
+        return "spot-light";
+    }
+    if (entity.has<AreaLight>()) {
+        return "area-light";
+    }
+    if (entity.has<SunLight>()) {
+        return "sun";
+    }
     if (entity.has<Interactable>()) {
         return "usable";
     }
@@ -470,6 +483,61 @@ void drawEntityComponentDetails(flecs::entity entity) {
     if (entity.has<Model3D>()) {
         if (ImGui::TreeNode("Model3D")) {
             ImGui::TextUnformatted("Model present");
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<PointLight>()) {
+        const PointLight& light = entity.get<PointLight>();
+        if (ImGui::TreeNode("PointLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::Text("Range: %.3f", static_cast<double>(light.range));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<SpotLight>()) {
+        const SpotLight& light = entity.get<SpotLight>();
+        if (ImGui::TreeNode("SpotLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::Text("Range: %.3f", static_cast<double>(light.range));
+            ImGui::Text("Cone: %.3f", static_cast<double>(light.coneAngle));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<AreaLight>()) {
+        const AreaLight& light = entity.get<AreaLight>();
+        if (ImGui::TreeNode("AreaLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::Text(
+                "Size: %.3f x %.3f",
+                static_cast<double>(light.size.x),
+                static_cast<double>(light.size.y));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<SunLight>()) {
+        const SunLight& light = entity.get<SunLight>();
+        if (ImGui::TreeNode("SunLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
             ImGui::TreePop();
         }
     }

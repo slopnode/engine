@@ -23,7 +23,7 @@
   (id "a-wall-east-n")
   (mins 4 0 -4)
   (maxs 4.25 3 -1.25)
-  (material "surfaces/bricks")
+  (material "emission-green")
 )
 
 (brush-box
@@ -174,16 +174,72 @@
 )
 
 (brush-box
-  (id "b-wall-north")
+  (id "b-wall-north-w")
   (mins 10 0 -5.25)
+  (maxs 12.75 4 -5)
+  (material "surfaces/bricks")
+)
+
+(brush-box
+  (id "b-wall-north-e")
+  (mins 15.25 0 -5.25)
   (maxs 18 4 -5)
   (material "surfaces/bricks")
+)
+
+(brush-box
+  (id "b-door-north-lintel")
+  (mins 12.75 2.2 -5.25)
+  (maxs 15.25 4 -5)
+  (material "texture-test")
+)
+
+(brush-box
+  (id "b-door-north-floor")
+  (mins 12.75 -0.25 -5.25)
+  (maxs 15.25 0 -5)
+  (material "surfaces/floor")
 )
 
 (brush-box
   (id "b-wall-south")
   (mins 10 0 5)
   (maxs 18 4 5.25)
+  (material "surfaces/bricks")
+)
+
+(brush-box
+  (id "hall-bn-floor")
+  (mins 12.75 -0.25 -10.75)
+  (maxs 15.25 0 -5.25)
+  (material "surfaces/floor")
+)
+
+(brush-box
+  (id "hall-bn-ceiling")
+  (mins 12.75 2.2 -10.75)
+  (maxs 15.25 2.45 -5.25)
+  (material "texture-test")
+)
+
+(brush-box
+  (id "hall-bn-wall-w")
+  (mins 12.5 0 -10.75)
+  (maxs 12.75 2.2 -5.25)
+  (material "surfaces/bricks")
+)
+
+(brush-box
+  (id "hall-bn-wall-e")
+  (mins 15.25 0 -10.75)
+  (maxs 15.5 2.2 -5.25)
+  (material "surfaces/bricks")
+)
+
+(brush-box
+  (id "hall-bn-wall-n")
+  (mins 12.75 0 -11)
+  (maxs 15.25 2.2 -10.75)
   (material "surfaces/bricks")
 )
 

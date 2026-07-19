@@ -17,6 +17,7 @@ set(SLOPLIB_SOURCES
     src/core/vfs.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
+    src/assets/icon_atlas.cpp
     src/assets/material_loader.cpp
     src/assets/sprite_loader.cpp
     src/assets/sprite_anim_loader.cpp
@@ -31,6 +32,8 @@ set(SLOPLIB_SOURCES
     src/map/csg_compile.cpp
     src/map/csg_script.cpp
     src/map/csg_write.cpp
+    src/map/entities_script.cpp
+    src/map/entities_write.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp
@@ -38,6 +41,7 @@ set(SLOPLIB_SOURCES
     src/map/quad_bvh.cpp
     src/map/radiosity.cpp
     src/map/radiosity_gpu.cpp
+    src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
 )
 
@@ -105,6 +109,7 @@ add_executable(slopmap
     tools/slopmap/camera.cpp
     tools/slopmap/editor.cpp
     tools/slopmap/preview.cpp
+    tools/slopmap/placement_draw.cpp
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
@@ -119,5 +124,20 @@ if(MSVC)
 else()
     target_compile_options(slopmap PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+add_executable(slopicons tools/slopicons/main.cpp)
+target_link_libraries(slopicons PRIVATE raylib)
+if(MSVC)
+    target_compile_options(slopicons PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopicons PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_custom_target(pack-silk-icons
+    COMMAND $<TARGET_FILE:slopicons> pack silk "${CMAKE_SOURCE_DIR}/packages/base/icons"
+    DEPENDS slopicons
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Packing packages/base/icons/silk into silk.png + silk.iconmap"
+)
 
 include(cmake/Doxygen.cmake)

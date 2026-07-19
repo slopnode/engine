@@ -30,6 +30,16 @@ struct RadGpuEmitter {
     std::int32_t faceIndex = -1;
 };
 
+struct RadGpuLight {
+    Vector3 position{};
+    Vector3 direction{0.0f, 0.0f, 1.0f};
+    Vector3 color{1.0f, 1.0f, 1.0f};
+    float intensity = 1.0f;
+    float range = 8.0f;
+    float coneAngle = 0.7f;
+    std::int32_t kind = 0;
+};
+
 bool radiosityGpuContextReady();
 
 struct RadGpuDirectParams {
@@ -42,6 +52,7 @@ struct RadGpuDirectParams {
 bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
     const std::vector<RadGpuEmitter>& emitters,
+    const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
     std::string_view computeShaderSource,
     const RadGpuDirectParams& params = {});

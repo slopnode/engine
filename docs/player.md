@@ -1,6 +1,6 @@
 # Player
 
-The first-person avatar is a single flecs entity named `Player`. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, and other placed content are separate—see [Entities](entities.md) and [Maps](maps.md).
+The first-person avatar is a single flecs entity named `Player`. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, lights, and other placements are separate—see [Placements](entities.md) and [Maps](maps.md).
 
 ## Spawn (`player-start`)
 

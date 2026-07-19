@@ -3,6 +3,8 @@
 #include "core/vfs.hpp"
 #include "map/csg_script.hpp"
 #include "map/csg_write.hpp"
+#include "map/entities_script.hpp"
+#include "map/entities_write.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -63,9 +65,11 @@ void resetSelectionSerial(EditorDocument& doc) {
     doc.selectedBrush = -1;
     doc.selectedFace = -1;
     doc.selectedInstance = -1;
+    doc.selectedPlacement = -1;
     doc.scope = SelectionScope::Brush;
     doc.nextBrushSerial = 1;
     doc.nextPrefabSerial = 1;
+    doc.nextPlacementSerial = 1;
     for (const slopengine::Brush& brush : doc.brushes) {
         if (brush.id.rfind("brush-", 0) == 0) {
             try {
@@ -84,6 +88,29 @@ void resetSelectionSerial(EditorDocument& doc) {
             }
         }
     }
+    for (const slopengine::Placement& placement : doc.placements) {
+        const auto dash = placement.id.rfind('-');
+        if (dash == std::string::npos || dash + 1 >= placement.id.size()) {
+            continue;
+        }
+        try {
+            const int serial = std::stoi(placement.id.substr(dash + 1));
+            doc.nextPlacementSerial = std::max(doc.nextPlacementSerial, serial + 1);
+        } catch (...) {
+        }
+    }
+}
+
+std::filesystem::path entitiesPathForMap(
+    const std::filesystem::path& baseGame,
+    const std::string& mapName) {
+    return baseGame / "maps" / mapName / "entities.s7";
+}
+
+std::filesystem::path entitiesPathForPrefab(
+    const std::filesystem::path& baseGame,
+    const std::string& prefabPath) {
+    return baseGame / "prefabs" / (prefabPath + ".s7");
 }
 
 void resetCamera(Editor& editor) {
@@ -294,6 +321,7 @@ void Editor::clearSelection() {
     d.selectedBrush = -1;
     d.selectedFace = -1;
     d.selectedInstance = -1;
+    d.selectedPlacement = -1;
 }
 
 void Editor::newMap(const std::string& mapName) {
@@ -301,6 +329,7 @@ void Editor::newMap(const std::string& mapName) {
     levelDoc.assetPath = mapName.empty() ? "untitled" : mapName;
     levelDoc.brushes.clear();
     levelDoc.instances.clear();
+    levelDoc.placements.clear();
     levelDoc.dirty = false;
     resetSelectionSerial(levelDoc);
     expandedInstanceBrushes.clear();
@@ -315,6 +344,7 @@ void Editor::newPrefab() {
     prefabDoc.assetPath.clear();
     prefabDoc.brushes.clear();
     prefabDoc.instances.clear();
+    prefabDoc.placements.clear();
     prefabDoc.dirty = false;
     resetSelectionSerial(prefabDoc);
     expandedInstanceBrushes.clear();
@@ -333,16 +363,24 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
         return false;
     }
 
+    auto placements = slopengine::loadMapPlacements(scheme, assets, mapName);
+    if (!placements) {
+        statusMessage = "Load failed entities: " + mapName;
+        return false;
+    }
+
     scene = EditorScene::Level;
     levelDoc.assetPath = mapName;
     levelDoc.brushes = std::move(loaded->brushes);
     levelDoc.instances = std::move(loaded->instances);
+    levelDoc.placements = std::move(placements->placements);
     levelDoc.dirty = false;
     resetSelectionSerial(levelDoc);
     rebuildPreview(assets);
     frameSelection();
     statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
-        " brushes, " + std::to_string(levelDoc.instances.size()) + " prefabs)";
+        " brushes, " + std::to_string(levelDoc.instances.size()) + " prefabs, " +
+        std::to_string(levelDoc.placements.size()) + " placements)";
     return true;
 }
 
@@ -357,16 +395,24 @@ bool Editor::loadPrefab(
         return false;
     }
 
+    auto placements = slopengine::loadPrefabPlacements(scheme, assets, prefabPath);
+    if (!placements) {
+        statusMessage = "Load prefab entities failed: " + prefabPath;
+        return false;
+    }
+
     scene = EditorScene::Prefab;
     prefabDoc.assetPath = prefabPath;
     prefabDoc.brushes = std::move(*brushes);
     prefabDoc.instances.clear();
+    prefabDoc.placements = std::move(placements->placements);
     prefabDoc.dirty = false;
     resetSelectionSerial(prefabDoc);
     rebuildPreview(assets);
     frameSelection();
     statusMessage =
-        "Loaded prefab " + prefabPath + " (" + std::to_string(prefabDoc.brushes.size()) + " brushes)";
+        "Loaded prefab " + prefabPath + " (" + std::to_string(prefabDoc.brushes.size()) +
+        " brushes, " + std::to_string(prefabDoc.placements.size()) + " placements)";
     return true;
 }
 
@@ -404,6 +450,14 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
         return false;
     }
 
+    const std::filesystem::path entitiesPath = entitiesPathForMap(baseGamePath, mapName);
+    slopengine::PlacementDocument placementDoc{};
+    placementDoc.placements = levelDoc.placements;
+    if (!slopengine::writeMapEntities(entitiesPath, placementDoc)) {
+        statusMessage = "Save failed: entities write error";
+        return false;
+    }
+
     levelDoc.assetPath = mapName;
     levelDoc.dirty = false;
     statusMessage = "Saved " + csgPath.string();
@@ -437,6 +491,21 @@ bool Editor::savePrefabAs(slopengine::AssetStore& assets, const std::string& pre
         return false;
     }
 
+    const std::filesystem::path entitiesPath = entitiesPathForPrefab(baseGamePath, prefabPath);
+    if (prefabDoc.placements.empty()) {
+        std::error_code ec;
+        if (std::filesystem::exists(entitiesPath)) {
+            std::filesystem::remove(entitiesPath, ec);
+        }
+    } else {
+        slopengine::PlacementDocument placementDoc{};
+        placementDoc.placements = prefabDoc.placements;
+        if (!slopengine::writeMapEntities(entitiesPath, placementDoc)) {
+            statusMessage = "Save prefab failed: entities write error";
+            return false;
+        }
+    }
+
     prefabDoc.assetPath = prefabPath;
     prefabDoc.dirty = false;
     statusMessage = "Saved prefab " + csgPath.string();
@@ -453,7 +522,8 @@ bool Editor::switchScene(EditorScene next, bool force) {
         return false;
     }
     scene = next;
-    if (mode == EditorMode::Place && scene != EditorScene::Level) {
+    if (mode == EditorMode::Place && scene != EditorScene::Level &&
+        placeTarget == PlaceTarget::PrefabInstance) {
         mode = EditorMode::Select;
     }
     clearSelection();
@@ -541,6 +611,10 @@ std::string Editor::allocatePrefabId() {
     return "prefab-" + std::to_string(doc().nextPrefabSerial++);
 }
 
+std::string Editor::allocatePlacementId(const char* prefix) {
+    return std::string(prefix) + "-" + std::to_string(doc().nextPlacementSerial++);
+}
+
 void Editor::frameSelection() {
     const Vector3 center = selectionCenter();
     camera.position = {center.x, center.y + 2.5f, center.z + 8.0f};
@@ -549,6 +623,12 @@ void Editor::frameSelection() {
 
 Vector3 Editor::selectionCenter() const {
     const EditorDocument& d = doc();
+    if (d.selection == SelectionTarget::Placement && d.selectedPlacement >= 0 &&
+        d.selectedPlacement < static_cast<int>(d.placements.size())) {
+        const slopengine::Placement& placement =
+            d.placements[static_cast<std::size_t>(d.selectedPlacement)];
+        return placement.haveAt ? placement.at : Vector3{0.0f, 1.0f, 0.0f};
+    }
     if (d.selection == SelectionTarget::Instance && d.selectedInstance >= 0 &&
         d.selectedInstance < static_cast<int>(d.instances.size())) {
         return d.instances[static_cast<std::size_t>(d.selectedInstance)].at;
@@ -578,6 +658,9 @@ Vector3 Editor::selectionCenter() const {
             0.5f * (mins.y + maxs.y),
             0.5f * (mins.z + maxs.z),
         };
+    }
+    if (!d.placements.empty() && d.placements.front().haveAt) {
+        return d.placements.front().at;
     }
     if (!d.instances.empty()) {
         return d.instances.front().at;

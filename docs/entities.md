@@ -1,8 +1,8 @@
-# Entities
+# Placements
 
-Placed things in a level—static props, usables, and (later) actors—are authored in `maps/<name>/entities.s7`. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
+Placed content in a level—static props, usables, lights, and (later) actors—are authored in `maps/<name>/entities.s7`. A **placement** is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs **entity** from each placement. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
 
-World solids stay in CSG / BSP ([Maps](maps.md)). Entity presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
+World solids stay in CSG / BSP ([Maps](maps.md)). Placement presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
 
 ## Kinds
 
@@ -10,14 +10,22 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Entity presentation uses sprit
 |------|----------|------------|
 | Static prop | `(prop …)` | Visual only: sprite or mesh at a pose. No interact, no AI. |
 | Usable | `(usable …)` | Same presentation as a prop, plus an interact prompt and optional Scheme `on-use`. |
-| Actor | — | Intended: AI nav agents (enemies, NPCs) that move and act in the world. Not a map form yet. |
+| Point light | `(point-light …)` | Local omnidirectional light placement (data only until lighting lands). |
+| Spot light | `(spot-light …)` | Directed cone light placement (data only). |
+| Area light | `(area-light …)` | Rectangular area light placement (data only). |
+| Sun | `(sun …)` | Directional sun placement (data only; optional `at` for editor gizmo). |
+| Actor | — | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
 | Player | `(player-start …)` | Spawn pose only; the `Player` entity is built by the engine. |
 
-Debug entity list labels match this split: `prop`, `usable`, `player` (plus `map` for `MapStatic`).
+These forms are **engine Scheme bindings**—always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
+
+Debug entity list labels match this split: `prop`, `usable`, `point-light`, `spot-light`, `area-light`, `sun`, `player` (plus `map` for `MapStatic`).
+
+`slopmap` edits placements in the **Placements** outliner and Library palette (load/save of `entities.s7`). Viewport shows sprite/geo previews and light gizmos.
 
 ## Placement file
 
-`maps/<name>/entities.s7` is optional Scheme evaluated after map geometry. Engine bindings are active only during that load. Ids must be unique within the file. Missing file → no placed props/usables; player uses the default spawn.
+`maps/<name>/entities.s7` is optional Scheme evaluated after map geometry. Engine bindings are active only during that load. Ids must be unique within the file. Missing file → no placed props/usables/lights; player uses the default spawn.
 
 ```text
 (prop
@@ -41,6 +49,13 @@ Debug entity list labels match this split: `prop`, `usable`, `player` (plus `map
   (frame "A")
   (prompt "Test use")
   (on-use "on-use-test"))
+
+(point-light
+  (id "lamp-a")
+  (at 0.0 2.0 0.0)
+  (color 1.0 0.95 0.9)
+  (intensity 1.0)
+  (range 8.0))
 ```
 
 ## Static props (`prop`)
@@ -92,12 +107,26 @@ Interact casts a ray from the player `Lens`. Closest hit among usables with `Mod
 
 Usables are the content-facing wrapper around the engine `Interactable` primitive. Doors, switches, and terminals can be package-named helpers later that expand to `usable` (or other primitives) without new C++ per object.
 
+## Lights
+
+Light placements are engine forms that always exist. They spawn flecs entities with light components and a transform. **They do not affect bake or runtime shading yet**—authoring and editor gizmos only.
+
+Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (default `1`).
+
+| Form | Required | Extra fields |
+|------|----------|--------------|
+| `(point-light …)` | `id`, `at` | `(range N)` default `8` |
+| `(spot-light …)` | `id`, `at` | `(yaw …)` or `(angles …)`, `(range N)`, `(cone radians)` default `0.7` |
+| `(area-light …)` | `id`, `at` | `(angles …)`, `(size width height)` default `1 1` |
+| `(sun …)` | `id` | Direction from `(angles …)` or `(yaw …)`; optional `(at …)` for editor gizmo only |
+
 ## Actors
 
 **Actor** means an AI-capable agent that can navigate and interact: enemies, NPCs, and similar. That is distinct from:
 
 - **Prop** — placed, may animate a sprite clip, does not think or pathfind.
 - **Usable** — static (or later movable) fixture the player uses.
+- **Light** — illumination placement (no AI).
 - **Player** — engine-owned first-person pawn ([Player](player.md)).
 
 There is no `(actor …)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop …)` (optionally with `(anim …)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top—behavior owned by package scripts where possible, with engine primitives for movement and sensing.
@@ -109,8 +138,8 @@ Two Scheme layers share one s7 heap for the run:
 | Source | When | Purpose |
 |--------|------|---------|
 | `scripts/init.s7` | App start | Package bootstrap (version, shared defs). |
-| `scripts/entities.s7` | App start (after `init`) | Handlers and helpers for placed entities (`on-use`, later prefabs). |
-| `maps/<name>/entities.s7` | Map load | Placement only: `player-start`, `prop`, `usable`. |
+| `scripts/entities.s7` | App start (after `init`) | Handlers and helpers for placed content (`on-use`, later prefabs). |
+| `maps/<name>/entities.s7` | Map load | Placement only: `player-start`, `prop`, `usable`, lights, `prefab`. |
 
 Virtual paths omit the extension: `init`, `entities`, `<map>/entities`. Later packages override earlier ones at the same path.
 
@@ -127,10 +156,10 @@ The engine looks up the name with `s7_name_to_value`, checks it is a procedure, 
 
 ### What belongs where
 
-- **Map `entities.s7`** — instance data: where things are, which sprite/geo, which handler name, prompts.
-- **Package `scripts/`** — reusable behavior and, over time, constructors that wrap engine forms (`usable`, future trigger / movable / actor) so levels stay thin.
-- **Engine** — spawn bindings, presentation, interact ray, player pawn. Not content catalogs (no built-in “USMC guard” type).
+- **Map `entities.s7`** — instance data: where placements are, which sprite/geo, which handler name, prompts, light params.
+- **Package `scripts/`** — reusable behavior and, over time, constructors that wrap engine forms (`usable`, lights, future trigger / movable / actor) so levels stay thin.
+- **Engine** — spawn bindings, presentation, interact ray, player pawn, light placement forms. Not content catalogs (no built-in “USMC guard” type).
 
 ### Extending without engine churn
 
-Prefer new package procedures and map calls over new C++ entity kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, rigid mover), that is when a new engine primitive earns a map binding; content still supplies meshes, prompts, and Scheme reactions.
+Prefer new package procedures and map calls over new C++ placement kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, rigid mover, light type), that is when a new engine primitive earns a map binding; content still supplies meshes, prompts, and Scheme reactions.

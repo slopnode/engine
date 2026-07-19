@@ -42,6 +42,7 @@ my-package/
   package.meta
   animations/     # .anim, .tracks
   geometry/       # .geo, .vert, .weights
+  icons/          # .png atlas + .iconmap (+ source folders)
   maps/           # map folders
   materials/      # .mat
   meshes/         # .glb (optional; supported by VFS)
@@ -66,6 +67,7 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` → `geometry/props/crate.geo` |
 | `animations/` | `.anim`, `.tracks` | `character/walk` → `animations/character/walk.anim` |
 | `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
+| `icons/` | `.png`, `.iconmap` | `silk` → `icons/silk.png` / `icons/silk.iconmap` |
 | `prefabs/` | `.csg`, `.s7` | `furniture/desk` → `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
 | `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/entities` → `maps/<name>/entities.s7` |
 
@@ -94,7 +96,7 @@ GLSL sources under `shaders/`. Vertex and fragment programs are separate virtual
 
 ### Scripts
 
-Scheme (s7) sources under `scripts/`. The game loads `init` then `entities` at startup; map placement is a separate `maps/<name>/entities.s7`. See [Entities](entities.md).
+Scheme (s7) sources under `scripts/`. The game loads `init` then `entities` at startup; map placement is a separate `maps/<name>/entities.s7`. See [Placements](entities.md).
 
 ### Skeletons
 
@@ -122,12 +124,16 @@ Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skel
 
 `.spr` files under `sprites/` describe named billboard sprites with per-frame rotations and optional mirroring. Sibling `.spanim` files define named clips (fps, loop, frame lists) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part …)` entries configure multi-part hits. See [Sprites](sprites.md).
 
+### Icons
+
+UI icon atlases under `icons/`. Each set is a packed `.png` plus a sibling `.iconmap` that names rectangles inside the atlas. Source PNGs for packing live in `icons/<set>/`. See [Icons](icons.md).
+
 ### Prefabs
 
 Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-box` / `brush-convex` forms as maps. An optional sibling `.s7` holds entity attachments for that prefab. Maps instance them with `(prefab …)`; see [Maps](maps.md).
 
 ### Maps
 
-Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `entities.s7`, and compiled `static.bsp` plus optional `rad/`. See [Maps](maps.md) for authoring, BSP, entities, and radiosity.
+Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `entities.s7`, and compiled `static.bsp` plus optional `rad/`. See [Maps](maps.md) for authoring and entities, and [BSP and radiosity compilation](bsp-rad.md) for the compile tools.
 
 A package is created by adding a `package.meta` with a unique `id`, the category folders you need, and mounting it with `--base-game` or `--mod`. Dependencies listed in `(depends ...)` must also be mounted.

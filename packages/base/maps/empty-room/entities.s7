@@ -11,3 +11,10 @@
   (frame "A")
   (prompt "Test use")
   (on-use "on-use-test"))
+
+(point-light
+  (id "hall-bn-lamp")
+  (at 14.0 1.8 -8.0)
+  (color 1.0 0.95 0.85)
+  (intensity 2.5)
+  (range 7.0))

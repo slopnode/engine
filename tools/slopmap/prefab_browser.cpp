@@ -1,5 +1,7 @@
 #include "prefab_browser.hpp"
 
+#include "icon_ui.hpp"
+
 #include "imgui.h"
 
 #include <algorithm>
@@ -62,19 +64,17 @@ void PrefabBrowser::rescan(const slopengine::AssetStore& assets) {
     std::sort(prefabs.begin(), prefabs.end());
 }
 
-PrefabBrowserResult PrefabBrowser::draw(Editor& editor, float posX, float posY, float width, float height) {
+PrefabBrowserResult PrefabBrowser::drawSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    float bodyHeight) {
     PrefabBrowserResult result{};
-    ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
-    const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoBringToFrontOnFocus;
-    if (!ImGui::Begin("Prefabs", nullptr, flags)) {
-        ImGui::End();
+    if (!ImGui::BeginChild("##presection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+        ImGui::EndChild();
         return result;
     }
 
-    if (ImGui::Button("Refresh")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Refresh")) {
         result.requestRescan = true;
     }
     ImGui::SameLine();
@@ -86,14 +86,15 @@ PrefabBrowserResult PrefabBrowser::draw(Editor& editor, float posX, float posY, 
         editor.placePrefabPath.empty() ? "(none)" : editor.placePrefabPath.c_str());
 
     ImGui::Separator();
-    if (ImGui::BeginChild("##prelist", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+    if (ImGui::BeginChild("##prelist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         const std::string filterStr = filter;
         for (const std::string& path : prefabs) {
             if (!containsIgnoreCase(path, filterStr)) {
                 continue;
             }
+            ImGui::PushID(path.c_str());
             const bool isActive = path == editor.placePrefabPath;
-            if (ImGui::Selectable(path.c_str(), isActive)) {
+            if (selectableWithIcon(assets, kDefaultIconSet, "package", path.c_str(), isActive)) {
                 editor.placePrefabPath = path;
                 result.selected = true;
             }
@@ -101,11 +102,12 @@ PrefabBrowserResult PrefabBrowser::draw(Editor& editor, float posX, float posY, 
                 editor.placePrefabPath = path;
                 result.openRequested = true;
             }
+            ImGui::PopID();
         }
     }
     ImGui::EndChild();
 
-    ImGui::End();
+    ImGui::EndChild();
     return result;
 }
 

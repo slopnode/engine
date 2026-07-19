@@ -7,11 +7,13 @@ slopengine is a small hobby stack for first-person games, assembled from free li
 - [Overview](overview.md)
 - [Package structure](package-structure.md)
 - [Maps](maps.md)
+- [BSP and radiosity compilation](bsp-rad.md)
 - [Player](player.md)
-- [Entities](entities.md)
+- [Placements](entities.md)
 - [Geometry](geometry.md)
 - [Animation](animation.md)
 - [Sprites](sprites.md)
+- [Icons](icons.md)
 - [Materials, textures, and shaders](materials.md)
 
 Build the HTML documentation with:

@@ -3,6 +3,8 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const float kPi = 3.14159265358979323846;
+const int kLightKindPoint = 0;
+const int kLightKindSpot = 1;
 
 struct Luxel {
     float px;
@@ -32,6 +34,25 @@ struct Emitter {
     float rg;
     float rb;
     float pad;
+};
+
+struct Light {
+    float px;
+    float py;
+    float pz;
+    int kind;
+    float dx;
+    float dy;
+    float dz;
+    float intensity;
+    float cr;
+    float cg;
+    float cb;
+    float range;
+    float coneAngle;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct BvhNode {
@@ -71,12 +92,16 @@ struct BvhPrim {
 struct Params {
     int luxelCount;
     int emitterCount;
+    int lightCount;
     int bvhRoot;
     int luxelOffset;
     int luxelBatch;
     int emitterOffset;
     int emitterBatch;
+    int lightOffset;
+    int lightBatch;
     int pad0;
+    int pad1;
     float directWrap;
     float coplanarFill;
     float coplanarSoft;
@@ -101,6 +126,10 @@ layout(std430, binding = 3) readonly buffer PrimBuffer {
 
 layout(std430, binding = 4) readonly buffer ParamsBuffer {
     Params params;
+};
+
+layout(std430, binding = 5) readonly buffer LightBuffer {
+    Light lights[];
 };
 
 bool rayAabb(vec3 origin, vec3 invDir, vec3 mins, vec3 maxs, float maxDistance) {
@@ -308,6 +337,62 @@ void main() {
             }
         }
     }
+
+    int lightBegin = params.lightOffset;
+    int lightEnd = min(params.lightOffset + params.lightBatch, params.lightCount);
+    for (int li = lightBegin; li < lightEnd; ++li) {
+        Light light = lights[li];
+        vec3 lightPos = vec3(light.px, light.py, light.pz);
+        vec3 delta = lightPos - luxelPos;
+        float dist2Raw = dot(delta, delta);
+        if (dist2Raw < 1e-6) {
+            continue;
+        }
+        float dist = sqrt(dist2Raw);
+        float range = max(light.range, 1e-4);
+        if (dist > range) {
+            continue;
+        }
+        vec3 toLight = delta / dist;
+        float dist2 = max(dist2Raw, minDist2);
+        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1)) {
+            continue;
+        }
+
+        float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+        if (nDotL <= 0.0) {
+            continue;
+        }
+
+        float t = dist / range;
+        float atten = max(0.0, 1.0 - t * t);
+        atten *= atten;
+
+        float spot = 1.0;
+        if (light.kind == kLightKindSpot) {
+            vec3 forward = vec3(light.dx, light.dy, light.dz);
+            float forwardLen = length(forward);
+            if (forwardLen < 1e-6) {
+                continue;
+            }
+            forward /= forwardLen;
+            float cosTheta = dot(-toLight, forward);
+            float cosOuter = cos(light.coneAngle);
+            float cosInner = cos(light.coneAngle * 0.8);
+            spot = smoothstep(cosOuter, cosInner, cosTheta);
+            if (spot <= 0.0) {
+                continue;
+            }
+        }
+
+        vec3 intensity = vec3(light.cr, light.cg, light.cb) * light.intensity;
+        vec3 contrib = intensity * (nDotL * atten * spot / dist2);
+        if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
+            && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
+            irradiance += contrib;
+        }
+    }
+
     if (isnan(irradiance.x) || isnan(irradiance.y) || isnan(irradiance.z)
         || isinf(irradiance.x) || isinf(irradiance.y) || isinf(irradiance.z)) {
         irradiance = vec3(luxel.ir, luxel.ig, luxel.ib);

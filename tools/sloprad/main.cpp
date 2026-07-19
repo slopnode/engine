@@ -7,6 +7,7 @@
 #include "map/lightmap.hpp"
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
+#include "map/radiosity_lights.hpp"
 
 #include <raylib.h>
 
@@ -19,6 +20,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -198,12 +200,31 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     auto brushes = loadMapBrushes(scheme, assets, *cli->config.map);
-    s7_quit(scheme);
     if (!brushes) {
+        s7_quit(scheme);
         std::cerr << "sloprad: failed to load map brushes\n";
         CloseWindow();
         return 1;
     }
+    const std::vector<slopengine::RadiosityLight> lights =
+        slopengine::collectRadiosityLights(scheme, assets, *cli->config.map);
+    s7_quit(scheme);
+    int pointCount = 0;
+    int spotCount = 0;
+    for (const slopengine::RadiosityLight& light : lights) {
+        if (light.kind == slopengine::RadiosityLightKind::Spot) {
+            ++spotCount;
+        } else {
+            ++pointCount;
+        }
+    }
+    TraceLog(
+        LOG_INFO,
+        "sloprad: bake lights=%d (point=%d spot=%d)",
+        static_cast<int>(lights.size()),
+        pointCount,
+        spotCount);
+    std::fflush(stdout);
 
     const MapHullAnalysis analysis = analyzeMapHull(*tree, *brushes);
     if (!analysis.sealed) {
@@ -261,7 +282,7 @@ int main(int argc, char* argv[]) {
     std::filesystem::create_directories(radDir);
 
     RadiosityBakeResult baked =
-        bakeRadiosity(faces, *mapMeta, resolveMaterial, cli->settings);
+        bakeRadiosity(faces, *mapMeta, resolveMaterial, cli->settings, lights);
 
     const auto radPath = radDir / "static.rad";
     TraceLog(LOG_INFO, "sloprad: writing %s", radPath.string().c_str());

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assets/anim_loader.hpp"
+#include "assets/icon_atlas.hpp"
 #include "assets/material_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
@@ -130,6 +131,18 @@ public:
     /** Returns a cached sprite animation bank, loading it when needed. */
     const SpriteAnimBank* getSpriteAnimBank(std::string_view path);
 
+    /** Returns true when an icon atlas map exists for @p set. */
+    bool hasIconAtlas(std::string_view set) const;
+
+    /** Returns a cached icon atlas for @p set, loading when needed. */
+    const IconAtlas* getIconAtlas(std::string_view set);
+
+    /** Returns the source rect for icon @p id in atlas @p set when present. */
+    std::optional<Rectangle> getIconRect(std::string_view set, std::string_view id);
+
+    /** Draws icon @p id from atlas @p set with Raylib at @p position. */
+    bool drawIcon(std::string_view set, std::string_view id, Vector2 position, float size = 16.0f);
+
     /** Removes a cached texture and unloads its GPU resources. */
     void unloadTexture(std::string_view path);
 
@@ -219,6 +232,7 @@ private:
     std::unordered_map<std::string, SpriteAsset> spriteAssets_;
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
+    std::unordered_map<std::string, IconAtlas> iconAtlases_;
 };
 
 }

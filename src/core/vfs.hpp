@@ -35,6 +35,8 @@ enum class AssetKind {
     PrefabEntities,
     Sprite,
     SpriteAnim,
+    Icon,
+    IconMap,
 };
 
 class AssetStore;

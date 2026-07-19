@@ -7,6 +7,7 @@
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
 #include "map/entity_script.hpp"
+#include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
@@ -480,6 +481,10 @@ void registerComponents(flecs::world& world) {
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
     world.component<AnimationClipFlipTest>();
+    world.component<PointLight>();
+    world.component<SpotLight>();
+    world.component<AreaLight>();
+    world.component<SunLight>();
     world.component<ShaderCavity>()
         .on_remove([](flecs::iter&, size_t, ShaderCavity& shader) {
             if (shader.shader.id != 0) {

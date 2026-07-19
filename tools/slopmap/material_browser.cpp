@@ -1,5 +1,7 @@
 #include "material_browser.hpp"
 
+#include "icon_ui.hpp"
+
 #include "imgui.h"
 
 #include <algorithm>
@@ -120,19 +122,17 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
     return true;
 }
 
-MaterialBrowserResult MaterialBrowser::draw(Editor& editor, float posX, float posY, float width, float height) {
+MaterialBrowserResult MaterialBrowser::drawSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    float bodyHeight) {
     MaterialBrowserResult result{};
-    ImGui::SetNextWindowPos(ImVec2(posX, posY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
-    const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoBringToFrontOnFocus;
-    if (!ImGui::Begin("Materials", nullptr, flags)) {
-        ImGui::End();
+    if (!ImGui::BeginChild("##matsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+        ImGui::EndChild();
         return result;
     }
 
-    if (ImGui::Button("Refresh")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Refresh")) {
         result.requestRescan = true;
     }
     ImGui::SameLine();
@@ -146,21 +146,23 @@ MaterialBrowserResult MaterialBrowser::draw(Editor& editor, float posX, float po
         selectionMaterialLabel(editor.doc()).c_str());
 
     ImGui::Separator();
-    if (ImGui::BeginChild("##matlist", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+    if (ImGui::BeginChild("##matlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         const std::string filterStr = filter;
         for (const std::string& path : materials) {
             if (!containsIgnoreCase(path, filterStr)) {
                 continue;
             }
+            ImGui::PushID(path.c_str());
             const bool isActive = path == editor.doc().defaultMaterial;
-            if (ImGui::Selectable(path.c_str(), isActive)) {
+            if (selectableWithIcon(assets, kDefaultIconSet, "palette", path.c_str(), isActive)) {
                 result.applied = applyMaterialToSelection(editor, path);
             }
+            ImGui::PopID();
         }
     }
     ImGui::EndChild();
 
-    ImGui::End();
+    ImGui::EndChild();
     return result;
 }
 

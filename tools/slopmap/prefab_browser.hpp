@@ -19,7 +19,10 @@ struct PrefabBrowser {
     char filter[128] = {};
 
     void rescan(const slopengine::AssetStore& assets);
-    PrefabBrowserResult draw(Editor& editor, float posX, float posY, float width, float height);
+    PrefabBrowserResult drawSection(
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        float bodyHeight);
 };
 
 }
