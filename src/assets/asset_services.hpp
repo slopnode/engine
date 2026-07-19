@@ -4,6 +4,7 @@
 
 namespace slopengine {
 
+/** Flecs world singleton that exposes the shared AssetStore to systems. */
 struct AssetServices {
     AssetStore* store = nullptr;
 };

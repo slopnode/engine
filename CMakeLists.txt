@@ -30,6 +30,7 @@ set(SLOPLIB_SOURCES
     src/map/bsp_ray.cpp
     src/map/csg_compile.cpp
     src/map/csg_script.cpp
+    src/map/csg_write.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp
@@ -95,6 +96,24 @@ if(MSVC)
     target_compile_options(sloprad PRIVATE /W4 /permissive-)
 else()
     target_compile_options(sloprad PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopmap
+    tools/slopmap/main.cpp
+    tools/slopmap/camera.cpp
+    tools/slopmap/editor.cpp
+    tools/slopmap/preview.cpp
+    tools/slopmap/create_tool.cpp
+    tools/slopmap/select_tool.cpp
+    tools/slopmap/material_browser.cpp
+    tools/slopmap/layout.cpp
+)
+target_include_directories(slopmap PRIVATE tools/slopmap)
+target_link_libraries(slopmap PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopmap PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopmap PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 include(cmake/Doxygen.cmake)
