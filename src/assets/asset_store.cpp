@@ -193,6 +193,14 @@ bool AssetStore::hasMapEntities(std::string_view path) const {
     return vfs_.exists(AssetKind::MapEntities, path);
 }
 
+bool AssetStore::hasMapGraphs(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapGraphs, path);
+}
+
+bool AssetStore::hasData(std::string_view path) const {
+    return vfs_.exists(AssetKind::Data, path);
+}
+
 bool AssetStore::hasPrefabCsg(std::string_view path) const {
     return vfs_.exists(AssetKind::PrefabCsg, path);
 }
@@ -799,6 +807,26 @@ bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path) {
 
 bool AssetStore::loadMapEntities(s7_scheme* scheme, std::string_view path) {
     const auto resolved = vfs_.resolve(AssetKind::MapEntities, path);
+    if (!resolved) {
+        return false;
+    }
+
+    s7_load(scheme, resolved->string().c_str());
+    return true;
+}
+
+bool AssetStore::loadMapGraphs(s7_scheme* scheme, std::string_view path) {
+    const auto resolved = vfs_.resolve(AssetKind::MapGraphs, path);
+    if (!resolved) {
+        return false;
+    }
+
+    s7_load(scheme, resolved->string().c_str());
+    return true;
+}
+
+bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
+    const auto resolved = vfs_.resolve(AssetKind::Data, path);
     if (!resolved) {
         return false;
     }

@@ -1,2 +1,57 @@
+(define *inventory* '())
+
+(define (inv-count id)
+  (cond
+    ((assoc id *inventory*) => cdr)
+    (else 0)))
+
+(define (inv-has id)
+  (> (inv-count id) 0))
+
+(define (inv-remove id lst)
+  (cond
+    ((null? lst) '())
+    ((equal? (car (car lst)) id) (inv-remove id (cdr lst)))
+    (else (cons (car lst) (inv-remove id (cdr lst))))))
+
+(define (inv-set id count)
+  (set! *inventory* (cons (cons id count) (inv-remove id *inventory*))))
+
+(define (inv-add id amount)
+  (cond
+    ((not (item-def id))
+     (format #t "inventory: unknown item ~a~%" id)
+     #f)
+    ((item-unique? id)
+     (cond
+       ((inv-has id)
+        (format #t "inventory: already have unique ~a~%" id)
+        #f)
+       (else
+        (inv-set id 1)
+        (format #t "inventory: got unique ~a~%" id)
+        #t)))
+    (else
+     (let* ((limit (item-stack-limit id))
+            (have (inv-count id))
+            (next (min limit (+ have amount))))
+       (inv-set id next)
+       (format #t "inventory: ~a now ~a/~a~%" id next limit)
+       #t))))
+
+(define (inv-print)
+  (format #t "inventory: ~a~%" *inventory*))
+
 (define (on-use-test entity-id)
-  (format #t "used ~a~%" entity-id))
+  (format #t "used ~a~%" entity-id)
+  (inv-print))
+
+(define (on-use-medkit entity-id)
+  (format #t "pickup medkit from ~a~%" entity-id)
+  (inv-add "medkit" 1)
+  (inv-print))
+
+(define (on-use-key-red entity-id)
+  (format #t "pickup key-red from ~a~%" entity-id)
+  (inv-add "key-red" 1)
+  (inv-print))

@@ -34,6 +34,7 @@ struct DebugUiState {
     bool showBspCurrentLeafOnly = false;
     bool showSpriteMasks = false;
     bool showSpriteAim = false;
+    bool showGraphs = false;
     bool unlit = false;
     bool noclip = false;
     bool entityListOpen = false;

@@ -12,6 +12,24 @@
   (prompt "Test use")
   (on-use "on-use-test"))
 
+(usable
+  (id "pickup-medkit")
+  (at -1.5 0.0 1.5)
+  (yaw 0.0)
+  (sprite "usmc/umca")
+  (frame "A")
+  (prompt "Take medkit")
+  (on-use "on-use-medkit"))
+
+(usable
+  (id "pickup-key-red")
+  (at -1.5 0.0 -1.5)
+  (yaw 0.0)
+  (sprite "usmc/umca")
+  (frame "A")
+  (prompt "Take red key")
+  (on-use "on-use-key-red"))
+
 (point-light
   (id "hall-bn-lamp")
   (at 14.0 1.8 -8.0)

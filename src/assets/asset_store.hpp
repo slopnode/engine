@@ -56,6 +56,12 @@ public:
     /** Returns true when a map entities script exists at @p path. */
     bool hasMapEntities(std::string_view path) const;
 
+    /** Returns true when a map graphs script exists at @p path. */
+    bool hasMapGraphs(std::string_view path) const;
+
+    /** Returns true when a data script exists at @p path. */
+    bool hasData(std::string_view path) const;
+
     /** Returns true when a prefab CSG script exists at @p path. */
     bool hasPrefabCsg(std::string_view path) const;
 
@@ -205,6 +211,12 @@ public:
 
     /** Loads and evaluates the map entities script at @p path in @p scheme. */
     bool loadMapEntities(s7_scheme* scheme, std::string_view path);
+
+    /** Loads and evaluates the map graphs script at @p path in @p scheme. */
+    bool loadMapGraphs(s7_scheme* scheme, std::string_view path);
+
+    /** Loads and evaluates the data script at @p path in @p scheme. */
+    bool loadData(s7_scheme* scheme, std::string_view path);
 
     /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
     bool loadPrefabCsg(s7_scheme* scheme, std::string_view path);

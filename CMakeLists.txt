@@ -42,6 +42,7 @@ set(SLOPLIB_SOURCES
     src/map/csg_write.cpp
     src/map/entities_script.cpp
     src/map/entities_write.cpp
+    src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp

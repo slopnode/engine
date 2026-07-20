@@ -31,12 +31,14 @@ enum class AssetKind {
     MapRad,        /**< maps/<name>/rad/static.rad */
     MapLightmap,   /**< maps/<name>/rad/atlas PNGs */
     MapEntities,   /**< maps/<name>/entities.s7 */
+    MapGraphs,     /**< maps/<name>/graphs.s7 */
     PrefabCsg,     /**< .csg under prefabs/ */
     PrefabEntities, /**< .s7 sidecar under prefabs/ */
     Sprite,        /**< .spr under sprites/ */
     SpriteAnim,    /**< .spanim under sprites/ */
     Icon,          /**< packed PNG under icons/ */
     IconMap,       /**< .iconmap under icons/ */
+    Data,          /**< .s7 under data/ */
 };
 
 class AssetStore;

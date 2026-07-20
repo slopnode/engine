@@ -7,6 +7,8 @@
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
 #include "map/entity_script.hpp"
+#include "map/graph.hpp"
+#include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "physics/components.hpp"
@@ -200,6 +202,40 @@ void drawDebugQuadOutline(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color colo
     DrawLine3D(b, c, color);
     DrawLine3D(c, d, color);
     DrawLine3D(d, a, color);
+}
+
+void drawGraphDebugOverlays(const GraphDocument& document) {
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    const Color nodeColor{80, 220, 120, 255};
+    const Color edgeColor{80, 180, 255, 220};
+
+    for (const NamedGraph& graph : document.graphs) {
+        for (const GraphNode& node : graph.nodes) {
+            DrawSphereWires(node.at, 0.12f, 8, 8, nodeColor);
+        }
+
+        for (const GraphEdge& edge : graph.edges) {
+            const GraphNode* from = nullptr;
+            const GraphNode* to = nullptr;
+            for (const GraphNode& node : graph.nodes) {
+                if (from == nullptr && node.id == edge.from) {
+                    from = &node;
+                }
+                if (to == nullptr && node.id == edge.to) {
+                    to = &node;
+                }
+            }
+            if (from == nullptr || to == nullptr) {
+                continue;
+            }
+            DrawLine3D(from->at, to->at, edgeColor);
+        }
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
 }
 
 void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std::int32_t currentLeaf) {
@@ -1032,6 +1068,11 @@ void registerRenderSystems(flecs::world& world) {
                 drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
             }
 
+            if (world.has<DebugUiState>() && world.get<DebugUiState>().showGraphs &&
+                world.has<MapGraphs>()) {
+                drawGraphDebugOverlays(world.get<MapGraphs>().document);
+            }
+
             EndMode3D();
 
             rlDrawRenderBatchActive();
@@ -1308,6 +1349,20 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     }
 
     const PlayerStart playerStart = loadMapEntities(scheme, world, assets, mapName);
+
+    {
+        MapGraphs mapGraphs{};
+        if (auto graphs = loadMapGraphs(scheme, assets, mapName)) {
+            mapGraphs.document = std::move(*graphs);
+        } else {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: graphs.s7 failed for '%.*s'",
+                static_cast<int>(mapName.size()),
+                mapName.data());
+        }
+        world.set<MapGraphs>(std::move(mapGraphs));
+    }
 
     CharacterMotor motor{};
     FirstPersonController controller{};

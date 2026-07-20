@@ -334,6 +334,7 @@ void drawMainMenuBar(
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
             ImGui::EndMenu();
         }
+        ImGui::MenuItem("Graphs", nullptr, &debugUi.showGraphs);
         ImGui::MenuItem("Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
         ImGui::MenuItem("Noclip", nullptr, &debugUi.noclip);
         ImGui::MenuItem("Entities", nullptr, &debugUi.entityListOpen);
