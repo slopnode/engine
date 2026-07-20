@@ -24,6 +24,7 @@ struct SettingsUiState {
     GraphicsSettings graphicsDraft{};
     ControlsSettings controlsDraft{};
     int rebindingAction = -1;
+    bool rebindingWaitMouseRelease = false;
 };
 
 struct DebugUiState {

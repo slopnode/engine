@@ -4,22 +4,41 @@
 
 #include <raylib.h>
 
+#include <vector>
+
 namespace slopengine {
 
 /** Per-frame action edges and mouse delta sampled from the current bindings. */
 struct InputState {
-    bool actionPressed[actionCount]{}; /**< True on the frame the action goes down. */
-    bool actionDown[actionCount]{};    /**< True while the action key is held. */
+    std::vector<char> actionPressed;
+    std::vector<char> actionDown;
     Vector2 mouseDelta{};
 
-    /** True if @p action was pressed this frame. */
-    bool pressed(Action action) const {
-        return actionPressed[static_cast<int>(action)];
+    void resize(int count) {
+        actionPressed.assign(static_cast<std::size_t>(count), 0);
+        actionDown.assign(static_cast<std::size_t>(count), 0);
     }
 
-    /** True if @p action is currently held. */
+    bool pressed(int index) const {
+        if (index < 0 || index >= static_cast<int>(actionPressed.size())) {
+            return false;
+        }
+        return actionPressed[static_cast<std::size_t>(index)] != 0;
+    }
+
+    bool down(int index) const {
+        if (index < 0 || index >= static_cast<int>(actionDown.size())) {
+            return false;
+        }
+        return actionDown[static_cast<std::size_t>(index)] != 0;
+    }
+
+    bool pressed(Action action) const {
+        return pressed(static_cast<int>(action));
+    }
+
     bool down(Action action) const {
-        return actionDown[static_cast<int>(action)];
+        return down(static_cast<int>(action));
     }
 };
 

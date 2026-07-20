@@ -51,7 +51,7 @@ The first-person scene is a **presentation layer**: it shows what the package de
 | Primitives to attach geo / spawn or toggle a `DynamicLight` | Whether the flashlight “should” be on (package state) |
 | Optional rad tint / faux shading look | Map lighting design (bake + dynamic overlay—see [Lights](lights.md)) |
 
-Input still reaches the package as hooks (for example Flashlight → `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
+Input still reaches the package as hooks (for example flashlight → `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
 
 ### Stage layout
 
@@ -79,9 +79,31 @@ These bindings mutate presentation only. Keep authoritative state in package var
 | Procedure | When |
 |-----------|------|
 | `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn — build the initial view from game state. |
-| `(on-action-flashlight)` | When the Flashlight action is pressed (default **F**) — flip package state, then update the FP light. |
+| `(on-action-<id>)` | When a **package** action with that id is pressed (see Package actions below). |
 
 Base package `scripts/player.s7` keeps flashlight on/off in Scheme (`*flashlight-enabled*`), attaches a stub cube “gun”, a warm spot under `emission`, and enables rad tint + viewmodel shading. Toggling the action only updates that Scheme flag and `(fp-set-light-enabled …)`. Other base-games override virtual path `player` to redefine presentation. Inventory and loadouts stay package-only and optional.
+
+### Package actions
+
+Core binds (move, jump, pause, interact, console, main menu) are owned by the engine. Packages declare extra gameplay actions in `data/actions.s7`:
+
+```text
+(define *package-actions*
+  (list
+    (cons "flashlight" '((label . "Flashlight") (default . "f")))
+    (cons "attack" '((label . "Attack") (default . "mouse1")))
+    (cons "weapon-1" '((label . "Weapon 1") (default . "1")))))
+```
+
+| Field | Notes |
+|-------|--------|
+| id | Stable string used in settings and for the hook name `on-action-<id>`. |
+| `label` | Controls UI display name. |
+| `default` | Bind token: letter/digit keys (`f`, `1`), named keys (`space`, `grave`), or mouse (`mouse1`…`mouse5`). |
+
+Mods override `data/actions.s7` like other package data. On press (gameplay context), the engine calls `(on-action-<id>)` if that procedure exists. Base ships flashlight, attack, and weapon-1/2; only flashlight has a handler today—attack and slots are stubs for games to implement.
+
+Binds support keyboard and mouse buttons. User overrides live in `settings.cfg` under `[controls]` by action id.
 
 When rad tint is on, the FP pass samples baked light from the player feet (average of a few downward probes, ambient fallback), adds ranked dynamic lights, temporally smooths the color, then feeds that as `probeRgb` (or multiplies draw color when shading is off). Viewmodels are not lightmapped. Faux shading is GLSL under `shaders/default/viewmodel_*` (packages may override).
 
@@ -115,7 +137,7 @@ While gameplay input is allowed:
 - Move actions set `CharacterMotor` wish (forward / back / strafe relative to yaw).
 - Mouse delta updates yaw and pitch on `FirstPersonController`.
 - Interact uses the player `Lens` as the aim ray against `usable` entities (see [Maps](maps.md)).
-- Flashlight action calls package `(on-action-flashlight)` when defined.
+- Package actions (from `data/actions.s7`) call `(on-action-<id>)` when pressed.
 
 Debug **Noclip** (main menu → Debug) flies the capsule with move wish and no gravity; look still applies.
 

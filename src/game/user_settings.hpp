@@ -3,6 +3,7 @@
 #include "input/actions.hpp"
 
 #include <string>
+#include <vector>
 
 namespace slopengine {
 
@@ -21,12 +22,12 @@ struct GraphicsSettings {
     bool vsync = true;
 };
 
-/** Key bindings for each Action. */
+/** Key / mouse bindings for each registered action. */
 struct ControlsSettings {
-    int keys[actionCount]{};
+    std::vector<int> binds;
 
     ControlsSettings();
-    /** Returns the default WASD / E / F bindings. */
+    /** Returns defaults from the current ActionRegistry. */
     static ControlsSettings defaults();
 };
 
@@ -36,19 +37,17 @@ struct UserSettings {
     ControlsSettings controls{};
 
     static UserSettings defaults();
-    /** Loads from disk, or defaults if missing / invalid. */
+    /** Loads graphics from disk (or defaults). Controls stay default-sized until actions are registered. */
+    static GraphicsSettings loadGraphicsOrDefault();
+    /** Merges [controls] from disk onto @p controls by action id. */
+    static void mergeControlsFromDisk(ControlsSettings& controls);
+    /** Loads full settings when the action registry is already populated. */
     static UserSettings loadOrDefault();
     /** Writes settings to the user config path. */
     bool save() const;
 };
 
-/** Stable id string for @p action (for config files). */
-const char* actionId(Action action);
-/** Display label for @p action. */
-const char* actionLabel(Action action);
-/** Stable id string for @p mode. */
 const char* windowModeId(WindowMode mode);
-/** Display label for @p mode. */
 const char* windowModeLabel(WindowMode mode);
 
 /** Applies window size / mode flags before InitWindow. */

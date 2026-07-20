@@ -2,22 +2,21 @@
 
 namespace slopengine {
 
-/** Named gameplay and UI actions bound to keys in user settings. */
+/** Engine-owned bindable actions. Indices match ActionRegistry core slots. */
 enum class Action {
     MoveForward,
     MoveBackward,
     MoveLeft,
     MoveRight,
-    Jump,        /**< Bound by default; not used by the character motor yet. */
+    Jump,
     Pause,
     Interact,
     Console,
     MainMenu,
-    Flashlight,
     Count
 };
 
-/** Number of bindable actions (excludes Count). */
-inline constexpr int actionCount = static_cast<int>(Action::Count);
+/** Number of core actions (excludes Count). */
+inline constexpr int coreActionCount = static_cast<int>(Action::Count);
 
 }

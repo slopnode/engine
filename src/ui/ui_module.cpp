@@ -3,7 +3,9 @@
 #include "assets/asset_services.hpp"
 #include "camera/components.hpp"
 #include "game/user_settings.hpp"
+#include "input/action_registry.hpp"
 #include "input/actions.hpp"
+#include "input/bind_code.hpp"
 #include "input/input_context.hpp"
 #include "input/input_module.hpp"
 #include "input/input_state.hpp"
@@ -49,56 +51,6 @@ void logConsoleMessage(ConsoleState& console, const std::string& message) {
     }
 }
 
-const char* keyDisplayName(int key, char* buffer, std::size_t bufferSize) {
-    if (key == KEY_NULL) {
-        return "Unbound";
-    }
-    if (key == KEY_SPACE) {
-        return "Space";
-    }
-    if (key == KEY_ESCAPE) {
-        return "Escape";
-    }
-    if (key == KEY_ENTER) {
-        return "Enter";
-    }
-    if (key == KEY_TAB) {
-        return "Tab";
-    }
-    if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
-        return "Shift";
-    }
-    if (key == KEY_LEFT_CONTROL || key == KEY_RIGHT_CONTROL) {
-        return "Ctrl";
-    }
-    if (key == KEY_LEFT_ALT || key == KEY_RIGHT_ALT) {
-        return "Alt";
-    }
-    if (key == KEY_UP) {
-        return "Up";
-    }
-    if (key == KEY_DOWN) {
-        return "Down";
-    }
-    if (key == KEY_LEFT) {
-        return "Left";
-    }
-    if (key == KEY_RIGHT) {
-        return "Right";
-    }
-    if (key == KEY_GRAVE) {
-        return "`";
-    }
-
-    const char* name = GetKeyName(key);
-    if (name != nullptr && name[0] != '\0') {
-        return name;
-    }
-
-    std::snprintf(buffer, bufferSize, "Key %d", key);
-    return buffer;
-}
-
 std::vector<ResolutionOption> buildResolutionOptions(const GraphicsSettings& draft) {
     std::vector<ResolutionOption> options;
     options.reserve(16);
@@ -134,6 +86,7 @@ void openControlsSettings(SettingsUiState& settingsUi, const UserSettings& setti
     settingsUi.controlsOpen = true;
     settingsUi.controlsDraft = settings.controls;
     settingsUi.rebindingAction = -1;
+    settingsUi.rebindingWaitMouseRelease = false;
 }
 
 void applyGraphicsDraft(UserSettings& settings, const GraphicsSettings& draft) {
@@ -242,13 +195,14 @@ void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
     ImGui::SetNextWindowSize({420.0f, 420.0f}, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Controls", &settingsUi.controlsOpen, ImGuiWindowFlags_NoCollapse)) {
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
         ImGui::End();
         return;
     }
 
     if (settingsUi.rebindingAction >= 0) {
-        ImGui::Text("Press a key for %s (Esc to cancel)...",
-            actionLabel(static_cast<Action>(settingsUi.rebindingAction)));
+        ImGui::Text("Press a key or mouse button for %s (Esc to cancel)...",
+            actionLabelAt(settingsUi.rebindingAction));
     } else {
         ImGui::TextUnformatted("Click a binding to reassign it.");
     }
@@ -260,18 +214,20 @@ void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
         ImGui::TableHeadersRow();
 
         char keyBuffer[64];
+        const int actionCount = actionRegistry().size();
         for (int i = 0; i < actionCount; ++i) {
-            const Action action = static_cast<Action>(i);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted(actionLabel(action));
+            ImGui::TextUnformatted(actionLabelAt(i));
             ImGui::TableSetColumnIndex(1);
 
-            const char* label = keyDisplayName(settingsUi.controlsDraft.keys[i], keyBuffer, sizeof(keyBuffer));
+            const int bind = settingsUi.controlsDraft.binds[static_cast<std::size_t>(i)];
+            const char* label = bindDisplayName(bind, keyBuffer, sizeof(keyBuffer));
             ImGui::PushID(i);
             const bool listening = settingsUi.rebindingAction == i;
             if (ImGui::Button(listening ? "..." : label, {140.0f, 0.0f})) {
                 settingsUi.rebindingAction = i;
+                settingsUi.rebindingWaitMouseRelease = true;
             }
             ImGui::PopID();
         }
@@ -282,17 +238,20 @@ void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
     if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
         applyControlsDraft(settings, settingsUi.controlsDraft);
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
     }
     ImGui::SameLine();
     if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
         settingsUi.controlsDraft = ControlsSettings::defaults();
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
     }
 
     ImGui::End();
 
     if (!settingsUi.controlsOpen) {
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
     }
 }
 
@@ -875,18 +834,56 @@ void registerSystems(flecs::world& world) {
             SettingsUiState& settingsUi = it.world().get_mut<SettingsUiState>();
 
             if (settingsUi.rebindingAction >= 0) {
-                const int pressed = GetKeyPressed();
-                if (pressed == KEY_ESCAPE) {
+                const int pressedKey = GetKeyPressed();
+                if (pressedKey == KEY_ESCAPE) {
                     settingsUi.rebindingAction = -1;
-                } else if (pressed != 0) {
-                    for (int i = 0; i < actionCount; ++i) {
-                        if (i != settingsUi.rebindingAction
-                            && settingsUi.controlsDraft.keys[i] == pressed) {
-                            settingsUi.controlsDraft.keys[i] = KEY_NULL;
+                    settingsUi.rebindingWaitMouseRelease = false;
+                    return;
+                }
+
+                if (settingsUi.rebindingWaitMouseRelease) {
+                    const bool anyMouseDown =
+                        IsMouseButtonDown(MOUSE_BUTTON_LEFT)
+                        || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)
+                        || IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)
+                        || IsMouseButtonDown(MOUSE_BUTTON_SIDE)
+                        || IsMouseButtonDown(MOUSE_BUTTON_EXTRA);
+                    if (!anyMouseDown) {
+                        settingsUi.rebindingWaitMouseRelease = false;
+                    }
+                }
+
+                int assigned = KEY_NULL;
+                if (pressedKey != 0) {
+                    assigned = pressedKey;
+                } else if (!settingsUi.rebindingWaitMouseRelease) {
+                    constexpr int kMouseButtons[] = {
+                        MOUSE_BUTTON_LEFT,
+                        MOUSE_BUTTON_RIGHT,
+                        MOUSE_BUTTON_MIDDLE,
+                        MOUSE_BUTTON_SIDE,
+                        MOUSE_BUTTON_EXTRA,
+                    };
+                    for (const int button : kMouseButtons) {
+                        if (IsMouseButtonPressed(button)) {
+                            assigned = bindFromMouseButton(button);
+                            break;
                         }
                     }
-                    settingsUi.controlsDraft.keys[settingsUi.rebindingAction] = pressed;
+                }
+
+                if (assigned != KEY_NULL) {
+                    const int actionCount = static_cast<int>(settingsUi.controlsDraft.binds.size());
+                    for (int i = 0; i < actionCount; ++i) {
+                        if (i != settingsUi.rebindingAction
+                            && settingsUi.controlsDraft.binds[static_cast<std::size_t>(i)] == assigned) {
+                            settingsUi.controlsDraft.binds[static_cast<std::size_t>(i)] = KEY_NULL;
+                        }
+                    }
+                    settingsUi.controlsDraft.binds[static_cast<std::size_t>(settingsUi.rebindingAction)] =
+                        assigned;
                     settingsUi.rebindingAction = -1;
+                    settingsUi.rebindingWaitMouseRelease = false;
                 }
                 return;
             }
@@ -907,6 +904,7 @@ void registerSystems(flecs::world& world) {
                     settingsUi.graphicsOpen = false;
                     settingsUi.controlsOpen = false;
                     settingsUi.rebindingAction = -1;
+                    settingsUi.rebindingWaitMouseRelease = false;
                 } else {
                     contexts.push(InputContext::MainMenu);
                 }

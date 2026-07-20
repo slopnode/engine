@@ -1,6 +1,7 @@
 #include "game/app.hpp"
 
 #include "camera/camera_module.hpp"
+#include "input/action_registry.hpp"
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
 #include "physics/physics_module.hpp"
@@ -18,13 +19,17 @@ namespace slopengine {
 
 App::App(AppConfig config)
     : config_{std::move(config)}
-    , userSettings_{UserSettings::loadOrDefault()}
+    , userSettings_{}
     , assetStore_{config_}
     , world_{}
     , physicsWorld_{std::make_unique<PhysicsWorld>()} {
+    actionRegistry().registerCoreActions();
+    userSettings_.graphics = UserSettings::loadGraphicsOrDefault();
     init_window();
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true);
     init_script();
+    userSettings_.controls = ControlsSettings::defaults();
+    UserSettings::mergeControlsFromDisk(userSettings_.controls);
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
     registerInputModule(world_);
@@ -62,6 +67,11 @@ void App::init_script() {
     scheme_ = s7_init();
     if (!assetStore_.loadScript(scheme_, "init")) {
         TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
+    }
+    if (!assetStore_.loadData(scheme_, "actions")) {
+        TraceLog(LOG_WARNING, "SCRIPT: data/actions.s7 not loaded");
+    } else if (!registerPackageActionsFromScheme(scheme_)) {
+        TraceLog(LOG_WARNING, "SCRIPT: failed to register package actions");
     }
     if (!assetStore_.loadData(scheme_, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
