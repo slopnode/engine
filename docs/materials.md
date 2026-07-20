@@ -54,6 +54,7 @@ Shaders are plain GLSL sources, one file per stage. Vert and frag are separate v
 | Path | Role |
 |------|------|
 | `default/lightmap_vert` / `default/lightmap_frag` | Map geometry with radiosity |
+| `default/viewmodel_vert` / `default/viewmodel_frag` | First-person geo faux shading (probe + Lambert/rim); packages may override |
 | `default/skinning_vert` / `default/skinning_frag` | GPU skinning sources (package may ship these; skinning is CPU-side today) |
 
 `AssetStore::getShaderSource` reads the text; callers compile with raylib when needed.
@@ -65,6 +66,7 @@ Materials do **not** currently drive shader selection from `(shader ...)`. Pipel
 | Draw path | Shader |
 |-----------|--------|
 | Prop / character `.geo` | raylib default material shader |
+| First-person `ViewSpace` geo (when `fp-set-shading` on) | `default/viewmodel_*` |
 | Map with baked lightmaps | `default/lightmap_*`, assigned onto each map material |
 | Map without lightmaps | raylib default |
 

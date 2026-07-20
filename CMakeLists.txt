@@ -75,6 +75,8 @@ add_executable(slopengine
     src/render/dynamic_light.cpp
     src/render/dynamic_light_shadows.cpp
     src/render/render_module.cpp
+    src/script/scheme_call.cpp
+    src/script/first_person_script.cpp
 )
 
 target_link_libraries(slopengine PRIVATE

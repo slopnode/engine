@@ -19,6 +19,8 @@ struct GlobalTransformation {
 
 struct WorldSpace {};
 
+struct ViewSpace {};
+
 struct Lens {
     Camera3D camera = {
         .position = {0.0f, 10.0f, 10.0f},

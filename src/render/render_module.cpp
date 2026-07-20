@@ -19,6 +19,7 @@
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "render/transform.hpp"
+#include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
 
@@ -35,6 +36,7 @@
 #include <vector>
 
 #include <rlgl.h>
+#include "external/glad.h"
 
 namespace slopengine {
 
@@ -331,6 +333,104 @@ Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
 }
 
+Vector3 directionFromMatrix(const Matrix& matrix) {
+    const Vector3 dir{matrix.m8, matrix.m9, matrix.m10};
+    if (Vector3LengthSqr(dir) < 1e-8f) {
+        return {0.0f, 0.0f, 1.0f};
+    }
+    return Vector3Normalize(dir);
+}
+
+Color sampleFirstPersonRadTint(
+    Vector3 feetOrigin,
+    const MapLighting* lighting,
+    const BspTree* bspTree,
+    const std::vector<RankedDynamicLight>* dynamicLights,
+    bool unlit) {
+    if (unlit) {
+        return WHITE;
+    }
+
+    Color tint = lighting != nullptr ? lighting->ambient : WHITE;
+    if (lighting != nullptr && lighting->available && bspTree != nullptr) {
+        constexpr Vector3 kDown{0.0f, -1.0f, 0.0f};
+        constexpr float kMaxDist = 2.5f;
+        const Vector3 offsets[] = {
+            {0.0f, 0.0f, 0.0f},
+            {0.12f, 0.0f, 0.0f},
+            {-0.12f, 0.0f, 0.0f},
+            {0.0f, 0.0f, 0.12f},
+            {0.0f, 0.0f, -0.12f},
+        };
+        int sampleCount = 0;
+        int sumR = 0;
+        int sumG = 0;
+        int sumB = 0;
+        for (const Vector3& offset : offsets) {
+            const Vector3 origin = Vector3Add(feetOrigin, offset);
+            if (auto sampled = sampleMapLight(*lighting, *bspTree, origin, kDown, kMaxDist)) {
+                sumR += sampled->r;
+                sumG += sampled->g;
+                sumB += sampled->b;
+                ++sampleCount;
+            }
+        }
+        if (sampleCount > 0) {
+            tint = Color{
+                static_cast<unsigned char>(sumR / sampleCount),
+                static_cast<unsigned char>(sumG / sampleCount),
+                static_cast<unsigned char>(sumB / sampleCount),
+                255,
+            };
+        }
+    }
+
+    if (dynamicLights != nullptr && !dynamicLights->empty()) {
+        const Vector3 dyn =
+            evaluateDynamicLightsAtPoint(*dynamicLights, feetOrigin, {0.0f, 1.0f, 0.0f});
+        tint = Color{
+            static_cast<unsigned char>(std::clamp(
+                static_cast<int>(tint.r) + static_cast<int>(dyn.x * 255.0f),
+                0,
+                255)),
+            static_cast<unsigned char>(std::clamp(
+                static_cast<int>(tint.g) + static_cast<int>(dyn.y * 255.0f),
+                0,
+                255)),
+            static_cast<unsigned char>(std::clamp(
+                static_cast<int>(tint.b) + static_cast<int>(dyn.z * 255.0f),
+                0,
+                255)),
+            tint.a,
+        };
+    }
+    return tint;
+}
+
+Color smoothFirstPersonRadTint(FirstPersonScene& scene, Color target, float dt) {
+    const Vector3 targetRgb{
+        static_cast<float>(target.r) / 255.0f,
+        static_cast<float>(target.g) / 255.0f,
+        static_cast<float>(target.b) / 255.0f,
+    };
+    if (!scene.radTintInitialized) {
+        scene.radTintSmoothed = targetRgb;
+        scene.radTintInitialized = true;
+    } else {
+        constexpr float kTintSmoothHz = 6.0f;
+        const float alpha = 1.0f - std::exp(-kTintSmoothHz * std::max(dt, 0.0f));
+        scene.radTintSmoothed.x += (targetRgb.x - scene.radTintSmoothed.x) * alpha;
+        scene.radTintSmoothed.y += (targetRgb.y - scene.radTintSmoothed.y) * alpha;
+        scene.radTintSmoothed.z += (targetRgb.z - scene.radTintSmoothed.z) * alpha;
+    }
+    return Color{
+        static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.x * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.y * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.z * 255.0f, 0.0f, 255.0f)),
+        255,
+    };
+}
+
 void drawWorldSprite(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
@@ -526,6 +626,7 @@ void registerComponents(flecs::world& world) {
 
     world.component<GlobalTransformation>();
     world.component<WorldSpace>();
+    world.component<ViewSpace>();
     world.component<Lens>();
     world.component<Spin>();
     world.component<Model3D>();
@@ -745,6 +846,12 @@ void registerRenderSystems(flecs::world& world) {
             ClearBackground(BLACK);
         });
 
+    world.system("UpdateFirstPersonScene")
+        .kind(flecs::PostUpdate)
+        .run([](flecs::iter& it) {
+            updateFirstPersonSceneTransforms(it.world());
+        });
+
     world.system<const Lens>("LensWorld")
         .with<WorldSpace>()
         .kind(flecs::PostUpdate)
@@ -759,14 +866,21 @@ void registerRenderSystems(flecs::world& world) {
                 std::vector<RankedDynamicLight> candidates;
                 world.each([&](flecs::entity entity,
                                const DynamicLight& light,
-                               const LocalTransformation& local) {
-                    if (!entity.has<WorldSpace>() || light.intensity <= 0.0f) {
+                               const GlobalTransformation& global) {
+                    if (light.intensity <= 0.0f) {
                         return;
                     }
                     RankedDynamicLight ranked{};
                     ranked.light = light;
-                    ranked.position = local.position;
-                    ranked.direction = dynamicLightDirectionFromRotation(local.rotation);
+                    const Vector3 localPos = translationFromMatrix(global.matrix);
+                    const Vector3 localDir = directionFromMatrix(global.matrix);
+                    if (entity.has<ViewSpace>()) {
+                        ranked.position = viewToWorldPoint(lens, localPos);
+                        ranked.direction = viewToWorldDirection(lens, localDir);
+                    } else {
+                        ranked.position = localPos;
+                        ranked.direction = localDir;
+                    }
                     ranked.linearRgb = dynamicLightLinearRgb(light);
                     candidates.push_back(ranked);
                 });
@@ -920,6 +1034,144 @@ void registerRenderSystems(flecs::world& world) {
 
             EndMode3D();
 
+            rlDrawRenderBatchActive();
+            glClear(GL_DEPTH_BUFFER_BIT);
+
+            Camera3D eyeCam{};
+            eyeCam.position = {0.0f, 0.0f, 0.0f};
+            eyeCam.target = {0.0f, 0.0f, 1.0f};
+            eyeCam.up = {0.0f, 1.0f, 0.0f};
+            eyeCam.fovy = lens.camera.fovy;
+            eyeCam.projection = CAMERA_PERSPECTIVE;
+
+            Color fpTint = WHITE;
+            flecs::entity playerEntity = world.lookup("Player");
+            const bool hasFpScene =
+                playerEntity.is_valid() && playerEntity.has<FirstPersonScene>();
+            const bool useRadTint =
+                hasFpScene && playerEntity.get<FirstPersonScene>().useRadTint;
+            const bool useShading =
+                hasFpScene && playerEntity.get<FirstPersonScene>().useShading;
+            if (useRadTint) {
+                float eyeHeight = 1.7f;
+                if (playerEntity.has<FirstPersonController>()) {
+                    eyeHeight = playerEntity.get<FirstPersonController>().eyeHeight;
+                }
+                if (playerEntity.has<CharacterMotor>()) {
+                    eyeHeight = playerEntity.get<CharacterMotor>().eyeHeight;
+                }
+                const Vector3 feetOrigin{
+                    lens.camera.position.x,
+                    lens.camera.position.y - eyeHeight + 0.05f,
+                    lens.camera.position.z,
+                };
+                const MapLighting* fpLighting =
+                    world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+                const BspTree* fpBsp =
+                    world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
+                const std::vector<RankedDynamicLight>* fpDyn =
+                    (!unlit && world.has<DynamicLightFrameState>())
+                        ? &world.get<DynamicLightFrameState>().lights
+                        : nullptr;
+                const Color targetTint =
+                    sampleFirstPersonRadTint(feetOrigin, fpLighting, fpBsp, fpDyn, unlit);
+                fpTint = smoothFirstPersonRadTint(
+                    playerEntity.get_mut<FirstPersonScene>(),
+                    targetTint,
+                    GetFrameTime());
+            }
+
+            FirstPersonViewShader* viewShader =
+                world.has<FirstPersonViewShader>() ? &world.get_mut<FirstPersonViewShader>()
+                                                   : nullptr;
+            const bool shadedDraw = useShading && viewShader != nullptr && viewShader->valid();
+            if (shadedDraw) {
+                const Vector3 probeRgb{
+                    static_cast<float>(fpTint.r) / 255.0f,
+                    static_cast<float>(fpTint.g) / 255.0f,
+                    static_cast<float>(fpTint.b) / 255.0f,
+                };
+                const Vector3 keyDir = Vector3Normalize({0.4f, 0.85f, 0.35f});
+                const float ambient = 0.4f;
+                const float keyStrength = 0.75f;
+                const float rimStrength = 0.15f;
+                if (viewShader->probeRgbLoc >= 0) {
+                    SetShaderValue(
+                        viewShader->shader,
+                        viewShader->probeRgbLoc,
+                        &probeRgb,
+                        SHADER_UNIFORM_VEC3);
+                }
+                if (viewShader->ambientLoc >= 0) {
+                    SetShaderValue(
+                        viewShader->shader,
+                        viewShader->ambientLoc,
+                        &ambient,
+                        SHADER_UNIFORM_FLOAT);
+                }
+                if (viewShader->keyDirLoc >= 0) {
+                    SetShaderValue(
+                        viewShader->shader,
+                        viewShader->keyDirLoc,
+                        &keyDir,
+                        SHADER_UNIFORM_VEC3);
+                }
+                if (viewShader->keyStrengthLoc >= 0) {
+                    SetShaderValue(
+                        viewShader->shader,
+                        viewShader->keyStrengthLoc,
+                        &keyStrength,
+                        SHADER_UNIFORM_FLOAT);
+                }
+                if (viewShader->rimStrengthLoc >= 0) {
+                    SetShaderValue(
+                        viewShader->shader,
+                        viewShader->rimStrengthLoc,
+                        &rimStrength,
+                        SHADER_UNIFORM_FLOAT);
+                }
+            }
+
+            BeginMode3D(eyeCam);
+            rlScalef(-1.0f, 1.0f, 1.0f);
+            rlDisableBackfaceCulling();
+            context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
+                if (!modelEntity.has<ViewSpace>() || modelEntity.has<WorldSpace>()) {
+                    return;
+                }
+                const Color previousColor = model.color;
+                if (useRadTint && !shadedDraw) {
+                    model.color = fpTint;
+                }
+
+                std::vector<Shader> previousShaders;
+                if (shadedDraw) {
+                    previousShaders.resize(static_cast<std::size_t>(model.model.materialCount));
+                    for (int i = 0; i < model.model.materialCount; ++i) {
+                        previousShaders[static_cast<std::size_t>(i)] = model.model.materials[i].shader;
+                        model.model.materials[i].shader = viewShader->shader;
+                    }
+                    if (viewShader->matModelLoc >= 0) {
+                        SetShaderValueMatrix(
+                            viewShader->shader,
+                            viewShader->matModelLoc,
+                            global.matrix);
+                    }
+                }
+
+                renderWorldModel(modelEntity, model, global, lens);
+
+                if (shadedDraw) {
+                    for (int i = 0; i < model.model.materialCount; ++i) {
+                        model.model.materials[i].shader =
+                            previousShaders[static_cast<std::size_t>(i)];
+                    }
+                }
+                model.color = previousColor;
+            });
+            rlEnableBackfaceCulling();
+            EndMode3D();
+
             if (!spriteAimStatus.empty()) {
                 const int screenW = GetScreenWidth();
                 const int fontSize = 18;
@@ -990,11 +1242,15 @@ void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, floa
     controller.yaw = yaw;
     controller.pitch = -0.05f;
 
-    world.entity("Player")
+    flecs::entity player = world.entity("Player")
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
         .set<FirstPersonController>(controller);
+
+    ensureFirstPersonScene(world, player);
+    updateFirstPersonSceneTransforms(world);
+    callPrepareFirstPerson(world);
 }
 
 void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view mapName) {
@@ -1078,7 +1334,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     lens.camera.fovy = 75.0f;
     lens.camera.projection = CAMERA_PERSPECTIVE;
 
-    world.entity("Player")
+    flecs::entity player = world.entity("Player")
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
@@ -1095,6 +1351,10 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
                 motor);
         }
     }
+
+    ensureFirstPersonScene(world, player);
+    updateFirstPersonSceneTransforms(world);
+    callPrepareFirstPerson(world);
 }
 
 }
@@ -1108,10 +1368,16 @@ void registerRenderModule(
 
     world.set<AssetServices>(AssetServices{&assets});
     world.set<ScriptContext>(ScriptContext{scheme});
+    world.set<FirstPersonViewShader>(createFirstPersonViewShader(assets));
     world.set<RenderContext>({
         world.query<Model3D, GlobalTransformation>(),
         world.query<SpriteInstance, GlobalTransformation>(),
     });
+
+    bindFirstPersonApi(world, scheme);
+    if (scheme != nullptr && !assets.loadScript(scheme, "player")) {
+        TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");
+    }
 
     registerSpinSystem(world);
     registerAnimationSystems(world);

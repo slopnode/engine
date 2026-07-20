@@ -436,41 +436,44 @@ void drawEntityComponentDetails(flecs::entity entity) {
             ImGui::TreePop();
         }
     }
-    if (entity.has<PlayerFlashlight>()) {
-        const PlayerFlashlight& flashlight = entity.get<PlayerFlashlight>();
-        if (ImGui::TreeNodeEx("PlayerFlashlight", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Text("Enabled: %s", flashlight.enabled ? "true" : "false");
-            flecs::entity light{};
-            if (flashlight.light != 0) {
-                light = entity.world().entity(flashlight.light);
+    if (entity.has<FirstPersonScene>()) {
+        const FirstPersonScene& scene = entity.get<FirstPersonScene>();
+        if (ImGui::TreeNodeEx("FirstPersonScene", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("Root: %llu", static_cast<unsigned long long>(scene.root));
+            ImGui::Text("Weapon socket: %llu", static_cast<unsigned long long>(scene.weaponSocket));
+            ImGui::Text("Emission socket: %llu", static_cast<unsigned long long>(scene.emissionSocket));
+            ImGui::Text("Rad tint: %s", scene.useRadTint ? "true" : "false");
+            ImGui::Text("Shading: %s", scene.useShading ? "true" : "false");
+            flecs::entity emission{};
+            if (scene.emissionSocket != 0) {
+                emission = entity.world().entity(scene.emissionSocket);
             }
-            if (!light.is_valid()) {
-                light = entity.world().lookup("player_flashlight_light");
+            flecs::entity light{};
+            if (emission.is_valid()) {
+                emission.children([&](flecs::entity child) {
+                    if (!light.is_valid() && child.has<DynamicLight>()) {
+                        light = child;
+                    }
+                });
             }
             if (light.is_valid() && light.has<DynamicLight>()) {
                 const DynamicLight& dyn = light.get<DynamicLight>();
                 const Vector3 rgb = dynamicLightLinearRgb(dyn);
+                ImGui::Text("Emission intensity: %.3f", static_cast<double>(dyn.intensity));
+                ImGui::Text("Emission range: %.3f", static_cast<double>(dyn.range));
+                ImGui::Text("Emission cone: %.3f", static_cast<double>(dyn.coneAngle));
                 ImGui::Text(
-                    "Light intensity: %.3f",
-                    static_cast<double>(dyn.intensity));
-                ImGui::Text("Light range: %.3f", static_cast<double>(dyn.range));
-                ImGui::Text("Light cone: %.3f", static_cast<double>(dyn.coneAngle));
-                ImGui::Text(
-                    "Light RGB: %.3f, %.3f, %.3f",
+                    "Emission RGB: %.3f, %.3f, %.3f",
                     static_cast<double>(rgb.x),
                     static_cast<double>(rgb.y),
                     static_cast<double>(rgb.z));
-                ImGui::Text("Cast Shadows: %s", dyn.castShadows ? "true" : "false");
-                if (light.has<LocalTransformation>()) {
-                    const LocalTransformation& local = light.get<LocalTransformation>();
-                    ImGui::Text(
-                        "Light position: %.3f, %.3f, %.3f",
-                        static_cast<double>(local.position.x),
-                        static_cast<double>(local.position.y),
-                        static_cast<double>(local.position.z));
+                if (light.has<FpLightControl>()) {
+                    const FpLightControl& control = light.get<FpLightControl>();
+                    ImGui::Text("Enabled: %s", control.enabled ? "true" : "false");
+                    ImGui::Text("On intensity: %.3f", static_cast<double>(control.onIntensity));
                 }
             } else {
-                ImGui::TextUnformatted("Light entity: missing");
+                ImGui::TextUnformatted("Emission light: none");
             }
             ImGui::TreePop();
         }

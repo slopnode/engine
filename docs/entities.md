@@ -139,9 +139,10 @@ Two Scheme layers share one s7 heap for the run:
 |--------|------|---------|
 | `scripts/init.s7` | App start | Package bootstrap (version, shared defs). |
 | `scripts/entities.s7` | App start (after `init`) | Handlers and helpers for placed content (`on-use`, later prefabs). |
+| `scripts/player.s7` | After FP Scheme API bind (before map spawn) | First-person presentation: `(prepare-first-person)`, `(on-action-flashlight)`, etc. |
 | `maps/<name>/entities.s7` | Map load | Placement only: `player-start`, `prop`, `usable`, lights, `prefab`. |
 
-Virtual paths omit the extension: `init`, `entities`, `<map>/entities`. Later packages override earlier ones at the same path.
+Virtual paths omit the extension: `init`, `entities`, `player`, `<map>/entities`. Later packages override earlier ones at the same path.
 
 ### `on-use` handlers
 
