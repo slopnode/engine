@@ -712,17 +712,22 @@ MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPa
 
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName) {
     const std::string metaPath = std::string(mapName) + "/map";
-    if (!assets.hasMapMeta(metaPath)) {
+    auto owned = assets.resolveOwned(AssetKind::MapMeta, metaPath);
+    if (!owned || owned->package == nullptr) {
         return std::nullopt;
     }
     MapMeta mapMeta;
     if (!parseMapMeta(assets.getMapMetaSource(metaPath), mapMeta)) {
         return std::nullopt;
     }
-    if (!assets.hasPackageId(mapMeta.package)) {
+    mapMeta.package = owned->package->meta().id;
+    if (mapMeta.package.empty() || !assets.hasPackageId(mapMeta.package)) {
         return std::nullopt;
     }
     for (const std::string& depend : mapMeta.depends) {
+        if (depend == mapMeta.package) {
+            continue;
+        }
         if (!assets.hasPackageId(depend)) {
             return std::nullopt;
         }

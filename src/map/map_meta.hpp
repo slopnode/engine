@@ -13,8 +13,8 @@ namespace slopengine {
 struct MapMeta {
     std::string id;
     std::string name;
-    std::string package; /**< Owning package id. */
-    std::vector<std::string> depends;
+    std::string package; /**< Owning package id (filled from directory at load). */
+    std::vector<std::string> depends; /**< Other package ids that must be mounted. */
     Vector3 ambient{0.02f, 0.02f, 0.025f}; /**< Soft fill used when baking radiosity. */
 };
 

@@ -12,7 +12,7 @@ Each map is a directory under `maps/<name>/`:
 maps/<name>/
   map.meta
   static.csg
-  entities.s7
+  things.s7
   static.bsp
   rad/
     static.rad
@@ -20,26 +20,25 @@ maps/<name>/
     ...
 ```
 
-`map.meta` and `static.csg` are authored. `entities.s7` places props, usables, and lights (optional). `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
+`map.meta` and `static.csg` are authored. `things.s7` places props, usables, and lights (optional). `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
 
-Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG and BSP, `<name>/entities` for entity placement, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
+Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG and BSP, `<name>/things` for things, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
 
 ## Authoring
 
 ### map.meta
 
-Describes the map and which packages it needs:
+Describes the map and which *other* packages it needs mounted. Owning package is implied by the directory that contains the map (under that package’s `maps/`).
 
 ```text
 (map
   (id "my-map")
   (name "My Map")
-  (package "com.example.game")
-  (depends "com.example.game")
+  (depends)
   (ambient 0.03 0.03 0.04))
 ```
 
-`id` and `package` are required. `package` and each entry in `depends` must match mounted package ids. `name` is display-only. `ambient` is a soft fill color used when baking radiosity; if omitted, the tools use a small default gray-blue.
+`id` is required. `(depends …)` lists other package ids that must be mounted when this map uses their assets; omit or leave empty when the map only uses its own package. A legacy `(package …)` field is ignored. `name` is display-only. `ambient` is a soft fill color used when baking radiosity; if omitted, the tools use a small default gray-blue.
 
 ### static.csg
 
@@ -66,7 +65,7 @@ The canonical solid is a **convex polyhedron** of polygonal faces. Each face is 
 
 `brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role "hull")` or `(role "detail")` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes ux uy uz vx vy vz)`, `(nodraw)`, and `(verts (v x y z)...)`.
 
-`(uv-lock)` pins planar texture coordinates to the face. Locked faces store UV axes (defaulting to the usual world-axial basis for the face normal). Prefab placement and editor transforms rotate those axes with the geometry and adjust `uv-shift`, so the texture stays glued under move and rotate. Optional `(uv-axes …)` overrides the basis when it differs from axial. Omit `(uv-lock)` to keep world-aligned tiling (default).
+`(uv-lock)` pins planar texture coordinates to the face. Locked faces store UV axes (defaulting to the usual world-axial basis for the face normal). Prefab thing and editor transforms rotate those axes with the geometry and adjust `uv-shift`, so the texture stays glued under move and rotate. Optional `(uv-axes …)` overrides the basis when it differs from axial. Omit `(uv-lock)` to keep world-aligned tiling (default).
 
 For convenience, `brush-box` expands an axis-aligned box into a six-face convex (same runtime representation):
 
@@ -80,7 +79,7 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
 
 `id`, `mins`, and `maxs` are required on `brush-box`. Optional `(faces ...)` overrides individual sides (`top`, `bottom`, `north`, `south`, `east`, `west`) with their own `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes …)`, or `(nodraw)`. Future sugar such as `brush-circle` may expand other primitives the same way; the compiler always sees convexes.
 
-`(prefab …)` instances a brush assembly from `prefabs/<path>.csg`. Required: path string argument and `(id …)`. Optional `(at x y z)` (default origin) and `(angles pitch yaw roll)` in radians (default zero). No scale. At load/compile the prefab expands into ordinary brushes: local brush/face ids become `<instance-id>/<local-id>`, vertices are rotated then translated, and rotated boxes are no longer treated as axis-aligned. Faces marked `(uv-lock)` in the prefab keep their local texture placement under that transform. Brush `role` / `nocollide` come from the prefab author (hull modular rooms and detail furniture both work). Prefabs may nest; cycles error. Map files keep `(prefab …)` references (they are not baked on save).
+`(prefab …)` instances a brush assembly from `prefabs/<path>.csg`. Required: path string argument and `(id …)`. Optional `(at x y z)` (default origin) and `(angles pitch yaw roll)` in radians (default zero). No scale. At load/compile the prefab expands into ordinary brushes: local brush/face ids become `<instance-id>/<local-id>`, vertices are rotated then translated, and rotated boxes are no longer treated as axis-aligned. Faces marked `(uv-lock)` in the prefab keep their local texture thing under that transform. Brush `role` / `nocollide` come from the prefab author (hull modular rooms and detail furniture both work). Prefabs may nest; cycles error. Map files keep `(prefab …)` references (they are not baked on save).
 
 ```text
 (prefab "furniture/desk"
@@ -91,13 +90,13 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
 
 ### slopmap prefabs
 
-`slopmap` has a separate **Prefab** scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the base package; the path you choose is the virtual path used for placement. In the **Level** scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role switches hull/detail. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
+`slopmap` has a separate **Prefab** scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the selected write package (defaults to `--base-game`; when multiple packages are mounted, New Map / Save As pickers choose the target); the path you choose is the virtual path used when placing instances. In the **Level** scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role switches hull/detail. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
 
-### entities.s7
+### things.s7
 
-Optional Scheme file of **placements** loaded after map geometry. Engine bindings spawn flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
+Optional Scheme file of **things** loaded after map geometry. Engine bindings spawn flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
 
-`slopmap` loads and saves this file with the level (and optional `prefabs/<path>.s7` sidecars in Prefab scene). Use the **Placements** outliner and Library → Placements palette to place kinds; Select mode moves (`G`) and rotates yaw (`R`).
+`slopmap` loads and saves this file with the level (and optional `prefabs/<path>.s7` sidecars in Prefab scene). Use the **Things** outliner and Library → Things palette to place kinds; Select mode moves (`G`) and rotates yaw (`R`).
 
 ```text
 (player-start
@@ -132,15 +131,15 @@ Optional Scheme file of **placements** loaded after map geometry. Engine binding
 | Form | Required | Notes |
 |------|----------|-------|
 | `player-start` | `id`, `at` | First wins; sets player spawn pose. Optional `yaw` (radians). See [Player](player.md). |
-| `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Placements](entities.md). |
-| `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Placements](entities.md). |
+| `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Things](things.md). |
+| `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Things](things.md). |
 | `point-light` | `id`, `at` | Optional `color`, `intensity`, `range`. Baked by `sloprad`; see [Lights](lights.md). |
 | `spot-light` | `id`, `at` | Optional `yaw`/`angles`, `color`, `intensity`, `range`, `cone`. Baked by `sloprad`. |
 | `area-light` | `id`, `at` | Optional `angles`, `color`, `intensity`, `size`. Authoring / gizmo; not a bake emitter. |
 | `sun` | `id` | Optional `at` (gizmo), `angles`/`yaw`, `color`, `intensity`. Authoring / gizmo. |
 | `prefab` | path, `id` | Loads optional `prefabs/<path>.s7` with the same `at` / `angles` as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
-`on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Placements](entities.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
+`on-use` handlers live in package scripts (for example `scripts/things.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Things](things.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
 
 `(nodraw)` marks a face as out of bounds for rendering: it is omitted from the compiled mesh and from radiosity charts, so it does not consume lightmap atlas space. The brush stays solid for physics and BSP occlusion. You can still set it explicitly on any face when you want nodraw true:
 
@@ -202,7 +201,7 @@ The BSP is structural (sealing, auto-nodraw, runtime leaf debug). Draw meshes co
 
 With `--map <name>`, the game validates meta and package dependencies, loads CSG brushes, reads `static.bsp`, and optionally reads `rad/`. If the BSP hull is sealed, the same auto-nodraw pass as `sloprad` runs before mesh compile. Brushes are compiled into render meshes (skipping nodraw faces): diffuse UVs from materials, lightmap UVs from charts when a bake is present. If radiosity data and atlases load successfully, materials on the map use the lightmap shader and bind the atlases. Otherwise the map draws without baked lighting.
 
-All brushes from the CSG are registered as static convex physics hulls. Missing BSP stops the load; missing rad only skips lightmaps. After geometry is up, the game evaluates `entities.s7` when present, then spawns the player at `player-start` (or the default pose).
+All brushes from the CSG are registered as static convex physics hulls. Missing BSP stops the load; missing rad only skips lightmaps. After geometry is up, the game evaluates `things.s7` when present, then spawns the player at `player-start` (or the default pose).
 
 ## Custom tooling
 

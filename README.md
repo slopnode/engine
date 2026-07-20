@@ -57,14 +57,13 @@ packages/base/
   textures/     .png
 ```
 
-Maps declare owning package and dependencies in `map.meta`:
+Maps live under a package’s `maps/` folder (ownership is the package directory). `map.meta` only lists other packages when needed:
 
 ```
 (map
   (id "empty-room")
   (name "Empty Room")
-  (package "slopengine.base")
-  (depends "slopengine.base"))
+  (depends))
 ```
 
 Paths inside a package are virtual (e.g. `human01/human01` for `geometry/human01/human01.geo`). Later mods override earlier packages for the same path.

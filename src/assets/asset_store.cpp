@@ -1,6 +1,7 @@
 #include "assets/asset_store.hpp"
 
 #include "assets/geo_loader.hpp"
+#include "core/engine_package.hpp"
 
 #include <s7.h>
 
@@ -119,6 +120,21 @@ AssetStore::~AssetStore() {
 }
 
 void AssetStore::mountPackages(const AppConfig& config) {
+    const auto enginePath = resolveEnginePackage();
+    if (!enginePath) {
+        throw std::runtime_error(
+            "engine package not found (tried ./packages/engine, $SLOPENGINE_ENGINE, and the "
+            "configured install path)");
+    }
+
+    Package engine{*enginePath};
+    if (!engine.valid()) {
+        throw std::runtime_error("engine package not found: " + enginePath->string());
+    }
+    if (!engine.hasMeta()) {
+        throw std::runtime_error("engine package missing package.meta: " + enginePath->string());
+    }
+
     Package base{config.base_game};
     if (!base.valid()) {
         throw std::runtime_error("base game package not found: " + config.base_game.string());
@@ -127,7 +143,8 @@ void AssetStore::mountPackages(const AppConfig& config) {
         throw std::runtime_error("base game missing package.meta: " + config.base_game.string());
     }
 
-    vfs_.setBasePackage(std::move(base));
+    vfs_.setBasePackage(std::move(engine));
+    vfs_.addPackage(std::move(base));
 
     for (const auto& modPath : config.mods) {
         Package mod{modPath};
@@ -189,8 +206,8 @@ bool AssetStore::hasMapCsg(std::string_view path) const {
     return vfs_.exists(AssetKind::MapCsg, path);
 }
 
-bool AssetStore::hasMapEntities(std::string_view path) const {
-    return vfs_.exists(AssetKind::MapEntities, path);
+bool AssetStore::hasMapThings(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapThings, path);
 }
 
 bool AssetStore::hasMapGraphs(std::string_view path) const {
@@ -205,8 +222,8 @@ bool AssetStore::hasPrefabCsg(std::string_view path) const {
     return vfs_.exists(AssetKind::PrefabCsg, path);
 }
 
-bool AssetStore::hasPrefabEntities(std::string_view path) const {
-    return vfs_.exists(AssetKind::PrefabEntities, path);
+bool AssetStore::hasPrefabThings(std::string_view path) const {
+    return vfs_.exists(AssetKind::PrefabThings, path);
 }
 
 bool AssetStore::hasMapMeta(std::string_view path) const {
@@ -223,6 +240,10 @@ bool AssetStore::hasMapRad(std::string_view path) const {
 
 std::optional<std::filesystem::path> AssetStore::resolvePath(AssetKind kind, std::string_view path) const {
     return vfs_.resolve(kind, path);
+}
+
+std::optional<ResolvedAsset> AssetStore::resolveOwned(AssetKind kind, std::string_view path) const {
+    return vfs_.resolveOwned(kind, path);
 }
 
 bool AssetStore::hasSkeleton(std::string_view path) const {
@@ -805,8 +826,8 @@ bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path) {
     return true;
 }
 
-bool AssetStore::loadMapEntities(s7_scheme* scheme, std::string_view path) {
-    const auto resolved = vfs_.resolve(AssetKind::MapEntities, path);
+bool AssetStore::loadMapThings(s7_scheme* scheme, std::string_view path) {
+    const auto resolved = vfs_.resolve(AssetKind::MapThings, path);
     if (!resolved) {
         return false;
     }
@@ -845,8 +866,8 @@ bool AssetStore::loadPrefabCsg(s7_scheme* scheme, std::string_view path) {
     return true;
 }
 
-bool AssetStore::loadPrefabEntities(s7_scheme* scheme, std::string_view path) {
-    const auto resolved = vfs_.resolve(AssetKind::PrefabEntities, path);
+bool AssetStore::loadPrefabThings(s7_scheme* scheme, std::string_view path) {
+    const auto resolved = vfs_.resolve(AssetKind::PrefabThings, path);
     if (!resolved) {
         return false;
     }

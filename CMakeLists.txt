@@ -17,9 +17,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(GNUInstallDirs)
+
+set(SLOPENGINE_ENGINE_PACKAGE_DIR "${CMAKE_SOURCE_DIR}/packages/engine"
+    CACHE PATH "Fallback directory for the always-mounted engine package")
+
+file(TO_CMAKE_PATH "${SLOPENGINE_ENGINE_PACKAGE_DIR}" _slop_engine_pkg_dir)
+string(REPLACE "\\" "\\\\" _slop_engine_pkg_dir_escaped "${_slop_engine_pkg_dir}")
+string(REPLACE "\"" "\\\"" _slop_engine_pkg_dir_escaped "${_slop_engine_pkg_dir_escaped}")
+set(SLOPENGINE_ENGINE_PACKAGE_DIR_ESCAPED "${_slop_engine_pkg_dir_escaped}")
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/engine_package_dir.hpp.in"
+    "${CMAKE_BINARY_DIR}/generated/core/engine_package_dir.hpp"
+    @ONLY
+)
+
 add_subdirectory(lib)
 
 set(SLOPLIB_SOURCES
+    src/core/engine_package.cpp
     src/core/package.cpp
     src/core/package_meta.cpp
     src/core/vfs.cpp
@@ -40,8 +57,8 @@ set(SLOPLIB_SOURCES
     src/map/csg_compile.cpp
     src/map/csg_script.cpp
     src/map/csg_write.cpp
-    src/map/entities_script.cpp
-    src/map/entities_write.cpp
+    src/map/things_script.cpp
+    src/map/things_write.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
@@ -55,7 +72,10 @@ set(SLOPLIB_SOURCES
 )
 
 add_library(sloplib STATIC ${SLOPLIB_SOURCES})
-target_include_directories(sloplib PUBLIC src)
+target_include_directories(sloplib PUBLIC
+    src
+    "${CMAKE_BINARY_DIR}/generated"
+)
 target_link_libraries(sloplib PUBLIC raylib s7)
 
 if(MSVC)
@@ -76,7 +96,7 @@ add_executable(slopengine
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/map_collision.cpp
-    src/map/entity_script.cpp
+    src/map/things_spawn.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
@@ -122,7 +142,7 @@ add_executable(slopmap
     tools/slopmap/camera.cpp
     tools/slopmap/editor.cpp
     tools/slopmap/preview.cpp
-    tools/slopmap/placement_draw.cpp
+    tools/slopmap/thing_draw.cpp
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
@@ -151,6 +171,10 @@ add_custom_target(pack-silk-icons
     DEPENDS slopicons
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     COMMENT "Packing packages/base/icons/silk into silk.png + silk.iconmap"
+)
+
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/packages/engine/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/slopengine/engine"
 )
 
 include(cmake/Doxygen.cmake)

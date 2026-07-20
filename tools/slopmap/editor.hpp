@@ -3,7 +3,7 @@
 #include "assets/asset_store.hpp"
 #include "camera.hpp"
 #include "map/brush.hpp"
-#include "map/placement.hpp"
+#include "map/thing.hpp"
 #include "map/prefab.hpp"
 #include "preview.hpp"
 
@@ -43,30 +43,30 @@ enum class SelectionTarget {
     None,
     Brush,
     Instance,
-    Placement,
+    Thing,
 };
 
 enum class PlaceTarget {
     PrefabInstance,
-    Placement,
+    Thing,
 };
 
 struct EditorDocument {
     std::string assetPath;
     std::vector<slopengine::Brush> brushes;
     std::vector<slopengine::PrefabInstance> instances;
-    std::vector<slopengine::Placement> placements;
+    std::vector<slopengine::Thing> things;
     bool dirty = false;
     SelectionTarget selection = SelectionTarget::None;
     int selectedBrush = -1;
     int selectedFace = -1;
     int selectedInstance = -1;
-    int selectedPlacement = -1;
+    int selectedThing = -1;
     SelectionScope scope = SelectionScope::Brush;
     std::string defaultMaterial = "default/cube";
     int nextBrushSerial = 1;
     int nextPrefabSerial = 1;
-    int nextPlacementSerial = 1;
+    int nextThingSerial = 1;
 };
 
 struct Editor {
@@ -95,11 +95,11 @@ struct Editor {
     std::string numericBuffer;
     PlaceTarget placeTarget = PlaceTarget::PrefabInstance;
     std::string placePrefabPath;
-    std::optional<slopengine::PlacementKind> placePlacementKind;
+    std::optional<slopengine::ThingKind> placeThingKind;
     std::string placeSpritePath;
     std::string placeGeoPath;
-    std::filesystem::path baseGamePath;
-    std::string packageId = "slopengine.base";
+    std::filesystem::path writePackageRoot;
+    std::string writePackageId = "slopengine.base";
     s7_scheme* scheme = nullptr;
     std::vector<slopengine::Brush> expandedInstanceBrushes;
     std::vector<int> expandedInstanceOwners;
@@ -123,7 +123,7 @@ struct Editor {
     void toggleOrthoTop();
     std::string allocateBrushId();
     std::string allocatePrefabId();
-    std::string allocatePlacementId(const char* prefix);
+    std::string allocateThingId(const char* prefix);
     void clearSelection();
     void frameSelection();
     Vector3 selectionCenter() const;

@@ -1,4 +1,4 @@
-#include "map/entities_script.hpp"
+#include "map/things_script.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -11,14 +11,14 @@ namespace slopengine {
 
 namespace {
 
-struct PlacementLoadContext {
-    PlacementDocument* doc = nullptr;
+struct ThingLoadContext {
+    ThingDocument* doc = nullptr;
     AssetStore* assets = nullptr;
     std::unordered_set<std::string> usedIds;
     bool sawPlayerStart = false;
 };
 
-PlacementLoadContext* g_context = nullptr;
+ThingLoadContext* g_context = nullptr;
 
 s7_pointer makeTaggedList(s7_scheme* sc, const char* tag, s7_pointer rest) {
     return s7_cons(sc, s7_make_symbol(sc, tag), rest);
@@ -61,7 +61,7 @@ bool claimId(const std::string& id) {
         return false;
     }
     if (!g_context->usedIds.insert(id).second) {
-        TraceLog(LOG_WARNING, "ENTITY: duplicate id '%s'", id.c_str());
+        TraceLog(LOG_WARNING, "THING: duplicate id '%s'", id.c_str());
         return false;
     }
     return true;
@@ -178,7 +178,7 @@ s7_pointer g_size(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "size", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
 }
 
-void parsePlacementClauses(s7_scheme* sc, s7_pointer args, Placement& out) {
+void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
         s7_pointer clause = s7_car(cursor);
         if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
@@ -252,30 +252,30 @@ void parsePlacementClauses(s7_scheme* sc, s7_pointer args, Placement& out) {
     }
 }
 
-s7_pointer appendPlacement(s7_scheme* sc, Placement placement, const char* requireMsg, bool requireAt) {
+s7_pointer appendThing(s7_scheme* sc, Thing placement, const char* requireMsg, bool requireAt) {
     if (g_context == nullptr || g_context->doc == nullptr) {
         return s7_error(
             sc,
-            s7_make_symbol(sc, "entity-error"),
-            s7_list(sc, 1, s7_make_string(sc, "placement called outside entity load")));
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing called outside thing load")));
     }
 
     if (placement.id.empty() || (requireAt && !placement.haveAt)) {
         return s7_error(
             sc,
-            s7_make_symbol(sc, "entity-error"),
+            s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, requireMsg)));
     }
 
-    if (placement.kind == PlacementKind::PlayerStart) {
+    if (placement.kind == ThingKind::PlayerStart) {
         if (g_context->sawPlayerStart) {
-            TraceLog(LOG_WARNING, "ENTITY: ignoring extra player-start '%s'", placement.id.c_str());
+            TraceLog(LOG_WARNING, "THING: ignoring extra player-start '%s'", placement.id.c_str());
             claimId(placement.id);
             return s7_t(sc);
         }
         g_context->sawPlayerStart = true;
         claimId(placement.id);
-        g_context->doc->placements.push_back(std::move(placement));
+        g_context->doc->things.push_back(std::move(placement));
         return s7_t(sc);
     }
 
@@ -283,81 +283,81 @@ s7_pointer appendPlacement(s7_scheme* sc, Placement placement, const char* requi
         return s7_f(sc);
     }
 
-    g_context->doc->placements.push_back(std::move(placement));
+    g_context->doc->things.push_back(std::move(placement));
     return s7_t(sc);
 }
 
 s7_pointer g_player_start(s7_scheme* sc, s7_pointer args) {
-    Placement placement{};
-    placement.kind = PlacementKind::PlayerStart;
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "player-start requires id and at", true);
+    Thing placement{};
+    placement.kind = ThingKind::PlayerStart;
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "player-start requires id and at", true);
 }
 
 s7_pointer g_prop(s7_scheme* sc, s7_pointer args) {
-    Placement placement{};
-    placement.kind = PlacementKind::Prop;
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "prop requires id and at", true);
+    Thing placement{};
+    placement.kind = ThingKind::Prop;
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "prop requires id and at", true);
 }
 
 s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
-    Placement placement{};
-    placement.kind = PlacementKind::Usable;
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "usable requires id and at", true);
+    Thing placement{};
+    placement.kind = ThingKind::Usable;
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "usable requires id and at", true);
 }
 
 s7_pointer g_point_light(s7_scheme* sc, s7_pointer args) {
-    Placement placement = makeDefaultLightPlacement(PlacementKind::PointLight);
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "point-light requires id and at", true);
+    Thing placement = makeDefaultLightThing(ThingKind::PointLight);
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "point-light requires id and at", true);
 }
 
 s7_pointer g_spot_light(s7_scheme* sc, s7_pointer args) {
-    Placement placement = makeDefaultLightPlacement(PlacementKind::SpotLight);
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "spot-light requires id and at", true);
+    Thing placement = makeDefaultLightThing(ThingKind::SpotLight);
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "spot-light requires id and at", true);
 }
 
 s7_pointer g_area_light(s7_scheme* sc, s7_pointer args) {
-    Placement placement = makeDefaultLightPlacement(PlacementKind::AreaLight);
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "area-light requires id and at", true);
+    Thing placement = makeDefaultLightThing(ThingKind::AreaLight);
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "area-light requires id and at", true);
 }
 
 s7_pointer g_sun(s7_scheme* sc, s7_pointer args) {
-    Placement placement = makeDefaultLightPlacement(PlacementKind::Sun);
-    parsePlacementClauses(sc, args, placement);
-    return appendPlacement(sc, std::move(placement), "sun requires id", false);
+    Thing placement = makeDefaultLightThing(ThingKind::Sun);
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "sun requires id", false);
 }
 
 s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
     if (g_context == nullptr || g_context->doc == nullptr) {
         return s7_error(
             sc,
-            s7_make_symbol(sc, "entity-error"),
-            s7_list(sc, 1, s7_make_string(sc, "prefab called outside entity load")));
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab called outside thing load")));
     }
 
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "prefab", 1, args, "path");
     }
 
-    Placement placement{};
-    placement.kind = PlacementKind::Prefab;
+    Thing placement{};
+    placement.kind = ThingKind::Prefab;
     if (!readString(sc, s7_car(args), placement.prefabPath) || placement.prefabPath.empty()) {
         return s7_error(
             sc,
-            s7_make_symbol(sc, "entity-error"),
+            s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "prefab requires a path")));
     }
 
-    parsePlacementClauses(sc, s7_cdr(args), placement);
+    parseThingClauses(sc, s7_cdr(args), placement);
     if (placement.id.empty()) {
         return s7_error(
             sc,
-            s7_make_symbol(sc, "entity-error"),
+            s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "prefab requires id")));
     }
 
@@ -365,11 +365,11 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
-    g_context->doc->placements.push_back(std::move(placement));
+    g_context->doc->things.push_back(std::move(placement));
     return s7_t(sc);
 }
 
-void bindEntityApi(s7_scheme* sc) {
+void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
     s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
     s7_define_function(sc, "yaw", g_yaw, 1, 0, false, "(yaw radians)");
@@ -395,7 +395,7 @@ void bindEntityApi(s7_scheme* sc) {
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
 }
 
-std::optional<PlacementDocument> evaluatePlacements(
+std::optional<ThingDocument> evaluateThings(
     s7_scheme* scheme,
     AssetStore& assets,
     bool (*loader)(AssetStore&, s7_scheme*, std::string_view),
@@ -404,12 +404,12 @@ std::optional<PlacementDocument> evaluatePlacements(
         return std::nullopt;
     }
 
-    PlacementDocument doc{};
-    PlacementLoadContext context{};
+    ThingDocument doc{};
+    ThingLoadContext context{};
     context.doc = &doc;
     context.assets = &assets;
     g_context = &context;
-    bindEntityApi(scheme);
+    bindThingApi(scheme);
 
     const bool loaded = loader(assets, scheme, virtualPath);
     g_context = nullptr;
@@ -420,30 +420,30 @@ std::optional<PlacementDocument> evaluatePlacements(
     return doc;
 }
 
-bool loadMapEntitiesThunk(AssetStore& assets, s7_scheme* scheme, std::string_view path) {
-    return assets.loadMapEntities(scheme, path);
+bool loadMapThingsThunk(AssetStore& assets, s7_scheme* scheme, std::string_view path) {
+    return assets.loadMapThings(scheme, path);
 }
 
-bool loadPrefabEntitiesThunk(AssetStore& assets, s7_scheme* scheme, std::string_view path) {
-    return assets.loadPrefabEntities(scheme, path);
+bool loadPrefabThingsThunk(AssetStore& assets, s7_scheme* scheme, std::string_view path) {
+    return assets.loadPrefabThings(scheme, path);
 }
 
 } // namespace
 
-std::optional<PlacementDocument> loadMapPlacements(
+std::optional<ThingDocument> loadMapThings(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
-    const std::string virtualPath = std::string(mapName) + "/entities";
-    if (!assets.hasMapEntities(virtualPath)) {
-        return PlacementDocument{};
+    const std::string virtualPath = std::string(mapName) + "/things";
+    if (!assets.hasMapThings(virtualPath)) {
+        return ThingDocument{};
     }
 
-    auto doc = evaluatePlacements(scheme, assets, loadMapEntitiesThunk, virtualPath);
+    auto doc = evaluateThings(scheme, assets, loadMapThingsThunk, virtualPath);
     if (!doc) {
         TraceLog(
             LOG_WARNING,
-            "ENTITY: failed to evaluate entities.s7 for map '%.*s'",
+            "THING: failed to evaluate things.s7 for map '%.*s'",
             static_cast<int>(mapName.size()),
             mapName.data());
         return std::nullopt;
@@ -451,19 +451,19 @@ std::optional<PlacementDocument> loadMapPlacements(
     return doc;
 }
 
-std::optional<PlacementDocument> loadPrefabPlacements(
+std::optional<ThingDocument> loadPrefabThings(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view prefabPath) {
-    if (!assets.hasPrefabEntities(prefabPath)) {
-        return PlacementDocument{};
+    if (!assets.hasPrefabThings(prefabPath)) {
+        return ThingDocument{};
     }
 
-    auto doc = evaluatePlacements(scheme, assets, loadPrefabEntitiesThunk, prefabPath);
+    auto doc = evaluateThings(scheme, assets, loadPrefabThingsThunk, prefabPath);
     if (!doc) {
         TraceLog(
             LOG_WARNING,
-            "ENTITY: failed to evaluate prefab entities for '%.*s'",
+            "THING: failed to evaluate prefab things for '%.*s'",
             static_cast<int>(prefabPath.size()),
             prefabPath.data());
         return std::nullopt;

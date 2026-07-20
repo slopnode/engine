@@ -35,10 +35,10 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::MapBsp: return "maps";
     case AssetKind::MapRad: return "maps";
     case AssetKind::MapLightmap: return "maps";
-    case AssetKind::MapEntities: return "maps";
+    case AssetKind::MapThings: return "maps";
     case AssetKind::MapGraphs: return "maps";
     case AssetKind::PrefabCsg: return "prefabs";
-    case AssetKind::PrefabEntities: return "prefabs";
+    case AssetKind::PrefabThings: return "prefabs";
     case AssetKind::Sprite: return "sprites";
     case AssetKind::SpriteAnim: return "sprites";
     case AssetKind::Icon: return "icons";
@@ -67,10 +67,10 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::MapBsp: return ".bsp";
     case AssetKind::MapRad: return ".rad";
     case AssetKind::MapLightmap: return ".png";
-    case AssetKind::MapEntities: return ".s7";
+    case AssetKind::MapThings: return ".s7";
     case AssetKind::MapGraphs: return ".s7";
     case AssetKind::PrefabCsg: return ".csg";
-    case AssetKind::PrefabEntities: return ".s7";
+    case AssetKind::PrefabThings: return ".s7";
     case AssetKind::Sprite: return ".spr";
     case AssetKind::SpriteAnim: return ".spanim";
     case AssetKind::Icon: return ".png";
@@ -129,7 +129,9 @@ bool VirtualFileSystem::exists(AssetKind kind, std::string_view virtualPath) con
     return resolve(kind, virtualPath).has_value();
 }
 
-std::optional<std::filesystem::path> VirtualFileSystem::resolve(AssetKind kind, std::string_view virtualPath) const {
+std::optional<ResolvedAsset> VirtualFileSystem::resolveOwned(
+    AssetKind kind,
+    std::string_view virtualPath) const {
     if (packages_.empty()) {
         return std::nullopt;
     }
@@ -147,10 +149,19 @@ std::optional<std::filesystem::path> VirtualFileSystem::resolve(AssetKind kind, 
         const auto candidate = it->root() / directory / filename;
         const auto resolved = followSymlinks(candidate);
         if (!resolved.empty() && std::filesystem::exists(resolved)) {
-            return resolved;
+            return ResolvedAsset{resolved, &(*it)};
         }
     }
 
+    return std::nullopt;
+}
+
+std::optional<std::filesystem::path> VirtualFileSystem::resolve(
+    AssetKind kind,
+    std::string_view virtualPath) const {
+    if (auto owned = resolveOwned(kind, virtualPath)) {
+        return std::move(owned->path);
+    }
     return std::nullopt;
 }
 

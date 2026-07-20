@@ -53,8 +53,8 @@ public:
     /** Returns true when a map CSG script exists at @p path. */
     bool hasMapCsg(std::string_view path) const;
 
-    /** Returns true when a map entities script exists at @p path. */
-    bool hasMapEntities(std::string_view path) const;
+    /** Returns true when a map things script exists at @p path. */
+    bool hasMapThings(std::string_view path) const;
 
     /** Returns true when a map graphs script exists at @p path. */
     bool hasMapGraphs(std::string_view path) const;
@@ -65,8 +65,8 @@ public:
     /** Returns true when a prefab CSG script exists at @p path. */
     bool hasPrefabCsg(std::string_view path) const;
 
-    /** Returns true when a prefab entities script exists at @p path. */
-    bool hasPrefabEntities(std::string_view path) const;
+    /** Returns true when a prefab things script exists at @p path. */
+    bool hasPrefabThings(std::string_view path) const;
 
     /** Returns true when a map meta file exists at @p path. */
     bool hasMapMeta(std::string_view path) const;
@@ -79,6 +79,9 @@ public:
 
     /** Resolves an asset to a filesystem path when present. */
     std::optional<std::filesystem::path> resolvePath(AssetKind kind, std::string_view path) const;
+
+    /** Resolves an asset path and the package that owns it. */
+    std::optional<ResolvedAsset> resolveOwned(AssetKind kind, std::string_view path) const;
 
     /** Returns true when a skeleton exists at @p path. */
     bool hasSkeleton(std::string_view path) const;
@@ -209,8 +212,8 @@ public:
     /** Loads and evaluates the map CSG script at @p path in @p scheme. */
     bool loadMapCsg(s7_scheme* scheme, std::string_view path);
 
-    /** Loads and evaluates the map entities script at @p path in @p scheme. */
-    bool loadMapEntities(s7_scheme* scheme, std::string_view path);
+    /** Loads and evaluates the map things script at @p path in @p scheme. */
+    bool loadMapThings(s7_scheme* scheme, std::string_view path);
 
     /** Loads and evaluates the map graphs script at @p path in @p scheme. */
     bool loadMapGraphs(s7_scheme* scheme, std::string_view path);
@@ -221,8 +224,8 @@ public:
     /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
     bool loadPrefabCsg(s7_scheme* scheme, std::string_view path);
 
-    /** Loads and evaluates the prefab entities script at @p path in @p scheme. */
-    bool loadPrefabEntities(s7_scheme* scheme, std::string_view path);
+    /** Loads and evaluates the prefab things script at @p path in @p scheme. */
+    bool loadPrefabThings(s7_scheme* scheme, std::string_view path);
 
 private:
     static std::string cacheKey(std::string_view path);

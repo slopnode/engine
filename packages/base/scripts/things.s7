@@ -42,16 +42,16 @@
 (define (inv-print)
   (format #t "inventory: ~a~%" *inventory*))
 
-(define (on-use-test entity-id)
-  (format #t "used ~a~%" entity-id)
+(define (on-use-test thing-id)
+  (format #t "used ~a~%" thing-id)
   (inv-print))
 
-(define (on-use-medkit entity-id)
-  (format #t "pickup medkit from ~a~%" entity-id)
+(define (on-use-medkit thing-id)
+  (format #t "pickup medkit from ~a~%" thing-id)
   (inv-add "medkit" 1)
   (inv-print))
 
-(define (on-use-key-red entity-id)
-  (format #t "pickup key-red from ~a~%" entity-id)
+(define (on-use-key-red thing-id)
+  (format #t "pickup key-red from ~a~%" thing-id)
   (inv-add "key-red" 1)
   (inv-print))

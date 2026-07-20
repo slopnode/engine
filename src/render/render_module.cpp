@@ -6,7 +6,7 @@
 #include "camera/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
-#include "map/entity_script.hpp"
+#include "map/things_spawn.hpp"
 #include "map/graph.hpp"
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
@@ -1242,31 +1242,7 @@ void registerRenderSystems(flecs::world& world) {
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
-            flecs::world world = it.world();
-            if (world.has<MapBsp>()) {
-                const MapBsp& mapBsp = world.get<MapBsp>();
-                Vector3 sample{0.0f, 1.5f, 0.0f};
-                flecs::entity camera = world.lookup("Player");
-                if (camera.is_valid() && camera.has<Lens>()) {
-                    sample = camera.get<Lens>().camera.position;
-                }
-                const std::int32_t leaf = pointLeaf(mapBsp.tree, sample);
-                const bool empty = leafIsEmpty(mapBsp.tree, leaf);
-                const int neighborCount =
-                    leaf >= 0 ? static_cast<int>(leafNeighbors(mapBsp.tree, leaf).size()) : 0;
-                const char* label = TextFormat(
-                    "BSP leaf %d (%s) neighbors %d",
-                    leaf,
-                    empty ? "empty" : (leaf < 0 ? "out" : "solid"),
-                    neighborCount);
-                constexpr int kFontSize = 16;
-                constexpr int kPad = 8;
-                const int barHeight = kFontSize + kPad * 2;
-                const int screenW = GetScreenWidth();
-                const int screenH = GetScreenHeight();
-                DrawRectangle(0, screenH - barHeight, screenW, barHeight, Color{0, 0, 0, 160});
-                DrawText(label, kPad, screenH - barHeight + kPad, kFontSize, LIME);
-            }
+            (void)it;
             EndDrawing();
         });
 }
@@ -1348,7 +1324,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         }
     }
 
-    const PlayerStart playerStart = loadMapEntities(scheme, world, assets, mapName);
+    const PlayerStart playerStart = spawnMapThings(scheme, world, assets, mapName);
 
     {
         MapGraphs mapGraphs{};

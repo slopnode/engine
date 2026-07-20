@@ -110,8 +110,8 @@ bool parseMapMeta(std::string_view source, MapMeta& out) {
             out.id = *id;
         } else if (auto name = readQuotedField(line, "(name ")) {
             out.name = *name;
-        } else if (auto package = readQuotedField(line, "(package ")) {
-            out.package = *package;
+        } else if (readQuotedField(line, "(package ")) {
+            // Ignored: ownership comes from the package directory that contains the map.
         } else if (line.rfind("(depends", 0) == 0) {
             if (!readDepends(line, out.depends)) {
                 return false;
@@ -130,7 +130,7 @@ bool parseMapMeta(std::string_view source, MapMeta& out) {
         lineStart = lineEnd + 1;
     }
 
-    return !out.id.empty() && !out.package.empty();
+    return !out.id.empty();
 }
 
 }

@@ -1,8 +1,8 @@
-# Placements
+# Things
 
-Placed content in a level—static props, usables, lights, and (later) actors—are authored in `maps/<name>/entities.s7`. A **placement** is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs **entity** from each placement. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
+Placed content in a level—static props, usables, lights, and (later) actors—are authored in `maps/<name>/things.s7`. A **thing** is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs **entity** from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
 
-World solids stay in CSG / BSP ([Maps](maps.md)). Placement presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
+World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
 
 ## Kinds
 
@@ -10,10 +10,10 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Placement presentation uses sp
 |------|----------|------------|
 | Static prop | `(prop …)` | Visual only: sprite or mesh at a pose. No interact, no AI. |
 | Usable | `(usable …)` | Same presentation as a prop, plus an interact prompt and optional Scheme `on-use`. |
-| Point light | `(point-light …)` | Local omnidirectional light placement (bake + gizmos; see [Lights](lights.md)). |
-| Spot light | `(spot-light …)` | Directed cone light placement (bake + gizmos). |
-| Area light | `(area-light …)` | Rectangular area light placement (authoring / gizmo). |
-| Sun | `(sun …)` | Directional sun placement (authoring / gizmo; optional `at` for editor). |
+| Point light | `(point-light …)` | Local omnidirectional light thing (bake + gizmos; see [Lights](lights.md)). |
+| Spot light | `(spot-light …)` | Directed cone light thing (bake + gizmos). |
+| Area light | `(area-light …)` | Rectangular area light thing (authoring / gizmo). |
+| Sun | `(sun …)` | Directional sun thing (authoring / gizmo; optional `at` for editor). |
 | Actor | — | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
 | Player | `(player-start …)` | Spawn pose only; the `Player` entity is built by the engine. |
 
@@ -21,11 +21,11 @@ These forms are **engine Scheme bindings**—always available regardless of whic
 
 Debug entity list labels match this split: `prop`, `usable`, `point-light`, `spot-light`, `area-light`, `sun`, `player` (plus `map` for `MapStatic`).
 
-`slopmap` edits placements in the **Placements** outliner and Library palette (load/save of `entities.s7`). Viewport shows sprite/geo previews and light gizmos.
+`slopmap` edits things in the **Things** outliner and Library palette (load/save of `things.s7`). Viewport shows sprite/geo previews and light gizmos.
 
-## Placement file
+## Thing file
 
-`maps/<name>/entities.s7` is optional Scheme evaluated after map geometry. Engine bindings are active only during that load. Ids must be unique within the file. Missing file → no placed props/usables/lights; player uses the default spawn.
+`maps/<name>/things.s7` is optional Scheme evaluated after map geometry. Engine bindings are active only during that load. Ids must be unique within the file. Missing file → no placed props/usables/lights; player uses the default spawn.
 
 ```text
 (prop
@@ -86,7 +86,7 @@ Failed presentation (missing asset, both or neither of `sprite`/`geo`) destroys 
 
 ## Usables (`usable`)
 
-Same clauses as `prop`, plus interact fields. The entity is still a static placement—no navigation—but the player can aim at it and press Interact.
+Same clauses as `prop`, plus interact fields. The entity is still a static thing—no navigation—but the player can aim at it and press Interact.
 
 | Field | Required | Notes |
 |-------|----------|-------|
@@ -109,7 +109,7 @@ Usables are the content-facing wrapper around the engine `Interactable` primitiv
 
 ## Lights
 
-Light placements are engine forms that always exist. They spawn flecs entities with light components and a transform. Point and spot placements contribute to the radiosity bake; at runtime the dynamic overlay uses a separate `DynamicLight` path (for example the FP flashlight). Full detail: [Lights](lights.md).
+Light things are engine forms that always exist. They spawn flecs entities with light components and a transform. Point and spot things contribute to the radiosity bake; at runtime the dynamic overlay uses a separate `DynamicLight` path (for example the FP flashlight). Full detail: [Lights](lights.md).
 
 Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (default `1`).
 
@@ -126,7 +126,7 @@ Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (defa
 
 - **Prop** — placed, may animate a sprite clip, does not think or pathfind.
 - **Usable** — static (or later movable) fixture the player uses.
-- **Light** — illumination placement (bake for point/spot; runtime dynamic overlay is separate—[Lights](lights.md)).
+- **Light** — illumination thing (bake for point/spot; runtime dynamic overlay is separate—[Lights](lights.md)).
 - **Player** — engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)).
 
 There is no `(actor …)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop …)` (optionally with `(anim …)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top—behavior owned by package scripts where possible, with engine primitives for movement and sensing.
@@ -138,29 +138,29 @@ Two Scheme layers share one s7 heap for the run:
 | Source | When | Purpose |
 |--------|------|---------|
 | `scripts/init.s7` | App start | Package bootstrap (version, shared defs). |
-| `scripts/entities.s7` | App start (after `init`) | Handlers and helpers for placed content (`on-use`, later prefabs). |
+| `scripts/things.s7` | App start (after `init`) | Handlers and helpers for placed content (`on-use`, later prefabs). |
 | `scripts/player.s7` | After FP Scheme API bind (before map spawn) | First-person **presentation**: `(prepare-first-person)`, `(on-action-flashlight)`, etc. Game rules stay in package state; FP API only mirrors them. |
-| `maps/<name>/entities.s7` | Map load | Placement only: `player-start`, `prop`, `usable`, lights, `prefab`. |
+| `maps/<name>/things.s7` | Map load | Thing only: `player-start`, `prop`, `usable`, lights, `prefab`. |
 
-Virtual paths omit the extension: `init`, `entities`, `player`, `<map>/entities`. Later packages override earlier ones at the same path.
+Virtual paths omit the extension: `init`, `things`, `player`, `<map>/things`. Later packages override earlier ones at the same path.
 
 ### `on-use` handlers
 
-Define a procedure in `scripts/entities.s7` (or anything loaded into the same environment). The name in `(on-use "…")` must match.
+Define a procedure in `scripts/things.s7` (or anything loaded into the same environment). The name in `(on-use "…")` must match.
 
 ```text
-(define (on-use-test entity-id)
-  (format #t "used ~a~%" entity-id))
+(define (on-use-test thing-id)
+  (format #t "used ~a~%" thing-id))
 ```
 
-The engine looks up the name with `s7_name_to_value`, checks it is a procedure, and calls it with the entity id string. There is no entity object API in Scheme yet—only that id—so handlers today are side-effect stubs (log, set game state you keep in Scheme, etc.). Missing or non-procedure names fall back to the inspect UI.
+The engine looks up the name with `s7_name_to_value`, checks it is a procedure, and calls it with the thing id string (the flecs entity name). There is no entity object API in Scheme yet—only that id—so handlers today are side-effect stubs (log, set game state you keep in Scheme, etc.). Missing or non-procedure names fall back to the inspect UI.
 
 ### What belongs where
 
-- **Map `entities.s7`** — instance data: where placements are, which sprite/geo, which handler name, prompts, light params.
+- **Map `things.s7`** — instance data: where things are, which sprite/geo, which handler name, prompts, light params.
 - **Package `scripts/`** — reusable behavior and, over time, constructors that wrap engine forms (`usable`, lights, future trigger / movable / actor) so levels stay thin.
-- **Engine** — spawn bindings, presentation, interact ray, player pawn, light placement forms. Not content catalogs (no built-in “USMC guard” type).
+- **Engine** — spawn bindings, presentation, interact ray, player pawn, light thing forms. Not content catalogs (no built-in “USMC guard” type).
 
 ### Extending without engine churn
 
-Prefer new package procedures and map calls over new C++ placement kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, rigid mover, light type), that is when a new engine primitive earns a map binding; content still supplies meshes, prompts, and Scheme reactions.
+Prefer new package procedures and map calls over new C++ thing kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, rigid mover, light type), that is when a new engine primitive earns a map binding; content still supplies meshes, prompts, and Scheme reactions.

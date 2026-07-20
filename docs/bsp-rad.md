@@ -17,7 +17,7 @@ cmake --build build --target slopbsp sloprad
 
 | Stage | Input | Output | Required to load map? |
 |-------|--------|--------|------------------------|
-| Author | — | `map.meta`, `static.csg` (+ optional `entities.s7`) | meta + CSG yes |
+| Author | — | `map.meta`, `static.csg` (+ optional `things.s7`) | meta + CSG yes |
 | `slopbsp` | meta + CSG (hull brushes) | `static.bsp` | yes |
 | `sloprad` | meta + CSG + `static.bsp` + materials/textures | `rad/static.rad`, `rad/atlasN.png` | no |
 
@@ -101,7 +101,7 @@ Entry point: `tools/sloprad/main.cpp`. Bake: `bakeRadiosity` in `src/map/radiosi
 3. Load map meta (ambient color), require `static.bsp`, load brushes from CSG.
 4. `analyzeMapHull`. If sealed, `applyInferredNodraw`. If leaky, warn and keep authored nodraw only (bake still proceeds).
 5. `collectLightmapFaces` — every non-nodraw face from **hull and detail**.
-6. Collect `point-light` / `spot-light` placements from `entities.s7` (and prefabs) as bake emitters.
+6. Collect `point-light` / `spot-light` things from `things.s7` (and prefabs) as bake emitters.
 7. Delete and recreate `maps/<name>/rad/`.
 8. `bakeRadiosity` → `static.rad` + atlas PNGs named from the rad sidecar (`atlas0.png`, …).
 
@@ -144,7 +144,7 @@ Emission at a world point: `emission-color * emission-power`, multiplied by the 
 
 ### `RAD1` sidecar
 
-Magic `RAD1` (`0x31444152`), version `2`. Stores luxels-per-meter, atlas texture path stems + sizes, and charts keyed by face id / face index with atlas placement and UV bounds. Atlases are separate PNGs; the sidecar does not embed pixels.
+Magic `RAD1` (`0x31444152`), version `2`. Stores luxels-per-meter, atlas texture path stems + sizes, and charts keyed by face id / face index with atlas thing and UV bounds. Atlases are separate PNGs; the sidecar does not embed pixels.
 
 ### Runtime relationship
 
@@ -158,7 +158,7 @@ At map load, if `rad/` loads, chart UVs become mesh lightmap UV2 and atlas textu
 | Detail brushes only (no hull / face-id churn) | Often `sloprad` alone; run `slopbsp` if you care about detail-outside warnings or stale analysis |
 | Face ids | Both (charts key off ids) |
 | Materials, albedo, emission, ambient | `sloprad` |
-| `entities.s7` light placement change | Re-bake `sloprad` if point/spot should change static light; runtime `DynamicLight` is separate ([Lights](lights.md)) |
+| `things.s7` light thing change | Re-bake `sloprad` if point/spot should change static light; runtime `DynamicLight` is separate ([Lights](lights.md)) |
 | Authored `(nodraw)` | `sloprad` (and `slopbsp` if you want analysis logs refreshed) |
 
 ## Source map

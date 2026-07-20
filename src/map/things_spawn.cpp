@@ -1,8 +1,8 @@
-#include "map/entity_script.hpp"
+#include "map/things_spawn.hpp"
 
 #include "assets/skeleton_loader.hpp"
 #include "interact/components.hpp"
-#include "map/entities_script.hpp"
+#include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
@@ -38,13 +38,13 @@ bool claimId(SpawnContext& ctx, const std::string& id) {
         return false;
     }
     if (!ctx.usedIds.insert(id).second) {
-        TraceLog(LOG_WARNING, "ENTITY: duplicate id '%s'", id.c_str());
+        TraceLog(LOG_WARNING, "THING: duplicate id '%s'", id.c_str());
         return false;
     }
     return true;
 }
 
-Placement transformPlacement(const SpawnContext& ctx, Placement placement) {
+Thing transformThing(const SpawnContext& ctx, Thing placement) {
     if (!ctx.inPrefab) {
         return placement;
     }
@@ -68,7 +68,7 @@ Placement transformPlacement(const SpawnContext& ctx, Placement placement) {
     return placement;
 }
 
-LocalTransformation makeLocalTransform(const Placement& placement, const SpawnContext& ctx) {
+LocalTransformation makeLocalTransform(const Thing& placement, const SpawnContext& ctx) {
     LocalTransformation local{};
     local.position = placement.haveAt ? placement.at : Vector3{0.0f, 0.0f, 0.0f};
     local.scale = {1.0f, 1.0f, 1.0f};
@@ -90,13 +90,13 @@ LocalTransformation makeLocalTransform(const Placement& placement, const SpawnCo
     return local;
 }
 
-bool applyPresentation(flecs::entity entity, const Placement& placement, SpawnContext& ctx) {
+bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     const bool hasSprite = !placement.sprite.empty();
     const bool hasGeo = !placement.geo.empty();
     if (hasSprite == hasGeo) {
         TraceLog(
             LOG_WARNING,
-            "ENTITY: '%s' requires exactly one of sprite or geo",
+            "THING: '%s' requires exactly one of sprite or geo",
             placement.id.c_str());
         return false;
     }
@@ -112,7 +112,7 @@ bool applyPresentation(flecs::entity entity, const Placement& placement, SpawnCo
         if (ctx.assets == nullptr || !ctx.assets->hasSprite(placement.sprite)) {
             TraceLog(
                 LOG_WARNING,
-                "ENTITY: missing sprite '%s' for '%s'",
+                "THING: missing sprite '%s' for '%s'",
                 placement.sprite.c_str(),
                 placement.id.c_str());
             return false;
@@ -136,7 +136,7 @@ bool applyPresentation(flecs::entity entity, const Placement& placement, SpawnCo
     if (ctx.assets == nullptr || !ctx.assets->hasGeo(placement.geo)) {
         TraceLog(
             LOG_WARNING,
-            "ENTITY: missing geo '%s' for '%s'",
+            "THING: missing geo '%s' for '%s'",
             placement.geo.c_str(),
             placement.id.c_str());
         return false;
@@ -147,7 +147,7 @@ bool applyPresentation(flecs::entity entity, const Placement& placement, SpawnCo
     if (model.meshCount <= 0) {
         TraceLog(
             LOG_WARNING,
-            "ENTITY: failed to load geo '%s' for '%s'",
+            "THING: failed to load geo '%s' for '%s'",
             placement.geo.c_str(),
             placement.id.c_str());
         return false;
@@ -157,17 +157,17 @@ bool applyPresentation(flecs::entity entity, const Placement& placement, SpawnCo
     return true;
 }
 
-void spawnLight(flecs::entity entity, const Placement& placement, SpawnContext& ctx) {
+void spawnLight(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
     switch (placement.kind) {
-    case PlacementKind::PointLight:
+    case ThingKind::PointLight:
         entity.set<PointLight>({
             .color = placement.color,
             .intensity = placement.intensity,
             .range = placement.range,
         });
         break;
-    case PlacementKind::SpotLight:
+    case ThingKind::SpotLight:
         entity.set<SpotLight>({
             .color = placement.color,
             .intensity = placement.intensity,
@@ -175,14 +175,14 @@ void spawnLight(flecs::entity entity, const Placement& placement, SpawnContext& 
             .coneAngle = placement.coneAngle,
         });
         break;
-    case PlacementKind::AreaLight:
+    case ThingKind::AreaLight:
         entity.set<AreaLight>({
             .color = placement.color,
             .intensity = placement.intensity,
             .size = placement.size,
         });
         break;
-    case PlacementKind::Sun:
+    case ThingKind::Sun:
         entity.set<SunLight>({
             .color = placement.color,
             .intensity = placement.intensity,
@@ -193,26 +193,26 @@ void spawnLight(flecs::entity entity, const Placement& placement, SpawnContext& 
     }
 }
 
-void spawnOne(SpawnContext& ctx, Placement placement);
+void spawnOne(SpawnContext& ctx, Thing placement);
 
-void spawnPrefab(SpawnContext& ctx, const Placement& placement) {
+void spawnPrefab(SpawnContext& ctx, const Thing& placement) {
     if (ctx.assets == nullptr || ctx.scheme == nullptr) {
         return;
     }
-    if (!ctx.assets->hasPrefabEntities(placement.prefabPath)) {
+    if (!ctx.assets->hasPrefabThings(placement.prefabPath)) {
         return;
     }
     if (std::find(ctx.nestStack.begin(), ctx.nestStack.end(), placement.prefabPath) !=
         ctx.nestStack.end()) {
-        TraceLog(LOG_WARNING, "ENTITY: prefab cycle detected for '%s'", placement.prefabPath.c_str());
+        TraceLog(LOG_WARNING, "THING: prefab cycle detected for '%s'", placement.prefabPath.c_str());
         return;
     }
 
-    auto nested = loadPrefabPlacements(ctx.scheme, *ctx.assets, placement.prefabPath);
+    auto nested = loadPrefabThings(ctx.scheme, *ctx.assets, placement.prefabPath);
     if (!nested) {
         TraceLog(
             LOG_WARNING,
-            "ENTITY: failed to load prefab entities '%s'",
+            "THING: failed to load prefab things '%s'",
             placement.prefabPath.c_str());
         return;
     }
@@ -246,7 +246,7 @@ void spawnPrefab(SpawnContext& ctx, const Placement& placement) {
     ctx.prefabAngles = worldAngles;
     ctx.nestStack.push_back(placement.prefabPath);
 
-    for (const Placement& child : nested->placements) {
+    for (const Thing& child : nested->things) {
         spawnOne(ctx, child);
     }
 
@@ -257,15 +257,15 @@ void spawnPrefab(SpawnContext& ctx, const Placement& placement) {
     ctx.prefabAngles = savedAngles;
 }
 
-void spawnOne(SpawnContext& ctx, Placement placement) {
-    placement = transformPlacement(ctx, std::move(placement));
+void spawnOne(SpawnContext& ctx, Thing placement) {
+    placement = transformThing(ctx, std::move(placement));
 
-    if (placement.kind == PlacementKind::PlayerStart) {
+    if (placement.kind == ThingKind::PlayerStart) {
         if (!claimId(ctx, placement.id)) {
             return;
         }
         if (ctx.playerStart.found) {
-            TraceLog(LOG_WARNING, "ENTITY: ignoring extra player-start '%s'", placement.id.c_str());
+            TraceLog(LOG_WARNING, "THING: ignoring extra player-start '%s'", placement.id.c_str());
             return;
         }
         ctx.playerStart.position = placement.haveAt ? placement.at : ctx.playerStart.position;
@@ -274,7 +274,7 @@ void spawnOne(SpawnContext& ctx, Placement placement) {
         return;
     }
 
-    if (placement.kind == PlacementKind::Prefab) {
+    if (placement.kind == ThingKind::Prefab) {
         if (!claimId(ctx, placement.id)) {
             return;
         }
@@ -288,12 +288,12 @@ void spawnOne(SpawnContext& ctx, Placement placement) {
 
     flecs::entity entity = ctx.world->entity(placement.id.c_str());
 
-    if (placementKindNeedsPresentation(placement.kind)) {
+    if (thingKindNeedsPresentation(placement.kind)) {
         if (!applyPresentation(entity, placement, ctx)) {
             entity.destruct();
             return;
         }
-        if (placement.kind == PlacementKind::Usable) {
+        if (placement.kind == ThingKind::Usable) {
             entity.set<Interactable>({
                 .prompt = placement.prompt,
                 .eventName = placement.onUse,
@@ -303,7 +303,7 @@ void spawnOne(SpawnContext& ctx, Placement placement) {
         return;
     }
 
-    if (placementKindIsLight(placement.kind)) {
+    if (thingKindIsLight(placement.kind)) {
         spawnLight(entity, placement, ctx);
         return;
     }
@@ -313,21 +313,21 @@ void spawnOne(SpawnContext& ctx, Placement placement) {
 
 } // namespace
 
-void spawnPlacements(
+void spawnThings(
     flecs::world& world,
     AssetStore& assets,
     s7_scheme* scheme,
-    const PlacementDocument& doc) {
+    const ThingDocument& doc) {
     SpawnContext ctx{};
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
-    for (const Placement& placement : doc.placements) {
+    for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
 }
 
-PlayerStart loadMapEntities(
+PlayerStart spawnMapThings(
     s7_scheme* scheme,
     flecs::world& world,
     AssetStore& assets,
@@ -337,17 +337,17 @@ PlayerStart loadMapEntities(
         return defaults;
     }
 
-    const std::string virtualPath = std::string(mapName) + "/entities";
-    if (!assets.hasMapEntities(virtualPath)) {
+    const std::string virtualPath = std::string(mapName) + "/things";
+    if (!assets.hasMapThings(virtualPath)) {
         TraceLog(
             LOG_INFO,
-            "ENTITY: no entities.s7 for map '%.*s'",
+            "THING: no things.s7 for map '%.*s'",
             static_cast<int>(mapName.size()),
             mapName.data());
         return defaults;
     }
 
-    auto doc = loadMapPlacements(scheme, assets, mapName);
+    auto doc = loadMapThings(scheme, assets, mapName);
     if (!doc) {
         return defaults;
     }
@@ -356,12 +356,12 @@ PlayerStart loadMapEntities(
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
-    for (const Placement& placement : doc->placements) {
+    for (const Thing& placement : doc->things) {
         spawnOne(ctx, placement);
     }
 
     if (!ctx.playerStart.found) {
-        TraceLog(LOG_WARNING, "ENTITY: no player-start in entities.s7; using default spawn");
+        TraceLog(LOG_WARNING, "THING: no player-start in things.s7; using default spawn");
         return defaults;
     }
     return ctx.playerStart;

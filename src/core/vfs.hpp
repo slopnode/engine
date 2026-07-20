@@ -30,10 +30,10 @@ enum class AssetKind {
     MapBsp,        /**< maps/<name>/static.bsp */
     MapRad,        /**< maps/<name>/rad/static.rad */
     MapLightmap,   /**< maps/<name>/rad/atlas PNGs */
-    MapEntities,   /**< maps/<name>/entities.s7 */
+    MapThings,     /**< maps/<name>/things.s7 */
     MapGraphs,     /**< maps/<name>/graphs.s7 */
     PrefabCsg,     /**< .csg under prefabs/ */
-    PrefabEntities, /**< .s7 sidecar under prefabs/ */
+    PrefabThings,  /**< .s7 sidecar under prefabs/ */
     Sprite,        /**< .spr under sprites/ */
     SpriteAnim,    /**< .spanim under sprites/ */
     Icon,          /**< packed PNG under icons/ */
@@ -42,6 +42,12 @@ enum class AssetKind {
 };
 
 class AssetStore;
+
+/** Filesystem path plus the mounted package that provided it. */
+struct ResolvedAsset {
+    std::filesystem::path path;
+    const Package* package = nullptr;
+};
 
 /** Layered virtual filesystem backed by mounted packages. */
 class VirtualFileSystem {
@@ -62,6 +68,9 @@ public:
 
     /** Resolves @p virtualPath to a filesystem path when present. */
     std::optional<std::filesystem::path> resolve(AssetKind kind, std::string_view virtualPath) const;
+
+    /** Resolves @p virtualPath and the package that owns the hit. */
+    std::optional<ResolvedAsset> resolveOwned(AssetKind kind, std::string_view virtualPath) const;
 
     /** Reads a text asset; empty string if missing. */
     std::string readText(AssetKind kind, std::string_view virtualPath) const;

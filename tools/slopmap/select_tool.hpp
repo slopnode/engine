@@ -24,7 +24,7 @@ struct SelectTool {
     Vector3 mouseGrabWorld{};
     std::vector<slopengine::Brush> brushSnapshot;
     Vector3 instanceAtSnapshot{};
-    Vector3 placementAtSnapshot{};
+    Vector3 thingAtSnapshot{};
     bool numericActive = false;
 
     void update(

@@ -10,7 +10,7 @@ struct s7_scheme;
 
 namespace slopengine {
 
-/** Collects point/spot lights from map entities.s7 and prefab sidecars for bake. */
+/** Collects point/spot lights from map things.s7 and prefab sidecars for bake. */
 std::vector<RadiosityLight> collectRadiosityLights(
     s7_scheme* scheme,
     AssetStore& assets,

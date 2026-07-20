@@ -1,15 +1,15 @@
 # Lights
 
-Lighting is a bake-first pipeline with a small runtime dynamic overlay. Map surfaces get offline lightmaps; moving or toggled lights are `DynamicLight` entities ranked each frame and added on top. Placement light forms in `entities.s7` feed the bake (point / spot) and editor gizmos; they are not the same as the runtime dynamic light path.
+Lighting is a bake-first pipeline with a small runtime dynamic overlay. Map surfaces get offline lightmaps; moving or toggled lights are `DynamicLight` entities ranked each frame and added on top. Thing light forms in `things.s7` feed the bake (point / spot) and editor gizmos; they are not the same as the runtime dynamic light path.
 
-Related: [Maps](maps.md), [BSP and radiosity](bsp-rad.md), [Materials](materials.md), [Placements](entities.md), [Player](player.md).
+Related: [Maps](maps.md), [BSP and radiosity](bsp-rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md).
 
 ## Layers
 
 | Layer | Source | When it applies | What it lights |
 |-------|--------|-----------------|----------------|
-| Baked lightmaps | Material emission + `point-light` / `spot-light` placements via `sloprad` | Offline → `rad/` atlases | Map brush meshes (lightmap shader) |
-| Placement light entities | `(point-light …)`, `(spot-light …)`, `(area-light …)`, `(sun …)` | Map load → flecs components | Bake (point/spot); authoring / gizmos at runtime |
+| Baked lightmaps | Material emission + `point-light` / `spot-light` things via `sloprad` | Offline → `rad/` atlases | Map brush meshes (lightmap shader) |
+| Thing light entities | `(point-light …)`, `(spot-light …)`, `(area-light …)`, `(sun …)` | Map load → flecs components | Bake (point/spot); authoring / gizmos at runtime |
 | Dynamic lights | `DynamicLight` component (e.g. FP flashlight) | Each frame, ranked near the camera | Map shader add-on; FP rad tint / probe |
 
 There is no runtime PBR stack. Props and characters are not lightmapped; sprites can sample map light at their feet when lightmaps exist. Viewmodels use optional rad tint and faux shading—see [Player](player.md).
@@ -19,7 +19,7 @@ There is no runtime PBR stack. Props and characters are not lightmapped; sprites
 `sloprad` builds lightmap atlases from:
 
 1. **Surface emission** — brush materials with `emission-color` / `emission-power` (and emission textures at bake time). See [Materials](materials.md).
-2. **Placed point and spot lights** — collected from `maps/<name>/entities.s7` (and prefab sidecars) by `collectRadiosityLights`. Area and sun placements are not bake emitters today.
+2. **Placed point and spot lights** — collected from `maps/<name>/things.s7` (and prefab sidecars) by `collectRadiosityLights`. Area and sun things are not bake emitters today.
 
 Direct + bounce irradiance lands in `rad/atlasN.png` and `rad/static.rad`. At runtime the lightmap fragment path is:
 
@@ -29,11 +29,11 @@ final = albedo * (baked + dynamic) + emit
 
 `baked` comes from the atlas (`useLightmap = 1`) or white (`0` / unlit debug). `dynamic` is the ranked runtime overlay below. `emit` is the flat material emission color when power is set.
 
-Re-bake after emission or light placement edits that should change static lighting. Moving a placement light in the editor without re-running `sloprad` does not update the atlases.
+Re-bake after emission or light thing edits that should change static lighting. Moving a thing light in the editor without re-running `sloprad` does not update the atlases.
 
-## Placement lights
+## Thing lights
 
-Engine forms in `entities.s7` (also editable in `slopmap`):
+Engine forms in `things.s7` (also editable in `slopmap`):
 
 | Form | Flecs component | Bake | Runtime dynamic overlay |
 |------|-----------------|------|-------------------------|
@@ -71,7 +71,7 @@ Example:
   (cone 0.55))
 ```
 
-Use placements for static or bake-time lighting in the level. Use `DynamicLight` (below) for lights that must change at runtime—flashlights, temporary glows, script-toggled sources.
+Use things for static or bake-time lighting in the level. Use `DynamicLight` (below) for lights that must change at runtime—flashlights, temporary glows, script-toggled sources.
 
 ## Dynamic lights
 
@@ -118,9 +118,9 @@ The base package attaches a warm spot under the `emission` socket and toggles it
 
 | Goal | Prefer |
 |------|--------|
-| Static room lighting | Emission materials and/or point/spot placements + `sloprad` |
-| Editor-visible light markers | Placement forms (always spawn components + gizmos) |
+| Static room lighting | Emission materials and/or point/spot things + `sloprad` |
+| Editor-visible light markers | Thing forms (always spawn components + gizmos) |
 | Runtime toggle / move / player-held | `DynamicLight` (Scheme FP API or C++ `spawnDynamicLight`) |
 | Viewmodel look (tint / faux shade) | `(fp-set-rad-tint)` / `(fp-set-shading)` — presentation only |
 
-Do not treat placement `PointLight` / `SpotLight` components as the runtime overlay: only `DynamicLight` is gathered for the map shader and FP probe.
+Do not treat thing `PointLight` / `SpotLight` components as the runtime overlay: only `DynamicLight` is gathered for the map shader and FP probe.

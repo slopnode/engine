@@ -1,7 +1,7 @@
 #pragma once
 
 #include "assets/asset_store.hpp"
-#include "map/placement.hpp"
+#include "map/thing.hpp"
 
 #include <raylib.h>
 
@@ -10,14 +10,14 @@
 
 namespace slopmap {
 
-void drawPlacements(
+void drawThings(
     slopengine::AssetStore& assets,
-    const std::vector<slopengine::Placement>& placements,
-    int selectedPlacement,
+    const std::vector<slopengine::Thing>& things,
+    int selectedThing,
     const Camera3D& camera);
 
-std::optional<int> pickPlacement(
-    const std::vector<slopengine::Placement>& placements,
+std::optional<int> pickThing(
+    const std::vector<slopengine::Thing>& things,
     Ray ray,
     float* outDistance = nullptr);
 

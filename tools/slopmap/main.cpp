@@ -5,12 +5,12 @@
 #include "layout.hpp"
 #include "material_browser.hpp"
 #include "place_tool.hpp"
-#include "placement_draw.hpp"
+#include "thing_draw.hpp"
 #include "prefab_browser.hpp"
 #include "preview.hpp"
 #include "select_tool.hpp"
 
-#include "map/placement.hpp"
+#include "map/thing.hpp"
 
 #include "assets/asset_store.hpp"
 #include "core/package_meta.hpp"
@@ -142,12 +142,12 @@ void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets
         ImGui::Text("Instance: %s", instance.id.c_str());
         ImGui::Text("Prefab: %s", instance.path.c_str());
     } else if (
-        d.selection == slopmap::SelectionTarget::Placement && d.selectedPlacement >= 0 &&
-        d.selectedPlacement < static_cast<int>(d.placements.size())) {
-        const slopengine::Placement& placement =
-            d.placements[static_cast<std::size_t>(d.selectedPlacement)];
-        ImGui::Text("Placement: %s", placement.id.c_str());
-        ImGui::Text("Kind: %s", slopengine::placementKindName(placement.kind));
+        d.selection == slopmap::SelectionTarget::Thing && d.selectedThing >= 0 &&
+        d.selectedThing < static_cast<int>(d.things.size())) {
+        const slopengine::Thing& thing =
+            d.things[static_cast<std::size_t>(d.selectedThing)];
+        ImGui::Text("Thing: %s", thing.id.c_str());
+        ImGui::Text("Kind: %s", slopengine::thingKindName(thing.kind));
     } else {
         ImGui::TextUnformatted("None");
     }
@@ -223,9 +223,9 @@ void drawScene(
         }
     }
 
-    const int selectedPlacement =
-        d.selection == slopmap::SelectionTarget::Placement ? d.selectedPlacement : -1;
-    slopmap::drawPlacements(assets, d.placements, selectedPlacement, camera);
+    const int selectedThing =
+        d.selection == slopmap::SelectionTarget::Thing ? d.selectedThing : -1;
+    slopmap::drawThings(assets, d.things, selectedThing, camera);
 
     createTool.drawPreview();
     EndMode3D();
@@ -268,22 +268,22 @@ std::vector<std::string> scanPackageAssets(
     return paths;
 }
 
-void beginPlacementKind(
+void beginThingKind(
     slopmap::Editor& editor,
-    slopengine::PlacementKind kind,
+    slopengine::ThingKind kind,
     slopmap::CreateTool& createTool) {
-    editor.placeTarget = slopmap::PlaceTarget::Placement;
-    editor.placePlacementKind = kind;
+    editor.placeTarget = slopmap::PlaceTarget::Thing;
+    editor.placeThingKind = kind;
     editor.placePrefabPath.clear();
     editor.mode = slopmap::EditorMode::Place;
     createTool.reset();
-    if (slopengine::placementKindNeedsPresentation(kind) && editor.placeSpritePath.empty() &&
+    if (slopengine::thingKindNeedsPresentation(kind) && editor.placeSpritePath.empty() &&
         editor.placeGeoPath.empty()) {
-        editor.statusMessage = std::string("Place ") + slopengine::placementKindName(kind) +
+        editor.statusMessage = std::string("Place ") + slopengine::thingKindName(kind) +
             ": select a sprite or geo below, then click the viewport";
     } else {
         editor.statusMessage =
-            std::string("Place ") + slopengine::placementKindName(kind) + ": click the viewport";
+            std::string("Place ") + slopengine::thingKindName(kind) + ": click the viewport";
     }
 }
 
@@ -299,16 +299,16 @@ void armPresentationAsset(
         editor.placeGeoPath = path;
         editor.placeSpritePath.clear();
     }
-    if (!editor.placePlacementKind.has_value() ||
-        !slopengine::placementKindNeedsPresentation(*editor.placePlacementKind)) {
-        editor.placePlacementKind = slopengine::PlacementKind::Prop;
+    if (!editor.placeThingKind.has_value() ||
+        !slopengine::thingKindNeedsPresentation(*editor.placeThingKind)) {
+        editor.placeThingKind = slopengine::ThingKind::Prop;
     }
-    editor.placeTarget = slopmap::PlaceTarget::Placement;
+    editor.placeTarget = slopmap::PlaceTarget::Thing;
     editor.placePrefabPath.clear();
     editor.mode = slopmap::EditorMode::Place;
     createTool.reset();
     editor.statusMessage = std::string("Place ") +
-        slopengine::placementKindName(*editor.placePlacementKind) + ": click the viewport (" + path +
+        slopengine::thingKindName(*editor.placeThingKind) + ": click the viewport (" + path +
         ")";
 }
 
@@ -316,6 +316,42 @@ void cancelTools(slopmap::CreateTool& createTool, slopmap::SelectTool& selectToo
     createTool.reset();
     if (selectTool.translating) {
         selectTool.cancelTranslate(editor);
+    }
+}
+
+void drawWritePackagePicker(slopmap::Editor& editor, const slopengine::AssetStore& assets) {
+    const auto& packages = assets.packages();
+    if (packages.size() <= 1) {
+        return;
+    }
+
+    int current = 0;
+    for (std::size_t i = 0; i < packages.size(); ++i) {
+        if (packages[i].root() == editor.writePackageRoot) {
+            current = static_cast<int>(i);
+            break;
+        }
+    }
+
+    const std::string& previewId = packages[static_cast<std::size_t>(current)].meta().id;
+    const char* preview =
+        !previewId.empty() ? previewId.c_str() : packages[static_cast<std::size_t>(current)].root().c_str();
+    ImGui::TextUnformatted("Save to package");
+    if (ImGui::BeginCombo("##writepackage", preview)) {
+        for (std::size_t i = 0; i < packages.size(); ++i) {
+            const slopengine::Package& package = packages[i];
+            const std::string& id = package.meta().id;
+            const char* label = !id.empty() ? id.c_str() : package.root().c_str();
+            const bool selected = static_cast<int>(i) == current;
+            if (ImGui::Selectable(label, selected)) {
+                editor.writePackageRoot = package.root();
+                editor.writePackageId = id;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
     }
 }
 
@@ -347,10 +383,10 @@ int main(int argc, char* argv[]) {
     }
 
     slopmap::Editor editor;
-    editor.baseGamePath = config->base_game;
+    editor.writePackageRoot = config->base_game;
     editor.scheme = scheme;
     if (auto meta = loadPackageMetaFile(config->base_game / "package.meta")) {
-        editor.packageId = meta->id;
+        editor.writePackageId = meta->id;
     }
 
     if (config->map) {
@@ -498,8 +534,8 @@ int main(int argc, char* argv[]) {
                     }
                     createTool.reset();
                     editor.mode = slopmap::EditorMode::Place;
-                    if (editor.placePlacementKind.has_value()) {
-                        editor.placeTarget = slopmap::PlaceTarget::Placement;
+                    if (editor.placeThingKind.has_value()) {
+                        editor.placeTarget = slopmap::PlaceTarget::Thing;
                     }
                 }
                 ImGui::Separator();
@@ -690,8 +726,8 @@ int main(int argc, char* argv[]) {
                 }
                 createTool.reset();
                 editor.mode = slopmap::EditorMode::Place;
-                if (editor.placePlacementKind.has_value()) {
-                    editor.placeTarget = slopmap::PlaceTarget::Placement;
+                if (editor.placeThingKind.has_value()) {
+                    editor.placeTarget = slopmap::PlaceTarget::Thing;
                 }
             }
             if (IsKeyPressed(KEY_H) && editor.doc().selection == slopmap::SelectionTarget::Brush) {
@@ -791,7 +827,7 @@ int main(int argc, char* argv[]) {
                                 d.selectedBrush = static_cast<int>(i);
                                 d.selectedFace = -1;
                                 d.selectedInstance = -1;
-                                d.selectedPlacement = -1;
+                                d.selectedThing = -1;
                             }
                             ImGui::PopID();
                         }
@@ -813,7 +849,7 @@ int main(int argc, char* argv[]) {
                                 d.selectedInstance = static_cast<int>(i);
                                 d.selectedBrush = -1;
                                 d.selectedFace = -1;
-                                d.selectedPlacement = -1;
+                                d.selectedThing = -1;
                             }
                             ImGui::PopID();
                         }
@@ -822,27 +858,27 @@ int main(int argc, char* argv[]) {
                 }
 
                 sectionOpen[2] = slopmap::collapsingHeaderWithIcon(
-                    assets, kIconSet, "transmit", "Placements", ImGuiTreeNodeFlags_DefaultOpen);
+                    assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
                 if (sectionOpen[2]) {
-                    if (ImGui::BeginChild("##placements", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                        if (d.placements.empty()) {
-                            ImGui::TextDisabled("No placements");
+                    if (ImGui::BeginChild("##things", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+                        if (d.things.empty()) {
+                            ImGui::TextDisabled("No things");
                         }
-                        for (std::size_t i = 0; i < d.placements.size(); ++i) {
+                        for (std::size_t i = 0; i < d.things.size(); ++i) {
                             ImGui::PushID(static_cast<int>(i) + 200000);
-                            const bool selected = d.selection == slopmap::SelectionTarget::Placement &&
-                                static_cast<int>(i) == d.selectedPlacement;
+                            const bool selected = d.selection == slopmap::SelectionTarget::Thing &&
+                                static_cast<int>(i) == d.selectedThing;
                             const std::string label =
-                                d.placements[i].id + " (" +
-                                slopengine::placementKindName(d.placements[i].kind) + ")";
-                            const char* icon = slopengine::placementKindIsLight(d.placements[i].kind)
+                                d.things[i].id + " (" +
+                                slopengine::thingKindName(d.things[i].kind) + ")";
+                            const char* icon = slopengine::thingKindIsLight(d.things[i].kind)
                                 ? "lightbulb"
-                                : (d.placements[i].kind == slopengine::PlacementKind::PlayerStart
+                                : (d.things[i].kind == slopengine::ThingKind::PlayerStart
                                        ? "user"
                                        : "transmit");
                             if (slopmap::selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
-                                d.selection = slopmap::SelectionTarget::Placement;
-                                d.selectedPlacement = static_cast<int>(i);
+                                d.selection = slopmap::SelectionTarget::Thing;
+                                d.selectedThing = static_cast<int>(i);
                                 d.selectedBrush = -1;
                                 d.selectedFace = -1;
                                 d.selectedInstance = -1;
@@ -907,7 +943,7 @@ int main(int argc, char* argv[]) {
                     }
                     if (prefabResult.selected && editor.scene == slopmap::EditorScene::Level) {
                         editor.placeTarget = slopmap::PlaceTarget::PrefabInstance;
-                        editor.placePlacementKind.reset();
+                        editor.placeThingKind.reset();
                         editor.mode = slopmap::EditorMode::Place;
                         createTool.reset();
                     }
@@ -934,49 +970,49 @@ int main(int argc, char* argv[]) {
                 }
 
                 libraryOpen[2] = slopmap::collapsingHeaderWithIcon(
-                    assets, kIconSet, "transmit", "Placements", ImGuiTreeNodeFlags_DefaultOpen);
+                    assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
                 if (libraryOpen[2]) {
                     if (ImGui::BeginChild("##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                         if (ImGui::Button("player-start")) {
-                            beginPlacementKind(
-                                editor, slopengine::PlacementKind::PlayerStart, createTool);
+                            beginThingKind(
+                                editor, slopengine::ThingKind::PlayerStart, createTool);
                         }
                         ImGui::SameLine();
                         if (ImGui::Button("prop")) {
-                            beginPlacementKind(editor, slopengine::PlacementKind::Prop, createTool);
+                            beginThingKind(editor, slopengine::ThingKind::Prop, createTool);
                         }
                         ImGui::SameLine();
                         if (ImGui::Button("usable")) {
-                            beginPlacementKind(editor, slopengine::PlacementKind::Usable, createTool);
+                            beginThingKind(editor, slopengine::ThingKind::Usable, createTool);
                         }
                         if (ImGui::Button("point-light")) {
-                            beginPlacementKind(
-                                editor, slopengine::PlacementKind::PointLight, createTool);
+                            beginThingKind(
+                                editor, slopengine::ThingKind::PointLight, createTool);
                         }
                         ImGui::SameLine();
                         if (ImGui::Button("spot-light")) {
-                            beginPlacementKind(
-                                editor, slopengine::PlacementKind::SpotLight, createTool);
+                            beginThingKind(
+                                editor, slopengine::ThingKind::SpotLight, createTool);
                         }
                         if (ImGui::Button("area-light")) {
-                            beginPlacementKind(
-                                editor, slopengine::PlacementKind::AreaLight, createTool);
+                            beginThingKind(
+                                editor, slopengine::ThingKind::AreaLight, createTool);
                         }
                         ImGui::SameLine();
                         if (ImGui::Button("sun")) {
-                            beginPlacementKind(editor, slopengine::PlacementKind::Sun, createTool);
+                            beginThingKind(editor, slopengine::ThingKind::Sun, createTool);
                         }
 
                         ImGui::Separator();
                         ImGui::TextDisabled("Presentation (required for prop/usable)");
                         if (editor.mode == slopmap::EditorMode::Place &&
-                            editor.placeTarget == slopmap::PlaceTarget::Placement &&
-                            editor.placePlacementKind.has_value()) {
+                            editor.placeTarget == slopmap::PlaceTarget::Thing &&
+                            editor.placeThingKind.has_value()) {
                             ImGui::Text(
                                 "Placing: %s",
-                                slopengine::placementKindName(*editor.placePlacementKind));
-                            if (slopengine::placementKindNeedsPresentation(
-                                    *editor.placePlacementKind)) {
+                                slopengine::thingKindName(*editor.placeThingKind));
+                            if (slopengine::thingKindNeedsPresentation(
+                                    *editor.placeThingKind)) {
                                 const bool ready = (!editor.placeSpritePath.empty()) !=
                                     (!editor.placeGeoPath.empty());
                                 if (!ready) {
@@ -1083,6 +1119,7 @@ int main(int argc, char* argv[]) {
             constexpr const char* kIcons = slopmap::kDefaultIconSet;
             ImGui::TextUnformatted("Map folder name under maps/");
             ImGui::InputText("##saveas", mapNameBuf, sizeof(mapNameBuf));
+            drawWritePackagePicker(editor, assets);
             if (slopmap::buttonWithIcon(assets, kIcons, "disk", "Save", ImVec2(120, 0))) {
                 if (editor.saveAs(assets, mapNameBuf)) {
                     ImGui::CloseCurrentPopup();
@@ -1129,6 +1166,7 @@ int main(int argc, char* argv[]) {
             constexpr const char* kIcons = slopmap::kDefaultIconSet;
             ImGui::TextUnformatted("Prefab virtual path under prefabs/ (e.g. furniture/desk)");
             ImGui::InputText("##saveprefab", prefabPathBuf, sizeof(prefabPathBuf));
+            drawWritePackagePicker(editor, assets);
             if (slopmap::buttonWithIcon(assets, kIcons, "disk", "Save", ImVec2(120, 0))) {
                 if (editor.savePrefabAs(assets, prefabPathBuf)) {
                     prefabBrowser.rescan(assets);
@@ -1149,6 +1187,7 @@ int main(int argc, char* argv[]) {
         if (ImGui::BeginPopupModal("New Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             constexpr const char* kIcons = slopmap::kDefaultIconSet;
             ImGui::TextUnformatted("Discard unsaved level changes and create a new map?");
+            drawWritePackagePicker(editor, assets);
             if (slopmap::buttonWithIcon(assets, kIcons, "page_add", "Discard & New", ImVec2(140, 0))) {
                 cancelTools(createTool, selectTool, editor);
                 editor.newMap("untitled");

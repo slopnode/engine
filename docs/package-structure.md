@@ -69,7 +69,7 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
 | `icons/` | `.png`, `.iconmap` | `silk` → `icons/silk.png` / `icons/silk.iconmap` |
 | `prefabs/` | `.csg`, `.s7` | `furniture/desk` → `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
-| `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/entities` → `maps/<name>/entities.s7` |
+| `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/things` → `maps/<name>/things.s7` |
 
 Nested folders under each category are allowed. Related assets are often grouped by shared name under `geometry/`, `skeletons/`, and `animations/`.
 
@@ -96,7 +96,7 @@ GLSL sources under `shaders/`. Vertex and fragment programs are separate virtual
 
 ### Scripts
 
-Scheme (s7) sources under `scripts/`. The game loads `init` then `entities` at startup; map placement is a separate `maps/<name>/entities.s7`. See [Placements](entities.md).
+Scheme (s7) sources under `scripts/`. The game loads `init` then `things` at startup; map things are a separate `maps/<name>/things.s7`. See [Things](things.md).
 
 ### Skeletons
 
@@ -134,6 +134,6 @@ Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-b
 
 ### Maps
 
-Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `entities.s7`, and compiled `static.bsp` plus optional `rad/`. See [Maps](maps.md) for authoring and entities, and [BSP and radiosity compilation](bsp-rad.md) for the compile tools.
+Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `things.s7`, and compiled `static.bsp` plus optional `rad/`. The map belongs to whichever package directory contains it; `map.meta` `(depends …)` lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, and [BSP and radiosity compilation](bsp-rad.md) for the compile tools.
 
 A package is created by adding a `package.meta` with a unique `id`, the category folders you need, and mounting it with `--base-game` or `--mod`. Dependencies listed in `(depends ...)` must also be mounted.

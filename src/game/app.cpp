@@ -65,8 +65,8 @@ void App::init_script() {
     if (!assetStore_.loadData(scheme_, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }
-    if (!assetStore_.loadScript(scheme_, "entities")) {
-        TraceLog(LOG_WARNING, "SCRIPT: entities.s7 not loaded");
+    if (!assetStore_.loadScript(scheme_, "things")) {
+        TraceLog(LOG_WARNING, "SCRIPT: things.s7 not loaded");
     }
 }
 

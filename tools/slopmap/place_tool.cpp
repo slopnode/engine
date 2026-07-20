@@ -6,33 +6,33 @@ namespace slopmap {
 
 namespace {
 
-const char* placementIdPrefix(slopengine::PlacementKind kind) {
+const char* thingIdPrefix(slopengine::ThingKind kind) {
     switch (kind) {
-    case slopengine::PlacementKind::PlayerStart:
+    case slopengine::ThingKind::PlayerStart:
         return "start";
-    case slopengine::PlacementKind::Prop:
+    case slopengine::ThingKind::Prop:
         return "prop";
-    case slopengine::PlacementKind::Usable:
+    case slopengine::ThingKind::Usable:
         return "usable";
-    case slopengine::PlacementKind::PointLight:
+    case slopengine::ThingKind::PointLight:
         return "point-light";
-    case slopengine::PlacementKind::SpotLight:
+    case slopengine::ThingKind::SpotLight:
         return "spot-light";
-    case slopengine::PlacementKind::AreaLight:
+    case slopengine::ThingKind::AreaLight:
         return "area-light";
-    case slopengine::PlacementKind::Sun:
+    case slopengine::ThingKind::Sun:
         return "sun";
-    case slopengine::PlacementKind::Prefab:
+    case slopengine::ThingKind::Prefab:
         return "prefab";
     }
-    return "placement";
+    return "thing";
 }
 
 bool presentationReady(const Editor& editor, slopengine::AssetStore& assets, std::string& error) {
     const bool haveSprite = !editor.placeSpritePath.empty();
     const bool haveGeo = !editor.placeGeoPath.empty();
     if (haveSprite == haveGeo) {
-        error = "Place: pick a sprite or geo in Library → Placements, then click the viewport";
+        error = "Place: pick a sprite or geo in Library → Things, then click the viewport";
         return false;
     }
     if (haveSprite && !assets.hasSprite(editor.placeSpritePath)) {
@@ -68,7 +68,7 @@ void PlaceTool::update(
             return;
         }
         if (editor.placePrefabPath.empty()) {
-            editor.statusMessage = "Place: select a prefab in Prefabs, or a kind in Placements";
+            editor.statusMessage = "Place: select a prefab in Prefabs, or a kind in Things";
             return;
         }
         if (!assets.hasPrefabCsg(editor.placePrefabPath)) {
@@ -102,7 +102,7 @@ void PlaceTool::update(
         editor.doc().selectedInstance = static_cast<int>(editor.doc().instances.size()) - 1;
         editor.doc().selectedBrush = -1;
         editor.doc().selectedFace = -1;
-        editor.doc().selectedPlacement = -1;
+        editor.doc().selectedThing = -1;
         editor.markDirty();
         editor.rebuildPreview(assets);
         editor.mode = EditorMode::Select;
@@ -111,13 +111,13 @@ void PlaceTool::update(
         return;
     }
 
-    if (!editor.placePlacementKind.has_value()) {
-        editor.statusMessage = "Place: select a placement kind in Library → Placements";
+    if (!editor.placeThingKind.has_value()) {
+        editor.statusMessage = "Place: select a thing kind in Library → Things";
         return;
     }
 
-    const slopengine::PlacementKind kind = *editor.placePlacementKind;
-    if (slopengine::placementKindNeedsPresentation(kind)) {
+    const slopengine::ThingKind kind = *editor.placeThingKind;
+    if (slopengine::thingKindNeedsPresentation(kind)) {
         std::string error;
         if (!presentationReady(editor, assets, error)) {
             editor.statusMessage = error;
@@ -129,14 +129,14 @@ void PlaceTool::update(
     }
 
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        if (slopengine::placementKindNeedsPresentation(kind)) {
-            editor.statusMessage = std::string("Place ") + slopengine::placementKindName(kind) +
+        if (slopengine::thingKindNeedsPresentation(kind)) {
+            editor.statusMessage = std::string("Place ") + slopengine::thingKindName(kind) +
                 ": click viewport (" +
                 (!editor.placeSpritePath.empty() ? editor.placeSpritePath : editor.placeGeoPath) +
                 ")";
         } else {
             editor.statusMessage =
-                std::string("Place ") + slopengine::placementKindName(kind) + ": click viewport";
+                std::string("Place ") + slopengine::thingKindName(kind) + ": click viewport";
         }
         return;
     }
@@ -153,32 +153,32 @@ void PlaceTool::update(
         return;
     }
 
-    slopengine::Placement placement =
-        slopengine::placementKindIsLight(kind) ? slopengine::makeDefaultLightPlacement(kind)
-                                               : slopengine::Placement{};
-    placement.kind = kind;
-    placement.id = editor.allocatePlacementId(placementIdPrefix(kind));
-    placement.at = snapToGrid(hit, editor.gridSize);
-    placement.haveAt = true;
-    if (kind == slopengine::PlacementKind::PlayerStart) {
-        placement.yaw = 3.141592653589793f;
+    slopengine::Thing thing =
+        slopengine::thingKindIsLight(kind) ? slopengine::makeDefaultLightThing(kind)
+                                               : slopengine::Thing{};
+    thing.kind = kind;
+    thing.id = editor.allocateThingId(thingIdPrefix(kind));
+    thing.at = snapToGrid(hit, editor.gridSize);
+    thing.haveAt = true;
+    if (kind == slopengine::ThingKind::PlayerStart) {
+        thing.yaw = 3.141592653589793f;
     }
-    if (slopengine::placementKindNeedsPresentation(kind)) {
-        placement.sprite = editor.placeSpritePath;
-        placement.geo = editor.placeGeoPath;
-        placement.frame = "A";
+    if (slopengine::thingKindNeedsPresentation(kind)) {
+        thing.sprite = editor.placeSpritePath;
+        thing.geo = editor.placeGeoPath;
+        thing.frame = "A";
     }
 
-    editor.doc().placements.push_back(std::move(placement));
-    editor.doc().selection = SelectionTarget::Placement;
-    editor.doc().selectedPlacement = static_cast<int>(editor.doc().placements.size()) - 1;
+    editor.doc().things.push_back(std::move(thing));
+    editor.doc().selection = SelectionTarget::Thing;
+    editor.doc().selectedThing = static_cast<int>(editor.doc().things.size()) - 1;
     editor.doc().selectedBrush = -1;
     editor.doc().selectedFace = -1;
     editor.doc().selectedInstance = -1;
     editor.markDirty();
     editor.mode = EditorMode::Select;
     editor.statusMessage =
-        "Placed " + editor.doc().placements.back().id + " — G move, R rotate yaw";
+        "Placed " + editor.doc().things.back().id + " — G move, R rotate yaw";
 }
 
 }

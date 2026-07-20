@@ -1,7 +1,7 @@
 #include "map/radiosity_lights.hpp"
 
-#include "map/entities_script.hpp"
-#include "map/placement.hpp"
+#include "map/things_script.hpp"
+#include "map/thing.hpp"
 
 #include <raylib.h>
 #include <raymath.h>
@@ -26,7 +26,7 @@ struct CollectContext {
     std::vector<std::string> nestStack;
 };
 
-Vector3 lightForward(const Placement& placement, const CollectContext& ctx) {
+Vector3 lightForward(const Thing& placement, const CollectContext& ctx) {
     Quaternion rotation{};
     if (placement.haveAngles) {
         rotation = QuaternionFromEuler(
@@ -46,7 +46,7 @@ Vector3 lightForward(const Placement& placement, const CollectContext& ctx) {
     return Vector3Normalize(Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, rotation));
 }
 
-Placement transformPlacement(const CollectContext& ctx, Placement placement) {
+Thing transformThing(const CollectContext& ctx, Thing placement) {
     if (!ctx.inPrefab) {
         return placement;
     }
@@ -70,13 +70,13 @@ Placement transformPlacement(const CollectContext& ctx, Placement placement) {
     return placement;
 }
 
-void collectOne(CollectContext& ctx, Placement placement);
+void collectOne(CollectContext& ctx, Thing placement);
 
-void collectPrefab(CollectContext& ctx, const Placement& placement) {
+void collectPrefab(CollectContext& ctx, const Thing& placement) {
     if (ctx.assets == nullptr || ctx.scheme == nullptr) {
         return;
     }
-    if (!ctx.assets->hasPrefabEntities(placement.prefabPath)) {
+    if (!ctx.assets->hasPrefabThings(placement.prefabPath)) {
         return;
     }
     if (std::find(ctx.nestStack.begin(), ctx.nestStack.end(), placement.prefabPath) !=
@@ -85,7 +85,7 @@ void collectPrefab(CollectContext& ctx, const Placement& placement) {
         return;
     }
 
-    auto nested = loadPrefabPlacements(ctx.scheme, *ctx.assets, placement.prefabPath);
+    auto nested = loadPrefabThings(ctx.scheme, *ctx.assets, placement.prefabPath);
     if (!nested) {
         TraceLog(
             LOG_WARNING,
@@ -123,7 +123,7 @@ void collectPrefab(CollectContext& ctx, const Placement& placement) {
     ctx.prefabAngles = worldAngles;
     ctx.nestStack.push_back(placement.prefabPath);
 
-    for (const Placement& child : nested->placements) {
+    for (const Thing& child : nested->things) {
         collectOne(ctx, child);
     }
 
@@ -134,15 +134,15 @@ void collectPrefab(CollectContext& ctx, const Placement& placement) {
     ctx.prefabAngles = savedAngles;
 }
 
-void collectOne(CollectContext& ctx, Placement placement) {
-    placement = transformPlacement(ctx, std::move(placement));
+void collectOne(CollectContext& ctx, Thing placement) {
+    placement = transformThing(ctx, std::move(placement));
 
-    if (placement.kind == PlacementKind::Prefab) {
+    if (placement.kind == ThingKind::Prefab) {
         collectPrefab(ctx, placement);
         return;
     }
 
-    if (placement.kind != PlacementKind::PointLight && placement.kind != PlacementKind::SpotLight) {
+    if (placement.kind != ThingKind::PointLight && placement.kind != ThingKind::SpotLight) {
         return;
     }
     if (!placement.haveAt || ctx.out == nullptr) {
@@ -150,7 +150,7 @@ void collectOne(CollectContext& ctx, Placement placement) {
     }
 
     RadiosityLight light{};
-    light.kind = placement.kind == PlacementKind::SpotLight ? RadiosityLightKind::Spot
+    light.kind = placement.kind == ThingKind::SpotLight ? RadiosityLightKind::Spot
                                                             : RadiosityLightKind::Point;
     light.position = placement.at;
     light.direction = lightForward(placement, ctx);
@@ -168,7 +168,7 @@ std::vector<RadiosityLight> collectRadiosityLights(
     AssetStore& assets,
     std::string_view mapName) {
     std::vector<RadiosityLight> lights;
-    auto doc = loadMapPlacements(scheme, assets, mapName);
+    auto doc = loadMapThings(scheme, assets, mapName);
     if (!doc) {
         return lights;
     }
@@ -177,7 +177,7 @@ std::vector<RadiosityLight> collectRadiosityLights(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.out = &lights;
-    for (const Placement& placement : doc->placements) {
+    for (const Thing& placement : doc->things) {
         collectOne(ctx, placement);
     }
     return lights;

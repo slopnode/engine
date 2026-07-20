@@ -47,7 +47,7 @@ enum class RadiosityLightKind {
     Spot,
 };
 
-/** Placement light collected for the radiosity bake. */
+/** Thing light collected for the radiosity bake. */
 struct RadiosityLight {
     RadiosityLightKind kind = RadiosityLightKind::Point;
     Vector3 position{};
