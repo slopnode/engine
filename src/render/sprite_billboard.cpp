@@ -77,7 +77,7 @@ bool pixelFromUv(
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
-    const Lens& lens,
+    Vector3 viewPosition,
     AssetStore& assets) {
     if (sprite.sprite.empty()) {
         return std::nullopt;
@@ -96,9 +96,9 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
 
     const Vector3 position = translationFromMatrix(global.matrix);
     const Vector3 toCamera{
-        lens.camera.position.x - position.x,
+        viewPosition.x - position.x,
         0.0f,
-        lens.camera.position.z - position.z,
+        viewPosition.z - position.z,
     };
     if (Vector3LengthSqr(toCamera) < 0.000001f) {
         return std::nullopt;
@@ -148,7 +148,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         return std::nullopt;
     }
 
-    const Matrix matView = MatrixLookAt(lens.camera.position, lens.camera.target, lens.camera.up);
+    const Matrix matView = MatrixLookAt(viewPosition, position, {0.0f, 1.0f, 0.0f});
     Vector3 right{matView.m0, matView.m4, matView.m8};
     right = Vector3Scale(right, size.x);
     const Vector3 up{0.0f, size.y, 0.0f};
@@ -185,6 +185,14 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     }
 
     return billboard;
+}
+
+std::optional<SpriteBillboard> resolveSpriteBillboard(
+    const SpriteInstance& sprite,
+    const GlobalTransformation& global,
+    const Lens& lens,
+    AssetStore& assets) {
+    return resolveSpriteBillboard(sprite, global, lens.camera.position, assets);
 }
 
 std::optional<SpriteBillboardHit> raycastSpriteBillboard(

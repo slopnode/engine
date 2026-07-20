@@ -27,6 +27,7 @@ constexpr struct {
     {Action::Interact, KEY_E},
     {Action::Console, KEY_GRAVE},
     {Action::MainMenu, KEY_F1},
+    {Action::Flashlight, KEY_F},
 };
 
 std::string trim(std::string_view value) {
@@ -243,6 +244,8 @@ const char* actionId(Action action) {
         return "Console";
     case Action::MainMenu:
         return "MainMenu";
+    case Action::Flashlight:
+        return "Flashlight";
     case Action::Count:
         break;
     }
@@ -269,6 +272,8 @@ const char* actionLabel(Action action) {
         return "Console";
     case Action::MainMenu:
         return "Main Menu";
+    case Action::Flashlight:
+        return "Flashlight";
     case Action::Count:
         break;
     }

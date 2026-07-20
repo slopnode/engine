@@ -36,6 +36,12 @@ struct SpriteBillboardHit {
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
+    Vector3 viewPosition,
+    AssetStore& assets);
+
+std::optional<SpriteBillboard> resolveSpriteBillboard(
+    const SpriteInstance& sprite,
+    const GlobalTransformation& global,
     const Lens& lens,
     AssetStore& assets);
 

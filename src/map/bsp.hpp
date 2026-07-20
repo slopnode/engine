@@ -66,6 +66,7 @@ struct MapBsp {
 struct MapLightmapState {
     bool available = false;
     int useLightmapLoc = -1;
+    Shader lightmapShader{};
 };
 
 }

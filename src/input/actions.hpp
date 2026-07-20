@@ -12,6 +12,7 @@ enum class Action {
     Interact,
     Console,
     MainMenu,
+    Flashlight,
     Count
 };
 

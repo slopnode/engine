@@ -4,6 +4,11 @@ namespace slopengine {
 
 struct PlayerCamera {};
 
+struct PlayerFlashlight {
+    bool enabled = false;
+    flecs::entity_t light = 0;
+};
+
 struct FirstPersonController {
     float yaw = 0.0f;
     float pitch = 0.0f;

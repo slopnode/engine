@@ -11,6 +11,7 @@
 #include "physics/components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
+#include "render/dynamic_light.hpp"
 #include "render/sprite_animator.hpp"
 #include "ui/ui_state.hpp"
 
@@ -361,6 +362,9 @@ const char* entityKindLabel(flecs::entity entity) {
     if (name != nullptr && std::strcmp(name, "MapStatic") == 0) {
         return "map";
     }
+    if (entity.has<DynamicLight>()) {
+        return "dynamic-light";
+    }
     if (entity.has<PointLight>()) {
         return "point-light";
     }
@@ -432,6 +436,45 @@ void drawEntityComponentDetails(flecs::entity entity) {
             ImGui::TreePop();
         }
     }
+    if (entity.has<PlayerFlashlight>()) {
+        const PlayerFlashlight& flashlight = entity.get<PlayerFlashlight>();
+        if (ImGui::TreeNodeEx("PlayerFlashlight", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("Enabled: %s", flashlight.enabled ? "true" : "false");
+            flecs::entity light{};
+            if (flashlight.light != 0) {
+                light = entity.world().entity(flashlight.light);
+            }
+            if (!light.is_valid()) {
+                light = entity.world().lookup("player_flashlight_light");
+            }
+            if (light.is_valid() && light.has<DynamicLight>()) {
+                const DynamicLight& dyn = light.get<DynamicLight>();
+                const Vector3 rgb = dynamicLightLinearRgb(dyn);
+                ImGui::Text(
+                    "Light intensity: %.3f",
+                    static_cast<double>(dyn.intensity));
+                ImGui::Text("Light range: %.3f", static_cast<double>(dyn.range));
+                ImGui::Text("Light cone: %.3f", static_cast<double>(dyn.coneAngle));
+                ImGui::Text(
+                    "Light RGB: %.3f, %.3f, %.3f",
+                    static_cast<double>(rgb.x),
+                    static_cast<double>(rgb.y),
+                    static_cast<double>(rgb.z));
+                ImGui::Text("Cast Shadows: %s", dyn.castShadows ? "true" : "false");
+                if (light.has<LocalTransformation>()) {
+                    const LocalTransformation& local = light.get<LocalTransformation>();
+                    ImGui::Text(
+                        "Light position: %.3f, %.3f, %.3f",
+                        static_cast<double>(local.position.x),
+                        static_cast<double>(local.position.y),
+                        static_cast<double>(local.position.z));
+                }
+            } else {
+                ImGui::TextUnformatted("Light entity: missing");
+            }
+            ImGui::TreePop();
+        }
+    }
     if (entity.has<FirstPersonController>()) {
         const FirstPersonController& controller = entity.get<FirstPersonController>();
         if (ImGui::TreeNode("FirstPersonController")) {
@@ -483,6 +526,37 @@ void drawEntityComponentDetails(flecs::entity entity) {
     if (entity.has<Model3D>()) {
         if (ImGui::TreeNode("Model3D")) {
             ImGui::TextUnformatted("Model present");
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<DynamicLight>()) {
+        const DynamicLight& light = entity.get<DynamicLight>();
+        if (ImGui::TreeNodeEx("DynamicLight", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text(
+                "Kind: %s",
+                light.kind == DynamicLightKind::Spot ? "spot" : "point");
+            const char* space = "rgb";
+            if (light.color.space == DynamicLightColorSpace::Hsv) {
+                space = "hsv";
+            } else if (light.color.space == DynamicLightColorSpace::Hsl) {
+                space = "hsl";
+            }
+            ImGui::Text("Color Space: %s", space);
+            ImGui::Text(
+                "Color Value: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.value.x),
+                static_cast<double>(light.color.value.y),
+                static_cast<double>(light.color.value.z));
+            const Vector3 rgb = dynamicLightLinearRgb(light);
+            ImGui::Text(
+                "Resolved RGB: %.3f, %.3f, %.3f",
+                static_cast<double>(rgb.x),
+                static_cast<double>(rgb.y),
+                static_cast<double>(rgb.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::Text("Range: %.3f", static_cast<double>(light.range));
+            ImGui::Text("Cone: %.3f", static_cast<double>(light.coneAngle));
+            ImGui::Text("Cast Shadows: %s", light.castShadows ? "true" : "false");
             ImGui::TreePop();
         }
     }
@@ -558,7 +632,7 @@ void drawEntityDetail(DebugUiState& debugUi) {
         return;
     }
 
-    if (!debugUi.inspectedEntity.is_alive()) {
+    if (!debugUi.inspectedEntity.is_valid()) {
         debugUi.entityDetailOpen = false;
         debugUi.inspectedEntity = {};
         return;

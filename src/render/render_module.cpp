@@ -14,6 +14,8 @@
 #include "physics/physics_module.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
+#include "render/dynamic_light.hpp"
+#include "render/dynamic_light_shadows.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "render/transform.hpp"
@@ -286,6 +288,24 @@ void renderWorldModel(
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
+    if (entity.has<MapLightmapState>()) {
+        const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
+        if (lightmaps.available && model.model.materialCount > 0) {
+            Shader shader = model.model.materials[0].shader;
+            if (shader.id != 0) {
+                if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
+                    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+                }
+                if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
+                    SetShaderValueMatrix(
+                        shader,
+                        shader.locs[SHADER_LOC_MATRIX_MODEL],
+                        globalTransform.matrix);
+                }
+            }
+        }
+    }
+
     if (entity.has<ShaderCavity>()) {
         ShaderCavity& shader = entity.get_mut<ShaderCavity>();
         const int modelLoc = GetShaderLocation(shader.shader, "model");
@@ -318,6 +338,7 @@ void drawWorldSprite(
     AssetStore& assets,
     const MapLighting* lighting,
     const BspTree* bspTree,
+    const std::vector<RankedDynamicLight>* dynamicLights,
     bool unlit) {
     const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
     if (!billboard || billboard->texture == nullptr) {
@@ -352,6 +373,37 @@ void drawWorldSprite(
         } else {
             colorHead = colorFeet;
         }
+    }
+
+    if (!unlit && dynamicLights != nullptr && !dynamicLights->empty()) {
+        const auto addDynamic = [&](Color base, Vector3 point) {
+            const Vector3 dyn = evaluateDynamicLightsAtPoint(*dynamicLights, point, {0.0f, 1.0f, 0.0f});
+            return Color{
+                static_cast<unsigned char>(std::clamp(
+                    static_cast<int>(base.r) + static_cast<int>(dyn.x * 255.0f),
+                    0,
+                    255)),
+                static_cast<unsigned char>(std::clamp(
+                    static_cast<int>(base.g) + static_cast<int>(dyn.y * 255.0f),
+                    0,
+                    255)),
+                static_cast<unsigned char>(std::clamp(
+                    static_cast<int>(base.b) + static_cast<int>(dyn.z * 255.0f),
+                    0,
+                    255)),
+                base.a,
+            };
+        };
+        const Vector3 feetPoint{
+            billboard->position.x,
+            billboard->position.y + 0.05f,
+            billboard->position.z};
+        const Vector3 headPoint{
+            billboard->position.x,
+            billboard->position.y + billboard->size.y,
+            billboard->position.z};
+        colorFeet = addDynamic(colorFeet, feetPoint);
+        colorHead = addDynamic(colorHead, headPoint);
     }
 
     const Texture2D& texture = *billboard->texture;
@@ -485,6 +537,7 @@ void registerComponents(flecs::world& world) {
     world.component<SpotLight>();
     world.component<AreaLight>();
     world.component<SunLight>();
+    world.component<DynamicLight>();
     world.component<ShaderCavity>()
         .on_remove([](flecs::iter&, size_t, ShaderCavity& shader) {
             if (shader.shader.id != 0) {
@@ -698,22 +751,81 @@ void registerRenderSystems(flecs::world& world) {
         .each([](flecs::iter& it, size_t, const Lens& lens) {
             flecs::world world = it.world();
             RenderContext& context = world.get_mut<RenderContext>();
-            BeginMode3D(lens.camera);
             const bool unlit =
                 world.has<DebugUiState>() && world.get<DebugUiState>().unlit;
+
+            std::vector<RankedDynamicLight> rankedLights;
+            if (!unlit) {
+                std::vector<RankedDynamicLight> candidates;
+                world.each([&](flecs::entity entity,
+                               const DynamicLight& light,
+                               const LocalTransformation& local) {
+                    if (!entity.has<WorldSpace>() || light.intensity <= 0.0f) {
+                        return;
+                    }
+                    RankedDynamicLight ranked{};
+                    ranked.light = light;
+                    ranked.position = local.position;
+                    ranked.direction = dynamicLightDirectionFromRotation(local.rotation);
+                    ranked.linearRgb = dynamicLightLinearRgb(light);
+                    candidates.push_back(ranked);
+                });
+                rankedLights = rankDynamicLights(candidates, lens.camera.position);
+                static int sLastDynCount = -1;
+                if (static_cast<int>(rankedLights.size()) != sLastDynCount) {
+                    sLastDynCount = static_cast<int>(rankedLights.size());
+                    TraceLog(LOG_INFO, "MAP: active dynamic lights=%d", sLastDynCount);
+                    for (const RankedDynamicLight& light : rankedLights) {
+                        TraceLog(
+                            LOG_INFO,
+                            "MAP: dyn light pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) intensity=%.2f kind=%s",
+                            light.position.x,
+                            light.position.y,
+                            light.position.z,
+                            light.direction.x,
+                            light.direction.y,
+                            light.direction.z,
+                            light.light.intensity,
+                            light.light.kind == DynamicLightKind::Spot ? "spot" : "point");
+                    }
+                }
+            }
+
+            if (world.has<DynamicLightFrameState>()) {
+                world.get_mut<DynamicLightFrameState>().lights = rankedLights;
+            }
+
+            BeginMode3D(lens.camera);
             context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
                 if (!modelEntity.has<WorldSpace>()) {
                     return;
                 }
                 if (modelEntity.has<MapLightmapState>()) {
                     const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
-                    if (lightmaps.available && lightmaps.useLightmapLoc >= 0 && model.model.materialCount > 0) {
-                        const int useLightmap = (!unlit) ? 1 : 0;
-                        SetShaderValue(
-                            model.model.materials[0].shader,
-                            lightmaps.useLightmapLoc,
-                            &useLightmap,
-                            SHADER_UNIFORM_INT);
+                    if (lightmaps.available && model.model.materialCount > 0) {
+                        Shader& mapShader = model.model.materials[0].shader;
+                        if (mapShader.id != 0) {
+                            if (world.has<DynamicLightFrameState>()) {
+                                DynamicLightFrameState& frameState =
+                                    world.get_mut<DynamicLightFrameState>();
+                                if (!frameState.bindings.resolved) {
+                                    resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
+                                }
+                                uploadDynamicLightsToShader(
+                                    mapShader,
+                                    frameState.bindings,
+                                    rankedLights,
+                                    nullptr);
+                            }
+                            if (lightmaps.useLightmapLoc >= 0) {
+                                const int useLightmap = (!unlit) ? 1 : 0;
+                                SetShaderValue(
+                                    mapShader,
+                                    lightmaps.useLightmapLoc,
+                                    &useLightmap,
+                                    SHADER_UNIFORM_INT);
+                            }
+                        }
                     }
                 }
                 renderWorldModel(modelEntity, model, global, lens);
@@ -736,6 +848,10 @@ void registerRenderSystems(flecs::world& world) {
                     world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
                 const BspTree* bspTree =
                     world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
+                const std::vector<RankedDynamicLight>* dynamicLights =
+                    (!unlit && world.has<DynamicLightFrameState>())
+                        ? &world.get<DynamicLightFrameState>().lights
+                        : nullptr;
 
                 struct SpriteDrawItem {
                     const SpriteInstance* sprite = nullptr;
@@ -776,6 +892,7 @@ void registerRenderSystems(flecs::world& world) {
                         assets,
                         lighting,
                         bspTree,
+                        dynamicLights,
                         unlit);
                 }
                 rlEnableDepthMask();
@@ -890,6 +1007,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     MapLightmapState lightmapState{};
     lightmapState.available = loaded->hasLightmaps;
     lightmapState.useLightmapLoc = loaded->useLightmapLoc;
+    lightmapState.lightmapShader = loaded->lightmapShader;
 
     world.entity("MapStatic")
         .add<WorldSpace>()
@@ -900,6 +1018,17 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         })
         .set<Model3D>({loaded->model, WHITE})
         .set<MapLightmapState>(lightmapState);
+
+    if (loaded->hasLightmaps) {
+        world.set<DynamicLightShadowState>(createDynamicLightShadowState(assets));
+    }
+    {
+        DynamicLightFrameState frameState{};
+        if (loaded->hasLightmaps && loaded->lightmapShader.id != 0) {
+            resolveDynamicLightShaderBindings(loaded->lightmapShader, frameState.bindings);
+        }
+        world.set<DynamicLightFrameState>(std::move(frameState));
+    }
 
     MapBsp mapBsp{std::move(loaded->bsp)};
     Color ambientColor{
