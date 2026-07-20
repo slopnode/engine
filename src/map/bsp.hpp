@@ -49,6 +49,11 @@ struct BspTree {
 
 BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes);
 
+void collectFaceEmptyProbes(
+    const std::vector<Vector3>& vertices,
+    Vector3 normal,
+    std::vector<Vector3>& out);
+
 std::int32_t pointLeaf(const BspTree& tree, Vector3 point);
 bool leafIsEmpty(const BspTree& tree, std::int32_t leafIndex);
 const std::vector<std::int32_t>& leafNeighbors(const BspTree& tree, std::int32_t leafIndex);

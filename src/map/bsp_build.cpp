@@ -594,28 +594,31 @@ void assignSurfaceMaterials(BspTree& tree, const std::vector<Brush>& hulls) {
 
 void buildSurfaceFaces(BspTree& tree, const std::vector<Brush>& hulls) {
     tree.surfaceFaces.clear();
-    constexpr float kNudge = 0.05f;
+    std::vector<Vector3> probes;
 
     for (const Brush& brush : hulls) {
         for (const BrushFace& brushFace : brush.faces) {
             if (brushFace.vertices.size() < 3) {
                 continue;
             }
-            const Vector3 center = polygonCentroid(brushFace.vertices);
-            const Vector3 emptyProbe{
-                center.x + brushFace.normal.x * kNudge,
-                center.y + brushFace.normal.y * kNudge,
-                center.z + brushFace.normal.z * kNudge,
-            };
-            const std::int32_t leafIndex = pointLeaf(tree, emptyProbe);
-            if (leafIndex < 0 || tree.leaves[static_cast<std::size_t>(leafIndex)].solid) {
+            collectFaceEmptyProbes(brushFace.vertices, brushFace.normal, probes);
+            std::int32_t emptyLeaf = -1;
+            for (const Vector3& probe : probes) {
+                const std::int32_t leafIndex = pointLeaf(tree, probe);
+                if (leafIndex < 0 || tree.leaves[static_cast<std::size_t>(leafIndex)].solid) {
+                    continue;
+                }
+                emptyLeaf = leafIndex;
+                break;
+            }
+            if (emptyLeaf < 0) {
                 continue;
             }
 
             BspSurfaceFace face;
             face.vertices = brushFace.vertices;
             face.normal = brushFace.normal;
-            face.emptyLeaf = leafIndex;
+            face.emptyLeaf = emptyLeaf;
             face.id = brushFace.id;
             face.material = brushFace.material;
             face.uvShiftPixels = brushFace.uvShiftPixels;
@@ -626,6 +629,48 @@ void buildSurfaceFaces(BspTree& tree, const std::vector<Brush>& hulls) {
 }
 
 } // namespace
+
+void collectFaceEmptyProbes(
+    const std::vector<Vector3>& vertices,
+    Vector3 normal,
+    std::vector<Vector3>& out) {
+    out.clear();
+    if (vertices.size() < 3) {
+        return;
+    }
+
+    constexpr float kNudge = 0.05f;
+    auto nudgePoint = [&](Vector3 p) {
+        return Vector3{
+            p.x + normal.x * kNudge,
+            p.y + normal.y * kNudge,
+            p.z + normal.z * kNudge,
+        };
+    };
+
+    Vector3 sum{};
+    for (const Vector3& v : vertices) {
+        sum.x += v.x;
+        sum.y += v.y;
+        sum.z += v.z;
+    }
+    const float inv = 1.0f / static_cast<float>(vertices.size());
+    out.push_back(nudgePoint(Vector3{sum.x * inv, sum.y * inv, sum.z * inv}));
+
+    for (const Vector3& v : vertices) {
+        out.push_back(nudgePoint(v));
+    }
+
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        const Vector3& a = vertices[i];
+        const Vector3& b = vertices[(i + 1) % vertices.size()];
+        out.push_back(nudgePoint(Vector3{
+            0.5f * (a.x + b.x),
+            0.5f * (a.y + b.y),
+            0.5f * (a.z + b.z),
+        }));
+    }
+}
 
 Vector3 leafCentroid(const BspLeaf& leaf) {
     Vector3 sum{};

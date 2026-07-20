@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <limits>
 #include <queue>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -206,16 +205,7 @@ void inferHullNodrawFromSurfaces(
     const std::vector<std::uint8_t>& exteriorEmpty,
     const std::vector<Brush>& brushes,
     std::unordered_set<std::string>& inferred) {
-    std::unordered_map<std::string, bool> facesInteriorSurface;
-    for (const BspSurfaceFace& surface : tree.surfaceFaces) {
-        if (surface.id.empty()) {
-            continue;
-        }
-        const bool interior = isInteriorEmpty(tree, exteriorEmpty, surface.emptyLeaf);
-        auto& entry = facesInteriorSurface[surface.id];
-        entry = entry || interior;
-    }
-
+    std::vector<Vector3> probes;
     for (const Brush& brush : brushes) {
         if (brush.role != BrushRole::Hull) {
             continue;
@@ -224,8 +214,15 @@ void inferHullNodrawFromSurfaces(
             if (face.nodraw || face.id.empty()) {
                 continue;
             }
-            const auto it = facesInteriorSurface.find(face.id);
-            if (it == facesInteriorSurface.end() || !it->second) {
+            collectFaceEmptyProbes(face.vertices, face.normal, probes);
+            bool facesInterior = false;
+            for (const Vector3& probe : probes) {
+                if (isInteriorEmpty(tree, exteriorEmpty, pointLeaf(tree, probe))) {
+                    facesInterior = true;
+                    break;
+                }
+            }
+            if (!facesInterior) {
                 inferred.insert(face.id);
             }
         }
