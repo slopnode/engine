@@ -8,20 +8,20 @@
 
 #include <string_view>
 
-namespace slopmap {
+namespace slopengine {
 
 inline constexpr const char* kDefaultIconSet = "silk";
 
 inline bool drawIconImGui(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view id,
     float size = 16.0f) {
-    const slopengine::IconAtlas* atlas = assets.getIconAtlas(set);
+    const IconAtlas* atlas = assets.getIconAtlas(set);
     if (atlas == nullptr || atlas->texture.id == 0) {
         return false;
     }
-    const auto rect = slopengine::findIconRect(*atlas, id);
+    const auto rect = findIconRect(*atlas, id);
     if (!rect) {
         return false;
     }
@@ -30,7 +30,7 @@ inline bool drawIconImGui(
 }
 
 inline bool selectableWithIcon(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view iconId,
     const char* label,
@@ -42,7 +42,7 @@ inline bool selectableWithIcon(
 }
 
 inline bool menuItemWithIcon(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view iconId,
     const char* label,
@@ -56,7 +56,7 @@ inline bool menuItemWithIcon(
 }
 
 inline bool menuItemWithIcon(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view iconId,
     const char* label,
@@ -70,7 +70,7 @@ inline bool menuItemWithIcon(
 }
 
 inline bool beginMenuWithIcon(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view iconId,
     const char* label,
@@ -82,7 +82,7 @@ inline bool beginMenuWithIcon(
 }
 
 inline bool buttonWithIcon(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view iconId,
     const char* label,
@@ -94,7 +94,7 @@ inline bool buttonWithIcon(
 }
 
 inline bool collapsingHeaderWithIcon(
-    slopengine::AssetStore& assets,
+    AssetStore& assets,
     std::string_view set,
     std::string_view iconId,
     const char* label,

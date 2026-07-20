@@ -186,6 +186,10 @@ bool AssetStore::hasTexture(std::string_view path) const {
     return vfs_.exists(AssetKind::Texture, path);
 }
 
+bool AssetStore::hasFont(std::string_view path) const {
+    return vfs_.exists(AssetKind::Font, path);
+}
+
 bool AssetStore::hasMaterial(std::string_view path) const {
     return vfs_.exists(AssetKind::Material, path);
 }

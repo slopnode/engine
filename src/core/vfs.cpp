@@ -44,6 +44,7 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::Icon: return "icons";
     case AssetKind::IconMap: return "icons";
     case AssetKind::Data: return "data";
+    case AssetKind::Font: return "fonts";
     }
     return "";
 }
@@ -76,6 +77,7 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::Icon: return ".png";
     case AssetKind::IconMap: return ".iconmap";
     case AssetKind::Data: return ".s7";
+    case AssetKind::Font: return ".ttf";
     }
     return "";
 }

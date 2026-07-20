@@ -38,10 +38,10 @@ The parser is line-oriented: known field lines matter; the wrapping `(iconmap` /
 Source PNGs live under `icons/<set-name>/`. The `slopicons` tool packs them into `<set-name>.png` and `<set-name>.iconmap` next to that folder:
 
 ```bash
-./build/slopicons pack silk packages/base/icons
+./build/slopicons pack silk packages/engine/icons
 ```
 
-That reads `packages/base/icons/silk/**/*.png` and writes `packages/base/icons/silk.png` plus `packages/base/icons/silk.iconmap`. Icon ids are relative paths under the source folder without `.png` (for example `accept`, or `toolbar/save` if nested).
+That reads `packages/engine/icons/silk/**/*.png` and writes `packages/engine/icons/silk.png` plus `packages/engine/icons/silk.iconmap`. Icon ids are relative paths under the source folder without `.png` (for example `accept`, or `toolbar/save` if nested).
 
 CMake also exposes a convenience target for the base Silk set:
 
@@ -62,6 +62,6 @@ Commit the packed atlas and `.iconmap` with the package. Runtime loading only ne
 
 Tools such as `slopmap` use the same atlas through ImGui helpers (`drawIconImGui`, menu/button wrappers) with default set `silk`.
 
-## Base package
+## Engine package
 
-`packages/base/icons/` ships the FamFamFam Silk set as `silk`: source PNGs under `icons/silk/`, plus packed `silk.png` and `silk.iconmap`. Other packages can add more sets the same way, or override `silk` by mounting a later package with the same virtual path.
+`packages/engine/icons/` ships the FamFamFam Silk set as `silk`: source PNGs under `icons/silk/`, plus packed `silk.png` and `silk.iconmap`. Other packages can add more sets the same way, or override `silk` by mounting a later package with the same virtual path.

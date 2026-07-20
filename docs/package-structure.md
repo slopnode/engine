@@ -41,6 +41,7 @@ Asset lookup is by category subdirectory plus a virtual path. The engine appends
 my-package/
   package.meta
   animations/     # .anim, .tracks
+  fonts/          # .ttf (ImGui / UI)
   geometry/       # .geo, .vert, .weights
   icons/          # .png atlas + .iconmap (+ source folders)
   maps/           # map folders
@@ -68,6 +69,7 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `animations/` | `.anim`, `.tracks` | `character/walk` → `animations/character/walk.anim` |
 | `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
 | `icons/` | `.png`, `.iconmap` | `silk` → `icons/silk.png` / `icons/silk.iconmap` |
+| `fonts/` | `.ttf` | `FiraSans/FiraSans-Regular` → `fonts/FiraSans/FiraSans-Regular.ttf` |
 | `prefabs/` | `.csg`, `.s7` | `furniture/desk` → `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
 | `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/things` → `maps/<name>/things.s7` |
 

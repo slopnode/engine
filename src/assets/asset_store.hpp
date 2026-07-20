@@ -38,6 +38,9 @@ public:
     /** Returns true when a texture exists at @p path. */
     bool hasTexture(std::string_view path) const;
 
+    /** Returns true when a font exists at @p path. */
+    bool hasFont(std::string_view path) const;
+
     /** Returns true when a material exists at @p path. */
     bool hasMaterial(std::string_view path) const;
 

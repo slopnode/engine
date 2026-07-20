@@ -5,6 +5,7 @@
 #include "interact/interact_module.hpp"
 #include "physics/physics_module.hpp"
 #include "render/render_module.hpp"
+#include "ui/imgui_fonts.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
 
@@ -22,7 +23,7 @@ App::App(AppConfig config)
     , world_{}
     , physicsWorld_{std::make_unique<PhysicsWorld>()} {
     init_window();
-    rlImGuiSetup(true);
+    setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true);
     init_script();
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);

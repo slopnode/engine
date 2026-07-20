@@ -1,5 +1,6 @@
 #include "ui/ui_module.hpp"
 
+#include "assets/asset_services.hpp"
 #include "camera/components.hpp"
 #include "game/user_settings.hpp"
 #include "input/actions.hpp"
@@ -13,6 +14,7 @@
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/sprite_animator.hpp"
+#include "ui/icon_ui.hpp"
 #include "ui/ui_state.hpp"
 
 #include "imgui.h"
@@ -145,7 +147,7 @@ void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
     settings.save();
 }
 
-void drawPauseMenu(InputContextStack& contexts) {
+void drawPauseMenu(AssetStore& assets, InputContextStack& contexts) {
     ImGui::SetNextWindowSize({320.0f, 180.0f}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(
         {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f},
@@ -154,14 +156,14 @@ void drawPauseMenu(InputContextStack& contexts) {
 
     if (ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
         ImGui::TextUnformatted("Simulation continues while paused.");
-        if (ImGui::Button("Resume")) {
+        if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
             contexts.pop(InputContext::PauseMenu);
         }
     }
     ImGui::End();
 }
 
-void drawGraphicsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
+void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserSettings& settings) {
     if (!settingsUi.graphicsOpen) {
         return;
     }
@@ -221,18 +223,18 @@ void drawGraphicsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
     ImGui::Checkbox("VSync", &draft.vsync);
 
     ImGui::Separator();
-    if (ImGui::Button("Apply")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
         applyGraphicsDraft(settings, draft);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Reset")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
         draft = UserSettings::defaults().graphics;
     }
 
     ImGui::End();
 }
 
-void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
+void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserSettings& settings) {
     if (!settingsUi.controlsOpen) {
         return;
     }
@@ -277,12 +279,12 @@ void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
     }
 
     ImGui::Separator();
-    if (ImGui::Button("Apply")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
         applyControlsDraft(settings, settingsUi.controlsDraft);
         settingsUi.rebindingAction = -1;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Reset")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
         settingsUi.controlsDraft = ControlsSettings::defaults();
         settingsUi.rebindingAction = -1;
     }
@@ -295,6 +297,7 @@ void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
 }
 
 void drawMainMenuBar(
+    AssetStore& assets,
     QuitRequest& quit,
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
@@ -303,25 +306,27 @@ void drawMainMenuBar(
         return;
     }
 
-    if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("Quit")) {
+    constexpr const char* kIcons = kDefaultIconSet;
+
+    if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+        if (menuItemWithIcon(assets, kIcons, "door", "Quit")) {
             quit.requested = true;
         }
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Config")) {
-        if (ImGui::MenuItem("Graphics")) {
+    if (beginMenuWithIcon(assets, kIcons, "cog", "Config")) {
+        if (menuItemWithIcon(assets, kIcons, "monitor", "Graphics")) {
             openGraphicsSettings(settingsUi, settings);
         }
-        if (ImGui::MenuItem("Controls")) {
+        if (menuItemWithIcon(assets, kIcons, "keyboard", "Controls")) {
             openControlsSettings(settingsUi, settings);
         }
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Debug")) {
-        if (ImGui::BeginMenu("BSP")) {
+    if (beginMenuWithIcon(assets, kIcons, "bug", "Debug")) {
+        if (beginMenuWithIcon(assets, kIcons, "chart_organisation", "BSP")) {
             ImGui::MenuItem("Outlines", nullptr, &debugUi.showBspOutlines);
             ImGui::MenuItem("Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
             ImGui::MenuItem("Portals", nullptr, &debugUi.showBspPortals);
@@ -329,20 +334,22 @@ void drawMainMenuBar(
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Sprites")) {
+        if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
             ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
             ImGui::EndMenu();
         }
-        ImGui::MenuItem("Graphs", nullptr, &debugUi.showGraphs);
-        ImGui::MenuItem("Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
-        ImGui::MenuItem("Noclip", nullptr, &debugUi.noclip);
-        ImGui::MenuItem("Entities", nullptr, &debugUi.entityListOpen);
+        menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
+        menuItemWithIcon(
+            assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
+        menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
+        menuItemWithIcon(
+            assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Help")) {
-        ImGui::MenuItem("About", nullptr, false, false);
+    if (beginMenuWithIcon(assets, kIcons, "information", "Help")) {
+        menuItemWithIcon(assets, kIcons, "information", "About", nullptr, false, false);
         ImGui::EndMenu();
     }
 
@@ -948,17 +955,22 @@ void drawUi(flecs::world world) {
 
     drawInteractionPrompt(target, contexts);
 
-    if (contexts.contains(InputContext::MainMenu)) {
+    AssetStore* assets = nullptr;
+    if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+        assets = world.get_mut<AssetServices>().store;
+    }
+
+    if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
-        drawMainMenuBar(quit, settingsUi, debugUi, settings);
-        drawGraphicsSettings(settingsUi, settings);
-        drawControlsSettings(settingsUi, settings);
+        drawMainMenuBar(*assets, quit, settingsUi, debugUi, settings);
+        drawGraphicsSettings(*assets, settingsUi, settings);
+        drawControlsSettings(*assets, settingsUi, settings);
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
     }
 
-    if (contexts.contains(InputContext::PauseMenu)) {
-        drawPauseMenu(contexts);
+    if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {
+        drawPauseMenu(*assets, contexts);
     }
 
     if (contexts.contains(InputContext::InteractUI)) {
