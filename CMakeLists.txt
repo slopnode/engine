@@ -4,6 +4,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 project(slopengine LANGUAGES C CXX)
 
+option(SLOPENGINE_DOCS_ONLY "Configure only the Doxygen docs target" OFF)
+
+if(SLOPENGINE_DOCS_ONLY)
+    set(SLOPENGINE_BUILD_DOCS ON CACHE BOOL "" FORCE)
+    include(cmake/Doxygen.cmake)
+    return()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
