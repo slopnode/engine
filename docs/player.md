@@ -1,6 +1,6 @@
 # Player
 
-The first-person avatar is a single flecs entity named `Player`. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, lights, and other placements are separate—see [Placements](entities.md) and [Maps](maps.md).
+The first-person avatar is a single flecs entity named `Player`. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, lights, and other placements are separate—see [Placements](entities.md), [Lights](lights.md), and [Maps](maps.md).
 
 ## Spawn (`player-start`)
 
@@ -40,13 +40,30 @@ Demo / non-map scenes may spawn `Player` without `CharacterMotor`; look still ru
 
 ## First-person scene
 
+The first-person scene is a **presentation layer**: it shows what the package decided is currently equipped, lit, or held. It is not the owner of gameplay rules, inventory, weapon logic, or flashlight state. Those live in package Scheme (or other game systems); the FP stage only attaches meshes and lights so the player can see that state.
+
+### Ownership
+
+| Owns | Does not own |
+|------|----------------|
+| Empty eye-space stage (`PlayerFp`) and sockets | Inventory, ammo, loadouts, weapon switch rules |
+| Draw of `ViewSpace` geo after the world | Hit detection, fire, reload, usability |
+| Primitives to attach geo / spawn or toggle a `DynamicLight` | Whether the flashlight “should” be on (package state) |
+| Optional rad tint / faux shading look | Map lighting design (bake + dynamic overlay—see [Lights](lights.md)) |
+
+Input still reaches the package as hooks (for example Flashlight → `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
+
+### Stage layout
+
 The engine owns an empty **eye-space stage** rooted at `PlayerFp` (`ViewSpace`), with child sockets `weapon` and `emission`. The stage stays fixed in view space: looking around does **not** move or rotate it. Packages fill the sockets; the engine does not define weapons, inventory, or flashlight recipes.
 
 **View axes:** `+X` screen-right, `+Y` up, `+Z` forward. Author viewmodels and offsets in that space.
 
-After `Player` spawns, the engine calls `(prepare-first-person "Player")` if that procedure exists (loaded from `scripts/player.s7`). View models draw in a separate fixed-eye pass after the world. Dynamic lights under `ViewSpace` are converted to world space at light-gather time via the player `Lens` (so a flashlight still lights the map without rotating the weapon stage).
+After `Player` spawns, the engine calls `(prepare-first-person "Player")` if that procedure exists (loaded from `scripts/player.s7`). That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under `ViewSpace` are converted to world space at light-gather time via the player `Lens` (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
 
 ### Scheme API (engine primitives)
+
+These bindings mutate presentation only. Keep authoritative state in package variables or entities elsewhere, then call into this API when that state changes.
 
 | Binding | Purpose |
 |---------|---------|
@@ -61,10 +78,10 @@ After `Player` spawns, the engine calls `(prepare-first-person "Player")` if tha
 
 | Procedure | When |
 |-----------|------|
-| `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn. |
-| `(on-action-flashlight)` | When the Flashlight action is pressed (default **F**). |
+| `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn — build the initial view from game state. |
+| `(on-action-flashlight)` | When the Flashlight action is pressed (default **F**) — flip package state, then update the FP light. |
 
-Base package `scripts/player.s7` attaches a stub cube “gun”, a warm spot light, and enables rad tint + viewmodel shading. Other base-games override virtual path `player` to redefine presentation. Inventory and loadouts stay package-only and optional.
+Base package `scripts/player.s7` keeps flashlight on/off in Scheme (`*flashlight-enabled*`), attaches a stub cube “gun”, a warm spot under `emission`, and enables rad tint + viewmodel shading. Toggling the action only updates that Scheme flag and `(fp-set-light-enabled …)`. Other base-games override virtual path `player` to redefine presentation. Inventory and loadouts stay package-only and optional.
 
 When rad tint is on, the FP pass samples baked light from the player feet (average of a few downward probes, ambient fallback), adds ranked dynamic lights, temporally smooths the color, then feeds that as `probeRgb` (or multiplies draw color when shading is off). Viewmodels are not lightmapped. Faux shading is GLSL under `shaders/default/viewmodel_*` (packages may override).
 

@@ -5,6 +5,7 @@
 
 namespace slopengine {
 
+/** Runtime state for playing a sprite clip from a .spanim bank. */
 struct SpriteAnimator {
     std::string animPath;
     std::string clipName;
@@ -15,7 +16,9 @@ struct SpriteAnimator {
     bool justStarted = false;
     bool justFinished = false;
 
+    /** Starts @p clip at @p playbackSpeed. */
     void play(std::string_view clip, bool shouldLoop = true, float playbackSpeed = 1.0f);
+    /** Stops playback and clears transition flags. */
     void stop();
 };
 

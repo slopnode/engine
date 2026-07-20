@@ -10,10 +10,10 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Placement presentation uses sp
 |------|----------|------------|
 | Static prop | `(prop …)` | Visual only: sprite or mesh at a pose. No interact, no AI. |
 | Usable | `(usable …)` | Same presentation as a prop, plus an interact prompt and optional Scheme `on-use`. |
-| Point light | `(point-light …)` | Local omnidirectional light placement (data only until lighting lands). |
-| Spot light | `(spot-light …)` | Directed cone light placement (data only). |
-| Area light | `(area-light …)` | Rectangular area light placement (data only). |
-| Sun | `(sun …)` | Directional sun placement (data only; optional `at` for editor gizmo). |
+| Point light | `(point-light …)` | Local omnidirectional light placement (bake + gizmos; see [Lights](lights.md)). |
+| Spot light | `(spot-light …)` | Directed cone light placement (bake + gizmos). |
+| Area light | `(area-light …)` | Rectangular area light placement (authoring / gizmo). |
+| Sun | `(sun …)` | Directional sun placement (authoring / gizmo; optional `at` for editor). |
 | Actor | — | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
 | Player | `(player-start …)` | Spawn pose only; the `Player` entity is built by the engine. |
 
@@ -109,7 +109,7 @@ Usables are the content-facing wrapper around the engine `Interactable` primitiv
 
 ## Lights
 
-Light placements are engine forms that always exist. They spawn flecs entities with light components and a transform. **They do not affect bake or runtime shading yet**—authoring and editor gizmos only.
+Light placements are engine forms that always exist. They spawn flecs entities with light components and a transform. Point and spot placements contribute to the radiosity bake; at runtime the dynamic overlay uses a separate `DynamicLight` path (for example the FP flashlight). Full detail: [Lights](lights.md).
 
 Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (default `1`).
 
@@ -126,8 +126,8 @@ Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (defa
 
 - **Prop** — placed, may animate a sprite clip, does not think or pathfind.
 - **Usable** — static (or later movable) fixture the player uses.
-- **Light** — illumination placement (no AI).
-- **Player** — engine-owned first-person pawn ([Player](player.md)).
+- **Light** — illumination placement (bake for point/spot; runtime dynamic overlay is separate—[Lights](lights.md)).
+- **Player** — engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)).
 
 There is no `(actor …)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop …)` (optionally with `(anim …)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top—behavior owned by package scripts where possible, with engine primitives for movement and sensing.
 
@@ -139,7 +139,7 @@ Two Scheme layers share one s7 heap for the run:
 |--------|------|---------|
 | `scripts/init.s7` | App start | Package bootstrap (version, shared defs). |
 | `scripts/entities.s7` | App start (after `init`) | Handlers and helpers for placed content (`on-use`, later prefabs). |
-| `scripts/player.s7` | After FP Scheme API bind (before map spawn) | First-person presentation: `(prepare-first-person)`, `(on-action-flashlight)`, etc. |
+| `scripts/player.s7` | After FP Scheme API bind (before map spawn) | First-person **presentation**: `(prepare-first-person)`, `(on-action-flashlight)`, etc. Game rules stay in package state; FP API only mirrors them. |
 | `maps/<name>/entities.s7` | Map load | Placement only: `player-start`, `prop`, `usable`, lights, `prefab`. |
 
 Virtual paths omit the extension: `init`, `entities`, `player`, `<map>/entities`. Later packages override earlier ones at the same path.

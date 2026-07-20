@@ -14,6 +14,7 @@ namespace slopengine {
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
 constexpr std::uint32_t kRadVersion = 2;
 
+/** Brush face prepared for lightmap chart packing. */
 struct LightmapFace {
     std::string id;
     std::string material;
@@ -25,6 +26,7 @@ struct LightmapFace {
     bool uvLock = false;
 };
 
+/** One chart's placement in a lightmap atlas. */
 struct LightmapChart {
     std::int32_t faceIndex = -1;
     std::string faceId;
@@ -39,25 +41,30 @@ struct LightmapChart {
     float v1 = 0.0f;
 };
 
+/** Atlas texture path and size recorded in a .rad file. */
 struct LightmapAtlasInfo {
     std::string texturePath;
     std::int32_t width = 0;
     std::int32_t height = 0;
 };
 
+/** Parsed rad/static.rad sidecar (charts + atlas metadata). */
 struct RadFile {
     float luxelsPerMeter = 16.0f;
     std::vector<LightmapAtlasInfo> atlases;
     std::vector<LightmapChart> charts;
 };
 
+/** Packed charts plus RGB luxel buffers before PNG write. */
 struct LightmapPackResult {
     RadFile rad;
     std::vector<std::vector<float>> atlasRgb;
 };
 
+/** Collects drawable faces from brushes for packing / bake. */
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
 
+/** Packs faces into atlas charts at @p luxelsPerMeter. */
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
     float luxelsPerMeter,

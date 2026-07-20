@@ -11,32 +11,32 @@
 
 namespace slopengine {
 
-/** Asset categories mapped to package subdirectories. */
+/** Asset categories mapped to package subdirectories and file extensions. */
 enum class AssetKind {
-    Texture,
-    Material,
-    Mesh,
-    Shader,
-    Script,
-    Skeleton,
-    SkeletonBind,
-    Geo,
-    GeoVert,
-    GeoWeights,
-    Anim,
-    AnimTracks,
-    MapCsg,
-    MapMeta,
-    MapBsp,
-    MapRad,
-    MapLightmap,
-    MapEntities,
-    PrefabCsg,
-    PrefabEntities,
-    Sprite,
-    SpriteAnim,
-    Icon,
-    IconMap,
+    Texture,       /**< PNG under textures/ */
+    Material,      /**< .mat under materials/ */
+    Mesh,          /**< .glb under meshes/ */
+    Shader,        /**< .glsl under shaders/ */
+    Script,        /**< .s7 under scripts/ */
+    Skeleton,      /**< .skel under skeletons/ */
+    SkeletonBind,  /**< .bind under skeletons/ */
+    Geo,           /**< .geo under geometry/ */
+    GeoVert,       /**< .vert under geometry/ */
+    GeoWeights,    /**< .weights under geometry/ */
+    Anim,          /**< .anim under animations/ */
+    AnimTracks,    /**< .tracks under animations/ */
+    MapCsg,        /**< maps/<name>/static.csg */
+    MapMeta,       /**< maps/<name>/map.meta */
+    MapBsp,        /**< maps/<name>/static.bsp */
+    MapRad,        /**< maps/<name>/rad/static.rad */
+    MapLightmap,   /**< maps/<name>/rad/atlas PNGs */
+    MapEntities,   /**< maps/<name>/entities.s7 */
+    PrefabCsg,     /**< .csg under prefabs/ */
+    PrefabEntities, /**< .s7 sidecar under prefabs/ */
+    Sprite,        /**< .spr under sprites/ */
+    SpriteAnim,    /**< .spanim under sprites/ */
+    Icon,          /**< packed PNG under icons/ */
+    IconMap,       /**< .iconmap under icons/ */
 };
 
 class AssetStore;
@@ -52,11 +52,19 @@ public:
     /** Appends a package; later packages override earlier ones for asset lookup. */
     void addPackage(Package package);
 
+    /** Returns mounted packages in mount order. */
     const std::vector<Package>& packages() const { return packages_; }
 
+    /** Returns true when @p virtualPath exists for @p kind. */
     bool exists(AssetKind kind, std::string_view virtualPath) const;
+
+    /** Resolves @p virtualPath to a filesystem path when present. */
     std::optional<std::filesystem::path> resolve(AssetKind kind, std::string_view virtualPath) const;
+
+    /** Reads a text asset; empty string if missing. */
     std::string readText(AssetKind kind, std::string_view virtualPath) const;
+
+    /** Reads a binary asset; empty vector if missing. */
     std::vector<std::byte> readBinary(AssetKind kind, std::string_view virtualPath) const;
 
 private:

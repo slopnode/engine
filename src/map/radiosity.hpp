@@ -11,6 +11,7 @@
 
 namespace slopengine {
 
+/** Bake knobs for sloprad. */
 struct RadiositySettings {
     float luxelsPerMeter = 16.0f;
     int bounces = 2;
@@ -23,6 +24,7 @@ struct RadiositySettings {
     std::string directComputeShaderSource;
 };
 
+/** Material + optional albedo/emission images for bake sampling. */
 struct MaterialBakeInfo {
     MaterialAsset asset;
     Image albedoImage{};
@@ -33,16 +35,19 @@ struct MaterialBakeInfo {
 
 using MaterialBakeResolver = std::function<MaterialBakeInfo(std::string_view materialPath)>;
 
+/** Packed rad file plus atlas Image pixels from a bake. */
 struct RadiosityBakeResult {
     RadFile rad;
     std::vector<Image> atlasImages;
 };
 
+/** Bake-time light kind (point and spot only today). */
 enum class RadiosityLightKind {
     Point,
     Spot,
 };
 
+/** Placement light collected for the radiosity bake. */
 struct RadiosityLight {
     RadiosityLightKind kind = RadiosityLightKind::Point;
     Vector3 position{};
@@ -53,6 +58,7 @@ struct RadiosityLight {
     float coneAngle = 0.7f;
 };
 
+/** Runs radiosity on @p faces and returns atlases + rad metadata. */
 RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
     const MapMeta& meta,

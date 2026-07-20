@@ -87,10 +87,10 @@ Compiled once at map load when `rad/` data is present. Bindings:
 Fragment lighting:
 
 ```text
-final = albedo * lightmap + emit
+final = albedo * (baked + dynamic) + emit
 ```
 
-where `emit` comes from `colSpecular` (material emission color when `emission-power > 0`).
+where `baked` is the lightmap sample (or white when unlit), `dynamic` is the ranked runtime overlay (see [Lights](lights.md)), and `emit` comes from `colSpecular` (material emission color when `emission-power > 0`).
 
 ## End-to-end flows
 

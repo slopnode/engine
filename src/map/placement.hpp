@@ -7,6 +7,7 @@
 
 namespace slopengine {
 
+/** Kind of authored placement in entities.s7 / prefab sidecars. */
 enum class PlacementKind {
     PlayerStart,
     Prop,
@@ -18,13 +19,14 @@ enum class PlacementKind {
     Prefab,
 };
 
+/** One authored placement record before flecs spawn. */
 struct Placement {
     PlacementKind kind = PlacementKind::Prop;
     std::string id;
     Vector3 at{0.0f, 0.0f, 0.0f};
     bool haveAt = false;
     float yaw = 0.0f;
-    Vector3 angles{0.0f, 0.0f, 0.0f};
+    Vector3 angles{0.0f, 0.0f, 0.0f}; /**< Pitch, yaw, roll in radians. */
     bool haveAngles = false;
 
     std::string sprite;
@@ -35,7 +37,7 @@ struct Placement {
     bool haveAnim = false;
 
     std::string prompt = "Interact";
-    std::string onUse;
+    std::string onUse; /**< Scheme procedure name for usable. */
 
     Vector3 color{1.0f, 1.0f, 1.0f};
     float intensity = 1.0f;
@@ -46,10 +48,12 @@ struct Placement {
     std::string prefabPath;
 };
 
+/** All placements loaded from one entities file. */
 struct PlacementDocument {
     std::vector<Placement> placements;
 };
 
+/** Default light params for editor / palette creation. */
 inline Placement makeDefaultLightPlacement(PlacementKind kind) {
     Placement p{};
     p.kind = kind;
@@ -61,6 +65,7 @@ inline Placement makeDefaultLightPlacement(PlacementKind kind) {
     return p;
 }
 
+/** Map-form name for @p kind (e.g. "point-light"). */
 inline const char* placementKindName(PlacementKind kind) {
     switch (kind) {
     case PlacementKind::PlayerStart:

@@ -14,6 +14,7 @@
 
 namespace slopengine {
 
+/** Runtime baked lighting: rad charts, atlases, and surface BVH for probes. */
 struct MapLighting {
     bool available = false;
     RadFile rad{};
@@ -69,12 +70,14 @@ struct MapLighting {
     }
 };
 
+/** Builds MapLighting from BSP surfaces, rad data, and atlas images. */
 MapLighting buildMapLighting(
     const BspTree& bsp,
     RadFile rad,
     std::vector<Image> atlasImages,
     Color ambient);
 
+/** Samples baked light along a ray (used for sprites / FP rad tint). */
 std::optional<Color> sampleMapLight(
     const MapLighting& lighting,
     const BspTree& tree,

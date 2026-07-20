@@ -7,20 +7,25 @@
 
 namespace slopengine {
 
+/** Local pose relative to the parent entity (or world root). */
 struct LocalTransformation {
     Vector3 position = {0.0f, 0.0f, 0.0f};
     Vector3 scale = {1.0f, 1.0f, 1.0f};
     Quaternion rotation = {0.0f, 0.0f, 0.0f, 1.0f};
 };
 
+/** Cached world matrix after hierarchy update. */
 struct GlobalTransformation {
     Matrix matrix = MatrixIdentity();
 };
 
+/** Tag: entity is drawn and lit in the world pass. */
 struct WorldSpace {};
 
+/** Tag: entity is drawn in the fixed eye-space first-person pass. */
 struct ViewSpace {};
 
+/** Active view camera (usually on Player). */
 struct Lens {
     Camera3D camera = {
         .position = {0.0f, 10.0f, 10.0f},
@@ -31,25 +36,30 @@ struct Lens {
     };
 };
 
+/** Drawable raylib model with a tint color. */
 struct Model3D {
     Model model = {};
     Color color = WHITE;
 };
 
+/** Optional cavity / AO style shader binding on an entity. */
 struct ShaderCavity {
     Shader shader = {};
 };
 
+/** Simple spin animator around @p axis. */
 struct Spin {
     Vector3 axis = {0.0f, 1.0f, 0.0f};
     float speed = 1.0f;
 };
 
+/** Demo helper that flips between two animation clips. */
 struct AnimationClipFlipTest {
     std::string clipA = "bob";
     std::string clipB = "default";
 };
 
+/** Billboard sprite presentation: asset path, frame id, and facing yaw. */
 struct SpriteInstance {
     std::string sprite;
     std::string frame = "A";

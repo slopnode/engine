@@ -12,6 +12,7 @@ namespace slopengine {
 
 class AssetStore;
 
+/** Compiled viewmodel shader used when FP shading is enabled. */
 struct FirstPersonViewShader {
     Shader shader{};
     int matModelLoc = -1;
@@ -68,12 +69,22 @@ struct FirstPersonViewShader {
     }
 };
 
+/** Binds fp-* Scheme primitives for first-person presentation. */
 void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme);
+
+/** Ensures Player has a ViewSpace stage with weapon / emission sockets. */
 void ensureFirstPersonScene(flecs::world& world, flecs::entity player);
+
+/** Calls (prepare-first-person) when defined in Scheme. */
 void callPrepareFirstPerson(flecs::world& world);
+
+/** Updates Local/Global transforms under the FP stage. */
 void updateFirstPersonSceneTransforms(flecs::world world);
+
+/** Loads package default/viewmodel_* into a FirstPersonViewShader. */
 FirstPersonViewShader createFirstPersonViewShader(AssetStore& assets);
 
+/** View-space to world matrix from the player Lens. */
 Matrix viewToWorldMatrix(const Lens& lens);
 Vector3 viewToWorldPoint(const Lens& lens, Vector3 viewPoint);
 Vector3 viewToWorldDirection(const Lens& lens, Vector3 viewDirection);

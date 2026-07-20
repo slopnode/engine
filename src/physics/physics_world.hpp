@@ -14,6 +14,7 @@ namespace slopengine {
 struct CharacterMotor;
 struct Brush;
 
+/** Jolt world with static brush hulls and a virtual player character. */
 struct PhysicsWorld {
     PhysicsWorld();
     ~PhysicsWorld();
@@ -24,18 +25,27 @@ struct PhysicsWorld {
     JPH::PhysicsSystem& system() { return *system_; }
     JPH::TempAllocator& allocator() { return *tempAllocator_; }
 
+    /** Registers convex static bodies for map brushes (skips nocollide). */
     void addStaticBrushes(const std::vector<Brush>& brushes);
+
+    /** Creates the player capsule at feet position using @p motor sizes. */
     void createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor);
+
+    /** Applies horizontal wish from @p motor; skips gravity when @p noclip. */
     void applyPlayerInput(
         const CharacterMotor& motor,
         float wishX,
         float wishZ,
         float dt,
         bool noclip = false);
+
+    /** Steps the simulation with a fixed timestep accumulator. */
     void update(float frameDt, const CharacterMotor& motor, bool noclip = false);
 
     bool hasPlayer() const { return character_ != nullptr; }
+    /** Feet position of the virtual character. */
     JPH::RVec3 playerPosition() const;
+    /** True when the character is supported by ground. */
     bool playerSupported() const;
 
 private:

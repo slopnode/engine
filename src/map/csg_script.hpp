@@ -17,6 +17,7 @@ struct s7_scheme;
 
 namespace slopengine {
 
+/** Runtime map ready for draw, collision, and lighting. */
 struct LoadedMap {
     Model model{};
     std::vector<Brush> brushes;
@@ -30,38 +31,46 @@ struct LoadedMap {
     int useLightmapLoc = -1;
 };
 
+/** Parsed static.csg: local brushes plus prefab instances. */
 struct MapCsgDocument {
     std::vector<Brush> brushes;
     std::vector<PrefabInstance> instances;
 };
 
+/** Loads maps/<name>/map.meta. */
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName);
 
+/** Loads and evaluates maps/<name>/static.csg without expanding prefabs. */
 std::optional<MapCsgDocument> loadMapCsgDocument(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName);
 
+/** Loads CSG and expands prefabs into a flat brush list. */
 std::optional<std::vector<Brush>> loadMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName);
 
+/** Loads prefabs/<path>.csg brushes (no instance transform). */
 std::optional<std::vector<Brush>> loadPrefabBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view prefabPath);
 
+/** Expands one prefab instance into world-space brushes. */
 std::optional<std::vector<Brush>> expandPrefabInstance(
     s7_scheme* scheme,
     AssetStore& assets,
     const PrefabInstance& instance);
 
+/** Expands all prefab instances into world-space brushes. */
 std::vector<Brush> expandPrefabInstances(
     s7_scheme* scheme,
     AssetStore& assets,
     const std::vector<PrefabInstance>& instances);
 
+/** Loads meta, brushes, BSP, optional rad, and builds the draw mesh. */
 std::optional<LoadedMap> loadAndCompileMap(
     s7_scheme* scheme,
     AssetStore& assets,

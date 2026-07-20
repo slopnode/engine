@@ -11,6 +11,7 @@
 
 namespace slopengine {
 
+/** UV density and texture size used when projecting brush face UVs. */
 struct MaterialUvInfo {
     float pixelsPerMeter = 64.0f;
     float textureWidth = 64.0f;
@@ -19,11 +20,13 @@ struct MaterialUvInfo {
 
 using MaterialUvResolver = std::function<MaterialUvInfo(std::string_view materialPath)>;
 
+/** Compiled brush mesh as a GeoAsset plus vertex buffer. */
 struct CsgCompileResult {
     GeoAsset asset;
     VertBuffer buffer;
 };
 
+/** Triangulates brushes into geo; embeds lightmap UV2 when @p lightmaps is set. */
 CsgCompileResult compileBrushesToGeo(
     const std::vector<Brush>& brushes,
     const MaterialUvResolver& resolveMaterialUv = {},

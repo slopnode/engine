@@ -9,6 +9,7 @@
 
 namespace slopengine {
 
+/** Hit against a BSP surface face. */
 struct BspRayHit {
     float distance = 0.0f;
     Vector3 point{};
@@ -16,6 +17,7 @@ struct BspRayHit {
     std::int32_t faceIndex = -1;
 };
 
+/** Raycasts against surface faces in @p bvh. */
 std::optional<BspRayHit> raycastBspSurfaces(
     const QuadBvh& bvh,
     Vector3 origin,
@@ -23,6 +25,7 @@ std::optional<BspRayHit> raycastBspSurfaces(
     float maxDistance,
     std::int32_t ignoreFaceIndex = -1);
 
+/** True if the segment from @p from to @p to is occluded by a surface. */
 bool bspSegmentOccluded(
     const QuadBvh& bvh,
     Vector3 from,

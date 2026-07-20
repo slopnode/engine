@@ -10,6 +10,7 @@
 
 namespace slopengine {
 
+/** Named sides of an axis-aligned brush-box. */
 enum class BrushBoxSide {
     Top,
     Bottom,
@@ -19,31 +20,34 @@ enum class BrushBoxSide {
     West,
 };
 
+/** Hull seals the BSP; detail is drawn and collides but does not split the tree. */
 enum class BrushRole {
     Hull,
     Detail,
 };
 
+/** One polygonal face of a convex brush. */
 struct BrushFace {
     std::string id;
-    std::string material;
+    std::string material; /**< Material virtual path. */
     Vector3 normal{};
-    std::vector<Vector3> vertices;
+    std::vector<Vector3> vertices; /**< Outward winding. */
     Vector2 uvShiftPixels{};
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
-    bool nodraw = false;
-    bool uvLock = false;
+    bool nodraw = false; /**< Omit from mesh and lightmaps. */
+    bool uvLock = false; /**< Keep texture glued under transforms. */
 };
 
+/** Convex solid used for CSG maps and prefabs. */
 struct Brush {
     std::string id;
     BrushRole role = BrushRole::Hull;
     Vector3 mins{};
     Vector3 maxs{};
     std::vector<BrushFace> faces;
-    bool box = false;
-    bool nocollide = false;
+    bool box = false;      /**< True when authored as brush-box. */
+    bool nocollide = false; /**< Skip physics body when true. */
 };
 
 const char* brushBoxSideName(BrushBoxSide side);
@@ -54,12 +58,14 @@ void recomputeBrushBounds(Brush& brush);
 bool pointInsideBrush(Vector3 point, const Brush& brush, float epsilon = 1e-4f);
 bool pointInsideBrushInclusive(Vector3 point, const Brush& brush, float epsilon = 1e-4f);
 
+/** Validation failure for a convex brush. */
 struct BrushConvexError {
     std::string message;
 };
 
 std::optional<BrushConvexError> validateBrushConvex(const Brush& brush);
 
+/** Builds an axis-aligned box brush with optional per-side overrides. */
 Brush makeBrushBox(
     std::string id,
     Vector3 mins,
@@ -68,6 +74,7 @@ Brush makeBrushBox(
     const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides,
     BrushRole role = BrushRole::Hull);
 
+/** Builds a convex brush from faces, or nullopt with @p errorOut. */
 std::optional<Brush> makeBrushConvex(
     std::string id,
     std::vector<BrushFace> faces,

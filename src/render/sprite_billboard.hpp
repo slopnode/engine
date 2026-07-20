@@ -12,6 +12,7 @@
 
 namespace slopengine {
 
+/** Resolved billboard geometry and atlas sample for one sprite instance. */
 struct SpriteBillboard {
     Vector3 points[4]{};
     Vector2 size{};
@@ -24,6 +25,7 @@ struct SpriteBillboard {
     Rectangle source{};
 };
 
+/** Ray hit against a sprite billboard, including hit-part. */
 struct SpriteBillboardHit {
     float distance = 0.0f;
     Vector3 point{};
@@ -33,23 +35,27 @@ struct SpriteBillboardHit {
     std::string partName;
 };
 
+/** Builds a billboard facing @p viewPosition. */
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     Vector3 viewPosition,
     AssetStore& assets);
 
+/** Builds a billboard facing the Lens camera. */
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     const Lens& lens,
     AssetStore& assets);
 
+/** Raycasts the billboard quad and optional hit mask. */
 std::optional<SpriteBillboardHit> raycastSpriteBillboard(
     const Ray& ray,
     const SpriteBillboard& billboard,
     float maxDistance);
 
+/** Draws hit-mask debug overlay for @p billboard. */
 void drawSpriteMaskDebug(const SpriteBillboard& billboard);
 
 } // namespace slopengine

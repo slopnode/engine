@@ -11,6 +11,7 @@
 
 namespace slopengine {
 
+/** One shadow-map slot for a ranked shadowed dynamic light. */
 struct DynamicLightShadowSlot {
     RenderTexture2D faces[kDynamicShadowFacesPerSlot]{};
     Matrix viewProj[kDynamicShadowFacesPerSlot]{};
@@ -21,6 +22,7 @@ struct DynamicLightShadowSlot {
     bool active = false;
 };
 
+/** GPU shadow resources for up to kMaxShadowedDynamicLights lights. */
 struct DynamicLightShadowState {
     DynamicLightShadowSlot slots[kMaxShadowedDynamicLights]{};
     Shader depthShader{};
@@ -38,6 +40,7 @@ struct DynamicLightShadowState {
     void unload();
 };
 
+/** Cached uniform locations for dynamic lights on a shader. */
 struct DynamicLightShaderBindings {
     int lightCountLoc = -1;
     int lightPosRangeLoc = -1;
@@ -50,19 +53,26 @@ struct DynamicLightShaderBindings {
     bool resolved = false;
 };
 
+/** Ranked lights and shader bindings for the current frame. */
 struct DynamicLightFrameState {
     std::vector<RankedDynamicLight> lights;
     DynamicLightShaderBindings bindings{};
 };
 
+/** Creates shadow render targets and the depth shader. */
 DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets);
+
+/** Renders shadow maps for ranked lights that cast shadows. */
 void renderDynamicLightShadows(
     DynamicLightShadowState& shadowState,
     const std::vector<RankedDynamicLight>& lights,
     flecs::world& world,
     AssetStore& assets);
 
+/** Resolves dynamic-light uniform locations on @p shader. */
 void resolveDynamicLightShaderBindings(Shader shader, DynamicLightShaderBindings& bindings);
+
+/** Uploads ranked lights (and optional shadows) to @p shader. */
 void uploadDynamicLightsToShader(
     Shader shader,
     const DynamicLightShaderBindings& bindings,

@@ -5,23 +5,27 @@
 
 namespace slopengine {
 
+/** Tag: this entity is the first-person player camera. */
 struct PlayerCamera {};
 
+/** Handles for the eye-space stage root and sockets under Player. */
 struct FirstPersonScene {
-    flecs::entity_t root = 0;
+    flecs::entity_t root = 0;           /**< PlayerFp root (ViewSpace). */
     flecs::entity_t weaponSocket = 0;
     flecs::entity_t emissionSocket = 0;
-    bool useRadTint = false;
-    bool useShading = false;
+    bool useRadTint = false;            /**< Tint viewmodels from map light probe. */
+    bool useShading = false;            /**< Use viewmodel faux lighting shader. */
     bool radTintInitialized = false;
     Vector3 radTintSmoothed{1.0f, 1.0f, 1.0f};
 };
 
+/** Runtime on/off state for a light spawned under an FP socket. */
 struct FpLightControl {
     float onIntensity = 1.0f;
     bool enabled = false;
 };
 
+/** Look state and free-move rates when not physics-driven. */
 struct FirstPersonController {
     float yaw = 0.0f;
     float pitch = 0.0f;

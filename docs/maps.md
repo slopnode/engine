@@ -134,13 +134,13 @@ Optional Scheme file of **placements** loaded after map geometry. Engine binding
 | `player-start` | `id`, `at` | First wins; sets player spawn pose. Optional `yaw` (radians). See [Player](player.md). |
 | `prop` | `id`, `at`, exactly one of `sprite` / `geo` | Optional `yaw`, `frame`, `(anim clip [loop])`. See [Placements](entities.md). |
 | `usable` | same as `prop` | Adds interact prompt; `(on-use "handler")` names a Scheme procedure called with the entity id on Interact. See [Placements](entities.md). |
-| `point-light` | `id`, `at` | Optional `color`, `intensity`, `range`. Authored only; no lighting yet. |
-| `spot-light` | `id`, `at` | Optional `yaw`/`angles`, `color`, `intensity`, `range`, `cone`. |
-| `area-light` | `id`, `at` | Optional `angles`, `color`, `intensity`, `size`. |
-| `sun` | `id` | Optional `at` (gizmo), `angles`/`yaw`, `color`, `intensity`. |
+| `point-light` | `id`, `at` | Optional `color`, `intensity`, `range`. Baked by `sloprad`; see [Lights](lights.md). |
+| `spot-light` | `id`, `at` | Optional `yaw`/`angles`, `color`, `intensity`, `range`, `cone`. Baked by `sloprad`. |
+| `area-light` | `id`, `at` | Optional `angles`, `color`, `intensity`, `size`. Authoring / gizmo; not a bake emitter. |
+| `sun` | `id` | Optional `at` (gizmo), `angles`/`yaw`, `color`, `intensity`. Authoring / gizmo. |
 | `prefab` | path, `id` | Loads optional `prefabs/<path>.s7` with the same `at` / `angles` as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
-`on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Placements](entities.md).
+`on-use` handlers live in package scripts (for example `scripts/entities.s7`). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Placements](entities.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
 
 `(nodraw)` marks a face as out of bounds for rendering: it is omitted from the compiled mesh and from radiosity charts, so it does not consume lightmap atlas space. The brush stays solid for physics and BSP occlusion. You can still set it explicitly on any face when you want nodraw true:
 
