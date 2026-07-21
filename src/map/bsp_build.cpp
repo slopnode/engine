@@ -567,47 +567,72 @@ static bool boundsOverlap(const BspLeaf& a, const BspLeaf& b) {
         && a.mins.z <= b.maxs.z && a.maxs.z >= b.mins.z;
 }
 
-void buildAdjacency(BspTree& tree) {
-    const std::int32_t leafCount = static_cast<std::int32_t>(tree.leaves.size());
-    for (std::int32_t i = 0; i < leafCount; ++i) {
-        if (tree.leaves[static_cast<std::size_t>(i)].solid) {
+static bool facesAreAdjacent(const BspLeaf& a, const BspLeaf& b) {
+    for (const auto& fa : a.faces) {
+        const Vector3 na = polygonNormal(fa);
+        if (length3(na) < 1e-6f) {
             continue;
         }
-        for (std::int32_t j = i + 1; j < leafCount; ++j) {
-            if (tree.leaves[static_cast<std::size_t>(j)].solid) {
+        for (const auto& fb : b.faces) {
+            const Vector3 nb = polygonNormal(fb);
+            if (dot3(na, nb) > -0.99f) {
                 continue;
             }
-            if (!boundsOverlap(tree.leaves[static_cast<std::size_t>(i)], tree.leaves[static_cast<std::size_t>(j)])) {
-                continue;
-            }
-            const BspLeaf& a = tree.leaves[static_cast<std::size_t>(i)];
-            const BspLeaf& b = tree.leaves[static_cast<std::size_t>(j)];
-            bool adjacent = false;
-            for (const auto& fa : a.faces) {
-                const Vector3 na = polygonNormal(fa);
-                if (length3(na) < 1e-6f) {
-                    continue;
-                }
-                for (const auto& fb : b.faces) {
-                    const Vector3 nb = polygonNormal(fb);
-                    if (dot3(na, nb) > -0.99f) {
-                        continue;
-                    }
-                    if (polygonsOverlapCoplanar(fa, fb, na)) {
-                        adjacent = true;
-                        break;
-                    }
-                }
-                if (adjacent) {
-                    break;
-                }
-            }
-            if (adjacent) {
-                tree.leaves[static_cast<std::size_t>(i)].neighbors.push_back(j);
-                tree.leaves[static_cast<std::size_t>(j)].neighbors.push_back(i);
+            if (polygonsOverlapCoplanar(fa, fb, na)) {
+                return true;
             }
         }
     }
+    return false;
+}
+
+static void collectEmptyLeaves(const BspTree& tree, std::int32_t child, std::vector<std::int32_t>& out) {
+    if (isLeafChild(child)) {
+        const std::int32_t li = decodeLeaf(child);
+        if (!tree.leaves[static_cast<std::size_t>(li)].solid) {
+            out.push_back(li);
+        }
+        return;
+    }
+    const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
+    collectEmptyLeaves(tree, node.front, out);
+    collectEmptyLeaves(tree, node.back, out);
+}
+
+static void buildAdjacencyWalk(BspTree& tree, std::int32_t child) {
+    if (isLeafChild(child)) {
+        return;
+    }
+    const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
+
+    std::vector<std::int32_t> frontLeaves;
+    std::vector<std::int32_t> backLeaves;
+    collectEmptyLeaves(tree, node.front, frontLeaves);
+    collectEmptyLeaves(tree, node.back, backLeaves);
+
+    for (const std::int32_t fi : frontLeaves) {
+        for (const std::int32_t bi : backLeaves) {
+            const BspLeaf& a = tree.leaves[static_cast<std::size_t>(fi)];
+            const BspLeaf& b = tree.leaves[static_cast<std::size_t>(bi)];
+            if (!boundsOverlap(a, b)) {
+                continue;
+            }
+            if (facesAreAdjacent(a, b)) {
+                tree.leaves[static_cast<std::size_t>(fi)].neighbors.push_back(bi);
+                tree.leaves[static_cast<std::size_t>(bi)].neighbors.push_back(fi);
+            }
+        }
+    }
+
+    buildAdjacencyWalk(tree, node.front);
+    buildAdjacencyWalk(tree, node.back);
+}
+
+void buildAdjacency(BspTree& tree) {
+    if (tree.root < 0) {
+        return;
+    }
+    buildAdjacencyWalk(tree, tree.root);
 }
 
 void orientSurfaceWinding(BspSurfaceFace& face) {
