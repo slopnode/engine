@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assets/anim_loader.hpp"
+#include "assets/audio_def.hpp"
 #include "assets/icon_atlas.hpp"
 #include "assets/material_loader.hpp"
 #include "assets/skeleton_loader.hpp"
@@ -40,6 +41,24 @@ public:
 
     /** Returns true when a font exists at @p path. */
     bool hasFont(std::string_view path) const;
+
+    /** Returns true when a sound exists as .ogg or .wav at @p path. */
+    bool hasSound(std::string_view path) const;
+
+    /** Resolves a sound to a filesystem path (.ogg preferred, then .wav). */
+    std::optional<std::filesystem::path> resolveSoundPath(std::string_view path) const;
+
+    /** Returns true when an audio def exists at @p path. */
+    bool hasAudio(std::string_view path) const;
+
+    /** Returns a cached audio def, loading and evaluating it when needed. */
+    const AudioDef* getAudioDef(s7_scheme* scheme, std::string_view path);
+
+    /** True while an audio def script is being evaluated for registration. */
+    bool isLoadingAudioDef() const { return audioDefLoadActive_; }
+
+    /** Commits a def registered by Scheme during getAudioDef load. */
+    bool commitAudioDef(AudioDef def);
 
     /** Returns true when a material exists at @p path. */
     bool hasMaterial(std::string_view path) const;
@@ -251,6 +270,11 @@ private:
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;
+    std::unordered_map<std::string, AudioDef> audioDefs_;
+    std::string audioDefLoadPath_;
+    AudioDef audioDefStaging_{};
+    bool audioDefLoadActive_ = false;
+    bool audioDefRegistered_ = false;
 };
 
 }

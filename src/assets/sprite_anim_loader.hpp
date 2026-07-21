@@ -14,9 +14,15 @@ struct SpriteAnimFrame {
     bool tweenRotation = false;
     bool tweenScale = false;
     bool tweenTranslate = false;
+    std::string sound;
+    float soundVolume = 1.0f;
 
     bool hasTween() const {
         return tweenRotation || tweenScale || tweenTranslate;
+    }
+
+    bool hasSound() const {
+        return !sound.empty();
     }
 };
 

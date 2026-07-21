@@ -44,6 +44,7 @@ set(SLOPLIB_SOURCES
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
     src/assets/material_loader.cpp
+    src/assets/saudio_loader.cpp
     src/assets/sprite_loader.cpp
     src/assets/sprite_anim_loader.cpp
     src/assets/skeleton_loader.cpp
@@ -100,6 +101,8 @@ add_executable(slopengine
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/map_collision.cpp
+    src/audio/audio_world.cpp
+    src/audio/audio_module.cpp
     src/map/things_spawn.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
@@ -112,6 +115,7 @@ add_executable(slopengine
     src/script/first_person_script.cpp
     src/script/hud_script.cpp
     src/script/input_script.cpp
+    src/script/audio_script.cpp
     src/script/thing_script.cpp
 )
 
@@ -120,6 +124,7 @@ target_link_libraries(slopengine PRIVATE
     flecs::flecs_static
     Jolt::Jolt
     rlImGui
+    soloud
 )
 
 if(MSVC)
@@ -175,11 +180,13 @@ add_executable(slopsprite
     tools/slopsprite/fp_preview.cpp
     tools/slopsprite/align_preview.cpp
     tools/slopsprite/texture_browser.cpp
+    tools/slopsprite/sound_browser.cpp
     tools/slopsprite/layout.cpp
     src/ui/imgui_fonts.cpp
+    src/audio/audio_world.cpp
 )
 target_include_directories(slopsprite PRIVATE tools/slopsprite)
-target_link_libraries(slopsprite PRIVATE sloplib rlImGui)
+target_link_libraries(slopsprite PRIVATE sloplib rlImGui soloud)
 if(MSVC)
     target_compile_options(slopsprite PRIVATE /W4 /permissive-)
 else()

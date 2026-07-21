@@ -6,8 +6,11 @@ add_subdirectory(flecs)
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(OPENGL_VERSION "4.3" CACHE STRING "Force a specific OpenGL Version?" FORCE)
+set(SUPPORT_MODULE_RAUDIO OFF CACHE BOOL "" FORCE)
 add_subdirectory(raylib)
 target_compile_definitions(raylib PUBLIC SUPPORT_GPU_SKINNING=1)
+
+include(${CMAKE_SOURCE_DIR}/cmake/SoLoud.cmake)
 
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)

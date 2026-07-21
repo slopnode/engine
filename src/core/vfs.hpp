@@ -40,6 +40,10 @@ enum class AssetKind {
     IconMap,       /**< .iconmap under icons/ */
     Data,          /**< .s7 under data/ */
     Font,          /**< .ttf under fonts/ */
+    Sound,         /**< .ogg under sound/ */
+    SoundWav,      /**< .wav under sound/ */
+    Audio,         /**< .s7 under audio/ */
+    AudioSaudio,   /**< .saudio under audio/ */
 };
 
 class AssetStore;

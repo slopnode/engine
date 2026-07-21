@@ -16,3 +16,6 @@
 [submodule "lib/rlImGui"]
 	path = lib/rlImGui
 	url = https://github.com/raylib-extras/rlImGui.git
+[submodule "lib/soloud"]
+	path = lib/soloud
+	url = https://github.com/jarikomppa/soloud.git

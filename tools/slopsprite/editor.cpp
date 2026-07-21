@@ -1,5 +1,7 @@
 #include "editor.hpp"
 
+#include "audio/audio_world.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -79,18 +81,62 @@ void clearAnimTween(EditorDocument& doc) {
     doc.animNextFrame.clear();
 }
 
+void firePreviewSound(
+    EditorDocument& doc,
+    const slopengine::SpriteAnimClip& clip,
+    int previousIndex,
+    int currentIndex,
+    slopengine::AssetStore& assets,
+    slopengine::AudioWorld* audio) {
+    if (audio == nullptr || !audio->ready() || currentIndex < 0 ||
+        currentIndex >= static_cast<int>(clip.frames.size())) {
+        return;
+    }
+    auto playHold = [&](int index) {
+        const slopengine::SpriteAnimFrame& frame = clip.frames[static_cast<std::size_t>(index)];
+        if (!frame.hasSound()) {
+            return;
+        }
+        audio->playSound(assets, frame.sound, frame.soundVolume);
+    };
+    if (previousIndex < 0) {
+        playHold(currentIndex);
+        return;
+    }
+    if (previousIndex == currentIndex) {
+        return;
+    }
+    const int frameCount = static_cast<int>(clip.frames.size());
+    if (doc.animLoop && currentIndex < previousIndex) {
+        for (int i = previousIndex + 1; i < frameCount; ++i) {
+            playHold(i);
+        }
+        for (int i = 0; i <= currentIndex; ++i) {
+            playHold(i);
+        }
+        return;
+    }
+    const int begin = previousIndex + 1;
+    const int end = std::min(currentIndex, frameCount - 1);
+    for (int i = begin; i <= end; ++i) {
+        playHold(i);
+    }
+}
+
 void applyAnimTime(
     EditorDocument& doc,
     const slopengine::SpriteAnimClip& clip,
     float time,
     bool loop) {
     clearAnimTween(doc);
+    doc.animHoldIndex = -1;
     if (clip.frames.empty()) {
         return;
     }
     float clipDuration = computeClipDuration(clip);
     if (clipDuration <= 0.0f) {
         doc.currentFrame = clip.frames.front().id;
+        doc.animHoldIndex = 0;
         return;
     }
 
@@ -104,6 +150,7 @@ void applyAnimTime(
         }
     } else if (localTime >= clipDuration) {
         doc.currentFrame = clip.frames.back().id;
+        doc.animHoldIndex = static_cast<int>(clip.frames.size()) - 1;
         for (std::size_t i = 0; i < doc.asset.frames.size(); ++i) {
             if (doc.asset.frames[i].id == doc.currentFrame) {
                 doc.selectedFrameIndex = static_cast<int>(i);
@@ -119,6 +166,7 @@ void applyAnimTime(
         const float next = cursor + frame.duration;
         if (localTime <= next || frameIndex + 1 == clip.frames.size()) {
             doc.currentFrame = frame.id;
+            doc.animHoldIndex = static_cast<int>(frameIndex);
             for (std::size_t i = 0; i < doc.asset.frames.size(); ++i) {
                 if (doc.asset.frames[i].id == doc.currentFrame) {
                     doc.selectedFrameIndex = static_cast<int>(i);
@@ -609,11 +657,13 @@ void Editor::playAnimClip(const std::string& clip, bool loop) {
     doc.animTime = 0.0f;
     doc.animPlaying = true;
     doc.animDuration = computeClipDuration(*found);
+    doc.lastPreviewSoundFrameIndex = -1;
     applyAnimTime(doc, *found, 0.0f, loop);
 }
 
 void Editor::stopAnim() {
     doc.animPlaying = false;
+    doc.lastPreviewSoundFrameIndex = -1;
 }
 
 void Editor::scrubAnim(float time) {
@@ -627,9 +677,10 @@ void Editor::scrubAnim(float time) {
     doc.animDuration = computeClipDuration(*found);
     doc.animTime = std::clamp(time, 0.0f, std::max(doc.animDuration, 0.0f));
     applyAnimTime(doc, *found, doc.animTime, doc.animLoop);
+    doc.lastPreviewSoundFrameIndex = doc.animHoldIndex;
 }
 
-void Editor::tickAnim(float dt) {
+void Editor::tickAnim(float dt, slopengine::AssetStore& assets, slopengine::AudioWorld* audio) {
     if (!doc.animPlaying || !doc.hasAnim) {
         return;
     }
@@ -648,7 +699,10 @@ void Editor::tickAnim(float dt) {
             doc.animTime -= doc.animDuration;
         }
     }
+    const int previousIndex = doc.lastPreviewSoundFrameIndex;
     applyAnimTime(doc, *found, doc.animTime, doc.animLoop);
+    firePreviewSound(doc, *found, previousIndex, doc.animHoldIndex, assets, audio);
+    doc.lastPreviewSoundFrameIndex = doc.animHoldIndex;
 }
 
 void Editor::selectFrameIndex(int index) {

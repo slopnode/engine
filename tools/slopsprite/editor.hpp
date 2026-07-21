@@ -9,6 +9,10 @@
 #include <string>
 #include <vector>
 
+namespace slopengine {
+class AudioWorld;
+}
+
 namespace slopsprite {
 
 enum class PreviewMode {
@@ -62,6 +66,8 @@ struct EditorDocument {
     bool animTweenTranslate = false;
     float animTransformBlend = 0.0f;
     std::string animNextFrame;
+    int animHoldIndex = -1;
+    int lastPreviewSoundFrameIndex = -1;
 
     int selectedFrameIndex = 0;
     int selectedRot = 0;
@@ -96,7 +102,7 @@ struct Editor {
     void duplicateSelectedFrame();
     void ensureAnimBank();
     slopengine::SpriteAnimClip* currentAnimClip();
-    void tickAnim(float dt);
+    void tickAnim(float dt, slopengine::AssetStore& assets, slopengine::AudioWorld* audio);
     void scrubAnim(float time);
     void playAnimClip(const std::string& clip, bool loop);
     void stopAnim();

@@ -105,6 +105,54 @@ bool parseTweenTokens(std::string_view text, SpriteAnimFrame& out) {
     return true;
 }
 
+bool parseSoundForm(std::string_view body, SpriteAnimFrame& out) {
+    body = trim(body);
+    if (body.empty() || body.front() != '"') {
+        return false;
+    }
+    const std::size_t quoteEnd = body.find('"', 1);
+    if (quoteEnd == std::string_view::npos) {
+        return false;
+    }
+    out.sound = std::string{body.substr(1, quoteEnd - 1)};
+    if (out.sound.empty()) {
+        return false;
+    }
+    std::string_view afterPath = trim(body.substr(quoteEnd + 1));
+    if (afterPath.empty()) {
+        out.soundVolume = 1.0f;
+        return true;
+    }
+    float volume = 1.0f;
+    std::string_view remaining;
+    if (!readFloat(afterPath, volume, &remaining) || !remaining.empty()) {
+        return false;
+    }
+    out.soundVolume = volume;
+    return true;
+}
+
+bool takeSexpForm(std::string_view& remaining, std::string_view& formOut) {
+    remaining = trim(remaining);
+    if (remaining.empty() || remaining.front() != '(') {
+        return false;
+    }
+    int depth = 0;
+    for (std::size_t i = 0; i < remaining.size(); ++i) {
+        if (remaining[i] == '(') {
+            ++depth;
+        } else if (remaining[i] == ')') {
+            --depth;
+            if (depth == 0) {
+                formOut = remaining.substr(0, i + 1);
+                remaining = trim(remaining.substr(i + 1));
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
     if (line.rfind("(frame ", 0) != 0) {
         return false;
@@ -135,20 +183,35 @@ bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
     out.duration = duration;
 
     remaining = trim(remaining);
-    if (remaining.empty()) {
-        return true;
-    }
-
-    if (remaining.rfind("(tween", 0) == 0) {
-        std::string_view tweenBody = trim(remaining.substr(std::string_view("(tween").size()));
-        if (!tweenBody.empty() && tweenBody.back() == ')') {
-            tweenBody.remove_suffix(1);
-            tweenBody = trim(tweenBody);
+    while (!remaining.empty()) {
+        std::string_view form;
+        if (!takeSexpForm(remaining, form)) {
+            return false;
         }
-        return parseTweenTokens(tweenBody, out);
+        if (form.rfind("(tween", 0) == 0) {
+            std::string_view tweenBody = trim(form.substr(std::string_view("(tween").size()));
+            if (!tweenBody.empty() && tweenBody.back() == ')') {
+                tweenBody.remove_suffix(1);
+                tweenBody = trim(tweenBody);
+            }
+            if (!parseTweenTokens(tweenBody, out)) {
+                return false;
+            }
+        } else if (form.rfind("(sound", 0) == 0) {
+            std::string_view soundBody = trim(form.substr(std::string_view("(sound").size()));
+            if (!soundBody.empty() && soundBody.back() == ')') {
+                soundBody.remove_suffix(1);
+                soundBody = trim(soundBody);
+            }
+            if (!parseSoundForm(soundBody, out)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
 
-    return false;
+    return true;
 }
 
 void writeTweenSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
@@ -168,6 +231,17 @@ void writeTweenSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
     }
     if (frame.tweenTranslate) {
         out << " translate";
+    }
+    out << ')';
+}
+
+void writeSoundSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
+    if (!frame.hasSound()) {
+        return;
+    }
+    out << " (sound \"" << frame.sound << '"';
+    if (frame.soundVolume != 1.0f) {
+        out << ' ' << frame.soundVolume;
     }
     out << ')';
 }
@@ -266,6 +340,7 @@ std::string serializeSpriteAnimBank(const SpriteAnimBank& bank) {
         for (const SpriteAnimFrame& frame : clip.frames) {
             out << "    (frame \"" << frame.id << "\" " << frame.duration;
             writeTweenSuffix(out, frame);
+            writeSoundSuffix(out, frame);
             out << ")\n";
         }
         out << "  )\n";

@@ -1,6 +1,7 @@
 #include "assets/asset_store.hpp"
 
 #include "assets/geo_loader.hpp"
+#include "assets/saudio_loader.hpp"
 #include "core/engine_package.hpp"
 
 #include <s7.h>
@@ -188,6 +189,78 @@ bool AssetStore::hasTexture(std::string_view path) const {
 
 bool AssetStore::hasFont(std::string_view path) const {
     return vfs_.exists(AssetKind::Font, path);
+}
+
+bool AssetStore::hasSound(std::string_view path) const {
+    return vfs_.exists(AssetKind::Sound, path) || vfs_.exists(AssetKind::SoundWav, path);
+}
+
+std::optional<std::filesystem::path> AssetStore::resolveSoundPath(std::string_view path) const {
+    if (auto ogg = vfs_.resolve(AssetKind::Sound, path)) {
+        return ogg;
+    }
+    return vfs_.resolve(AssetKind::SoundWav, path);
+}
+
+bool AssetStore::hasAudio(std::string_view path) const {
+    return vfs_.exists(AssetKind::AudioSaudio, path) || vfs_.exists(AssetKind::Audio, path);
+}
+
+bool AssetStore::commitAudioDef(AudioDef def) {
+    if (!audioDefLoadActive_) {
+        return false;
+    }
+    if (def.kind == AudioDefKind::Sample && def.source.empty()) {
+        return false;
+    }
+    audioDefStaging_ = std::move(def);
+    audioDefRegistered_ = true;
+    return true;
+}
+
+const AudioDef* AssetStore::getAudioDef(s7_scheme* scheme, std::string_view path) {
+    const std::string key = cacheKey(path);
+    if (auto it = audioDefs_.find(key); it != audioDefs_.end()) {
+        return &it->second;
+    }
+
+    if (vfs_.exists(AssetKind::AudioSaudio, path)) {
+        const std::string text = vfs_.readText(AssetKind::AudioSaudio, path);
+        AudioDef def{};
+        if (!parseSaudioAsset(text, def)) {
+            return nullptr;
+        }
+        auto [it, _] = audioDefs_.emplace(key, std::move(def));
+        return &it->second;
+    }
+
+    if (scheme == nullptr) {
+        return nullptr;
+    }
+
+    const auto resolved = vfs_.resolve(AssetKind::Audio, path);
+    if (!resolved) {
+        return nullptr;
+    }
+
+    audioDefLoadPath_ = key;
+    audioDefStaging_ = {};
+    audioDefLoadActive_ = true;
+    audioDefRegistered_ = false;
+    s7_load(scheme, resolved->string().c_str());
+    audioDefLoadActive_ = false;
+
+    if (!audioDefRegistered_) {
+        audioDefLoadPath_.clear();
+        return nullptr;
+    }
+
+    audioDefStaging_.kind = AudioDefKind::Sample;
+    auto [it, _] = audioDefs_.emplace(key, std::move(audioDefStaging_));
+    audioDefLoadPath_.clear();
+    audioDefStaging_ = {};
+    audioDefRegistered_ = false;
+    return &it->second;
 }
 
 bool AssetStore::hasMaterial(std::string_view path) const {

@@ -4,10 +4,12 @@
 #include "editor.hpp"
 #include "fp_preview.hpp"
 #include "layout.hpp"
+#include "sound_browser.hpp"
 #include "texture_browser.hpp"
 #include "world_preview.hpp"
 
 #include "assets/asset_store.hpp"
+#include "audio/audio_world.hpp"
 #include "core/package_meta.hpp"
 #include "game/app_config.hpp"
 #include "ui/icon_ui.hpp"
@@ -182,7 +184,10 @@ void drawAnimBar(slopsprite::Editor& editor) {
     ImGui::Text("%s%s", editor.doc.currentFrame.c_str(), editor.doc.animDirty ? "*" : "");
 }
 
-void drawClipFramesSection(slopsprite::Editor& editor) {
+void drawClipFramesSection(
+    slopsprite::Editor& editor,
+    slopengine::AssetStore& assets,
+    slopsprite::SoundBrowser& soundBrowser) {
     if (!editor.doc.hasAnim || editor.doc.animBank.clips.empty()) {
         ImGui::TextDisabled("No .spanim for this sprite");
         if (ImGui::Button("Create .spanim", ImVec2(-1.0f, 0.0f))) {
@@ -210,6 +215,8 @@ void drawClipFramesSection(slopsprite::Editor& editor) {
         }
     }
     ImGui::TextDisabled("Tween out: R rot, S scale, T translate");
+
+    static int soundPickFrameIndex = -1;
 
     for (int i = 0; i < static_cast<int>(clip->frames.size()); ++i) {
         slopengine::SpriteAnimFrame& animFrame = clip->frames[static_cast<std::size_t>(i)];
@@ -274,8 +281,45 @@ void drawClipFramesSection(slopsprite::Editor& editor) {
             break;
         }
 
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+        char soundBuf[128] = {};
+        std::snprintf(soundBuf, sizeof(soundBuf), "%s", animFrame.sound.c_str());
+        if (ImGui::InputTextWithHint("##sound", "sound path", soundBuf, sizeof(soundBuf))) {
+            animFrame.sound = soundBuf;
+            editor.doc.animDirty = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Pick")) {
+            soundBrowser.rescan(assets);
+            soundBrowser.filter.clear();
+            soundBrowser.open = true;
+            soundPickFrameIndex = i;
+        }
+        if (animFrame.hasSound()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::DragFloat("##soundvol", &animFrame.soundVolume, 0.01f, 0.0f, 2.0f, "vol %.2f")) {
+                editor.doc.animDirty = true;
+            }
+        }
+
         ImGui::Separator();
         ImGui::PopID();
+    }
+
+    if (soundBrowser.open) {
+        std::string picked;
+        if (soundBrowser.drawModal(picked)) {
+            if (soundPickFrameIndex >= 0 &&
+                soundPickFrameIndex < static_cast<int>(clip->frames.size())) {
+                clip->frames[static_cast<std::size_t>(soundPickFrameIndex)].sound = std::move(picked);
+                editor.doc.animDirty = true;
+            }
+            soundPickFrameIndex = -1;
+        }
+        if (!soundBrowser.open) {
+            soundPickFrameIndex = -1;
+        }
     }
 }
 
@@ -531,7 +575,8 @@ void drawOnionSection(slopsprite::Editor& editor) {
 void drawInspector(
     slopsprite::Editor& editor,
     slopengine::AssetStore& assets,
-    slopsprite::TextureBrowser& textureBrowser) {
+    slopsprite::TextureBrowser& textureBrowser,
+    slopsprite::SoundBrowser& soundBrowser) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("Select a sprite");
         return;
@@ -575,7 +620,7 @@ void drawInspector(
         assets, kDefaultIconSet, "film", "Clip frames", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[1]) {
         if (ImGui::BeginChild("##clipframes", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-            drawClipFramesSection(editor);
+            drawClipFramesSection(editor, assets, soundBrowser);
         }
         ImGui::EndChild();
     }
@@ -630,9 +675,12 @@ int main(int argc, char* argv[]) {
     slopsprite::SpriteBrowser browser;
     browser.rescan(assets);
     slopsprite::TextureBrowser textureBrowser;
+    slopsprite::SoundBrowser soundBrowser;
     slopsprite::WorldPreview worldPreview;
     slopsprite::FpPreview fpPreview;
     slopsprite::AlignPreview alignPreview;
+    slopengine::AudioWorld audioWorld;
+    audioWorld.init();
     RenderTexture2D contentTarget{};
     bool quit = false;
 
@@ -644,7 +692,7 @@ int main(int argc, char* argv[]) {
         if (editor.doc.atlasDirty && editor.doc.open) {
             editor.rebuildAtlas(assets);
         }
-        editor.tickAnim(GetFrameTime());
+        editor.tickAnim(GetFrameTime(), assets, &audioWorld);
         if (editor.statusTimer > 0.0f) {
             editor.statusTimer -= GetFrameTime();
             if (editor.statusTimer <= 0.0f) {
@@ -739,7 +787,7 @@ int main(int argc, char* argv[]) {
             editor.mode = slopsprite::PreviewMode::Align;
         }
         ImGui::Separator();
-        drawInspector(editor, assets, textureBrowser);
+        drawInspector(editor, assets, textureBrowser, soundBrowser);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(layout.animPanel.x, layout.animPanel.y));
@@ -805,6 +853,7 @@ int main(int argc, char* argv[]) {
         UnloadRenderTexture(contentTarget);
     }
     slopengine::unloadSpriteAtlas(editor.doc.atlas);
+    audioWorld.deinit();
     rlImGuiShutdown();
     CloseWindow();
     return 0;
