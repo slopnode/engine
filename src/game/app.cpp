@@ -5,7 +5,9 @@
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
 #include "physics/physics_module.hpp"
+#include "render/components.hpp"
 #include "render/render_module.hpp"
+#include "script/scheme_call.hpp"
 #include "ui/imgui_fonts.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
@@ -76,6 +78,11 @@ void App::init_script() {
     if (!assetStore_.loadData(scheme_, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }
+    if (!assetStore_.loadData(scheme_, "view")) {
+        TraceLog(LOG_WARNING, "SCRIPT: data/view.s7 not loaded");
+    }
+    world_.component<ViewCanvas>();
+    world_.set<ViewCanvas>(parseViewCanvasFromScheme(scheme_));
     if (!assetStore_.loadScript(scheme_, "things")) {
         TraceLog(LOG_WARNING, "SCRIPT: things.s7 not loaded");
     }

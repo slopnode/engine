@@ -116,21 +116,42 @@ Sibling of the `.spr` at the same virtual path:
 ```text
 (sprite-anim
   (clip "walk"
-    (fps 8)
     (loop 1)
-    (frames "A" "B" "C" "D" "E" "F" "G"))
+    (frame "A" 0.125)
+    (frame "B" 0.125)
+    (frame "C" 0.125)
+    (frame "D" 0.125)
+    (frame "E" 0.125)
+    (frame "F" 0.125)
+    (frame "G" 0.125)
+  )
   (clip "fall"
-    (fps 10)
     (loop 0)
-    (frames "H" "I" "J" "K" "L" "M" "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W")))
+    (frame "H" 0.1)
+    (frame "I" 0.1)
+    (frame "J" 0.1)
+    (frame "K" 0.1)
+    (frame "L" 0.1)
+    (frame "M" 0.1)
+    (frame "N" 0.1)
+    (frame "O" 0.1)
+    (frame "P" 0.1)
+    (frame "Q" 0.1)
+    (frame "R" 0.1)
+    (frame "S" 0.1)
+    (frame "T" 0.1)
+    (frame "U" 0.1)
+    (frame "V" 0.1)
+    (frame "W" 0.1)
+  )
+)
 ```
 
 | Field | Meaning |
 |-------|---------|
 | `(clip "name")` | Clip id used by `SpriteAnimator::play` |
-| `(fps N)` | Frames per second |
 | `(loop 0\|1)` | Default loop flag in the file (runtime `play` can override) |
-| `(frames …)` | Ordered list of `.spr` frame ids |
+| `(frame "id" seconds)` | Ordered hold: `.spr` frame id and duration in seconds |
 
 Frame ids must exist in the paired `.spr`. Missing banks or clips leave the instance on whatever `frame` was last set.
 

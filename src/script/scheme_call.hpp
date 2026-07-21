@@ -1,5 +1,7 @@
 #pragma once
 
+#include "render/components.hpp"
+
 #include <string>
 #include <string_view>
 
@@ -9,5 +11,8 @@ namespace slopengine {
 
 bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name);
 bool tryCallSchemeProc1String(s7_scheme* scheme, std::string_view name, const std::string& arg);
+
+/** Reads *view-canvas* from Scheme; defaults to 320x200 if missing/invalid. */
+ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme);
 
 }
