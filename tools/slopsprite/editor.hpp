@@ -5,6 +5,8 @@
 #include "assets/sprite_loader.hpp"
 #include "render/components.hpp"
 
+#include <raylib.h>
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -89,6 +91,9 @@ struct Editor {
     std::string statusMessage;
     float statusTimer = 0.0f;
     bool requestWorldCameraFrame = false;
+    bool showSpriteMasks = false;
+    bool showNewSpriteModal = false;
+    char newSpritePathBuf[256] = {};
 
     void setStatus(std::string message, float seconds = 3.0f);
     void applyViewFromAsset();
@@ -96,6 +101,7 @@ struct Editor {
     void markDirty();
     void rebuildAtlas(slopengine::AssetStore& assets);
     bool loadSprite(slopengine::AssetStore& assets, const std::string& virtualPath);
+    bool newSprite(const std::string& virtualPath);
     bool save(slopengine::AssetStore& assets);
     bool saveAnim();
     void rebuildAnimIndex();
@@ -111,5 +117,10 @@ struct Editor {
 };
 
 void loadViewCanvasSize(slopengine::AssetStore& assets, int& width, int& height);
+
+bool previewShowingTween(const EditorDocument& doc);
+Color previewClearColor(const EditorDocument& doc, PreviewMode mode);
+const char* previewPoseLabel(const EditorDocument& doc, PreviewMode mode);
+Color previewPoseLabelColor(const EditorDocument& doc, PreviewMode mode);
 
 }

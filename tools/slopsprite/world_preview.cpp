@@ -15,10 +15,21 @@ void WorldPreview::draw(Editor& editor, RenderTexture2D& target, bool allowInput
         editor.requestWorldCameraFrame = false;
     }
 
+    if (autoOrbit) {
+        constexpr float kPi = 3.14159265358979323846f;
+        camera.yaw += autoOrbitSpeedDeg * DEG2RAD * GetFrameTime();
+        while (camera.yaw > kPi) {
+            camera.yaw -= 2.0f * kPi;
+        }
+        while (camera.yaw < -kPi) {
+            camera.yaw += 2.0f * kPi;
+        }
+    }
+
     camera.update(allowInput);
 
     BeginTextureMode(target);
-    ClearBackground(Color{32, 36, 42, 255});
+    ClearBackground(previewClearColor(editor.doc, PreviewMode::World));
 
     const Camera3D rayCam = camera.toRaylib();
     BeginMode3D(rayCam);
@@ -30,13 +41,24 @@ void WorldPreview::draw(Editor& editor, RenderTexture2D& target, bool allowInput
     if (editor.doc.open && !editor.doc.atlasDirty) {
         slopengine::GlobalTransformation global{};
         global.matrix = MatrixScale(editor.doc.worldScale, editor.doc.worldScale, editor.doc.worldScale);
+        slopengine::SpriteAnimTween tween{};
+        const slopengine::SpriteAnimTween* tweenPtr = nullptr;
+        if (previewShowingTween(editor.doc)) {
+            tween.nextFrame = editor.doc.animNextFrame;
+            tween.blend = editor.doc.animTransformBlend;
+            tween.tweenRotation = editor.doc.animTweenRotation;
+            tween.tweenScale = editor.doc.animTweenScale;
+            tween.tweenTranslate = editor.doc.animTweenTranslate;
+            tweenPtr = &tween;
+        }
         const auto billboard = slopengine::resolveSpriteBillboard(
             editor.doc.asset,
             editor.doc.atlas,
             editor.doc.currentFrame,
             editor.doc.facingYaw,
             global,
-            rayCam.position);
+            rayCam.position,
+            tweenPtr);
         if (billboard && billboard->texture != nullptr) {
             if (framePending) {
                 Vector3 center{
@@ -82,16 +104,18 @@ void WorldPreview::draw(Editor& editor, RenderTexture2D& target, bool allowInput
             }
             rlEnd();
             rlSetTexture(0);
+
+            if (editor.showSpriteMasks) {
+                rlDisableDepthTest();
+                rlDisableDepthMask();
+                slopengine::drawSpriteMaskDebug(*billboard);
+                rlEnableDepthMask();
+                rlEnableDepthTest();
+            }
         }
     }
 
     EndMode3D();
-    DrawText(
-        "World  RMB orbit  Wheel zoom  WASD pan",
-        8,
-        8,
-        16,
-        Color{200, 200, 200, 220});
     EndTextureMode();
 }
 

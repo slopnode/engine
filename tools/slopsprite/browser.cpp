@@ -1,5 +1,7 @@
 #include "browser.hpp"
 
+#include "ui/icon_ui.hpp"
+
 #include "imgui.h"
 
 #include <algorithm>
@@ -67,6 +69,8 @@ void SpriteBrowser::rescan(const slopengine::AssetStore& assets) {
 }
 
 void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
+    constexpr const char* kIcons = slopengine::kDefaultIconSet;
+
     ImGui::TextUnformatted("Sprites");
     ImGui::SetNextItemWidth(-1.0f);
     char filterBuf[128] = {};
@@ -74,7 +78,10 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
     if (ImGui::InputText("##spritefilter", filterBuf, sizeof(filterBuf))) {
         filter = filterBuf;
     }
-    if (ImGui::Button("Rescan", ImVec2(-1.0f, 0.0f))) {
+    if (slopengine::buttonWithIcon(assets, kIcons, "page_add", "New", ImVec2(-1.0f, 0.0f))) {
+        editor.showNewSpriteModal = true;
+    }
+    if (slopengine::buttonWithIcon(assets, kIcons, "arrow_refresh", "Rescan", ImVec2(-1.0f, 0.0f))) {
         rescan(assets);
     }
     ImGui::Separator();
@@ -87,7 +94,8 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
             }
             const bool selected = editor.doc.open && editor.doc.virtualPath == entry.virtualPath;
             ImGui::PushID(entry.virtualPath.c_str());
-            if (ImGui::Selectable(entry.virtualPath.c_str(), selected)) {
+            if (slopengine::selectableWithIcon(
+                    assets, kIcons, "images", entry.virtualPath.c_str(), selected)) {
                 if (!editor.doc.dirty || selected) {
                     editor.loadSprite(assets, entry.virtualPath);
                 } else {

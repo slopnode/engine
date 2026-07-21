@@ -33,7 +33,7 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
     (void)allowInput;
 
     BeginTextureMode(target);
-    ClearBackground(Color{18, 18, 22, 255});
+    ClearBackground(previewClearColor(editor.doc, PreviewMode::FirstPerson));
 
     const float screenW = static_cast<float>(target.texture.width);
     const float screenH = static_cast<float>(target.texture.height);
@@ -83,11 +83,11 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
 
             float originX = originFromFrame(*frame).x;
             float originY = originFromFrame(*frame).y;
-            float frameRotationDeg = frame->rotationDeg;
-            float frameScaleX = frame->scaleX;
-            float frameScaleY = frame->scaleY;
-            float translateX = frame->translateX;
-            float translateY = frame->translateY;
+            float animRotationDeg = frame->animRotationDeg;
+            float animScaleX = frame->animScaleX;
+            float animScaleY = frame->animScaleY;
+            float animTranslateX = frame->animTranslateX;
+            float animTranslateY = frame->animTranslateY;
 
             if (!editor.doc.animNextFrame.empty() &&
                 (editor.doc.animTweenRotation || editor.doc.animTweenScale ||
@@ -97,23 +97,29 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
                 if (nextFrame) {
                     const float blend = editor.doc.animTransformBlend;
                     if (editor.doc.animTweenRotation) {
-                        frameRotationDeg = frame->rotationDeg +
-                            (nextFrame->rotationDeg - frame->rotationDeg) * blend;
+                        animRotationDeg = frame->animRotationDeg +
+                            (nextFrame->animRotationDeg - frame->animRotationDeg) * blend;
                     }
                     if (editor.doc.animTweenScale) {
-                        frameScaleX =
-                            frame->scaleX + (nextFrame->scaleX - frame->scaleX) * blend;
-                        frameScaleY =
-                            frame->scaleY + (nextFrame->scaleY - frame->scaleY) * blend;
+                        animScaleX = frame->animScaleX +
+                            (nextFrame->animScaleX - frame->animScaleX) * blend;
+                        animScaleY = frame->animScaleY +
+                            (nextFrame->animScaleY - frame->animScaleY) * blend;
                     }
                     if (editor.doc.animTweenTranslate) {
-                        translateX = frame->translateX +
-                            (nextFrame->translateX - frame->translateX) * blend;
-                        translateY = frame->translateY +
-                            (nextFrame->translateY - frame->translateY) * blend;
+                        animTranslateX = frame->animTranslateX +
+                            (nextFrame->animTranslateX - frame->animTranslateX) * blend;
+                        animTranslateY = frame->animTranslateY +
+                            (nextFrame->animTranslateY - frame->animTranslateY) * blend;
                     }
                 }
             }
+
+            const float frameRotationDeg = frame->rotationDeg + animRotationDeg;
+            const float frameScaleX = frame->scaleX * animScaleX;
+            const float frameScaleY = frame->scaleY * animScaleY;
+            const float translateX = frame->translateX + animTranslateX;
+            const float translateY = frame->translateY + animTranslateY;
 
             const float destW =
                 static_cast<float>(frame->pixelWidth) * fit.scale * view.scaleX * frameScaleX;
@@ -133,7 +139,6 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
         }
     }
 
-    DrawText("FP", 8, 8, 16, Color{200, 200, 200, 220});
     EndTextureMode();
 }
 

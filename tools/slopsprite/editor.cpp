@@ -7,6 +7,7 @@
 #include <charconv>
 #include <fstream>
 #include <iterator>
+#include <string_view>
 #include <system_error>
 
 namespace slopsprite {
@@ -27,6 +28,41 @@ bool isFiveAngleMirrorPair(const slopengine::SpriteFrame& frame, int src, int ds
     const slopengine::SpriteRotation& a = *frame.rotations[src];
     const slopengine::SpriteRotation& b = *frame.rotations[dst];
     return a.texturePath == b.texturePath && b.mirror;
+}
+
+std::string normalizeVirtualSpritePath(std::string_view raw, std::string& error) {
+    error.clear();
+    std::string path;
+    path.reserve(raw.size());
+    for (char c : raw) {
+        if (c == '\\') {
+            path.push_back('/');
+        } else {
+            path.push_back(c);
+        }
+    }
+    while (!path.empty() && (path.front() == '/' || path.front() == ' ')) {
+        path.erase(path.begin());
+    }
+    while (!path.empty() && (path.back() == '/' || path.back() == ' ')) {
+        path.pop_back();
+    }
+    if (path.size() >= 4 && path.compare(path.size() - 4, 4, ".spr") == 0) {
+        path.resize(path.size() - 4);
+    }
+    if (path.empty()) {
+        error = "Path is empty";
+        return {};
+    }
+    if (path[0] == '/' || (path.size() >= 2 && path[1] == ':')) {
+        error = "Path must be relative (e.g. monsters/imp)";
+        return {};
+    }
+    if (path.find("..") != std::string::npos) {
+        error = "Path must not contain ..";
+        return {};
+    }
+    return path;
 }
 
 slopengine::SpriteRotation mirroredCopy(const slopengine::SpriteRotation& src) {
@@ -484,6 +520,44 @@ bool Editor::loadSprite(slopengine::AssetStore& assets, const std::string& virtu
     return true;
 }
 
+bool Editor::newSprite(const std::string& virtualPath) {
+    std::string error;
+    const std::string path = normalizeVirtualSpritePath(virtualPath, error);
+    if (path.empty()) {
+        setStatus(error.empty() ? "Invalid sprite path" : error);
+        return false;
+    }
+    if (targetRoot.empty()) {
+        setStatus("No --target package");
+        return false;
+    }
+
+    const std::filesystem::path outPath = targetRoot / "sprites" / (path + ".spr");
+    if (std::filesystem::exists(outPath)) {
+        setStatus("Sprite already exists: " + path);
+        return false;
+    }
+
+    slopengine::unloadSpriteAtlas(doc.atlas);
+    doc = EditorDocument{};
+    doc.virtualPath = path;
+    doc.open = true;
+    doc.dirty = true;
+    doc.atlasDirty = true;
+    doc.asset.pixelsPerMeter = 64.0f;
+    slopengine::SpriteFrame frame{};
+    frame.id = "A";
+    frame.rotations[0] = slopengine::SpriteRotation{};
+    doc.asset.frames.push_back(std::move(frame));
+    doc.currentFrame = "A";
+    doc.selectedFrameIndex = 0;
+    doc.selectedRot = 0;
+    applyViewFromAsset();
+    requestWorldCameraFrame = true;
+    setStatus("New sprite " + path + " (unsaved)");
+    return true;
+}
+
 bool Editor::save(slopengine::AssetStore& assets) {
     (void)assets;
     if (!doc.open || doc.virtualPath.empty()) {
@@ -712,6 +786,7 @@ void Editor::selectFrameIndex(int index) {
     doc.selectedFrameIndex = index;
     doc.currentFrame = doc.asset.frames[static_cast<std::size_t>(index)].id;
     doc.animPlaying = false;
+    clearAnimTween(doc);
 }
 
 void loadViewCanvasSize(slopengine::AssetStore& assets, int& width, int& height) {
@@ -730,6 +805,38 @@ void loadViewCanvasSize(slopengine::AssetStore& assets, int& width, int& height)
     }
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     parseViewCanvasFromSource(text, width, height);
+}
+
+bool previewShowingTween(const EditorDocument& doc) {
+    return !doc.animNextFrame.empty() &&
+        (doc.animTweenRotation || doc.animTweenScale || doc.animTweenTranslate);
+}
+
+Color previewClearColor(const EditorDocument& doc, PreviewMode mode) {
+    if (!doc.open) {
+        return Color{22, 24, 28, 255};
+    }
+    if (mode != PreviewMode::Align && previewShowingTween(doc)) {
+        return Color{48, 36, 28, 255};
+    }
+    return Color{28, 36, 52, 255};
+}
+
+const char* previewPoseLabel(const EditorDocument& doc, PreviewMode mode) {
+    if (!doc.open) {
+        return "";
+    }
+    if (mode != PreviewMode::Align && previewShowingTween(doc)) {
+        return "Tween";
+    }
+    return "Keyed";
+}
+
+Color previewPoseLabelColor(const EditorDocument& doc, PreviewMode mode) {
+    if (mode != PreviewMode::Align && previewShowingTween(doc)) {
+        return Color{230, 190, 140, 220};
+    }
+    return Color{180, 200, 230, 220};
 }
 
 }

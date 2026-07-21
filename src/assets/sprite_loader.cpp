@@ -186,14 +186,42 @@ bool readOffsetTokens(std::string_view line, int& offsetX, int& offsetY) {
     return true;
 }
 
-bool readRotationDegToken(std::string_view line, float& rotationDeg) {
-    const std::size_t rotPos = line.find("rotation ");
-    if (rotPos == std::string_view::npos) {
-        return false;
+bool readKeywordFloats(
+    std::string_view line,
+    std::string_view keyword,
+    int count,
+    float* out,
+    bool requireBareKeyword) {
+    std::size_t searchFrom = 0;
+    while (searchFrom < line.size()) {
+        const std::size_t pos = line.find(keyword, searchFrom);
+        if (pos == std::string_view::npos) {
+            return false;
+        }
+        if (requireBareKeyword && pos >= 5 && line.substr(pos - 5, 5) == "anim-") {
+            searchFrom = pos + keyword.size();
+            continue;
+        }
+        if (pos > 0) {
+            const char prev = line[pos - 1];
+            if ((prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || prev == '-' ||
+                prev == '_') {
+                searchFrom = pos + keyword.size();
+                continue;
+            }
+        }
+        std::string_view rest = trim(line.substr(pos + keyword.size()));
+        if (!readFloats(rest, count, out)) {
+            return false;
+        }
+        return true;
     }
-    std::string_view rest = trim(line.substr(rotPos + std::string_view("rotation ").size()));
+    return false;
+}
+
+bool readRotationDegToken(std::string_view line, float& rotationDeg) {
     float value = 0.0f;
-    if (!readFloats(rest, 1, &value)) {
+    if (!readKeywordFloats(line, "rotation ", 1, &value, true)) {
         return false;
     }
     rotationDeg = value;
@@ -201,13 +229,8 @@ bool readRotationDegToken(std::string_view line, float& rotationDeg) {
 }
 
 bool readScaleTokens(std::string_view line, float& scaleX, float& scaleY) {
-    const std::size_t scalePos = line.find("scale ");
-    if (scalePos == std::string_view::npos) {
-        return false;
-    }
-    std::string_view rest = trim(line.substr(scalePos + std::string_view("scale ").size()));
     float values[2] = {};
-    if (!readFloats(rest, 2, values)) {
+    if (!readKeywordFloats(line, "scale ", 2, values, true)) {
         return false;
     }
     scaleX = values[0];
@@ -216,13 +239,37 @@ bool readScaleTokens(std::string_view line, float& scaleX, float& scaleY) {
 }
 
 bool readTranslateTokens(std::string_view line, float& translateX, float& translateY) {
-    const std::size_t translatePos = line.find("translate ");
-    if (translatePos == std::string_view::npos) {
+    float values[2] = {};
+    if (!readKeywordFloats(line, "translate ", 2, values, true)) {
         return false;
     }
-    std::string_view rest = trim(line.substr(translatePos + std::string_view("translate ").size()));
+    translateX = values[0];
+    translateY = values[1];
+    return true;
+}
+
+bool readAnimRotationDegToken(std::string_view line, float& rotationDeg) {
+    float value = 0.0f;
+    if (!readKeywordFloats(line, "anim-rotation ", 1, &value, false)) {
+        return false;
+    }
+    rotationDeg = value;
+    return true;
+}
+
+bool readAnimScaleTokens(std::string_view line, float& scaleX, float& scaleY) {
     float values[2] = {};
-    if (!readFloats(rest, 2, values)) {
+    if (!readKeywordFloats(line, "anim-scale ", 2, values, false)) {
+        return false;
+    }
+    scaleX = values[0];
+    scaleY = values[1];
+    return true;
+}
+
+bool readAnimTranslateTokens(std::string_view line, float& translateX, float& translateY) {
+    float values[2] = {};
+    if (!readKeywordFloats(line, "anim-translate ", 2, values, false)) {
         return false;
     }
     translateX = values[0];
@@ -377,6 +424,22 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
                 entry.translateX = translateX;
                 entry.translateY = translateY;
             }
+            float animRotationDeg = 0.0f;
+            if (readAnimRotationDegToken(line, animRotationDeg)) {
+                entry.animRotationDeg = animRotationDeg;
+            }
+            float animScaleX = 1.0f;
+            float animScaleY = 1.0f;
+            if (readAnimScaleTokens(line, animScaleX, animScaleY)) {
+                entry.animScaleX = animScaleX;
+                entry.animScaleY = animScaleY;
+            }
+            float animTranslateX = 0.0f;
+            float animTranslateY = 0.0f;
+            if (readAnimTranslateTokens(line, animTranslateX, animTranslateY)) {
+                entry.animTranslateX = animTranslateX;
+                entry.animTranslateY = animTranslateY;
+            }
             currentFrame->rotations[rotation] = std::move(entry);
         }
 
@@ -426,6 +489,15 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
             }
             if (entry.translateX != 0.0f || entry.translateY != 0.0f) {
                 out << " translate " << entry.translateX << ' ' << entry.translateY;
+            }
+            if (entry.animRotationDeg != 0.0f) {
+                out << " anim-rotation " << entry.animRotationDeg;
+            }
+            if (entry.animScaleX != 1.0f || entry.animScaleY != 1.0f) {
+                out << " anim-scale " << entry.animScaleX << ' ' << entry.animScaleY;
+            }
+            if (entry.animTranslateX != 0.0f || entry.animTranslateY != 0.0f) {
+                out << " anim-translate " << entry.animTranslateX << ' ' << entry.animTranslateY;
             }
             if (entry.mirror) {
                 out << " mirror";
