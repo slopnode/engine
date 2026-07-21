@@ -3,6 +3,7 @@
 #include <cctype>
 #include <charconv>
 #include <optional>
+#include <sstream>
 #include <string>
 
 namespace slopengine {
@@ -38,7 +39,7 @@ std::optional<std::string> readQuotedField(std::string_view line, std::string_vi
     return std::string{line.substr(quoteStart + 1, quoteEnd - quoteStart - 1)};
 }
 
-bool readFloat(std::string_view text, float& out) {
+bool readFloat(std::string_view text, float& out, std::string_view* remaining = nullptr) {
     text = trim(text);
     if (text.empty()) {
         return false;
@@ -52,6 +53,9 @@ bool readFloat(std::string_view text, float& out) {
         return false;
     }
     out = parsed;
+    if (remaining != nullptr) {
+        *remaining = trim(std::string_view{result.ptr, static_cast<std::size_t>(end - result.ptr)});
+    }
     return true;
 }
 
@@ -69,6 +73,35 @@ bool readInt(std::string_view text, int& out) {
         return false;
     }
     out = parsed;
+    return true;
+}
+
+bool parseTweenTokens(std::string_view text, SpriteAnimFrame& out) {
+    text = trim(text);
+    while (!text.empty()) {
+        std::size_t end = 0;
+        while (end < text.size() && !std::isspace(static_cast<unsigned char>(text[end])) &&
+               text[end] != ')') {
+            ++end;
+        }
+        const std::string_view token = text.substr(0, end);
+        if (token == "all") {
+            out.tweenRotation = true;
+            out.tweenScale = true;
+            out.tweenTranslate = true;
+        } else if (token == "rot") {
+            out.tweenRotation = true;
+        } else if (token == "scale") {
+            out.tweenScale = true;
+        } else if (token == "translate") {
+            out.tweenTranslate = true;
+        } else if (token == "offset") {
+            // Legacy token ignored; offset is not tweenable.
+        } else if (!token.empty()) {
+            return false;
+        }
+        text = trim(text.substr(end));
+    }
     return true;
 }
 
@@ -91,14 +124,52 @@ bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
         return false;
     }
 
+    out = {};
     out.id = std::string{rest.substr(1, quoteEnd - 1)};
-    std::string_view durationText = trim(rest.substr(quoteEnd + 1));
+    std::string_view afterId = trim(rest.substr(quoteEnd + 1));
     float duration = 0.0f;
-    if (out.id.empty() || !readFloat(durationText, duration) || duration <= 0.0f) {
+    std::string_view remaining;
+    if (out.id.empty() || !readFloat(afterId, duration, &remaining) || duration <= 0.0f) {
         return false;
     }
     out.duration = duration;
-    return true;
+
+    remaining = trim(remaining);
+    if (remaining.empty()) {
+        return true;
+    }
+
+    if (remaining.rfind("(tween", 0) == 0) {
+        std::string_view tweenBody = trim(remaining.substr(std::string_view("(tween").size()));
+        if (!tweenBody.empty() && tweenBody.back() == ')') {
+            tweenBody.remove_suffix(1);
+            tweenBody = trim(tweenBody);
+        }
+        return parseTweenTokens(tweenBody, out);
+    }
+
+    return false;
+}
+
+void writeTweenSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
+    if (!frame.hasTween()) {
+        return;
+    }
+    if (frame.tweenRotation && frame.tweenScale && frame.tweenTranslate) {
+        out << " (tween all)";
+        return;
+    }
+    out << " (tween";
+    if (frame.tweenRotation) {
+        out << " rot";
+    }
+    if (frame.tweenScale) {
+        out << " scale";
+    }
+    if (frame.tweenTranslate) {
+        out << " translate";
+    }
+    out << ')';
 }
 
 } // namespace
@@ -106,6 +177,21 @@ bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
 bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
     bank = {};
     SpriteAnimClip* currentClip = nullptr;
+    bool legacyClipTween = false;
+
+    auto finishClip = [&]() {
+        if (currentClip == nullptr) {
+            return;
+        }
+        if (legacyClipTween) {
+            for (SpriteAnimFrame& frame : currentClip->frames) {
+                frame.tweenRotation = true;
+                frame.tweenScale = true;
+                frame.tweenTranslate = true;
+            }
+        }
+        legacyClipTween = false;
+    };
 
     std::size_t lineStart = 0;
     while (lineStart <= source.size()) {
@@ -119,15 +205,23 @@ bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
         }
 
         if (auto clipName = readQuotedField(line, "(clip ")) {
+            finishClip();
             bank.clips.push_back(SpriteAnimClip{});
             currentClip = &bank.clips.back();
             currentClip->name = *clipName;
+            legacyClipTween = false;
         } else if (currentClip != nullptr && line.rfind("(loop ", 0) == 0) {
             int loopValue = 1;
             if (!readInt(line.substr(std::string_view("(loop ").size()), loopValue)) {
                 return false;
             }
             currentClip->loop = loopValue != 0;
+        } else if (currentClip != nullptr && line.rfind("(tween ", 0) == 0) {
+            int tweenValue = 0;
+            if (!readInt(line.substr(std::string_view("(tween ").size()), tweenValue)) {
+                return false;
+            }
+            legacyClipTween = tweenValue != 0;
         } else if (currentClip != nullptr && line.rfind("(frame ", 0) == 0) {
             SpriteAnimFrame frame{};
             if (!parseFrameLine(line, frame)) {
@@ -141,6 +235,7 @@ bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
         }
         lineStart = lineEnd + 1;
     }
+    finishClip();
 
     if (bank.clips.empty()) {
         return false;
@@ -160,6 +255,23 @@ bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
     }
 
     return true;
+}
+
+std::string serializeSpriteAnimBank(const SpriteAnimBank& bank) {
+    std::ostringstream out;
+    out << "(sprite-anim\n";
+    for (const SpriteAnimClip& clip : bank.clips) {
+        out << "  (clip \"" << clip.name << "\"\n";
+        out << "    (loop " << (clip.loop ? 1 : 0) << ")\n";
+        for (const SpriteAnimFrame& frame : clip.frames) {
+            out << "    (frame \"" << frame.id << "\" " << frame.duration;
+            writeTweenSuffix(out, frame);
+            out << ")\n";
+        }
+        out << "  )\n";
+    }
+    out << ")\n";
+    return out.str();
 }
 
 }

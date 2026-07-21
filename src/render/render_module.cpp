@@ -866,6 +866,35 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 animator.time += GetFrameTime() * animator.speed;
             }
 
+            auto clearTween = [&]() {
+                animator.tweenRotation = false;
+                animator.tweenScale = false;
+                animator.tweenTranslate = false;
+                animator.transformBlend = 0.0f;
+                animator.nextFrame.clear();
+            };
+
+            auto applyTween = [&](std::size_t frameIndex, float holdTime, float holdDuration) {
+                const SpriteAnimFrame& hold = clip.frames[frameIndex];
+                if (!hold.hasTween() || holdDuration <= 0.0f) {
+                    clearTween();
+                    return;
+                }
+                std::size_t nextIndex = frameIndex + 1;
+                if (nextIndex >= clip.frames.size()) {
+                    if (!useLoop) {
+                        clearTween();
+                        return;
+                    }
+                    nextIndex = 0;
+                }
+                animator.tweenRotation = hold.tweenRotation;
+                animator.tweenScale = hold.tweenScale;
+                animator.tweenTranslate = hold.tweenTranslate;
+                animator.transformBlend = holdTime / holdDuration;
+                animator.nextFrame = clip.frames[nextIndex].id;
+            };
+
             float localTime = animator.time;
             if (useLoop) {
                 localTime = std::fmod(localTime, clipDuration);
@@ -877,18 +906,22 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 animator.justFinished = true;
                 animator.time = clipDuration;
                 sprite.frame = clip.frames.back().id;
+                clearTween();
                 return;
             }
 
-            for (const SpriteAnimFrame& frame : clip.frames) {
+            for (std::size_t frameIndex = 0; frameIndex < clip.frames.size(); ++frameIndex) {
+                const SpriteAnimFrame& frame = clip.frames[frameIndex];
                 if (localTime < frame.duration) {
                     sprite.frame = frame.id;
+                    applyTween(frameIndex, localTime, frame.duration);
                     return;
                 }
                 localTime -= frame.duration;
             }
 
             sprite.frame = clip.frames.back().id;
+            clearTween();
         });
 }
 
@@ -1281,24 +1314,75 @@ void registerRenderSystems(flecs::world& world) {
                     hudCanvas.width, hudCanvas.height, screenW, screenH);
 
                 BeginBlendMode(BLEND_ALPHA);
-                world.each([&](flecs::entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
+                world.each([&](flecs::entity entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
                     const auto frame = resolveViewSpriteFrame(sprite, viewAssets);
                     if (!frame) {
                         return;
                     }
-                    const float destW =
-                        static_cast<float>(frame->pixelWidth) * viewFit.scale * viewSprite.scaleX;
-                    const float destH =
-                        static_cast<float>(frame->pixelHeight) * viewFit.scale * viewSprite.scaleY;
-                    const float screenX = viewFit.offsetX + viewSprite.canvasX * viewFit.scale;
-                    const float screenY = viewFit.offsetY + viewSprite.canvasY * viewFit.scale;
+
+                    auto originFromFrame = [&](const ViewSpriteFrame& resolved) {
+                        if (resolved.hasOffset && resolved.pixelWidth > 0 && resolved.pixelHeight > 0) {
+                            return Vector2{
+                                static_cast<float>(resolved.offsetX) /
+                                    static_cast<float>(resolved.pixelWidth),
+                                static_cast<float>(resolved.offsetY) /
+                                    static_cast<float>(resolved.pixelHeight),
+                            };
+                        }
+                        return Vector2{viewSprite.originX, viewSprite.originY};
+                    };
+
+                    float originX = originFromFrame(*frame).x;
+                    float originY = originFromFrame(*frame).y;
+                    float frameRotationDeg = frame->rotationDeg;
+                    float frameScaleX = frame->scaleX;
+                    float frameScaleY = frame->scaleY;
+                    float translateX = frame->translateX;
+                    float translateY = frame->translateY;
+
+                    if (entity.has<SpriteAnimator>()) {
+                        const SpriteAnimator& animator = entity.get<SpriteAnimator>();
+                        if (animator.hasTween() && !animator.nextFrame.empty()) {
+                            SpriteInstance nextSprite = sprite;
+                            nextSprite.frame = animator.nextFrame;
+                            const auto nextFrame = resolveViewSpriteFrame(nextSprite, viewAssets);
+                            if (nextFrame) {
+                                const float blend = animator.transformBlend;
+                                if (animator.tweenRotation) {
+                                    frameRotationDeg = frame->rotationDeg +
+                                        (nextFrame->rotationDeg - frame->rotationDeg) * blend;
+                                }
+                                if (animator.tweenScale) {
+                                    frameScaleX = frame->scaleX +
+                                        (nextFrame->scaleX - frame->scaleX) * blend;
+                                    frameScaleY = frame->scaleY +
+                                        (nextFrame->scaleY - frame->scaleY) * blend;
+                                }
+                                if (animator.tweenTranslate) {
+                                    translateX = frame->translateX +
+                                        (nextFrame->translateX - frame->translateX) * blend;
+                                    translateY = frame->translateY +
+                                        (nextFrame->translateY - frame->translateY) * blend;
+                                }
+                            }
+                        }
+                    }
+
+                    const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale *
+                                        viewSprite.scaleX * frameScaleX;
+                    const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale *
+                                        viewSprite.scaleY * frameScaleY;
+                    const float screenX =
+                        viewFit.offsetX + (viewSprite.canvasX + translateX) * viewFit.scale;
+                    const float screenY =
+                        viewFit.offsetY + (viewSprite.canvasY + translateY) * viewFit.scale;
                     const Rectangle dest{screenX, screenY, destW, destH};
                     DrawTexturePro(
                         *frame->texture,
                         frame->source,
                         dest,
-                        Vector2{destW * viewSprite.originX, destH * viewSprite.originY},
-                        viewSprite.rotationDeg,
+                        Vector2{destW * originX, destH * originY},
+                        viewSprite.rotationDeg + frameRotationDeg,
                         WHITE);
                 });
                 EndBlendMode();

@@ -74,26 +74,14 @@ bool pixelFromUv(
 
 } // namespace
 
-std::optional<SpriteBillboard> resolveSpriteBillboard(
-    const SpriteInstance& sprite,
+namespace {
+
+std::optional<SpriteBillboard> buildBillboardFromRotation(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    const SpriteRotation& selected,
     const GlobalTransformation& global,
-    Vector3 viewPosition,
-    AssetStore& assets) {
-    if (sprite.sprite.empty()) {
-        return std::nullopt;
-    }
-
-    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
-    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
-    if (asset == nullptr || atlas == nullptr || atlas->textures.empty()) {
-        return std::nullopt;
-    }
-
-    const SpriteFrame* frame = findSpriteFrame(*asset, sprite.frame);
-    if (frame == nullptr) {
-        return std::nullopt;
-    }
-
+    Vector3 viewPosition) {
     const Vector3 position = translationFromMatrix(global.matrix);
     const Vector3 toCamera{
         viewPosition.x - position.x,
@@ -104,47 +92,40 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         return std::nullopt;
     }
 
-    const float viewYaw = std::atan2(toCamera.x, toCamera.z);
-    const int rotation = doomRotationFromViewYaw(viewYaw - sprite.facingYaw);
-    const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
-    if (selected == nullptr) {
-        return std::nullopt;
-    }
-
-    const auto rectIt = atlas->rects.find(selected->texturePath);
-    if (rectIt == atlas->rects.end()) {
+    const auto rectIt = atlas.rects.find(selected.texturePath);
+    if (rectIt == atlas.rects.end()) {
         return std::nullopt;
     }
 
     const SpriteAtlasRect& atlasRect = rectIt->second;
     if (atlasRect.atlasIndex < 0 ||
-        atlasRect.atlasIndex >= static_cast<int>(atlas->textures.size())) {
+        atlasRect.atlasIndex >= static_cast<int>(atlas.textures.size())) {
         return std::nullopt;
     }
 
-    const Texture2D& texture = atlas->textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
+    const Texture2D& texture = atlas.textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
     if (texture.id == 0) {
         return std::nullopt;
     }
 
     Rectangle source = atlasRect.source;
-    if (selected->mirror) {
+    if (selected.mirror) {
         source.x += source.width;
         source.width = -source.width;
     }
 
     const Vector3 scale = scaleFromMatrix(global.matrix);
-    const float pixelsPerMeter = asset->pixelsPerMeter > 0.0f ? asset->pixelsPerMeter : 64.0f;
+    const float pixelsPerMeter = asset.pixelsPerMeter > 0.0f ? asset.pixelsPerMeter : 64.0f;
     const float pixelW =
-        selected->pixelWidth > 0 ? static_cast<float>(selected->pixelWidth) : std::fabs(source.width);
+        selected.pixelWidth > 0 ? static_cast<float>(selected.pixelWidth) : std::fabs(source.width);
     const float pixelH =
-        selected->pixelHeight > 0 ? static_cast<float>(selected->pixelHeight)
-                                  : std::fabs(source.height);
+        selected.pixelHeight > 0 ? static_cast<float>(selected.pixelHeight)
+                                 : std::fabs(source.height);
     const Vector2 size{
         (pixelW / pixelsPerMeter) * scale.x,
         (pixelH / pixelsPerMeter) * scale.y,
     };
-    if (size.x <= 0.0f || size.y <= 0.0f) {
+    if (size.x <= 0.0f || size.y <= 0.0f || pixelW <= 0.0f || pixelH <= 0.0f) {
         return std::nullopt;
     }
 
@@ -153,7 +134,15 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     right = Vector3Scale(right, size.x);
     const Vector3 up{0.0f, size.y, 0.0f};
 
-    const Vector2 origin{size.x * 0.5f, 0.0f};
+    float ox = selected.hasOffset ? static_cast<float>(selected.offsetX) : pixelW * 0.5f;
+    const float oy = selected.hasOffset ? static_cast<float>(selected.offsetY) : pixelH;
+    if (selected.mirror) {
+        ox = pixelW - 1.0f - ox;
+    }
+    const Vector2 origin{
+        (ox / pixelW) * size.x,
+        ((pixelH - oy) / pixelH) * size.y,
+    };
     const Vector3 origin3D = Vector3Add(
         Vector3Scale(Vector3Normalize(right), origin.x),
         Vector3Scale(Vector3Normalize(up), origin.y));
@@ -161,16 +150,14 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     SpriteBillboard billboard{};
     billboard.size = size;
     billboard.position = position;
-    billboard.mirror = selected->mirror;
-    billboard.pixelWidth = selected->pixelWidth > 0 ? selected->pixelWidth
-                                                    : static_cast<int>(std::fabs(source.width));
-    billboard.pixelHeight = selected->pixelHeight > 0 ? selected->pixelHeight
-                                                      : static_cast<int>(std::fabs(source.height));
+    billboard.mirror = selected.mirror;
+    billboard.pixelWidth = static_cast<int>(pixelW);
+    billboard.pixelHeight = static_cast<int>(pixelH);
     billboard.texture = &texture;
     billboard.source = source;
 
-    const auto maskIt = atlas->hitmasks.find(selected->texturePath);
-    if (maskIt != atlas->hitmasks.end()) {
+    const auto maskIt = atlas.hitmasks.find(selected.texturePath);
+    if (maskIt != atlas.hitmasks.end()) {
         billboard.hitmask = &maskIt->second;
     }
 
@@ -187,6 +174,87 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     return billboard;
 }
 
+} // namespace
+
+std::optional<SpriteBillboard> resolveSpriteBillboard(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId,
+    float facingYaw,
+    const GlobalTransformation& global,
+    Vector3 viewPosition) {
+    if (atlas.textures.empty()) {
+        return std::nullopt;
+    }
+
+    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
+    if (frame == nullptr) {
+        return std::nullopt;
+    }
+
+    const Vector3 position = translationFromMatrix(global.matrix);
+    const Vector3 toCamera{
+        viewPosition.x - position.x,
+        0.0f,
+        viewPosition.z - position.z,
+    };
+    if (Vector3LengthSqr(toCamera) < 0.000001f) {
+        return std::nullopt;
+    }
+
+    const float viewYaw = std::atan2(toCamera.x, toCamera.z);
+    const int rotation = doomRotationFromViewYaw(viewYaw - facingYaw);
+    const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
+    if (selected == nullptr) {
+        return std::nullopt;
+    }
+
+    return buildBillboardFromRotation(asset, atlas, *selected, global, viewPosition);
+}
+
+std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId,
+    int rotation,
+    const GlobalTransformation& global,
+    Vector3 viewPosition) {
+    if (atlas.textures.empty()) {
+        return std::nullopt;
+    }
+
+    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
+    if (frame == nullptr) {
+        return std::nullopt;
+    }
+
+    const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
+    if (selected == nullptr) {
+        return std::nullopt;
+    }
+
+    return buildBillboardFromRotation(asset, atlas, *selected, global, viewPosition);
+}
+
+std::optional<SpriteBillboard> resolveSpriteBillboard(
+    const SpriteInstance& sprite,
+    const GlobalTransformation& global,
+    Vector3 viewPosition,
+    AssetStore& assets) {
+    if (sprite.sprite.empty()) {
+        return std::nullopt;
+    }
+
+    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
+    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
+    if (asset == nullptr || atlas == nullptr) {
+        return std::nullopt;
+    }
+
+    return resolveSpriteBillboard(
+        *asset, *atlas, sprite.frame, sprite.facingYaw, global, viewPosition);
+}
+
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
@@ -196,40 +264,36 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
 }
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
-    const SpriteInstance& sprite,
-    AssetStore& assets) {
-    if (sprite.sprite.empty()) {
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId,
+    int rotation) {
+    if (atlas.textures.empty()) {
         return std::nullopt;
     }
 
-    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
-    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
-    if (asset == nullptr || atlas == nullptr || atlas->textures.empty()) {
-        return std::nullopt;
-    }
-
-    const SpriteFrame* frame = findSpriteFrame(*asset, sprite.frame);
+    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
     if (frame == nullptr) {
         return std::nullopt;
     }
 
-    const SpriteRotation* selected = selectSpriteRotation(*frame, 0);
+    const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
     if (selected == nullptr) {
         return std::nullopt;
     }
 
-    const auto rectIt = atlas->rects.find(selected->texturePath);
-    if (rectIt == atlas->rects.end()) {
+    const auto rectIt = atlas.rects.find(selected->texturePath);
+    if (rectIt == atlas.rects.end()) {
         return std::nullopt;
     }
 
     const SpriteAtlasRect& atlasRect = rectIt->second;
     if (atlasRect.atlasIndex < 0 ||
-        atlasRect.atlasIndex >= static_cast<int>(atlas->textures.size())) {
+        atlasRect.atlasIndex >= static_cast<int>(atlas.textures.size())) {
         return std::nullopt;
     }
 
-    const Texture2D& texture = atlas->textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
+    const Texture2D& texture = atlas.textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
     if (texture.id == 0) {
         return std::nullopt;
     }
@@ -247,10 +311,46 @@ std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
                                                  : static_cast<int>(std::fabs(source.width));
     result.pixelHeight = selected->pixelHeight > 0 ? selected->pixelHeight
                                                    : static_cast<int>(std::fabs(source.height));
+    result.hasOffset = selected->hasOffset;
+    result.offsetX = selected->offsetX;
+    result.offsetY = selected->offsetY;
+    result.mirror = selected->mirror;
+    result.rotationDeg = selected->rotationDeg;
+    result.scaleX = selected->scaleX;
+    result.scaleY = selected->scaleY;
+    result.translateX = selected->translateX;
+    result.translateY = selected->translateY;
     if (result.pixelWidth <= 0 || result.pixelHeight <= 0) {
         return std::nullopt;
     }
+    if (!result.hasOffset) {
+        result.offsetX = result.pixelWidth / 2;
+        result.offsetY = result.pixelHeight;
+    }
     return result;
+}
+
+std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId) {
+    return resolveViewSpriteFrame(asset, atlas, frameId, 0);
+}
+
+std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
+    const SpriteInstance& sprite,
+    AssetStore& assets) {
+    if (sprite.sprite.empty()) {
+        return std::nullopt;
+    }
+
+    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
+    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
+    if (asset == nullptr || atlas == nullptr) {
+        return std::nullopt;
+    }
+
+    return resolveViewSpriteFrame(*asset, *atlas, sprite.frame);
 }
 
 std::optional<SpriteBillboardHit> raycastSpriteBillboard(

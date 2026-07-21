@@ -29,6 +29,14 @@ struct SpriteRotation {
     std::string texturePath;
     std::optional<std::string> hitMaskPath;
     bool mirror = false;
+    bool hasOffset = false;
+    int offsetX = 0; /**< Pixel origin X from top-left when hasOffset. */
+    int offsetY = 0; /**< Pixel origin Y from top-left when hasOffset. */
+    float rotationDeg = 0.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float translateX = 0.0f; /**< Canvas-space shift (screenspace), not rotated with the sprite. */
+    float translateY = 0.0f;
     int pixelWidth = 0;
     int pixelHeight = 0;
 };
@@ -39,9 +47,25 @@ struct SpriteFrame {
     std::optional<SpriteRotation> rotations[kSpriteRotationCount];
 };
 
+/** Optional first-person view defaults stored in a .spr (view …) block. */
+struct SpriteViewDefaults {
+    bool present = false;
+    float canvasX = 160.0f;
+    float canvasY = 200.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float rotationDeg = 0.0f;
+    float originX = 0.5f;
+    float originY = 1.0f;
+    float eyeOffsetX = 0.0f;
+    float eyeOffsetY = 0.0f;
+    float eyeOffsetZ = 0.0f;
+};
+
 /** Parsed .spr sprite asset. */
 struct SpriteAsset {
     float pixelsPerMeter = 64.0f;
+    SpriteViewDefaults view{};
     std::vector<SpriteHitPartDef> hitParts;
     std::vector<SpriteFrame> frames;
 };
@@ -69,6 +93,9 @@ struct SpriteAtlas {
 
 /** Parses .spr text into @p asset. */
 bool parseSpriteAsset(std::string_view source, SpriteAsset& asset);
+
+/** Serializes @p asset to .spr text. */
+std::string serializeSpriteAsset(const SpriteAsset& asset);
 
 /** Packs frame textures into atlases using @p resolveTexturePath. */
 SpriteAtlas buildSpriteAtlas(
