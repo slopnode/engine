@@ -25,6 +25,7 @@
 #include "render/transform.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hud_script.hpp"
+#include "script/input_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/thing_script.hpp"
@@ -1599,6 +1600,7 @@ void registerRenderModule(
 
     bindFirstPersonApi(world, scheme);
     bindHudApi(world, scheme);
+    bindInputApi(world, scheme);
     bindThingRuntimeApi(world, scheme);
     if (scheme != nullptr && !assets.loadScript(scheme, "player")) {
         TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");

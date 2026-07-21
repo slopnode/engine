@@ -98,6 +98,8 @@ Raise/lower, bob, kick, and similar presentation policies stay in package Scheme
 | `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn — build the initial view from game state. |
 | `(tick dt)` | Each update frame with frame delta seconds, if defined. Use for package-owned pose stepping (raise/lower, bob, etc.). |
 | `(on-action-<id>)` | When a **package** action with that id is pressed (see Package actions below). |
+| `(action-down? id)` | `#t` while the bound action is held (gameplay context only). Works for package and core action ids. |
+| `(action-pressed? id)` | `#t` on the press edge this frame (gameplay context only). Works for package and core action ids. |
 
 Base package `scripts/player.s7` keeps flashlight on/off in Scheme (`*flashlight-enabled*`), attaches a stub cube “gun”, a warm spot under `emission`, and enables rad tint + viewmodel shading. Toggling the action only updates that Scheme flag and `(fp-set-light-enabled …)`. Other base-games override virtual path `player` to redefine presentation. Inventory and loadouts stay package-only and optional.
 
@@ -156,6 +158,7 @@ While gameplay input is allowed:
 - Mouse delta updates yaw and pitch on `FirstPersonController`.
 - Interact uses the player `Lens` as the aim ray against `usable` entities (see [Maps](maps.md)).
 - Package actions (from `data/actions.s7`) call `(on-action-<id>)` when pressed.
+- Scheme can poll `(action-down? id)` / `(action-pressed? id)` for held vs edge state (e.g. autofire in `(tick)`). Both return `#f` when gameplay input is blocked or the id is unknown.
 
 Debug **Noclip** (main menu → Debug) flies the capsule with move wish and no gravity; look still applies.
 
