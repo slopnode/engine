@@ -11,6 +11,7 @@ namespace slopengine {
 
 bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name);
 bool tryCallSchemeProc1String(s7_scheme* scheme, std::string_view name, const std::string& arg);
+bool tryCallSchemeProc1Real(s7_scheme* scheme, std::string_view name, double arg);
 bool tryCallSchemeProc2String(
     s7_scheme* scheme,
     std::string_view name,

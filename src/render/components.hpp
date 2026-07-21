@@ -37,10 +37,15 @@ struct HudCanvas {
     int height = 200;
 };
 
-/** Screen-space FP sprite: placed in view-canvas pixels (origin = frame bottom-center). */
+/** Screen-space FP sprite: canvasX/Y place the normalized origin on the view canvas. */
 struct ViewSprite {
     float canvasX = 160.0f;
     float canvasY = 200.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float rotationDeg = 0.0f;
+    float originX = 0.5f;
+    float originY = 1.0f;
 };
 
 /** Active view camera (usually on Player). */

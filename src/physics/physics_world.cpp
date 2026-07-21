@@ -380,6 +380,13 @@ JPH::RVec3 PhysicsWorld::playerPosition() const {
     return character_->GetPosition();
 }
 
+JPH::Vec3 PhysicsWorld::playerVelocity() const {
+    if (character_ == nullptr) {
+        return JPH::Vec3::sZero();
+    }
+    return character_->GetLinearVelocity();
+}
+
 bool PhysicsWorld::playerSupported() const {
     return character_ != nullptr && character_->IsSupported();
 }

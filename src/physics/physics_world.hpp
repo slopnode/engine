@@ -45,6 +45,8 @@ struct PhysicsWorld {
     bool hasPlayer() const { return character_ != nullptr; }
     /** Feet position of the virtual character. */
     JPH::RVec3 playerPosition() const;
+    /** Linear velocity of the virtual character. */
+    JPH::Vec3 playerVelocity() const;
     /** True when the character is supported by ground. */
     bool playerSupported() const;
 

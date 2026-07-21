@@ -29,6 +29,7 @@ void registerComponents(flecs::world& world) {
     world.component<FirstPersonScene>();
     world.component<FpLightControl>();
     world.component<FirstPersonController>();
+    world.component<ViewEyeOffset>();
 }
 
 void registerSystems(flecs::world& world) {

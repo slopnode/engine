@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera/components.hpp"
 #include "render/components.hpp"
 
 #include <flecs.h>
@@ -88,5 +89,11 @@ FirstPersonViewShader createFirstPersonViewShader(AssetStore& assets);
 Matrix viewToWorldMatrix(const Lens& lens);
 Vector3 viewToWorldPoint(const Lens& lens, Vector3 viewPoint);
 Vector3 viewToWorldDirection(const Lens& lens, Vector3 viewDirection);
+
+/** Raw Lens + view-space offset → camera used for world draw (not aim). */
+Camera3D presentationCamera(
+    const Lens& lens,
+    const FirstPersonController& controller,
+    const ViewEyeOffset& offset);
 
 }
