@@ -10,9 +10,9 @@ Packages are mounted from the command line:
 ./build/slopengine --base-game <package-path> [--mod <mod-path>]... [--map <name>]
 ```
 
-- `--base-game` — path to the base package directory (required)
-- `--mod` — additional package directory; can be repeated
-- `--map` — map folder name under `maps/` (loads `maps/<name>/static.csg`)
+- `--base-game`: path to the base package directory (required)
+- `--mod`: additional package directory; can be repeated
+- `--map`: map folder name under `maps/` (loads `maps/<name>/static.csg`)
 
 Later packages override earlier ones when the same virtual asset path exists in more than one package. Package ids must be unique across the mount set, and every `depends` entry in `package.meta` must resolve to a mounted package.
 
@@ -41,6 +41,8 @@ Asset lookup is by category subdirectory plus a virtual path. The engine appends
 my-package/
   package.meta
   animations/     # .anim, .tracks
+  audio/          # .saudio, .s7 audio defs
+  data/           # .s7 (actions, items, view, …)
   fonts/          # .ttf (ImGui / UI)
   geometry/       # .geo, .vert, .weights
   icons/          # .png atlas + .iconmap (+ source folders)
@@ -51,6 +53,7 @@ my-package/
   scripts/        # .s7
   shaders/        # .glsl
   skeletons/      # .skel, .bind
+  sound/          # .ogg
   sprites/        # .spr, .spanim
   textures/       # .png
 ```
@@ -64,10 +67,13 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 | `meshes/` | `.glb` | `props/crate` → `meshes/props/crate.glb` |
 | `shaders/` | `.glsl` | `default/lightmap_vert` → `shaders/default/lightmap_vert.glsl` |
 | `scripts/` | `.s7` | `init` → `scripts/init.s7` |
+| `data/` | `.s7` | `actions` → `data/actions.s7` |
 | `skeletons/` | `.skel`, `.bind` | `character` → `skeletons/character.skel` |
 | `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` → `geometry/props/crate.geo` |
-| `animations/` | `.anim`, `.tracks` | `character/walk` → `animations/character/walk.anim` |
-| `sprites/` | `.spr`, `.spanim` | `usmc/umca` → `sprites/usmc/umca.spr` |
+| `animations/` | `.anim`, `.tracks` | `character` → `animations/character/character.anim` |
+| `sprites/` | `.spr`, `.spanim` | `characters/guard` → `sprites/characters/guard.spr` |
+| `sound/` | `.ogg` | `weapons/fire` → `sound/weapons/fire.ogg` |
+| `audio/` | `.saudio`, `.s7` | `ui/pickup` → `audio/ui/pickup.saudio` |
 | `icons/` | `.png`, `.iconmap` | `silk` → `icons/silk.png` / `icons/silk.iconmap` |
 | `fonts/` | `.ttf` | `FiraSans/FiraSans-Regular` → `fonts/FiraSans/FiraSans-Regular.ttf` |
 | `prefabs/` | `.csg`, `.s7` | `furniture/desk` → `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
@@ -98,7 +104,11 @@ GLSL sources under `shaders/`. Vertex and fragment programs are separate virtual
 
 ### Scripts
 
-Scheme (s7) sources under `scripts/`. The game loads `init` then `things` at startup; map things are a separate `maps/<name>/things.s7`. See [Things](things.md).
+Scheme (s7) sources under `scripts/` and package data under `data/`. Startup loads `init`, then `data/actions`, `data/items`, `data/view`, then `things`; after API binds, `player`. Map things are a separate `maps/<name>/things.s7`. See [Scripting](scripting.md) and [Things](things.md).
+
+### Sound and audio
+
+Raw clips live under `sound/` as `.ogg`. Audio definitions live under `audio/` (`.saudio` procedural Sfxr, or `.s7` sample wrappers). See [Audio](audio.md).
 
 ### Skeletons
 
@@ -120,11 +130,11 @@ Prop and character meshes use `.geo` / `.vert` / optional `.weights` under `geom
 
 ### Animations
 
-Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skeleton id. See [Animation](animation.md). Rigid object motion uses component animator systems on entities, not this export path.
+Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skeleton id. The Multiple Blender export writes `animations/<asset>/<asset>.anim` (and tracks beside it); flatter paths under `animations/` are also valid virtual paths. See [Skeletal animation](animation.md). Rigid object motion uses component animator systems on entities, not this export path.
 
 ### Sprites
 
-`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations and optional mirroring. Sibling `.spanim` files define named clips (loop plus per-frame hold durations in seconds) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part …)` entries configure multi-part hits. See [Sprites](sprites.md).
+`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations, pose channels, and optional mirroring. Sibling `.spanim` files define named clips (loop, hold durations, optional tween and frame sounds) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part …)` entries configure multi-part hits. See [Sprites](sprites.md) and [Audio](audio.md) for frame sounds.
 
 ### Icons
 

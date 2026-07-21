@@ -44,7 +44,7 @@ Describes the map and which *other* packages it needs mounted. Owning package is
 
 The authoritative level source. It is Scheme loaded through s7 with a small CSG API bound for the duration of the load. Top-level forms create brushes; an empty result is a failed map.
 
-The canonical solid is a **convex polyhedron** of polygonal faces. Each face is an ordered loop of vertices (outward winding). Solids are the intersection of those face halfspaces.
+The canonical solid is a convex polyhedron of polygonal faces. Each face is an ordered loop of vertices (outward winding). Solids are the intersection of those face halfspaces.
 
 ```text
 (brush-convex
@@ -90,13 +90,13 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
 
 ### slopmap prefabs
 
-`slopmap` has a separate **Prefab** scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the selected write package (defaults to `--base-game`; when multiple packages are mounted, New Map / Save As pickers choose the target); the path you choose is the virtual path used when placing instances. In the **Level** scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role switches hull/detail. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
+`slopmap` has a separate Prefab scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the selected write package (defaults to `--base-game`; when multiple packages are mounted, New Map / Save As pickers choose the target); the path you choose is the virtual path used when placing instances. In the Level scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role switches hull/detail. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
 
 ### things.s7
 
-Optional Scheme file of **things** loaded after map geometry. Engine bindings spawn flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
+Optional Scheme file of things loaded after map geometry. Engine bindings spawn flecs entities for the level. Missing file keeps geometry and uses the default player spawn `(0, 0.1, 0)` facing yaw `π`.
 
-`slopmap` loads and saves this file with the level (and optional `prefabs/<path>.s7` sidecars in Prefab scene). Use the **Things** outliner and Library → Things palette to place kinds; Select mode moves (`G`) and rotates yaw (`R`).
+`slopmap` loads and saves this file with the level (and optional `prefabs/<path>.s7` sidecars in Prefab scene). Use the Things outliner and Library → Things palette to place kinds; Select mode moves (`G`) and rotates yaw (`R`).
 
 ```text
 (player-start
@@ -108,14 +108,14 @@ Optional Scheme file of **things** loaded after map geometry. Engine bindings sp
   (id "guard-a")
   (at -2.0 0.0 -2.0)
   (yaw 0.0)
-  (sprite "usmc/umca")
+  (sprite "characters/guard")
   (anim "walk" #t))
 
 (usable
   (id "use-test")
   (at 1.5 0.0 0.0)
   (yaw 0.0)
-  (sprite "usmc/umca")
+  (sprite "characters/guard")
   (frame "A")
   (prompt "Test use")
   (on-use "on-use-test"))
@@ -157,7 +157,7 @@ Authored `(nodraw)` is never cleared by the tools. When the hull is sealed, `slo
 
 Default face ids look like `floor/top` for boxes, or `brushId/N` for convex faces without an explicit id. Radiosity charts key off those ids, so renaming a face id between bakes changes how atlases line up unless you re-bake.
 
-Hull brushes form the structural shell of the space and are what seal the map. Detail brushes are still drawn and lightmapped, and become solid convex collision hulls, but they do not contribute splits to the BSP tree and **cannot seal** a leak. Place detail entirely inside the sealed hull (their center must sit in interior empty space). Use detail for props that should not reshape the leaf structure of the level.
+Hull brushes form the structural shell of the space and are what seal the map. Detail brushes are still drawn and lightmapped, and become solid convex collision hulls, but they do not contribute splits to the BSP tree and cannot seal a leak. Place detail entirely inside the sealed hull (their center must sit in interior empty space). Use detail for props that should not reshape the leaf structure of the level.
 
 You can edit `.csg` by hand, generate it from another program, or build a dedicated editor. The contract is the file on disk and the brush API, not a particular authoring UI.
 

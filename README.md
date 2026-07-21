@@ -45,15 +45,22 @@ A package is a folder of game content with a root `package.meta`:
 The engine looks up assets by type:
 
 ```
-packages/base/
+my-package/
   package.meta
   animations/   .anim, .tracks
+  audio/        .saudio, .s7
+  data/         .s7
+  fonts/        .ttf
   geometry/     .geo, .vert, .weights
+  icons/        .png, .iconmap
   maps/         <map>/map.meta, <map>/static.csg
   materials/    .mat
+  prefabs/      .csg, .s7
   scripts/      .s7
   shaders/      .glsl
   skeletons/    .skel, .bind
+  sound/       .ogg
+  sprites/      .spr, .spanim
   textures/     .png
 ```
 

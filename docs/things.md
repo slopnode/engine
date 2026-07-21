@@ -1,6 +1,6 @@
 # Things
 
-Placed content in a level—static props, usables, lights, and (later) actors—are authored in `maps/<name>/things.s7`. A **thing** is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs **entity** from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
+Placed content in a level (static props, usables, lights, and later actors) is authored in `maps/<name>/things.s7`. A thing is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs entity from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
 
 World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
 
@@ -14,14 +14,14 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprite
 | Spot light | `(spot-light …)` | Directed cone light thing (bake + gizmos). |
 | Area light | `(area-light …)` | Rectangular area light thing (authoring / gizmo). |
 | Sun | `(sun …)` | Directional sun thing (authoring / gizmo; optional `at` for editor). |
-| Actor | — | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
+| Actor | - | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
 | Player | `(player-start …)` | Spawn pose only; the `Player` entity is built by the engine. |
 
-These forms are **engine Scheme bindings**—always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
+These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
 Debug entity list labels match this split: `prop`, `usable`, `point-light`, `spot-light`, `area-light`, `sun`, `player` (plus `map` for `MapStatic`).
 
-`slopmap` edits things in the **Things** outliner and Library palette (load/save of `things.s7`). Viewport shows sprite/geo previews and light gizmos.
+`slopmap` edits things in the Things outliner and Library palette (load/save of `things.s7`). Viewport shows sprite/geo previews and light gizmos.
 
 ## Thing file
 
@@ -38,14 +38,14 @@ Debug entity list labels match this split: `prop`, `usable`, `point-light`, `spo
   (id "guard-a")
   (at -2.0 0.0 -2.0)
   (yaw 0.0)
-  (sprite "usmc/umca")
+  (sprite "characters/guard")
   (anim "walk" #t))
 
 (usable
   (id "use-test")
   (at 1.5 0.0 0.0)
   (yaw 0.0)
-  (sprite "usmc/umca")
+  (sprite "characters/guard")
   (frame "A")
   (prompt "Test use")
   (on-use "on-use-test"))
@@ -86,7 +86,7 @@ Failed presentation (missing asset, both or neither of `sprite`/`geo`) destroys 
 
 ## Usables (`usable`)
 
-Same clauses as `prop`, plus interact fields. The entity is still a static thing—no navigation—but the player can aim at it and press Interact.
+Same clauses as `prop`, plus interact fields. The entity is still a static thing with no navigation, but the player can aim at it and press Interact.
 
 | Field | Required | Notes |
 |-------|----------|-------|
@@ -122,27 +122,18 @@ Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (defa
 
 ## Actors
 
-**Actor** means an AI-capable agent that can navigate and interact: enemies, NPCs, and similar. That is distinct from:
+Actor means an AI-capable agent that can navigate and interact: enemies, NPCs, and similar. That is distinct from:
 
-- **Prop** — placed, may animate a sprite clip, does not think or pathfind.
-- **Usable** — static (or later movable) fixture the player uses.
-- **Light** — illumination thing (bake for point/spot; runtime dynamic overlay is separate—[Lights](lights.md)).
-- **Player** — engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)).
+- Prop: placed, may animate a sprite clip, does not think or pathfind.
+- Usable: static (or later movable) fixture the player uses.
+- Light: illumination thing (bake for point/spot; runtime dynamic overlay is separate; see [Lights](lights.md)).
+- Player: engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)).
 
-There is no `(actor …)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop …)` (optionally with `(anim …)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top—behavior owned by package scripts where possible, with engine primitives for movement and sensing.
+There is no `(actor …)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop …)` (optionally with `(anim …)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top. Behavior stays in package scripts where possible, with engine primitives for movement and sensing.
 
 ## Scripting
 
-Two Scheme layers share one s7 heap for the run:
-
-| Source | When | Purpose |
-|--------|------|---------|
-| `scripts/init.s7` | App start | Package bootstrap (version, shared defs). |
-| `scripts/things.s7` | App start (after `init`) | Handlers and helpers for placed content (`on-use`, later prefabs). |
-| `scripts/player.s7` | After FP Scheme API bind (before map spawn) | First-person **presentation**: `(prepare-first-person)`, `(on-action-flashlight)`, etc. Game rules stay in package state; FP API only mirrors them. |
-| `maps/<name>/things.s7` | Map load | Thing only: `player-start`, `prop`, `usable`, lights, `prefab`. |
-
-Virtual paths omit the extension: `init`, `things`, `player`, `<map>/things`. Later packages override earlier ones at the same path.
+Package Scheme and map `things.s7` share one s7 heap. Load order, hooks, and runtime APIs are covered in [Scripting](scripting.md). Map files stay thin: poses, presentation paths, and handler name strings. Behavior lives under `scripts/`.
 
 ### `on-use` handlers
 
@@ -153,13 +144,13 @@ Define a procedure in `scripts/things.s7` (or anything loaded into the same envi
   (format #t "used ~a~%" thing-id))
 ```
 
-The engine looks up the name with `s7_name_to_value`, checks it is a procedure, and calls it with the thing id string (the flecs entity name). There is no entity object API in Scheme yet—only that id—so handlers today are side-effect stubs (log, set game state you keep in Scheme, etc.). Missing or non-procedure names fall back to the inspect UI.
+The engine looks up the name with `s7_name_to_value`, checks it is a procedure, and calls it with the thing id string (the flecs entity name). There is no entity object API in Scheme yet, only that id, so handlers today are side-effect stubs (log, set game state you keep in Scheme, etc.). Missing or non-procedure names fall back to the inspect UI.
 
 ### What belongs where
 
-- **Map `things.s7`** — instance data: where things are, which sprite/geo, which handler name, prompts, light params.
-- **Package `scripts/`** — reusable behavior and, over time, constructors that wrap engine forms (`usable`, lights, future trigger / movable / actor) so levels stay thin.
-- **Engine** — spawn bindings, presentation, interact ray, player pawn, light thing forms. Not content catalogs (no built-in “USMC guard” type).
+- Map `things.s7`: instance data (where things are, which sprite/geo, which handler name, prompts, light params).
+- Package `scripts/`: reusable behavior and, over time, constructors that wrap engine forms (`usable`, lights, future trigger / movable / actor) so levels stay thin.
+- Engine: spawn bindings, presentation, interact ray, player pawn, light thing forms. Not content catalogs.
 
 ### Extending without engine churn
 

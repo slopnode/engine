@@ -13,7 +13,7 @@ slopengine has two geometry pipelines:
 
 Both paths end as the same runtime types (`GeoAsset` + `VertBuffer`) and are drawn through `buildModelFromGeo`. They are authored and packaged differently.
 
-Skeleton and clip export for skinned meshes are covered in [Animation](animation.md). This page covers mesh data and how the Blender exporter chooses prop formats.
+Skeleton and clip export for skinned meshes are covered in [Skeletal animation](animation.md). This page covers mesh data and how the Blender exporter chooses prop formats.
 
 ## Prop and character geometry
 

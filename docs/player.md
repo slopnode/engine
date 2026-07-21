@@ -1,6 +1,8 @@
 # Player
 
-The first-person avatar is a single flecs entity named `Player`. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, lights, and other things are separate—see [Things](things.md), [Lights](lights.md), and [Maps](maps.md).
+Related: [Scripting](scripting.md), [Sprites](sprites.md), [Audio](audio.md), [Lights](lights.md), [Things](things.md).
+
+The first-person avatar is a single flecs entity named `Player`. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, lights, and other things are separate; see [Things](things.md), [Lights](lights.md), and [Maps](maps.md).
 
 ## Spawn (`player-start`)
 
@@ -41,7 +43,7 @@ Demo / non-map scenes may spawn `Player` without `CharacterMotor`; look still ru
 
 ## First-person scene
 
-The first-person scene is a **presentation layer**: it shows what the package decided is currently equipped, lit, or held. It is not the owner of gameplay rules, inventory, weapon logic, or flashlight state. Those live in package Scheme (or other game systems); the FP stage only attaches meshes and lights so the player can see that state.
+The first-person scene is a presentation layer: it shows what the package decided is currently equipped, lit, or held. It is not the owner of gameplay rules, inventory, weapon logic, or flashlight state. Those live in package Scheme (or other game systems); the FP stage only attaches meshes and lights so the player can see that state.
 
 ### Ownership
 
@@ -50,18 +52,18 @@ The first-person scene is a **presentation layer**: it shows what the package de
 | Empty eye-space stage (`PlayerFp`) and sockets | Inventory, ammo, loadouts, weapon switch rules |
 | Draw of `ViewSpace` geo / view sprites after the world | Hit detection, fire, reload, usability |
 | Primitives to attach geo/sprites, mutate sprite pose, eye offset, spawn or toggle a `DynamicLight` | Whether the flashlight “should” be on; raise/lower, bob, or holster policy |
-| Raw `Lens` eye for aim/interact; presentation camera for world draw | Map lighting design (bake + dynamic overlay—see [Lights](lights.md)) |
-| Optional rad tint / faux shading look | — |
+| Raw `Lens` eye for aim/interact; presentation camera for world draw | Map lighting design (bake + dynamic overlay; see [Lights](lights.md)) |
+| Optional rad tint / faux shading look | - |
 
 Input still reaches the package as hooks (for example flashlight → `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
 
 ### Stage layout
 
-The engine owns an empty **eye-space stage** rooted at `PlayerFp` (`ViewSpace`), with child sockets `weapon` and `emission`. The stage stays fixed in view space: looking around does **not** move or rotate it. Packages fill the sockets; the engine does not define weapons, inventory, or flashlight recipes.
+The engine owns an empty eye-space stage rooted at `PlayerFp` (`ViewSpace`), with child sockets `weapon` and `emission`. The stage stays fixed in view space: looking around does not move or rotate it. Packages fill the sockets; the engine does not define weapons, inventory, or flashlight recipes.
 
-**View axes:** `+X` screen-right, `+Y` up, `+Z` forward. Author viewmodels and offsets in that space.
+View axes: `+X` screen-right, `+Y` up, `+Z` forward. Author viewmodels and offsets in that space.
 
-**Raw vs presentation eye:** Physics and look write the authoritative `Lens` (feet + `eyeHeight` + yaw/pitch). Aim and interact always use that raw `Lens`. Packages may set a view-space `ViewEyeOffset` via `(fp-set-eye-offset x y z)`; world draw and `ViewSpace` light lifts use a **presentation camera** (raw eye + offset). The offset is never written back into `Lens`. Bob / punch / settle formulas stay package Scheme.
+Raw vs presentation eye: Physics and look write the authoritative `Lens` (feet + `eyeHeight` + yaw/pitch). Aim and interact always use that raw `Lens`. Packages may set a view-space `ViewEyeOffset` via `(fp-set-eye-offset x y z)`; world draw and `ViewSpace` light lifts use a presentation camera (raw eye + offset). The offset is never written back into `Lens`. Bob / punch / settle formulas stay package Scheme.
 
 After `Player` spawns, the engine calls `(prepare-first-person "Player")` if that procedure exists (loaded from `scripts/player.s7`). That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under `ViewSpace` are converted to world space at light-gather time via the presentation camera (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
 
@@ -73,9 +75,9 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 |---------|---------|
 | `(fp-clear-socket name)` | Destroy children of `weapon` or `emission`. |
 | `(fp-attach-geo socket geo [x y z sx sy sz])` | Attach a geo viewmodel under a socket. |
-| `(fp-attach-sprite socket sprite [canvas-x canvas-y])` | Attach a screen-space sprite under a socket. Optional canvas position places the sprite origin (default bottom-center) on the view canvas. |
+| `(fp-attach-sprite socket sprite [canvas-x canvas-y])` | Attach a screen-space sprite under a socket. Optional canvas position places the sprite origin (default bottom-center) on the view canvas. Formats and pose/tween: [Sprites](sprites.md). |
 | `(fp-set-sprite-frame socket frame-id)` | Set the current sprite frame id. |
-| `(fp-play-sprite-anim socket clip [loop])` | Play a `.spanim` clip on the socket sprite. |
+| `(fp-play-sprite-anim socket clip [loop])` | Play a `.spanim` clip on the socket sprite (tween / frame sounds apply; see [Sprites](sprites.md), [Audio](audio.md)). |
 | `(fp-set-sprite-pos socket x y)` | Move the view-sprite origin on the view canvas. |
 | `(fp-set-sprite-scale socket sx sy)` | Independent X/Y scale multipliers (default `1 1`). |
 | `(fp-set-sprite-rotation socket degrees)` | Rotation in degrees around the sprite origin. |
@@ -95,13 +97,13 @@ Raise/lower, bob, kick, and similar presentation policies stay in package Scheme
 
 | Procedure | When |
 |-----------|------|
-| `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn — build the initial view from game state. |
+| `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn; build the initial view from game state. |
 | `(tick dt)` | Each update frame with frame delta seconds, if defined. Use for package-owned pose stepping (raise/lower, bob, etc.). |
-| `(on-action-<id>)` | When a **package** action with that id is pressed (see Package actions below). |
+| `(on-action-<id>)` | When a package action with that id is pressed (see Package actions below). |
 | `(action-down? id)` | `#t` while the bound action is held (gameplay context only). Works for package and core action ids. |
 | `(action-pressed? id)` | `#t` on the press edge this frame (gameplay context only). Works for package and core action ids. |
 
-Base package `scripts/player.s7` keeps flashlight on/off in Scheme (`*flashlight-enabled*`), attaches a stub cube “gun”, a warm spot under `emission`, and enables rad tint + viewmodel shading. Toggling the action only updates that Scheme flag and `(fp-set-light-enabled …)`. Other base-games override virtual path `player` to redefine presentation. Inventory and loadouts stay package-only and optional.
+Packages override virtual path `player` (`scripts/player.s7`) for presentation: attach geo or view sprites, spawn socket lights, enable rad tint / shading, and react to `(on-action-*)`. Inventory and loadouts stay package-only and optional. See [Scripting](scripting.md).
 
 ### Package actions
 
@@ -121,7 +123,7 @@ Core binds (move, jump, pause, interact, console, main menu) are owned by the en
 | `label` | Controls UI display name. |
 | `default` | Bind token: letter/digit keys (`f`, `1`), named keys (`space`, `grave`), or mouse (`mouse1`…`mouse5`). |
 
-Mods override `data/actions.s7` like other package data. On press (gameplay context), the engine calls `(on-action-<id>)` if that procedure exists. Base ships flashlight, attack, and weapon-1/2; only flashlight has a handler today—attack and slots are stubs for games to implement.
+Mods override `data/actions.s7` like other package data. On press (gameplay context), the engine calls `(on-action-<id>)` if that procedure exists. Base ships flashlight, attack, and weapon-1/2; only flashlight has a handler today. Attack and slots are stubs for games to implement.
 
 Binds support keyboard and mouse buttons. User overrides live in `settings.cfg` under `[controls]` by action id.
 
@@ -160,7 +162,7 @@ While gameplay input is allowed:
 - Package actions (from `data/actions.s7`) call `(on-action-<id>)` when pressed.
 - Scheme can poll `(action-down? id)` / `(action-pressed? id)` for held vs edge state (e.g. autofire in `(tick)`). Both return `#f` when gameplay input is blocked or the id is unknown.
 
-Debug **Noclip** (main menu → Debug) flies the capsule with move wish and no gravity; look still applies.
+Debug Noclip (main menu → Debug) flies the capsule with move wish and no gravity; look still applies.
 
 ## Example
 

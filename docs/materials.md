@@ -1,6 +1,6 @@
 # Materials, textures, and shaders
 
-Surfaces are described by `.mat` files. Materials are **albedo + emission**, not a PBR stack: there are no normal, roughness, or metallic maps. Detail comes from the diffuse texture and from offline lightmaps; special effects use emission fields and/or custom shaders.
+Surfaces are described by `.mat` files. Materials are albedo + emission, not a PBR stack: there are no normal, roughness, or metallic maps. Detail comes from the diffuse texture and from offline lightmaps; special effects use emission fields and/or custom shaders.
 
 Materials optionally reference textures and a shader name. At runtime the engine builds a raylib `Material`: albedo color/texture from the `.mat`, then the draw pipeline may replace the shader (maps with lightmaps do this today).
 
@@ -61,7 +61,7 @@ Shaders are plain GLSL sources, one file per stage. Vert and frag are separate v
 
 ### How a draw picks a shader
 
-Materials do **not** currently drive shader selection from `(shader ...)`. Pipelines hardcode it:
+Materials do not currently drive shader selection from `(shader ...)`. Pipelines hardcode it:
 
 | Draw path | Shader |
 |-----------|--------|
@@ -128,7 +128,7 @@ getMaterialAsset + LoadImage albedo / emission PNGs
   → write atlases + static.rad
 ```
 
-Emission **textures** matter at bake time. At runtime the lightmap shader adds a flat emit from `emission-color` when `emission-power > 0`; it does not sample the emission map again.
+Emission textures matter at bake time. At runtime the lightmap shader adds a flat emit from `emission-color` when `emission-power > 0`; it does not sample the emission map again.
 
 ## Special effects
 
@@ -145,4 +145,4 @@ Without the lightmap shader, specular color is still set on the raylib material 
 
 ## Naming from Blender
 
-The exporter does not write `.mat` files. Blender material **names** become material virtual paths on `.geo` primitives: a leading `materials/` prefix and known extensions are stripped; if there is no `/` but there is a `.`, the `.` is treated as `/` (`surfaces.stone` → `surfaces/stone`); an empty name becomes `default/unassigned`. Blender material names should match paths under `materials/`.
+The exporter does not write `.mat` files. Blender material names become material virtual paths on `.geo` primitives: a leading `materials/` prefix and known extensions are stripped; if there is no `/` but there is a `.`, the `.` is treated as `/` (`surfaces.stone` → `surfaces/stone`); an empty name becomes `default/unassigned`. Blender material names should match paths under `materials/`.

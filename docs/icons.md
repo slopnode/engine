@@ -55,10 +55,10 @@ Commit the packed atlas and `.iconmap` with the package. Runtime loading only ne
 
 `AssetStore` loads a set by virtual path:
 
-- `hasIconAtlas(set)` — true when `icons/<set>.iconmap` exists
-- `getIconAtlas(set)` — parses the map, loads `icons/<atlas>.png`, caches the GPU texture and rect table
-- `getIconRect(set, id)` — source rectangle for one icon id
-- `drawIcon(set, id, position, size)` — draws with Raylib (`DrawTexturePro`)
+- `hasIconAtlas(set)`: true when `icons/<set>.iconmap` exists
+- `getIconAtlas(set)`: parses the map, loads `icons/<atlas>.png`, caches the GPU texture and rect table
+- `getIconRect(set, id)`: source rectangle for one icon id
+- `drawIcon(set, id, position, size)`: draws with Raylib (`DrawTexturePro`)
 
 Tools such as `slopmap` use the same atlas through ImGui helpers (`drawIconImGui`, menu/button wrappers) with default set `silk`.
 
