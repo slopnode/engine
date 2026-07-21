@@ -10,12 +10,22 @@ void SpriteAnimator::play(std::string_view clip, bool shouldLoop, float playback
     playing = true;
     justStarted = true;
     justFinished = false;
+    tweenRotation = false;
+    tweenScale = false;
+    tweenTranslate = false;
+    transformBlend = 0.0f;
+    nextFrame.clear();
 }
 
 void SpriteAnimator::stop() {
     playing = false;
     justStarted = false;
     justFinished = false;
+    tweenRotation = false;
+    tweenScale = false;
+    tweenTranslate = false;
+    transformBlend = 0.0f;
+    nextFrame.clear();
 }
 
 }

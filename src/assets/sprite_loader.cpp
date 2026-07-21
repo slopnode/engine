@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -170,6 +171,65 @@ std::optional<std::string> readHitMaskPath(std::string_view line) {
     return readQuotedField(line.substr(hitPos), "hit ");
 }
 
+bool readOffsetTokens(std::string_view line, int& offsetX, int& offsetY) {
+    const std::size_t offsetPos = line.find("offset ");
+    if (offsetPos == std::string_view::npos) {
+        return false;
+    }
+    std::string_view rest = trim(line.substr(offsetPos + std::string_view("offset ").size()));
+    float values[2] = {};
+    if (!readFloats(rest, 2, values)) {
+        return false;
+    }
+    offsetX = static_cast<int>(values[0]);
+    offsetY = static_cast<int>(values[1]);
+    return true;
+}
+
+bool readRotationDegToken(std::string_view line, float& rotationDeg) {
+    const std::size_t rotPos = line.find("rotation ");
+    if (rotPos == std::string_view::npos) {
+        return false;
+    }
+    std::string_view rest = trim(line.substr(rotPos + std::string_view("rotation ").size()));
+    float value = 0.0f;
+    if (!readFloats(rest, 1, &value)) {
+        return false;
+    }
+    rotationDeg = value;
+    return true;
+}
+
+bool readScaleTokens(std::string_view line, float& scaleX, float& scaleY) {
+    const std::size_t scalePos = line.find("scale ");
+    if (scalePos == std::string_view::npos) {
+        return false;
+    }
+    std::string_view rest = trim(line.substr(scalePos + std::string_view("scale ").size()));
+    float values[2] = {};
+    if (!readFloats(rest, 2, values)) {
+        return false;
+    }
+    scaleX = values[0];
+    scaleY = values[1];
+    return true;
+}
+
+bool readTranslateTokens(std::string_view line, float& translateX, float& translateY) {
+    const std::size_t translatePos = line.find("translate ");
+    if (translatePos == std::string_view::npos) {
+        return false;
+    }
+    std::string_view rest = trim(line.substr(translatePos + std::string_view("translate ").size()));
+    float values[2] = {};
+    if (!readFloats(rest, 2, values)) {
+        return false;
+    }
+    translateX = values[0];
+    translateY = values[1];
+    return true;
+}
+
 int nextPowerOfTwo(int value) {
     int power = 1;
     while (power < value) {
@@ -183,6 +243,7 @@ int nextPowerOfTwo(int value) {
 bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
     asset = {};
     SpriteFrame* currentFrame = nullptr;
+    bool inView = false;
 
     std::size_t lineStart = 0;
     while (lineStart <= source.size()) {
@@ -195,13 +256,56 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             break;
         }
 
-        if (line.rfind("(texel-size ", 0) == 0) {
+        if (line == "(view" || line.rfind("(view ", 0) == 0 || line == "(view)") {
+            inView = true;
+            asset.view.present = true;
+            currentFrame = nullptr;
+        } else if (inView && line.rfind("(canvas ", 0) == 0) {
+            float values[2] = {};
+            if (!readFloats(line.substr(std::string_view("(canvas ").size()), 2, values)) {
+                return false;
+            }
+            asset.view.canvasX = values[0];
+            asset.view.canvasY = values[1];
+        } else if (inView && line.rfind("(scale ", 0) == 0) {
+            float values[2] = {};
+            if (!readFloats(line.substr(std::string_view("(scale ").size()), 2, values)) {
+                return false;
+            }
+            asset.view.scaleX = values[0];
+            asset.view.scaleY = values[1];
+        } else if (inView && line.rfind("(rotation ", 0) == 0) {
+            float value = 0.0f;
+            if (!readFloats(line.substr(std::string_view("(rotation ").size()), 1, &value)) {
+                return false;
+            }
+            asset.view.rotationDeg = value;
+        } else if (inView && line.rfind("(origin ", 0) == 0) {
+            float values[2] = {};
+            if (!readFloats(line.substr(std::string_view("(origin ").size()), 2, values)) {
+                return false;
+            }
+            asset.view.originX = values[0];
+            asset.view.originY = values[1];
+        } else if (inView && line.rfind("(eye-offset ", 0) == 0) {
+            float values[3] = {};
+            if (!readFloats(line.substr(std::string_view("(eye-offset ").size()), 3, values)) {
+                return false;
+            }
+            asset.view.eyeOffsetX = values[0];
+            asset.view.eyeOffsetY = values[1];
+            asset.view.eyeOffsetZ = values[2];
+        } else if (inView && (line == ")" || line.rfind(")", 0) == 0)) {
+            inView = false;
+        } else if (line.rfind("(texel-size ", 0) == 0) {
+            inView = false;
             float texelSize = 64.0f;
             if (!readFloats(line.substr(std::string_view("(texel-size ").size()), 1, &texelSize)) {
                 return false;
             }
             asset.pixelsPerMeter = texelSize;
         } else if (auto partName = readQuotedField(line, "(hit-part ")) {
+            inView = false;
             std::string_view rest = line;
             const std::size_t nameEnd = rest.find('"', rest.find('"') + 1);
             if (nameEnd == std::string_view::npos) {
@@ -219,6 +323,7 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             part.b = static_cast<unsigned char>(std::clamp(rgb[2], 0.0f, 255.0f));
             asset.hitParts.push_back(std::move(part));
         } else if (auto frameId = readQuotedField(line, "(frame ")) {
+            inView = false;
             asset.frames.push_back(SpriteFrame{});
             currentFrame = &asset.frames.back();
             currentFrame->id = *frameId;
@@ -249,6 +354,29 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             entry.texturePath = std::string{rest.substr(quoteStart + 1, quoteEnd - quoteStart - 1)};
             entry.mirror = lineContainsMirror(line);
             entry.hitMaskPath = readHitMaskPath(line);
+            int offsetX = 0;
+            int offsetY = 0;
+            if (readOffsetTokens(line, offsetX, offsetY)) {
+                entry.hasOffset = true;
+                entry.offsetX = offsetX;
+                entry.offsetY = offsetY;
+            }
+            float rotationDeg = 0.0f;
+            if (readRotationDegToken(line, rotationDeg)) {
+                entry.rotationDeg = rotationDeg;
+            }
+            float scaleX = 1.0f;
+            float scaleY = 1.0f;
+            if (readScaleTokens(line, scaleX, scaleY)) {
+                entry.scaleX = scaleX;
+                entry.scaleY = scaleY;
+            }
+            float translateX = 0.0f;
+            float translateY = 0.0f;
+            if (readTranslateTokens(line, translateX, translateY)) {
+                entry.translateX = translateX;
+                entry.translateY = translateY;
+            }
             currentFrame->rotations[rotation] = std::move(entry);
         }
 
@@ -259,6 +387,58 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
     }
 
     return !asset.frames.empty();
+}
+
+std::string serializeSpriteAsset(const SpriteAsset& asset) {
+    std::ostringstream out;
+    out << "(sprite\n";
+    out << "  (texel-size " << asset.pixelsPerMeter << ")\n";
+    if (asset.view.present) {
+        out << "  (view\n";
+        out << "    (canvas " << asset.view.canvasX << ' ' << asset.view.canvasY << ")\n";
+        out << "    (scale " << asset.view.scaleX << ' ' << asset.view.scaleY << ")\n";
+        out << "    (rotation " << asset.view.rotationDeg << ")\n";
+        out << "    (origin " << asset.view.originX << ' ' << asset.view.originY << ")\n";
+        out << "    (eye-offset " << asset.view.eyeOffsetX << ' ' << asset.view.eyeOffsetY << ' '
+            << asset.view.eyeOffsetZ << ")\n";
+        out << "  )\n";
+    }
+    for (const SpriteHitPartDef& part : asset.hitParts) {
+        out << "  (hit-part \"" << part.name << "\" " << static_cast<int>(part.r) << ' '
+            << static_cast<int>(part.g) << ' ' << static_cast<int>(part.b) << ")\n";
+    }
+    for (const SpriteFrame& frame : asset.frames) {
+        out << "  (frame \"" << frame.id << "\"\n";
+        for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
+            if (!frame.rotations[rotation].has_value()) {
+                continue;
+            }
+            const SpriteRotation& entry = *frame.rotations[rotation];
+            out << "    (rot " << rotation << " \"" << entry.texturePath << '"';
+            if (entry.hasOffset) {
+                out << " offset " << entry.offsetX << ' ' << entry.offsetY;
+            }
+            if (entry.rotationDeg != 0.0f) {
+                out << " rotation " << entry.rotationDeg;
+            }
+            if (entry.scaleX != 1.0f || entry.scaleY != 1.0f) {
+                out << " scale " << entry.scaleX << ' ' << entry.scaleY;
+            }
+            if (entry.translateX != 0.0f || entry.translateY != 0.0f) {
+                out << " translate " << entry.translateX << ' ' << entry.translateY;
+            }
+            if (entry.mirror) {
+                out << " mirror";
+            }
+            if (entry.hitMaskPath.has_value()) {
+                out << " hit \"" << *entry.hitMaskPath << '"';
+            }
+            out << ")\n";
+        }
+        out << "  )\n";
+    }
+    out << ")\n";
+    return out.str();
 }
 
 SpriteAtlas buildSpriteAtlas(

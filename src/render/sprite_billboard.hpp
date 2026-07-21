@@ -42,6 +42,24 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     Vector3 viewPosition,
     AssetStore& assets);
 
+/** Builds a billboard from an already-loaded asset/atlas. */
+std::optional<SpriteBillboard> resolveSpriteBillboard(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId,
+    float facingYaw,
+    const GlobalTransformation& global,
+    Vector3 viewPosition);
+
+/** Builds a billboard using an explicit Doom rotation index (0..8), ignoring camera yaw. */
+std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId,
+    int rotation,
+    const GlobalTransformation& global,
+    Vector3 viewPosition);
+
 /** Builds a billboard facing the Lens camera. */
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
@@ -55,11 +73,33 @@ struct ViewSpriteFrame {
     Rectangle source{};
     int pixelWidth = 0;
     int pixelHeight = 0;
+    int offsetX = 0;
+    int offsetY = 0;
+    bool hasOffset = false;
+    bool mirror = false;
+    float rotationDeg = 0.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float translateX = 0.0f;
+    float translateY = 0.0f;
 };
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
     const SpriteInstance& sprite,
     AssetStore& assets);
+
+/** Atlas sample from an already-loaded asset/atlas (rot 0). */
+std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId);
+
+/** Atlas sample for an explicit Doom rotation index. */
+std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
+    const SpriteAsset& asset,
+    const SpriteAtlas& atlas,
+    std::string_view frameId,
+    int rotation);
 
 /** Raycasts the billboard quad and optional hit mask. */
 std::optional<SpriteBillboardHit> raycastSpriteBillboard(

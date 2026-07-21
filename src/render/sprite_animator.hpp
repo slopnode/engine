@@ -15,6 +15,15 @@ struct SpriteAnimator {
     bool playing = false;
     bool justStarted = false;
     bool justFinished = false;
+    bool tweenRotation = false;
+    bool tweenScale = false;
+    bool tweenTranslate = false;
+    float transformBlend = 0.0f;
+    std::string nextFrame;
+
+    bool hasTween() const {
+        return tweenRotation || tweenScale || tweenTranslate;
+    }
 
     /** Starts @p clip at @p playbackSpeed. */
     void play(std::string_view clip, bool shouldLoop = true, float playbackSpeed = 1.0f);

@@ -23,12 +23,12 @@ The `.spr` and `.spanim` for one character usually share the same virtual path (
   (hit-part "body" 0 255 0)
   (hit-part "head" 255 0 0)
   (frame "A"
-    (rot 1 "sprites/usmc/UMCAA1" hit "sprites/usmc/hit/UMCAA1")
-    (rot 2 "sprites/usmc/UMCAA2A8" hit "sprites/usmc/hit/UMCAA2A8")
-    (rot 8 "sprites/usmc/UMCAA2A8" mirror hit "sprites/usmc/hit/UMCAA2A8")
-    (rot 5 "sprites/usmc/UMCAA5" hit "sprites/usmc/hit/UMCAA5"))
+    (rot 1 "sprites/usmc/UMCAA1" offset 32 64 hit "sprites/usmc/hit/UMCAA1")
+    (rot 2 "sprites/usmc/UMCAA2A8" offset 30 64 mirror hit "sprites/usmc/hit/UMCAA2A8")
+    (rot 8 "sprites/usmc/UMCAA2A8" offset 34 64 mirror hit "sprites/usmc/hit/UMCAA2A8")
+    (rot 5 "sprites/usmc/UMCAA5" offset 32 64 hit "sprites/usmc/hit/UMCAA5"))
   (frame "H"
-    (rot 0 "sprites/usmc/UMCAH0" hit "sprites/usmc/hit/UMCAH0")))
+    (rot 0 "sprites/usmc/UMCAH0" offset 40 70 hit "sprites/usmc/hit/UMCAH0")))
 ```
 
 | Field | Meaning |
@@ -37,6 +37,9 @@ The `.spr` and `.spanim` for one character usually share the same virtual path (
 | `(hit-part "name" R G B)` | Named hit region keyed by exact RGB in a hit-mask texture. Optional. |
 | `(frame "id" …)` | Named pose. Clip lists and `SpriteInstance.frame` refer to these ids. |
 | `(rot R "texture" …)` | View rotation `R` for that frame. Texture is a virtual path under `textures/`. |
+| `offset X Y` | Optional SLADE-style pixel origin from the top-left of that texture. Omit → bottom-center (`width/2`, `height`). |
+| `mirror` | Flip UVs / hit samples horizontally for this rotation. |
+| `hit "…"` | Optional hit-mask texture path (same size as the frame texture). |
 
 ### Rotations
 
@@ -85,7 +88,7 @@ Ray hits against sprites use the current billboard (frame + view rotation + mirr
 | `frame` | Current frame id (e.g. `"A"`) |
 | `facingYaw` | Sprite facing in world radians; view rotation is derived from camera vs this yaw |
 
-Place the entity with `LocalTransformation` / `GlobalTransformation` and `WorldSpace`. The billboard sits on a camera-facing quad with origin at the bottom center of the sprite. Feet sample map light when lightmaps are available.
+Place the entity with `LocalTransformation` / `GlobalTransformation` and `WorldSpace`. The billboard sits on a camera-facing quad. The origin (feet / pivot) comes from each rotation's optional `offset X Y` (SLADE-style pixels from the texture top-left). When omitted, the origin is bottom-center. Feet sample map light when lightmaps are available.
 
 ### `SpriteAnimator`
 

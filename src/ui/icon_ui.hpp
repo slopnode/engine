@@ -101,9 +101,13 @@ inline bool collapsingHeaderWithIcon(
     ImGuiTreeNodeFlags flags = 0,
     float size = 16.0f) {
     ImGui::PushID(label);
+    const ImGuiTreeNodeFlags nodeFlags =
+        flags | ImGuiTreeNodeFlags_CollapsingHeader | ImGuiTreeNodeFlags_AllowOverlap;
+    const bool open = ImGui::TreeNodeEx("##hdr", nodeFlags);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().FramePadding.x);
     drawIconImGui(assets, set, iconId, size);
-    ImGui::SameLine();
-    const bool open = ImGui::CollapsingHeader(label, flags);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::TextUnformatted(label);
     ImGui::PopID();
     return open;
 }

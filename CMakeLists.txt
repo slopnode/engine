@@ -69,6 +69,7 @@ set(SLOPLIB_SOURCES
     src/map/radiosity_gpu.cpp
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
+    src/render/sprite_billboard.cpp
 )
 
 add_library(sloplib STATIC ${SLOPLIB_SOURCES})
@@ -103,7 +104,6 @@ add_executable(slopengine
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
-    src/render/sprite_billboard.cpp
     src/render/dynamic_light.cpp
     src/render/dynamic_light_shadows.cpp
     src/render/render_module.cpp
@@ -163,6 +163,26 @@ if(MSVC)
     target_compile_options(slopmap PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopmap PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopsprite
+    tools/slopsprite/main.cpp
+    tools/slopsprite/camera.cpp
+    tools/slopsprite/editor.cpp
+    tools/slopsprite/browser.cpp
+    tools/slopsprite/world_preview.cpp
+    tools/slopsprite/fp_preview.cpp
+    tools/slopsprite/align_preview.cpp
+    tools/slopsprite/texture_browser.cpp
+    tools/slopsprite/layout.cpp
+    src/ui/imgui_fonts.cpp
+)
+target_include_directories(slopsprite PRIVATE tools/slopsprite)
+target_link_libraries(slopsprite PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopsprite PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopicons tools/slopicons/main.cpp)
