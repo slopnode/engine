@@ -63,6 +63,20 @@ bool tryCallSchemeProc1String(s7_scheme* scheme, std::string_view name, const st
     return true;
 }
 
+bool tryCallSchemeProc1Real(s7_scheme* scheme, std::string_view name, double arg) {
+    if (scheme == nullptr || name.empty()) {
+        return false;
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+
+    s7_call(scheme, func, s7_list(scheme, 1, s7_make_real(scheme, arg)));
+    return true;
+}
+
 bool tryCallSchemeProc2String(
     s7_scheme* scheme,
     std::string_view name,

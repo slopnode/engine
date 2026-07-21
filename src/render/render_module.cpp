@@ -705,6 +705,19 @@ void registerSpinSystem(flecs::world& world) {
         });
 }
 
+void registerSchemeTickSystem(flecs::world& world) {
+    world.system("CallSchemeTick")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
+                return;
+            }
+            tryCallSchemeProc1Real(
+                world.get<ScriptContext>().scheme, "tick", static_cast<double>(GetFrameTime()));
+        });
+}
+
 void registerAnimationSystems(flecs::world& world) {
     world.system<Model3D, AnimationPlayer>("AdvanceAnimationPlayer")
         .kind(flecs::OnUpdate)
@@ -1260,22 +1273,19 @@ void registerRenderSystems(flecs::world& world) {
                     if (!frame) {
                         return;
                     }
-                    const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale;
-                    const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale;
+                    const float destW =
+                        static_cast<float>(frame->pixelWidth) * viewFit.scale * viewSprite.scaleX;
+                    const float destH =
+                        static_cast<float>(frame->pixelHeight) * viewFit.scale * viewSprite.scaleY;
                     const float screenX = viewFit.offsetX + viewSprite.canvasX * viewFit.scale;
                     const float screenY = viewFit.offsetY + viewSprite.canvasY * viewFit.scale;
-                    const Rectangle dest{
-                        screenX - destW * 0.5f,
-                        screenY - destH,
-                        destW,
-                        destH,
-                    };
+                    const Rectangle dest{screenX, screenY, destW, destH};
                     DrawTexturePro(
                         *frame->texture,
                         frame->source,
                         dest,
-                        Vector2{0.0f, 0.0f},
-                        0.0f,
+                        Vector2{destW * viewSprite.originX, destH * viewSprite.originY},
+                        viewSprite.rotationDeg,
                         WHITE);
                 });
                 EndBlendMode();
@@ -1496,6 +1506,7 @@ void registerRenderModule(
     }
 
     registerSpinSystem(world);
+    registerSchemeTickSystem(world);
     registerAnimationSystems(world);
     registerAnimationClipFlipTestSystem(world);
     registerSpriteAnimatorSystem(world);
