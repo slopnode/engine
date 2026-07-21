@@ -14,6 +14,7 @@
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
 #include "physics/physics_module.hpp"
+#include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
@@ -26,6 +27,7 @@
 #include "script/hud_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
+#include "script/thing_script.hpp"
 #include "ui/ui_module.hpp"
 
 #include "ui/ui_state.hpp"
@@ -1335,7 +1337,8 @@ void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, floa
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
-        .set<FirstPersonController>(controller);
+        .set<FirstPersonController>(controller)
+        .set<CollisionTags>(CollisionTags{{"player"}});
 
     ensureFirstPersonScene(world, player);
     updateFirstPersonSceneTransforms(world);
@@ -1442,7 +1445,8 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         .add<WorldSpace>()
         .set<Lens>(lens)
         .set<FirstPersonController>(controller)
-        .set<CharacterMotor>(motor);
+        .set<CharacterMotor>(motor)
+        .set<CollisionTags>(CollisionTags{{"player"}});
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
@@ -1479,6 +1483,7 @@ void registerRenderModule(
 
     bindFirstPersonApi(world, scheme);
     bindHudApi(world, scheme);
+    bindThingRuntimeApi(world, scheme);
     if (scheme != nullptr && !assets.loadScript(scheme, "player")) {
         TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");
     }

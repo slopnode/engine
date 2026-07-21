@@ -12,6 +12,7 @@
 #include "interact/components.hpp"
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
+#include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
@@ -346,6 +347,9 @@ const char* entityKindLabel(flecs::entity entity) {
     }
     if (entity.has<Interactable>()) {
         return "usable";
+    }
+    if (entity.has<TriggerVolume>() && !entity.has<SpriteInstance>() && !entity.has<Model3D>()) {
+        return "trigger";
     }
     if (entity.has<SpriteInstance>() || entity.has<Model3D>()) {
         return "prop";
