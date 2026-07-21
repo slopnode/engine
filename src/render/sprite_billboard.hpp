@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <raylib.h>
 
@@ -35,12 +36,26 @@ struct SpriteBillboardHit {
     std::string partName;
 };
 
+/** Optional anim-* tween between the current frame and nextFrame. */
+struct SpriteAnimTween {
+    std::string_view nextFrame;
+    float blend = 0.0f;
+    bool tweenRotation = false;
+    bool tweenScale = false;
+    bool tweenTranslate = false;
+
+    bool hasTween() const {
+        return tweenRotation || tweenScale || tweenTranslate;
+    }
+};
+
 /** Builds a billboard facing @p viewPosition. */
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     Vector3 viewPosition,
-    AssetStore& assets);
+    AssetStore& assets,
+    const SpriteAnimTween* tween = nullptr);
 
 /** Builds a billboard from an already-loaded asset/atlas. */
 std::optional<SpriteBillboard> resolveSpriteBillboard(
@@ -49,7 +64,8 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     std::string_view frameId,
     float facingYaw,
     const GlobalTransformation& global,
-    Vector3 viewPosition);
+    Vector3 viewPosition,
+    const SpriteAnimTween* tween = nullptr);
 
 /** Builds a billboard using an explicit Doom rotation index (0..8), ignoring camera yaw. */
 std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
@@ -58,14 +74,16 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
     std::string_view frameId,
     int rotation,
     const GlobalTransformation& global,
-    Vector3 viewPosition);
+    Vector3 viewPosition,
+    const SpriteAnimTween* tween = nullptr);
 
 /** Builds a billboard facing the Lens camera. */
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     const Lens& lens,
-    AssetStore& assets);
+    AssetStore& assets,
+    const SpriteAnimTween* tween = nullptr);
 
 /** Atlas sample for a screen-space view sprite (rot 0 / non-directional). */
 struct ViewSpriteFrame {
@@ -82,6 +100,11 @@ struct ViewSpriteFrame {
     float scaleY = 1.0f;
     float translateX = 0.0f;
     float translateY = 0.0f;
+    float animRotationDeg = 0.0f;
+    float animScaleX = 1.0f;
+    float animScaleY = 1.0f;
+    float animTranslateX = 0.0f;
+    float animTranslateY = 0.0f;
 };
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(

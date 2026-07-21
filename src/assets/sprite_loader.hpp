@@ -37,6 +37,11 @@ struct SpriteRotation {
     float scaleY = 1.0f;
     float translateX = 0.0f; /**< Canvas-space shift (screenspace), not rotated with the sprite. */
     float translateY = 0.0f;
+    float animRotationDeg = 0.0f;
+    float animScaleX = 1.0f;
+    float animScaleY = 1.0f;
+    float animTranslateX = 0.0f;
+    float animTranslateY = 0.0f;
     int pixelWidth = 0;
     int pixelHeight = 0;
 };

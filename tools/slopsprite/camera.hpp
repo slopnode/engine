@@ -9,7 +9,6 @@ struct OrbitCamera {
     float distance = 3.0f;
     float yaw = 0.0f;
     float pitch = 0.35f;
-    float moveSpeed = 4.0f;
     float lookSensitivity = 0.005f;
     float zoomSensitivity = 0.15f;
 

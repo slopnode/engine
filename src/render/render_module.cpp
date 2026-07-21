@@ -482,8 +482,19 @@ void drawWorldSprite(
     const MapLighting* lighting,
     const BspTree* bspTree,
     const std::vector<RankedDynamicLight>* dynamicLights,
-    bool unlit) {
-    const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
+    bool unlit,
+    const SpriteAnimator* animator) {
+    SpriteAnimTween tween{};
+    const SpriteAnimTween* tweenPtr = nullptr;
+    if (animator != nullptr && animator->hasTween() && !animator->nextFrame.empty()) {
+        tween.nextFrame = animator->nextFrame;
+        tween.blend = animator->transformBlend;
+        tween.tweenRotation = animator->tweenRotation;
+        tween.tweenScale = animator->tweenScale;
+        tween.tweenTranslate = animator->tweenTranslate;
+        tweenPtr = &tween;
+    }
+    const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets, tweenPtr);
     if (!billboard || billboard->texture == nullptr) {
         return;
     }
@@ -1151,6 +1162,7 @@ void registerRenderSystems(flecs::world& world) {
                 struct SpriteDrawItem {
                     const SpriteInstance* sprite = nullptr;
                     const GlobalTransformation* global = nullptr;
+                    const SpriteAnimator* animator = nullptr;
                     float distSq = 0.0f;
                 };
                 std::vector<SpriteDrawItem> spriteDrawList;
@@ -1167,6 +1179,8 @@ void registerRenderSystems(flecs::world& world) {
                         spriteDrawList.push_back(SpriteDrawItem{
                             &sprite,
                             &global,
+                            spriteEntity.has<SpriteAnimator>() ? &spriteEntity.get<SpriteAnimator>()
+                                                               : nullptr,
                             dx * dx + dy * dy + dz * dz,
                         });
                     });
@@ -1188,7 +1202,8 @@ void registerRenderSystems(flecs::world& world) {
                         lighting,
                         bspTree,
                         dynamicLights,
-                        unlit);
+                        unlit,
+                        item.animator);
                 }
                 rlEnableDepthMask();
                 EndBlendMode();
@@ -1396,11 +1411,11 @@ void registerRenderSystems(flecs::world& world) {
 
                     float originX = originFromFrame(*frame).x;
                     float originY = originFromFrame(*frame).y;
-                    float frameRotationDeg = frame->rotationDeg;
-                    float frameScaleX = frame->scaleX;
-                    float frameScaleY = frame->scaleY;
-                    float translateX = frame->translateX;
-                    float translateY = frame->translateY;
+                    float animRotationDeg = frame->animRotationDeg;
+                    float animScaleX = frame->animScaleX;
+                    float animScaleY = frame->animScaleY;
+                    float animTranslateX = frame->animTranslateX;
+                    float animTranslateY = frame->animTranslateY;
 
                     if (entity.has<SpriteAnimator>()) {
                         const SpriteAnimator& animator = entity.get<SpriteAnimator>();
@@ -1411,24 +1426,33 @@ void registerRenderSystems(flecs::world& world) {
                             if (nextFrame) {
                                 const float blend = animator.transformBlend;
                                 if (animator.tweenRotation) {
-                                    frameRotationDeg = frame->rotationDeg +
-                                        (nextFrame->rotationDeg - frame->rotationDeg) * blend;
+                                    animRotationDeg = frame->animRotationDeg +
+                                        (nextFrame->animRotationDeg - frame->animRotationDeg) *
+                                            blend;
                                 }
                                 if (animator.tweenScale) {
-                                    frameScaleX = frame->scaleX +
-                                        (nextFrame->scaleX - frame->scaleX) * blend;
-                                    frameScaleY = frame->scaleY +
-                                        (nextFrame->scaleY - frame->scaleY) * blend;
+                                    animScaleX = frame->animScaleX +
+                                        (nextFrame->animScaleX - frame->animScaleX) * blend;
+                                    animScaleY = frame->animScaleY +
+                                        (nextFrame->animScaleY - frame->animScaleY) * blend;
                                 }
                                 if (animator.tweenTranslate) {
-                                    translateX = frame->translateX +
-                                        (nextFrame->translateX - frame->translateX) * blend;
-                                    translateY = frame->translateY +
-                                        (nextFrame->translateY - frame->translateY) * blend;
+                                    animTranslateX = frame->animTranslateX +
+                                        (nextFrame->animTranslateX - frame->animTranslateX) *
+                                            blend;
+                                    animTranslateY = frame->animTranslateY +
+                                        (nextFrame->animTranslateY - frame->animTranslateY) *
+                                            blend;
                                 }
                             }
                         }
                     }
+
+                    const float frameRotationDeg = frame->rotationDeg + animRotationDeg;
+                    const float frameScaleX = frame->scaleX * animScaleX;
+                    const float frameScaleY = frame->scaleY * animScaleY;
+                    const float translateX = frame->translateX + animTranslateX;
+                    const float translateY = frame->translateY + animTranslateY;
 
                     const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale *
                                         viewSprite.scaleX * frameScaleX;

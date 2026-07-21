@@ -76,10 +76,73 @@ bool pixelFromUv(
 
 namespace {
 
+struct EffectivePose {
+    float rotationDeg = 0.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    float translateX = 0.0f;
+    float translateY = 0.0f;
+};
+
+EffectivePose effectivePoseFromRotation(
+    const SpriteRotation& selected,
+    const SpriteRotation* next,
+    const SpriteAnimTween* tween) {
+    float animRotationDeg = selected.animRotationDeg;
+    float animScaleX = selected.animScaleX;
+    float animScaleY = selected.animScaleY;
+    float animTranslateX = selected.animTranslateX;
+    float animTranslateY = selected.animTranslateY;
+
+    if (tween != nullptr && next != nullptr && tween->hasTween()) {
+        const float blend = tween->blend;
+        if (tween->tweenRotation) {
+            animRotationDeg = selected.animRotationDeg +
+                (next->animRotationDeg - selected.animRotationDeg) * blend;
+        }
+        if (tween->tweenScale) {
+            animScaleX =
+                selected.animScaleX + (next->animScaleX - selected.animScaleX) * blend;
+            animScaleY =
+                selected.animScaleY + (next->animScaleY - selected.animScaleY) * blend;
+        }
+        if (tween->tweenTranslate) {
+            animTranslateX = selected.animTranslateX +
+                (next->animTranslateX - selected.animTranslateX) * blend;
+            animTranslateY = selected.animTranslateY +
+                (next->animTranslateY - selected.animTranslateY) * blend;
+        }
+    }
+
+    return EffectivePose{
+        selected.rotationDeg + animRotationDeg,
+        selected.scaleX * animScaleX,
+        selected.scaleY * animScaleY,
+        selected.translateX + animTranslateX,
+        selected.translateY + animTranslateY,
+    };
+}
+
+const SpriteRotation* nextRotationForTween(
+    const SpriteAsset& asset,
+    int rotation,
+    const SpriteAnimTween* tween) {
+    if (tween == nullptr || !tween->hasTween() || tween->nextFrame.empty()) {
+        return nullptr;
+    }
+    const SpriteFrame* nextFrame = findSpriteFrame(asset, tween->nextFrame);
+    if (nextFrame == nullptr) {
+        return nullptr;
+    }
+    return selectSpriteRotation(*nextFrame, rotation);
+}
+
 std::optional<SpriteBillboard> buildBillboardFromRotation(
     const SpriteAsset& asset,
     const SpriteAtlas& atlas,
     const SpriteRotation& selected,
+    const SpriteRotation* next,
+    const SpriteAnimTween* tween,
     const GlobalTransformation& global,
     Vector3 viewPosition) {
     const Vector3 position = translationFromMatrix(global.matrix);
@@ -114,7 +177,8 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
         source.width = -source.width;
     }
 
-    const Vector3 scale = scaleFromMatrix(global.matrix);
+    const EffectivePose pose = effectivePoseFromRotation(selected, next, tween);
+    const Vector3 entityScale = scaleFromMatrix(global.matrix);
     const float pixelsPerMeter = asset.pixelsPerMeter > 0.0f ? asset.pixelsPerMeter : 64.0f;
     const float pixelW =
         selected.pixelWidth > 0 ? static_cast<float>(selected.pixelWidth) : std::fabs(source.width);
@@ -122,17 +186,30 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
         selected.pixelHeight > 0 ? static_cast<float>(selected.pixelHeight)
                                  : std::fabs(source.height);
     const Vector2 size{
-        (pixelW / pixelsPerMeter) * scale.x,
-        (pixelH / pixelsPerMeter) * scale.y,
+        (pixelW / pixelsPerMeter) * entityScale.x * pose.scaleX,
+        (pixelH / pixelsPerMeter) * entityScale.y * pose.scaleY,
     };
     if (size.x <= 0.0f || size.y <= 0.0f || pixelW <= 0.0f || pixelH <= 0.0f) {
         return std::nullopt;
     }
 
     const Matrix matView = MatrixLookAt(viewPosition, position, {0.0f, 1.0f, 0.0f});
-    Vector3 right{matView.m0, matView.m4, matView.m8};
-    right = Vector3Scale(right, size.x);
-    const Vector3 up{0.0f, size.y, 0.0f};
+    Vector3 rightDir{matView.m0, matView.m4, matView.m8};
+    rightDir = Vector3Normalize(rightDir);
+    Vector3 upDir{0.0f, 1.0f, 0.0f};
+    if (pose.rotationDeg != 0.0f) {
+        const float rad = pose.rotationDeg * DEG2RAD;
+        const float c = std::cos(rad);
+        const float s = std::sin(rad);
+        const Vector3 rotatedRight =
+            Vector3Add(Vector3Scale(rightDir, c), Vector3Scale(upDir, s));
+        const Vector3 rotatedUp =
+            Vector3Add(Vector3Scale(rightDir, -s), Vector3Scale(upDir, c));
+        rightDir = Vector3Normalize(rotatedRight);
+        upDir = Vector3Normalize(rotatedUp);
+    }
+    Vector3 right = Vector3Scale(rightDir, size.x);
+    Vector3 up = Vector3Scale(upDir, size.y);
 
     float ox = selected.hasOffset ? static_cast<float>(selected.offsetX) : pixelW * 0.5f;
     const float oy = selected.hasOffset ? static_cast<float>(selected.offsetY) : pixelH;
@@ -144,12 +221,15 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
         ((pixelH - oy) / pixelH) * size.y,
     };
     const Vector3 origin3D = Vector3Add(
-        Vector3Scale(Vector3Normalize(right), origin.x),
-        Vector3Scale(Vector3Normalize(up), origin.y));
+        Vector3Scale(rightDir, origin.x),
+        Vector3Scale(upDir, origin.y));
+    const Vector3 translate3D = Vector3Add(
+        Vector3Scale(rightDir, pose.translateX / pixelsPerMeter),
+        Vector3Scale(upDir, -pose.translateY / pixelsPerMeter));
 
     SpriteBillboard billboard{};
     billboard.size = size;
-    billboard.position = position;
+    billboard.position = Vector3Add(position, translate3D);
     billboard.mirror = selected.mirror;
     billboard.pixelWidth = static_cast<int>(pixelW);
     billboard.pixelHeight = static_cast<int>(pixelH);
@@ -168,7 +248,8 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
         up,
     };
     for (int i = 0; i < 4; ++i) {
-        billboard.points[i] = Vector3Add(Vector3Subtract(points[i], origin3D), position);
+        billboard.points[i] =
+            Vector3Add(Vector3Subtract(points[i], origin3D), billboard.position);
     }
 
     return billboard;
@@ -182,7 +263,8 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     std::string_view frameId,
     float facingYaw,
     const GlobalTransformation& global,
-    Vector3 viewPosition) {
+    Vector3 viewPosition,
+    const SpriteAnimTween* tween) {
     if (atlas.textures.empty()) {
         return std::nullopt;
     }
@@ -209,7 +291,9 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         return std::nullopt;
     }
 
-    return buildBillboardFromRotation(asset, atlas, *selected, global, viewPosition);
+    const SpriteRotation* next = nextRotationForTween(asset, rotation, tween);
+    return buildBillboardFromRotation(
+        asset, atlas, *selected, next, tween, global, viewPosition);
 }
 
 std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
@@ -218,7 +302,8 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
     std::string_view frameId,
     int rotation,
     const GlobalTransformation& global,
-    Vector3 viewPosition) {
+    Vector3 viewPosition,
+    const SpriteAnimTween* tween) {
     if (atlas.textures.empty()) {
         return std::nullopt;
     }
@@ -233,14 +318,17 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
         return std::nullopt;
     }
 
-    return buildBillboardFromRotation(asset, atlas, *selected, global, viewPosition);
+    const SpriteRotation* next = nextRotationForTween(asset, rotation, tween);
+    return buildBillboardFromRotation(
+        asset, atlas, *selected, next, tween, global, viewPosition);
 }
 
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     Vector3 viewPosition,
-    AssetStore& assets) {
+    AssetStore& assets,
+    const SpriteAnimTween* tween) {
     if (sprite.sprite.empty()) {
         return std::nullopt;
     }
@@ -252,15 +340,16 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     }
 
     return resolveSpriteBillboard(
-        *asset, *atlas, sprite.frame, sprite.facingYaw, global, viewPosition);
+        *asset, *atlas, sprite.frame, sprite.facingYaw, global, viewPosition, tween);
 }
 
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     const Lens& lens,
-    AssetStore& assets) {
-    return resolveSpriteBillboard(sprite, global, lens.camera.position, assets);
+    AssetStore& assets,
+    const SpriteAnimTween* tween) {
+    return resolveSpriteBillboard(sprite, global, lens.camera.position, assets, tween);
 }
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
@@ -320,6 +409,11 @@ std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
     result.scaleY = selected->scaleY;
     result.translateX = selected->translateX;
     result.translateY = selected->translateY;
+    result.animRotationDeg = selected->animRotationDeg;
+    result.animScaleX = selected->animScaleX;
+    result.animScaleY = selected->animScaleY;
+    result.animTranslateX = selected->animTranslateX;
+    result.animTranslateY = selected->animTranslateY;
     if (result.pixelWidth <= 0 || result.pixelHeight <= 0) {
         return std::nullopt;
     }

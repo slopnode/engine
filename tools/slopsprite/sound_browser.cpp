@@ -1,5 +1,7 @@
 #include "sound_browser.hpp"
 
+#include "ui/icon_ui.hpp"
+
 #include "imgui.h"
 
 #include <algorithm>
@@ -64,11 +66,12 @@ void SoundBrowser::rescan(const slopengine::AssetStore& assets) {
     std::sort(sounds.begin(), sounds.end());
 }
 
-bool SoundBrowser::drawModal(std::string& outPath) {
+bool SoundBrowser::drawModal(slopengine::AssetStore& assets, std::string& outPath) {
     if (!open) {
         return false;
     }
 
+    constexpr const char* kIcons = slopengine::kDefaultIconSet;
     bool picked = false;
     ImGui::OpenPopup("Pick Sound");
     const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -87,7 +90,7 @@ bool SoundBrowser::drawModal(std::string& outPath) {
                 if (!containsIgnoreCase(path, filter)) {
                     continue;
                 }
-                if (ImGui::Selectable(path.c_str())) {
+                if (slopengine::selectableWithIcon(assets, kIcons, "music", path.c_str(), false)) {
                     outPath = path;
                     picked = true;
                     open = false;
@@ -97,7 +100,7 @@ bool SoundBrowser::drawModal(std::string& outPath) {
             }
         }
         ImGui::EndChild();
-        if (ImGui::Button("Cancel", ImVec2(-1.0f, 0.0f))) {
+        if (slopengine::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(-1.0f, 0.0f))) {
             open = false;
             ImGui::CloseCurrentPopup();
         }

@@ -14,7 +14,7 @@ struct TextureBrowser {
 
     void rescan(const slopengine::AssetStore& assets);
     /** Returns true and writes @p outPath when the user picks a texture. */
-    bool drawModal(std::string& outPath);
+    bool drawModal(slopengine::AssetStore& assets, std::string& outPath);
 };
 
 }

@@ -13,7 +13,7 @@ struct SoundBrowser {
     bool open = false;
 
     void rescan(const slopengine::AssetStore& assets);
-    bool drawModal(std::string& outPath);
+    bool drawModal(slopengine::AssetStore& assets, std::string& outPath);
 };
 
 }

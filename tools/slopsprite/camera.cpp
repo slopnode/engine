@@ -57,30 +57,6 @@ void OrbitCamera::update(bool allowInput) {
     if (wheel != 0.0f) {
         distance = std::clamp(distance * (1.0f - wheel * zoomSensitivity), 0.5f, 40.0f);
     }
-
-    const float dt = GetFrameTime();
-    float step = moveSpeed * dt;
-    if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
-        step *= 2.5f;
-    }
-    if (IsKeyDown(KEY_W)) {
-        target.z -= step;
-    }
-    if (IsKeyDown(KEY_S)) {
-        target.z += step;
-    }
-    if (IsKeyDown(KEY_A)) {
-        target.x -= step;
-    }
-    if (IsKeyDown(KEY_D)) {
-        target.x += step;
-    }
-    if (IsKeyDown(KEY_Q)) {
-        target.y -= step;
-    }
-    if (IsKeyDown(KEY_E)) {
-        target.y += step;
-    }
 }
 
 }

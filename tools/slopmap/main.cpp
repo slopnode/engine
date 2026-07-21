@@ -28,12 +28,103 @@
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace {
+
+struct ToolConfig {
+    slopengine::AppConfig mount;
+    std::filesystem::path target;
+};
+
+void printUsage() {
+    std::cerr
+        << "Usage: slopmap --base-game <path> [--mod <path>]... --target <path> [--map <name>]\n"
+        << "\n"
+        << "  --base-game   Base game package directory (required)\n"
+        << "  --mod         Additional mod package directory (repeatable)\n"
+        << "  --target      Package directory that receives map/prefab saves (required)\n"
+        << "  --map         Map folder name under maps/ (loads maps/<name>/static.csg)\n";
+}
+
+std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
+    ToolConfig config;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        auto needValue = [&](const char* flag) -> const char* {
+            (void)flag;
+            if (i + 1 >= argc) {
+                return nullptr;
+            }
+            return argv[++i];
+        };
+
+        if (arg == "--base-game") {
+            const char* value = needValue("--base-game");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.mount.base_game = value;
+            continue;
+        }
+        if (arg == "--mod") {
+            const char* value = needValue("--mod");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.mount.mods.emplace_back(value);
+            continue;
+        }
+        if (arg == "--target") {
+            const char* value = needValue("--target");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.target = value;
+            continue;
+        }
+        if (arg == "--map") {
+            const char* value = needValue("--map");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.mount.map = value;
+            continue;
+        }
+        return std::nullopt;
+    }
+
+    if (config.mount.base_game.empty() || config.target.empty()) {
+        return std::nullopt;
+    }
+    return config;
+}
+
+bool pathEquals(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::error_code ec;
+    const auto ca = std::filesystem::weakly_canonical(a, ec);
+    if (ec) {
+        return a == b;
+    }
+    const auto cb = std::filesystem::weakly_canonical(b, ec);
+    if (ec) {
+        return a == b;
+    }
+    return ca == cb;
+}
+
+bool targetIsMounted(const slopengine::AssetStore& assets, const std::filesystem::path& target) {
+    for (const slopengine::Package& package : assets.packages()) {
+        if (pathEquals(package.root(), target)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 struct MapStats {
     int brushes = 0;
@@ -361,9 +452,9 @@ void drawWritePackagePicker(slopmap::Editor& editor, const slopengine::AssetStor
 int main(int argc, char* argv[]) {
     using namespace slopengine;
 
-    auto config = AppConfig::parse(argc, argv);
+    const auto config = parseArgs(argc, argv);
     if (!config) {
-        std::cerr << "Usage: slopmap --base-game <path> [--mod <path>]... [--map <name>]\n";
+        printUsage();
         return 1;
     }
 
@@ -373,7 +464,12 @@ int main(int argc, char* argv[]) {
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 
-    AssetStore assets(*config);
+    AssetStore assets(config->mount);
+    if (!targetIsMounted(assets, config->target)) {
+        std::cerr << "slopmap: --target must be one of the mounted packages\n";
+        CloseWindow();
+        return 1;
+    }
     setupImGuiWithUiFont(assets, kDefaultUiFontPath, true);
 
     s7_scheme* scheme = s7_init();
@@ -385,15 +481,15 @@ int main(int argc, char* argv[]) {
     }
 
     slopmap::Editor editor;
-    editor.writePackageRoot = config->base_game;
+    editor.writePackageRoot = config->target;
     editor.scheme = scheme;
-    if (auto meta = loadPackageMetaFile(config->base_game / "package.meta")) {
+    if (auto meta = loadPackageMetaFile(config->target / "package.meta")) {
         editor.writePackageId = meta->id;
     }
 
-    if (config->map) {
-        if (!editor.load(assets, scheme, *config->map)) {
-            std::cerr << "slopmap: failed to load map '" << *config->map << "'\n";
+    if (config->mount.map) {
+        if (!editor.load(assets, scheme, *config->mount.map)) {
+            std::cerr << "slopmap: failed to load map '" << *config->mount.map << "'\n";
             s7_quit(scheme);
             rlImGuiShutdown();
             CloseWindow();
@@ -797,7 +893,8 @@ int main(int argc, char* argv[]) {
         {
             const ImGuiWindowFlags panelFlags =
                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-                ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoScrollWithMouse;
             ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y), ImGuiCond_Always);
             ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height), ImGuiCond_Always);
             if (ImGui::Begin("Scene", nullptr, panelFlags)) {
@@ -806,11 +903,16 @@ int main(int argc, char* argv[]) {
                 static bool sectionOpen[3] = {true, true, true};
 
                 const ImGuiStyle& style = ImGui::GetStyle();
-                const float headerH = ImGui::GetFrameHeight() + style.ItemSpacing.y;
+                constexpr int kSectionCount = 3;
                 const int openCount =
                     (sectionOpen[0] ? 1 : 0) + (sectionOpen[1] ? 1 : 0) + (sectionOpen[2] ? 1 : 0);
                 const float avail = ImGui::GetContentRegionAvail().y;
-                const float bodyBudget = std::max(0.0f, avail - headerH * 3.0f);
+                const float frameH = ImGui::GetFrameHeight();
+                const float spacing = style.ItemSpacing.y;
+                const float bodyBudget = std::max(
+                    0.0f,
+                    avail - static_cast<float>(kSectionCount) * frameH -
+                        static_cast<float>(kSectionCount + openCount - 1) * spacing);
                 const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
 
                 sectionOpen[0] = collapsingHeaderWithIcon(
@@ -897,7 +999,8 @@ int main(int argc, char* argv[]) {
         {
             const ImGuiWindowFlags panelFlags =
                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-                ImGuiWindowFlags_NoBringToFrontOnFocus;
+                ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoScrollWithMouse;
             ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y), ImGuiCond_Always);
             ImGui::SetNextWindowSize(
                 ImVec2(layout.rightPanel.width, layout.rightPanel.height),
@@ -915,11 +1018,16 @@ int main(int argc, char* argv[]) {
                 }
 
                 const ImGuiStyle& style = ImGui::GetStyle();
-                const float headerH = ImGui::GetFrameHeight() + style.ItemSpacing.y;
+                constexpr int kSectionCount = 4;
                 const int openCount = (libraryOpen[0] ? 1 : 0) + (libraryOpen[1] ? 1 : 0) +
                     (libraryOpen[2] ? 1 : 0) + (libraryOpen[3] ? 1 : 0);
                 const float avail = ImGui::GetContentRegionAvail().y;
-                const float bodyBudget = std::max(0.0f, avail - headerH * 4.0f);
+                const float frameH = ImGui::GetFrameHeight();
+                const float spacing = style.ItemSpacing.y;
+                const float bodyBudget = std::max(
+                    0.0f,
+                    avail - static_cast<float>(kSectionCount) * frameH -
+                        static_cast<float>(kSectionCount + openCount - 1) * spacing);
                 const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
 
                 libraryOpen[0] = collapsingHeaderWithIcon(
