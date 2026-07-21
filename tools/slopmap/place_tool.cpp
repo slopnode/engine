@@ -14,6 +14,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "prop";
     case slopengine::ThingKind::Usable:
         return "usable";
+    case slopengine::ThingKind::Trigger:
+        return "trigger";
     case slopengine::ThingKind::PointLight:
         return "point-light";
     case slopengine::ThingKind::SpotLight:

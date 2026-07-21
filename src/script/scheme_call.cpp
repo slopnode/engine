@@ -32,6 +32,31 @@ bool tryCallSchemeProc1String(s7_scheme* scheme, std::string_view name, const st
     return true;
 }
 
+bool tryCallSchemeProc2String(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1) {
+    if (scheme == nullptr || name.empty()) {
+        return false;
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+
+    s7_call(
+        scheme,
+        func,
+        s7_list(
+            scheme,
+            2,
+            s7_make_string(scheme, arg0.c_str()),
+            s7_make_string(scheme, arg1.c_str())));
+    return true;
+}
+
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme) {
     ViewCanvas canvas{};
     if (scheme == nullptr) {

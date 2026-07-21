@@ -5,13 +5,20 @@
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
+#include "physics/trigger_components.hpp"
 #include "render/components.hpp"
+#include "script/scheme_call.hpp"
+#include "script/script_context.hpp"
 #include "ui/ui_state.hpp"
 
 #include <raylib.h>
 #include <raymath.h>
 
 #include <cmath>
+#include <cstdint>
+#include <string>
+#include <unordered_set>
+#include <vector>
 
 namespace slopengine {
 
@@ -26,10 +33,76 @@ Vector3 forwardFromYawPitch(float yaw, float pitch) {
     });
 }
 
+struct Aabb {
+    Vector3 min{};
+    Vector3 max{};
+};
+
+struct TriggerCandidate {
+    flecs::entity entity{};
+    Aabb bounds{};
+    std::vector<std::string> tags;
+};
+
+bool aabbOverlap(const Aabb& a, const Aabb& b) {
+    return a.min.x <= b.max.x && a.max.x >= b.min.x && a.min.y <= b.max.y && a.max.y >= b.min.y &&
+        a.min.z <= b.max.z && a.max.z >= b.min.z;
+}
+
+bool tagsIntersect(const std::vector<std::string>& filter, const std::vector<std::string>& tags) {
+    const std::vector<std::string> effectiveFilter =
+        filter.empty() ? std::vector<std::string>{"player"} : filter;
+    for (const std::string& required : effectiveFilter) {
+        for (const std::string& tag : tags) {
+            if (tag == required) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+Aabb triggerAabb(const Vector3& center, const Vector3& size) {
+    const Vector3 half = {size.x * 0.5f, size.y * 0.5f, size.z * 0.5f};
+    return {
+        .min = {center.x - half.x, center.y - half.y, center.z - half.z},
+        .max = {center.x + half.x, center.y + half.y, center.z + half.z},
+    };
+}
+
+Aabb capsuleAabb(const Vector3& feet, const CharacterMotor& motor) {
+    const float totalHeight = motor.height + 2.0f * motor.radius;
+    return {
+        .min = {feet.x - motor.radius, feet.y, feet.z - motor.radius},
+        .max = {feet.x + motor.radius, feet.y + totalHeight, feet.z + motor.radius},
+    };
+}
+
+Vector3 candidateFeet(flecs::entity entity, const CharacterMotor& motor) {
+    if (entity.has<Lens>()) {
+        const Vector3 eye = entity.get<Lens>().camera.position;
+        return {eye.x, eye.y - motor.eyeHeight, eye.z};
+    }
+    if (entity.has<LocalTransformation>()) {
+        return entity.get<LocalTransformation>().position;
+    }
+    return {};
+}
+
+std::string entityIdString(flecs::entity entity) {
+    const char* name = entity.name();
+    if (name != nullptr && name[0] != '\0') {
+        return name;
+    }
+    return std::to_string(static_cast<std::uint64_t>(entity.id()));
+}
+
 } // namespace
 
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CharacterMotor>();
+    world.component<CollisionTags>();
+    world.component<TriggerVolume>();
     world.set<PhysicsContext>(PhysicsContext{physics});
 
     world.system("CharacterMotorInput")
@@ -116,6 +189,68 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
             lens.camera.target = Vector3Add(lens.camera.position, forward);
             lens.camera.up = {0.0f, 1.0f, 0.0f};
+        });
+
+    world.system("TriggerOverlap")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!world.has<ScriptContext>()) {
+                return;
+            }
+            s7_scheme* scheme = world.get<ScriptContext>().scheme;
+
+            std::vector<TriggerCandidate> candidates;
+            world.each([&](flecs::entity entity, const CollisionTags& tags, const CharacterMotor& motor) {
+                TriggerCandidate candidate{};
+                candidate.entity = entity;
+                candidate.tags = tags.tags;
+                candidate.bounds = capsuleAabb(candidateFeet(entity, motor), motor);
+                candidates.push_back(std::move(candidate));
+            });
+
+            world.each([&](flecs::entity triggerEntity, TriggerVolume& volume, const LocalTransformation& local) {
+                const Aabb volumeBounds = triggerAabb(local.position, volume.size);
+                const std::string thingId = entityIdString(triggerEntity);
+
+                std::unordered_set<std::uint64_t> currentlyInside;
+                for (const TriggerCandidate& candidate : candidates) {
+                    if (!tagsIntersect(volume.filterTags, candidate.tags)) {
+                        continue;
+                    }
+                    if (!aabbOverlap(volumeBounds, candidate.bounds)) {
+                        continue;
+                    }
+
+                    const std::uint64_t otherId =
+                        static_cast<std::uint64_t>(candidate.entity.id());
+                    currentlyInside.insert(otherId);
+
+                    if (volume.inside.find(otherId) == volume.inside.end() &&
+                        !volume.onEnter.empty()) {
+                        tryCallSchemeProc2String(
+                            scheme,
+                            volume.onEnter,
+                            thingId,
+                            entityIdString(candidate.entity));
+                    }
+                }
+
+                for (const std::uint64_t previousId : volume.inside) {
+                    if (currentlyInside.find(previousId) != currentlyInside.end()) {
+                        continue;
+                    }
+                    if (volume.onExit.empty()) {
+                        continue;
+                    }
+                    flecs::entity other = world.entity(previousId);
+                    const std::string otherId = other.is_alive() ? entityIdString(other)
+                                                                : std::to_string(previousId);
+                    tryCallSchemeProc2String(scheme, volume.onExit, thingId, otherId);
+                }
+
+                volume.inside = std::move(currentlyInside);
+            });
         });
 }
 

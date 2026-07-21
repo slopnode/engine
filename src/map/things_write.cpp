@@ -49,7 +49,7 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                 formatFloat(p.angles.z) + ")");
     } else if (p.yaw != 0.0f || p.kind == ThingKind::PlayerStart ||
                p.kind == ThingKind::Prop || p.kind == ThingKind::Usable ||
-               p.kind == ThingKind::SpotLight) {
+               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
 }
@@ -97,6 +97,30 @@ void writeLightFields(std::ostringstream& out, const Thing& p) {
     }
 }
 
+void writeTriggerFields(std::ostringstream& out, const Thing& p) {
+    if (!p.onEnter.empty()) {
+        writeIndentClause(out, "(on-enter " + escapeSchemeString(p.onEnter) + ")");
+    }
+    if (!p.onExit.empty()) {
+        writeIndentClause(out, "(on-exit " + escapeSchemeString(p.onExit) + ")");
+    }
+    if (p.haveTriggerSize || p.kind == ThingKind::Trigger || !p.onEnter.empty() ||
+        !p.onExit.empty()) {
+        writeIndentClause(
+            out,
+            "(trigger-size " + formatFloat(p.triggerSize.x) + " " +
+                formatFloat(p.triggerSize.y) + " " + formatFloat(p.triggerSize.z) + ")");
+    }
+    if (!p.collideTags.empty()) {
+        std::string clause = "(collide-tags";
+        for (const std::string& tag : p.collideTags) {
+            clause += " " + escapeSchemeString(tag);
+        }
+        clause += ")";
+        writeIndentClause(out, clause);
+    }
+}
+
 void writeThing(std::ostringstream& out, const Thing& p) {
     if (p.kind == ThingKind::Prefab) {
         out << "(prefab " << escapeSchemeString(p.prefabPath) << "\n";
@@ -116,6 +140,10 @@ void writeThing(std::ostringstream& out, const Thing& p) {
         if (!p.onUse.empty()) {
             writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
         }
+    }
+    if (p.kind == ThingKind::Trigger || !p.onEnter.empty() || !p.onExit.empty() ||
+        p.haveTriggerSize || !p.collideTags.empty()) {
+        writeTriggerFields(out, p);
     }
     if (thingKindIsLight(p.kind)) {
         writeLightFields(out, p);

@@ -11,6 +11,7 @@ enum class ThingKind {
     PlayerStart,
     Prop,
     Usable,
+    Trigger,
     PointLight,
     SpotLight,
     AreaLight,
@@ -36,6 +37,12 @@ struct Thing {
 
     std::string prompt = "Interact";
     std::string onUse;
+
+    std::string onEnter;
+    std::string onExit;
+    Vector3 triggerSize{1.0f, 1.0f, 1.0f};
+    bool haveTriggerSize = false;
+    std::vector<std::string> collideTags;
 
     Vector3 color{1.0f, 1.0f, 1.0f};
     float intensity = 1.0f;
@@ -69,6 +76,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "prop";
     case ThingKind::Usable:
         return "usable";
+    case ThingKind::Trigger:
+        return "trigger";
     case ThingKind::PointLight:
         return "point-light";
     case ThingKind::SpotLight:

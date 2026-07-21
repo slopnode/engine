@@ -111,6 +111,7 @@ add_executable(slopengine
     src/script/scheme_call.cpp
     src/script/first_person_script.cpp
     src/script/hud_script.cpp
+    src/script/thing_script.cpp
 )
 
 target_link_libraries(slopengine PRIVATE
