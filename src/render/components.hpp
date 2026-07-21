@@ -25,6 +25,24 @@ struct WorldSpace {};
 /** Tag: entity is drawn in the fixed eye-space first-person pass. */
 struct ViewSpace {};
 
+/** Package view canvas in virtual pixels (from data/view.s7 *view-canvas*). */
+struct ViewCanvas {
+    int width = 320;
+    int height = 200;
+};
+
+/** Package HUD canvas in virtual pixels (from data/view.s7 *hud-canvas*). */
+struct HudCanvas {
+    int width = 320;
+    int height = 200;
+};
+
+/** Screen-space FP sprite: placed in view-canvas pixels (origin = frame bottom-center). */
+struct ViewSprite {
+    float canvasX = 160.0f;
+    float canvasY = 200.0f;
+};
+
 /** Active view camera (usually on Player). */
 struct Lens {
     Camera3D camera = {

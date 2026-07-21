@@ -39,6 +39,7 @@ enum class AssetKind {
     Icon,          /**< packed PNG under icons/ */
     IconMap,       /**< .iconmap under icons/ */
     Data,          /**< .s7 under data/ */
+    Font,          /**< .ttf under fonts/ */
 };
 
 class AssetStore;

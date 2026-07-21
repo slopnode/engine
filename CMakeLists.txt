@@ -89,10 +89,13 @@ add_executable(slopengine
     src/core/user_paths.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
+    src/input/action_registry.cpp
+    src/input/bind_code.cpp
     src/input/input_module.cpp
     src/camera/camera_module.cpp
     src/interact/interact_module.cpp
     src/ui/ui_module.cpp
+    src/ui/imgui_fonts.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/map_collision.cpp
@@ -104,8 +107,11 @@ add_executable(slopengine
     src/render/dynamic_light.cpp
     src/render/dynamic_light_shadows.cpp
     src/render/render_module.cpp
+    src/render/hud.cpp
     src/script/scheme_call.cpp
     src/script/first_person_script.cpp
+    src/script/hud_script.cpp
+    src/script/thing_script.cpp
 )
 
 target_link_libraries(slopengine PRIVATE
@@ -149,6 +155,7 @@ add_executable(slopmap
     tools/slopmap/material_browser.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
+    src/ui/imgui_fonts.cpp
 )
 target_include_directories(slopmap PRIVATE tools/slopmap)
 target_link_libraries(slopmap PRIVATE sloplib rlImGui)
@@ -167,10 +174,10 @@ else()
 endif()
 
 add_custom_target(pack-silk-icons
-    COMMAND $<TARGET_FILE:slopicons> pack silk "${CMAKE_SOURCE_DIR}/packages/base/icons"
+    COMMAND $<TARGET_FILE:slopicons> pack silk "${CMAKE_SOURCE_DIR}/packages/engine/icons"
     DEPENDS slopicons
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Packing packages/base/icons/silk into silk.png + silk.iconmap"
+    COMMENT "Packing packages/engine/icons/silk into silk.png + silk.iconmap"
 )
 
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/packages/engine/"

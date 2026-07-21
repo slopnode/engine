@@ -1,7 +1,6 @@
 #include "camera.hpp"
 #include "create_tool.hpp"
 #include "editor.hpp"
-#include "icon_ui.hpp"
 #include "layout.hpp"
 #include "material_browser.hpp"
 #include "place_tool.hpp"
@@ -15,6 +14,8 @@
 #include "assets/asset_store.hpp"
 #include "core/package_meta.hpp"
 #include "game/app_config.hpp"
+#include "ui/icon_ui.hpp"
+#include "ui/imgui_fonts.hpp"
 
 #include "imgui.h"
 #include "rlImGui.h"
@@ -82,8 +83,8 @@ MapStats gatherMapStats(const slopmap::Editor& editor) {
 }
 
 void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets) {
-    constexpr const char* kIcons = slopmap::kDefaultIconSet;
-    if (!slopmap::beginMenuWithIcon(assets, kIcons, "chart_bar", "Diagnostics")) {
+    constexpr const char* kIcons = slopengine::kDefaultIconSet;
+    if (!slopengine::beginMenuWithIcon(assets, kIcons, "chart_bar", "Diagnostics")) {
         return;
     }
 
@@ -371,9 +372,10 @@ int main(int argc, char* argv[]) {
     InitWindow(1600, 900, "slopmap");
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
-    rlImGuiSetup(true);
 
     AssetStore assets(*config);
+    setupImGuiWithUiFont(assets, kDefaultUiFontPath, true);
+
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
         std::cerr << "slopmap: failed to init scheme\n";
@@ -444,9 +446,9 @@ int main(int argc, char* argv[]) {
         const Camera3D camera = editor.camera.toRaylib();
 
         if (ImGui::BeginMainMenuBar()) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
-            if (slopmap::beginMenuWithIcon(assets, kIcons, "folder", "File")) {
-                if (slopmap::menuItemWithIcon(assets, kIcons, "page_add", "New Map", "Ctrl+N")) {
+            constexpr const char* kIcons = kDefaultIconSet;
+            if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+                if (menuItemWithIcon(assets, kIcons, "page_add", "New Map", "Ctrl+N")) {
                     if (editor.scene != slopmap::EditorScene::Level) {
                         editor.switchScene(slopmap::EditorScene::Level);
                     }
@@ -459,7 +461,7 @@ int main(int argc, char* argv[]) {
                         previewNeedsRebuild = true;
                     }
                 }
-                if (slopmap::menuItemWithIcon(assets, kIcons, "folder_page", "Load Map...", "Ctrl+O")) {
+                if (menuItemWithIcon(assets, kIcons, "folder_page", "Load Map...", "Ctrl+O")) {
                     if (editor.scene != slopmap::EditorScene::Level && !editor.switchScene(slopmap::EditorScene::Level)) {
                         // dirty prompt
                     } else {
@@ -468,14 +470,14 @@ int main(int argc, char* argv[]) {
                         std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.modalMapName.c_str());
                     }
                 }
-                if (slopmap::menuItemWithIcon(assets, kIcons, "disk", "Save", "Ctrl+S")) {
+                if (menuItemWithIcon(assets, kIcons, "disk", "Save", "Ctrl+S")) {
                     if (editor.save(assets)) {
                         if (editor.scene == slopmap::EditorScene::Prefab) {
                             prefabBrowser.rescan(assets);
                         }
                     }
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "disk_multiple",
@@ -489,7 +491,7 @@ int main(int argc, char* argv[]) {
                     std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.modalMapName.c_str());
                 }
                 ImGui::Separator();
-                if (slopmap::menuItemWithIcon(assets, kIcons, "door", "Quit")) {
+                if (menuItemWithIcon(assets, kIcons, "door", "Quit")) {
                     if (editor.levelDoc.dirty || editor.prefabDoc.dirty) {
                         editor.showQuitModal = true;
                     } else {
@@ -498,8 +500,8 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (slopmap::beginMenuWithIcon(assets, kIcons, "pencil", "Edit")) {
-                if (slopmap::menuItemWithIcon(
+            if (beginMenuWithIcon(assets, kIcons, "pencil", "Edit")) {
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "cursor",
@@ -509,7 +511,7 @@ int main(int argc, char* argv[]) {
                     editor.mode = slopmap::EditorMode::Select;
                     createTool.reset();
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "shape_square",
@@ -521,7 +523,7 @@ int main(int argc, char* argv[]) {
                     }
                     editor.mode = slopmap::EditorMode::Create;
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "package",
@@ -539,7 +541,7 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 ImGui::Separator();
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "brick",
@@ -550,7 +552,7 @@ int main(int argc, char* argv[]) {
                     editor.toggleSelectedBrushRole();
                     previewNeedsRebuild = true;
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "lock",
@@ -562,7 +564,7 @@ int main(int argc, char* argv[]) {
                     previewNeedsRebuild = true;
                 }
                 ImGui::Separator();
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "magnifier",
@@ -574,8 +576,8 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (slopmap::beginMenuWithIcon(assets, kIcons, "package", "Prefab")) {
-                if (slopmap::menuItemWithIcon(assets, kIcons, "page_add", "New Prefab")) {
+            if (beginMenuWithIcon(assets, kIcons, "package", "Prefab")) {
+                if (menuItemWithIcon(assets, kIcons, "page_add", "New Prefab")) {
                     editor.modalPrefabPath.clear();
                     if (editor.prefabDoc.dirty && editor.scene == slopmap::EditorScene::Prefab) {
                         editor.pendingScene = slopmap::EditorScene::Prefab;
@@ -589,7 +591,7 @@ int main(int argc, char* argv[]) {
                         previewNeedsRebuild = true;
                     }
                 }
-                if (slopmap::menuItemWithIcon(assets, kIcons, "folder_page", "Open Prefab...")) {
+                if (menuItemWithIcon(assets, kIcons, "folder_page", "Open Prefab...")) {
                     editor.showOpenPrefabModal = true;
                     editor.modalPrefabPath = editor.placePrefabPath;
                     std::snprintf(
@@ -598,7 +600,7 @@ int main(int argc, char* argv[]) {
                         "%s",
                         editor.modalPrefabPath.c_str());
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "disk",
@@ -610,7 +612,7 @@ int main(int argc, char* argv[]) {
                         prefabBrowser.rescan(assets);
                     }
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "disk_multiple",
@@ -627,7 +629,7 @@ int main(int argc, char* argv[]) {
                         editor.modalPrefabPath.c_str());
                 }
                 ImGui::Separator();
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "resultset_previous",
@@ -643,8 +645,8 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (slopmap::beginMenuWithIcon(assets, kIcons, "eye", "View")) {
-                if (slopmap::menuItemWithIcon(
+            if (beginMenuWithIcon(assets, kIcons, "eye", "View")) {
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "world",
@@ -653,7 +655,7 @@ int main(int argc, char* argv[]) {
                         editor.viewPlane == slopmap::ViewPlane::PerspectiveY0)) {
                     editor.setViewPlane(slopmap::ViewPlane::PerspectiveY0);
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "application_view_tile",
@@ -662,7 +664,7 @@ int main(int argc, char* argv[]) {
                         editor.viewPlane == slopmap::ViewPlane::Top)) {
                     editor.setViewPlane(slopmap::ViewPlane::Top);
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "application_view_tile",
@@ -671,7 +673,7 @@ int main(int argc, char* argv[]) {
                         editor.viewPlane == slopmap::ViewPlane::Front)) {
                     editor.setViewPlane(slopmap::ViewPlane::Front);
                 }
-                if (slopmap::menuItemWithIcon(
+                if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "application_view_tile",
@@ -681,7 +683,7 @@ int main(int argc, char* argv[]) {
                     editor.setViewPlane(slopmap::ViewPlane::Side);
                 }
                 ImGui::Separator();
-                slopmap::menuItemWithIcon(assets, kIcons, "shape_square", "Wireframe", "Z", &editor.wireframe);
+                menuItemWithIcon(assets, kIcons, "shape_square", "Wireframe", "Z", &editor.wireframe);
                 ImGui::EndMenu();
             }
             drawDiagnosticsMenu(editor, assets);
@@ -800,7 +802,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height), ImGuiCond_Always);
             if (ImGui::Begin("Scene", nullptr, panelFlags)) {
                 slopmap::EditorDocument& d = editor.doc();
-                constexpr const char* kIconSet = slopmap::kDefaultIconSet;
+                constexpr const char* kIconSet = kDefaultIconSet;
                 static bool sectionOpen[3] = {true, true, true};
 
                 const ImGuiStyle& style = ImGui::GetStyle();
@@ -811,7 +813,7 @@ int main(int argc, char* argv[]) {
                 const float bodyBudget = std::max(0.0f, avail - headerH * 3.0f);
                 const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
 
-                sectionOpen[0] = slopmap::collapsingHeaderWithIcon(
+                sectionOpen[0] = collapsingHeaderWithIcon(
                     assets, kIconSet, "bricks", "Brushes", ImGuiTreeNodeFlags_DefaultOpen);
                 if (sectionOpen[0]) {
                     if (ImGui::BeginChild("##brushes", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
@@ -822,7 +824,7 @@ int main(int argc, char* argv[]) {
                             const char* role =
                                 d.brushes[i].role == slopengine::BrushRole::Detail ? " [D]" : " [H]";
                             const std::string label = d.brushes[i].id + role;
-                            if (slopmap::selectableWithIcon(assets, kIconSet, "bricks", label.c_str(), selected)) {
+                            if (selectableWithIcon(assets, kIconSet, "bricks", label.c_str(), selected)) {
                                 d.selection = slopmap::SelectionTarget::Brush;
                                 d.selectedBrush = static_cast<int>(i);
                                 d.selectedFace = -1;
@@ -835,7 +837,7 @@ int main(int argc, char* argv[]) {
                     ImGui::EndChild();
                 }
 
-                sectionOpen[1] = slopmap::collapsingHeaderWithIcon(
+                sectionOpen[1] = collapsingHeaderWithIcon(
                     assets, kIconSet, "package", "Prefab instances", ImGuiTreeNodeFlags_DefaultOpen);
                 if (sectionOpen[1]) {
                     if (ImGui::BeginChild("##instances", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
@@ -844,7 +846,7 @@ int main(int argc, char* argv[]) {
                             const bool selected = d.selection == slopmap::SelectionTarget::Instance &&
                                 static_cast<int>(i) == d.selectedInstance;
                             const std::string label = d.instances[i].id + " (" + d.instances[i].path + ")";
-                            if (slopmap::selectableWithIcon(assets, kIconSet, "package", label.c_str(), selected)) {
+                            if (selectableWithIcon(assets, kIconSet, "package", label.c_str(), selected)) {
                                 d.selection = slopmap::SelectionTarget::Instance;
                                 d.selectedInstance = static_cast<int>(i);
                                 d.selectedBrush = -1;
@@ -857,7 +859,7 @@ int main(int argc, char* argv[]) {
                     ImGui::EndChild();
                 }
 
-                sectionOpen[2] = slopmap::collapsingHeaderWithIcon(
+                sectionOpen[2] = collapsingHeaderWithIcon(
                     assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
                 if (sectionOpen[2]) {
                     if (ImGui::BeginChild("##things", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
@@ -876,7 +878,7 @@ int main(int argc, char* argv[]) {
                                 : (d.things[i].kind == slopengine::ThingKind::PlayerStart
                                        ? "user"
                                        : "transmit");
-                            if (slopmap::selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
+                            if (selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
                                 d.selection = slopmap::SelectionTarget::Thing;
                                 d.selectedThing = static_cast<int>(i);
                                 d.selectedBrush = -1;
@@ -901,7 +903,7 @@ int main(int argc, char* argv[]) {
                 ImVec2(layout.rightPanel.width, layout.rightPanel.height),
                 ImGuiCond_Always);
             if (ImGui::Begin("Library", nullptr, panelFlags)) {
-                constexpr const char* kIconSet = slopmap::kDefaultIconSet;
+                constexpr const char* kIconSet = kDefaultIconSet;
                 static bool libraryOpen[4] = {true, true, true, false};
                 static std::vector<std::string> spritePaths;
                 static std::vector<std::string> geoPaths;
@@ -920,7 +922,7 @@ int main(int argc, char* argv[]) {
                 const float bodyBudget = std::max(0.0f, avail - headerH * 4.0f);
                 const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
 
-                libraryOpen[0] = slopmap::collapsingHeaderWithIcon(
+                libraryOpen[0] = collapsingHeaderWithIcon(
                     assets, kIconSet, "palette", "Materials", ImGuiTreeNodeFlags_DefaultOpen);
                 if (libraryOpen[0]) {
                     const slopmap::MaterialBrowserResult matResult =
@@ -933,7 +935,7 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                libraryOpen[1] = slopmap::collapsingHeaderWithIcon(
+                libraryOpen[1] = collapsingHeaderWithIcon(
                     assets, kIconSet, "package", "Prefabs", ImGuiTreeNodeFlags_DefaultOpen);
                 if (libraryOpen[1]) {
                     const slopmap::PrefabBrowserResult prefabResult =
@@ -969,7 +971,7 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                libraryOpen[2] = slopmap::collapsingHeaderWithIcon(
+                libraryOpen[2] = collapsingHeaderWithIcon(
                     assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
                 if (libraryOpen[2]) {
                     if (ImGui::BeginChild("##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
@@ -1090,10 +1092,10 @@ int main(int argc, char* argv[]) {
             editor.showLoadModal = false;
         }
         if (ImGui::BeginPopupModal("Load Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Map folder name under maps/");
             ImGui::InputText("##loadmap", mapNameBuf, sizeof(mapNameBuf));
-            if (slopmap::buttonWithIcon(assets, kIcons, "folder_page", "Load", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "folder_page", "Load", ImVec2(120, 0))) {
                 if (editor.levelDoc.dirty) {
                     editor.statusMessage = "Save or discard changes before loading";
                 } else {
@@ -1105,7 +1107,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1116,17 +1118,17 @@ int main(int argc, char* argv[]) {
             editor.showSaveAsModal = false;
         }
         if (ImGui::BeginPopupModal("Save Map As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Map folder name under maps/");
             ImGui::InputText("##saveas", mapNameBuf, sizeof(mapNameBuf));
             drawWritePackagePicker(editor, assets);
-            if (slopmap::buttonWithIcon(assets, kIcons, "disk", "Save", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "disk", "Save", ImVec2(120, 0))) {
                 if (editor.saveAs(assets, mapNameBuf)) {
                     ImGui::CloseCurrentPopup();
                 }
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1137,10 +1139,10 @@ int main(int argc, char* argv[]) {
             editor.showOpenPrefabModal = false;
         }
         if (ImGui::BeginPopupModal("Open Prefab", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Prefab virtual path under prefabs/ (e.g. furniture/desk)");
             ImGui::InputText("##openprefab", prefabPathBuf, sizeof(prefabPathBuf));
-            if (slopmap::buttonWithIcon(assets, kIcons, "folder_page", "Open", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "folder_page", "Open", ImVec2(120, 0))) {
                 if (editor.prefabDoc.dirty && editor.scene == slopmap::EditorScene::Prefab) {
                     editor.statusMessage = "Save or discard prefab changes first";
                 } else {
@@ -1152,7 +1154,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1163,18 +1165,18 @@ int main(int argc, char* argv[]) {
             editor.showSavePrefabAsModal = false;
         }
         if (ImGui::BeginPopupModal("Save Prefab As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Prefab virtual path under prefabs/ (e.g. furniture/desk)");
             ImGui::InputText("##saveprefab", prefabPathBuf, sizeof(prefabPathBuf));
             drawWritePackagePicker(editor, assets);
-            if (slopmap::buttonWithIcon(assets, kIcons, "disk", "Save", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "disk", "Save", ImVec2(120, 0))) {
                 if (editor.savePrefabAs(assets, prefabPathBuf)) {
                     prefabBrowser.rescan(assets);
                     ImGui::CloseCurrentPopup();
                 }
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1185,17 +1187,17 @@ int main(int argc, char* argv[]) {
             editor.showNewModal = false;
         }
         if (ImGui::BeginPopupModal("New Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Discard unsaved level changes and create a new map?");
             drawWritePackagePicker(editor, assets);
-            if (slopmap::buttonWithIcon(assets, kIcons, "page_add", "Discard & New", ImVec2(140, 0))) {
+            if (buttonWithIcon(assets, kIcons, "page_add", "Discard & New", ImVec2(140, 0))) {
                 cancelTools(createTool, selectTool, editor);
                 editor.newMap("untitled");
                 previewNeedsRebuild = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1206,9 +1208,9 @@ int main(int argc, char* argv[]) {
             editor.showSwitchSceneModal = false;
         }
         if (ImGui::BeginPopupModal("Switch Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Discard unsaved changes in the current scene?");
-            if (slopmap::buttonWithIcon(assets, kIcons, "accept", "Discard & Switch", ImVec2(160, 0))) {
+            if (buttonWithIcon(assets, kIcons, "accept", "Discard & Switch", ImVec2(160, 0))) {
                 cancelTools(createTool, selectTool, editor);
                 if (editor.pendingScene == slopmap::EditorScene::Prefab &&
                     editor.scene == slopmap::EditorScene::Level &&
@@ -1230,7 +1232,7 @@ int main(int argc, char* argv[]) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1241,14 +1243,14 @@ int main(int argc, char* argv[]) {
             editor.showQuitModal = false;
         }
         if (ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            constexpr const char* kIcons = slopmap::kDefaultIconSet;
+            constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("There are unsaved changes. Quit anyway?");
-            if (slopmap::buttonWithIcon(assets, kIcons, "door", "Quit", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "door", "Quit", ImVec2(120, 0))) {
                 editor.quitConfirmed = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (slopmap::buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();

@@ -25,6 +25,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{160, 180, 220, 255};
     case slopengine::ThingKind::Usable:
         return Color{220, 160, 80, 255};
+    case slopengine::ThingKind::Trigger:
+        return Color{80, 200, 220, 255};
     case slopengine::ThingKind::PointLight:
         return Color{255, 230, 120, 255};
     case slopengine::ThingKind::SpotLight:
@@ -178,6 +180,11 @@ void drawThings(
                 DrawSphereWires(pos, 0.35f, 6, 6, color);
             }
             break;
+        case slopengine::ThingKind::Trigger: {
+            const Vector3 size = thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
+            DrawCubeWires(pos, size.x, size.y, size.z, color);
+            break;
+        }
         case slopengine::ThingKind::PointLight:
         case slopengine::ThingKind::SpotLight:
         case slopengine::ThingKind::AreaLight:

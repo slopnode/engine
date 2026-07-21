@@ -195,6 +195,64 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     return resolveSpriteBillboard(sprite, global, lens.camera.position, assets);
 }
 
+std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
+    const SpriteInstance& sprite,
+    AssetStore& assets) {
+    if (sprite.sprite.empty()) {
+        return std::nullopt;
+    }
+
+    const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
+    const SpriteAtlas* atlas = assets.getSpriteAtlas(sprite.sprite);
+    if (asset == nullptr || atlas == nullptr || atlas->textures.empty()) {
+        return std::nullopt;
+    }
+
+    const SpriteFrame* frame = findSpriteFrame(*asset, sprite.frame);
+    if (frame == nullptr) {
+        return std::nullopt;
+    }
+
+    const SpriteRotation* selected = selectSpriteRotation(*frame, 0);
+    if (selected == nullptr) {
+        return std::nullopt;
+    }
+
+    const auto rectIt = atlas->rects.find(selected->texturePath);
+    if (rectIt == atlas->rects.end()) {
+        return std::nullopt;
+    }
+
+    const SpriteAtlasRect& atlasRect = rectIt->second;
+    if (atlasRect.atlasIndex < 0 ||
+        atlasRect.atlasIndex >= static_cast<int>(atlas->textures.size())) {
+        return std::nullopt;
+    }
+
+    const Texture2D& texture = atlas->textures[static_cast<std::size_t>(atlasRect.atlasIndex)];
+    if (texture.id == 0) {
+        return std::nullopt;
+    }
+
+    Rectangle source = atlasRect.source;
+    if (selected->mirror) {
+        source.x += source.width;
+        source.width = -source.width;
+    }
+
+    ViewSpriteFrame result{};
+    result.texture = &texture;
+    result.source = source;
+    result.pixelWidth = selected->pixelWidth > 0 ? selected->pixelWidth
+                                                 : static_cast<int>(std::fabs(source.width));
+    result.pixelHeight = selected->pixelHeight > 0 ? selected->pixelHeight
+                                                   : static_cast<int>(std::fabs(source.height));
+    if (result.pixelWidth <= 0 || result.pixelHeight <= 0) {
+        return std::nullopt;
+    }
+    return result;
+}
+
 std::optional<SpriteBillboardHit> raycastSpriteBillboard(
     const Ray& ray,
     const SpriteBillboard& billboard,

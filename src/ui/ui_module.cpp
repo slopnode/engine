@@ -1,18 +1,23 @@
 #include "ui/ui_module.hpp"
 
+#include "assets/asset_services.hpp"
 #include "camera/components.hpp"
 #include "game/user_settings.hpp"
+#include "input/action_registry.hpp"
 #include "input/actions.hpp"
+#include "input/bind_code.hpp"
 #include "input/input_context.hpp"
 #include "input/input_module.hpp"
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
+#include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/sprite_animator.hpp"
+#include "ui/icon_ui.hpp"
 #include "ui/ui_state.hpp"
 
 #include "imgui.h"
@@ -45,56 +50,6 @@ void logConsoleMessage(ConsoleState& console, const std::string& message) {
     if (console.log.size() > 200) {
         console.log.erase(console.log.begin());
     }
-}
-
-const char* keyDisplayName(int key, char* buffer, std::size_t bufferSize) {
-    if (key == KEY_NULL) {
-        return "Unbound";
-    }
-    if (key == KEY_SPACE) {
-        return "Space";
-    }
-    if (key == KEY_ESCAPE) {
-        return "Escape";
-    }
-    if (key == KEY_ENTER) {
-        return "Enter";
-    }
-    if (key == KEY_TAB) {
-        return "Tab";
-    }
-    if (key == KEY_LEFT_SHIFT || key == KEY_RIGHT_SHIFT) {
-        return "Shift";
-    }
-    if (key == KEY_LEFT_CONTROL || key == KEY_RIGHT_CONTROL) {
-        return "Ctrl";
-    }
-    if (key == KEY_LEFT_ALT || key == KEY_RIGHT_ALT) {
-        return "Alt";
-    }
-    if (key == KEY_UP) {
-        return "Up";
-    }
-    if (key == KEY_DOWN) {
-        return "Down";
-    }
-    if (key == KEY_LEFT) {
-        return "Left";
-    }
-    if (key == KEY_RIGHT) {
-        return "Right";
-    }
-    if (key == KEY_GRAVE) {
-        return "`";
-    }
-
-    const char* name = GetKeyName(key);
-    if (name != nullptr && name[0] != '\0') {
-        return name;
-    }
-
-    std::snprintf(buffer, bufferSize, "Key %d", key);
-    return buffer;
 }
 
 std::vector<ResolutionOption> buildResolutionOptions(const GraphicsSettings& draft) {
@@ -132,6 +87,7 @@ void openControlsSettings(SettingsUiState& settingsUi, const UserSettings& setti
     settingsUi.controlsOpen = true;
     settingsUi.controlsDraft = settings.controls;
     settingsUi.rebindingAction = -1;
+    settingsUi.rebindingWaitMouseRelease = false;
 }
 
 void applyGraphicsDraft(UserSettings& settings, const GraphicsSettings& draft) {
@@ -145,7 +101,7 @@ void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
     settings.save();
 }
 
-void drawPauseMenu(InputContextStack& contexts) {
+void drawPauseMenu(AssetStore& assets, InputContextStack& contexts) {
     ImGui::SetNextWindowSize({320.0f, 180.0f}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(
         {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f},
@@ -154,14 +110,14 @@ void drawPauseMenu(InputContextStack& contexts) {
 
     if (ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
         ImGui::TextUnformatted("Simulation continues while paused.");
-        if (ImGui::Button("Resume")) {
+        if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
             contexts.pop(InputContext::PauseMenu);
         }
     }
     ImGui::End();
 }
 
-void drawGraphicsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
+void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserSettings& settings) {
     if (!settingsUi.graphicsOpen) {
         return;
     }
@@ -221,18 +177,18 @@ void drawGraphicsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
     ImGui::Checkbox("VSync", &draft.vsync);
 
     ImGui::Separator();
-    if (ImGui::Button("Apply")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
         applyGraphicsDraft(settings, draft);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Reset")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
         draft = UserSettings::defaults().graphics;
     }
 
     ImGui::End();
 }
 
-void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
+void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserSettings& settings) {
     if (!settingsUi.controlsOpen) {
         return;
     }
@@ -240,13 +196,14 @@ void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
     ImGui::SetNextWindowSize({420.0f, 420.0f}, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Controls", &settingsUi.controlsOpen, ImGuiWindowFlags_NoCollapse)) {
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
         ImGui::End();
         return;
     }
 
     if (settingsUi.rebindingAction >= 0) {
-        ImGui::Text("Press a key for %s (Esc to cancel)...",
-            actionLabel(static_cast<Action>(settingsUi.rebindingAction)));
+        ImGui::Text("Press a key or mouse button for %s (Esc to cancel)...",
+            actionLabelAt(settingsUi.rebindingAction));
     } else {
         ImGui::TextUnformatted("Click a binding to reassign it.");
     }
@@ -258,18 +215,20 @@ void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
         ImGui::TableHeadersRow();
 
         char keyBuffer[64];
+        const int actionCount = actionRegistry().size();
         for (int i = 0; i < actionCount; ++i) {
-            const Action action = static_cast<Action>(i);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::TextUnformatted(actionLabel(action));
+            ImGui::TextUnformatted(actionLabelAt(i));
             ImGui::TableSetColumnIndex(1);
 
-            const char* label = keyDisplayName(settingsUi.controlsDraft.keys[i], keyBuffer, sizeof(keyBuffer));
+            const int bind = settingsUi.controlsDraft.binds[static_cast<std::size_t>(i)];
+            const char* label = bindDisplayName(bind, keyBuffer, sizeof(keyBuffer));
             ImGui::PushID(i);
             const bool listening = settingsUi.rebindingAction == i;
             if (ImGui::Button(listening ? "..." : label, {140.0f, 0.0f})) {
                 settingsUi.rebindingAction = i;
+                settingsUi.rebindingWaitMouseRelease = true;
             }
             ImGui::PopID();
         }
@@ -277,24 +236,28 @@ void drawControlsSettings(SettingsUiState& settingsUi, UserSettings& settings) {
     }
 
     ImGui::Separator();
-    if (ImGui::Button("Apply")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
         applyControlsDraft(settings, settingsUi.controlsDraft);
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Reset")) {
+    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
         settingsUi.controlsDraft = ControlsSettings::defaults();
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
     }
 
     ImGui::End();
 
     if (!settingsUi.controlsOpen) {
         settingsUi.rebindingAction = -1;
+        settingsUi.rebindingWaitMouseRelease = false;
     }
 }
 
 void drawMainMenuBar(
+    AssetStore& assets,
     QuitRequest& quit,
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
@@ -303,25 +266,27 @@ void drawMainMenuBar(
         return;
     }
 
-    if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("Quit")) {
+    constexpr const char* kIcons = kDefaultIconSet;
+
+    if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+        if (menuItemWithIcon(assets, kIcons, "door", "Quit")) {
             quit.requested = true;
         }
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Config")) {
-        if (ImGui::MenuItem("Graphics")) {
+    if (beginMenuWithIcon(assets, kIcons, "cog", "Config")) {
+        if (menuItemWithIcon(assets, kIcons, "monitor", "Graphics")) {
             openGraphicsSettings(settingsUi, settings);
         }
-        if (ImGui::MenuItem("Controls")) {
+        if (menuItemWithIcon(assets, kIcons, "keyboard", "Controls")) {
             openControlsSettings(settingsUi, settings);
         }
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Debug")) {
-        if (ImGui::BeginMenu("BSP")) {
+    if (beginMenuWithIcon(assets, kIcons, "bug", "Debug")) {
+        if (beginMenuWithIcon(assets, kIcons, "chart_organisation", "BSP")) {
             ImGui::MenuItem("Outlines", nullptr, &debugUi.showBspOutlines);
             ImGui::MenuItem("Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
             ImGui::MenuItem("Portals", nullptr, &debugUi.showBspPortals);
@@ -329,20 +294,22 @@ void drawMainMenuBar(
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("Sprites")) {
+        if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
             ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
             ImGui::EndMenu();
         }
-        ImGui::MenuItem("Graphs", nullptr, &debugUi.showGraphs);
-        ImGui::MenuItem("Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
-        ImGui::MenuItem("Noclip", nullptr, &debugUi.noclip);
-        ImGui::MenuItem("Entities", nullptr, &debugUi.entityListOpen);
+        menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
+        menuItemWithIcon(
+            assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
+        menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
+        menuItemWithIcon(
+            assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Help")) {
-        ImGui::MenuItem("About", nullptr, false, false);
+    if (beginMenuWithIcon(assets, kIcons, "information", "Help")) {
+        menuItemWithIcon(assets, kIcons, "information", "About", nullptr, false, false);
         ImGui::EndMenu();
     }
 
@@ -380,6 +347,9 @@ const char* entityKindLabel(flecs::entity entity) {
     }
     if (entity.has<Interactable>()) {
         return "usable";
+    }
+    if (entity.has<TriggerVolume>() && !entity.has<SpriteInstance>() && !entity.has<Model3D>()) {
+        return "trigger";
     }
     if (entity.has<SpriteInstance>() || entity.has<Model3D>()) {
         return "prop";
@@ -868,18 +838,56 @@ void registerSystems(flecs::world& world) {
             SettingsUiState& settingsUi = it.world().get_mut<SettingsUiState>();
 
             if (settingsUi.rebindingAction >= 0) {
-                const int pressed = GetKeyPressed();
-                if (pressed == KEY_ESCAPE) {
+                const int pressedKey = GetKeyPressed();
+                if (pressedKey == KEY_ESCAPE) {
                     settingsUi.rebindingAction = -1;
-                } else if (pressed != 0) {
-                    for (int i = 0; i < actionCount; ++i) {
-                        if (i != settingsUi.rebindingAction
-                            && settingsUi.controlsDraft.keys[i] == pressed) {
-                            settingsUi.controlsDraft.keys[i] = KEY_NULL;
+                    settingsUi.rebindingWaitMouseRelease = false;
+                    return;
+                }
+
+                if (settingsUi.rebindingWaitMouseRelease) {
+                    const bool anyMouseDown =
+                        IsMouseButtonDown(MOUSE_BUTTON_LEFT)
+                        || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)
+                        || IsMouseButtonDown(MOUSE_BUTTON_MIDDLE)
+                        || IsMouseButtonDown(MOUSE_BUTTON_SIDE)
+                        || IsMouseButtonDown(MOUSE_BUTTON_EXTRA);
+                    if (!anyMouseDown) {
+                        settingsUi.rebindingWaitMouseRelease = false;
+                    }
+                }
+
+                int assigned = KEY_NULL;
+                if (pressedKey != 0) {
+                    assigned = pressedKey;
+                } else if (!settingsUi.rebindingWaitMouseRelease) {
+                    constexpr int kMouseButtons[] = {
+                        MOUSE_BUTTON_LEFT,
+                        MOUSE_BUTTON_RIGHT,
+                        MOUSE_BUTTON_MIDDLE,
+                        MOUSE_BUTTON_SIDE,
+                        MOUSE_BUTTON_EXTRA,
+                    };
+                    for (const int button : kMouseButtons) {
+                        if (IsMouseButtonPressed(button)) {
+                            assigned = bindFromMouseButton(button);
+                            break;
                         }
                     }
-                    settingsUi.controlsDraft.keys[settingsUi.rebindingAction] = pressed;
+                }
+
+                if (assigned != KEY_NULL) {
+                    const int actionCount = static_cast<int>(settingsUi.controlsDraft.binds.size());
+                    for (int i = 0; i < actionCount; ++i) {
+                        if (i != settingsUi.rebindingAction
+                            && settingsUi.controlsDraft.binds[static_cast<std::size_t>(i)] == assigned) {
+                            settingsUi.controlsDraft.binds[static_cast<std::size_t>(i)] = KEY_NULL;
+                        }
+                    }
+                    settingsUi.controlsDraft.binds[static_cast<std::size_t>(settingsUi.rebindingAction)] =
+                        assigned;
                     settingsUi.rebindingAction = -1;
+                    settingsUi.rebindingWaitMouseRelease = false;
                 }
                 return;
             }
@@ -900,6 +908,7 @@ void registerSystems(flecs::world& world) {
                     settingsUi.graphicsOpen = false;
                     settingsUi.controlsOpen = false;
                     settingsUi.rebindingAction = -1;
+                    settingsUi.rebindingWaitMouseRelease = false;
                 } else {
                     contexts.push(InputContext::MainMenu);
                 }
@@ -948,17 +957,22 @@ void drawUi(flecs::world world) {
 
     drawInteractionPrompt(target, contexts);
 
-    if (contexts.contains(InputContext::MainMenu)) {
+    AssetStore* assets = nullptr;
+    if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+        assets = world.get_mut<AssetServices>().store;
+    }
+
+    if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
-        drawMainMenuBar(quit, settingsUi, debugUi, settings);
-        drawGraphicsSettings(settingsUi, settings);
-        drawControlsSettings(settingsUi, settings);
+        drawMainMenuBar(*assets, quit, settingsUi, debugUi, settings);
+        drawGraphicsSettings(*assets, settingsUi, settings);
+        drawControlsSettings(*assets, settingsUi, settings);
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
     }
 
-    if (contexts.contains(InputContext::PauseMenu)) {
-        drawPauseMenu(contexts);
+    if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {
+        drawPauseMenu(*assets, contexts);
     }
 
     if (contexts.contains(InputContext::InteractUI)) {

@@ -143,6 +143,34 @@ s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "on-use", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_on_enter(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-enter", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-enter", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_on_exit(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-exit", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-exit", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_trigger_size(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "trigger-size", 0, args, "w h d");
+    }
+    return makeTaggedList(
+        sc,
+        "trigger-size",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_collide_tags(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "collide-tags", args);
+}
+
 s7_pointer g_color(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "color", 0, args, "r g b");
@@ -231,6 +259,24 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             readString(sc, s7_car(rest), out.prompt);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.onUse);
+        } else if (std::strcmp(tag, "on-enter") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.onEnter);
+        } else if (std::strcmp(tag, "on-exit") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.onExit);
+        } else if (std::strcmp(tag, "trigger-size") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            out.haveTriggerSize =
+                readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.triggerSize);
+        } else if (std::strcmp(tag, "collide-tags") == 0) {
+            out.collideTags.clear();
+            for (s7_pointer tagCursor = rest; s7_is_pair(tagCursor); tagCursor = s7_cdr(tagCursor)) {
+                std::string tagValue;
+                if (readString(sc, s7_car(tagCursor), tagValue) && !tagValue.empty()) {
+                    out.collideTags.push_back(std::move(tagValue));
+                }
+            }
         } else if (std::strcmp(tag, "color") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -308,6 +354,19 @@ s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "usable requires id and at", true);
 }
 
+s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
+    Thing placement{};
+    placement.kind = ThingKind::Trigger;
+    parseThingClauses(sc, args, placement);
+    if (placement.onEnter.empty() && placement.onExit.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "trigger requires on-enter or on-exit")));
+    }
+    return appendThing(sc, std::move(placement), "trigger requires id and at", true);
+}
+
 s7_pointer g_point_light(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultLightThing(ThingKind::PointLight);
     parseThingClauses(sc, args, placement);
@@ -380,6 +439,10 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "anim", g_anim, 1, 1, false, "(anim clip [loop])");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt text)");
     s7_define_function(sc, "on-use", g_on_use, 1, 0, false, "(on-use handler)");
+    s7_define_function(sc, "on-enter", g_on_enter, 1, 0, false, "(on-enter handler)");
+    s7_define_function(sc, "on-exit", g_on_exit, 1, 0, false, "(on-exit handler)");
+    s7_define_function(sc, "trigger-size", g_trigger_size, 3, 0, false, "(trigger-size w h d)");
+    s7_define_function(sc, "collide-tags", g_collide_tags, 0, 0, true, "(collide-tags values...)");
     s7_define_function(sc, "color", g_color, 3, 0, false, "(color r g b)");
     s7_define_function(sc, "intensity", g_intensity, 1, 0, false, "(intensity value)");
     s7_define_function(sc, "range", g_range, 1, 0, false, "(range value)");
@@ -388,6 +451,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
+    s7_define_function(sc, "trigger", g_trigger, 0, 0, true, "(trigger clauses...)");
     s7_define_function(sc, "point-light", g_point_light, 0, 0, true, "(point-light clauses...)");
     s7_define_function(sc, "spot-light", g_spot_light, 0, 0, true, "(spot-light clauses...)");
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");

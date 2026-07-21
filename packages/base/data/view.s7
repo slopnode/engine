@@ -1,0 +1,2 @@
+(define *view-canvas* '(320 200))
+(define *hud-canvas* '(320 200))

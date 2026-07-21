@@ -3,9 +3,11 @@
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
+#include "render/sprite_animator.hpp"
 #include "render/transform.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
@@ -77,6 +79,19 @@ flecs::entity findLightUnderSocket(flecs::entity socket) {
     flecs::entity found{};
     socket.children([&](flecs::entity child) {
         if (!found.is_valid() && child.has<DynamicLight>()) {
+            found = child;
+        }
+    });
+    return found;
+}
+
+flecs::entity findSpriteUnderSocket(flecs::entity socket) {
+    if (!socket.is_valid()) {
+        return {};
+    }
+    flecs::entity found{};
+    socket.children([&](flecs::entity child) {
+        if (!found.is_valid() && child.has<SpriteInstance>() && child.has<ViewSprite>()) {
             found = child;
         }
     });
@@ -180,6 +195,160 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
             root.get_mut<LocalTransformation>(),
             root.get_mut<GlobalTransformation>());
     }
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-attach-sprite", 1, args, "socket-name string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "fp-attach-sprite", 2, rest, "sprite-path string");
+    }
+
+    const char* socketName = s7_string(s7_car(args));
+    const char* spritePath = s7_string(s7_car(rest));
+    rest = s7_cdr(rest);
+
+    ViewCanvas canvas{};
+    if (g_fpWorld->has<ViewCanvas>()) {
+        canvas = g_fpWorld->get<ViewCanvas>();
+    }
+    float canvasX = static_cast<float>(canvas.width) * 0.5f;
+    float canvasY = static_cast<float>(canvas.height);
+    if (s7_is_pair(rest) && s7_is_number(s7_car(rest))) {
+        canvasX = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        rest = s7_cdr(rest);
+        if (s7_is_pair(rest) && s7_is_number(s7_car(rest))) {
+            canvasY = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        }
+    }
+
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity socket = socketByName(*g_fpWorld, scene, socketName);
+    if (!socket.is_valid()) {
+        return s7_f(sc);
+    }
+
+    if (!g_fpWorld->has<AssetServices>() || g_fpWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_fpWorld->get_mut<AssetServices>().store;
+    if (!assets.hasSprite(spritePath)) {
+        TraceLog(LOG_WARNING, "FP: missing sprite '%s'", spritePath);
+        return s7_f(sc);
+    }
+
+    destroySocketChildren(socket);
+
+    std::string frameId = "A";
+    if (const SpriteAsset* asset = assets.getSpriteAsset(spritePath);
+        asset != nullptr && !asset->frames.empty()) {
+        frameId = asset->frames.front().id;
+        for (const SpriteFrame& frame : asset->frames) {
+            if (frame.id == "A") {
+                frameId = "A";
+                break;
+            }
+        }
+    }
+
+    LocalTransformation local{};
+    local.scale = {1.0f, 1.0f, 1.0f};
+    local.rotation = QuaternionIdentity();
+    GlobalTransformation global{};
+    global.matrix = MatrixIdentity();
+
+    ViewSprite viewSprite{};
+    viewSprite.canvasX = canvasX;
+    viewSprite.canvasY = canvasY;
+
+    flecs::entity entity = g_fpWorld->entity()
+                               .child_of(socket)
+                               .set<LocalTransformation>(local)
+                               .set<GlobalTransformation>(global)
+                               .set<SpriteInstance>(SpriteInstance{
+                                   .sprite = spritePath,
+                                   .frame = frameId,
+                                   .facingYaw = 0.0f,
+                               })
+                               .set<ViewSprite>(viewSprite);
+
+    if (assets.hasSpriteAnim(spritePath)) {
+        SpriteAnimator animator{};
+        animator.animPath = spritePath;
+        entity.set<SpriteAnimator>(animator);
+    }
+
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-set-sprite-frame", 1, args, "socket-name string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "fp-set-sprite-frame", 2, rest, "frame-id string");
+    }
+
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
+    flecs::entity entity = findSpriteUnderSocket(socket);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+
+    entity.get_mut<SpriteInstance>().frame = s7_string(s7_car(rest));
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_play_sprite_anim(s7_scheme* sc, s7_pointer args) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-play-sprite-anim", 1, args, "socket-name string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "fp-play-sprite-anim", 2, rest, "clip-name string");
+    }
+
+    const char* clipName = s7_string(s7_car(rest));
+    rest = s7_cdr(rest);
+    bool loop = false;
+    if (s7_is_pair(rest)) {
+        loop = s7_boolean(sc, s7_car(rest));
+    }
+
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
+    flecs::entity entity = findSpriteUnderSocket(socket);
+    if (!entity.is_valid() || !entity.has<SpriteAnimator>()) {
+        return s7_f(sc);
+    }
+
+    entity.get_mut<SpriteAnimator>().play(clipName, loop);
     return s7_t(sc);
 }
 
@@ -344,6 +513,12 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "fp-clear-socket", g_fp_clear_socket, 1, 0, false, "(fp-clear-socket socket)");
     s7_define_function(scheme, "fp-attach-geo", g_fp_attach_geo, 2, 6, false,
                        "(fp-attach-geo socket geo [x y z sx sy sz])");
+    s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 2, false,
+                       "(fp-attach-sprite socket sprite [canvas-x canvas-y])");
+    s7_define_function(scheme, "fp-set-sprite-frame", g_fp_set_sprite_frame, 2, 0, false,
+                       "(fp-set-sprite-frame socket frame-id)");
+    s7_define_function(scheme, "fp-play-sprite-anim", g_fp_play_sprite_anim, 2, 1, false,
+                       "(fp-play-sprite-anim socket clip [loop])");
     s7_define_function(scheme, "fp-spawn-light", g_fp_spawn_light, 2, 9, false,
                        "(fp-spawn-light socket kind [intensity range cone r g b x y z])");
     s7_define_function(scheme, "fp-set-light-enabled", g_fp_set_light_enabled, 2, 0, false,

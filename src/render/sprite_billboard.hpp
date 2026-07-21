@@ -49,6 +49,18 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     const Lens& lens,
     AssetStore& assets);
 
+/** Atlas sample for a screen-space view sprite (rot 0 / non-directional). */
+struct ViewSpriteFrame {
+    const Texture2D* texture = nullptr;
+    Rectangle source{};
+    int pixelWidth = 0;
+    int pixelHeight = 0;
+};
+
+std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
+    const SpriteInstance& sprite,
+    AssetStore& assets);
+
 /** Raycasts the billboard quad and optional hit mask. */
 std::optional<SpriteBillboardHit> raycastSpriteBillboard(
     const Ray& ray,

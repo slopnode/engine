@@ -14,15 +14,20 @@
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
 #include "physics/physics_module.hpp"
+#include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/hud.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "render/transform.hpp"
 #include "script/first_person_script.hpp"
+#include "script/hud_script.hpp"
+#include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
+#include "script/thing_script.hpp"
 #include "ui/ui_module.hpp"
 
 #include "ui/ui_state.hpp"
@@ -591,7 +596,7 @@ std::string drawSpriteDebugOverlays(
     if (debugUi.showSpriteMasks) {
         spriteQuery.each(
             [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
-                if (!entity.has<WorldSpace>()) {
+                if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {
                     return;
                 }
                 if (const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets)) {
@@ -663,6 +668,11 @@ void registerComponents(flecs::world& world) {
     world.component<GlobalTransformation>();
     world.component<WorldSpace>();
     world.component<ViewSpace>();
+    world.component<ViewCanvas>();
+    world.component<HudCanvas>();
+    world.component<ViewSprite>();
+    world.component<HudDrawList>();
+    world.component<HudFontCache>();
     world.component<Lens>();
     world.component<Spin>();
     world.component<Model3D>();
@@ -826,7 +836,15 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             }
 
             const SpriteAnimClip& clip = bank->clips[clipIt->second];
-            if (clip.frames.empty() || clip.fps <= 0.0f) {
+            if (clip.frames.empty()) {
+                return;
+            }
+
+            float clipDuration = 0.0f;
+            for (const SpriteAnimFrame& frame : clip.frames) {
+                clipDuration += frame.duration;
+            }
+            if (clipDuration <= 0.0f) {
                 return;
             }
 
@@ -835,23 +853,29 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 animator.time += GetFrameTime() * animator.speed;
             }
 
-            const float frameFloat = animator.time * clip.fps;
-            const int frameCount = static_cast<int>(clip.frames.size());
-            int frameIndex = static_cast<int>(std::floor(frameFloat));
-
+            float localTime = animator.time;
             if (useLoop) {
-                frameIndex %= frameCount;
-                if (frameIndex < 0) {
-                    frameIndex += frameCount;
+                localTime = std::fmod(localTime, clipDuration);
+                if (localTime < 0.0f) {
+                    localTime += clipDuration;
                 }
-            } else if (frameIndex >= frameCount) {
-                frameIndex = frameCount - 1;
+            } else if (localTime >= clipDuration) {
                 animator.playing = false;
                 animator.justFinished = true;
-                animator.time = static_cast<float>(frameCount) / clip.fps;
+                animator.time = clipDuration;
+                sprite.frame = clip.frames.back().id;
+                return;
             }
 
-            sprite.frame = clip.frames[static_cast<std::size_t>(frameIndex)];
+            for (const SpriteAnimFrame& frame : clip.frames) {
+                if (localTime < frame.duration) {
+                    sprite.frame = frame.id;
+                    return;
+                }
+                localTime -= frame.duration;
+            }
+
+            sprite.frame = clip.frames.back().id;
         });
 }
 
@@ -1012,7 +1036,7 @@ void registerRenderSystems(flecs::world& world) {
                 spriteDrawList.reserve(32);
                 context.worldSpriteQuery.each(
                     [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
-                        if (!spriteEntity.has<WorldSpace>()) {
+                        if (!spriteEntity.has<WorldSpace>() || spriteEntity.has<ViewSprite>()) {
                             return;
                         }
                         const Vector3 position = translationFromMatrix(global.matrix);
@@ -1213,6 +1237,63 @@ void registerRenderSystems(flecs::world& world) {
             rlEnableBackfaceCulling();
             EndMode3D();
 
+            if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                AssetStore& viewAssets = *world.get_mut<AssetServices>().store;
+                ViewCanvas viewCanvas{};
+                if (world.has<ViewCanvas>()) {
+                    viewCanvas = world.get<ViewCanvas>();
+                }
+                HudCanvas hudCanvas{};
+                if (world.has<HudCanvas>()) {
+                    hudCanvas = world.get<HudCanvas>();
+                }
+                const float screenW = static_cast<float>(GetScreenWidth());
+                const float screenH = static_cast<float>(GetScreenHeight());
+                const ViewCanvasFit viewFit = makeViewCanvasFit(
+                    viewCanvas.width, viewCanvas.height, screenW, screenH);
+                const ViewCanvasFit hudFit = makeViewCanvasFit(
+                    hudCanvas.width, hudCanvas.height, screenW, screenH);
+
+                BeginBlendMode(BLEND_ALPHA);
+                world.each([&](flecs::entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
+                    const auto frame = resolveViewSpriteFrame(sprite, viewAssets);
+                    if (!frame) {
+                        return;
+                    }
+                    const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale;
+                    const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale;
+                    const float screenX = viewFit.offsetX + viewSprite.canvasX * viewFit.scale;
+                    const float screenY = viewFit.offsetY + viewSprite.canvasY * viewFit.scale;
+                    const Rectangle dest{
+                        screenX - destW * 0.5f,
+                        screenY - destH,
+                        destW,
+                        destH,
+                    };
+                    DrawTexturePro(
+                        *frame->texture,
+                        frame->source,
+                        dest,
+                        Vector2{0.0f, 0.0f},
+                        0.0f,
+                        WHITE);
+                });
+                EndBlendMode();
+
+                if (!world.has<HudDrawList>()) {
+                    world.set<HudDrawList>({});
+                }
+                if (!world.has<HudFontCache>()) {
+                    world.set<HudFontCache>({});
+                }
+                HudDrawList& hud = world.get_mut<HudDrawList>();
+                hud.clear();
+                if (world.has<ScriptContext>() && world.get<ScriptContext>().scheme != nullptr) {
+                    tryCallSchemeProc(world.get<ScriptContext>().scheme, "draw-hud");
+                }
+                flushHudDrawList(hud, viewAssets, world.get_mut<HudFontCache>(), hudFit);
+            }
+
             if (!spriteAimStatus.empty()) {
                 const int screenW = GetScreenWidth();
                 const int fontSize = 18;
@@ -1263,7 +1344,8 @@ void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, floa
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
-        .set<FirstPersonController>(controller);
+        .set<FirstPersonController>(controller)
+        .set<CollisionTags>(CollisionTags{{"player"}});
 
     ensureFirstPersonScene(world, player);
     updateFirstPersonSceneTransforms(world);
@@ -1370,7 +1452,8 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         .add<WorldSpace>()
         .set<Lens>(lens)
         .set<FirstPersonController>(controller)
-        .set<CharacterMotor>(motor);
+        .set<CharacterMotor>(motor)
+        .set<CollisionTags>(CollisionTags{{"player"}});
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
@@ -1406,6 +1489,8 @@ void registerRenderModule(
     });
 
     bindFirstPersonApi(world, scheme);
+    bindHudApi(world, scheme);
+    bindThingRuntimeApi(world, scheme);
     if (scheme != nullptr && !assets.loadScript(scheme, "player")) {
         TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");
     }

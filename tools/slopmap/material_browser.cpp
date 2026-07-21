@@ -1,6 +1,6 @@
 #include "material_browser.hpp"
 
-#include "icon_ui.hpp"
+#include "ui/icon_ui.hpp"
 
 #include "imgui.h"
 
@@ -132,7 +132,7 @@ MaterialBrowserResult MaterialBrowser::drawSection(
         return result;
     }
 
-    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Refresh")) {
+    if (slopengine::buttonWithIcon(assets, slopengine::kDefaultIconSet, "arrow_refresh", "Refresh")) {
         result.requestRescan = true;
     }
     ImGui::SameLine();
@@ -154,7 +154,7 @@ MaterialBrowserResult MaterialBrowser::drawSection(
             }
             ImGui::PushID(path.c_str());
             const bool isActive = path == editor.doc().defaultMaterial;
-            if (selectableWithIcon(assets, kDefaultIconSet, "palette", path.c_str(), isActive)) {
+            if (slopengine::selectableWithIcon(assets, slopengine::kDefaultIconSet, "palette", path.c_str(), isActive)) {
                 result.applied = applyMaterialToSelection(editor, path);
             }
             ImGui::PopID();

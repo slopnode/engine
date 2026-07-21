@@ -72,6 +72,35 @@ bool readInt(std::string_view text, int& out) {
     return true;
 }
 
+bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
+    if (line.rfind("(frame ", 0) != 0) {
+        return false;
+    }
+
+    std::string_view rest = trim(line.substr(std::string_view("(frame ").size()));
+    if (!rest.empty() && rest.back() == ')') {
+        rest.remove_suffix(1);
+        rest = trim(rest);
+    }
+
+    if (rest.empty() || rest.front() != '"') {
+        return false;
+    }
+    const std::size_t quoteEnd = rest.find('"', 1);
+    if (quoteEnd == std::string_view::npos) {
+        return false;
+    }
+
+    out.id = std::string{rest.substr(1, quoteEnd - 1)};
+    std::string_view durationText = trim(rest.substr(quoteEnd + 1));
+    float duration = 0.0f;
+    if (out.id.empty() || !readFloat(durationText, duration) || duration <= 0.0f) {
+        return false;
+    }
+    out.duration = duration;
+    return true;
+}
+
 } // namespace
 
 bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
@@ -93,35 +122,18 @@ bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
             bank.clips.push_back(SpriteAnimClip{});
             currentClip = &bank.clips.back();
             currentClip->name = *clipName;
-        } else if (currentClip != nullptr && line.rfind("(fps ", 0) == 0) {
-            float fps = 8.0f;
-            if (!readFloat(line.substr(std::string_view("(fps ").size()), fps) || fps <= 0.0f) {
-                return false;
-            }
-            currentClip->fps = fps;
         } else if (currentClip != nullptr && line.rfind("(loop ", 0) == 0) {
             int loopValue = 1;
             if (!readInt(line.substr(std::string_view("(loop ").size()), loopValue)) {
                 return false;
             }
             currentClip->loop = loopValue != 0;
-        } else if (currentClip != nullptr && line.rfind("(frames ", 0) == 0) {
-            std::string_view rest = line.substr(std::string_view("(frames ").size());
-            while (true) {
-                const std::size_t quoteStart = rest.find('"');
-                if (quoteStart == std::string_view::npos) {
-                    break;
-                }
-                const std::size_t quoteEnd = rest.find('"', quoteStart + 1);
-                if (quoteEnd == std::string_view::npos) {
-                    return false;
-                }
-                currentClip->frames.emplace_back(rest.substr(quoteStart + 1, quoteEnd - quoteStart - 1));
-                rest.remove_prefix(quoteEnd + 1);
-            }
-            if (currentClip->frames.empty()) {
+        } else if (currentClip != nullptr && line.rfind("(frame ", 0) == 0) {
+            SpriteAnimFrame frame{};
+            if (!parseFrameLine(line, frame)) {
                 return false;
             }
+            currentClip->frames.push_back(std::move(frame));
         }
 
         if (lineEnd == std::string_view::npos) {
@@ -136,8 +148,13 @@ bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
 
     for (std::size_t index = 0; index < bank.clips.size(); ++index) {
         const SpriteAnimClip& clip = bank.clips[index];
-        if (clip.name.empty() || clip.frames.empty() || clip.fps <= 0.0f) {
+        if (clip.name.empty() || clip.frames.empty()) {
             return false;
+        }
+        for (const SpriteAnimFrame& frame : clip.frames) {
+            if (frame.id.empty() || frame.duration <= 0.0f) {
+                return false;
+            }
         }
         bank.clipIndexByName.emplace(clip.name, index);
     }

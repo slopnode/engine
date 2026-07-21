@@ -7,12 +7,17 @@
 
 namespace slopengine {
 
+/** One timed frame inside a sprite clip. */
+struct SpriteAnimFrame {
+    std::string id; /**< Frame id from the paired .spr. */
+    float duration = 0.0f; /**< Hold time in seconds. */
+};
+
 /** One named clip from a .spanim file. */
 struct SpriteAnimClip {
     std::string name;
-    float fps = 8.0f;
     bool loop = true;
-    std::vector<std::string> frames; /**< Frame ids from the paired .spr. */
+    std::vector<SpriteAnimFrame> frames;
 };
 
 /** Parsed sprite animation bank with name lookup. */

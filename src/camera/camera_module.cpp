@@ -6,9 +6,6 @@
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
 #include "render/components.hpp"
-#include "script/scheme_call.hpp"
-#include "script/script_context.hpp"
-
 #include <cmath>
 
 #include <raylib.h>
@@ -100,22 +97,6 @@ void registerSystems(flecs::world& world) {
                 lens.camera.target = Vector3Add(lens.camera.position, forward);
                 lens.camera.up = {0.0f, 1.0f, 0.0f};
             }
-        });
-
-    world.system("PlayerFlashlightAction")
-        .kind(flecs::OnUpdate)
-        .run([](flecs::iter& it) {
-            flecs::world world = it.world();
-            InputState& input = world.get_mut<InputState>();
-            InputContextStack& contexts = world.get_mut<InputContextStack>();
-
-            if (!contexts.allowsGameplay() || !input.pressed(Action::Flashlight)) {
-                return;
-            }
-            if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
-                return;
-            }
-            tryCallSchemeProc(world.get<ScriptContext>().scheme, "on-action-flashlight");
         });
 }
 

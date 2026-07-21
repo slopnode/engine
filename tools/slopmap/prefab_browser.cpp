@@ -1,6 +1,6 @@
 #include "prefab_browser.hpp"
 
-#include "icon_ui.hpp"
+#include "ui/icon_ui.hpp"
 
 #include "imgui.h"
 
@@ -74,7 +74,7 @@ PrefabBrowserResult PrefabBrowser::drawSection(
         return result;
     }
 
-    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Refresh")) {
+    if (slopengine::buttonWithIcon(assets, slopengine::kDefaultIconSet, "arrow_refresh", "Refresh")) {
         result.requestRescan = true;
     }
     ImGui::SameLine();
@@ -94,7 +94,7 @@ PrefabBrowserResult PrefabBrowser::drawSection(
             }
             ImGui::PushID(path.c_str());
             const bool isActive = path == editor.placePrefabPath;
-            if (selectableWithIcon(assets, kDefaultIconSet, "package", path.c_str(), isActive)) {
+            if (slopengine::selectableWithIcon(assets, slopengine::kDefaultIconSet, "package", path.c_str(), isActive)) {
                 editor.placePrefabPath = path;
                 result.selected = true;
             }

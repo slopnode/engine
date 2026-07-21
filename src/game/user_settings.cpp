@@ -1,6 +1,8 @@
 #include "game/user_settings.hpp"
 
 #include "core/user_paths.hpp"
+#include "input/action_registry.hpp"
+#include "input/bind_code.hpp"
 
 #include <raylib.h>
 
@@ -15,21 +17,6 @@ namespace slopengine {
 
 namespace {
 
-constexpr struct {
-    Action action;
-    int key;
-} kDefaultBindings[] = {
-    {Action::MoveForward, KEY_W},
-    {Action::MoveBackward, KEY_S},
-    {Action::MoveLeft, KEY_A},
-    {Action::MoveRight, KEY_D},
-    {Action::Jump, KEY_SPACE},
-    {Action::Interact, KEY_E},
-    {Action::Console, KEY_GRAVE},
-    {Action::MainMenu, KEY_F1},
-    {Action::Flashlight, KEY_F},
-};
-
 std::string trim(std::string_view value) {
     while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
         value.remove_prefix(1);
@@ -38,16 +25,6 @@ std::string trim(std::string_view value) {
         value.remove_suffix(1);
     }
     return std::string(value);
-}
-
-std::optional<Action> actionFromId(std::string_view id) {
-    for (int i = 0; i < actionCount; ++i) {
-        const Action action = static_cast<Action>(i);
-        if (id == actionId(action)) {
-            return action;
-        }
-    }
-    return std::nullopt;
 }
 
 std::optional<WindowMode> windowModeFromId(std::string_view id) {
@@ -99,14 +76,22 @@ void leaveBorderless() {
     }
 }
 
+void applyControlBinding(ControlsSettings& controls, std::string_view actionId, std::string_view value) {
+    const int index = actionRegistry().indexOf(actionId);
+    if (index < 0 || index >= static_cast<int>(controls.binds.size())) {
+        return;
+    }
+    const int bind = parseBindToken(value);
+    controls.binds[static_cast<std::size_t>(index)] = bind;
+}
+
 }
 
 ControlsSettings::ControlsSettings() {
-    for (int i = 0; i < actionCount; ++i) {
-        keys[i] = KEY_NULL;
-    }
-    for (const auto& binding : kDefaultBindings) {
-        keys[static_cast<int>(binding.action)] = binding.key;
+    const ActionRegistry& registry = actionRegistry();
+    binds.assign(static_cast<std::size_t>(registry.size()), KEY_NULL);
+    for (int i = 0; i < registry.size(); ++i) {
+        binds[static_cast<std::size_t>(i)] = registry.at(i).defaultBind;
     }
 }
 
@@ -118,18 +103,17 @@ UserSettings UserSettings::defaults() {
     return UserSettings{};
 }
 
-UserSettings UserSettings::loadOrDefault() {
-    UserSettings settings = defaults();
+GraphicsSettings UserSettings::loadGraphicsOrDefault() {
+    GraphicsSettings graphics = defaults().graphics;
     const std::filesystem::path path = userSettingsPath();
     std::ifstream input(path);
     if (!input) {
-        return settings;
+        return graphics;
     }
 
     enum class Section {
         None,
         Graphics,
-        Controls,
     };
 
     Section section = Section::None;
@@ -144,12 +128,66 @@ UserSettings UserSettings::loadOrDefault() {
             section = Section::Graphics;
             continue;
         }
+        if (trimmed.front() == '[' && trimmed.back() == ']') {
+            section = Section::None;
+            continue;
+        }
+
+        const std::size_t eq = trimmed.find('=');
+        if (eq == std::string::npos || section != Section::Graphics) {
+            continue;
+        }
+
+        const std::string key = trim(trimmed.substr(0, eq));
+        const std::string value = trim(trimmed.substr(eq + 1));
+
+        if (key == "width") {
+            parseInt(value, graphics.width);
+        } else if (key == "height") {
+            parseInt(value, graphics.height);
+        } else if (key == "mode") {
+            if (const auto mode = windowModeFromId(value)) {
+                graphics.mode = *mode;
+            }
+        } else if (key == "vsync") {
+            parseBool(value, graphics.vsync);
+        }
+    }
+
+    if (graphics.width < 640) {
+        graphics.width = 640;
+    }
+    if (graphics.height < 360) {
+        graphics.height = 360;
+    }
+
+    return graphics;
+}
+
+void UserSettings::mergeControlsFromDisk(ControlsSettings& controls) {
+    const std::filesystem::path path = userSettingsPath();
+    std::ifstream input(path);
+    if (!input) {
+        return;
+    }
+
+    bool inControls = false;
+    std::string line;
+    while (std::getline(input, line)) {
+        const std::string trimmed = trim(line);
+        if (trimmed.empty() || trimmed[0] == '#' || trimmed[0] == ';') {
+            continue;
+        }
+
         if (trimmed == "[controls]") {
-            section = Section::Controls;
+            inControls = true;
             continue;
         }
         if (trimmed.front() == '[' && trimmed.back() == ']') {
-            section = Section::None;
+            inControls = false;
+            continue;
+        }
+        if (!inControls) {
             continue;
         }
 
@@ -160,36 +198,15 @@ UserSettings UserSettings::loadOrDefault() {
 
         const std::string key = trim(trimmed.substr(0, eq));
         const std::string value = trim(trimmed.substr(eq + 1));
-
-        if (section == Section::Graphics) {
-            if (key == "width") {
-                parseInt(value, settings.graphics.width);
-            } else if (key == "height") {
-                parseInt(value, settings.graphics.height);
-            } else if (key == "mode") {
-                if (const auto mode = windowModeFromId(value)) {
-                    settings.graphics.mode = *mode;
-                }
-            } else if (key == "vsync") {
-                parseBool(value, settings.graphics.vsync);
-            }
-        } else if (section == Section::Controls) {
-            if (const auto action = actionFromId(key)) {
-                int keyCode = KEY_NULL;
-                if (parseInt(value, keyCode)) {
-                    settings.controls.keys[static_cast<int>(*action)] = keyCode;
-                }
-            }
-        }
+        applyControlBinding(controls, key, value);
     }
+}
 
-    if (settings.graphics.width < 640) {
-        settings.graphics.width = 640;
-    }
-    if (settings.graphics.height < 360) {
-        settings.graphics.height = 360;
-    }
-
+UserSettings UserSettings::loadOrDefault() {
+    UserSettings settings = defaults();
+    settings.graphics = loadGraphicsOrDefault();
+    settings.controls = ControlsSettings::defaults();
+    mergeControlsFromDisk(settings.controls);
     return settings;
 }
 
@@ -216,68 +233,11 @@ bool UserSettings::save() const {
            << "vsync=" << (graphics.vsync ? "1" : "0") << "\n\n"
            << "[controls]\n";
 
-    for (int i = 0; i < actionCount; ++i) {
-        const Action action = static_cast<Action>(i);
-        output << actionId(action) << '=' << controls.keys[i] << '\n';
+    for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {
+        output << actionIdAt(i) << '=' << formatBindToken(controls.binds[static_cast<std::size_t>(i)]) << '\n';
     }
 
     return true;
-}
-
-const char* actionId(Action action) {
-    switch (action) {
-    case Action::MoveForward:
-        return "MoveForward";
-    case Action::MoveBackward:
-        return "MoveBackward";
-    case Action::MoveLeft:
-        return "MoveLeft";
-    case Action::MoveRight:
-        return "MoveRight";
-    case Action::Jump:
-        return "Jump";
-    case Action::Pause:
-        return "Pause";
-    case Action::Interact:
-        return "Interact";
-    case Action::Console:
-        return "Console";
-    case Action::MainMenu:
-        return "MainMenu";
-    case Action::Flashlight:
-        return "Flashlight";
-    case Action::Count:
-        break;
-    }
-    return "Unknown";
-}
-
-const char* actionLabel(Action action) {
-    switch (action) {
-    case Action::MoveForward:
-        return "Move Forward";
-    case Action::MoveBackward:
-        return "Move Backward";
-    case Action::MoveLeft:
-        return "Move Left";
-    case Action::MoveRight:
-        return "Move Right";
-    case Action::Jump:
-        return "Jump";
-    case Action::Pause:
-        return "Pause";
-    case Action::Interact:
-        return "Interact";
-    case Action::Console:
-        return "Console";
-    case Action::MainMenu:
-        return "Main Menu";
-    case Action::Flashlight:
-        return "Flashlight";
-    case Action::Count:
-        break;
-    }
-    return "Unknown";
 }
 
 const char* windowModeId(WindowMode mode) {

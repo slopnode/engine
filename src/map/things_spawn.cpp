@@ -4,6 +4,7 @@
 #include "interact/components.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
+#include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
 
@@ -193,6 +194,20 @@ void spawnLight(flecs::entity entity, const Thing& placement, SpawnContext& ctx)
     }
 }
 
+bool thingHasTrigger(const Thing& placement) {
+    return placement.kind == ThingKind::Trigger || !placement.onEnter.empty() ||
+        !placement.onExit.empty();
+}
+
+void applyTriggerVolume(flecs::entity entity, const Thing& placement) {
+    TriggerVolume volume{};
+    volume.size = placement.haveTriggerSize ? placement.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
+    volume.onEnter = placement.onEnter;
+    volume.onExit = placement.onExit;
+    volume.filterTags = placement.collideTags;
+    entity.set<TriggerVolume>(std::move(volume));
+}
+
 void spawnOne(SpawnContext& ctx, Thing placement);
 
 void spawnPrefab(SpawnContext& ctx, const Thing& placement) {
@@ -300,6 +315,15 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                 .maxDistance = 5.0f,
             });
         }
+        if (thingHasTrigger(placement)) {
+            applyTriggerVolume(entity, placement);
+        }
+        return;
+    }
+
+    if (placement.kind == ThingKind::Trigger) {
+        entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+        applyTriggerVolume(entity, placement);
         return;
     }
 
