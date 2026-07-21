@@ -22,10 +22,10 @@ HudDrawList* hudList() {
     return &g_hudWorld->get_mut<HudDrawList>();
 }
 
-ViewCanvas hudCanvas() {
-    ViewCanvas canvas{};
-    if (g_hudWorld != nullptr && g_hudWorld->has<ViewCanvas>()) {
-        canvas = g_hudWorld->get<ViewCanvas>();
+HudCanvas hudCanvas() {
+    HudCanvas canvas{};
+    if (g_hudWorld != nullptr && g_hudWorld->has<HudCanvas>()) {
+        canvas = g_hudWorld->get<HudCanvas>();
     }
     return canvas;
 }
@@ -69,7 +69,7 @@ bool parseAnchorSymbol(s7_scheme* sc, s7_pointer value, HudAnchor& out) {
 }
 
 void resolveCmdOrigin(const HudDrawList& list, float offsetX, float offsetY, float& outX, float& outY) {
-    const ViewCanvas canvas = hudCanvas();
+    const HudCanvas canvas = hudCanvas();
     float anchorX = 0.0f;
     float anchorY = 0.0f;
     hudAnchorPoint(

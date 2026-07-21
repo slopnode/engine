@@ -20,4 +20,7 @@ bool tryCallSchemeProc2String(
 /** Reads *view-canvas* from Scheme; defaults to 320x200 if missing/invalid. */
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme);
 
+/** Reads *hud-canvas* from Scheme; defaults to 320x200 if missing/invalid. */
+HudCanvas parseHudCanvasFromScheme(s7_scheme* scheme);
+
 }

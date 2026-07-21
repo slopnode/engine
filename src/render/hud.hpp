@@ -21,7 +21,7 @@ struct ViewCanvasFit {
     float offsetY = 0.0f;
 };
 
-ViewCanvasFit makeViewCanvasFit(const ViewCanvas& canvas, float screenW, float screenH);
+ViewCanvasFit makeViewCanvasFit(int width, int height, float screenW, float screenH);
 
 enum class HudAnchor {
     TopLeft,
