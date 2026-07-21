@@ -57,10 +57,10 @@ Font* ensureHudFont(HudFontCache& cache, AssetStore& assets, const std::string& 
 
 } // namespace
 
-ViewCanvasFit makeViewCanvasFit(const ViewCanvas& canvas, float screenW, float screenH) {
+ViewCanvasFit makeViewCanvasFit(int width, int height, float screenW, float screenH) {
     ViewCanvasFit fit{};
-    fit.canvasW = static_cast<float>(std::max(canvas.width, 1));
-    fit.canvasH = static_cast<float>(std::max(canvas.height, 1));
+    fit.canvasW = static_cast<float>(std::max(width, 1));
+    fit.canvasH = static_cast<float>(std::max(height, 1));
     fit.scale = std::min(screenW / fit.canvasW, screenH / fit.canvasH);
     fit.offsetX = (screenW - fit.canvasW * fit.scale) * 0.5f;
     fit.offsetY = (screenH - fit.canvasH * fit.scale) * 0.5f;

@@ -669,6 +669,7 @@ void registerComponents(flecs::world& world) {
     world.component<WorldSpace>();
     world.component<ViewSpace>();
     world.component<ViewCanvas>();
+    world.component<HudCanvas>();
     world.component<ViewSprite>();
     world.component<HudDrawList>();
     world.component<HudFontCache>();
@@ -1238,14 +1239,20 @@ void registerRenderSystems(flecs::world& world) {
 
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 AssetStore& viewAssets = *world.get_mut<AssetServices>().store;
-                ViewCanvas canvas{};
+                ViewCanvas viewCanvas{};
                 if (world.has<ViewCanvas>()) {
-                    canvas = world.get<ViewCanvas>();
+                    viewCanvas = world.get<ViewCanvas>();
                 }
-                const ViewCanvasFit fit = makeViewCanvasFit(
-                    canvas,
-                    static_cast<float>(GetScreenWidth()),
-                    static_cast<float>(GetScreenHeight()));
+                HudCanvas hudCanvas{};
+                if (world.has<HudCanvas>()) {
+                    hudCanvas = world.get<HudCanvas>();
+                }
+                const float screenW = static_cast<float>(GetScreenWidth());
+                const float screenH = static_cast<float>(GetScreenHeight());
+                const ViewCanvasFit viewFit = makeViewCanvasFit(
+                    viewCanvas.width, viewCanvas.height, screenW, screenH);
+                const ViewCanvasFit hudFit = makeViewCanvasFit(
+                    hudCanvas.width, hudCanvas.height, screenW, screenH);
 
                 BeginBlendMode(BLEND_ALPHA);
                 world.each([&](flecs::entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
@@ -1253,10 +1260,10 @@ void registerRenderSystems(flecs::world& world) {
                     if (!frame) {
                         return;
                     }
-                    const float destW = static_cast<float>(frame->pixelWidth) * fit.scale;
-                    const float destH = static_cast<float>(frame->pixelHeight) * fit.scale;
-                    const float screenX = fit.offsetX + viewSprite.canvasX * fit.scale;
-                    const float screenY = fit.offsetY + viewSprite.canvasY * fit.scale;
+                    const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale;
+                    const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale;
+                    const float screenX = viewFit.offsetX + viewSprite.canvasX * viewFit.scale;
+                    const float screenY = viewFit.offsetY + viewSprite.canvasY * viewFit.scale;
                     const Rectangle dest{
                         screenX - destW * 0.5f,
                         screenY - destH,
@@ -1284,7 +1291,7 @@ void registerRenderSystems(flecs::world& world) {
                 if (world.has<ScriptContext>() && world.get<ScriptContext>().scheme != nullptr) {
                     tryCallSchemeProc(world.get<ScriptContext>().scheme, "draw-hud");
                 }
-                flushHudDrawList(hud, viewAssets, world.get_mut<HudFontCache>(), fit);
+                flushHudDrawList(hud, viewAssets, world.get_mut<HudFontCache>(), hudFit);
             }
 
             if (!spriteAimStatus.empty()) {

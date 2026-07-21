@@ -31,6 +31,12 @@ struct ViewCanvas {
     int height = 200;
 };
 
+/** Package HUD canvas in virtual pixels (from data/view.s7 *hud-canvas*). */
+struct HudCanvas {
+    int width = 320;
+    int height = 200;
+};
+
 /** Screen-space FP sprite: placed in view-canvas pixels (origin = frame bottom-center). */
 struct ViewSprite {
     float canvasX = 160.0f;

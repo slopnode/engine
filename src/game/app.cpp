@@ -83,6 +83,8 @@ void App::init_script() {
     }
     world_.component<ViewCanvas>();
     world_.set<ViewCanvas>(parseViewCanvasFromScheme(scheme_));
+    world_.component<HudCanvas>();
+    world_.set<HudCanvas>(parseHudCanvasFromScheme(scheme_));
     if (!assetStore_.loadScript(scheme_, "things")) {
         TraceLog(LOG_WARNING, "SCRIPT: things.s7 not loaded");
     }
