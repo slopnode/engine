@@ -180,7 +180,10 @@ std::vector<Vector3> buildCapPolygon(
         const Vector3 db = sub3(b, origin);
         const float angA = std::atan2(dot3(da, bitangent), dot3(da, tangent));
         const float angB = std::atan2(dot3(db, bitangent), dot3(db, tangent));
-        return angA < angB;
+        if (angA != angB) return angA < angB;
+        const float lenA = dot3(da, tangent) * dot3(da, tangent) + dot3(da, bitangent) * dot3(da, bitangent);
+        const float lenB = dot3(db, tangent) * dot3(db, tangent) + dot3(db, bitangent) * dot3(db, bitangent);
+        return lenA < lenB;
     });
 
     if (polygonArea(points) < kMinFaceArea) {
@@ -503,6 +506,12 @@ std::vector<Vector3> intersectPortal(
     return {};
 }
 
+static bool boundsOverlap(const BspLeaf& a, const BspLeaf& b) {
+    return a.mins.x <= b.maxs.x && a.maxs.x >= b.mins.x
+        && a.mins.y <= b.maxs.y && a.maxs.y >= b.mins.y
+        && a.mins.z <= b.maxs.z && a.maxs.z >= b.mins.z;
+}
+
 void buildAdjacency(BspTree& tree) {
     const std::int32_t leafCount = static_cast<std::int32_t>(tree.leaves.size());
     for (std::int32_t i = 0; i < leafCount; ++i) {
@@ -511,6 +520,9 @@ void buildAdjacency(BspTree& tree) {
         }
         for (std::int32_t j = i + 1; j < leafCount; ++j) {
             if (tree.leaves[static_cast<std::size_t>(j)].solid) {
+                continue;
+            }
+            if (!boundsOverlap(tree.leaves[static_cast<std::size_t>(i)], tree.leaves[static_cast<std::size_t>(j)])) {
                 continue;
             }
             const BspLeaf& a = tree.leaves[static_cast<std::size_t>(i)];
@@ -773,8 +785,12 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     TraceLog(LOG_INFO, "BSP: split planes=%d", static_cast<int>(splits.size()));
 
     const Polyhedron world = makeBoundsPolyhedron(mins, maxs);
+    TraceLog(LOG_INFO, "BSP: building nodes...");
     tree.root = buildNode(tree, world, hulls, splits);
+    TraceLog(LOG_INFO, "BSP: nodes=%d leaves=%d", static_cast<int>(tree.nodes.size()), static_cast<int>(tree.leaves.size()));
+    TraceLog(LOG_INFO, "BSP: building adjacency...");
     buildAdjacency(tree);
+    TraceLog(LOG_INFO, "BSP: building surface faces...");
     buildSurfaceFaces(tree, hulls);
 
     int emptyLeaves = 0;
