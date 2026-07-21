@@ -1,5 +1,6 @@
 #include "game/app.hpp"
 
+#include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
@@ -24,10 +25,14 @@ App::App(AppConfig config)
     , userSettings_{}
     , assetStore_{config_}
     , world_{}
-    , physicsWorld_{std::make_unique<PhysicsWorld>()} {
+    , physicsWorld_{std::make_unique<PhysicsWorld>()}
+    , audioWorld_{std::make_unique<AudioWorld>()} {
     actionRegistry().registerCoreActions();
     userSettings_.graphics = UserSettings::loadGraphicsOrDefault();
     init_window();
+    if (!audioWorld_->init()) {
+        TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
+    }
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true);
     init_script();
     userSettings_.controls = ControlsSettings::defaults();
@@ -37,6 +42,7 @@ App::App(AppConfig config)
     registerInputModule(world_);
     registerUiModule(world_);
     registerPhysicsModule(world_, physicsWorld_.get());
+    registerAudioModule(world_, audioWorld_.get(), assetStore_, scheme_);
     registerCameraModule(world_);
     registerInteractModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
@@ -91,7 +97,12 @@ void App::init_script() {
 }
 
 void App::shutdown() {
+    unregisterAudioModule(world_);
     unregisterPhysicsModule(world_);
+    if (audioWorld_) {
+        audioWorld_->deinit();
+        audioWorld_.reset();
+    }
     physicsWorld_.reset();
 
     if (scheme_) {

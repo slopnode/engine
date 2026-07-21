@@ -3,6 +3,7 @@
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
 #include "assets/sprite_loader.hpp"
+#include "audio/audio_module.hpp"
 #include "camera/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
@@ -825,7 +826,7 @@ void registerAnimationClipFlipTestSystem(flecs::world& world) {
 void registerSpriteAnimatorSystem(flecs::world& world) {
     world.system<SpriteAnimator, SpriteInstance>("AdvanceSpriteAnimator")
         .kind(flecs::OnUpdate)
-        .each([](flecs::iter& it, size_t, SpriteAnimator& animator, SpriteInstance& sprite) {
+        .each([](flecs::entity entity, SpriteAnimator& animator, SpriteInstance& sprite) {
             animator.justFinished = false;
             const bool startedThisFrame = animator.justStarted;
             animator.justStarted = false;
@@ -834,7 +835,8 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 return;
             }
 
-            AssetServices& services = it.world().get_mut<AssetServices>();
+            flecs::world world = entity.world();
+            AssetServices& services = world.get_mut<AssetServices>();
             if (services.store == nullptr) {
                 return;
             }
@@ -896,6 +898,56 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 animator.nextFrame = clip.frames[nextIndex].id;
             };
 
+            auto fireSound = [&](const SpriteAnimFrame& frame) {
+                if (!frame.hasSound() || !world.has<AudioContext>()) {
+                    return;
+                }
+                AudioContext& ctx = world.get_mut<AudioContext>();
+                if (ctx.world == nullptr || ctx.assets == nullptr || !ctx.world->ready()) {
+                    return;
+                }
+                if (entity.has<GlobalTransformation>()) {
+                    const Matrix& matrix = entity.get<GlobalTransformation>().matrix;
+                    ctx.world->playSound3d(
+                        *ctx.assets,
+                        frame.sound,
+                        matrix.m12,
+                        matrix.m13,
+                        matrix.m14,
+                        frame.soundVolume);
+                } else {
+                    ctx.world->playSound(*ctx.assets, frame.sound, frame.soundVolume);
+                }
+            };
+
+            auto fireEnteredHolds = [&](int previousIndex, int currentIndex) {
+                if (currentIndex < 0 || clip.frames.empty()) {
+                    return;
+                }
+                const int frameCount = static_cast<int>(clip.frames.size());
+                if (previousIndex < 0) {
+                    fireSound(clip.frames[static_cast<std::size_t>(currentIndex)]);
+                    return;
+                }
+                if (previousIndex == currentIndex) {
+                    return;
+                }
+                if (useLoop && currentIndex < previousIndex) {
+                    for (int i = previousIndex + 1; i < frameCount; ++i) {
+                        fireSound(clip.frames[static_cast<std::size_t>(i)]);
+                    }
+                    for (int i = 0; i <= currentIndex; ++i) {
+                        fireSound(clip.frames[static_cast<std::size_t>(i)]);
+                    }
+                    return;
+                }
+                const int begin = previousIndex + 1;
+                const int end = std::min(currentIndex, frameCount - 1);
+                for (int i = begin; i <= end; ++i) {
+                    fireSound(clip.frames[static_cast<std::size_t>(i)]);
+                }
+            };
+
             float localTime = animator.time;
             if (useLoop) {
                 localTime = std::fmod(localTime, clipDuration);
@@ -903,6 +955,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                     localTime += clipDuration;
                 }
             } else if (localTime >= clipDuration) {
+                const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
+                fireEnteredHolds(animator.lastSoundFrameIndex, lastIndex);
+                animator.lastSoundFrameIndex = lastIndex;
                 animator.playing = false;
                 animator.justFinished = true;
                 animator.time = clipDuration;
@@ -914,6 +969,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             for (std::size_t frameIndex = 0; frameIndex < clip.frames.size(); ++frameIndex) {
                 const SpriteAnimFrame& frame = clip.frames[frameIndex];
                 if (localTime < frame.duration) {
+                    const int currentIndex = static_cast<int>(frameIndex);
+                    fireEnteredHolds(animator.lastSoundFrameIndex, currentIndex);
+                    animator.lastSoundFrameIndex = currentIndex;
                     sprite.frame = frame.id;
                     applyTween(frameIndex, localTime, frame.duration);
                     return;
@@ -921,6 +979,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 localTime -= frame.duration;
             }
 
+            const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
+            fireEnteredHolds(animator.lastSoundFrameIndex, lastIndex);
+            animator.lastSoundFrameIndex = lastIndex;
             sprite.frame = clip.frames.back().id;
             clearTween();
         });

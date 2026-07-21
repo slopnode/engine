@@ -20,6 +20,7 @@ struct SpriteAnimator {
     bool tweenTranslate = false;
     float transformBlend = 0.0f;
     std::string nextFrame;
+    int lastSoundFrameIndex = -1;
 
     bool hasTween() const {
         return tweenRotation || tweenScale || tweenTranslate;

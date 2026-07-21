@@ -15,6 +15,7 @@ void SpriteAnimator::play(std::string_view clip, bool shouldLoop, float playback
     tweenTranslate = false;
     transformBlend = 0.0f;
     nextFrame.clear();
+    lastSoundFrameIndex = -1;
 }
 
 void SpriteAnimator::stop() {
@@ -26,6 +27,7 @@ void SpriteAnimator::stop() {
     tweenTranslate = false;
     transformBlend = 0.0f;
     nextFrame.clear();
+    lastSoundFrameIndex = -1;
 }
 
 }

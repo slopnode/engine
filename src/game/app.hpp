@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assets/asset_store.hpp"
+#include "audio/audio_world.hpp"
 #include "game/app_config.hpp"
 #include "game/user_settings.hpp"
 #include "physics/physics_world.hpp"
@@ -43,6 +44,7 @@ private:
     AssetStore assetStore_;
     flecs::world world_;
     std::unique_ptr<PhysicsWorld> physicsWorld_;
+    std::unique_ptr<AudioWorld> audioWorld_;
     s7_scheme* scheme_ = nullptr;
     bool running_ = false;
 };
