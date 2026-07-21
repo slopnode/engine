@@ -34,4 +34,11 @@ struct FirstPersonController {
     float eyeHeight = 1.7f;
 };
 
+/** Package-written view-space eye offset (meters). Applied only to presentation camera. */
+struct ViewEyeOffset {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
 }

@@ -928,11 +928,24 @@ void registerRenderSystems(flecs::world& world) {
     world.system<const Lens>("LensWorld")
         .with<WorldSpace>()
         .kind(flecs::PostUpdate)
-        .each([](flecs::iter& it, size_t, const Lens& lens) {
+        .each([](flecs::iter& it, size_t index, const Lens& lens) {
             flecs::world world = it.world();
+            flecs::entity eyeEntity = it.entity(index);
             RenderContext& context = world.get_mut<RenderContext>();
             const bool unlit =
                 world.has<DebugUiState>() && world.get<DebugUiState>().unlit;
+
+            FirstPersonController controller{};
+            ViewEyeOffset eyeOffset{};
+            if (eyeEntity.has<FirstPersonController>()) {
+                controller = eyeEntity.get<FirstPersonController>();
+            }
+            if (eyeEntity.has<ViewEyeOffset>()) {
+                eyeOffset = eyeEntity.get<ViewEyeOffset>();
+            }
+            const Camera3D presentCam = presentationCamera(lens, controller, eyeOffset);
+            Lens presentLens = lens;
+            presentLens.camera = presentCam;
 
             std::vector<RankedDynamicLight> rankedLights;
             if (!unlit) {
@@ -948,8 +961,8 @@ void registerRenderSystems(flecs::world& world) {
                     const Vector3 localPos = translationFromMatrix(global.matrix);
                     const Vector3 localDir = directionFromMatrix(global.matrix);
                     if (entity.has<ViewSpace>()) {
-                        ranked.position = viewToWorldPoint(lens, localPos);
-                        ranked.direction = viewToWorldDirection(lens, localDir);
+                        ranked.position = viewToWorldPoint(presentLens, localPos);
+                        ranked.direction = viewToWorldDirection(presentLens, localDir);
                     } else {
                         ranked.position = localPos;
                         ranked.direction = localDir;
@@ -982,7 +995,7 @@ void registerRenderSystems(flecs::world& world) {
                 world.get_mut<DynamicLightFrameState>().lights = rankedLights;
             }
 
-            BeginMode3D(lens.camera);
+            BeginMode3D(presentCam);
             context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
                 if (!modelEntity.has<WorldSpace>()) {
                     return;
@@ -1355,6 +1368,7 @@ void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, floa
         .add<WorldSpace>()
         .set<Lens>(lens)
         .set<FirstPersonController>(controller)
+        .set<ViewEyeOffset>(ViewEyeOffset{})
         .set<CollisionTags>(CollisionTags{{"player"}});
 
     ensureFirstPersonScene(world, player);
@@ -1463,6 +1477,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         .set<Lens>(lens)
         .set<FirstPersonController>(controller)
         .set<CharacterMotor>(motor)
+        .set<ViewEyeOffset>(ViewEyeOffset{})
         .set<CollisionTags>(CollisionTags{{"player"}});
 
     if (world.has<PhysicsContext>()) {

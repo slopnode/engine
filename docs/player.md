@@ -33,6 +33,7 @@ Systems look up `world.lookup("Player")`. On a map load the entity carries:
 | `WorldSpace` | In the world transform set (no `LocalTransformation`; pose comes from `Lens` / physics). |
 | `Lens` | raylib `Camera3D`: position, target, up, `fovy` `75`, perspective. |
 | `FirstPersonController` | Yaw / pitch look, move and look rates, eye height used when not physics-driven. |
+| `ViewEyeOffset` | View-space presentation offset; default zero. Does not affect aim. |
 | `FirstPersonScene` | Handles for the view-space stage root and sockets (`weapon`, `emission`). |
 | `CharacterMotor` | Capsule motor params and wish velocity; present on map scenes. |
 
@@ -48,8 +49,9 @@ The first-person scene is a **presentation layer**: it shows what the package de
 |------|----------------|
 | Empty eye-space stage (`PlayerFp`) and sockets | Inventory, ammo, loadouts, weapon switch rules |
 | Draw of `ViewSpace` geo / view sprites after the world | Hit detection, fire, reload, usability |
-| Primitives to attach geo/sprites, mutate sprite pose, spawn or toggle a `DynamicLight` | Whether the flashlight “should” be on; raise/lower, bob, or holster policy |
-| Optional rad tint / faux shading look | Map lighting design (bake + dynamic overlay—see [Lights](lights.md)) |
+| Primitives to attach geo/sprites, mutate sprite pose, eye offset, spawn or toggle a `DynamicLight` | Whether the flashlight “should” be on; raise/lower, bob, or holster policy |
+| Raw `Lens` eye for aim/interact; presentation camera for world draw | Map lighting design (bake + dynamic overlay—see [Lights](lights.md)) |
+| Optional rad tint / faux shading look | — |
 
 Input still reaches the package as hooks (for example flashlight → `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
 
@@ -59,11 +61,13 @@ The engine owns an empty **eye-space stage** rooted at `PlayerFp` (`ViewSpace`),
 
 **View axes:** `+X` screen-right, `+Y` up, `+Z` forward. Author viewmodels and offsets in that space.
 
-After `Player` spawns, the engine calls `(prepare-first-person "Player")` if that procedure exists (loaded from `scripts/player.s7`). That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under `ViewSpace` are converted to world space at light-gather time via the player `Lens` (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
+**Raw vs presentation eye:** Physics and look write the authoritative `Lens` (feet + `eyeHeight` + yaw/pitch). Aim and interact always use that raw `Lens`. Packages may set a view-space `ViewEyeOffset` via `(fp-set-eye-offset x y z)`; world draw and `ViewSpace` light lifts use a **presentation camera** (raw eye + offset). The offset is never written back into `Lens`. Bob / punch / settle formulas stay package Scheme.
+
+After `Player` spawns, the engine calls `(prepare-first-person "Player")` if that procedure exists (loaded from `scripts/player.s7`). That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under `ViewSpace` are converted to world space at light-gather time via the presentation camera (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
 
 ### Scheme API (engine primitives)
 
-These bindings mutate presentation only. Keep authoritative state in package variables or entities elsewhere, then call into this API when that state changes.
+These bindings mutate presentation only (or read motion sensors). Keep authoritative gameplay state in package variables or entities elsewhere, then call into this API when that state changes.
 
 | Binding | Purpose |
 |---------|---------|
@@ -76,12 +80,16 @@ These bindings mutate presentation only. Keep authoritative state in package var
 | `(fp-set-sprite-scale socket sx sy)` | Independent X/Y scale multipliers (default `1 1`). |
 | `(fp-set-sprite-rotation socket degrees)` | Rotation in degrees around the sprite origin. |
 | `(fp-set-sprite-origin socket ox oy)` | Normalized pivot in sprite space (default `0.5 1.0` = bottom-center). Canvas position places this pivot. |
+| `(fp-set-eye-offset x y z)` | View-space eye offset in meters for the presentation camera only. Does not affect aim/interact. |
+| `(player-speed)` | Horizontal character speed (m/s); `0` if no physics player. |
+| `(player-grounded?)` | `#t` when the character is supported; `#f` if unsupported or no body. |
+| `(player-wish-speed)` | `hypot(wishX, wishZ)` from `CharacterMotor` (move intent). |
 | `(fp-spawn-light socket kind [intensity range cone r g b x y z])` | Spawn a dynamic light under a socket (starts off). |
 | `(fp-set-light-enabled socket enabled)` | Toggle light intensity using the spawn-time on-intensity. |
 | `(fp-set-rad-tint enabled)` | Tint viewmodels from a baked rad probe at the feet (plus dynamic lights). Off by default. |
 | `(fp-set-shading enabled)` | Use package `default/viewmodel_*` faux lighting (Lambert + rim) with the probe. Off by default. |
 
-Raise/lower, bob, kick, and similar presentation policies stay in package Scheme. The engine only exposes pose mutators and an optional `(tick dt)` heartbeat.
+Raise/lower, bob, kick, and similar presentation policies stay in package Scheme. The engine only exposes pose/eye mutators, motion sensors, and an optional `(tick dt)` heartbeat.
 
 ### Package hooks
 
