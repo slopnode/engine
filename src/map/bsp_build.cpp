@@ -180,7 +180,10 @@ std::vector<Vector3> buildCapPolygon(
         const Vector3 db = sub3(b, origin);
         const float angA = std::atan2(dot3(da, bitangent), dot3(da, tangent));
         const float angB = std::atan2(dot3(db, bitangent), dot3(db, tangent));
-        return angA < angB;
+        if (angA != angB) return angA < angB;
+        const float lenA = dot3(da, tangent) * dot3(da, tangent) + dot3(da, bitangent) * dot3(da, bitangent);
+        const float lenB = dot3(db, tangent) * dot3(db, tangent) + dot3(db, bitangent) * dot3(db, bitangent);
+        return lenA < lenB;
     });
 
     if (polygonArea(points) < kMinFaceArea) {
