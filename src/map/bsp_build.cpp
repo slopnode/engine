@@ -325,6 +325,41 @@ bool leafCenterInsideAnyHull(const Polyhedron& poly, const std::vector<Brush>& h
     return false;
 }
 
+struct SplitScore {
+    int frontFaces = 0;
+    int backFaces = 0;
+    int splitFaces = 0;
+    int onPlaneFaces = 0;
+};
+
+SplitScore scoreSplitPlane(const BspPlane& plane, const Polyhedron& poly) {
+    SplitScore s;
+    for (const auto& face : poly.faces) {
+        bool hasFront = false;
+        bool hasBack = false;
+        for (const Vector3& v : face) {
+            const float d = planeDistance(plane, v);
+            if (d > kPlaneEps) hasFront = true;
+            else if (d < -kPlaneEps) hasBack = true;
+        }
+        if (hasFront && hasBack) ++s.splitFaces;
+        else if (hasFront) ++s.frontFaces;
+        else if (hasBack) ++s.backFaces;
+        else ++s.onPlaneFaces;
+    }
+    return s;
+}
+
+float evaluateSplit(const SplitScore& s) {
+    const int total = s.frontFaces + s.backFaces;
+    if (total == 0) return 0.0f;
+    const int lo = std::min(s.frontFaces, s.backFaces);
+    const int hi = std::max(s.frontFaces, s.backFaces);
+    const float balance = static_cast<float>(lo) / static_cast<float>(hi);
+    const float splitPenalty = static_cast<float>(s.splitFaces) / static_cast<float>(total + s.splitFaces);
+    return balance - splitPenalty;
+}
+
 bool planeCutsPolyhedron(const BspPlane& plane, const Polyhedron& poly) {
     bool anyFront = false;
     bool anyBack = false;
@@ -382,16 +417,25 @@ std::int32_t buildNode(
     BspTree& tree,
     const Polyhedron& poly,
     const std::vector<Brush>& hulls,
-    const std::vector<BspPlane>& splits) {
+    const std::vector<BspPlane>& splits,
+    std::vector<std::uint8_t>& used) {
     BspPlane chosen{};
     bool found = false;
-    for (const BspPlane& plane : splits) {
-        if (!planeCutsPolyhedron(plane, poly)) {
+    float bestScore = -1.0f;
+    for (std::size_t pi = 0; pi < splits.size(); ++pi) {
+        if (used[pi]) {
             continue;
         }
-        chosen = plane;
-        found = true;
-        break;
+        if (!planeCutsPolyhedron(splits[pi], poly)) {
+            continue;
+        }
+        const SplitScore ss = scoreSplitPlane(splits[pi], poly);
+        const float score = evaluateSplit(ss);
+        if (score > bestScore) {
+            bestScore = score;
+            chosen = splits[pi];
+            found = true;
+        }
     }
 
     if (!found) {
@@ -418,11 +462,22 @@ std::int32_t buildNode(
         return encodeLeaf(leafIndex);
     }
 
+    std::size_t chosenIndex = 0;
+    for (std::size_t pi = 0; pi < splits.size(); ++pi) {
+        if (planesEqual(splits[pi], chosen)) {
+            chosenIndex = pi;
+            break;
+        }
+    }
+    used[chosenIndex] = 1;
+
     const std::int32_t nodeIndex = static_cast<std::int32_t>(tree.nodes.size());
     tree.nodes.push_back({});
 
-    const std::int32_t front = buildNode(tree, frontPoly, hulls, splits);
-    const std::int32_t back = buildNode(tree, backPoly, hulls, splits);
+    const std::int32_t front = buildNode(tree, frontPoly, hulls, splits, used);
+    const std::int32_t back = buildNode(tree, backPoly, hulls, splits, used);
+
+    used[chosenIndex] = 0;
 
     tree.nodes[static_cast<std::size_t>(nodeIndex)].plane = chosen;
     tree.nodes[static_cast<std::size_t>(nodeIndex)].front = front;
@@ -785,8 +840,9 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     TraceLog(LOG_INFO, "BSP: split planes=%d", static_cast<int>(splits.size()));
 
     const Polyhedron world = makeBoundsPolyhedron(mins, maxs);
+    std::vector<std::uint8_t> used(splits.size(), 0);
     TraceLog(LOG_INFO, "BSP: building nodes...");
-    tree.root = buildNode(tree, world, hulls, splits);
+    tree.root = buildNode(tree, world, hulls, splits, used);
     TraceLog(LOG_INFO, "BSP: nodes=%d leaves=%d", static_cast<int>(tree.nodes.size()), static_cast<int>(tree.leaves.size()));
     TraceLog(LOG_INFO, "BSP: building adjacency...");
     buildAdjacency(tree);
