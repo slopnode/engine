@@ -184,6 +184,7 @@ add_executable(slopmap
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
     tools/slopmap/punch_tool.cpp
+    tools/slopmap/clip_tool.cpp
     tools/slopmap/material_browser.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp

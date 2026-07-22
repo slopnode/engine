@@ -6,6 +6,7 @@
 #include "map/vis_io.hpp"
 
 #include <raymath.h>
+#include <rlgl.h>
 
 #include <algorithm>
 #include <cmath>
@@ -189,6 +190,14 @@ void MapPreview::clearLit() {
     rad = {};
 }
 
+void MapPreview::clearVis() {
+    if (visValid && visModel.meshCount > 0) {
+        UnloadModel(visModel);
+    }
+    visModel = {};
+    visValid = false;
+}
+
 void MapPreview::clear() {
     if (valid && model.meshCount > 0) {
         UnloadModel(model);
@@ -196,6 +205,7 @@ void MapPreview::clear() {
     model = {};
     valid = false;
     editFaceIds.clear();
+    clearVis();
     clearLit();
 }
 
@@ -225,6 +235,45 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
 
     valid = model.meshCount > 0;
+}
+
+bool MapPreview::reloadVisPreview(
+    slopengine::AssetStore& assets,
+    const std::string& mapName,
+    const std::vector<slopengine::Brush>& brushes) {
+    (void)brushes;
+    clearVis();
+    if (mapName.empty() || mapName == "untitled") {
+        return false;
+    }
+
+    const std::string visVirtualPath = mapName + "/static";
+    if (!assets.hasMapVis(visVirtualPath)) {
+        return false;
+    }
+    const auto visPath = assets.resolvePath(slopengine::AssetKind::MapVis, visVirtualPath);
+    if (!visPath) {
+        return false;
+    }
+    auto loadedVis = slopengine::readVisFile(*visPath);
+    if (!loadedVis || loadedVis->faces.empty()) {
+        return false;
+    }
+
+    const auto resolveUv =
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    const slopengine::CsgCompileResult compiled =
+        slopengine::compileVisibleFacesToGeo(*loadedVis, resolveUv, nullptr);
+
+    visModel = slopengine::buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+    visValid = visModel.meshCount > 0;
+    if (!visValid) {
+        clearVis();
+    }
+    return visValid;
 }
 
 bool MapPreview::reloadBake(
@@ -442,42 +491,100 @@ void drawBrushFaceOutlines(
     }
 }
 
+void drawBrushFaceOutlinesXray(const slopengine::Brush& brush, Color color) {
+    for (const slopengine::BrushFace& face : brush.faces) {
+        if (face.vertices.size() < 2) {
+            continue;
+        }
+        for (std::size_t i = 0; i < face.vertices.size(); ++i) {
+            const Vector3& a = face.vertices[i];
+            const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
+            DrawLine3D(a, b, color);
+        }
+    }
+}
+
 void MapPreview::draw(
-    PreviewShading shading,
+    PreviewFill fill,
+    WireframeOverlay wireframe,
     const std::vector<slopengine::Brush>& brushes,
     const std::vector<slopengine::Brush>& instanceBrushes,
     const std::vector<int>& selectedBrushes,
     Vector3 eye,
     float lineWidth) const {
-    if (shading == PreviewShading::Wireframe) {
+    auto outlineBrush = [&](const slopengine::Brush& brush, bool selected) {
+        drawBrushFaceOutlines(brush, brushOutlineColor(brush, selected), eye, lineWidth);
+    };
+
+    switch (fill) {
+    case PreviewFill::Wireframe:
         for (std::size_t i = 0; i < brushes.size(); ++i) {
             const bool selected =
                 std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
                 selectedBrushes.end();
-            drawBrushFaceOutlines(
-                brushes[i],
-                brushOutlineColor(brushes[i], selected),
-                eye,
-                lineWidth);
+            outlineBrush(brushes[i], selected);
         }
+        break;
+    case PreviewFill::Lit:
+        if (litValid) {
+            DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            break;
+        }
+        [[fallthrough]];
+    case PreviewFill::Unlit:
+        if (visValid) {
+            DrawModel(visModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            break;
+        }
+        [[fallthrough]];
+    case PreviewFill::Textures:
+        if (valid) {
+            drawEditModelTextured(model);
+        }
+        break;
+    case PreviewFill::Solid:
+        if (valid) {
+            drawEditModelSolid(model, editFaceIds, brushes, instanceBrushes);
+        }
+        break;
+    }
+
+    if (fill == PreviewFill::Wireframe || wireframe == WireframeOverlay::Off) {
         return;
     }
 
-    if (shading == PreviewShading::Lit && litValid) {
-        DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
-        return;
+    rlDrawRenderBatchActive();
+    if (wireframe == WireframeOverlay::All) {
+        rlDisableDepthTest();
+        rlDisableDepthMask();
+        rlDisableBackfaceCulling();
+        for (std::size_t i = 0; i < brushes.size(); ++i) {
+            const bool selected =
+                std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
+                selectedBrushes.end();
+            drawBrushFaceOutlinesXray(
+                brushes[i],
+                selected ? Color{255, 180, 60, 255} : Color{220, 220, 230, 255});
+        }
+        for (const slopengine::Brush& brush : instanceBrushes) {
+            drawBrushFaceOutlinesXray(brush, Color{180, 200, 220, 255});
+        }
+        rlDrawRenderBatchActive();
+        rlEnableBackfaceCulling();
+        rlEnableDepthMask();
+        rlEnableDepthTest();
+    } else if (wireframe == WireframeOverlay::Visible) {
+        for (std::size_t i = 0; i < brushes.size(); ++i) {
+            const bool selected =
+                std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
+                selectedBrushes.end();
+            outlineBrush(brushes[i], selected);
+        }
+        for (const slopengine::Brush& brush : instanceBrushes) {
+            outlineBrush(brush, false);
+        }
+        rlDrawRenderBatchActive();
     }
-
-    if (!valid) {
-        return;
-    }
-
-    if (shading == PreviewShading::Solid) {
-        drawEditModelSolid(model, editFaceIds, brushes, instanceBrushes);
-        return;
-    }
-
-    drawEditModelTextured(model);
 }
 
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color) {

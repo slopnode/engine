@@ -511,7 +511,8 @@ void Editor::newMap(const std::string& mapName) {
     expandedInstanceBrushes.clear();
     expandedInstanceOwners.clear();
     preview.clear();
-    shading = PreviewShading::Textured;
+    fill = PreviewFill::Textures;
+    wireframe = WireframeOverlay::Off;
     compileDirty = {};
     resetCamera(*this);
     createBrushRole = slopengine::BrushRole::Hull;
@@ -563,7 +564,8 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     resetSelectionSerial(levelDoc);
     compileDirty = {};
     rebuildPreview(assets);
-    shading = reloadLitBake(assets) ? PreviewShading::Lit : PreviewShading::Textured;
+    reloadVisPreview(assets);
+    fill = reloadLitBake(assets) ? PreviewFill::Lit : PreviewFill::Textures;
     frameSelection();
     createBrushRole = slopengine::BrushRole::Hull;
     statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
@@ -816,6 +818,16 @@ void Editor::rebuildPreview(slopengine::AssetStore& assets) {
         }
     }
     preview.rebuild(assets, combined);
+}
+
+bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
+    if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
+        return false;
+    }
+    std::vector<slopengine::Brush> combined = levelDoc.brushes;
+    combined.insert(
+        combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
+    return preview.reloadVisPreview(assets, levelDoc.assetPath, combined);
 }
 
 bool Editor::reloadLitBake(slopengine::AssetStore& assets) {

@@ -44,6 +44,155 @@ Vector3 normalize3(Vector3 v) {
     return {v.x / len, v.y / len, v.z / len};
 }
 
+Vector3 add3(Vector3 a, Vector3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vector3 scale3(Vector3 a, float s) {
+    return {a.x * s, a.y * s, a.z * s};
+}
+
+float polygonAreaLocal(const std::vector<Vector3>& verts) {
+    if (verts.size() < 3) {
+        return 0.0f;
+    }
+    Vector3 accum{};
+    for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+        accum = add3(accum, cross3(sub3(verts[i], verts[0]), sub3(verts[i + 1], verts[0])));
+    }
+    return 0.5f * length3(accum);
+}
+
+Vector3 polygonCentroidLocal(const std::vector<Vector3>& verts) {
+    Vector3 sum{};
+    if (verts.empty()) {
+        return sum;
+    }
+    for (const Vector3& v : verts) {
+        sum = add3(sum, v);
+    }
+    return scale3(sum, 1.0f / static_cast<float>(verts.size()));
+}
+
+float planeSignedDistance(Vector3 planePoint, Vector3 planeNormal, Vector3 p) {
+    return dot3(planeNormal, sub3(p, planePoint));
+}
+
+std::vector<Vector3> clipPolygonAgainstPlaneLocal(
+    const std::vector<Vector3>& input,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    bool keepFront) {
+    std::vector<Vector3> output;
+    if (input.empty()) {
+        return output;
+    }
+
+    auto isInside = [&](Vector3 p) {
+        const float d = planeSignedDistance(planePoint, planeNormal, p);
+        return keepFront ? (d >= -kPlaneEps) : (d <= kPlaneEps);
+    };
+
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        const Vector3& current = input[i];
+        const Vector3& next = input[(i + 1) % input.size()];
+        const bool currentIn = isInside(current);
+        const bool nextIn = isInside(next);
+        const float d0 = planeSignedDistance(planePoint, planeNormal, current);
+        const float d1 = planeSignedDistance(planePoint, planeNormal, next);
+
+        if (currentIn && nextIn) {
+            output.push_back(next);
+        } else if (currentIn && !nextIn) {
+            const float t = d0 / (d0 - d1);
+            output.push_back(add3(current, scale3(sub3(next, current), t)));
+        } else if (!currentIn && nextIn) {
+            const float t = d0 / (d0 - d1);
+            output.push_back(add3(current, scale3(sub3(next, current), t)));
+            output.push_back(next);
+        }
+    }
+    return output;
+}
+
+std::vector<Vector3> buildCapPolygonLocal(
+    const std::vector<std::vector<Vector3>>& clippedFaces,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    bool frontCap) {
+    std::vector<Vector3> points;
+    for (const std::vector<Vector3>& face : clippedFaces) {
+        for (const Vector3& v : face) {
+            if (std::fabs(planeSignedDistance(planePoint, planeNormal, v)) <= kPlaneEps * 4.0f) {
+                bool unique = true;
+                for (const Vector3& existing : points) {
+                    if (length3(sub3(existing, v)) <= kPlaneEps * 4.0f) {
+                        unique = false;
+                        break;
+                    }
+                }
+                if (unique) {
+                    points.push_back(v);
+                }
+            }
+        }
+    }
+    if (points.size() < 3) {
+        return {};
+    }
+
+    Vector3 origin = polygonCentroidLocal(points);
+    Vector3 n = planeNormal;
+    if (!frontCap) {
+        n = scale3(n, -1.0f);
+    }
+    Vector3 tangent =
+        std::fabs(n.y) < 0.9f ? cross3(n, {0.0f, 1.0f, 0.0f}) : cross3(n, {1.0f, 0.0f, 0.0f});
+    tangent = normalize3(tangent);
+    const Vector3 bitangent = normalize3(cross3(n, tangent));
+
+    std::sort(points.begin(), points.end(), [&](Vector3 a, Vector3 b) {
+        const Vector3 da = sub3(a, origin);
+        const Vector3 db = sub3(b, origin);
+        const float angA = std::atan2(dot3(da, bitangent), dot3(da, tangent));
+        const float angB = std::atan2(dot3(db, bitangent), dot3(db, tangent));
+        if (angA != angB) {
+            return angA < angB;
+        }
+        const float lenA =
+            dot3(da, tangent) * dot3(da, tangent) + dot3(da, bitangent) * dot3(da, bitangent);
+        const float lenB =
+            dot3(db, tangent) * dot3(db, tangent) + dot3(db, bitangent) * dot3(db, bitangent);
+        return lenA < lenB;
+    });
+
+    if (polygonAreaLocal(points) < 1e-6f) {
+        return {};
+    }
+    return points;
+}
+
+BrushFace makeClippedFace(const BrushFace& source, std::vector<Vector3> verts) {
+    BrushFace face = source;
+    face.id.clear();
+    face.vertices = std::move(verts);
+    face.normal = {};
+    return face;
+}
+
+BrushFace makeCapFace(
+    const std::string& material,
+    std::vector<Vector3> verts,
+    bool nodraw,
+    bool uvLock) {
+    BrushFace face;
+    face.material = material;
+    face.vertices = std::move(verts);
+    face.nodraw = nodraw;
+    face.uvLock = uvLock;
+    return face;
+}
+
 BrushFace makeBoxFace(
     BrushBoxSide side,
     const std::string& brushId,
@@ -1039,6 +1188,94 @@ BrushBoxSide brushBoxSideFromNormal(Vector3 normal) {
         return normal.z >= 0.0f ? BrushBoxSide::South : BrushBoxSide::North;
     }
     return normal.x >= 0.0f ? BrushBoxSide::East : BrushBoxSide::West;
+}
+
+std::optional<BrushSplitResult> splitBrushByPlane(
+    const Brush& source,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    const std::function<std::string()>& allocateId,
+    std::string& errorOut) {
+    errorOut.clear();
+    const Vector3 n = normalize3(planeNormal);
+    if (length3(n) < 1e-8f) {
+        errorOut = "invalid clip plane";
+        return std::nullopt;
+    }
+    if (source.faces.size() < 4) {
+        errorOut = "brush has too few faces";
+        return std::nullopt;
+    }
+
+    bool anyFront = false;
+    bool anyBack = false;
+    for (const BrushFace& face : source.faces) {
+        for (const Vector3& v : face.vertices) {
+            const float d = planeSignedDistance(planePoint, n, v);
+            if (d > kPlaneEps) {
+                anyFront = true;
+            } else if (d < -kPlaneEps) {
+                anyBack = true;
+            }
+        }
+    }
+    if (!anyFront || !anyBack) {
+        errorOut = "clip plane does not intersect brush";
+        return std::nullopt;
+    }
+
+    std::vector<BrushFace> frontFaces;
+    std::vector<BrushFace> backFaces;
+    std::vector<std::vector<Vector3>> frontPolys;
+    std::vector<std::vector<Vector3>> backPolys;
+    frontFaces.reserve(source.faces.size() + 1);
+    backFaces.reserve(source.faces.size() + 1);
+
+    for (const BrushFace& face : source.faces) {
+        auto frontPoly = clipPolygonAgainstPlaneLocal(face.vertices, planePoint, n, true);
+        auto backPoly = clipPolygonAgainstPlaneLocal(face.vertices, planePoint, n, false);
+        if (frontPoly.size() >= 3 && polygonAreaLocal(frontPoly) >= 1e-6f) {
+            frontPolys.push_back(frontPoly);
+            frontFaces.push_back(makeClippedFace(face, std::move(frontPoly)));
+        }
+        if (backPoly.size() >= 3 && polygonAreaLocal(backPoly) >= 1e-6f) {
+            backPolys.push_back(backPoly);
+            backFaces.push_back(makeClippedFace(face, std::move(backPoly)));
+        }
+    }
+
+    auto frontCap = buildCapPolygonLocal(frontPolys, planePoint, n, true);
+    auto backCap = buildCapPolygonLocal(backPolys, planePoint, n, false);
+    const std::string capMaterial =
+        source.faces.empty() ? std::string{} : source.faces.front().material;
+    if (frontCap.size() >= 3) {
+        frontFaces.push_back(makeCapFace(capMaterial, std::move(frontCap), false, false));
+    }
+    if (backCap.size() >= 3) {
+        backFaces.push_back(makeCapFace(capMaterial, std::move(backCap), false, false));
+    }
+
+    std::string frontErr;
+    std::string backErr;
+    auto frontBrush = makeBrushConvex(allocateId(), std::move(frontFaces), source.role, frontErr);
+    auto backBrush = makeBrushConvex(allocateId(), std::move(backFaces), source.role, backErr);
+    if (!frontBrush || !backBrush) {
+        errorOut = !frontErr.empty() ? frontErr : backErr;
+        if (errorOut.empty()) {
+            errorOut = "split produced invalid brush";
+        }
+        return std::nullopt;
+    }
+
+    frontBrush->nocollide = source.nocollide;
+    backBrush->nocollide = source.nocollide;
+    frontBrush->box = false;
+    backBrush->box = false;
+
+    BrushSplitResult result;
+    result.front = std::move(*frontBrush);
+    result.back = std::move(*backBrush);
+    return result;
 }
 
 }

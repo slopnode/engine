@@ -110,7 +110,8 @@ struct Editor {
     ViewPlane viewPlane = ViewPlane::PerspectiveY0;
     FlyCamera camera;
     MapPreview preview;
-    PreviewShading shading = PreviewShading::Textured;
+    PreviewFill fill = PreviewFill::Textures;
+    WireframeOverlay wireframe = WireframeOverlay::Off;
     float gridSize = 0.1f;
     bool showGrid = true;
     GridPlane gridPlane = GridPlane::XZ;
@@ -167,6 +168,7 @@ struct Editor {
     void markThingCompileDirty(slopengine::ThingKind kind);
     void clearCompileStage(CompileStage stage);
     void rebuildPreview(slopengine::AssetStore& assets);
+    bool reloadVisPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);
     void cycleGrid(int direction);
     const char* gridSizeLabel() const;

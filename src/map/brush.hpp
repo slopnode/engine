@@ -134,6 +134,19 @@ std::vector<Brush> punchOutBrushBox(
     float depth,
     const std::function<std::string()>& allocateId);
 
+struct BrushSplitResult {
+    Brush front;
+    Brush back;
+};
+
+/** Split a convex brush by a plane. Nullopt if the plane misses or a half is degenerate. */
+std::optional<BrushSplitResult> splitBrushByPlane(
+    const Brush& source,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    const std::function<std::string()>& allocateId,
+    std::string& errorOut);
+
 std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& vertices);
 
 }

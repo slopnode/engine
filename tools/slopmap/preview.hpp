@@ -11,11 +11,18 @@
 
 namespace slopmap {
 
-enum class PreviewShading {
+enum class PreviewFill {
     Wireframe,
     Solid,
-    Textured,
+    Textures,
+    Unlit,
     Lit,
+};
+
+enum class WireframeOverlay {
+    Off,
+    Visible,
+    All,
 };
 
 enum class GridPlane {
@@ -29,6 +36,9 @@ struct MapPreview {
     bool valid = false;
     std::vector<std::string> editFaceIds;
 
+    Model visModel{};
+    bool visValid = false;
+
     Model litModel{};
     bool litValid = false;
     slopengine::RadFile rad{};
@@ -37,14 +47,20 @@ struct MapPreview {
     std::vector<Texture2D> lightmapAtlases;
 
     void clear();
+    void clearVis();
     void clearLit();
     void rebuild(slopengine::AssetStore& assets, const std::vector<slopengine::Brush>& brushes);
+    bool reloadVisPreview(
+        slopengine::AssetStore& assets,
+        const std::string& mapName,
+        const std::vector<slopengine::Brush>& brushes);
     bool reloadBake(
         slopengine::AssetStore& assets,
         const std::string& mapName,
         const std::vector<slopengine::Brush>& brushes);
     void draw(
-        PreviewShading shading,
+        PreviewFill fill,
+        WireframeOverlay wireframe,
         const std::vector<slopengine::Brush>& brushes,
         const std::vector<slopengine::Brush>& instanceBrushes,
         const std::vector<int>& selectedBrushes,
