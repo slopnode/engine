@@ -2,14 +2,14 @@
 
 Lighting is a bake-first pipeline with a small runtime dynamic overlay. Map surfaces get offline lightmaps; moving or toggled lights are `DynamicLight` entities ranked each frame and added on top. Thing light forms in `things.s7` feed the bake (point / spot) and editor gizmos; they are not the same as the runtime dynamic light path.
 
-Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md).
+Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md), [slopmap](slopmap.md).
 
 ## Layers
 
 | Layer | Source | When it applies | What it lights |
 |-------|--------|-----------------|----------------|
-| Baked lightmaps | Material emission + `point-light` / `spot-light` things via `sloprad` | Offline → `rad/` atlases | Map brush meshes (lightmap shader) |
-| Thing light entities | `(point-light …)`, `(spot-light …)`, `(area-light …)`, `(sun …)` | Map load → flecs components | Bake (point/spot); authoring / gizmos at runtime |
+| Baked lightmaps | Material emission + `point-light` / `spot-light` things via `sloprad` | Offline -> `rad/` atlases | Map brush meshes (lightmap shader) |
+| Thing light entities | `(point-light ...)`, `(spot-light ...)`, `(area-light ...)`, `(sun ...)` | Map load -> flecs components | Bake (point/spot); authoring / gizmos at runtime |
 | Dynamic lights | `DynamicLight` component (e.g. FP flashlight) | Each frame, ranked near the camera | Map shader add-on; FP rad tint / probe |
 
 There is no runtime PBR stack. Props and characters are not lightmapped; sprites can sample map light at their feet when lightmaps exist. Viewmodels use optional rad tint and faux shading; see [Player](player.md).
@@ -33,23 +33,23 @@ Re-bake after emission or light thing edits that should change static lighting. 
 
 ## Thing lights
 
-Engine forms in `things.s7` (also editable in `slopmap`):
+Engine forms in `things.s7` (also editable in [slopmap](slopmap.md)):
 
 | Form | Flecs component | Bake | Runtime dynamic overlay |
 |------|-----------------|------|-------------------------|
-| `(point-light …)` | `PointLight` | Yes | No (not gathered as `DynamicLight`) |
-| `(spot-light …)` | `SpotLight` | Yes | No |
-| `(area-light …)` | `AreaLight` | No | No |
-| `(sun …)` | `SunLight` | No | No |
+| `(point-light ...)` | `PointLight` | Yes | No (not gathered as `DynamicLight`) |
+| `(spot-light ...)` | `SpotLight` | Yes | No |
+| `(area-light ...)` | `AreaLight` | No | No |
+| `(sun ...)` | `SunLight` | No | No |
 
 Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (default `1`).
 
 | Form | Required | Extra fields |
 |------|----------|--------------|
-| `(point-light …)` | `id`, `at` | `(range N)` default `8` |
-| `(spot-light …)` | `id`, `at` | `(yaw …)` or `(angles …)`, `(range N)`, `(cone radians)` default `0.7` |
-| `(area-light …)` | `id`, `at` | `(angles …)`, `(size width height)` default `1 1` |
-| `(sun …)` | `id` | Direction from `(angles …)` or `(yaw …)`; optional `(at …)` for editor gizmo only |
+| `(point-light ...)` | `id`, `at` | `(range N)` default `8` |
+| `(spot-light ...)` | `id`, `at` | `(yaw ...)` or `(angles ...)`, `(range N)`, `(cone radians)` default `0.7` |
+| `(area-light ...)` | `id`, `at` | `(angles ...)`, `(size width height)` default `1 1` |
+| `(sun ...)` | `id` | Direction from `(angles ...)` or `(yaw ...)`; optional `(at ...)` for editor gizmo only |
 
 Example:
 
@@ -86,12 +86,12 @@ A dynamic light is a flecs entity with `DynamicLight` plus a transform (`LocalTr
 |-------|---------|
 | `kind` | `Point` or `Spot` |
 | `color` | Stored as RGB, HSV, or HSL; evaluated to linear RGB for shading |
-| `intensity` | Scale; `≤ 0` skips the light in gather |
+| `intensity` | Scale; `<= 0` skips the light in gather |
 | `range` | Falloff distance (meters) |
 | `coneAngle` | Spot outer cone (radians); ignored for point |
 | `castShadows` | Eligible for a shadow slot when ranking (shadow maps exist; map draw currently uploads lights without binding shadow maps) |
 
-Helpers: `spawnDynamicLight`, color setters / modulators in `src/render/dynamic_light.hpp`. First-person Scheme uses `(fp-spawn-light …)` / `(fp-set-light-enabled …)`; see [Player](player.md).
+Helpers: `spawnDynamicLight`, color setters / modulators in `src/render/dynamic_light.hpp`. First-person Scheme uses `(fp-spawn-light ...)` / `(fp-set-light-enabled ...)`; see [Player](player.md).
 
 ### Gather and rank
 
@@ -112,7 +112,7 @@ In `default/lightmap_frag`, each ranked light applies range-squared attenuation;
 
 ### First-person lights
 
-Packages may attach a spot under the `emission` socket and toggle it from Scheme. That entity is a normal `DynamicLight` in `ViewSpace`: when enabled it lights both the world (via gather → lightmap shader) and the viewmodel probe when rad tint is on. The FP stage itself does not own flashlight rules; package scripts do. See [Player: First-person scene](player.md#first-person-scene).
+Packages may attach a spot under the `emission` socket and toggle it from Scheme. That entity is a normal `DynamicLight` in `ViewSpace`: when enabled it lights both the world (via gather -> lightmap shader) and the viewmodel probe when rad tint is on. The FP stage itself does not own flashlight rules; package scripts do. See [Player: First-person scene](player.md#first-person-scene).
 
 ## What belongs where
 

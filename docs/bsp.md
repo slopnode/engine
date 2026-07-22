@@ -2,7 +2,7 @@
 
 `slopbsp` builds the structural hull tree `static.bsp`. Authoring of `static.csg` / `map.meta` stays on [Maps](maps.md). Visible faces: [VIS](vis.md). Lightmaps: [Radiosity](rad.md).
 
-CMake target `slopbsp` (root `CMakeLists.txt`), linked against `sloplib`. Map compile is not an automatic dependency of `slopengine`—run the tool against package content yourself.
+CMake target `slopbsp` (root `CMakeLists.txt`), linked against `sloplib`. Map compile is not an automatic dependency of `slopengine`--run the tool against package content yourself.
 
 ```bash
 cmake --build build --target slopbsp
@@ -25,13 +25,48 @@ Re-run when hull brushes, sealing, or hull face layout change. Downstream [VIS](
 
 Detail brushes never contribute split planes and cannot seal a leak. Hint planes split without sealing. Window brushes seal like hull (`Glass` contents). Trigger / water / hint / detail centers must sit in sealed interior open space or `slopbsp` / `slopvis` / `sloprad` warn.
 
+## Why this is not a modern mesh pipeline
+
+Most current editors treat a level as an arbitrary triangle soup (or a collection of meshes) plus separate systems for collision, visibility, and lighting. You place geometry anywhere; a BVH or GPU raster path draws it; navmesh / probes / lightmaps are built from whatever faces the baker is told to include. There is usually no authored "inside" that must be watertight against the void.
+
+This BSP path is older Quake-family thinking:
+
+| Modern mesh level | This BSP |
+|-------------------|----------|
+| Draw whatever is in the scene | Draw VIS face fragments clipped to sealed interior |
+| Collision meshes / primitives are separate | Per-brush convex hulls; BSP is not the physics mesh |
+| No global seal requirement | Hull must enclose playable empty space or compile fails a leak check |
+| Detail and structure are the same mesh kind | Brush **role** decides who splits, who seals, who only decorates |
+| Visibility often runtime culling / portals / HZB | Offline visible-face set (`static.vis`), not leaf<->leaf PVS |
+
+The tree exists so empty space can be classified as exterior (connected to the padded world bounds) versus interior (playable). That classification drives leak detection, which faces are "inside," and what VIS / radiosity are allowed to treat as the level. A triangle mesh with a hole in the floor is usually fine in a modern editor; here it is a leak because exterior flood walks into the room.
+
+## Why hull and non-hull
+
+Brush roles are how authors mark structure versus content that lives *inside* structure. Role table on [Maps](maps.md#staticcsg).
+
+**Hull** (and **window**, which seals as `Glass`) form the airtight shell. Their faces supply split planes and sealing contents (`Solid` / `Glass`). Without a closed hull, there is no sealed interior open leaf set, so VIS cannot decide what is buried versus playable and the map is rejected as leaky (the `.bsp` is still written for debug).
+
+**Non-hull** roles do not seal:
+
+| Role | Splits tree? | Seals? | Why it exists |
+|------|--------------|--------|---------------|
+| `detail` | no | no | Furniture, trim, clutter that should draw/lightmap but must not punch holes in the shell or explode the tree with extra planes |
+| `hint` | yes | no | Optional split-only planes to reshape leaves without adding solid |
+| `trigger` / `water` | no / yes | no | Mark open leaves; must sit in already-sealed interior |
+| `window` | yes | yes (`Glass`) | Thin fill for openings; seals like hull for flood |
+
+If every decorative crate were hull, each face would become a candidate split plane, the tree would fragment, and any gap between crate and floor could open a leak path from exterior into the room. Marking those brushes detail keeps them out of sealing: they still collide and still feed VIS faces when their surfaces see interior empty space, but they cannot define or break the shell.
+
+Authoring rule of thumb: walls, floors, ceilings, and anything that must keep the void out -> `hull` (or `window` for sealed openings). Everything that only exists in the playable volume -> `detail` (or trigger / water / hint as needed). Prefab furniture should usually ship as detail; modular room pieces that form the shell should ship as hull.
+
 ## Tool sequence
 
 Entry point: `tools/slopbsp/main.cpp`. Core build: `buildBspFromHullBrushes` in `src/map/bsp_build.cpp`. Analysis: `analyzeMapHull` in `src/map/bsp_analyze.cpp`. On-disk format: `BSP2` via `src/map/bsp_io.cpp`.
 
 1. Parse CLI (`AppConfig`); require `--map`.
 2. Mount packages through `AssetStore`, init s7, load brushes with `loadMapBrushes`.
-3. `buildBspFromHullBrushes` → in-memory `BspTree`.
+3. `buildBspFromHullBrushes` -> in-memory `BspTree`.
 4. Resolve `maps/<name>/static.csg` and write sibling `static.bsp` with `writeBspFile`.
 5. `analyzeMapHull`. If not sealed: log a leaf-center leak path, exit 1 (file is still written for debugging). If sealed: log exterior/interior empty counts, preview visible-face / inferred-nodraw counts via `buildVisibleFaces` (does not write `.vis`), print detail-outside warnings; exit 0.
 
@@ -39,21 +74,21 @@ Entry point: `tools/slopbsp/main.cpp`. Core build: `buildBspFromHullBrushes` in 
 
 Constants used while building: plane epsilon `1e-4`, world bounds pad `0.5` world units, minimum face area `1e-6`.
 
-1. Gather brushes. Sealing set = `hull` + `window`. Soft contents = `water` + `trigger`. Split planes from `hull`, `window`, `water`, and `hint`. Surface faces from sealing brushes. No sealing brushes → empty tree warning and return.
+1. Gather brushes. Sealing set = `hull` + `window`. Soft contents = `water` + `trigger`. Split planes from `hull`, `window`, `water`, and `hint`. Surface faces from sealing brushes. No sealing brushes -> empty tree warning and return.
 
 2. World bounds. Axis-aligned bounds of sealing brushes, expanded by `kBoundsPad` on every side. Stored as `boundsMins` / `boundsMaxs`. That padding is what creates a ring of exterior open leaves outside the solid shell.
 
-3. Split plane list. Unique face planes from split-contributing brushes. Planes match when normals align (`dot ≥ 0.999`) and distances differ by at most the plane epsilon. Hint-only planes are marked so scoring prefers structural splits.
+3. Split plane list. Unique face planes from split-contributing brushes. Planes match when normals align (`dot >= 0.999`) and distances differ by at most the plane epsilon. Hint-only planes are marked so scoring prefers structural splits.
 
 4. Root polyhedron. An axis-aligned box polyhedron from the padded bounds (six quads).
 
 5. Recursive partition (`buildNode`). For the current polyhedron:
 
 - Classify the cell against sealing brushes as wholly solid, wholly open, or mixed (vertex + centroid samples).
-- Wholly solid → emit a leaf with `Solid` or `Glass` contents immediately (early-out; no further carving of thick walls).
-- Otherwise score remaining unused planes that cut the cell: face-count balance − split penalty, plus axial alignment, plus a bonus for separating solid-vs-open samples; hint-only planes are penalized.
+- Wholly solid -> emit a leaf with `Solid` or `Glass` contents immediately (early-out; no further carving of thick walls).
+- Otherwise score remaining unused planes that cut the cell: face-count balance - split penalty, plus axial alignment, plus a bonus for separating solid-vs-open samples; hint-only planes are penalized.
 - If none (or the geometric split fails): emit an open leaf and OR in `Water` / `Trigger` when the centroid sits in those brushes.
-- If a plane cuts: clip every face against the plane (Sutherland–Hodgman style), build cap polygons on the cut, recurse front then back, store a `BspNode` with plane + front/back children. Child indices encode leaves as negative (`-leafIndex - 1`).
+- If a plane cuts: clip every face against the plane (Sutherland-Hodgman style), build cap polygons on the cut, recurse front then back, store a `BspNode` with plane + front/back children. Child indices encode leaves as negative (`-leafIndex - 1`).
 
 6. Open-leaf adjacency / portals. Walk the tree; for each front/back open-leaf pair with overlapping AABBs, clip opposing coplanar faces into a portal polygon (`intersectPortal`). Store `BspPortal` entries and neighbor links. Adjacency is what the exterior flood walks. Debug overlays draw stored portals.
 
@@ -63,7 +98,7 @@ Constants used while building: plane epsilon `1e-4`, world bounds pad `0.5` worl
 
 Exterior flood. Mark every open leaf that touches the padded world AABB, then BFS through `neighbors`. Marked leaves are exterior open; unmarked open leaves are interior open. Leaves with `Solid` or `Glass` never participate.
 
-Sealed. The hull is sealed when at least one interior open leaf exists. If every open leaf is exterior-connected, the playable volume is open to the outside → leak.
+Sealed. The hull is sealed when at least one interior open leaf exists. If every open leaf is exterior-connected, the playable volume is open to the outside -> leak.
 
 Leak path. On failure, BFS from bound-touching open leaves toward the open leaf whose centroid is closest to the sealing AABB center. The logged path is a chain of `leaf:N@(x,y,z)` strings for debugging in-world.
 

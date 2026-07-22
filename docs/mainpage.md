@@ -23,6 +23,11 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 
 - [Player](player.md)
 
+### Editor tools
+
+- [slopmap](slopmap.md)
+- [slopsprite](slopsprite.md)
+
 ### Assets
 
 - [Geometry](geometry.md)

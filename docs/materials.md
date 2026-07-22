@@ -6,9 +6,9 @@ Materials optionally reference textures and a shader name. At runtime the engine
 
 | Asset | Package dir | Extension | Virtual path example |
 |-------|-------------|-----------|----------------------|
-| Material | `materials/` | `.mat` | `surfaces/stone` → `materials/surfaces/stone.mat` |
-| Texture | `textures/` | `.png` | `surfaces/stone` → `textures/surfaces/stone.png` |
-| Shader | `shaders/` | `.glsl` | `default/lightmap_frag` → `shaders/default/lightmap_frag.glsl` |
+| Material | `materials/` | `.mat` | `surfaces/stone` -> `materials/surfaces/stone.mat` |
+| Texture | `textures/` | `.png` | `surfaces/stone` -> `textures/surfaces/stone.png` |
+| Shader | `shaders/` | `.glsl` | `default/lightmap_frag` -> `shaders/default/lightmap_frag.glsl` |
 
 Geometry primitives and CSG faces name materials by virtual path (no extension). See [Geometry](geometry.md) and [Package structure](package-structure.md).
 
@@ -31,7 +31,7 @@ Geometry primitives and CSG faces name materials by virtual path (no extension).
 |-------|---------|---------|------|
 | `(shader "...")` | `shader` | `"default"` | Stored on the asset; not used to select GLSL yet |
 | `(texture "...")` | albedo texture path | none | Diffuse map under `textures/` |
-| `(base-color R G B A)` | tint | white | Multiplies albedo (normalized floats → 0–255) |
+| `(base-color R G B A)` | tint | white | Multiplies albedo (normalized floats -> 0-255) |
 | `(texel-size N)` | `pixelsPerMeter` | `64` | World UV density for CSG faces (pixels per meter) |
 | `(emission "...")` | emission texture path | none | Sampled during radiosity bake only |
 | `(emission-color R G B A)` | emit tint | black | Bake and runtime emit color |
@@ -43,7 +43,7 @@ Missing or unparsable materials fall back to defaults (white tint, no textures).
 
 A material `(texture "...")` or bake step requests a virtual path. The VFS resolves `textures/<path>.png` across mounted packages (later packages win). `AssetStore::getTexture` loads and caches the PNG. `createRaylibMaterial` binds a successful albedo texture to `MATERIAL_MAP_ALBEDO` with repeat wrap.
 
-If the path is empty or load fails, the material keeps raylib’s default 1×1 white diffuse.
+If the path is empty or load fails, the material keeps raylib's default 1x1 white diffuse.
 
 Lightmap atlases are separate: PNG files under `maps/<name>/rad/`, loaded as map lightmap assets, not as material textures.
 
@@ -98,34 +98,34 @@ where `baked` is the lightmap sample (or white when unlit), `dynamic` is the ran
 
 ```text
 .geo primitive material "surfaces/stone"
-  → getMaterialAsset → parse materials/surfaces/stone.mat
-  → createRaylibMaterial
-       → base-color → albedo color
-       → texture → textures/….png → albedo map
-       → emission-power > 0 → specular color = emission-color
-  → DrawModel with raylib default shader
+  -> getMaterialAsset -> parse materials/surfaces/stone.mat
+  -> createRaylibMaterial
+       -> base-color -> albedo color
+       -> texture -> textures/....png -> albedo map
+       -> emission-power > 0 -> specular color = emission-color
+  -> DrawModel with raylib default shader
 ```
 
 ### Map load
 
 ```text
 VIS face material "surfaces/stone"
-  → resolveMaterialUv (texel-size + albedo size → diffuse UVs)
-  → compile VIS faces → meshes (+ lightmap UV2 from charts)
-  → resolveMaterial (same as props)
-  → override shader = lightmap program
-  → bind rad/atlasN.png on metalness slot per face chart
-  → DrawModel
+  -> resolveMaterialUv (texel-size + albedo size -> diffuse UVs)
+  -> compile VIS faces -> meshes (+ lightmap UV2 from charts)
+  -> resolveMaterial (same as props)
+  -> override shader = lightmap program
+  -> bind rad/atlasN.png on metalness slot per face chart
+  -> DrawModel
 ```
 
 ### Radiosity bake (`sloprad`)
 
 ```text
 getMaterialAsset + LoadImage albedo / emission PNGs
-  → sample albedo and emission with planar UVs (same texel-size rules)
-  → lighting directions use flat brush face normals (no normal maps)
-  → emission ≈ emission-color * emission-power * emission-texel
-  → write atlases + static.rad
+  -> sample albedo and emission with planar UVs (same texel-size rules)
+  -> lighting directions use flat brush face normals (no normal maps)
+  -> emission ~ emission-color * emission-power * emission-texel
+  -> write atlases + static.rad
 ```
 
 Emission textures matter at bake time. At runtime the lightmap shader adds a flat emit from `emission-color` when `emission-power > 0`; it does not sample the emission map again.
@@ -145,4 +145,4 @@ Without the lightmap shader, specular color is still set on the raylib material 
 
 ## Naming from Blender
 
-The exporter does not write `.mat` files. Blender material names become material virtual paths on `.geo` primitives: a leading `materials/` prefix and known extensions are stripped; if there is no `/` but there is a `.`, the `.` is treated as `/` (`surfaces.stone` → `surfaces/stone`); an empty name becomes `default/unassigned`. Blender material names should match paths under `materials/`.
+The exporter does not write `.mat` files. Blender material names become material virtual paths on `.geo` primitives: a leading `materials/` prefix and known extensions are stripped; if there is no `/` but there is a `.`, the `.` is treated as `/` (`surfaces.stone` -> `surfaces/stone`); an empty name becomes `default/unassigned`. Blender material names should match paths under `materials/`.

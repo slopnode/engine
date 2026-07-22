@@ -42,7 +42,7 @@ my-package/
   package.meta
   animations/     # .anim, .tracks
   audio/          # .saudio, .s7 audio defs
-  data/           # .s7 (actions, items, view, …)
+  data/           # .s7 (actions, items, view, ...)
   fonts/          # .ttf (ImGui / UI)
   geometry/       # .geo, .vert, .weights
   icons/          # .png atlas + .iconmap (+ source folders)
@@ -62,22 +62,22 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 
 | Directory | Extensions | Virtual path example |
 |-----------|------------|----------------------|
-| `textures/` | `.png` | `surfaces/stone` → `textures/surfaces/stone.png` |
-| `materials/` | `.mat` | `surfaces/stone` → `materials/surfaces/stone.mat` |
-| `meshes/` | `.glb` | `props/crate` → `meshes/props/crate.glb` |
-| `shaders/` | `.glsl` | `default/lightmap_vert` → `shaders/default/lightmap_vert.glsl` |
-| `scripts/` | `.s7` | `init` → `scripts/init.s7` |
-| `data/` | `.s7` | `actions` → `data/actions.s7` |
-| `skeletons/` | `.skel`, `.bind` | `character` → `skeletons/character.skel` |
-| `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` → `geometry/props/crate.geo` |
-| `animations/` | `.anim`, `.tracks` | `character` → `animations/character/character.anim` |
-| `sprites/` | `.spr`, `.spanim` | `characters/guard` → `sprites/characters/guard.spr` |
-| `sound/` | `.ogg` | `weapons/fire` → `sound/weapons/fire.ogg` |
-| `audio/` | `.saudio`, `.s7` | `ui/pickup` → `audio/ui/pickup.saudio` |
-| `icons/` | `.png`, `.iconmap` | `silk` → `icons/silk.png` / `icons/silk.iconmap` |
-| `fonts/` | `.ttf` | `FiraSans/FiraSans-Regular` → `fonts/FiraSans/FiraSans-Regular.ttf` |
-| `prefabs/` | `.csg`, `.s7` | `furniture/desk` → `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
-| `maps/` | see below | `<name>/static` → `maps/<name>/static.csg`; `<name>/things` → `maps/<name>/things.s7` |
+| `textures/` | `.png` | `surfaces/stone` -> `textures/surfaces/stone.png` |
+| `materials/` | `.mat` | `surfaces/stone` -> `materials/surfaces/stone.mat` |
+| `meshes/` | `.glb` | `props/crate` -> `meshes/props/crate.glb` |
+| `shaders/` | `.glsl` | `default/lightmap_vert` -> `shaders/default/lightmap_vert.glsl` |
+| `scripts/` | `.s7` | `init` -> `scripts/init.s7` |
+| `data/` | `.s7` | `actions` -> `data/actions.s7` |
+| `skeletons/` | `.skel`, `.bind` | `character` -> `skeletons/character.skel` |
+| `geometry/` | `.geo`, `.vert`, `.weights` | `props/crate` -> `geometry/props/crate.geo` |
+| `animations/` | `.anim`, `.tracks` | `character` -> `animations/character/character.anim` |
+| `sprites/` | `.spr`, `.spanim` | `characters/guard` -> `sprites/characters/guard.spr` |
+| `sound/` | `.ogg` | `weapons/fire` -> `sound/weapons/fire.ogg` |
+| `audio/` | `.saudio`, `.s7` | `ui/pickup` -> `audio/ui/pickup.saudio` |
+| `icons/` | `.png`, `.iconmap` | `silk` -> `icons/silk.png` / `icons/silk.iconmap` |
+| `fonts/` | `.ttf` | `FiraSans/FiraSans-Regular` -> `fonts/FiraSans/FiraSans-Regular.ttf` |
+| `prefabs/` | `.csg`, `.s7` | `furniture/desk` -> `prefabs/furniture/desk.csg` (optional sibling `.s7`) |
+| `maps/` | see below | `<name>/static` -> `.csg` / `.bsp` / `.vis`; `<name>/things` -> `things.s7`; `<name>/graphs` -> `graphs.s7`; `<name>/rad/static` -> `rad/static.rad` |
 
 Nested folders under each category are allowed. Related assets are often grouped by shared name under `geometry/`, `skeletons/`, and `animations/`.
 
@@ -134,7 +134,7 @@ Skeletal clips for skinned meshes: `.anim` plus `.tracks`, always tied to a skel
 
 ### Sprites
 
-`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations, pose channels, and optional mirroring. Sibling `.spanim` files define named clips (loop, hold durations, optional tween and frame sounds) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part …)` entries configure multi-part hits. See [Sprites](sprites.md) and [Audio](audio.md) for frame sounds.
+`.spr` files under `sprites/` describe named billboard sprites with per-frame rotations, pose channels, and optional mirroring. Sibling `.spanim` files define named clips (loop, hold durations, optional tween and frame sounds) for the same virtual path. Source PNGs live under `textures/`. Optional hit-mask textures and `(hit-part ...)` entries configure multi-part hits. See [Sprites](sprites.md) and [Audio](audio.md) for frame sounds.
 
 ### Icons
 
@@ -142,10 +142,10 @@ UI icon atlases under `icons/`. Each set is a packed `.png` plus a sibling `.ico
 
 ### Prefabs
 
-Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-box` / `brush-convex` forms as maps. An optional sibling `.s7` holds entity attachments for that prefab. Maps instance them with `(prefab …)`; see [Maps](maps.md).
+Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-box` / `brush-convex` forms as maps. An optional sibling `.s7` holds entity attachments for that prefab. Maps instance them with `(prefab ...)`; see [Maps](maps.md).
 
 ### Maps
 
-Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `things.s7`, and compiled `static.bsp` / `static.vis` plus optional `rad/`. The map belongs to whichever package directory contains it; `map.meta` `(depends …)` lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, and [BSP](bsp.md) / [VIS](vis.md) / [Radiosity](rad.md) for the compile tools.
+Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `things.s7` / `graphs.s7`, and compiled `static.bsp` / `static.vis` plus optional `rad/`. The map belongs to whichever package directory contains it; `map.meta` `(depends ...)` lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, [slopmap](slopmap.md) for the editor, and [BSP](bsp.md) / [VIS](vis.md) / [Radiosity](rad.md) for the compile tools.
 
 A package is created by adding a `package.meta` with a unique `id`, the category folders you need, and mounting it with `--base-game` or `--mod`. Dependencies listed in `(depends ...)` must also be mounted.

@@ -24,10 +24,10 @@ Entry point: `tools/sloprad/main.cpp`. Bake: `bakeRadiosity` in `src/map/radiosi
 3. Load map meta (ambient color), require `static.bsp`, load brushes from CSG.
 4. Require readable `static.vis`.
 5. `analyzeMapHull` for seal / detail warnings (bake still uses VIS faces even if leaky).
-6. `collectLightmapFaces` from the VIS file (not raw brush faces), including each face’s `interiorLeaf`.
+6. `collectLightmapFaces` from the VIS file (not raw brush faces), including each face's `interiorLeaf`.
 7. Collect `point-light` / `spot-light` things from `things.s7` (and prefabs) as bake emitters.
 8. Delete and recreate `maps/<name>/rad/`.
-9. `bakeRadiosity` (passes the BSP tree and sealed flag for leaf reachability) → `static.rad` + atlas PNGs named from the rad sidecar (`atlas0.png`, …).
+9. `bakeRadiosity` (passes the BSP tree and sealed flag for leaf reachability) -> `static.rad` + atlas PNGs named from the rad sidecar (`atlas0.png`, ...).
 
 ## Bake settings
 
@@ -37,18 +37,18 @@ Entry point: `tools/sloprad/main.cpp`. Bake: `bakeRadiosity` in `src/map/radiosi
 | `bounces` | `--bounces` | 2 | Indirect passes; `0` = ambient + emission + direct only |
 | `samples` | `--samples` | 16 | Stratified cosine-hemisphere samples per luxel per bounce |
 | `atlasSize` | (none) | 1024 | Atlas edge length in luxels |
-| `directWrap` | (none) | 0.35 | Softens direct N·L / N·V |
+| `directWrap` | (none) | 0.35 | Softens direct N*L / N*V |
 | `coplanarFill` | (none) | 0.15 | Extra fill between near-coplanar emitter/receiver pairs |
 | `ambientScale` | (none) | 1.25 | Multiplies map meta ambient into receiver seed |
 | `preferGpu` | `--gpu` / `--cpu` | GPU preferred | Direct and bounce compute paths |
 
 ## Bake stages
 
-1. Leaf reachability. When the hull is sealed, BFS open-leaf adjacency into a bitmatrix. Luxels and emitter patches use VIS `interiorLeaf` (fallback: `pointLeaf` on position). Unreachable emitter↔receiver and light↔receiver pairs are skipped before occlusion. Unsealed maps or negative leaf indices disable the cull for that pair.
+1. Leaf reachability. When the hull is sealed, BFS open-leaf adjacency into a bitmatrix. Luxels and emitter patches use VIS `interiorLeaf` (fallback: `pointLeaf` on position). Unreachable emitter<->receiver and light<->receiver pairs are skipped before occlusion. Unsealed maps or negative leaf indices disable the cull for that pair.
 
-2. Pack charts. For each lightmap face, measure extent along the face UV axes (locked axes or world-axial basis from the normal). Effective luxels/m equals the setting when `max(extentU, extentV) ≤ 4`, otherwise half that (large flats get coarser charts). Luxel width/height = `ceil(extent * effectiveLpm) + 2`, clamped to `[2, atlasSize]`. Charts are sorted by descending height, then packed left-to-right in shelves, spilling to a new 1024² atlas when needed. The rad sidecar still stores the nominal `luxelsPerMeter`. Each chart records atlas index, pixel origin, luxel size, and normalized UV bounds inset by half a luxel.
+2. Pack charts. For each lightmap face, measure extent along the face UV axes (locked axes or world-axial basis from the normal). Effective luxels/m equals the setting when `max(extentU, extentV) <= 4`, otherwise half that (large flats get coarser charts). Luxel width/height = `ceil(extent * effectiveLpm) + 2`, clamped to `[2, atlasSize]`. Charts are sorted by descending height, then packed left-to-right in shelves, spilling to a new 1024^2 atlas when needed. The rad sidecar still stores the nominal `luxelsPerMeter`. Each chart records atlas index, pixel origin, luxel size, and normalized UV bounds inset by half a luxel.
 
-3. Resolve materials. Albedo and emission textures load as CPU `Image`s. Sampling uses the same planar UV rules as the game (`texel-size` / pixels-per-meter, texture size, `uv-shift`, optional UV lock). Lighting directions use flat face normals only—no normal maps.
+3. Resolve materials. Albedo and emission textures load as CPU `Image`s. Sampling uses the same planar UV rules as the game (`texel-size` / pixels-per-meter, texture size, `uv-shift`, optional UV lock). Lighting directions use flat face normals only--no normal maps.
 
 Emission at a world point: `emission-color * emission-power`, multiplied by the emission texel when a map is present. A bright emission texel alone can contribute even when power is zero. Albedo is `base-color` times albedo texel (or base color alone).
 
@@ -60,13 +60,13 @@ Emission at a world point: `emission-color * emission-power`, multiplied by the 
 
 7. Receiving luxels. One sample per chart luxel: world position (cell center in UV, nudged along normal), normal, albedo, emission, irradiance seeded as `ambient * ambientScale + emission`. Luxels whose UV center lies outside the face polygon, or inside a foreign emitter volume, are marked covered and keep ambient only.
 
-8. Direct lighting. For each uncovered luxel and each emitter patch (after leaf cull): reject by wrapped `N·L` / `N·V` (and coplanar-fill alignment) before the segment occlusion test; if clear, accumulate a form-factor term `N·L * N·V * area / (dist² π)` with wrap cosine, plus optional coplanar fill. Entity lights: range and `N·L` (and spot cone) before occlusion. GPU path packs dense luxels/emitters/lights, the BVH, and the reachability bitmatrix into `rad_direct_comp.glsl` when available; otherwise CPU threads over luxels. Failure falls back to CPU.
+8. Direct lighting. For each uncovered luxel and each emitter patch (after leaf cull): reject by wrapped `N*L` / `N*V` (and coplanar-fill alignment) before the segment occlusion test; if clear, accumulate a form-factor term `N*L * N*V * area / (dist^2 pi)` with wrap cosine, plus optional coplanar fill. Entity lights: range and `N*L` (and spot cone) before occlusion. GPU path packs dense luxels/emitters/lights, the BVH, and the reachability bitmatrix into `rad_direct_comp.glsl` when available; otherwise CPU threads over luxels. Failure falls back to CPU.
 
 9. Inpaint covered luxels. Up to 64 passes of 4-neighbor average from uncovered neighbors on the same face grid, so covered holes do not leave black islands.
 
-10. Bounce loop. Build a “shoot” buffer: `(irradiance - emission) * albedo` (zero for covered). For each bounce, each uncovered luxel fires `samples` stratified cosine-weighted hemisphere rays (deterministic per-luxel seed). On hit, bilinear-sample the previous shoot radiance on the hit face (fallback: a fraction of raw ambient). Add the average to irradiance, then rebuild shoot from the newly gathered light times albedo, and inpaint again. GPU path uses `rad_bounce_comp.glsl` when preferred and available; failure falls back to the CPU bounce gather.
+10. Bounce loop. Build a "shoot" buffer: `(irradiance - emission) * albedo` (zero for covered). For each bounce, each uncovered luxel fires `samples` stratified cosine-weighted hemisphere rays (deterministic per-luxel seed). On hit, bilinear-sample the previous shoot radiance on the hit face (fallback: a fraction of raw ambient). Add the average to irradiance, then rebuild shoot from the newly gathered light times albedo, and inpaint again. GPU path uses `rad_bounce_comp.glsl` when preferred and available; failure falls back to the CPU bounce gather.
 
-11. Denoise. After all bounces, a 3×3 bilateral filter on irradiance per face grid (spatial σ ≈ 1 luxel, range σ on luminance). Covered luxels are not used as sources; only uncovered luxels are written.
+11. Denoise. After all bounces, a 3x3 bilateral filter on irradiance per face grid (spatial sigma ~ 1 luxel, range sigma on luminance). Covered luxels are not used as sources; only uncovered luxels are written.
 
 12. Tonemap and write. Per-luxel Reinhard-style map `c / (1 + c)` into 8-bit RGB atlas images. Write `RAD1` version 2 sidecar (`luxelsPerMeter`, atlas list, chart list with face ids and UV rects) and export each atlas PNG under `rad/`.
 

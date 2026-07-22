@@ -25,9 +25,9 @@ Minimal player hook:
 | Step | Source | When |
 |------|--------|------|
 | 1 | `scripts/init.s7` | App start |
-| 2 | `data/actions.s7` | App start → registers `*package-actions*` |
-| 3 | `data/items.s7` | App start → `*item-catalog*` (if present) |
-| 4 | `data/view.s7` | App start → `*view-canvas*` / `*hud-canvas*` |
+| 2 | `data/actions.s7` | App start -> registers `*package-actions*` |
+| 3 | `data/items.s7` | App start -> `*item-catalog*` (if present) |
+| 4 | `data/view.s7` | App start -> `*view-canvas*` / `*hud-canvas*` |
 | 5 | `scripts/things.s7` | App start |
 | 6 | Module API binds | Render / audio / input / thing-runtime |
 | 7 | `scripts/player.s7` | After FP / HUD / input / thing-runtime binds |
@@ -61,8 +61,8 @@ Call these by defining a procedure with the exact name. Missing procedures are s
 | `(tick dt)` | Each update frame (delta seconds), if defined |
 | `(draw-hud)` | When the HUD pass runs, if defined |
 | `(on-action-<id>)` | When package action `<id>` is pressed |
-| `(on-use-<name> thing-id)` / named handlers | From map `(on-use "…")`; see [Things](things.md) |
-| Trigger enter/exit handlers | From map `(on-enter …)` / `(on-exit …)` by handler name |
+| `(on-use-<name> thing-id)` / named handlers | From map `(on-use "...")`; see [Things](things.md) |
+| Trigger enter/exit handlers | From map `(on-enter ...)` / `(on-exit ...)` by handler name |
 
 Handlers receive string ids (flecs entity names). There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
 
@@ -83,7 +83,7 @@ Works for package and core action ids.
 
 ### HUD
 
-Drawn from `(draw-hud)` into the HUD canvas. Coordinates are in canvas space; `(hud-anchor …)` sets the origin for following draws.
+Drawn from `(draw-hud)` into the HUD canvas. Coordinates are in canvas space; `(hud-anchor ...)` sets the origin for following draws.
 
 | Binding | Signature |
 |---------|-----------|
@@ -115,9 +115,9 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 
 Bound only while the matching map file loads, not for general gameplay scripts:
 
-- Things: `prop`, `usable`, `trigger`, lights, `prefab`, … → [Things](things.md), [Maps](maps.md)
-- CSG brushes → [Maps](maps.md)
-- Nav graphs → `maps/<name>/graphs.s7` (`graph`, `node`, `edge`, …)
+- Things: `prop`, `usable`, `trigger`, lights, `prefab`, ... -> [Things](things.md), [Maps](maps.md)
+- CSG brushes -> [Maps](maps.md)
+- Nav graphs -> `maps/<name>/graphs.s7` (`graph`, `node`, `edge`, ...)
 
 ## What belongs where
 

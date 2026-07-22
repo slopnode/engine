@@ -6,8 +6,8 @@ slopengine has two geometry pipelines:
 |--|--------------------|----------------|
 | Authoring | Blender meshes | Scheme CSG brushes |
 | Package location | `geometry/` (+ `skeletons/` when skinned) | `maps/<name>/` |
-| On disk | `.geo`, `.vert`, optional `.weights` | `.csg` → `.bsp` + optional `rad/` |
-| Topology | Arbitrary triangulated meshes | Axis-aligned boxes |
+| On disk | `.geo`, `.vert`, optional `.weights` | `.csg` -> `.bsp` / `.vis` + optional `rad/` |
+| Topology | Arbitrary triangulated meshes | Convex brushes (`brush-convex`; `brush-box` sugar) |
 | Skinning | Optional | Never |
 | Lightmaps | No | Yes (radiosity atlases) |
 
@@ -81,13 +81,13 @@ There is no package `.geo` / `.vert` for the level itself. At load time, VIS fac
 |----------|--------|
 | Does Blender export `.csg`? | No |
 | Can CSG emit package `.geo` files? | No (in-memory only) |
-| When do I use which? | Rooms / structural solids → CSG. Characters, props, clutter meshes → Blender `.geo` |
+| When do I use which? | Rooms / structural solids -> CSG. Characters, props, clutter meshes -> Blender `.geo` |
 
 Movable or skinned meshes belong as prop assets. World shells, floors, and fixed detail boxes belong in CSG so they participate in BSP, VIS, and radiosity.
 
 ## Blender exporter
 
-Addon: `tools/blender/slopengine_exporter` (File → Export → Slopengine).
+Addon: `tools/blender/slopengine_exporter` (File -> Export -> Slopengine).
 
 | Menu item | Writes | Input |
 |-----------|--------|-------|
@@ -104,7 +104,7 @@ Only `MESH` objects are exported for geo. Armatures, empties, lights, and other 
 
 A mesh with an Armature modifier and target is treated as skinned; otherwise it is static. All selected meshes must share the same armature, or all be static. Skinned output requires a skeleton id, writes `.weights`, and adds `(weights implicit)` plus `(skeleton "...")` to the `.geo`. Static output omits `.weights`; a skeleton id field is ignored with a warning.
 
-Materials become primitives: one primitive per material slot. The Blender material name becomes the material virtual path (leading `materials/` and known extensions stripped; `.` without `/` becomes `/`; empty → `default/unassigned`).
+Materials become primitives: one primitive per material slot. The Blender material name becomes the material virtual path (leading `materials/` and known extensions stripped; `.` without `/` becomes `/`; empty -> `default/unassigned`).
 
 Mesh processing bakes object transforms (into armature space when skinned, world when static), converts Blender Y-up to engine Z-up, triangulates, requires UVs (creates `ExportUV` if missing), and keeps the top four vertex-group influences per vertex. Skinned export temporarily evaluates the armature at bind pose before writing buffers.
 

@@ -2,15 +2,15 @@
 
 Sprites are Doom-style billboards: named frames of PNG art, optional view rotations, and optional hit masks. A sibling `.spanim` clip bank advances which frame a `SpriteInstance` shows and can tween pose channels or fire sounds. This is not skeletal animation; see [Skeletal animation](animation.md) for skinned meshes.
 
-Package layout is summarized in [Package structure](package-structure.md). First-person screen-space sprites use the same assets with different components; see [World vs first-person](#world-vs-first-person) and [Player](player.md).
+Package layout is summarized in [Package structure](package-structure.md). Authoring UI: [slopsprite](slopsprite.md). First-person screen-space sprites use the same assets with different components; see [World vs first-person](#world-vs-first-person) and [Player](player.md).
 
 ## Assets
 
 | Kind | Extension | Directory | Virtual path example |
 |------|-----------|-----------|----------------------|
-| Sprite definition | `.spr` | `sprites/` | `characters/guard` → `sprites/characters/guard.spr` |
-| Sprite animation bank | `.spanim` | `sprites/` | `characters/guard` → `sprites/characters/guard.spanim` |
-| Frame / hit textures | `.png` | `textures/` | `sprites/characters/guard_a1` → `textures/sprites/characters/guard_a1.png` |
+| Sprite definition | `.spr` | `sprites/` | `characters/guard` -> `sprites/characters/guard.spr` |
+| Sprite animation bank | `.spanim` | `sprites/` | `characters/guard` -> `sprites/characters/guard.spanim` |
+| Frame / hit textures | `.png` | `textures/` | `sprites/characters/guard_a1` -> `textures/sprites/characters/guard_a1.png` |
 
 The `.spr` and `.spanim` for one sprite usually share the same virtual path. Texture paths inside those files omit the `textures/` prefix and the `.png` extension.
 
@@ -35,11 +35,11 @@ The `.spr` and `.spanim` for one sprite usually share the same virtual path. Tex
 |-------|---------|
 | `(texel-size N)` | Pixels per world meter (default `64`). World size is `pixelSize / texel-size` times entity scale. |
 | `(hit-part "name" R G B)` | Named hit region keyed by exact RGB in a hit-mask texture. Optional. |
-| `(frame "id" …)` | Named pose. Clip lists and `SpriteInstance.frame` refer to these ids. |
-| `(rot R "texture" …)` | View rotation `R` for that frame. Texture is a virtual path under `textures/`. |
-| `offset X Y` | Optional SLADE-style pixel origin from the top-left of that texture. Omit → bottom-center (`width/2`, `height`). |
+| `(frame "id" ...)` | Named pose. Clip lists and `SpriteInstance.frame` refer to these ids. |
+| `(rot R "texture" ...)` | View rotation `R` for that frame. Texture is a virtual path under `textures/`. |
+| `offset X Y` | Optional SLADE-style pixel origin from the top-left of that texture. Omit -> bottom-center (`width/2`, `height`). |
 | `mirror` | Flip UVs / hit samples horizontally for this rotation. |
-| `hit "…"` | Optional hit-mask texture path (same size as the frame texture). |
+| `hit "..."` | Optional hit-mask texture path (same size as the frame texture). |
 | `rotation DEG` | Base in-plane rotation in degrees (default `0`). |
 | `scale SX SY` | Base scale multipliers (default `1 1`). |
 | `translate TX TY` | Base canvas-space shift; not rotated with the sprite (default `0 0`). |
@@ -50,12 +50,12 @@ The `.spr` and `.spanim` for one sprite usually share the same virtual path. Tex
 Effective pose per channel:
 
 - rotation = `rotation` + `anim-rotation` (degrees)
-- scale = `scale` × `anim-scale`
+- scale = `scale` x `anim-scale`
 - translate = `translate` + `anim-translate`
 
-`.spanim` tween interpolates only the `anim-*` channels toward the next hold’s values. Base `rotation` / `scale` / `translate` stay on the current hold’s frame for the whole hold.
+`.spanim` tween interpolates only the `anim-*` channels toward the next hold's values. Base `rotation` / `scale` / `translate` stay on the current hold's frame for the whole hold.
 
-### View defaults (`(view …)`)
+### View defaults (`(view ...)`)
 
 Optional block for first-person authoring defaults (used by `slopsprite`). Parsed into the asset; runtime first-person attach still sets canvas pose via Scheme (`fp-attach-sprite`, `fp-set-sprite-*`) unless the package copies these values itself.
 
@@ -90,7 +90,7 @@ Rotation index is Doom-style:
 
 | Index | Role |
 |-------|------|
-| `1`–`8` | Eight yaw sectors around the sprite (camera relative to `facingYaw`) |
+| `1`-`8` | Eight yaw sectors around the sprite (camera relative to `facingYaw`) |
 | `0` | Non-directional (death / special / first-person poses); used when no angle set is needed |
 
 Opposite angles often share one texture with `mirror` on the line (for example rot `2` and rot `8`). Mirrored UVs and hit samples flip at runtime; do not duplicate flipped PNGs unless you want to.
@@ -107,7 +107,7 @@ Hit testing uses per-texture occupancy data baked at load time.
 
 Default (no hit data): every opaque texel of the frame PNG (`alpha >= 128`) is one region named `default`.
 
-Configured: declare `(hit-part …)` colors and point each `(rot …)` at a hit texture with `hit "…"`. The hit PNG must match the frame texture size. Opaque pixels whose RGB exactly match a `hit-part` belong to that part; other pixels are non-solid.
+Configured: declare `(hit-part ...)` colors and point each `(rot ...)` at a hit texture with `hit "..."`. The hit PNG must match the frame texture size. Opaque pixels whose RGB exactly match a `hit-part` belong to that part; other pixels are non-solid.
 
 ```text
 (hit-part "legs" 0 0 255)
@@ -142,19 +142,19 @@ Sibling of the `.spr` at the same virtual path:
 
 | Field | Meaning |
 |-------|---------|
-| `(clip "name")` | Clip id used by `SpriteAnimator::play` / `(fp-play-sprite-anim …)` |
+| `(clip "name")` | Clip id used by `SpriteAnimator::play` / `(fp-play-sprite-anim ...)` |
 | `(loop 0\|1)` | Default loop flag in the file (runtime `play` can override) |
-| `(frame "id" seconds …)` | Ordered hold: `.spr` frame id and duration in seconds |
-| `(tween all\|rot\|scale\|translate …)` | Per-hold: interpolate `anim-*` toward the next hold for the listed channels (`all` = rot + scale + translate) |
+| `(frame "id" seconds ...)` | Ordered hold: `.spr` frame id and duration in seconds |
+| `(tween all\|rot\|scale\|translate ...)` | Per-hold: interpolate `anim-*` toward the next hold for the listed channels (`all` = rot + scale + translate) |
 | `(sound "path" [volume])` | On hold enter, play a raw clip from `sound/` (see [Audio](audio.md)). Optional volume defaults to `1.0`. |
 
-Legacy clip-level `(tween 0|1)` expands to tween-all on every frame in that clip. A bare `offset` token inside `(tween …)` is ignored (offset is not tweenable).
+Legacy clip-level `(tween 0|1)` expands to tween-all on every frame in that clip. A bare `offset` token inside `(tween ...)` is ignored (offset is not tweenable).
 
 Frame ids must exist in the paired `.spr`. Missing banks or clips leave the instance on whatever `frame` was last set.
 
 ### Frame sounds
 
-`(sound …)` paths are virtual sound paths (`weapons/fire` → `sound/weapons/fire.ogg`), not audio defs under `audio/`. Playback uses `playSound` / `playSound3d`: 3D when the entity has a `GlobalTransformation`, otherwise 2D on the sfx bus. See [Audio](audio.md).
+`(sound ...)` paths are virtual sound paths (`weapons/fire` -> `sound/weapons/fire.ogg`), not audio defs under `audio/`. Playback uses `playSound` / `playSound3d`: 3D when the entity has a `GlobalTransformation`, otherwise 2D on the sfx bus. See [Audio](audio.md).
 
 ## World vs first-person
 
@@ -163,7 +163,7 @@ Frame ids must exist in the paired `.spr`. Missing banks or clips leave the inst
 | World billboard | `SpriteInstance` + `WorldSpace` (+ optional `SpriteAnimator`) | Camera-facing quad; rotation index from camera vs `facingYaw` |
 | View / FP sprite | `SpriteInstance` + `ViewSprite` (+ usually under `ViewSpace`) | Screen-space overlay on the view canvas; typically rot `0` |
 
-World props and usables use map clauses `(sprite …)` / `(anim …)`; see [Things](things.md). First-person sockets use Scheme `(fp-attach-sprite …)` and related mutators; see [Player](player.md).
+World props and usables use map clauses `(sprite ...)` / `(anim ...)`; see [Things](things.md). First-person sockets use Scheme `(fp-attach-sprite ...)` and related mutators; see [Player](player.md).
 
 ## Runtime components
 
@@ -201,29 +201,11 @@ animator.play("walk", true);
 
 ### `ViewSprite`
 
-Screen-space presentation for first-person / HUD-like weapon sprites. Canvas position, scale, rotation, and origin are set by Scheme or by copying authored `(view …)` defaults. Drawn after the world in the FP pass.
+Screen-space presentation for first-person / HUD-like weapon sprites. Canvas position, scale, rotation, and origin are set by Scheme or by copying authored `(view ...)` defaults. Drawn after the world in the FP pass.
 
 ## slopsprite
 
-Authoring tool for `.spr` / `.spanim`:
-
-```bash
-slopsprite --base-game <package-path> [--mod <path>]... --target <package-path>
-```
-
-| Flag | Meaning |
-|------|---------|
-| `--base-game` | Base package to mount (required) |
-| `--mod` | Additional package; repeatable |
-| `--target` | Package that receives saves (required) |
-
-| Preview mode | Purpose |
-|--------------|---------|
-| World | 3D billboard orbit preview |
-| FirstPerson | Screen-space weapon / view canvas preview |
-| Align | Pivot, offset, rotation, scale, translate editing (onion skin available) |
-
-Also includes sprite/anim browsers, texture browser, and a sound browser that lists `.ogg` clips under mounted `sound/` for frame `(sound …)` paths. Saves write `.spr` and `.spanim` into `--target`.
+Interactive authoring for `.spr` / `.spanim` (World / FirstPerson / Align previews, browsers, save under `--target`) is covered in [slopsprite](slopsprite.md).
 
 ## Debug
 
@@ -238,8 +220,8 @@ World:
 
 ```text
 SpriteInstance { sprite = "characters/guard", frame = "A", facingYaw = 0 }
-SpriteAnimator { animPath = "characters/guard" }  →  play("walk")
-LocalTransformation { position, scale, … }
+SpriteAnimator { animPath = "characters/guard" }  ->  play("walk")
+LocalTransformation { position, scale, ... }
 WorldSpace
 ```
 
