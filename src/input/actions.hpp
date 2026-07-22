@@ -13,6 +13,7 @@ enum class Action {
     Interact,
     Console,
     MainMenu,
+    Screenshot,
     Count
 };
 

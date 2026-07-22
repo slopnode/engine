@@ -850,6 +850,7 @@ void applyImGuiCursorPolicy(const InputContextStack& contexts) {
 void registerComponents(flecs::world& world) {
     world.component<ConsoleState>();
     world.component<QuitRequest>();
+    world.component<ScreenshotRequest>();
     world.component<SettingsUiState>();
     world.component<DebugUiState>();
 }
@@ -949,6 +950,10 @@ void registerSystems(flecs::world& world) {
                     contexts.pop(InputContext::InteractUI);
                 }
             }
+
+            if (input.pressed(Action::Screenshot)) {
+                it.world().get_mut<ScreenshotRequest>().pending = true;
+            }
         });
 }
 
@@ -958,6 +963,7 @@ void registerUiModule(flecs::world& world) {
     registerComponents(world);
     world.set<ConsoleState>({});
     world.set<QuitRequest>({});
+    world.set<ScreenshotRequest>({});
     world.set<SettingsUiState>({});
     world.set<DebugUiState>({});
     registerSystems(world);

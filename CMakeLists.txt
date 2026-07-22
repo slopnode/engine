@@ -91,6 +91,7 @@ endif()
 add_executable(slopengine
     src/main.cpp
     src/core/user_paths.cpp
+    src/core/screenshot.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
     src/game/game_state.cpp

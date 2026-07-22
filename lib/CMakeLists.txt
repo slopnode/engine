@@ -31,6 +31,7 @@ endif()
 
 add_subdirectory(raylib)
 target_compile_definitions(raylib PUBLIC SUPPORT_GPU_SKINNING=1)
+target_compile_definitions(raylib PUBLIC SUPPORT_SCREEN_CAPTURE=0)
 
 include(${CMAKE_SOURCE_DIR}/cmake/SoLoud.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/SteamAudio.cmake)

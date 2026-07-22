@@ -36,14 +36,15 @@
 #include "script/script_context.hpp"
 #include "script/thing_script.hpp"
 #include "ui/ui_module.hpp"
-
 #include "ui/ui_state.hpp"
+#include "core/screenshot.hpp"
 #include "rlImGui.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -1598,8 +1599,29 @@ void registerRenderSystems(flecs::world& world) {
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
-            (void)it;
             EndDrawing();
+            ScreenshotRequest& request = it.world().get_mut<ScreenshotRequest>();
+            if (!request.pending) {
+                return;
+            }
+            request.pending = false;
+            std::filesystem::path path;
+            std::string error;
+            ConsoleState& console = it.world().get_mut<ConsoleState>();
+            if (saveScreenshotPng(path, error)) {
+                const std::string message = "Screenshot saved: " + path.string();
+                TraceLog(LOG_INFO, "SCREENSHOT: %s", path.string().c_str());
+                console.log.push_back(message);
+                if (console.log.size() > 200) {
+                    console.log.erase(console.log.begin());
+                }
+            } else {
+                TraceLog(LOG_WARNING, "SCREENSHOT: %s", error.c_str());
+                console.log.push_back("Screenshot failed: " + error);
+                if (console.log.size() > 200) {
+                    console.log.erase(console.log.begin());
+                }
+            }
         });
 }
 
