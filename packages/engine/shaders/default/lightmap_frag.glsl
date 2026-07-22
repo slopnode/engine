@@ -7,9 +7,11 @@ in vec4 fragColor;
 
 uniform sampler2D texture0;
 uniform sampler2D texture1;
+uniform sampler2D texture5;
 uniform vec4 colDiffuse;
 uniform vec4 colSpecular;
 uniform int useLightmap;
+uniform int solidLit;
 
 const int MAX_DYN_LIGHTS = 8;
 
@@ -90,9 +92,16 @@ vec3 evalDynamicLights(vec3 worldPos)
 
 void main()
 {
-    vec4 albedo = texture(texture0, fragTexCoord) * colDiffuse * fragColor;
+    vec4 albedo = solidLit != 0
+        ? vec4(1.0)
+        : texture(texture0, fragTexCoord) * colDiffuse * fragColor;
     vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : vec3(1.0);
     vec3 dynamic = evalDynamicLights(fragPosition);
-    vec3 emit = colSpecular.rgb;
-    finalColor = vec4(albedo.rgb * (baked + dynamic) + emit, albedo.a);
+    vec3 lighting = baked + dynamic;
+    if (solidLit == 0) {
+        vec3 emitMap = texture(texture5, fragTexCoord).rgb;
+        float emitMask = dot(emitMap, vec3(0.2126, 0.7152, 0.0722));
+        lighting += colSpecular.rgb * emitMask;
+    }
+    finalColor = vec4(albedo.rgb * lighting, albedo.a);
 }

@@ -17,6 +17,7 @@ enum class PreviewFill {
     Textures,
     Unlit,
     Lit,
+    SolidLit,
 };
 
 enum class WireframeOverlay {
@@ -44,6 +45,7 @@ struct MapPreview {
     slopengine::RadFile rad{};
     Shader lightmapShader{};
     int useLightmapLoc = -1;
+    int solidLitLoc = -1;
     std::vector<Texture2D> lightmapAtlases;
 
     void clear();

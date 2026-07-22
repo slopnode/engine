@@ -187,6 +187,7 @@ void MapPreview::clearLit() {
         lightmapShader = {};
     }
     useLightmapLoc = -1;
+    solidLitLoc = -1;
     rad = {};
 }
 
@@ -303,6 +304,11 @@ bool MapPreview::reloadBake(
     if (lightmapShader.id == 0) {
         rad = {};
         return false;
+    }
+    solidLitLoc = GetShaderLocation(lightmapShader, "solidLit");
+    if (solidLitLoc >= 0) {
+        const int solidLit = 0;
+        SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
     }
 
     lightmapAtlases.reserve(rad.atlases.size());
@@ -526,7 +532,12 @@ void MapPreview::draw(
         }
         break;
     case PreviewFill::Lit:
+    case PreviewFill::SolidLit:
         if (litValid) {
+            if (solidLitLoc >= 0) {
+                const int solidLit = fill == PreviewFill::SolidLit ? 1 : 0;
+                SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
+            }
             DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             break;
         }

@@ -1,7 +1,5 @@
 #include "select_tool.hpp"
 
-#include "thing_draw.hpp"
-
 #include "assets/material_loader.hpp"
 #include "map/brush.hpp"
 #include "map/csg_compile.hpp"
@@ -393,24 +391,51 @@ slopengine::Brush pushFace(
     return brush;
 }
 
+bool faceFacesRay(const slopengine::BrushFace& face, Ray ray, bool ignoreBackfaces) {
+    if (!ignoreBackfaces) {
+        return true;
+    }
+    return dot3(face.normal, ray.direction) < 0.0f;
+}
+
+constexpr float kPickCyclePixelSlop = 6.0f;
+
+bool pickCycleMouseNear(Vector2 a, Vector2 b) {
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    return dx * dx + dy * dy <= kPickCyclePixelSlop * kPickCyclePixelSlop;
+}
+
+template <typename T>
+bool samePickStack(const std::vector<T>& a, const std::vector<T>& b) {
+    return a == b;
+}
+
 } // namespace
 
-std::optional<float> rayBrushHitDistance(Ray ray, const slopengine::Brush& brush) {
+std::optional<float> rayBrushHitDistance(
+    Ray ray,
+    const slopengine::Brush& brush,
+    bool ignoreBackfaces) {
     float best = std::numeric_limits<float>::max();
     bool hit = false;
     for (const slopengine::BrushFace& face : brush.faces) {
-        if (face.vertices.size() < 3) {
+        if (face.vertices.size() < 3 || !faceFacesRay(face, ray, ignoreBackfaces)) {
             continue;
         }
         for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
             float t = 0.0f;
-            if (rayTriangle(ray, face.vertices[0], face.vertices[i], face.vertices[i + 1], t) && t < best) {
+            if (rayTriangle(ray, face.vertices[0], face.vertices[i], face.vertices[i + 1], t) &&
+                t < best) {
                 best = t;
                 hit = true;
             }
         }
     }
     if (!hit) {
+        if (ignoreBackfaces) {
+            return std::nullopt;
+        }
         float t = 0.0f;
         if (rayAabb(ray, brush.mins, brush.maxs, t)) {
             return t;
@@ -420,17 +445,22 @@ std::optional<float> rayBrushHitDistance(Ray ray, const slopengine::Brush& brush
     return best;
 }
 
-std::optional<int> rayBrushFaceIndex(Ray ray, const slopengine::Brush& brush, float* outDistance) {
+std::optional<int> rayBrushFaceIndex(
+    Ray ray,
+    const slopengine::Brush& brush,
+    float* outDistance,
+    bool ignoreBackfaces) {
     float best = std::numeric_limits<float>::max();
     int bestFace = -1;
     for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
         const slopengine::BrushFace& face = brush.faces[fi];
-        if (face.vertices.size() < 3) {
+        if (face.vertices.size() < 3 || !faceFacesRay(face, ray, ignoreBackfaces)) {
             continue;
         }
         for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
             float t = 0.0f;
-            if (rayTriangle(ray, face.vertices[0], face.vertices[i], face.vertices[i + 1], t) && t < best) {
+            if (rayTriangle(ray, face.vertices[0], face.vertices[i], face.vertices[i + 1], t) &&
+                t < best) {
                 best = t;
                 bestFace = static_cast<int>(fi);
             }
@@ -816,91 +846,231 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
     EditorDocument& d = editor.doc();
     const Ray ray = mouseRay(camera, editor.contentViewport);
     const bool additive = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+    const bool ignoreBackfaces = editor.ignoreBackfaces;
+    const Vector2 mouse = GetMousePosition();
+
+    if (additive) {
+        pickCycleBrushes.clear();
+        pickCycleFaces.clear();
+        pickCycleEntities.clear();
+        pickCycleIndex = 0;
+    }
 
     if (d.selectionMode == SelectionMode::Brush) {
-        float bestT = std::numeric_limits<float>::max();
-        int bestBrush = -1;
+        struct BrushHit {
+            int brush = -1;
+            float t = 0.0f;
+        };
+        std::vector<BrushHit> hits;
         for (std::size_t i = 0; i < d.brushes.size(); ++i) {
             float faceT = 0.0f;
-            const auto face = rayBrushFaceIndex(ray, d.brushes[i], &faceT);
-            if (face && faceT < bestT) {
-                bestT = faceT;
-                bestBrush = static_cast<int>(i);
+            const auto face =
+                rayBrushFaceIndex(ray, d.brushes[i], &faceT, ignoreBackfaces);
+            if (face) {
+                hits.push_back({static_cast<int>(i), faceT});
                 continue;
             }
-            const auto hit = rayBrushHitDistance(ray, d.brushes[i]);
-            if (hit && *hit < bestT) {
-                bestT = *hit;
-                bestBrush = static_cast<int>(i);
+            if (!ignoreBackfaces) {
+                const auto hit = rayBrushHitDistance(ray, d.brushes[i], false);
+                if (hit) {
+                    hits.push_back({static_cast<int>(i), *hit});
+                }
             }
         }
-        if (bestBrush >= 0) {
-            editor.selectBrush(bestBrush, additive);
-            editor.statusMessage =
-                "Selected " + d.brushes[static_cast<std::size_t>(bestBrush)].id +
-                (d.selectedBrushes.size() > 1
-                     ? " (+" + std::to_string(d.selectedBrushes.size() - 1) + ")"
-                     : "");
-        } else if (!additive) {
-            editor.clearSelection();
-            editor.statusMessage = "Selection cleared";
+        std::sort(hits.begin(), hits.end(), [](const BrushHit& a, const BrushHit& b) {
+            return a.t < b.t;
+        });
+        std::vector<int> stack;
+        stack.reserve(hits.size());
+        for (const BrushHit& hit : hits) {
+            stack.push_back(hit.brush);
         }
+
+        if (stack.empty()) {
+            if (!additive) {
+                editor.clearSelection();
+                editor.statusMessage = "Selection cleared";
+            }
+            pickCycleBrushes.clear();
+            pickCycleIndex = 0;
+            return;
+        }
+
+        int index = 0;
+        if (!additive && pickCycleMouseNear(mouse, pickCycleMouse) &&
+            samePickStack(stack, pickCycleBrushes) && !pickCycleBrushes.empty()) {
+            index = (pickCycleIndex + 1) % static_cast<int>(stack.size());
+        }
+        pickCycleMouse = mouse;
+        pickCycleBrushes = stack;
+        pickCycleFaces.clear();
+        pickCycleEntities.clear();
+        pickCycleIndex = index;
+
+        const int bestBrush = stack[static_cast<std::size_t>(index)];
+        editor.selectBrush(bestBrush, additive);
+        std::string msg = "Selected " + d.brushes[static_cast<std::size_t>(bestBrush)].id;
+        if (stack.size() > 1 && !additive) {
+            msg += " (" + std::to_string(index + 1) + "/" + std::to_string(stack.size()) + ")";
+        } else if (d.selectedBrushes.size() > 1) {
+            msg += " (+" + std::to_string(d.selectedBrushes.size() - 1) + ")";
+        }
+        editor.statusMessage = std::move(msg);
         return;
     }
 
     if (d.selectionMode == SelectionMode::Face) {
-        float bestT = std::numeric_limits<float>::max();
-        FaceRef best{};
+        struct FaceHit {
+            FaceRef ref{};
+            float t = 0.0f;
+        };
+        std::vector<FaceHit> hits;
         for (std::size_t i = 0; i < d.brushes.size(); ++i) {
-            float faceT = 0.0f;
-            const auto face = rayBrushFaceIndex(ray, d.brushes[i], &faceT);
-            if (face && faceT < bestT) {
-                bestT = faceT;
-                best = {static_cast<int>(i), *face};
+            const slopengine::Brush& brush = d.brushes[i];
+            for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                const slopengine::BrushFace& face = brush.faces[fi];
+                if (face.vertices.size() < 3 || !faceFacesRay(face, ray, ignoreBackfaces)) {
+                    continue;
+                }
+                float bestT = std::numeric_limits<float>::max();
+                bool hit = false;
+                for (std::size_t vi = 1; vi + 1 < face.vertices.size(); ++vi) {
+                    float t = 0.0f;
+                    if (rayTriangle(
+                            ray,
+                            face.vertices[0],
+                            face.vertices[vi],
+                            face.vertices[vi + 1],
+                            t) &&
+                        t < bestT) {
+                        bestT = t;
+                        hit = true;
+                    }
+                }
+                if (hit) {
+                    hits.push_back({{static_cast<int>(i), static_cast<int>(fi)}, bestT});
+                }
             }
         }
-        if (best.valid()) {
-            editor.selectFace(best, additive);
-            editor.statusMessage =
-                "Selected " +
-                d.brushes[static_cast<std::size_t>(best.brush)]
-                    .faces[static_cast<std::size_t>(best.face)]
-                    .id;
-        } else if (!additive) {
-            editor.clearSelection();
-            editor.statusMessage = "Selection cleared";
+        std::sort(hits.begin(), hits.end(), [](const FaceHit& a, const FaceHit& b) {
+            return a.t < b.t;
+        });
+        std::vector<FaceRef> stack;
+        stack.reserve(hits.size());
+        for (const FaceHit& hit : hits) {
+            stack.push_back(hit.ref);
         }
+
+        if (stack.empty()) {
+            if (!additive) {
+                editor.clearSelection();
+                editor.statusMessage = "Selection cleared";
+            }
+            pickCycleFaces.clear();
+            pickCycleIndex = 0;
+            return;
+        }
+
+        int index = 0;
+        if (!additive && pickCycleMouseNear(mouse, pickCycleMouse) &&
+            samePickStack(stack, pickCycleFaces) && !pickCycleFaces.empty()) {
+            index = (pickCycleIndex + 1) % static_cast<int>(stack.size());
+        }
+        pickCycleMouse = mouse;
+        pickCycleFaces = stack;
+        pickCycleBrushes.clear();
+        pickCycleEntities.clear();
+        pickCycleIndex = index;
+
+        const FaceRef best = stack[static_cast<std::size_t>(index)];
+        editor.selectFace(best, additive);
+        std::string msg = "Selected " +
+            d.brushes[static_cast<std::size_t>(best.brush)]
+                .faces[static_cast<std::size_t>(best.face)]
+                .id;
+        if (stack.size() > 1 && !additive) {
+            msg += " (" + std::to_string(index + 1) + "/" + std::to_string(stack.size()) + ")";
+        }
+        editor.statusMessage = std::move(msg);
         return;
     }
 
-    float bestT = std::numeric_limits<float>::max();
-    EntityRef best{};
+    struct EntityHit {
+        EntityRef ref{};
+        float t = 0.0f;
+    };
+    std::vector<EntityHit> hits;
     for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
-        const auto hit = rayBrushHitDistance(ray, editor.expandedInstanceBrushes[i]);
-        if (hit && *hit < bestT) {
-            bestT = *hit;
-            best = {EntityRef::Kind::Instance, editor.expandedInstanceOwners[i]};
+        const auto hit =
+            rayBrushHitDistance(ray, editor.expandedInstanceBrushes[i], ignoreBackfaces);
+        if (!hit) {
+            continue;
+        }
+        const EntityRef ref{EntityRef::Kind::Instance, editor.expandedInstanceOwners[i]};
+        auto existing = std::find_if(hits.begin(), hits.end(), [&](const EntityHit& h) {
+            return h.ref == ref;
+        });
+        if (existing == hits.end()) {
+            hits.push_back({ref, *hit});
+        } else if (*hit < existing->t) {
+            existing->t = *hit;
         }
     }
-    float thingT = 0.0f;
-    const auto thingHit = pickThing(d.things, ray, &thingT);
-    if (thingHit && thingT < bestT) {
-        bestT = thingT;
-        best = {EntityRef::Kind::Thing, *thingHit};
-    }
-    if (best.valid()) {
-        editor.selectEntity(best, additive);
-        if (best.kind == EntityRef::Kind::Thing) {
-            editor.statusMessage =
-                "Selected " + d.things[static_cast<std::size_t>(best.index)].id;
-        } else {
-            editor.statusMessage =
-                "Selected instance " + d.instances[static_cast<std::size_t>(best.index)].id;
+    for (std::size_t i = 0; i < d.things.size(); ++i) {
+        const slopengine::Thing& thing = d.things[i];
+        const Vector3 pos = thing.haveAt ? thing.at : Vector3{0.0f, 1.0f, 0.0f};
+        const BoundingBox box = {
+            {pos.x - 0.35f, pos.y - 0.1f, pos.z - 0.35f},
+            {pos.x + 0.35f, pos.y + 1.0f, pos.z + 0.35f},
+        };
+        const RayCollision hit = GetRayCollisionBox(ray, box);
+        if (hit.hit) {
+            hits.push_back({{EntityRef::Kind::Thing, static_cast<int>(i)}, hit.distance});
         }
-    } else if (!additive) {
-        editor.clearSelection();
-        editor.statusMessage = "Selection cleared";
     }
+
+    std::sort(hits.begin(), hits.end(), [](const EntityHit& a, const EntityHit& b) {
+        return a.t < b.t;
+    });
+    std::vector<EntityRef> stack;
+    stack.reserve(hits.size());
+    for (const EntityHit& hit : hits) {
+        stack.push_back(hit.ref);
+    }
+
+    if (stack.empty()) {
+        if (!additive) {
+            editor.clearSelection();
+            editor.statusMessage = "Selection cleared";
+        }
+        pickCycleEntities.clear();
+        pickCycleIndex = 0;
+        return;
+    }
+
+    int index = 0;
+    if (!additive && pickCycleMouseNear(mouse, pickCycleMouse) &&
+        samePickStack(stack, pickCycleEntities) && !pickCycleEntities.empty()) {
+        index = (pickCycleIndex + 1) % static_cast<int>(stack.size());
+    }
+    pickCycleMouse = mouse;
+    pickCycleEntities = stack;
+    pickCycleBrushes.clear();
+    pickCycleFaces.clear();
+    pickCycleIndex = index;
+
+    const EntityRef best = stack[static_cast<std::size_t>(index)];
+    editor.selectEntity(best, additive);
+    std::string msg;
+    if (best.kind == EntityRef::Kind::Thing) {
+        msg = "Selected " + d.things[static_cast<std::size_t>(best.index)].id;
+    } else {
+        msg = "Selected instance " + d.instances[static_cast<std::size_t>(best.index)].id;
+    }
+    if (stack.size() > 1 && !additive) {
+        msg += " (" + std::to_string(index + 1) + "/" + std::to_string(stack.size()) + ")";
+    }
+    editor.statusMessage = std::move(msg);
 }
 
 void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) {

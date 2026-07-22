@@ -40,6 +40,12 @@ struct SelectTool {
     bool active() const { return translating; }
 
 private:
+    Vector2 pickCycleMouse{};
+    std::vector<int> pickCycleBrushes;
+    std::vector<FaceRef> pickCycleFaces;
+    std::vector<EntityRef> pickCycleEntities;
+    int pickCycleIndex = 0;
+
     void beginTranslate(Editor& editor, const Camera3D& camera);
     void applyTranslate(Editor& editor, slopengine::AssetStore& assets, Vector3 delta);
     void confirmTranslate(Editor& editor, slopengine::AssetStore& assets);
@@ -50,7 +56,14 @@ private:
     void rotateSelected(Editor& editor, slopengine::AssetStore& assets);
 };
 
-std::optional<float> rayBrushHitDistance(Ray ray, const slopengine::Brush& brush);
-std::optional<int> rayBrushFaceIndex(Ray ray, const slopengine::Brush& brush, float* outDistance = nullptr);
+std::optional<float> rayBrushHitDistance(
+    Ray ray,
+    const slopengine::Brush& brush,
+    bool ignoreBackfaces = false);
+std::optional<int> rayBrushFaceIndex(
+    Ray ray,
+    const slopengine::Brush& brush,
+    float* outDistance = nullptr,
+    bool ignoreBackfaces = false);
 
 }

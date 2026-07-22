@@ -312,56 +312,84 @@ void drawScene(
         }
     }
 
-    if (d.selectionMode == slopmap::SelectionMode::Brush && !fillWire && !xrayAll &&
-        !xrayVisible) {
-        for (int index : d.selectedBrushes) {
-            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
-                continue;
-            }
-            const auto& brush = d.brushes[static_cast<std::size_t>(index)];
-            slopmap::drawBrushFaceOutlines(
-                brush,
-                slopmap::brushOutlineColor(brush, true),
-                eye,
-                lineWidth);
-        }
-    }
+    const bool drawBrushSelection =
+        d.selectionMode == slopmap::SelectionMode::Brush && !fillWire && !xrayAll && !xrayVisible &&
+        !d.selectedBrushes.empty();
+    const bool drawFaceSelection =
+        d.selectionMode == slopmap::SelectionMode::Face && !d.selectedFaces.empty();
+    const bool drawEntitySelection =
+        !fillWire && !xrayAll && !xrayVisible &&
+        d.selectionMode == slopmap::SelectionMode::Entity && !d.selectedEntities.empty();
+    if (drawBrushSelection || drawFaceSelection || drawEntitySelection) {
+        rlDrawRenderBatchActive();
+        rlDisableDepthTest();
+        rlDisableDepthMask();
 
-    if (d.selectionMode == slopmap::SelectionMode::Face) {
-        for (const slopmap::FaceRef& ref : d.selectedFaces) {
-            if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
-                continue;
-            }
-            const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
-            if (ref.face >= static_cast<int>(brush.faces.size())) {
-                continue;
-            }
-            const auto& face = brush.faces[static_cast<std::size_t>(ref.face)];
-            const bool active = ref == d.activeFace;
-            const Color faceColor = active
-                ? (face.uvLock ? Color{255, 200, 80, 255} : Color{80, 220, 255, 255})
-                : Color{80, 160, 200, 255};
-            for (std::size_t i = 0; i < face.vertices.size(); ++i) {
-                const Vector3& a = face.vertices[i];
-                const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
-                slopmap::drawThickLine3D(a, b, faceColor, lineWidth * 1.25f, eye);
+        if (drawBrushSelection) {
+            for (int index : d.selectedBrushes) {
+                if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(index)];
+                slopmap::drawBrushFaceOutlines(
+                    brush,
+                    slopmap::brushOutlineColor(brush, true),
+                    eye,
+                    lineWidth);
             }
         }
-    }
 
-    if (!fillWire && !xrayAll && !xrayVisible &&
-        d.selectionMode == slopmap::SelectionMode::Entity) {
-        for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
-            if (!d.isEntitySelected(
-                    {slopmap::EntityRef::Kind::Instance, editor.expandedInstanceOwners[i]})) {
-                continue;
+        if (drawFaceSelection) {
+            std::unordered_set<int> outlinedBrushes;
+            for (const slopmap::FaceRef& ref : d.selectedFaces) {
+                if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                if (!outlinedBrushes.insert(ref.brush).second) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+                slopmap::drawBrushFaceOutlines(
+                    brush, Color{160, 100, 50, 255}, eye, lineWidth);
             }
-            slopmap::drawBrushFaceOutlines(
-                editor.expandedInstanceBrushes[i],
-                Color{255, 140, 40, 255},
-                eye,
-                lineWidth);
+            for (const slopmap::FaceRef& ref : d.selectedFaces) {
+                if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+                if (ref.face >= static_cast<int>(brush.faces.size())) {
+                    continue;
+                }
+                const auto& face = brush.faces[static_cast<std::size_t>(ref.face)];
+                const bool active = ref == d.activeFace;
+                const Color faceColor = active
+                    ? (face.uvLock ? Color{255, 200, 80, 255} : Color{80, 220, 255, 255})
+                    : Color{80, 160, 200, 255};
+                for (std::size_t i = 0; i < face.vertices.size(); ++i) {
+                    const Vector3& a = face.vertices[i];
+                    const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
+                    slopmap::drawThickLine3D(a, b, faceColor, lineWidth * 1.25f, eye);
+                }
+            }
         }
+
+        if (drawEntitySelection) {
+            for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
+                if (!d.isEntitySelected(
+                        {slopmap::EntityRef::Kind::Instance, editor.expandedInstanceOwners[i]})) {
+                    continue;
+                }
+                slopmap::drawBrushFaceOutlines(
+                    editor.expandedInstanceBrushes[i],
+                    Color{255, 140, 40, 255},
+                    eye,
+                    lineWidth);
+            }
+        }
+
+        rlDrawRenderBatchActive();
+        rlEnableDepthMask();
+        rlEnableDepthTest();
     }
 
     std::vector<int> selectedThings;
@@ -843,9 +871,7 @@ int main(int argc, char* argv[]) {
                     punchTool.reset();
                     clipTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
-                    editor.statusMessage =
-                        std::string("Create role: ") +
-                        slopengine::brushRoleName(editor.createBrushRole);
+                    createTool.setStatus(editor);
                 }
                 if (menuItemWithIcon(
                         assets,
@@ -1186,6 +1212,19 @@ int main(int argc, char* argv[]) {
                         editor.statusMessage = "No lightmap bake; run RAD";
                     }
                 }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "contrast",
+                        "Solid Lit",
+                        nullptr,
+                        editor.fill == slopmap::PreviewFill::SolidLit)) {
+                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                        editor.fill = slopmap::PreviewFill::SolidLit;
+                    } else {
+                        editor.statusMessage = "No lightmap bake; run RAD";
+                    }
+                }
                 if (beginMenuWithIcon(assets, kIcons, "eye", "X-Ray Overlay")) {
                     if (menuItemWithIcon(
                             assets,
@@ -1215,6 +1254,18 @@ int main(int argc, char* argv[]) {
                         editor.wireframe = slopmap::WireframeOverlay::All;
                     }
                     ImGui::EndMenu();
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "shape_flip_vertical",
+                        "Ignore Backfaces",
+                        nullptr,
+                        editor.ignoreBackfaces)) {
+                    editor.ignoreBackfaces = !editor.ignoreBackfaces;
+                    editor.statusMessage = editor.ignoreBackfaces
+                        ? "Ignore backfaces: On"
+                        : "Ignore backfaces: Off";
                 }
                 ImGui::EndMenu();
             }
@@ -1412,6 +1463,13 @@ int main(int argc, char* argv[]) {
                         }
                         break;
                     case slopmap::PreviewFill::Lit:
+                        if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                            editor.fill = slopmap::PreviewFill::SolidLit;
+                        } else {
+                            editor.fill = slopmap::PreviewFill::Wireframe;
+                        }
+                        break;
+                    case slopmap::PreviewFill::SolidLit:
                         editor.fill = slopmap::PreviewFill::Wireframe;
                         break;
                     }
@@ -1585,9 +1643,7 @@ int main(int argc, char* argv[]) {
                     punchTool.reset();
                     clipTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
-                    editor.statusMessage =
-                        std::string("Create role: ") +
-                        slopengine::brushRoleName(editor.createBrushRole);
+                    createTool.setStatus(editor);
                 }
                 ImGui::SameLine();
                 if (toolBtn(
@@ -1655,6 +1711,18 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 ImGui::SameLine();
+                if (toolBtn(
+                        "fill-solid-lit",
+                        "contrast",
+                        "Solid Lit",
+                        editor.fill == slopmap::PreviewFill::SolidLit)) {
+                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                        editor.fill = slopmap::PreviewFill::SolidLit;
+                    } else {
+                        editor.statusMessage = "No lightmap bake; run RAD";
+                    }
+                }
+                ImGui::SameLine();
                 {
                     const char* xrayLabel = "XRay Off";
                     if (editor.wireframe == slopmap::WireframeOverlay::Visible) {
@@ -1679,6 +1747,17 @@ int main(int argc, char* argv[]) {
                             break;
                         }
                     }
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "ignore-backfaces",
+                        "shape_flip_vertical",
+                        editor.ignoreBackfaces ? "No Backfaces" : "Backfaces",
+                        editor.ignoreBackfaces)) {
+                    editor.ignoreBackfaces = !editor.ignoreBackfaces;
+                    editor.statusMessage = editor.ignoreBackfaces
+                        ? "Ignore backfaces: On"
+                        : "Ignore backfaces: Off";
                 }
 
                 toolSep();
@@ -1882,7 +1961,12 @@ int main(int argc, char* argv[]) {
                             const bool selected = d.isBrushSelected(static_cast<int>(i));
                             const std::string label =
                                 d.brushes[i].id + " [" + slopengine::brushRoleName(d.brushes[i].role) + "]";
-                            if (selectableWithIcon(assets, kIconSet, "bricks", label.c_str(), selected)) {
+                            if (selectableWithIcon(
+                                    assets,
+                                    kIconSet,
+                                    brushRoleToolbarIcon(d.brushes[i].role),
+                                    label.c_str(),
+                                    selected)) {
                                 const bool additive =
                                     ImGui::GetIO().KeyShift;
                                 editor.selectBrush(static_cast<int>(i), additive);

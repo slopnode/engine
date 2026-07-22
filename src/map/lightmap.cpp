@@ -368,6 +368,7 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
     }
     shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
     shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
+    shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(shader, "texture5");
     shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
     shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
     if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
@@ -377,6 +378,11 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
     int useLightmap = 1;
     if (useLightmapLoc >= 0) {
         SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
+    }
+    const int solidLitLoc = GetShaderLocation(shader, "solidLit");
+    if (solidLitLoc >= 0) {
+        const int solidLit = 0;
+        SetShaderValue(shader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
     }
     const int lightCountLoc = GetShaderLocation(shader, "dynLightCount");
     if (lightCountLoc >= 0) {

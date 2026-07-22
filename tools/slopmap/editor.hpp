@@ -112,6 +112,7 @@ struct Editor {
     MapPreview preview;
     PreviewFill fill = PreviewFill::Textures;
     WireframeOverlay wireframe = WireframeOverlay::Off;
+    bool ignoreBackfaces = true;
     float gridSize = 0.1f;
     bool showGrid = true;
     GridPlane gridPlane = GridPlane::XZ;
