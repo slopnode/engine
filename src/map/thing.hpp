@@ -17,6 +17,7 @@ enum class ThingKind {
     AreaLight,
     Sun,
     Prefab,
+    SoundSource,
 };
 
 struct Thing {
@@ -51,6 +52,14 @@ struct Thing {
     Vector2 size{1.0f, 1.0f};
 
     std::string prefabPath;
+
+    std::string audio;
+    std::string clip;
+    float volume = 1.0f;
+    float minDistance = 1.0f;
+    float maxDistance = 30.0f;
+    bool looping = true;
+    bool spatial = true;
 };
 
 struct ThingDocument {
@@ -65,6 +74,17 @@ inline Thing makeDefaultLightThing(ThingKind kind) {
     t.range = 8.0f;
     t.coneAngle = 0.7f;
     t.size = {1.0f, 1.0f};
+    return t;
+}
+
+inline Thing makeDefaultSoundSourceThing() {
+    Thing t{};
+    t.kind = ThingKind::SoundSource;
+    t.volume = 1.0f;
+    t.minDistance = 1.0f;
+    t.maxDistance = 30.0f;
+    t.looping = true;
+    t.spatial = true;
     return t;
 }
 
@@ -88,6 +108,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "sun";
     case ThingKind::Prefab:
         return "prefab";
+    case ThingKind::SoundSource:
+        return "sound-source";
     }
     return "thing";
 }

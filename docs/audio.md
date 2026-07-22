@@ -13,6 +13,21 @@ Related: [Package structure](package-structure.md), [Sprites](sprites.md) (frame
 | Buses | `sfx` and `music` |
 | Play paths | Scheme API, `.spanim` `(sound …)`, flecs `AudioSource` autoplay |
 
+## Steam Audio (optional)
+
+By default, spatial playback uses SoLoud's built-in 3D path. Building with Steam Audio replaces that backend for spatial sources.
+
+The Steam Audio SDK is an **out-of-repo binary**: it is not a submodule and is not under `lib/`. Each machine that opts in supplies `STEAM_AUDIO_ROOT` at configure time (see the [README](../README.md#optional-steam-audio) for CMake flags and expected SDK layout).
+
+When linked and initialized successfully:
+
+- Spatial voices use an HRTF spatialize filter
+- Map load builds an occlusion/transmission scene from the BSP
+- Parametric reflections run through the simulator
+- `BUILD_RPATH` / `INSTALL_RPATH` point at the SDK lib dir so `libphonon` resolves at run time
+
+If init fails, the engine logs a warning and falls back to SoLoud 3D. Authoring is unchanged: `(spatial #t)` on defs, `sound-source` things, `.spanim` frame sounds, and `AudioSource.spatial` all use Steam when it is enabled.
+
 ## Package layout
 
 | Kind | Directory | Extensions | Virtual path example |

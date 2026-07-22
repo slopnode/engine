@@ -2,6 +2,8 @@
 
 slopengine is a small hobby stack for first-person games, assembled from free libraries with classic folder-based content. See [Overview](overview.md).
 
+API reference for flecs types is under **Modules**: @ref components "Components" and @ref systems "Systems" (grouped by subsystem).
+
 ## Guides
 
 - [Overview](overview.md)

@@ -127,6 +127,20 @@ target_link_libraries(slopengine PRIVATE
     soloud
 )
 
+if(SLOPENGINE_HAS_STEAM_AUDIO)
+    target_sources(slopengine PRIVATE
+        src/audio/steam_audio_runtime.cpp
+        src/audio/steam_audio_scene.cpp
+        src/audio/steam_audio_spatialize_filter.cpp
+    )
+    target_compile_definitions(slopengine PRIVATE SLOPENGINE_HAS_STEAM_AUDIO=1)
+    target_link_libraries(slopengine PRIVATE SteamAudio::phonon)
+    set_target_properties(slopengine PROPERTIES
+        BUILD_RPATH "${STEAM_AUDIO_LIB_DIR}"
+        INSTALL_RPATH "${STEAM_AUDIO_LIB_DIR}"
+    )
+endif()
+
 if(MSVC)
     target_compile_options(slopengine PRIVATE /W4 /permissive-)
 else()

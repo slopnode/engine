@@ -4,7 +4,9 @@
 
 namespace slopengine {
 
-/** Runtime state for playing a clip from a loaded animation bank. */
+/** Runtime state for playing a clip from a loaded animation bank.
+ *  @ingroup render_components
+ */
 struct AnimationPlayer {
     std::string animBankPath;
     std::string clipName;

@@ -37,6 +37,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{255, 255, 160, 255};
     case slopengine::ThingKind::Prefab:
         return Color{140, 140, 200, 255};
+    case slopengine::ThingKind::SoundSource:
+        return Color{120, 220, 255, 255};
     }
     return WHITE;
 }
@@ -193,6 +195,10 @@ void drawThings(
             break;
         case slopengine::ThingKind::Prefab:
             DrawCubeWires(pos, 0.4f, 0.4f, 0.4f, color);
+            break;
+        case slopengine::ThingKind::SoundSource:
+            DrawSphere(pos, 0.18f, color);
+            DrawSphereWires(pos, 0.45f, 8, 8, color);
             break;
         }
     }

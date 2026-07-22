@@ -2,6 +2,8 @@
 
 #include "assets/asset_store.hpp"
 #include "assets/audio_def.hpp"
+#include "audio/steam_audio_types.hpp"
+#include "map/bsp.hpp"
 
 #include <soloud.h>
 #include <soloud_bus.h>
@@ -22,6 +24,10 @@ enum class AudioBusKind {
     Sfx,
     Music,
 };
+
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+class SteamAudioRuntime;
+#endif
 
 class AudioWorld {
 public:
@@ -52,7 +58,9 @@ public:
         float volume = 1.0f,
         bool loop = false,
         float minDistance = 1.0f,
-        float maxDistance = 30.0f);
+        float maxDistance = 30.0f,
+        bool followListener = false,
+        float followForwardOffset = 0.0f);
     SoLoud::handle playAudioDef(
         AssetStore& assets,
         std::string_view defPath,
@@ -86,6 +94,14 @@ public:
         float upZ);
     void setSourcePosition(SoLoud::handle voice, float x, float y, float z);
     void update3d();
+    void updateListenerAttachedSources(const SteamAudioListenerPose& listener);
+
+    bool steamAudioEnabled() const;
+    void setSteamAudioScene(const BspTree& tree);
+    void clearSteamAudioScene();
+    void updateSteamAudio(
+        const SteamAudioListenerPose& listener,
+        const std::vector<SteamAudioSourcePose>& sources);
 
     bool attachBuiltinFilter(AudioBusKind bus, std::string_view name, unsigned int slot = 0);
     bool attachGlobalFilter(std::string_view name, unsigned int slot = 0);
@@ -113,6 +129,29 @@ private:
     static AudioBusKind busFromDef(AudioDefBus bus);
     static void applySaudioParams(SoLoud::Sfxr& sfxr, const SaudioParams& params);
 
+    void trackListenerAttached(SoLoud::handle voice, float forwardOffset);
+
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    SoLoud::Wav* ensureStereoClip(SoLoud::Wav* clip, std::string_view cacheKey);
+    SoLoud::Wav* bakeSfxrStereo(SoLoud::Sfxr& sfxr, std::string_view cacheKey, bool loop);
+    SoLoud::Wav* prepareSpatialSteamWav(SoLoud::Wav* clip, std::string_view cacheKey, bool loop);
+    SoLoud::handle playSpatialSteam(
+        SoLoud::Wav& source,
+        float x,
+        float y,
+        float z,
+        float volume,
+        float minDistance,
+        float maxDistance,
+        bool followListener,
+        float followForwardOffset);
+#endif
+
+    struct ListenerAttachedVoice {
+        SoLoud::handle voice = 0;
+        float forwardOffset = 0.0f;
+    };
+
     SoLoud::Soloud soloud_;
     SoLoud::Bus sfxBus_;
     SoLoud::Bus musicBus_;
@@ -127,10 +166,16 @@ private:
     std::unordered_map<std::string, std::unique_ptr<SoLoud::WavStream>> streamsByDef_;
     std::unordered_map<std::string, std::unique_ptr<SoLoud::Sfxr>> sfxrByDef_;
     std::vector<std::unique_ptr<SoLoud::Filter>> filters_;
+    std::vector<ListenerAttachedVoice> listenerAttached_;
     unsigned int sfxFilterCount_ = 0;
     unsigned int musicFilterCount_ = 0;
     std::unordered_map<std::string, void*> schemeFilters_;
     unsigned int globalFilterCount_ = 0;
+
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    std::unique_ptr<SteamAudioRuntime> steamAudio_;
+    std::unordered_map<std::string, std::unique_ptr<SoLoud::Wav>> stereoClips_;
+#endif
 };
 
 }

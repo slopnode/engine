@@ -34,7 +34,9 @@ struct DynamicLightColor {
     Vector3 value{1.0f, 1.0f, 1.0f};
 };
 
-/** Runtime light composited on top of baked lightmaps. */
+/** Runtime light composited on top of baked lightmaps.
+ *  @ingroup render_components
+ */
 struct DynamicLight {
     DynamicLightKind kind = DynamicLightKind::Point;
     DynamicLightColor color{};

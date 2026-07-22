@@ -26,6 +26,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "sun";
     case slopengine::ThingKind::Prefab:
         return "prefab";
+    case slopengine::ThingKind::SoundSource:
+        return "sound-source";
     }
     return "thing";
 }
@@ -155,9 +157,12 @@ void PlaceTool::update(
         return;
     }
 
-    slopengine::Thing thing =
-        slopengine::thingKindIsLight(kind) ? slopengine::makeDefaultLightThing(kind)
-                                               : slopengine::Thing{};
+    slopengine::Thing thing{};
+    if (slopengine::thingKindIsLight(kind)) {
+        thing = slopengine::makeDefaultLightThing(kind);
+    } else if (kind == slopengine::ThingKind::SoundSource) {
+        thing = slopengine::makeDefaultSoundSourceThing();
+    }
     thing.kind = kind;
     thing.id = editor.allocateThingId(thingIdPrefix(kind));
     thing.at = snapToGrid(hit, editor.gridSize);

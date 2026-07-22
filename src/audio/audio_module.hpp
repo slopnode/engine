@@ -9,6 +9,9 @@ struct s7_scheme;
 
 namespace slopengine {
 
+/** World singleton holding the audio backend and asset store pointers.
+ *  @ingroup audio_components
+ */
 struct AudioContext {
     AudioWorld* world = nullptr;
     AssetStore* assets = nullptr;

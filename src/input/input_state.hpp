@@ -8,7 +8,9 @@
 
 namespace slopengine {
 
-/** Per-frame action edges and mouse delta sampled from the current bindings. */
+/** Per-frame action edges and mouse delta sampled from the current bindings.
+ *  @ingroup input_components
+ */
 struct InputState {
     std::vector<char> actionPressed;
     std::vector<char> actionDown;

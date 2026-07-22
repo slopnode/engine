@@ -9,10 +9,16 @@
 
 namespace slopengine {
 
+/** Named tags used for trigger filter matching.
+ *  @ingroup physics_components
+ */
 struct CollisionTags {
     std::vector<std::string> tags;
 };
 
+/** Axis-aligned trigger volume with Scheme enter/exit callbacks.
+ *  @ingroup physics_components
+ */
 struct TriggerVolume {
     Vector3 size{1.0f, 1.0f, 1.0f};
     std::string onEnter;

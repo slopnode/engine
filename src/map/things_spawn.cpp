@@ -1,6 +1,7 @@
 #include "map/things_spawn.hpp"
 
 #include "assets/skeleton_loader.hpp"
+#include "audio/components.hpp"
 #include "interact/components.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
@@ -329,6 +330,23 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
 
     if (thingKindIsLight(placement.kind)) {
         spawnLight(entity, placement, ctx);
+        return;
+    }
+
+    if (placement.kind == ThingKind::SoundSource) {
+        entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+        entity.set<AudioSource>({
+            .audio = placement.audio,
+            .clip = placement.clip,
+            .volume = placement.volume,
+            .minDistance = placement.minDistance,
+            .maxDistance = placement.maxDistance,
+            .looping = placement.looping,
+            .spatial = placement.spatial,
+            .autoplay = true,
+            .playing = false,
+            .voice = 0,
+        });
         return;
     }
 

@@ -4,6 +4,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/sprite_loader.hpp"
 #include "audio/audio_module.hpp"
+#include "audio/components.hpp"
 #include "camera/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
@@ -917,15 +918,64 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 if (ctx.world == nullptr || ctx.assets == nullptr || !ctx.world->ready()) {
                     return;
                 }
-                if (entity.has<GlobalTransformation>()) {
-                    const Matrix& matrix = entity.get<GlobalTransformation>().matrix;
+
+                auto playAtWorld = [&](float x, float y, float z) {
                     ctx.world->playSound3d(
                         *ctx.assets,
                         frame.sound,
-                        matrix.m12,
-                        matrix.m13,
-                        matrix.m14,
+                        x,
+                        y,
+                        z,
                         frame.soundVolume);
+                };
+
+                if (entity.has<ViewSpace>() || entity.has<ViewSprite>()) {
+                    bool haveListener = false;
+                    Vector3 listenerPos{0.0f, 0.0f, 0.0f};
+                    Vector3 ahead{0.0f, 0.0f, 1.0f};
+                    world.each([&](flecs::entity listenerEntity, AudioListener& listener) {
+                        if (!listener.active || haveListener) {
+                            return;
+                        }
+                        if (listenerEntity.has<Lens>()) {
+                            const Lens& lens = listenerEntity.get<Lens>();
+                            listenerPos = lens.camera.position;
+                            ahead = Vector3Normalize(
+                                Vector3Subtract(lens.camera.target, lens.camera.position));
+                            haveListener = true;
+                            return;
+                        }
+                        if (listenerEntity.has<GlobalTransformation>()) {
+                            const Matrix& matrix =
+                                listenerEntity.get<GlobalTransformation>().matrix;
+                            listenerPos = {matrix.m12, matrix.m13, matrix.m14};
+                            if (listenerEntity.has<FirstPersonController>()) {
+                                const FirstPersonController& controller =
+                                    listenerEntity.get<FirstPersonController>();
+                                const float cy = std::cos(controller.yaw);
+                                const float sy = std::sin(controller.yaw);
+                                const float cp = std::cos(controller.pitch);
+                                const float sp = std::sin(controller.pitch);
+                                ahead = Vector3Normalize({sy * cp, -sp, cy * cp});
+                            }
+                            haveListener = true;
+                        }
+                    });
+                    if (haveListener) {
+                        constexpr float kMuzzleForward = 0.35f;
+                        playAtWorld(
+                            listenerPos.x + ahead.x * kMuzzleForward,
+                            listenerPos.y + ahead.y * kMuzzleForward,
+                            listenerPos.z + ahead.z * kMuzzleForward);
+                    } else {
+                        ctx.world->playSound(*ctx.assets, frame.sound, frame.soundVolume);
+                    }
+                    return;
+                }
+
+                if (entity.has<GlobalTransformation>()) {
+                    const Matrix& matrix = entity.get<GlobalTransformation>().matrix;
+                    playAtWorld(matrix.m12, matrix.m13, matrix.m14);
                 } else {
                     ctx.world->playSound(*ctx.assets, frame.sound, frame.soundVolume);
                 }
@@ -1593,6 +1643,14 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         ambientColor));
     world.set<MapBsp>(std::move(mapBsp));
 
+    if (world.has<AudioContext>()) {
+        AudioContext& audioCtx = world.get_mut<AudioContext>();
+        if (audioCtx.world != nullptr) {
+            audioCtx.world->clearSteamAudioScene();
+            audioCtx.world->setSteamAudioScene(world.get<MapBsp>().tree);
+        }
+    }
+
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
@@ -1648,6 +1706,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         .set<FirstPersonController>(controller)
         .set<CharacterMotor>(motor)
         .set<ViewEyeOffset>(ViewEyeOffset{})
+        .set<AudioListener>(AudioListener{})
         .set<CollisionTags>(CollisionTags{{"player"}});
 
     if (world.has<PhysicsContext>()) {

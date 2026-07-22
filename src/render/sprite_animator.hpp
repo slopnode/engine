@@ -5,7 +5,9 @@
 
 namespace slopengine {
 
-/** Runtime state for playing a sprite clip from a .spanim bank. */
+/** Runtime state for playing a sprite clip from a .spanim bank.
+ *  @ingroup render_components
+ */
 struct SpriteAnimator {
     std::string animPath;
     std::string clipName;

@@ -18,6 +18,23 @@ cmake --build build
 
 On Windows with Visual Studio, open the generated solution in `build/` or use the commands above from a developer shell.
 
+### Optional: Steam Audio
+
+Spatial audio can use Valve's Steam Audio SDK. This is **opt-in** (`SLOPENGINE_USE_STEAM_AUDIO` defaults OFF). The SDK is **not** vendored under `lib/` or as a git submodule -- download the binary SDK separately and point CMake at the extract:
+
+```bash
+cmake -S . -B build \
+  -DSLOPENGINE_USE_STEAM_AUDIO=ON \
+  -DSTEAM_AUDIO_ROOT=/path/to/steamaudio
+```
+
+Expected layout under `STEAM_AUDIO_ROOT`:
+
+- `include/phonon.h`
+- `lib/<platform>/` with `libphonon` (`linux-x64`, `windows-x64`, `osx`, ...)
+
+A source checkout may resolve headers but still needs a prebuilt `libphonon` unless you build it yourself. See [docs/audio.md](docs/audio.md) for runtime behavior when Steam Audio is enabled.
+
 ## Run
 
 ```bash

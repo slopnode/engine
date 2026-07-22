@@ -54,6 +54,9 @@ struct HudCmd {
     std::string fontPath;
 };
 
+/** Deferred HUD draw commands for the current frame.
+ *  @ingroup render_components
+ */
 struct HudDrawList {
     HudAnchor anchor = HudAnchor::TopLeft;
     std::string fontPath;
@@ -62,6 +65,9 @@ struct HudDrawList {
     void clear();
 };
 
+/** Cached raylib fonts keyed by package path.
+ *  @ingroup render_components
+ */
 struct HudFontCache {
     std::unordered_map<std::string, Font> fonts;
 

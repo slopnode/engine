@@ -6,10 +6,13 @@
 #include "script/audio_script.hpp"
 #include "script/script_context.hpp"
 
+#include "audio/steam_audio_types.hpp"
+
 #include <soloud.h>
 #include <raymath.h>
 
 #include <cmath>
+#include <vector>
 
 namespace slopengine {
 
@@ -133,15 +136,24 @@ void registerSystems(flecs::world& world) {
                 if (!listener.active || haveListener) {
                     return;
                 }
-                if (entity.has<GlobalTransformation>()) {
-                    listenerPos = translationFromMatrix(entity.get<GlobalTransformation>().matrix);
+                if (entity.has<Lens>()) {
+                    const Lens& lens = entity.get<Lens>();
+                    listenerPos = lens.camera.position;
+                    at = Vector3Normalize(Vector3Subtract(lens.camera.target, lens.camera.position));
+                    up = lens.camera.up;
+                } else {
+                    if (entity.has<GlobalTransformation>()) {
+                        listenerPos = translationFromMatrix(entity.get<GlobalTransformation>().matrix);
+                    }
+                    const FirstPersonController* controller =
+                        entity.has<FirstPersonController>() ? &entity.get<FirstPersonController>()
+                                                            : nullptr;
+                    listenerBasis(controller, at, up);
                 }
-                const FirstPersonController* controller =
-                    entity.has<FirstPersonController>() ? &entity.get<FirstPersonController>()
-                                                        : nullptr;
-                listenerBasis(controller, at, up);
                 haveListener = true;
             });
+
+            const bool useSteam = ctx.world->steamAudioEnabled();
 
             if (haveListener) {
                 ctx.world->setListener(
@@ -156,6 +168,7 @@ void registerSystems(flecs::world& world) {
                     up.z);
             }
 
+            std::vector<SteamAudioSourcePose> steamSources;
             world.each([&](flecs::entity entity, AudioSource& source) {
                 if (!source.spatial || source.voice == 0 || !source.playing) {
                     return;
@@ -169,8 +182,34 @@ void registerSystems(flecs::world& world) {
                     pos.x,
                     pos.y,
                     pos.z);
+                if (useSteam) {
+                    SteamAudioSourcePose pose{};
+                    pose.voice = static_cast<SoLoud::handle>(source.voice);
+                    pose.x = pos.x;
+                    pose.y = pos.y;
+                    pose.z = pos.z;
+                    pose.minDistance = source.minDistance;
+                    pose.maxDistance = source.maxDistance;
+                    steamSources.push_back(pose);
+                }
             });
 
+            if (haveListener) {
+                SteamAudioListenerPose listener{};
+                listener.posX = listenerPos.x;
+                listener.posY = listenerPos.y;
+                listener.posZ = listenerPos.z;
+                listener.aheadX = at.x;
+                listener.aheadY = at.y;
+                listener.aheadZ = at.z;
+                listener.upX = up.x;
+                listener.upY = up.y;
+                listener.upZ = up.z;
+                ctx.world->updateListenerAttachedSources(listener);
+                if (useSteam) {
+                    ctx.world->updateSteamAudio(listener, steamSources);
+                }
+            }
             ctx.world->update3d();
         });
 

@@ -8,7 +8,7 @@ OUTPUT_LANGUAGE        = English
 INPUT                  = "@DOXYGEN_INPUT_DIRECTORY@" \
                          "@CMAKE_SOURCE_DIR@/docs"
 RECURSIVE              = YES
-FILE_PATTERNS          = *.hpp *.md
+FILE_PATTERNS          = *.hpp *.md *.dox
 EXCLUDE                =
 EXCLUDE_PATTERNS       =
 
@@ -19,6 +19,8 @@ MULTILINE_CPP_IS_BRIEF = YES
 BRIEF_MEMBER_DESC      = YES
 REPEAT_BRIEF           = YES
 SORT_MEMBER_DOCS       = YES
+INLINE_SIMPLE_STRUCTS  = YES
+INLINE_GROUPED_CLASSES = YES
 
 EXTRACT_ALL            = NO
 EXTRACT_PRIVATE        = NO

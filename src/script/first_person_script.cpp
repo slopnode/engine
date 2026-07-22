@@ -275,6 +275,7 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
 
     flecs::entity entity = g_fpWorld->entity()
                                .child_of(socket)
+                               .add<ViewSpace>()
                                .set<LocalTransformation>(local)
                                .set<GlobalTransformation>(global)
                                .set<SpriteInstance>(SpriteInstance{

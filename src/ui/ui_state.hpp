@@ -8,16 +8,25 @@
 
 namespace slopengine {
 
+/** In-game console open state, input buffer, and log lines.
+ *  @ingroup ui_components
+ */
 struct ConsoleState {
     bool open = false;
     char inputBuffer[512]{};
     std::vector<std::string> log;
 };
 
+/** Singleton set when the player requests application quit.
+ *  @ingroup ui_components
+ */
 struct QuitRequest {
     bool requested = false;
 };
 
+/** Draft settings and rebinding state for the settings UI.
+ *  @ingroup ui_components
+ */
 struct SettingsUiState {
     bool graphicsOpen = false;
     bool controlsOpen = false;
@@ -27,6 +36,9 @@ struct SettingsUiState {
     bool rebindingWaitMouseRelease = false;
 };
 
+/** Debug overlay toggles and entity inspector selection.
+ *  @ingroup ui_components
+ */
 struct DebugUiState {
     bool showBspOutlines = false;
     bool showBspLeafFaces = false;

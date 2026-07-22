@@ -2,7 +2,9 @@
 
 namespace slopengine {
 
-/** Capsule character motor params and per-frame wish velocity. */
+/** Capsule character motor params and per-frame wish velocity.
+ *  @ingroup physics_components
+ */
 struct CharacterMotor {
     float radius = 0.3f;   /**< Capsule radius in meters. */
     float height = 1.1f;   /**< Cylinder height between hemispheres. */

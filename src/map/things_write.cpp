@@ -97,6 +97,20 @@ void writeLightFields(std::ostringstream& out, const Thing& p) {
     }
 }
 
+void writeSoundSourceFields(std::ostringstream& out, const Thing& p) {
+    if (!p.audio.empty()) {
+        writeIndentClause(out, "(audio " + escapeSchemeString(p.audio) + ")");
+    }
+    if (!p.clip.empty()) {
+        writeIndentClause(out, "(clip " + escapeSchemeString(p.clip) + ")");
+    }
+    writeIndentClause(out, "(volume " + formatFloat(p.volume) + ")");
+    writeIndentClause(out, std::string("(loop ") + (p.looping ? "#t" : "#f") + ")");
+    writeIndentClause(out, std::string("(spatial ") + (p.spatial ? "#t" : "#f") + ")");
+    writeIndentClause(out, "(min-distance " + formatFloat(p.minDistance) + ")");
+    writeIndentClause(out, "(max-distance " + formatFloat(p.maxDistance) + ")");
+}
+
 void writeTriggerFields(std::ostringstream& out, const Thing& p) {
     if (!p.onEnter.empty()) {
         writeIndentClause(out, "(on-enter " + escapeSchemeString(p.onEnter) + ")");
@@ -147,6 +161,9 @@ void writeThing(std::ostringstream& out, const Thing& p) {
     }
     if (thingKindIsLight(p.kind)) {
         writeLightFields(out, p);
+    }
+    if (p.kind == ThingKind::SoundSource) {
+        writeSoundSourceFields(out, p);
     }
 
     out << ")\n\n";
