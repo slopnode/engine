@@ -3,6 +3,7 @@
 #include "assets/skeleton_loader.hpp"
 #include "audio/components.hpp"
 #include "interact/components.hpp"
+#include "map/bsp.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "physics/trigger_components.hpp"
@@ -303,6 +304,7 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
     }
 
     flecs::entity entity = ctx.world->entity(placement.id.c_str());
+    entity.add<MapOwned>();
 
     if (thingKindNeedsPresentation(placement.kind)) {
         if (!applyPresentation(entity, placement, ctx)) {

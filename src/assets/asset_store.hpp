@@ -93,6 +93,15 @@ public:
     /** Returns true when a map meta file exists at @p path. */
     bool hasMapMeta(std::string_view path) const;
 
+    /** Folder id and display name for a discoverable map. */
+    struct MapListEntry {
+        std::string id;
+        std::string name;
+    };
+
+    /** Lists maps with map.meta under mounted packages' maps/ folders. */
+    std::vector<MapListEntry> listMaps() const;
+
     /** Returns true when a compiled map BSP exists at @p path. */
     bool hasMapBsp(std::string_view path) const;
 

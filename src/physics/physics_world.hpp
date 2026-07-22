@@ -28,8 +28,14 @@ struct PhysicsWorld {
     /** Registers convex static bodies for map brushes (skips nocollide). */
     void addStaticBrushes(const std::vector<Brush>& brushes);
 
+    /** Removes all static brush bodies registered by addStaticBrushes. */
+    void clearStaticBrushes();
+
     /** Creates the player capsule at feet position using @p motor sizes. */
     void createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor);
+
+    /** Destroys the virtual player character if present. */
+    void destroyPlayerCharacter();
 
     /** Applies horizontal wish from @p motor; skips gravity when @p noclip. */
     void applyPlayerInput(

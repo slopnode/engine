@@ -267,7 +267,21 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
         skippedNocollide);
 }
 
+void PhysicsWorld::clearStaticBrushes() {
+    if (!system_) {
+        return;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    for (JPH::BodyID id : staticBodies_) {
+        bodies.RemoveBody(id);
+        bodies.DestroyBody(id);
+    }
+    staticBodies_.clear();
+}
+
 void PhysicsWorld::createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor) {
+    destroyPlayerCharacter();
+
     const float radius = motor.radius;
     const float cylinderHalf = 0.5f * motor.height;
     characterShape_ = JPH::RotatedTranslatedShapeSettings(
@@ -288,6 +302,11 @@ void PhysicsWorld::createPlayerCharacter(float x, float y, float z, const Charac
         system_.get());
 
     TraceLog(LOG_INFO, "PHYSICS: player character at (%.2f, %.2f, %.2f)", x, y, z);
+}
+
+void PhysicsWorld::destroyPlayerCharacter() {
+    character_ = nullptr;
+    characterShape_ = nullptr;
 }
 
 void PhysicsWorld::applyPlayerInput(

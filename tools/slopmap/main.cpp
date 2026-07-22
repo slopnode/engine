@@ -48,7 +48,7 @@ void printUsage() {
         << "  --base-game   Base game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory that receives map/prefab saves (required)\n"
-        << "  --map         Map folder name under maps/ (loads maps/<name>/static.csg)\n";
+        << "  --map         Optional map under maps/ to open (default: new untitled map)\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {

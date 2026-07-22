@@ -2,6 +2,7 @@
 
 #include "assets/asset_services.hpp"
 #include "camera/components.hpp"
+#include "game/game_state.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
 #include "input/actions.hpp"
@@ -10,6 +11,7 @@
 #include "input/input_module.hpp"
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
+#include "map/bsp.hpp"
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
 #include "physics/trigger_components.hpp"
@@ -25,6 +27,7 @@
 #include <cstdio>
 #include <cstring>
 #include <raylib.h>
+#include <string>
 #include <vector>
 
 namespace slopengine {
@@ -257,6 +260,7 @@ void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
 }
 
 void drawMainMenuBar(
+    flecs::world world,
     AssetStore& assets,
     QuitRequest& quit,
     SettingsUiState& settingsUi,
@@ -286,6 +290,23 @@ void drawMainMenuBar(
     }
 
     if (beginMenuWithIcon(assets, kIcons, "bug", "Debug")) {
+        if (beginMenuWithIcon(assets, kIcons, "map", "Map")) {
+            const std::string currentId =
+                world.has<CurrentMap>() ? world.get<CurrentMap>().id : std::string{};
+            const auto maps = assets.listMaps();
+            if (maps.empty()) {
+                ImGui::MenuItem("(no maps)", nullptr, false, false);
+            } else {
+                for (const AssetStore::MapListEntry& entry : maps) {
+                    const bool selected = entry.id == currentId;
+                    if (menuItemWithIcon(
+                            assets, kIcons, "world", entry.name.c_str(), nullptr, selected)) {
+                        requestMapLoad(entry.id);
+                    }
+                }
+            }
+            ImGui::EndMenu();
+        }
         if (beginMenuWithIcon(assets, kIcons, "chart_organisation", "BSP")) {
             ImGui::MenuItem("Outlines", nullptr, &debugUi.showBspOutlines);
             ImGui::MenuItem("Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
@@ -902,7 +923,7 @@ void registerSystems(flecs::world& world) {
                 }
             }
 
-            if (input.pressed(Action::MainMenu)) {
+            if (input.pressed(Action::MainMenu) && !isMenu(it.world())) {
                 if (contexts.contains(InputContext::MainMenu)) {
                     contexts.pop(InputContext::MainMenu);
                     settingsUi.graphicsOpen = false;
@@ -964,7 +985,7 @@ void drawUi(flecs::world world) {
 
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
-        drawMainMenuBar(*assets, quit, settingsUi, debugUi, settings);
+        drawMainMenuBar(world, *assets, quit, settingsUi, debugUi, settings);
         drawGraphicsSettings(*assets, settingsUi, settings);
         drawControlsSettings(*assets, settingsUi, settings);
         drawEntityList(world, debugUi);

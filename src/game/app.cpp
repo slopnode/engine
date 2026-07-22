@@ -2,6 +2,7 @@
 
 #include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
+#include "game/game_state.hpp"
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
@@ -55,6 +56,9 @@ App::~App() {
 
 int App::run() {
     while (running_ && !WindowShouldClose()) {
+        if (auto pendingMap = takeRequestedMapLoad()) {
+            changeMap(world_, assetStore_, scheme_, *pendingMap);
+        }
         world_.progress();
         if (world_.get<QuitRequest>().requested) {
             break;

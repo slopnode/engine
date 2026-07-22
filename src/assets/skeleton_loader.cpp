@@ -428,6 +428,17 @@ Model cloneGeoModelInstance(const Model& source) {
     return instance;
 }
 
+void unloadClonedGeoModelInstance(Model& model) {
+    if (model.materials != nullptr) {
+        RL_FREE(model.materials);
+    }
+    RL_FREE(model.skeleton.bones);
+    RL_FREE(model.skeleton.bindPose);
+    RL_FREE(model.currentPose);
+    RL_FREE(model.boneMatrices);
+    model = {};
+}
+
 void allocateModelSkinningBuffers(Model& model) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         Mesh& mesh = model.meshes[meshIndex];

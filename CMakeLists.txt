@@ -91,6 +91,7 @@ add_executable(slopengine
     src/core/user_paths.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
+    src/game/game_state.cpp
     src/input/action_registry.cpp
     src/input/bind_code.cpp
     src/input/input_module.cpp

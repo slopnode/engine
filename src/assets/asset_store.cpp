@@ -3,9 +3,11 @@
 #include "assets/geo_loader.hpp"
 #include "assets/saudio_loader.hpp"
 #include "core/engine_package.hpp"
+#include "map/map_meta.hpp"
 
 #include <s7.h>
 
+#include <algorithm>
 #include <fstream>
 #include <functional>
 #include <stdexcept>
@@ -305,6 +307,50 @@ bool AssetStore::hasPrefabThings(std::string_view path) const {
 
 bool AssetStore::hasMapMeta(std::string_view path) const {
     return vfs_.exists(AssetKind::MapMeta, path);
+}
+
+std::vector<AssetStore::MapListEntry> AssetStore::listMaps() const {
+    std::unordered_map<std::string, MapListEntry> byId;
+    for (const Package& package : vfs_.packages()) {
+        const std::filesystem::path mapsRoot = package.root() / "maps";
+        if (!std::filesystem::exists(mapsRoot)) {
+            continue;
+        }
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(mapsRoot, ec), end; it != end && !ec;
+             it.increment(ec)) {
+            if (ec || !it->is_directory()) {
+                continue;
+            }
+            const std::filesystem::path metaPath = it->path() / "map.meta";
+            if (!std::filesystem::exists(metaPath)) {
+                continue;
+            }
+            const std::string id = it->path().filename().generic_string();
+            if (id.empty()) {
+                continue;
+            }
+            MapListEntry entry{};
+            entry.id = id;
+            entry.name = id;
+            const std::string source = vfs_.readText(AssetKind::MapMeta, id + "/map");
+            MapMeta meta{};
+            if (parseMapMeta(source, meta) && !meta.name.empty()) {
+                entry.name = meta.name;
+            }
+            byId[id] = std::move(entry);
+        }
+    }
+
+    std::vector<MapListEntry> maps;
+    maps.reserve(byId.size());
+    for (auto& [_, entry] : byId) {
+        maps.push_back(std::move(entry));
+    }
+    std::sort(maps.begin(), maps.end(), [](const MapListEntry& a, const MapListEntry& b) {
+        return a.name < b.name;
+    });
+    return maps;
 }
 
 bool AssetStore::hasMapBsp(std::string_view path) const {

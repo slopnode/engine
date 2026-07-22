@@ -2,6 +2,7 @@
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
+#include "assets/skeleton_loader.hpp"
 #include "assets/sprite_loader.hpp"
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
@@ -25,6 +26,8 @@
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "render/transform.hpp"
+#include "game/game_state.hpp"
+#include "input/input_context.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hud_script.hpp"
 #include "script/input_script.hpp"
@@ -699,6 +702,8 @@ void registerComponents(flecs::world& world) {
     world.component<AreaLight>();
     world.component<SunLight>();
     world.component<DynamicLight>();
+    world.component<MapOwned>();
+    world.component<CurrentMap>();
     world.component<ShaderCavity>()
         .on_remove([](flecs::iter&, size_t, ShaderCavity& shader) {
             if (shader.shader.id != 0) {
@@ -724,6 +729,9 @@ void registerSchemeTickSystem(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (!isPlaying(world)) {
+                return;
+            }
             if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
                 return;
             }
@@ -1078,6 +1086,9 @@ void registerRenderSystems(flecs::world& world) {
     world.system("UpdateFirstPersonScene")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
+            if (!isPlaying(it.world())) {
+                return;
+            }
             updateFirstPersonSceneTransforms(it.world());
         });
 
@@ -1086,6 +1097,9 @@ void registerRenderSystems(flecs::world& world) {
         .kind(flecs::PostUpdate)
         .each([](flecs::iter& it, size_t index, const Lens& lens) {
             flecs::world world = it.world();
+            if (!isPlaying(world)) {
+                return;
+            }
             flecs::entity eyeEntity = it.entity(index);
             RenderContext& context = world.get_mut<RenderContext>();
             const bool unlit =
@@ -1571,36 +1585,121 @@ void registerRenderSystems(flecs::world& world) {
         });
 }
 
-void spawnMainCamera(flecs::world& world, Vector3 position, Vector3 target, float yaw) {
-    Lens lens{};
-    lens.camera.position = position;
-    lens.camera.target = target;
-    lens.camera.up = {0.0f, 1.0f, 0.0f};
-    lens.camera.fovy = 75.0f;
-    lens.camera.projection = CAMERA_PERSPECTIVE;
+void unloadMapGpuResources(flecs::entity entity) {
+    if (!entity.has<Model3D>()) {
+        return;
+    }
+    Model3D& model3d = entity.get_mut<Model3D>();
+    if (entity.has<MapLightmapState>()) {
+        MapLightmapState& lightmaps = entity.get_mut<MapLightmapState>();
+        std::vector<unsigned int> atlasIds;
+        for (int materialIndex = 0; materialIndex < model3d.model.materialCount; ++materialIndex) {
+            Material& material = model3d.model.materials[materialIndex];
+            if (material.maps == nullptr) {
+                continue;
+            }
+            const unsigned int atlasId = material.maps[MATERIAL_MAP_METALNESS].texture.id;
+            if (atlasId == 0) {
+                continue;
+            }
+            if (std::find(atlasIds.begin(), atlasIds.end(), atlasId) == atlasIds.end()) {
+                atlasIds.push_back(atlasId);
+            }
+            material.maps[MATERIAL_MAP_METALNESS].texture = {};
+        }
+        if (model3d.model.meshCount > 0) {
+            UnloadModel(model3d.model);
+        }
+        model3d.model = {};
+        for (unsigned int atlasId : atlasIds) {
+            Texture2D atlas{};
+            atlas.id = atlasId;
+            UnloadTexture(atlas);
+        }
+        if (lightmaps.lightmapShader.id != 0) {
+            UnloadShader(lightmaps.lightmapShader);
+            lightmaps.lightmapShader = {};
+        }
+        lightmaps.available = false;
+        lightmaps.useLightmapLoc = -1;
+        return;
+    }
 
-    FirstPersonController controller{};
-    controller.yaw = yaw;
-    controller.pitch = -0.05f;
-
-    flecs::entity player = world.entity("Player")
-        .add<PlayerCamera>()
-        .add<WorldSpace>()
-        .set<Lens>(lens)
-        .set<FirstPersonController>(controller)
-        .set<ViewEyeOffset>(ViewEyeOffset{})
-        .set<CollisionTags>(CollisionTags{{"player"}});
-
-    ensureFirstPersonScene(world, player);
-    updateFirstPersonSceneTransforms(world);
-    callPrepareFirstPerson(world);
+    unloadClonedGeoModelInstance(model3d.model);
 }
 
-void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view mapName) {
+void destroyNamedEntityTree(flecs::world& world, const char* name) {
+    flecs::entity entity = world.lookup(name);
+    if (entity.is_valid()) {
+        entity.destruct();
+    }
+}
+
+} // namespace
+
+void unloadMapScene(flecs::world& world) {
+    if (world.has<AudioContext>()) {
+        AudioContext& audioCtx = world.get_mut<AudioContext>();
+        if (audioCtx.world != nullptr) {
+            audioCtx.world->clearSteamAudioScene();
+        }
+    }
+
+    if (world.has<PhysicsContext>()) {
+        PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
+        if (physics != nullptr) {
+            physics->clearStaticBrushes();
+            physics->destroyPlayerCharacter();
+        }
+    }
+
+    std::vector<flecs::entity> owned;
+    world.each([&](flecs::entity entity, MapOwned) {
+        owned.push_back(entity);
+    });
+    for (flecs::entity entity : owned) {
+        if (!entity.is_valid()) {
+            continue;
+        }
+        unloadMapGpuResources(entity);
+        entity.destruct();
+    }
+
+    destroyNamedEntityTree(world, "PlayerFp");
+    destroyNamedEntityTree(world, "Player");
+    destroyNamedEntityTree(world, "MapStatic");
+
+    if (world.has<MapLighting>()) {
+        world.remove<MapLighting>();
+    }
+    if (world.has<MapBsp>()) {
+        world.remove<MapBsp>();
+    }
+    if (world.has<MapGraphs>()) {
+        world.remove<MapGraphs>();
+    }
+    if (world.has<DynamicLightShadowState>()) {
+        world.remove<DynamicLightShadowState>();
+    }
+    if (world.has<DynamicLightFrameState>()) {
+        world.remove<DynamicLightFrameState>();
+    }
+    if (world.has<CurrentMap>()) {
+        world.remove<CurrentMap>();
+    }
+
+    if (world.has<DebugUiState>()) {
+        DebugUiState& debugUi = world.get_mut<DebugUiState>();
+        debugUi.inspectedEntity = {};
+        debugUi.entityDetailOpen = false;
+    }
+}
+
+bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view mapName) {
     auto loaded = loadAndCompileMap(scheme, assets, mapName);
     if (!loaded) {
         TraceLog(LOG_WARNING, "MAP: failed to spawn map '%.*s'", static_cast<int>(mapName.size()), mapName.data());
-        return;
+        return false;
     }
 
     MapLightmapState lightmapState{};
@@ -1609,6 +1708,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     lightmapState.lightmapShader = loaded->lightmapShader;
 
     world.entity("MapStatic")
+        .add<MapOwned>()
         .add<WorldSpace>()
         .set<LocalTransformation>({
             .position = {0.0f, 0.0f, 0.0f},
@@ -1641,15 +1741,16 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         std::move(loaded->rad),
         std::move(loaded->lightmapAtlasImages),
         ambientColor));
-    world.set<MapBsp>(std::move(mapBsp));
 
     if (world.has<AudioContext>()) {
         AudioContext& audioCtx = world.get_mut<AudioContext>();
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
-            audioCtx.world->setSteamAudioScene(world.get<MapBsp>().tree);
+            audioCtx.world->setSteamAudioScene(mapBsp.tree);
         }
     }
+
+    world.set<MapBsp>(std::move(mapBsp));
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
@@ -1700,6 +1801,7 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     lens.camera.projection = CAMERA_PERSPECTIVE;
 
     flecs::entity player = world.entity("Player")
+        .add<MapOwned>()
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<Lens>(lens)
@@ -1721,10 +1823,28 @@ void registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     }
 
     ensureFirstPersonScene(world, player);
+    flecs::entity fpRoot = world.lookup("PlayerFp");
+    if (fpRoot.is_valid()) {
+        fpRoot.add<MapOwned>();
+    }
     updateFirstPersonSceneTransforms(world);
     callPrepareFirstPerson(world);
+
+    world.set<CurrentMap>(CurrentMap{std::string(mapName)});
+    return true;
 }
 
+void changeMap(
+    flecs::world& world,
+    AssetStore& assets,
+    s7_scheme* scheme,
+    std::string_view mapName) {
+    unloadMapScene(world);
+    if (registerMapScene(world, assets, scheme, mapName)) {
+        enterPlaying(world);
+    } else {
+        enterMenu(world);
+    }
 }
 
 void registerRenderModule(
@@ -1733,6 +1853,7 @@ void registerRenderModule(
     const AppConfig& config,
     s7_scheme* scheme) {
     registerComponents(world);
+    world.component<GameState>();
 
     world.set<AssetServices>(AssetServices{&assets});
     world.set<ScriptContext>(ScriptContext{scheme});
@@ -1759,10 +1880,15 @@ void registerRenderModule(
     registerRenderSystems(world);
 
     if (config.map) {
-        registerMapScene(world, assets, scheme, *config.map);
+        if (registerMapScene(world, assets, scheme, *config.map)) {
+            enterPlaying(world);
+        } else {
+            TraceLog(LOG_WARNING, "RENDER: --map '%s' failed to load; entering menu", config.map->c_str());
+            enterMenu(world);
+        }
     } else {
-        TraceLog(LOG_WARNING, "RENDER: no --map specified; spawning free camera only");
-        spawnMainCamera(world, {0.0f, 1.7f, 8.0f}, {0.0f, 1.7f, 7.0f}, PI);
+        TraceLog(LOG_INFO, "RENDER: no --map; entering menu (Debug → Map)");
+        enterMenu(world);
     }
 }
 

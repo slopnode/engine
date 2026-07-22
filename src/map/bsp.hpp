@@ -78,4 +78,12 @@ struct MapLightmapState {
     Shader lightmapShader{};
 };
 
+/** Tag on entities spawned as part of the active map scene. */
+struct MapOwned {};
+
+/** Singleton tracking the folder id of the currently loaded map. */
+struct CurrentMap {
+    std::string id;
+};
+
 }

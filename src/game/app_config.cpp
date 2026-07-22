@@ -10,7 +10,7 @@ void AppConfig::printUsage(const char* program) {
         << "\n"
         << "  --base-game   Base game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
-        << "  --map         Map folder name under maps/ (loads maps/<name>/static.csg)\n";
+        << "  --map         Optional initial map under maps/ (omit to pick in Debug → Map)\n";
 }
 
 std::optional<AppConfig> AppConfig::parse(int argc, char* argv[]) {
