@@ -158,9 +158,10 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
     if (!reader.readPod(magic) || !reader.readPod(version)) {
         return std::nullopt;
     }
-    if (magic != kVisMagic || version != kVisVersion) {
+    if (magic != kVisMagic || (version != 1 && version != kVisVersion)) {
         return std::nullopt;
     }
+    const bool hasUvScale = version >= 2;
 
     std::uint32_t faceCount = 0;
     if (!reader.readPod(faceCount)) {
@@ -185,9 +186,13 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
     for (FaceRecord& record : records) {
         if (!readPolygon(reader, record.vertices)
             || !reader.readPod(record.normal)
-            || !reader.readPod(record.uvShiftPixels)
-            || !reader.readPod(record.uvScale)
-            || !reader.readPod(record.uvUAxis)
+            || !reader.readPod(record.uvShiftPixels)) {
+            return std::nullopt;
+        }
+        if (hasUvScale && !reader.readPod(record.uvScale)) {
+            return std::nullopt;
+        }
+        if (!reader.readPod(record.uvUAxis)
             || !reader.readPod(record.uvVAxis)
             || !reader.readPod(record.uvLock)
             || !reader.readPod(record.interiorLeaf)

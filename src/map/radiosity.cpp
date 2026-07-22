@@ -77,6 +77,39 @@ Vector3 normalize3(Vector3 v) {
     return scale3(v, 1.0f / len);
 }
 
+Vector3 cross3(Vector3 a, Vector3 b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+float luxelFaceParam(int index, int luxelCount) {
+    if (luxelCount <= 1) {
+        return 0.5f;
+    }
+    return static_cast<float>(index) / static_cast<float>(luxelCount - 1);
+}
+
+Vector3 planePointFromUv(
+    Vector3 uAxis,
+    Vector3 vAxis,
+    Vector3 normal,
+    float u,
+    float v,
+    float planeD) {
+    const Vector3 vCrossN = cross3(vAxis, normal);
+    const float det = dot3(uAxis, vCrossN);
+    if (std::fabs(det) < 1e-12f) {
+        return add3(add3(scale3(uAxis, u), scale3(vAxis, v)), scale3(normal, planeD));
+    }
+    const float invDet = 1.0f / det;
+    return add3(
+        add3(scale3(vCrossN, u * invDet), scale3(cross3(normal, uAxis), v * invDet)),
+        scale3(cross3(uAxis, vAxis), planeD * invDet));
+}
+
 Color3 colorFromRaylib(Color c) {
     return {
         static_cast<float>(c.r) / 255.0f,
@@ -133,13 +166,11 @@ FaceBasis makeFaceBasis(const LightmapFace& face) {
 }
 
 Vector3 luxelWorldPos(const FaceBasis& basis, const LightmapChart& chart, int x, int y) {
-    const float fu = (static_cast<float>(x) + 0.5f) / static_cast<float>(chart.luxelWidth);
-    const float fv = (static_cast<float>(y) + 0.5f) / static_cast<float>(chart.luxelHeight);
+    const float fu = luxelFaceParam(x, chart.luxelWidth);
+    const float fv = luxelFaceParam(y, chart.luxelHeight);
     const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
     const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
-    return add3(
-        add3(scale3(basis.uAxis, u), scale3(basis.vAxis, v)),
-        scale3(basis.normal, basis.planeD));
+    return planePointFromUv(basis.uAxis, basis.vAxis, basis.normal, u, v, basis.planeD);
 }
 
 struct EmitterPatch {
@@ -415,8 +446,8 @@ Color3 sampleFaceRadiance(
     const float v = dot3(point, basis.vAxis);
     const float fu = (u - basis.uMin) / uSpan;
     const float fv = (v - basis.vMin) / vSpan;
-    const float fx = fu * static_cast<float>(grid.luxelWidth) - 0.5f;
-    const float fy = fv * static_cast<float>(grid.luxelHeight) - 0.5f;
+    const float fx = fu * static_cast<float>(std::max(grid.luxelWidth - 1, 0));
+    const float fy = fv * static_cast<float>(std::max(grid.luxelHeight - 1, 0));
     const int x0 = static_cast<int>(std::floor(fx));
     const int y0 = static_cast<int>(std::floor(fy));
     const float tx = fx - static_cast<float>(x0);
@@ -1205,8 +1236,8 @@ RadiosityBakeResult bakeRadiosity(
                 sample.atlasY = chart.atlasY + y;
                 sample.localX = x;
                 sample.localY = y;
-                const float fu = (static_cast<float>(x) + 0.5f) / static_cast<float>(chart.luxelWidth);
-                const float fv = (static_cast<float>(y) + 0.5f) / static_cast<float>(chart.luxelHeight);
+                const float fu = luxelFaceParam(x, chart.luxelWidth);
+                const float fv = luxelFaceParam(y, chart.luxelHeight);
                 const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
                 const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
                 const bool outsidePoly = !pointInFacePolygon(face, basis, u, v);

@@ -295,8 +295,8 @@ vec3 sampleFaceRadiance(int faceIndex, vec3 point, vec3 fallback) {
     float v = dot(point, vAxis);
     float fu = (u - grid.uMin) / uSpan;
     float fv = (v - grid.vMin) / vSpan;
-    float fx = fu * float(grid.luxelWidth) - 0.5;
-    float fy = fv * float(grid.luxelHeight) - 0.5;
+    float fx = fu * float(max(grid.luxelWidth - 1, 0));
+    float fy = fv * float(max(grid.luxelHeight - 1, 0));
     int x0 = int(floor(fx));
     int y0 = int(floor(fy));
     float tx = fx - float(x0);

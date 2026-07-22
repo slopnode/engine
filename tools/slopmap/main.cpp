@@ -5,6 +5,7 @@
 #include "layout.hpp"
 #include "material_browser.hpp"
 #include "texture_panel.hpp"
+#include "thing_panel.hpp"
 #include "place_tool.hpp"
 #include "punch_tool.hpp"
 #include "clip_tool.hpp"
@@ -677,6 +678,7 @@ int main(int argc, char* argv[]) {
     slopmap::ClipTool clipTool;
     slopmap::MaterialBrowser materialBrowser;
     slopmap::TexturePanel texturePanel;
+    slopmap::ThingPanel thingPanel;
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
     materialBrowser.rescan(assets);
@@ -1939,12 +1941,12 @@ int main(int argc, char* argv[]) {
             if (ImGui::Begin("Scene", nullptr, panelFlags)) {
                 slopmap::EditorDocument& d = editor.doc();
                 constexpr const char* kIconSet = kDefaultIconSet;
-                static bool sectionOpen[3] = {true, true, true};
+                static bool sectionOpen[4] = {true, true, true, true};
 
                 const ImGuiStyle& style = ImGui::GetStyle();
-                constexpr int kSectionCount = 3;
-                const int openCount =
-                    (sectionOpen[0] ? 1 : 0) + (sectionOpen[1] ? 1 : 0) + (sectionOpen[2] ? 1 : 0);
+                constexpr int kSectionCount = 4;
+                const int openCount = (sectionOpen[0] ? 1 : 0) + (sectionOpen[1] ? 1 : 0) +
+                    (sectionOpen[2] ? 1 : 0) + (sectionOpen[3] ? 1 : 0);
                 const float avail = ImGui::GetContentRegionAvail().y;
                 const float frameH = ImGui::GetFrameHeight();
                 const float spacing = style.ItemSpacing.y;
@@ -2027,6 +2029,12 @@ int main(int argc, char* argv[]) {
                         }
                     }
                     ImGui::EndChild();
+                }
+
+                sectionOpen[3] = collapsingHeaderWithIcon(
+                    assets, kIconSet, "lightbulb", "Properties", ImGuiTreeNodeFlags_DefaultOpen);
+                if (sectionOpen[3]) {
+                    thingPanel.drawSection(editor, bodyH);
                 }
             }
             ImGui::End();
