@@ -13,7 +13,7 @@ namespace slopmap {
 void drawThings(
     slopengine::AssetStore& assets,
     const std::vector<slopengine::Thing>& things,
-    int selectedThing,
+    const std::vector<int>& selectedThings,
     const Camera3D& camera);
 
 std::optional<int> pickThing(

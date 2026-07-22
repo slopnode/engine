@@ -6,26 +6,19 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprite
 
 ## Kinds
 
-| Kind | Map form | Role today |
-|------|----------|------------|
-| Static prop | `(prop …)` | Visual only: sprite or mesh at a pose. No interact, no AI. |
-| Usable | `(usable …)` | Same presentation as a prop, plus an interact prompt and optional Scheme `on-use`. |
-| Point light | `(point-light …)` | Local omnidirectional light thing (bake + gizmos; see [Lights](lights.md)). |
-| Spot light | `(spot-light …)` | Directed cone light thing (bake + gizmos). |
-| Area light | `(area-light …)` | Rectangular area light thing (authoring / gizmo). |
-| Sun | `(sun …)` | Directional sun thing (authoring / gizmo; optional `at` for editor). |
-| Actor | - | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
-| Player | `(player-start …)` | Spawn pose only; the `Player` entity is built by the engine. |
+A static prop (`(prop ...)`) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable (`(usable ...)`) uses the same presentation, then adds an interact prompt and optional Scheme `on-use` handler. Light things cover bake and editor work: `(point-light ...)` and `(spot-light ...)` feed radiosity and gizmos; `(area-light ...)` and `(sun ...)` are authoring / gizmo forms today (sun may omit a meaningful world `at` and still use one for the editor handle). See [Lights](lights.md).
+
+`(player-start ...)` is spawn pose only -- it does not create a prop entity; the engine builds `Player` from that pose after map load. Actors (AI nav agents such as enemies and NPCs) are intended later and have no map form yet; until then, decorative characters belong as props.
 
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
 Debug entity list labels match this split: `prop`, `usable`, `point-light`, `spot-light`, `area-light`, `sun`, `player` (plus `map` for `MapStatic`).
 
-`slopmap` edits things in the Things outliner and Library palette (load/save of `things.s7`). Viewport shows sprite/geo previews and light gizmos.
+[slopmap](slopmap.md) edits things in the Things outliner and Library palette (load/save of `things.s7`). Viewport shows sprite/geo previews and light gizmos.
 
 ## Thing file
 
-`maps/<name>/things.s7` is optional Scheme evaluated after map geometry. Engine bindings are active only during that load. Ids must be unique within the file. Missing file → no placed props/usables/lights; player uses the default spawn.
+`maps/<name>/things.s7` is optional Scheme evaluated after map geometry. Engine bindings are active only during that load. Ids must be unique within the file. Missing file -> no placed props/usables/lights; player uses the default spawn.
 
 ```text
 (prop
@@ -77,7 +70,7 @@ Runtime components for a sprite prop:
 WorldSpace
 LocalTransformation { position, yaw rotation, scale 1 }
 SpriteInstance      { sprite, frame, facingYaw }
-SpriteAnimator      { optional; from (anim …) }
+SpriteAnimator      { optional; from (anim ...) }
 ```
 
 For `geo`, the entity gets `Model3D` (cloned instance) instead of sprite components. Props are not lightmapped; they sample or draw like other placeable meshes/sprites.
@@ -115,10 +108,10 @@ Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (defa
 
 | Form | Required | Extra fields |
 |------|----------|--------------|
-| `(point-light …)` | `id`, `at` | `(range N)` default `8` |
-| `(spot-light …)` | `id`, `at` | `(yaw …)` or `(angles …)`, `(range N)`, `(cone radians)` default `0.7` |
-| `(area-light …)` | `id`, `at` | `(angles …)`, `(size width height)` default `1 1` |
-| `(sun …)` | `id` | Direction from `(angles …)` or `(yaw …)`; optional `(at …)` for editor gizmo only |
+| `(point-light ...)` | `id`, `at` | `(range N)` default `8` |
+| `(spot-light ...)` | `id`, `at` | `(yaw ...)` or `(angles ...)`, `(range N)`, `(cone radians)` default `0.7` |
+| `(area-light ...)` | `id`, `at` | `(angles ...)`, `(size width height)` default `1 1` |
+| `(sun ...)` | `id` | Direction from `(angles ...)` or `(yaw ...)`; optional `(at ...)` for editor gizmo only |
 
 ## Actors
 
@@ -129,7 +122,7 @@ Actor means an AI-capable agent that can navigate and interact: enemies, NPCs, a
 - Light: illumination thing (bake for point/spot; runtime dynamic overlay is separate; see [Lights](lights.md)).
 - Player: engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)).
 
-There is no `(actor …)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop …)` (optionally with `(anim …)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top. Behavior stays in package scripts where possible, with engine primitives for movement and sensing.
+There is no `(actor ...)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop ...)` (optionally with `(anim ...)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top. Behavior stays in package scripts where possible, with engine primitives for movement and sensing.
 
 ## Scripting
 
@@ -137,7 +130,7 @@ Package Scheme and map `things.s7` share one s7 heap. Load order, hooks, and run
 
 ### `on-use` handlers
 
-Define a procedure in `scripts/things.s7` (or anything loaded into the same environment). The name in `(on-use "…")` must match.
+Define a procedure in `scripts/things.s7` (or anything loaded into the same environment). The name in `(on-use "...")` must match.
 
 ```text
 (define (on-use-test thing-id)

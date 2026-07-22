@@ -8,6 +8,8 @@
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 #include "map/prefab.hpp"
+#include "map/vis.hpp"
+#include "map/vis_io.hpp"
 
 #include <algorithm>
 #include <raylib.h>
@@ -17,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -142,6 +145,13 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
                    s7_is_number(s7_cadr(rest))) {
             face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
+        } else if (std::strcmp(tag, "uv-scale") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_number(s7_car(rest)) &&
+                   s7_is_number(s7_cadr(rest))) {
+            face.uvScale.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            face.uvScale.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
         } else if (std::strcmp(tag, "nodraw") == 0) {
             face.nodraw = true;
         } else if (std::strcmp(tag, "uv-lock") == 0) {
@@ -190,7 +200,7 @@ s7_pointer g_material(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_role(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail");
+        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail|hint|trigger|water|window");
     }
     return makeTaggedList(sc, "role", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
@@ -200,6 +210,13 @@ s7_pointer g_uv_shift(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "uv-shift", 0, args, "x y");
     }
     return makeTaggedList(sc, "uv-shift", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
+}
+
+s7_pointer g_uv_scale(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args))) {
+        return s7_wrong_type_arg_error(sc, "uv-scale", 0, args, "sx sy");
+    }
+    return makeTaggedList(sc, "uv-scale", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
 }
 
 s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
@@ -465,10 +482,9 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
         } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
             std::string roleName;
             if (readString(sc, s7_car(rest), roleName)) {
-                if (roleName == "detail") {
-                    role = BrushRole::Detail;
-                } else if (roleName == "hull") {
-                    role = BrushRole::Hull;
+                BrushRole parsed = BrushRole::Hull;
+                if (parseBrushRoleName(roleName, parsed)) {
+                    role = parsed;
                 }
             }
         } else if (std::strcmp(tag, "nocollide") == 0) {
@@ -502,7 +518,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     }
 
     Brush brush = makeBrushBox(std::move(id), mins, maxs, material, overrides, role);
-    brush.nocollide = nocollide;
+    brush.nocollide = nocollide || brushRoleDefaultNocollide(role);
     g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
 }
@@ -533,6 +549,13 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
                    s7_is_number(s7_cadr(rest))) {
             face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
+        } else if (std::strcmp(tag, "uv-scale") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_number(s7_car(rest)) &&
+                   s7_is_number(s7_cadr(rest))) {
+            face.uvScale.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            face.uvScale.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
         } else if (std::strcmp(tag, "nodraw") == 0) {
             face.nodraw = true;
         } else if (std::strcmp(tag, "uv-lock") == 0) {
@@ -590,10 +613,9 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
         } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
             std::string roleName;
             if (readString(sc, s7_car(rest), roleName)) {
-                if (roleName == "detail") {
-                    role = BrushRole::Detail;
-                } else if (roleName == "hull") {
-                    role = BrushRole::Hull;
+                BrushRole parsed = BrushRole::Hull;
+                if (parseBrushRoleName(roleName, parsed)) {
+                    role = parsed;
                 }
             }
         } else if (std::strcmp(tag, "nocollide") == 0) {
@@ -626,7 +648,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "csg-error"),
             s7_list(sc, 1, s7_make_string(sc, error.c_str())));
     }
-    brush->nocollide = nocollide;
+    brush->nocollide = nocollide || brushRoleDefaultNocollide(role);
     g_builder->brushes.push_back(std::move(*brush));
     return s7_t(sc);
 }
@@ -636,8 +658,9 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "mins", g_mins, 3, 0, false, "(mins x y z)");
     s7_define_function(sc, "maxs", g_maxs, 3, 0, false, "(maxs x y z)");
     s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
-    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail)");
+    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail|hint|trigger|water|window)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
+    s7_define_function(sc, "uv-scale", g_uv_scale, 2, 0, false, "(uv-scale sx sy)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
@@ -657,39 +680,6 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
     s7_define_function(sc, "brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
-}
-
-Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
-    useLightmapLoc = -1;
-    const std::string vert = assets.getShaderSource("default/lightmap_vert");
-    const std::string frag = assets.getShaderSource("default/lightmap_frag");
-    if (vert.empty() || frag.empty()) {
-        TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
-        return {};
-    }
-    Shader shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
-    if (shader.id == 0) {
-        TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
-        return {};
-    }
-    shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
-    shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
-    shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
-    shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
-    if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
-        shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
-    }
-    useLightmapLoc = GetShaderLocation(shader, "useLightmap");
-    int useLightmap = 1;
-    if (useLightmapLoc >= 0) {
-        SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
-    }
-    const int lightCountLoc = GetShaderLocation(shader, "dynLightCount");
-    if (lightCountLoc >= 0) {
-        const int zero = 0;
-        SetShaderValue(shader, lightCountLoc, &zero, SHADER_UNIFORM_INT);
-    }
-    return shader;
 }
 
 MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -791,6 +781,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
 
     int hullCount = 0;
     int detailCount = 0;
+    int otherCount = 0;
     int boxCount = 0;
     int nocollideCount = 0;
     for (const Brush& brush : brushes) {
@@ -802,18 +793,21 @@ std::optional<std::vector<Brush>> loadMapBrushes(
         }
         if (brush.role == BrushRole::Detail) {
             ++detailCount;
-        } else {
+        } else if (brush.role == BrushRole::Hull) {
             ++hullCount;
+        } else {
+            ++otherCount;
         }
     }
     const std::string virtualPath = std::string(mapName) + "/static";
     TraceLog(
         LOG_INFO,
-        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d box=%d nocollide=%d instances=%d",
+        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d other=%d box=%d nocollide=%d instances=%d",
         virtualPath.c_str(),
         static_cast<int>(brushes.size()),
         hullCount,
         detailCount,
+        otherCount,
         boxCount,
         nocollideCount,
         static_cast<int>(doc->instances.size()));
@@ -931,19 +925,80 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     const MapHullAnalysis analysis = analyzeMapHull(*bsp, *brushes);
-    if (!analysis.sealed) {
+    for (const std::string& warning : analysis.detailOutsideWarnings) {
+        TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
+    }
+
+    VisFile vis{};
+    bool haveVis = false;
+    if (assets.hasMapVis(virtualPath)) {
+        if (const auto visPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
+            if (auto loadedVis = readVisFile(*visPath)) {
+                vis = std::move(*loadedVis);
+                haveVis = true;
+                TraceLog(LOG_INFO, "MAP: loaded vis faces=%d", static_cast<int>(vis.faces.size()));
+            } else {
+                TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.vis", virtualPath.c_str());
+            }
+        }
+    }
+    if (!haveVis) {
         TraceLog(
             LOG_WARNING,
-            "MAP: hull is not sealed; skipping auto-nodraw (authored nodraw only)");
+            "MAP: missing maps/%s.vis; building visible faces in-memory (run slopvis)",
+            virtualPath.c_str());
+        if (analysis.sealed) {
+            VisBuildResult built = buildVisibleFaces(*bsp, analysis, *brushes);
+            MapHullAnalysis nodrawAnalysis = analysis;
+            nodrawAnalysis.inferredNodrawFaceIds = std::move(built.inferredNodrawFaceIds);
+            applyInferredNodraw(*brushes, nodrawAnalysis);
+            vis = std::move(built.vis);
+            haveVis = true;
+            TraceLog(
+                LOG_INFO,
+                "MAP: in-memory vis faces=%d inferredNodraw=%d",
+                static_cast<int>(vis.faces.size()),
+                static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
+        } else {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: hull is not sealed; falling back to authored brush faces");
+        }
     } else {
-        applyInferredNodraw(*brushes, analysis);
+        std::unordered_set<std::string> visibleSources;
+        for (const VisibleFace& face : vis.faces) {
+            std::string remaining = face.sourceFaceId;
+            while (!remaining.empty()) {
+                const auto plus = remaining.find('+');
+                if (plus == std::string::npos) {
+                    visibleSources.insert(remaining);
+                    break;
+                }
+                visibleSources.insert(remaining.substr(0, plus));
+                remaining = remaining.substr(plus + 1);
+            }
+        }
+        std::vector<std::string> inferred;
+        for (const Brush& brush : *brushes) {
+            if (!brushRoleSeals(brush.role)) {
+                continue;
+            }
+            for (const BrushFace& face : brush.faces) {
+                if (face.nodraw || face.id.empty()) {
+                    continue;
+                }
+                if (!visibleSources.contains(face.id)) {
+                    inferred.push_back(face.id);
+                }
+            }
+        }
+        MapHullAnalysis nodrawAnalysis = analysis;
+        nodrawAnalysis.inferredNodrawFaceIds = std::move(inferred);
+        applyInferredNodraw(*brushes, nodrawAnalysis);
         TraceLog(
             LOG_INFO,
-            "MAP: auto-nodraw faces=%d",
-            static_cast<int>(analysis.inferredNodrawFaceIds.size()));
-        for (const std::string& warning : analysis.detailOutsideWarnings) {
-            TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
-        }
+            "MAP: auto-nodraw faces=%d (from vis)",
+            static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
     }
 
     RadFile rad{};
@@ -982,7 +1037,7 @@ std::optional<LoadedMap> loadAndCompileMap(
     int emptyLeaves = 0;
     int solidLeaves = 0;
     for (const BspLeaf& leaf : bsp->leaves) {
-        if (leaf.solid) {
+        if (leafBlocksFlood(leaf.contents)) {
             ++solidLeaves;
         } else {
             ++emptyLeaves;
@@ -991,7 +1046,7 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     TraceLog(
         LOG_INFO,
-        "MAP: BSP hull=%d detail=%d box=%d nocollide=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaceFaces=%d charts=%d",
+        "MAP: BSP hull=%d detail=%d box=%d nocollide=%d nodes=%d emptyLeaves=%d solidLeaves=%d portals=%d surfaceFaces=%d charts=%d",
         hullCount,
         detailCount,
         boxCount,
@@ -999,6 +1054,7 @@ std::optional<LoadedMap> loadAndCompileMap(
         static_cast<int>(bsp->nodes.size()),
         emptyLeaves,
         solidLeaves,
+        static_cast<int>(bsp->portals.size()),
         static_cast<int>(bsp->surfaceFaces.size()),
         static_cast<int>(rad.charts.size()));
 
@@ -1033,10 +1089,12 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     const RadFile* lightmaps = result.hasLightmaps ? &rad : nullptr;
-    const CsgCompileResult compiled = compileBrushesToGeo(
-        *brushes,
-        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); },
-        lightmaps);
+    const auto resolveUv =
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    const CsgCompileResult compiled = haveVis
+        ? compileVisibleFacesToGeo(vis, resolveUv, lightmaps)
+        : compileBrushesToGeo(*brushes, resolveUv, lightmaps);
+    result.vis = std::move(vis);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const LightmapChart& chart : rad.charts) {

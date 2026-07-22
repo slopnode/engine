@@ -26,6 +26,7 @@ Vector2 worldPlanarUv(
     Vector3 uAxis,
     Vector3 vAxis,
     Vector2 uvShiftPixels,
+    Vector2 uvScale,
     const MaterialUvInfo& materialUv);
 
 void lockFaceUvShift(

@@ -2,9 +2,13 @@
 
 #include "map/uv_math.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <utility>
+#include <vector>
 
 namespace slopengine {
 
@@ -20,6 +24,14 @@ Vector3 sub3(Vector3 a, Vector3 b) {
     return {a.x - b.x, a.y - b.y, a.z - b.z};
 }
 
+Vector3 cross3(Vector3 a, Vector3 b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
 float length3(Vector3 v) {
     return std::sqrt(dot3(v, v));
 }
@@ -30,6 +42,155 @@ Vector3 normalize3(Vector3 v) {
         return {};
     }
     return {v.x / len, v.y / len, v.z / len};
+}
+
+Vector3 add3(Vector3 a, Vector3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vector3 scale3(Vector3 a, float s) {
+    return {a.x * s, a.y * s, a.z * s};
+}
+
+float polygonAreaLocal(const std::vector<Vector3>& verts) {
+    if (verts.size() < 3) {
+        return 0.0f;
+    }
+    Vector3 accum{};
+    for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+        accum = add3(accum, cross3(sub3(verts[i], verts[0]), sub3(verts[i + 1], verts[0])));
+    }
+    return 0.5f * length3(accum);
+}
+
+Vector3 polygonCentroidLocal(const std::vector<Vector3>& verts) {
+    Vector3 sum{};
+    if (verts.empty()) {
+        return sum;
+    }
+    for (const Vector3& v : verts) {
+        sum = add3(sum, v);
+    }
+    return scale3(sum, 1.0f / static_cast<float>(verts.size()));
+}
+
+float planeSignedDistance(Vector3 planePoint, Vector3 planeNormal, Vector3 p) {
+    return dot3(planeNormal, sub3(p, planePoint));
+}
+
+std::vector<Vector3> clipPolygonAgainstPlaneLocal(
+    const std::vector<Vector3>& input,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    bool keepFront) {
+    std::vector<Vector3> output;
+    if (input.empty()) {
+        return output;
+    }
+
+    auto isInside = [&](Vector3 p) {
+        const float d = planeSignedDistance(planePoint, planeNormal, p);
+        return keepFront ? (d >= -kPlaneEps) : (d <= kPlaneEps);
+    };
+
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        const Vector3& current = input[i];
+        const Vector3& next = input[(i + 1) % input.size()];
+        const bool currentIn = isInside(current);
+        const bool nextIn = isInside(next);
+        const float d0 = planeSignedDistance(planePoint, planeNormal, current);
+        const float d1 = planeSignedDistance(planePoint, planeNormal, next);
+
+        if (currentIn && nextIn) {
+            output.push_back(next);
+        } else if (currentIn && !nextIn) {
+            const float t = d0 / (d0 - d1);
+            output.push_back(add3(current, scale3(sub3(next, current), t)));
+        } else if (!currentIn && nextIn) {
+            const float t = d0 / (d0 - d1);
+            output.push_back(add3(current, scale3(sub3(next, current), t)));
+            output.push_back(next);
+        }
+    }
+    return output;
+}
+
+std::vector<Vector3> buildCapPolygonLocal(
+    const std::vector<std::vector<Vector3>>& clippedFaces,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    bool frontCap) {
+    std::vector<Vector3> points;
+    for (const std::vector<Vector3>& face : clippedFaces) {
+        for (const Vector3& v : face) {
+            if (std::fabs(planeSignedDistance(planePoint, planeNormal, v)) <= kPlaneEps * 4.0f) {
+                bool unique = true;
+                for (const Vector3& existing : points) {
+                    if (length3(sub3(existing, v)) <= kPlaneEps * 4.0f) {
+                        unique = false;
+                        break;
+                    }
+                }
+                if (unique) {
+                    points.push_back(v);
+                }
+            }
+        }
+    }
+    if (points.size() < 3) {
+        return {};
+    }
+
+    Vector3 origin = polygonCentroidLocal(points);
+    Vector3 n = planeNormal;
+    if (!frontCap) {
+        n = scale3(n, -1.0f);
+    }
+    Vector3 tangent =
+        std::fabs(n.y) < 0.9f ? cross3(n, {0.0f, 1.0f, 0.0f}) : cross3(n, {1.0f, 0.0f, 0.0f});
+    tangent = normalize3(tangent);
+    const Vector3 bitangent = normalize3(cross3(n, tangent));
+
+    std::sort(points.begin(), points.end(), [&](Vector3 a, Vector3 b) {
+        const Vector3 da = sub3(a, origin);
+        const Vector3 db = sub3(b, origin);
+        const float angA = std::atan2(dot3(da, bitangent), dot3(da, tangent));
+        const float angB = std::atan2(dot3(db, bitangent), dot3(db, tangent));
+        if (angA != angB) {
+            return angA < angB;
+        }
+        const float lenA =
+            dot3(da, tangent) * dot3(da, tangent) + dot3(da, bitangent) * dot3(da, bitangent);
+        const float lenB =
+            dot3(db, tangent) * dot3(db, tangent) + dot3(db, bitangent) * dot3(db, bitangent);
+        return lenA < lenB;
+    });
+
+    if (polygonAreaLocal(points) < 1e-6f) {
+        return {};
+    }
+    return points;
+}
+
+BrushFace makeClippedFace(const BrushFace& source, std::vector<Vector3> verts) {
+    BrushFace face = source;
+    face.id.clear();
+    face.vertices = std::move(verts);
+    face.normal = {};
+    return face;
+}
+
+BrushFace makeCapFace(
+    const std::string& material,
+    std::vector<Vector3> verts,
+    bool nodraw,
+    bool uvLock) {
+    BrushFace face;
+    face.material = material;
+    face.vertices = std::move(verts);
+    face.nodraw = nodraw;
+    face.uvLock = uvLock;
+    return face;
 }
 
 BrushFace makeBoxFace(
@@ -227,8 +388,100 @@ const char* brushRoleName(BrushRole role) {
     switch (role) {
     case BrushRole::Hull: return "hull";
     case BrushRole::Detail: return "detail";
+    case BrushRole::Hint: return "hint";
+    case BrushRole::Trigger: return "trigger";
+    case BrushRole::Water: return "water";
+    case BrushRole::Window: return "window";
     }
     return "unknown";
+}
+
+bool parseBrushRoleName(std::string_view name, BrushRole& out) {
+    if (name == "hull") {
+        out = BrushRole::Hull;
+        return true;
+    }
+    if (name == "detail") {
+        out = BrushRole::Detail;
+        return true;
+    }
+    if (name == "hint") {
+        out = BrushRole::Hint;
+        return true;
+    }
+    if (name == "trigger") {
+        out = BrushRole::Trigger;
+        return true;
+    }
+    if (name == "water") {
+        out = BrushRole::Water;
+        return true;
+    }
+    if (name == "window") {
+        out = BrushRole::Window;
+        return true;
+    }
+    return false;
+}
+
+bool brushRoleContributesSplits(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull:
+    case BrushRole::Window:
+    case BrushRole::Water:
+    case BrushRole::Hint:
+        return true;
+    case BrushRole::Detail:
+    case BrushRole::Trigger:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleSeals(BrushRole role) {
+    return role == BrushRole::Hull || role == BrushRole::Window;
+}
+
+bool brushRoleEmitsVisFaces(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull:
+    case BrushRole::Detail:
+    case BrushRole::Water:
+    case BrushRole::Window:
+        return true;
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleDefaultNocollide(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+    case BrushRole::Water:
+        return true;
+    case BrushRole::Hull:
+    case BrushRole::Detail:
+    case BrushRole::Window:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleNeedsInteriorPlacement(BrushRole role) {
+    switch (role) {
+    case BrushRole::Detail:
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+    case BrushRole::Water:
+        return true;
+    case BrushRole::Hull:
+    case BrushRole::Window:
+        return false;
+    }
+    return false;
 }
 
 Brush makeBrushBox(
@@ -267,6 +520,7 @@ Brush makeBrushBox(
                 face.material = overrideFace.material;
             }
             face.uvShiftPixels = overrideFace.uvShiftPixels;
+            face.uvScale = overrideFace.uvScale;
             face.nodraw = overrideFace.nodraw;
             face.uvLock = overrideFace.uvLock;
             face.uvUAxis = overrideFace.uvUAxis;
@@ -310,10 +564,719 @@ std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& 
     if (vertices.size() < 3) {
         return tris;
     }
-    for (std::size_t i = 1; i + 1 < vertices.size(); ++i) {
-        tris.push_back({vertices[0], vertices[i], vertices[i + 1]});
+
+    const Vector3 normal = faceNormalFromVertices(vertices);
+    if (length3(normal) < 1e-8f) {
+        return tris;
     }
+
+    const float ax = std::fabs(normal.x);
+    const float ay = std::fabs(normal.y);
+    const float az = std::fabs(normal.z);
+    const int dropAxis = (ax >= ay && ax >= az) ? 0 : ((ay >= ax && ay >= az) ? 1 : 2);
+
+    auto project = [&](Vector3 v) -> std::array<float, 2> {
+        if (dropAxis == 0) {
+            return {v.y, v.z};
+        }
+        if (dropAxis == 1) {
+            return {v.x, v.z};
+        }
+        return {v.x, v.y};
+    };
+
+    auto orient2 = [](std::array<float, 2> a, std::array<float, 2> b, std::array<float, 2> c) {
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    };
+
+    auto segmentsIntersect = [&](std::size_t a0, std::size_t a1, std::size_t b0, std::size_t b1) {
+        if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1) {
+            return false;
+        }
+        const auto a = project(vertices[a0]);
+        const auto b = project(vertices[a1]);
+        const auto c = project(vertices[b0]);
+        const auto d = project(vertices[b1]);
+        const float o1 = orient2(a, b, c);
+        const float o2 = orient2(a, b, d);
+        const float o3 = orient2(c, d, a);
+        const float o4 = orient2(c, d, b);
+        return (o1 * o2 < 0.0f) && (o3 * o4 < 0.0f);
+    };
+
+    auto signedArea = [&](std::size_t i0, std::size_t i1, std::size_t i2) {
+        const Vector3 a = sub3(vertices[i1], vertices[i0]);
+        const Vector3 b = sub3(vertices[i2], vertices[i0]);
+        return dot3(cross3(a, b), normal);
+    };
+
+    auto pointInTriangle = [&](std::size_t p, std::size_t i0, std::size_t i1, std::size_t i2) {
+        const float a = signedArea(i0, i1, p);
+        const float b = signedArea(i1, i2, p);
+        const float c = signedArea(i2, i0, p);
+        return (a >= -kPlaneEps && b >= -kPlaneEps && c >= -kPlaneEps)
+            || (a <= kPlaneEps && b <= kPlaneEps && c <= kPlaneEps);
+    };
+
+    std::function<void(std::vector<std::size_t>)> triangulateRing;
+    triangulateRing = [&](std::vector<std::size_t> indices) {
+        int guard = 0;
+        while (indices.size() > 3 && guard < 10000) {
+            ++guard;
+            auto isEar = [&](std::size_t earIndex) {
+                const std::size_t n = indices.size();
+                const std::size_t iPrev = indices[(earIndex + n - 1) % n];
+                const std::size_t iCurr = indices[earIndex];
+                const std::size_t iNext = indices[(earIndex + 1) % n];
+                if (signedArea(iPrev, iCurr, iNext) <= kPlaneEps) {
+                    return false;
+                }
+                for (std::size_t k = 0; k < n; ++k) {
+                    const std::size_t idx = indices[k];
+                    if (idx == iPrev || idx == iCurr || idx == iNext) {
+                        continue;
+                    }
+                    if (pointInTriangle(idx, iPrev, iCurr, iNext)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+
+            bool clipped = false;
+            for (std::size_t i = 0; i < indices.size(); ++i) {
+                if (!isEar(i)) {
+                    continue;
+                }
+                const std::size_t n = indices.size();
+                const std::size_t iPrev = indices[(i + n - 1) % n];
+                const std::size_t iCurr = indices[i];
+                const std::size_t iNext = indices[(i + 1) % n];
+                tris.push_back({vertices[iPrev], vertices[iCurr], vertices[iNext]});
+                indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
+                clipped = true;
+                break;
+            }
+            if (clipped) {
+                continue;
+            }
+
+            bool removedColinear = false;
+            for (std::size_t i = 0; i < indices.size(); ++i) {
+                const std::size_t n = indices.size();
+                const std::size_t iPrev = indices[(i + n - 1) % n];
+                const std::size_t iCurr = indices[i];
+                const std::size_t iNext = indices[(i + 1) % n];
+                if (std::fabs(signedArea(iPrev, iCurr, iNext)) > kPlaneEps) {
+                    continue;
+                }
+                indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
+                removedColinear = true;
+                break;
+            }
+            if (removedColinear) {
+                continue;
+            }
+
+            bool split = false;
+            const std::size_t n = indices.size();
+            for (std::size_t i = 0; i < n && !split; ++i) {
+                for (std::size_t j = i + 2; j < n && !split; ++j) {
+                    if (i == 0 && j == n - 1) {
+                        continue;
+                    }
+                    const std::size_t a = indices[i];
+                    const std::size_t b = indices[j];
+                    bool hits = false;
+                    for (std::size_t e = 0; e < n; ++e) {
+                        const std::size_t e0 = indices[e];
+                        const std::size_t e1 = indices[(e + 1) % n];
+                        if (segmentsIntersect(a, b, e0, e1)) {
+                            hits = true;
+                            break;
+                        }
+                    }
+                    if (hits) {
+                        continue;
+                    }
+                    const Vector3 mid{
+                        0.5f * (vertices[a].x + vertices[b].x),
+                        0.5f * (vertices[a].y + vertices[b].y),
+                        0.5f * (vertices[a].z + vertices[b].z),
+                    };
+                    bool inside = false;
+                    {
+                        const auto pt = project(mid);
+                        for (std::size_t e = 0; e < n; ++e) {
+                            const auto pa = project(vertices[indices[e]]);
+                            const auto pb = project(vertices[indices[(e + 1) % n]]);
+                            const bool crossH = ((pa[1] > pt[1]) != (pb[1] > pt[1]))
+                                && (pt[0]
+                                    < (pb[0] - pa[0]) * (pt[1] - pa[1]) / ((pb[1] - pa[1]) + 1e-30f)
+                                        + pa[0]);
+                            if (crossH) {
+                                inside = !inside;
+                            }
+                        }
+                    }
+                    if (!inside) {
+                        continue;
+                    }
+
+                    std::vector<std::size_t> left;
+                    std::vector<std::size_t> right;
+                    for (std::size_t k = i; k <= j; ++k) {
+                        left.push_back(indices[k]);
+                    }
+                    for (std::size_t k = j; k < n; ++k) {
+                        right.push_back(indices[k]);
+                    }
+                    for (std::size_t k = 0; k <= i; ++k) {
+                        right.push_back(indices[k]);
+                    }
+                    triangulateRing(std::move(left));
+                    triangulateRing(std::move(right));
+                    split = true;
+                }
+            }
+            if (split) {
+                return;
+            }
+
+            // Last resort: keep only winding-correct fan tris of the remainder.
+            for (std::size_t i = 1; i + 1 < indices.size(); ++i) {
+                if (signedArea(indices[0], indices[i], indices[i + 1]) > kPlaneEps) {
+                    tris.push_back(
+                        {vertices[indices[0]], vertices[indices[i]], vertices[indices[i + 1]]});
+                }
+            }
+            return;
+        }
+
+        if (indices.size() == 3 && signedArea(indices[0], indices[1], indices[2]) > kPlaneEps) {
+            tris.push_back({vertices[indices[0]], vertices[indices[1]], vertices[indices[2]]});
+        }
+    };
+
+    std::vector<std::size_t> all(vertices.size());
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        all[i] = i;
+    }
+    triangulateRing(std::move(all));
+
+    tris.erase(
+        std::remove_if(
+            tris.begin(),
+            tris.end(),
+            [&](const std::array<Vector3, 3>& tri) {
+                const Vector3 e1 = sub3(tri[1], tri[0]);
+                const Vector3 e2 = sub3(tri[2], tri[0]);
+                return dot3(cross3(e1, e2), normal) <= kPlaneEps;
+            }),
+        tris.end());
     return tris;
+}
+
+std::optional<Brush> makeBrushCylinder(
+    std::string id,
+    Vector3 mins,
+    Vector3 maxs,
+    int sides,
+    const std::string& material,
+    BrushRole role,
+    std::string& errorOut) {
+    if (sides < 3) {
+        errorOut = "cylinder needs at least 3 sides";
+        return std::nullopt;
+    }
+    if (maxs.x <= mins.x || maxs.y <= mins.y || maxs.z <= mins.z) {
+        errorOut = "cylinder AABB is empty";
+        return std::nullopt;
+    }
+
+    const float cx = 0.5f * (mins.x + maxs.x);
+    const float cz = 0.5f * (mins.z + maxs.z);
+    const float rx = 0.5f * (maxs.x - mins.x);
+    const float rz = 0.5f * (maxs.z - mins.z);
+    const float y0 = mins.y;
+    const float y1 = maxs.y;
+    constexpr float kPi = 3.14159265358979323846f;
+
+    std::vector<Vector3> ringBottom;
+    std::vector<Vector3> ringTop;
+    ringBottom.reserve(static_cast<std::size_t>(sides));
+    ringTop.reserve(static_cast<std::size_t>(sides));
+    for (int i = 0; i < sides; ++i) {
+        const float angle = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(sides);
+        const float x = cx + rx * std::cos(angle);
+        const float z = cz + rz * std::sin(angle);
+        ringBottom.push_back({x, y0, z});
+        ringTop.push_back({x, y1, z});
+    }
+
+    std::vector<BrushFace> faces;
+    faces.reserve(static_cast<std::size_t>(sides) + 2);
+
+    BrushFace bottom;
+    bottom.id = id + "/bottom";
+    bottom.material = material;
+    bottom.vertices = ringBottom;
+    std::reverse(bottom.vertices.begin(), bottom.vertices.end());
+    faces.push_back(std::move(bottom));
+
+    BrushFace top;
+    top.id = id + "/top";
+    top.material = material;
+    top.vertices = ringTop;
+    faces.push_back(std::move(top));
+
+    for (int i = 0; i < sides; ++i) {
+        const int next = (i + 1) % sides;
+        BrushFace side;
+        side.id = id + "/side-" + std::to_string(i);
+        side.material = material;
+        side.vertices = {
+            ringBottom[static_cast<std::size_t>(i)],
+            ringBottom[static_cast<std::size_t>(next)],
+            ringTop[static_cast<std::size_t>(next)],
+            ringTop[static_cast<std::size_t>(i)],
+        };
+        faces.push_back(std::move(side));
+    }
+
+    return makeBrushConvex(std::move(id), std::move(faces), role, errorOut);
+}
+
+std::vector<Brush> makeBrushStairs(
+    const std::string& idPrefix,
+    Vector3 mins,
+    Vector3 maxs,
+    int steps,
+    const std::string& material,
+    BrushRole role) {
+    std::vector<Brush> out;
+    if (steps < 1 || maxs.x <= mins.x || maxs.y <= mins.y || maxs.z <= mins.z) {
+        return out;
+    }
+
+    const float sizeX = maxs.x - mins.x;
+    const float sizeZ = maxs.z - mins.z;
+    const bool runAlongX = sizeX >= sizeZ;
+    const float stepH = (maxs.y - mins.y) / static_cast<float>(steps);
+    const float stepRun =
+        (runAlongX ? sizeX : sizeZ) / static_cast<float>(steps);
+
+    out.reserve(static_cast<std::size_t>(steps));
+    for (int i = 0; i < steps; ++i) {
+        const float t0 = static_cast<float>(i);
+        const float t1 = static_cast<float>(i + 1);
+        Vector3 stepMins = mins;
+        Vector3 stepMaxs = maxs;
+        stepMins.y = mins.y;
+        stepMaxs.y = mins.y + stepH * t1;
+        if (runAlongX) {
+            stepMins.x = mins.x + stepRun * t0;
+            stepMaxs.x = mins.x + stepRun * t1;
+        } else {
+            stepMins.z = mins.z + stepRun * t0;
+            stepMaxs.z = mins.z + stepRun * t1;
+        }
+        if (stepMins.x >= stepMaxs.x || stepMins.y >= stepMaxs.y || stepMins.z >= stepMaxs.z) {
+            continue;
+        }
+        out.push_back(makeBrushBox(
+            idPrefix + "-" + std::to_string(i),
+            stepMins,
+            stepMaxs,
+            material,
+            {},
+            role));
+    }
+    return out;
+}
+
+std::vector<Brush> hollowBrushBox(
+    const Brush& source,
+    float thickness,
+    const std::function<std::string()>& allocateId) {
+    std::vector<Brush> out;
+    if (!source.box || thickness <= 0.0f) {
+        return out;
+    }
+    const Vector3& mins = source.mins;
+    const Vector3& maxs = source.maxs;
+    const float sx = maxs.x - mins.x;
+    const float sy = maxs.y - mins.y;
+    const float sz = maxs.z - mins.z;
+    if (thickness * 2.0f >= sx || thickness * 2.0f >= sy || thickness * 2.0f >= sz) {
+        return out;
+    }
+
+    const std::string material =
+        source.faces.empty() ? std::string{} : source.faces.front().material;
+
+    auto addSlab = [&](Vector3 slabMins, Vector3 slabMaxs) {
+        Brush brush = makeBrushBox(allocateId(), slabMins, slabMaxs, material, {}, source.role);
+        brush.nocollide = source.nocollide;
+        out.push_back(std::move(brush));
+    };
+
+    addSlab(mins, {maxs.x, mins.y + thickness, maxs.z});
+    addSlab({mins.x, maxs.y - thickness, mins.z}, maxs);
+    addSlab(
+        {mins.x, mins.y + thickness, mins.z},
+        {maxs.x, maxs.y - thickness, mins.z + thickness});
+    addSlab(
+        {mins.x, mins.y + thickness, maxs.z - thickness},
+        {maxs.x, maxs.y - thickness, maxs.z});
+    addSlab(
+        {mins.x, mins.y + thickness, mins.z + thickness},
+        {mins.x + thickness, maxs.y - thickness, maxs.z - thickness});
+    addSlab(
+        {maxs.x - thickness, mins.y + thickness, mins.z + thickness},
+        {maxs.x, maxs.y - thickness, maxs.z - thickness});
+    return out;
+}
+
+namespace {
+
+struct FaceAxes {
+    Vector3 origin{};
+    Vector3 uAxis{};
+    Vector3 vAxis{};
+    Vector3 normal{};
+    float uExtent = 0.0f;
+    float vExtent = 0.0f;
+    float depthExtent = 0.0f;
+};
+
+FaceAxes axesForBoxSide(BrushBoxSide side, Vector3 mins, Vector3 maxs) {
+    FaceAxes axes;
+    switch (side) {
+    case BrushBoxSide::Top:
+        axes.origin = {mins.x, maxs.y, mins.z};
+        axes.uAxis = {1.0f, 0.0f, 0.0f};
+        axes.vAxis = {0.0f, 0.0f, 1.0f};
+        axes.normal = {0.0f, 1.0f, 0.0f};
+        axes.uExtent = maxs.x - mins.x;
+        axes.vExtent = maxs.z - mins.z;
+        axes.depthExtent = maxs.y - mins.y;
+        break;
+    case BrushBoxSide::Bottom:
+        axes.origin = {mins.x, mins.y, maxs.z};
+        axes.uAxis = {1.0f, 0.0f, 0.0f};
+        axes.vAxis = {0.0f, 0.0f, -1.0f};
+        axes.normal = {0.0f, -1.0f, 0.0f};
+        axes.uExtent = maxs.x - mins.x;
+        axes.vExtent = maxs.z - mins.z;
+        axes.depthExtent = maxs.y - mins.y;
+        break;
+    case BrushBoxSide::North:
+        axes.origin = {maxs.x, mins.y, mins.z};
+        axes.uAxis = {-1.0f, 0.0f, 0.0f};
+        axes.vAxis = {0.0f, 1.0f, 0.0f};
+        axes.normal = {0.0f, 0.0f, -1.0f};
+        axes.uExtent = maxs.x - mins.x;
+        axes.vExtent = maxs.y - mins.y;
+        axes.depthExtent = maxs.z - mins.z;
+        break;
+    case BrushBoxSide::South:
+        axes.origin = {mins.x, mins.y, maxs.z};
+        axes.uAxis = {1.0f, 0.0f, 0.0f};
+        axes.vAxis = {0.0f, 1.0f, 0.0f};
+        axes.normal = {0.0f, 0.0f, 1.0f};
+        axes.uExtent = maxs.x - mins.x;
+        axes.vExtent = maxs.y - mins.y;
+        axes.depthExtent = maxs.z - mins.z;
+        break;
+    case BrushBoxSide::East:
+        axes.origin = {maxs.x, mins.y, maxs.z};
+        axes.uAxis = {0.0f, 0.0f, -1.0f};
+        axes.vAxis = {0.0f, 1.0f, 0.0f};
+        axes.normal = {1.0f, 0.0f, 0.0f};
+        axes.uExtent = maxs.z - mins.z;
+        axes.vExtent = maxs.y - mins.y;
+        axes.depthExtent = maxs.x - mins.x;
+        break;
+    case BrushBoxSide::West:
+        axes.origin = {mins.x, mins.y, mins.z};
+        axes.uAxis = {0.0f, 0.0f, 1.0f};
+        axes.vAxis = {0.0f, 1.0f, 0.0f};
+        axes.normal = {-1.0f, 0.0f, 0.0f};
+        axes.uExtent = maxs.z - mins.z;
+        axes.vExtent = maxs.y - mins.y;
+        axes.depthExtent = maxs.x - mins.x;
+        break;
+    }
+    return axes;
+}
+
+void addPunchSlab(
+    std::vector<Brush>& out,
+    const Brush& source,
+    const std::string& material,
+    const std::function<std::string()>& allocateId,
+    Vector3 mins,
+    Vector3 maxs) {
+    constexpr float kEps = 1e-5f;
+    if (maxs.x - mins.x <= kEps || maxs.y - mins.y <= kEps || maxs.z - mins.z <= kEps) {
+        return;
+    }
+    Brush brush = makeBrushBox(allocateId(), mins, maxs, material, {}, source.role);
+    brush.nocollide = source.nocollide;
+    out.push_back(std::move(brush));
+}
+
+} // namespace
+
+std::vector<Brush> punchOutBrushBox(
+    const Brush& source,
+    BrushBoxSide faceSide,
+    float u0,
+    float u1,
+    float v0,
+    float v1,
+    float depth,
+    const std::function<std::string()>& allocateId) {
+    std::vector<Brush> out;
+    if (!source.box || depth <= 0.0f) {
+        return out;
+    }
+
+    const float ou0 = std::min(u0, u1);
+    const float ou1 = std::max(u0, u1);
+    const float ov0 = std::min(v0, v1);
+    const float ov1 = std::max(v0, v1);
+    if (ou1 - ou0 <= 1e-5f || ov1 - ov0 <= 1e-5f) {
+        return out;
+    }
+
+    const FaceAxes axes = axesForBoxSide(faceSide, source.mins, source.maxs);
+    const float depthClamped = std::min(depth, axes.depthExtent);
+    if (depthClamped <= 1e-5f) {
+        return out;
+    }
+
+    const float cu0 = std::clamp(ou0, 0.0f, axes.uExtent);
+    const float cu1 = std::clamp(ou1, 0.0f, axes.uExtent);
+    const float cv0 = std::clamp(ov0, 0.0f, axes.vExtent);
+    const float cv1 = std::clamp(ov1, 0.0f, axes.vExtent);
+    if (cu1 - cu0 <= 1e-5f || cv1 - cv0 <= 1e-5f) {
+        return out;
+    }
+
+    const std::string material =
+        source.faces.empty() ? std::string{} : source.faces.front().material;
+
+    // Build the cut volume in world AABB by sampling the opening prism corners.
+    auto worldPoint = [&](float u, float v, float d) -> Vector3 {
+        return {
+            axes.origin.x + axes.uAxis.x * u + axes.vAxis.x * v - axes.normal.x * d,
+            axes.origin.y + axes.uAxis.y * u + axes.vAxis.y * v - axes.normal.y * d,
+            axes.origin.z + axes.uAxis.z * u + axes.vAxis.z * v - axes.normal.z * d,
+        };
+    };
+
+    Vector3 holeMins{
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+    };
+    Vector3 holeMaxs{
+        std::numeric_limits<float>::lowest(),
+        std::numeric_limits<float>::lowest(),
+        std::numeric_limits<float>::lowest(),
+    };
+    for (float u : {cu0, cu1}) {
+        for (float v : {cv0, cv1}) {
+            for (float d : {0.0f, depthClamped}) {
+                const Vector3 p = worldPoint(u, v, d);
+                holeMins.x = std::min(holeMins.x, p.x);
+                holeMins.y = std::min(holeMins.y, p.y);
+                holeMins.z = std::min(holeMins.z, p.z);
+                holeMaxs.x = std::max(holeMaxs.x, p.x);
+                holeMaxs.y = std::max(holeMaxs.y, p.y);
+                holeMaxs.z = std::max(holeMaxs.z, p.z);
+            }
+        }
+    }
+
+    holeMins.x = std::max(holeMins.x, source.mins.x);
+    holeMins.y = std::max(holeMins.y, source.mins.y);
+    holeMins.z = std::max(holeMins.z, source.mins.z);
+    holeMaxs.x = std::min(holeMaxs.x, source.maxs.x);
+    holeMaxs.y = std::min(holeMaxs.y, source.maxs.y);
+    holeMaxs.z = std::min(holeMaxs.z, source.maxs.z);
+
+    const Vector3& b0 = source.mins;
+    const Vector3& b1 = source.maxs;
+
+    // Split into up to 6 slabs: leftover behind the cut, then 4 surround pieces in the cut slab.
+    const bool cutX = std::fabs(axes.normal.x) > 0.9f;
+    const bool cutY = std::fabs(axes.normal.y) > 0.9f;
+    const bool cutZ = std::fabs(axes.normal.z) > 0.9f;
+
+    if (cutX) {
+        if (axes.normal.x > 0.0f) {
+            addPunchSlab(out, source, material, allocateId, b0, {holeMins.x, b1.y, b1.z});
+            if (holeMaxs.x < b1.x - 1e-5f) {
+                addPunchSlab(out, source, material, allocateId, {holeMaxs.x, b0.y, b0.z}, b1);
+            }
+        } else {
+            addPunchSlab(out, source, material, allocateId, {holeMaxs.x, b0.y, b0.z}, b1);
+            if (holeMins.x > b0.x + 1e-5f) {
+                addPunchSlab(out, source, material, allocateId, b0, {holeMins.x, b1.y, b1.z});
+            }
+        }
+        const float x0 = holeMins.x;
+        const float x1 = holeMaxs.x;
+        addPunchSlab(out, source, material, allocateId, {x0, b0.y, b0.z}, {x1, holeMins.y, b1.z});
+        addPunchSlab(out, source, material, allocateId, {x0, holeMaxs.y, b0.z}, {x1, b1.y, b1.z});
+        addPunchSlab(
+            out, source, material, allocateId, {x0, holeMins.y, b0.z}, {x1, holeMaxs.y, holeMins.z});
+        addPunchSlab(
+            out, source, material, allocateId, {x0, holeMins.y, holeMaxs.z}, {x1, holeMaxs.y, b1.z});
+    } else if (cutY) {
+        if (axes.normal.y > 0.0f) {
+            addPunchSlab(out, source, material, allocateId, b0, {b1.x, holeMins.y, b1.z});
+            if (holeMaxs.y < b1.y - 1e-5f) {
+                addPunchSlab(out, source, material, allocateId, {b0.x, holeMaxs.y, b0.z}, b1);
+            }
+        } else {
+            addPunchSlab(out, source, material, allocateId, {b0.x, holeMaxs.y, b0.z}, b1);
+            if (holeMins.y > b0.y + 1e-5f) {
+                addPunchSlab(out, source, material, allocateId, b0, {b1.x, holeMins.y, b1.z});
+            }
+        }
+        const float y0 = holeMins.y;
+        const float y1 = holeMaxs.y;
+        addPunchSlab(out, source, material, allocateId, {b0.x, y0, b0.z}, {holeMins.x, y1, b1.z});
+        addPunchSlab(out, source, material, allocateId, {holeMaxs.x, y0, b0.z}, {b1.x, y1, b1.z});
+        addPunchSlab(
+            out, source, material, allocateId, {holeMins.x, y0, b0.z}, {holeMaxs.x, y1, holeMins.z});
+        addPunchSlab(
+            out, source, material, allocateId, {holeMins.x, y0, holeMaxs.z}, {holeMaxs.x, y1, b1.z});
+    } else if (cutZ) {
+        if (axes.normal.z > 0.0f) {
+            addPunchSlab(out, source, material, allocateId, b0, {b1.x, b1.y, holeMins.z});
+            if (holeMaxs.z < b1.z - 1e-5f) {
+                addPunchSlab(out, source, material, allocateId, {b0.x, b0.y, holeMaxs.z}, b1);
+            }
+        } else {
+            addPunchSlab(out, source, material, allocateId, {b0.x, b0.y, holeMaxs.z}, b1);
+            if (holeMins.z > b0.z + 1e-5f) {
+                addPunchSlab(out, source, material, allocateId, b0, {b1.x, b1.y, holeMins.z});
+            }
+        }
+        const float z0 = holeMins.z;
+        const float z1 = holeMaxs.z;
+        addPunchSlab(out, source, material, allocateId, {b0.x, b0.y, z0}, {holeMins.x, b1.y, z1});
+        addPunchSlab(out, source, material, allocateId, {holeMaxs.x, b0.y, z0}, {b1.x, b1.y, z1});
+        addPunchSlab(
+            out, source, material, allocateId, {holeMins.x, b0.y, z0}, {holeMaxs.x, holeMins.y, z1});
+        addPunchSlab(
+            out, source, material, allocateId, {holeMins.x, holeMaxs.y, z0}, {holeMaxs.x, b1.y, z1});
+    }
+
+    return out;
+}
+
+BrushBoxSide brushBoxSideFromNormal(Vector3 normal) {
+    if (std::fabs(normal.y) >= std::fabs(normal.x) && std::fabs(normal.y) >= std::fabs(normal.z)) {
+        return normal.y >= 0.0f ? BrushBoxSide::Top : BrushBoxSide::Bottom;
+    }
+    if (std::fabs(normal.z) >= std::fabs(normal.x)) {
+        return normal.z >= 0.0f ? BrushBoxSide::South : BrushBoxSide::North;
+    }
+    return normal.x >= 0.0f ? BrushBoxSide::East : BrushBoxSide::West;
+}
+
+std::optional<BrushSplitResult> splitBrushByPlane(
+    const Brush& source,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    const std::function<std::string()>& allocateId,
+    std::string& errorOut) {
+    errorOut.clear();
+    const Vector3 n = normalize3(planeNormal);
+    if (length3(n) < 1e-8f) {
+        errorOut = "invalid clip plane";
+        return std::nullopt;
+    }
+    if (source.faces.size() < 4) {
+        errorOut = "brush has too few faces";
+        return std::nullopt;
+    }
+
+    bool anyFront = false;
+    bool anyBack = false;
+    for (const BrushFace& face : source.faces) {
+        for (const Vector3& v : face.vertices) {
+            const float d = planeSignedDistance(planePoint, n, v);
+            if (d > kPlaneEps) {
+                anyFront = true;
+            } else if (d < -kPlaneEps) {
+                anyBack = true;
+            }
+        }
+    }
+    if (!anyFront || !anyBack) {
+        errorOut = "clip plane does not intersect brush";
+        return std::nullopt;
+    }
+
+    std::vector<BrushFace> frontFaces;
+    std::vector<BrushFace> backFaces;
+    std::vector<std::vector<Vector3>> frontPolys;
+    std::vector<std::vector<Vector3>> backPolys;
+    frontFaces.reserve(source.faces.size() + 1);
+    backFaces.reserve(source.faces.size() + 1);
+
+    for (const BrushFace& face : source.faces) {
+        auto frontPoly = clipPolygonAgainstPlaneLocal(face.vertices, planePoint, n, true);
+        auto backPoly = clipPolygonAgainstPlaneLocal(face.vertices, planePoint, n, false);
+        if (frontPoly.size() >= 3 && polygonAreaLocal(frontPoly) >= 1e-6f) {
+            frontPolys.push_back(frontPoly);
+            frontFaces.push_back(makeClippedFace(face, std::move(frontPoly)));
+        }
+        if (backPoly.size() >= 3 && polygonAreaLocal(backPoly) >= 1e-6f) {
+            backPolys.push_back(backPoly);
+            backFaces.push_back(makeClippedFace(face, std::move(backPoly)));
+        }
+    }
+
+    auto frontCap = buildCapPolygonLocal(frontPolys, planePoint, n, true);
+    auto backCap = buildCapPolygonLocal(backPolys, planePoint, n, false);
+    const std::string capMaterial =
+        source.faces.empty() ? std::string{} : source.faces.front().material;
+    if (frontCap.size() >= 3) {
+        frontFaces.push_back(makeCapFace(capMaterial, std::move(frontCap), false, false));
+    }
+    if (backCap.size() >= 3) {
+        backFaces.push_back(makeCapFace(capMaterial, std::move(backCap), false, false));
+    }
+
+    std::string frontErr;
+    std::string backErr;
+    auto frontBrush = makeBrushConvex(allocateId(), std::move(frontFaces), source.role, frontErr);
+    auto backBrush = makeBrushConvex(allocateId(), std::move(backFaces), source.role, backErr);
+    if (!frontBrush || !backBrush) {
+        errorOut = !frontErr.empty() ? frontErr : backErr;
+        if (errorOut.empty()) {
+            errorOut = "split produced invalid brush";
+        }
+        return std::nullopt;
+    }
+
+    frontBrush->nocollide = source.nocollide;
+    backBrush->nocollide = source.nocollide;
+    frontBrush->box = false;
+    backBrush->box = false;
+
+    BrushSplitResult result;
+    result.front = std::move(*frontBrush);
+    result.back = std::move(*backBrush);
+    return result;
 }
 
 }

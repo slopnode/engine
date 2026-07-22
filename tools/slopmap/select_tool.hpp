@@ -22,9 +22,12 @@ struct SelectTool {
     TranslateAxis axisLock = TranslateAxis::None;
     Vector3 translateOrigin{};
     Vector3 mouseGrabWorld{};
+    Vector2 mouseGrabScreen{};
     std::vector<slopengine::Brush> brushSnapshot;
-    Vector3 instanceAtSnapshot{};
-    Vector3 thingAtSnapshot{};
+    std::vector<int> brushSnapshotIndices;
+    std::vector<Vector3> entityAtSnapshots;
+    std::vector<EntityRef> entitySnapshotRefs;
+    FaceRef faceTranslate{};
     bool numericActive = false;
 
     void update(
@@ -36,8 +39,15 @@ struct SelectTool {
     void cancelTranslate(Editor& editor);
     void toggleSelectedUvLock(Editor& editor);
     bool active() const { return translating; }
+    bool numericLocked(const Editor& editor) const;
 
 private:
+    Vector2 pickCycleMouse{};
+    std::vector<int> pickCycleBrushes;
+    std::vector<FaceRef> pickCycleFaces;
+    std::vector<EntityRef> pickCycleEntities;
+    int pickCycleIndex = 0;
+
     void beginTranslate(Editor& editor, const Camera3D& camera);
     void applyTranslate(Editor& editor, slopengine::AssetStore& assets, Vector3 delta);
     void confirmTranslate(Editor& editor, slopengine::AssetStore& assets);
@@ -48,7 +58,14 @@ private:
     void rotateSelected(Editor& editor, slopengine::AssetStore& assets);
 };
 
-std::optional<float> rayBrushHitDistance(Ray ray, const slopengine::Brush& brush);
-std::optional<int> rayBrushFaceIndex(Ray ray, const slopengine::Brush& brush, float* outDistance = nullptr);
+std::optional<float> rayBrushHitDistance(
+    Ray ray,
+    const slopengine::Brush& brush,
+    bool ignoreBackfaces = false);
+std::optional<int> rayBrushFaceIndex(
+    Ray ray,
+    const slopengine::Brush& brush,
+    float* outDistance = nullptr,
+    bool ignoreBackfaces = false);
 
 }

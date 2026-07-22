@@ -67,6 +67,21 @@ int parseBindToken(std::string_view token) {
     if (token == "escape" || token == "esc") {
         return KEY_ESCAPE;
     }
+    if (token.size() >= 2 && (token[0] == 'f' || token[0] == 'F')) {
+        bool digits = true;
+        for (std::size_t i = 1; i < token.size(); ++i) {
+            if (!std::isdigit(static_cast<unsigned char>(token[i]))) {
+                digits = false;
+                break;
+            }
+        }
+        if (digits) {
+            const int index = std::stoi(std::string(token.substr(1)));
+            if (index >= 1 && index <= 12) {
+                return KEY_F1 + (index - 1);
+            }
+        }
+    }
 
     if (token.size() == 1) {
         const unsigned char ch = static_cast<unsigned char>(token[0]);
@@ -118,6 +133,9 @@ std::string formatBindToken(int code) {
         default:
             break;
         }
+    }
+    if (code >= KEY_F1 && code <= KEY_F12) {
+        return "f" + std::to_string(code - KEY_F1 + 1);
     }
     return std::to_string(code);
 }
@@ -180,6 +198,10 @@ const char* bindDisplayName(int code, char* buffer, std::size_t bufferSize) {
     }
     if (code == KEY_GRAVE) {
         return "`";
+    }
+    if (code >= KEY_F1 && code <= KEY_F12) {
+        std::snprintf(buffer, bufferSize, "F%d", code - KEY_F1 + 1);
+        return buffer;
     }
 
     const char* name = GetKeyName(code);

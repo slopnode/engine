@@ -1,6 +1,6 @@
 # Icons
 
-Icons are packed UI atlases: a PNG sheet plus an `.iconmap` that names rectangles inside it. They are for tools and interface chrome (menus, buttons, tree rows), not world sprites. World billboards use [Sprites](sprites.md).
+Icons are packed UI atlases: a PNG sheet plus an `.iconmap` that names rectangles inside it. They are for tools and interface chrome (menus, buttons, tree rows), not world sprites. World billboards use [Sprites](sprites.md). Editors such as [slopmap](slopmap.md) and [slopsprite](slopsprite.md) draw from these atlases.
 
 Package layout is summarized in [Package structure](package-structure.md).
 
@@ -8,8 +8,8 @@ Package layout is summarized in [Package structure](package-structure.md).
 
 | Kind | Extension | Directory | Virtual path example |
 |------|-----------|-----------|----------------------|
-| Icon atlas texture | `.png` | `icons/` | `silk` → `icons/silk.png` |
-| Icon map | `.iconmap` | `icons/` | `silk` → `icons/silk.iconmap` |
+| Icon atlas texture | `.png` | `icons/` | `silk` -> `icons/silk.png` |
+| Icon map | `.iconmap` | `icons/` | `silk` -> `icons/silk.iconmap` |
 | Source icons (authoring) | `.png` | `icons/<set>/` | `icons/silk/accept.png` (not loaded at runtime) |
 
 A set is identified by a virtual path without extension (for example `silk`). The map and atlas texture share that path. Nested folders under a source tree become `/`-separated icon ids when packed.

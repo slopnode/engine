@@ -70,7 +70,7 @@ my-package/
   fonts/        .ttf
   geometry/     .geo, .vert, .weights
   icons/        .png, .iconmap
-  maps/         <map>/map.meta, <map>/static.csg
+  maps/         <map>/map.meta, <map>/static.csg (+ compiled .bsp/.vis, optional rad/)
   materials/    .mat
   prefabs/      .csg, .s7
   scripts/      .s7
@@ -81,7 +81,7 @@ my-package/
   textures/     .png
 ```
 
-Maps live under a package’s `maps/` folder (ownership is the package directory). `map.meta` only lists other packages when needed:
+Maps live under a package's `maps/` folder (ownership is the package directory). Compile authored CSG with `slopbsp` -> `slopvis` -> `sloprad` (or Compile -> Run All in `slopmap`); see `docs/maps.md` and `docs/slopmap.md`. `map.meta` only lists other packages when needed:
 
 ```
 (map
@@ -102,11 +102,11 @@ Requires Blender 4.2+. Package it as a zip:
 tools/blender/package_extension.ps1
 ```
 
-In Blender: **Edit → Preferences → Get Extensions → (menu) → Install from Disk** and select `tools/blender/slopengine_exporter.zip`.
+In Blender: **Edit -> Preferences -> Get Extensions -> (menu) -> Install from Disk** and select `tools/blender/slopengine_exporter.zip`.
 
-Exports are under **File → Export → Slopengine**:
+Exports are under **File -> Export -> Slopengine**:
 
-- **Multiple** — skeleton, geometry, and animation into a package folder
-- **Geometry**, **Animation**, **Skeleton** — individual exports
+- **Multiple** -- skeleton, geometry, and animation into a package folder
+- **Geometry**, **Animation**, **Skeleton** -- individual exports
 
 Point exports at your package directory (e.g. `packages/base`). The **Multiple** exporter writes into `geometry/`, `skeletons/`, and `animations/` automatically.

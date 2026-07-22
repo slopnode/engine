@@ -3,7 +3,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/audio_def.hpp"
 #include "audio/steam_audio_types.hpp"
-#include "map/bsp.hpp"
+#include "map/vis.hpp"
 
 #include <soloud.h>
 #include <soloud_bus.h>
@@ -97,7 +97,7 @@ public:
     void updateListenerAttachedSources(const SteamAudioListenerPose& listener);
 
     bool steamAudioEnabled() const;
-    void setSteamAudioScene(const BspTree& tree);
+    void setSteamAudioScene(const VisFile& vis);
     void clearSteamAudioScene();
     void updateSteamAudio(
         const SteamAudioListenerPose& listener,

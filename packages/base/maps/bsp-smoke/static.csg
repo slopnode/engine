@@ -1,0 +1,67 @@
+(brush-box
+  (id "floor")
+  (mins -2.0 -0.25 -2.0)
+  (maxs 2.0 0.0 2.0)
+  (material "surfaces/floor"))
+
+(brush-box
+  (id "ceiling")
+  (mins -2.0 2.5 -2.0)
+  (maxs 2.0 2.75 2.0)
+  (material "surfaces/floor"))
+
+(brush-box
+  (id "wall-west")
+  (mins -2.25 0.0 -2.0)
+  (maxs -2.0 2.5 2.0)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "wall-east-n")
+  (mins 2.0 0.0 -2.0)
+  (maxs 2.25 2.5 -0.5)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "wall-east-s")
+  (mins 2.0 0.0 0.5)
+  (maxs 2.25 2.5 2.0)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "wall-east-lintel")
+  (mins 2.0 2.0 -0.5)
+  (maxs 2.25 2.5 0.5)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "wall-east-sill")
+  (mins 2.0 0.0 -0.5)
+  (maxs 2.25 0.5 0.5)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "window-east")
+  (role "window")
+  (mins 2.0 0.5 -0.5)
+  (maxs 2.08 2.0 0.5)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "wall-north")
+  (mins -2.0 0.0 -2.25)
+  (maxs 2.0 2.5 -2.0)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "wall-south")
+  (mins -2.0 0.0 2.0)
+  (maxs 2.0 2.5 2.25)
+  (material "surfaces/bricks"))
+
+(brush-box
+  (id "hint-mid")
+  (role "hint")
+  (mins -0.01 0.0 -2.0)
+  (maxs 0.01 2.5 2.0)
+  (material "surfaces/bricks"))

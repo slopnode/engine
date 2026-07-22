@@ -96,6 +96,9 @@ bool faceNeedsOverride(const BrushFace& face, const std::string& brushId, BrushB
     if (face.uvShiftPixels.x != 0.0f || face.uvShiftPixels.y != 0.0f) {
         return true;
     }
+    if (face.uvScale.x != 1.0f || face.uvScale.y != 1.0f) {
+        return true;
+    }
     return false;
 }
 
@@ -117,6 +120,10 @@ void writeFaceOverride(
         out << "\n      (uv-shift " << formatFloat(face.uvShiftPixels.x) << " "
             << formatFloat(face.uvShiftPixels.y) << ")";
     }
+    if (face.uvScale.x != 1.0f || face.uvScale.y != 1.0f) {
+        out << "\n      (uv-scale " << formatFloat(face.uvScale.x) << " "
+            << formatFloat(face.uvScale.y) << ")";
+    }
     if (face.nodraw) {
         out << "\n      (nodraw)";
     }
@@ -137,10 +144,10 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     out << "  (mins " << formatVec3(brush.mins) << ")\n";
     out << "  (maxs " << formatVec3(brush.maxs) << ")\n";
     out << "  (material " << escapeSchemeString(material) << ")\n";
-    if (brush.role == BrushRole::Detail) {
-        out << "  (role \"detail\")\n";
+    if (brush.role != BrushRole::Hull) {
+        out << "  (role \"" << brushRoleName(brush.role) << "\")\n";
     }
-    if (brush.nocollide) {
+    if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
     }
 
@@ -180,10 +187,10 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
 void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     out << "(brush-convex\n";
     out << "  (id " << escapeSchemeString(brush.id) << ")\n";
-    if (brush.role == BrushRole::Detail) {
-        out << "  (role \"detail\")\n";
+    if (brush.role != BrushRole::Hull) {
+        out << "  (role \"" << brushRoleName(brush.role) << "\")\n";
     }
-    if (brush.nocollide) {
+    if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
     }
 
@@ -211,6 +218,10 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
         if (face.uvShiftPixels.x != 0.0f || face.uvShiftPixels.y != 0.0f) {
             out << "      (uv-shift " << formatFloat(face.uvShiftPixels.x) << " "
                 << formatFloat(face.uvShiftPixels.y) << ")\n";
+        }
+        if (face.uvScale.x != 1.0f || face.uvScale.y != 1.0f) {
+            out << "      (uv-scale " << formatFloat(face.uvScale.x) << " "
+                << formatFloat(face.uvScale.y) << ")\n";
         }
         if (face.nodraw) {
             out << "      (nodraw)\n";

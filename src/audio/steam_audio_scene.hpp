@@ -2,7 +2,7 @@
 
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
 
-#include "map/bsp.hpp"
+#include "map/vis.hpp"
 
 #include <phonon.h>
 
@@ -17,12 +17,12 @@ struct SteamAudioSceneMesh {
     IPLMaterial material{};
 };
 
-bool buildSteamAudioMeshFromBsp(const BspTree& tree, SteamAudioSceneMesh& out);
+bool buildSteamAudioMeshFromVis(const VisFile& vis, SteamAudioSceneMesh& out);
 
 bool createSteamAudioScene(
     IPLContext context,
     IPLSimulator simulator,
-    const BspTree& tree,
+    const VisFile& vis,
     IPLScene* outScene,
     IPLStaticMesh* outMesh);
 

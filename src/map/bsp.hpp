@@ -10,6 +10,21 @@
 
 namespace slopengine {
 
+namespace BspContents {
+constexpr std::uint32_t Solid = 1u << 0;
+constexpr std::uint32_t Glass = 1u << 1;
+constexpr std::uint32_t Water = 1u << 2;
+constexpr std::uint32_t Trigger = 1u << 3;
+}
+
+inline bool leafBlocksFlood(std::uint32_t contents) {
+    return (contents & (BspContents::Solid | BspContents::Glass)) != 0;
+}
+
+inline bool leafIsOpen(std::uint32_t contents) {
+    return !leafBlocksFlood(contents);
+}
+
 /** Splitting plane in a BSP node. */
 struct BspPlane {
     Vector3 normal{};
@@ -23,13 +38,20 @@ struct BspNode {
     std::int32_t back = -1;
 };
 
-/** BSP leaf: solid or empty, with neighbor links. */
+/** BSP leaf: contents flags, neighbor links, and polyhedron faces. */
 struct BspLeaf {
-    bool solid = false;
+    std::uint32_t contents = 0;
     Vector3 mins{};
     Vector3 maxs{};
     std::vector<std::vector<Vector3>> faces;
     std::vector<std::int32_t> neighbors;
+};
+
+/** Portal polygon between two open leaves. */
+struct BspPortal {
+    std::int32_t leafA = -1;
+    std::int32_t leafB = -1;
+    std::vector<Vector3> vertices;
 };
 
 /** Hull face that borders empty space (used for nodraw / debug). */
@@ -46,13 +68,14 @@ struct BspSurfaceFace {
 struct BspTree {
     std::vector<BspNode> nodes;
     std::vector<BspLeaf> leaves;
+    std::vector<BspPortal> portals;
     std::vector<BspSurfaceFace> surfaceFaces;
     std::int32_t root = -1;
     Vector3 boundsMins{};
     Vector3 boundsMaxs{};
 };
 
-/** Builds a BSP from hull brushes only. */
+/** Builds a BSP from sealing / split-contributing brushes. */
 BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes);
 
 void collectFaceEmptyProbes(

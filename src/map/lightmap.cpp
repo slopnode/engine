@@ -107,11 +107,35 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
             face.normal = brushFace.normal;
             face.vertices = brushFace.vertices;
             face.uvShiftPixels = brushFace.uvShiftPixels;
+            face.uvScale = brushFace.uvScale;
             face.uvUAxis = brushFace.uvUAxis;
             face.uvVAxis = brushFace.uvVAxis;
             face.uvLock = brushFace.uvLock;
             faces.push_back(std::move(face));
         }
+    }
+    return faces;
+}
+
+std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis) {
+    std::vector<LightmapFace> faces;
+    faces.reserve(vis.faces.size());
+    for (const VisibleFace& visible : vis.faces) {
+        if (visible.vertices.size() < 3) {
+            continue;
+        }
+        LightmapFace face;
+        face.id = visible.id;
+        face.material = visible.material;
+        face.normal = visible.normal;
+        face.vertices = visible.vertices;
+        face.uvShiftPixels = visible.uvShiftPixels;
+        face.uvScale = visible.uvScale;
+        face.uvUAxis = visible.uvUAxis;
+        face.uvVAxis = visible.uvVAxis;
+        face.uvLock = visible.uvLock;
+        face.interiorLeaf = visible.interiorLeaf;
+        faces.push_back(std::move(face));
     }
     return faces;
 }
@@ -122,6 +146,48 @@ LightmapPackResult packLightmapCharts(
     int atlasSize) {
     LightmapPackResult result;
     result.rad.luxelsPerMeter = luxelsPerMeter;
+    atlasSize = std::max(2, atlasSize);
+
+    struct PendingChart {
+        std::int32_t faceIndex = -1;
+        int luxelW = 0;
+        int luxelH = 0;
+    };
+    std::vector<PendingChart> pending;
+    pending.reserve(faces.size());
+    constexpr float kLargeFaceMeters = 4.0f;
+    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
+        const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
+        Vector3 uAxis{};
+        Vector3 vAxis{};
+        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
+        const float widthMeters = faceExtent(face, uAxis);
+        const float heightMeters = faceExtent(face, vAxis);
+        float effectiveLpm = luxelsPerMeter;
+        if (std::max(widthMeters, heightMeters) > kLargeFaceMeters) {
+            effectiveLpm *= 0.5f;
+        }
+        PendingChart chart;
+        chart.faceIndex = faceIndex;
+        chart.luxelW = std::clamp(
+            static_cast<int>(std::ceil(widthMeters * effectiveLpm)) + 2,
+            2,
+            atlasSize);
+        chart.luxelH = std::clamp(
+            static_cast<int>(std::ceil(heightMeters * effectiveLpm)) + 2,
+            2,
+            atlasSize);
+        pending.push_back(chart);
+    }
+    std::sort(pending.begin(), pending.end(), [](const PendingChart& a, const PendingChart& b) {
+        if (a.luxelH != b.luxelH) {
+            return a.luxelH > b.luxelH;
+        }
+        if (a.luxelW != b.luxelW) {
+            return a.luxelW > b.luxelW;
+        }
+        return a.faceIndex < b.faceIndex;
+    });
 
     int atlasIndex = 0;
     int cursorX = 0;
@@ -151,22 +217,9 @@ LightmapPackResult packLightmapCharts(
 
     ensureAtlas();
 
-    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
-        const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
-        Vector3 uAxis{};
-        Vector3 vAxis{};
-        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
-        const float widthMeters = faceExtent(face, uAxis);
-        const float heightMeters = faceExtent(face, vAxis);
-        const int luxelW = std::clamp(
-            static_cast<int>(std::ceil(widthMeters * luxelsPerMeter)) + 2,
-            2,
-            atlasSize);
-        const int luxelH = std::clamp(
-            static_cast<int>(std::ceil(heightMeters * luxelsPerMeter)) + 2,
-            2,
-            atlasSize);
-
+    for (const PendingChart& pendingChart : pending) {
+        const int luxelW = pendingChart.luxelW;
+        const int luxelH = pendingChart.luxelH;
         if (cursorX + luxelW > atlasSize) {
             cursorX = 0;
             cursorY += rowHeight;
@@ -176,8 +229,9 @@ LightmapPackResult packLightmapCharts(
             newAtlas();
         }
 
+        const LightmapFace& face = faces[static_cast<std::size_t>(pendingChart.faceIndex)];
         LightmapChart chart;
-        chart.faceIndex = faceIndex;
+        chart.faceIndex = pendingChart.faceIndex;
         chart.faceId = face.id;
         chart.atlasIndex = atlasIndex;
         chart.luxelWidth = luxelW;
@@ -299,6 +353,45 @@ std::optional<RadFile> readRadFile(const std::filesystem::path& path) {
         return std::nullopt;
     }
     return readRadBytes(buffer);
+}
+
+Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
+    useLightmapLoc = -1;
+    const std::string vert = assets.getShaderSource("default/lightmap_vert");
+    const std::string frag = assets.getShaderSource("default/lightmap_frag");
+    if (vert.empty() || frag.empty()) {
+        TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
+        return {};
+    }
+    Shader shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (shader.id == 0) {
+        TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
+        return {};
+    }
+    shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
+    shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
+    shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(shader, "texture5");
+    shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
+    shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
+        shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    }
+    useLightmapLoc = GetShaderLocation(shader, "useLightmap");
+    int useLightmap = 1;
+    if (useLightmapLoc >= 0) {
+        SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
+    }
+    const int solidLitLoc = GetShaderLocation(shader, "solidLit");
+    if (solidLitLoc >= 0) {
+        const int solidLit = 0;
+        SetShaderValue(shader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
+    }
+    const int lightCountLoc = GetShaderLocation(shader, "dynLightCount");
+    if (lightCountLoc >= 0) {
+        const int zero = 0;
+        SetShaderValue(shader, lightCountLoc, &zero, SHADER_UNIFORM_INT);
+    }
+    return shader;
 }
 
 }

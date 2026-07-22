@@ -9,6 +9,7 @@
 #include "camera/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
+#include "map/vis.hpp"
 #include "map/things_spawn.hpp"
 #include "map/graph.hpp"
 #include "map/graph_script.hpp"
@@ -35,14 +36,15 @@
 #include "script/script_context.hpp"
 #include "script/thing_script.hpp"
 #include "ui/ui_module.hpp"
-
 #include "ui/ui_state.hpp"
+#include "core/screenshot.hpp"
 #include "rlImGui.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -266,48 +268,32 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
         }
         const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
         if (debugUi.showBspOutlines) {
-            Color color = leaf.solid ? Color{180, 60, 60, 255} : Color{60, 180, 220, 255};
+            const bool blocked = leafBlocksFlood(leaf.contents);
+            Color color = blocked ? Color{180, 60, 60, 255} : Color{60, 180, 220, 255};
             if (i == currentLeaf) {
-                color = leaf.solid ? Color{255, 220, 40, 255} : Color{40, 255, 120, 255};
+                color = blocked ? Color{255, 220, 40, 255} : Color{40, 255, 120, 255};
             }
             DrawBoundingBox(BoundingBox{leaf.mins, leaf.maxs}, color);
         }
         if (debugUi.showBspLeafFaces) {
             const unsigned char alpha = i == currentLeaf ? static_cast<unsigned char>(140)
                                                         : static_cast<unsigned char>(70);
-            drawBspLeafFaces(leaf, bspLeafDebugColor(i, leaf.solid, alpha));
+            drawBspLeafFaces(leaf, bspLeafDebugColor(i, leafBlocksFlood(leaf.contents), alpha));
         }
     }
 
     if (debugUi.showBspPortals) {
-        for (std::int32_t i = 0; i < leafCount; ++i) {
-            const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-            if (leaf.solid) {
+        for (const BspPortal& portal : tree.portals) {
+            if (debugUi.showBspCurrentLeafOnly
+                && portal.leafA != currentLeaf
+                && portal.leafB != currentLeaf) {
                 continue;
             }
-            if (debugUi.showBspCurrentLeafOnly && i != currentLeaf) {
-                continue;
-            }
-            for (std::int32_t neighbor : leaf.neighbors) {
-                if (neighbor <= i && !debugUi.showBspCurrentLeafOnly) {
-                    continue;
-                }
-                if (neighbor < 0 || neighbor >= leafCount) {
-                    continue;
-                }
-                const BspLeaf& other = tree.leaves[static_cast<std::size_t>(neighbor)];
-                if (other.solid) {
-                    continue;
-                }
-                std::vector<Vector3> portal;
-                if (!portalPolygonBetweenLeaves(leaf, other, portal)) {
-                    continue;
-                }
-                const bool involvesCurrent = i == currentLeaf || neighbor == currentLeaf;
-                const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
-                                                         : Color{255, 80, 220, 100};
-                drawDebugPolygon(portal, portalColor);
-            }
+            const bool involvesCurrent =
+                portal.leafA == currentLeaf || portal.leafB == currentLeaf;
+            const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
+                                                     : Color{255, 80, 220, 100};
+            drawDebugPolygon(portal.vertices, portalColor);
         }
     }
 
@@ -323,6 +309,34 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
             drawDebugPolygon(face.vertices, fill);
             drawDebugPolygonOutline(face.vertices, outline);
         }
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+void drawVisDebugOverlays(const VisFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
+    if (!debugUi.showVisFaces) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    for (std::size_t faceIndex = 0; faceIndex < vis.faces.size(); ++faceIndex) {
+        const VisibleFace& face = vis.faces[faceIndex];
+        if (face.vertices.size() < 3) {
+            continue;
+        }
+        if (debugUi.showVisCurrentLeafOnly
+            && (face.interiorLeaf < 0 || face.interiorLeaf != currentLeaf)) {
+            continue;
+        }
+        const bool inCurrentLeaf = face.interiorLeaf == currentLeaf;
+        const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 80);
+        const Color outline = inCurrentLeaf ? Color{255, 160, 40, 255} : Color{255, 120, 40, 220};
+        drawDebugPolygon(face.vertices, fill);
+        drawDebugPolygonOutline(face.vertices, outline);
     }
 
     rlEnableDepthMask();
@@ -1281,15 +1295,20 @@ void registerRenderSystems(flecs::world& world) {
                 }
             }
 
-            if (world.has<DebugUiState>() && world.has<MapBsp>()) {
+            if (world.has<DebugUiState>()) {
                 const DebugUiState& debugUi = world.get<DebugUiState>();
-                const MapBsp& mapBsp = world.get<MapBsp>();
                 std::int32_t currentLeaf = -1;
-                flecs::entity camera = world.lookup("Player");
-                if (camera.is_valid() && camera.has<Lens>()) {
-                    currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
+                if (world.has<MapBsp>()) {
+                    const MapBsp& mapBsp = world.get<MapBsp>();
+                    flecs::entity camera = world.lookup("Player");
+                    if (camera.is_valid() && camera.has<Lens>()) {
+                        currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
+                    }
+                    drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
                 }
-                drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
+                if (world.has<MapVis>()) {
+                    drawVisDebugOverlays(world.get<MapVis>().vis, debugUi, currentLeaf);
+                }
             }
 
             if (world.has<DebugUiState>() && world.get<DebugUiState>().showGraphs &&
@@ -1580,8 +1599,29 @@ void registerRenderSystems(flecs::world& world) {
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
-            (void)it;
             EndDrawing();
+            ScreenshotRequest& request = it.world().get_mut<ScreenshotRequest>();
+            if (!request.pending) {
+                return;
+            }
+            request.pending = false;
+            std::filesystem::path path;
+            std::string error;
+            ConsoleState& console = it.world().get_mut<ConsoleState>();
+            if (saveScreenshotPng(path, error)) {
+                const std::string message = "Screenshot saved: " + path.string();
+                TraceLog(LOG_INFO, "SCREENSHOT: %s", path.string().c_str());
+                console.log.push_back(message);
+                if (console.log.size() > 200) {
+                    console.log.erase(console.log.begin());
+                }
+            } else {
+                TraceLog(LOG_WARNING, "SCREENSHOT: %s", error.c_str());
+                console.log.push_back("Screenshot failed: " + error);
+                if (console.log.size() > 200) {
+                    console.log.erase(console.log.begin());
+                }
+            }
         });
 }
 
@@ -1675,6 +1715,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapBsp>()) {
         world.remove<MapBsp>();
     }
+    if (world.has<MapVis>()) {
+        world.remove<MapVis>();
+    }
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
     }
@@ -1730,6 +1773,7 @@ bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     }
 
     MapBsp mapBsp{std::move(loaded->bsp)};
+    MapVis mapVis{std::move(loaded->vis)};
     Color ambientColor{
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.x * 255.0f, 0.0f, 255.0f)),
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.y * 255.0f, 0.0f, 255.0f)),
@@ -1746,11 +1790,12 @@ bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         AudioContext& audioCtx = world.get_mut<AudioContext>();
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
-            audioCtx.world->setSteamAudioScene(mapBsp.tree);
+            audioCtx.world->setSteamAudioScene(mapVis.vis);
         }
     }
 
     world.set<MapBsp>(std::move(mapBsp));
+    world.set<MapVis>(std::move(mapVis));
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;

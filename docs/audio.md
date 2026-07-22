@@ -6,12 +6,7 @@ Related: [Package structure](package-structure.md), [Sprites](sprites.md) (frame
 
 ## Mental model
 
-| Layer | Role |
-|-------|------|
-| Raw clips | `.ogg` under `sound/` (one-shot SFX, music streams, frame sounds) |
-| Audio defs | `.saudio` (procedural Sfxr) or `.s7` sample wrappers under `audio/` |
-| Buses | `sfx` and `music` |
-| Play paths | Scheme API, `.spanim` `(sound …)`, flecs `AudioSource` autoplay |
+Raw clips are `.ogg` files under `sound/` -- one-shot SFX, music streams, and `.spanim` frame sounds. Audio defs under `audio/` are a second layer: procedural Sfxr (`.saudio`) or sample wrappers (`.s7`) that point at a clip and carry playback options. Mixing goes through two buses, `sfx` and `music`. Playback reaches those layers from Scheme (`play-sound` / `play-audio` and friends), from `.spanim` `(sound ...)` on hold enter, or from flecs `AudioSource` autoplay.
 
 ## Steam Audio (optional)
 
@@ -22,7 +17,7 @@ The Steam Audio SDK is an **out-of-repo binary**: it is not a submodule and is n
 When linked and initialized successfully:
 
 - Spatial voices use an HRTF spatialize filter
-- Map load builds an occlusion/transmission scene from the BSP
+- Map load builds an occlusion/transmission scene from VIS visible faces
 - Parametric reflections run through the simulator
 - `BUILD_RPATH` / `INSTALL_RPATH` point at the SDK lib dir so `libphonon` resolves at run time
 
@@ -32,19 +27,16 @@ If init fails, the engine logs a warning and falls back to SoLoud 3D. Authoring 
 
 | Kind | Directory | Extensions | Virtual path example |
 |------|-----------|------------|----------------------|
-| Sound | `sound/` | `.ogg` | `weapons/fire` → `sound/weapons/fire.ogg` |
-| Audio def | `audio/` | `.saudio`, then `.s7` | `ui/pickup` → `audio/ui/pickup.saudio` |
+| Sound | `sound/` | `.ogg` | `weapons/fire` -> `sound/weapons/fire.ogg` |
+| Audio def | `audio/` | `.saudio`, then `.s7` | `ui/pickup` -> `audio/ui/pickup.saudio` |
 
 Author raw clips as `.ogg`. Procedural and sample-wrapper defs resolve `.saudio` then `.s7`. Virtual paths omit the directory and extension.
 
-| API / feature | Uses |
-|---------------|------|
-| `play-sound`, `play-music`, frame `(sound …)`, `AudioSource.clip` | Raw `sound/` |
-| `play-audio`, `AudioSource.audio` | Defs under `audio/` |
+`play-sound`, `play-music`, frame `(sound ...)`, and `AudioSource.clip` take raw paths under `sound/`. `play-audio` and `AudioSource.audio` take defs under `audio/`.
 
 ## Raw sounds
 
-Place `.ogg` files under `sound/`. Example: `sound/weapons/fire.ogg` → virtual path `weapons/fire`.
+Place `.ogg` files under `sound/`. Example: `sound/weapons/fire.ogg` -> virtual path `weapons/fire`.
 
 ```text
 (play-sound "weapons/fire")
@@ -59,7 +51,7 @@ Place `.ogg` files under `sound/`. Example: `sound/weapons/fire.ogg` → virtual
 
 ### Procedural (`.saudio`)
 
-Sfxr-style synth under `(audio …)`:
+Sfxr-style synth under `(audio ...)`:
 
 ```text
 (audio
@@ -98,7 +90,7 @@ Or with a seed and wave overrides:
 
 ### Sample wrappers (`.s7`)
 
-Evaluated only while an audio def is loading. Macros `(audio …)` and `(register-audio …)` register a sample def. `(source "…")` is required (virtual path under `sound/`).
+Evaluated only while an audio def is loading. Macros `(audio ...)` and `(register-audio ...)` register a sample def. `(source "...")` is required (virtual path under `sound/`).
 
 ```text
 (audio
@@ -143,7 +135,7 @@ Attach at runtime:
 (audio-filter-attach "global" "dcremoval")
 ```
 
-Per-def `(filter "…")` lists apply when that def plays.
+Per-def `(filter "...")` lists apply when that def plays.
 
 ## Frame sounds
 
@@ -153,7 +145,7 @@ In `.spanim`, a hold may include `(sound "path" [volume])`. On hold enter, the a
 (frame "Fire" 0.08 (sound "weapons/fire" 0.9))
 ```
 
-`slopsprite` can pick paths from mounted `sound/` folders into this field.
+[slopsprite](slopsprite.md) can pick paths from mounted `sound/` folders into this field.
 
 ## Entity components
 

@@ -19,9 +19,9 @@ Optional Scheme in `maps/<name>/things.s7` supplies feet position and facing. Th
 |-------|----------|-------|
 | `id` | yes | Unique among entity ids in the file. |
 | `at` | yes | Feet position in world meters (`x y z`). |
-| `yaw` | no | Facing in radians around Y. Omit → `0`. |
+| `yaw` | no | Facing in radians around Y. Omit -> `0`. |
 
-Only the first `player-start` is used; later ones log a warning and are ignored. If the file is missing, or has no `player-start`, the spawn is `(0, 0.1, 0)` facing yaw `π`.
+Only the first `player-start` is used; later ones log a warning and are ignored. If the file is missing, or has no `player-start`, the spawn is `(0, 0.1, 0)` facing yaw `pi`.
 
 `at` is the character feet / capsule origin. The view is placed at feet plus `eyeHeight` (default `1.7`).
 
@@ -47,15 +47,11 @@ The first-person scene is a presentation layer: it shows what the package decide
 
 ### Ownership
 
-| Owns | Does not own |
-|------|----------------|
-| Empty eye-space stage (`PlayerFp`) and sockets | Inventory, ammo, loadouts, weapon switch rules |
-| Draw of `ViewSpace` geo / view sprites after the world | Hit detection, fire, reload, usability |
-| Primitives to attach geo/sprites, mutate sprite pose, eye offset, spawn or toggle a `DynamicLight` | Whether the flashlight “should” be on; raise/lower, bob, or holster policy |
-| Raw `Lens` eye for aim/interact; presentation camera for world draw | Map lighting design (bake + dynamic overlay; see [Lights](lights.md)) |
-| Optional rad tint / faux shading look | - |
+The engine owns the empty eye-space stage (`PlayerFp`) and its sockets, the draw of `ViewSpace` geo and view sprites after the world, and the primitives to attach meshes or sprites, mutate sprite pose, set eye offset, and spawn or toggle a `DynamicLight`. It also owns the raw `Lens` used for aim and interact, the presentation camera for world draw, and optional rad tint / faux shading look.
 
-Input still reaches the package as hooks (for example flashlight → `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
+It does not own inventory, ammo, loadouts, or weapon switch rules. Hit detection, fire, reload, and usability stay in game logic. Whether the flashlight "should" be on, and raise/lower, bob, or holster policy, are package decisions -- the stage only shows the result. Map lighting design (bake plus dynamic overlay) is separate; see [Lights](lights.md).
+
+Input still reaches the package as hooks (for example flashlight -> `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
 
 ### Stage layout
 
@@ -121,7 +117,7 @@ Core binds (move, jump, pause, interact, console, main menu) are owned by the en
 |-------|--------|
 | id | Stable string used in settings and for the hook name `on-action-<id>`. |
 | `label` | Controls UI display name. |
-| `default` | Bind token: letter/digit keys (`f`, `1`), named keys (`space`, `grave`), or mouse (`mouse1`…`mouse5`). |
+| `default` | Bind token: letter/digit keys (`f`, `1`), named keys (`space`, `grave`), or mouse (`mouse1`...`mouse5`). |
 
 Mods override `data/actions.s7` like other package data. On press (gameplay context), the engine calls `(on-action-<id>)` if that procedure exists. Base ships flashlight, attack, and weapon-1/2; only flashlight has a handler today. Attack and slots are stubs for games to implement.
 
@@ -134,7 +130,7 @@ When rad tint is on, the FP pass samples baked light from the player feet (avera
 | Field | Default | Meaning |
 |-------|---------|---------|
 | `yaw` | from `player-start` | Heading in radians. |
-| `pitch` | `-0.05` at spawn | Look pitch; clamped to about ±`1.4`. |
+| `pitch` | `-0.05` at spawn | Look pitch; clamped to about +/-`1.4`. |
 | `moveSpeed` | `6` | Used when there is no `CharacterMotor`. |
 | `lookSensitivity` | `0.003` | Scales mouse delta into yaw / pitch. |
 | `eyeHeight` | `1.7` | Camera height when not physics-driven. |
@@ -162,7 +158,7 @@ While gameplay input is allowed:
 - Package actions (from `data/actions.s7`) call `(on-action-<id>)` when pressed.
 - Scheme can poll `(action-down? id)` / `(action-pressed? id)` for held vs edge state (e.g. autofire in `(tick)`). Both return `#f` when gameplay input is blocked or the id is unknown.
 
-Debug Noclip (main menu → Debug) flies the capsule with move wish and no gravity; look still applies.
+Debug Noclip (main menu -> Debug) flies the capsule with move wish and no gravity; look still applies.
 
 ## Example
 
@@ -170,10 +166,10 @@ Debug Noclip (main menu → Debug) flies the capsule with move wish and no gravi
 Player
   PlayerCamera
   WorldSpace
-  Lens                 { position = feet + eyeHeight, fovy = 75, … }
-  FirstPersonController { yaw from player-start, pitch ≈ -0.05 }
+  Lens                 { position = feet + eyeHeight, fovy = 75, ... }
+  FirstPersonController { yaw from player-start, pitch ~ -0.05 }
   FirstPersonScene      { root = PlayerFp, sockets weapon / emission }
-  CharacterMotor        { radius 0.3, height 1.1, eyeHeight 1.7, … }
+  CharacterMotor        { radius 0.3, height 1.1, eyeHeight 1.7, ... }
 ```
 
 ```text

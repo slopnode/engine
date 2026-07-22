@@ -1,6 +1,10 @@
 #pragma once
 
+#include "assets/asset_store.hpp"
 #include "map/brush.hpp"
+#include "map/vis.hpp"
+
+#include <raylib.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -21,9 +25,11 @@ struct LightmapFace {
     Vector3 normal{};
     std::vector<Vector3> vertices;
     Vector2 uvShiftPixels{};
+    Vector2 uvScale{1.0f, 1.0f};
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool uvLock = false;
+    std::int32_t interiorLeaf = -1;
 };
 
 /** One chart's placement in a lightmap atlas. */
@@ -64,6 +70,9 @@ struct LightmapPackResult {
 /** Collects drawable faces from brushes for packing / bake. */
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
 
+/** Collects drawable faces from a VIS visible-face set. */
+std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis);
+
 /** Packs faces into atlas charts at @p luxelsPerMeter. */
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
@@ -73,5 +82,7 @@ LightmapPackResult packLightmapCharts(
 bool writeRadFile(const std::filesystem::path& path, const RadFile& rad);
 std::optional<RadFile> readRadFile(const std::filesystem::path& path);
 std::optional<RadFile> readRadBytes(std::span<const std::byte> data);
+
+Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc);
 
 }

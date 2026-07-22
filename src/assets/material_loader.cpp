@@ -1,5 +1,7 @@
 #include "assets/material_loader.hpp"
 
+#include <rlgl.h>
+
 #include <charconv>
 #include <optional>
 #include <string>
@@ -142,6 +144,30 @@ Material createRaylibMaterial(const MaterialAsset& asset, const TextureResolver&
         material.maps[MATERIAL_MAP_SPECULAR].color.a = 255;
     } else {
         material.maps[MATERIAL_MAP_SPECULAR].color = {0, 0, 0, 255};
+    }
+
+    if (!asset.emissionTexture.empty() && resolveTexture) {
+        const Texture2D emission = resolveTexture(asset.emissionTexture);
+        if (emission.id != 0) {
+            SetTextureWrap(emission, TEXTURE_WRAP_REPEAT);
+            SetMaterialTexture(&material, MATERIAL_MAP_EMISSION, emission);
+        } else {
+            material.maps[MATERIAL_MAP_EMISSION].texture = {
+                rlGetTextureIdDefault(),
+                1,
+                1,
+                1,
+                PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+            };
+        }
+    } else {
+        material.maps[MATERIAL_MAP_EMISSION].texture = {
+            rlGetTextureIdDefault(),
+            1,
+            1,
+            1,
+            PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+        };
     }
     return material;
 }

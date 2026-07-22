@@ -70,6 +70,8 @@ set(SLOPLIB_SOURCES
     src/map/radiosity_gpu.cpp
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
+    src/map/vis_build.cpp
+    src/map/vis_io.cpp
     src/render/sprite_billboard.cpp
 )
 
@@ -89,6 +91,7 @@ endif()
 add_executable(slopengine
     src/main.cpp
     src/core/user_paths.cpp
+    src/core/screenshot.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
     src/game/game_state.cpp
@@ -164,6 +167,14 @@ else()
     target_compile_options(sloprad PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(slopvis tools/slopvis/main.cpp)
+target_link_libraries(slopvis PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopvis PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopvis PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 add_executable(slopmap
     tools/slopmap/main.cpp
     tools/slopmap/camera.cpp
@@ -173,9 +184,15 @@ add_executable(slopmap
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
+    tools/slopmap/punch_tool.cpp
+    tools/slopmap/clip_tool.cpp
     tools/slopmap/material_browser.cpp
+    tools/slopmap/texture_panel.cpp
+    tools/slopmap/thing_panel.cpp
+    tools/slopmap/brush_panel.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
+    tools/slopmap/compile.cpp
     src/ui/imgui_fonts.cpp
 )
 target_include_directories(slopmap PRIVATE tools/slopmap)

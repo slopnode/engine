@@ -34,7 +34,7 @@ void floodExterior(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty
     std::queue<std::int32_t> queue;
     for (std::int32_t i = 0; i < static_cast<std::int32_t>(leafCount); ++i) {
         const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-        if (leaf.solid) {
+        if (leafBlocksFlood(leaf.contents)) {
             continue;
         }
         if (!leafTouchesBounds(leaf, tree.boundsMins, tree.boundsMaxs)) {
@@ -51,7 +51,7 @@ void floodExterior(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty
             if (neighbor < 0 || neighbor >= static_cast<std::int32_t>(leafCount)) {
                 continue;
             }
-            if (tree.leaves[static_cast<std::size_t>(neighbor)].solid) {
+            if (leafBlocksFlood(tree.leaves[static_cast<std::size_t>(neighbor)].contents)) {
                 continue;
             }
             if (exteriorEmpty[static_cast<std::size_t>(neighbor)] != 0) {
@@ -70,7 +70,7 @@ bool isInteriorEmpty(
     if (leafIndex < 0 || leafIndex >= static_cast<std::int32_t>(tree.leaves.size())) {
         return false;
     }
-    if (tree.leaves[static_cast<std::size_t>(leafIndex)].solid) {
+    if (leafBlocksFlood(tree.leaves[static_cast<std::size_t>(leafIndex)].contents)) {
         return false;
     }
     return exteriorEmpty[static_cast<std::size_t>(leafIndex)] == 0;
@@ -89,7 +89,7 @@ Vector3 hullCenter(const std::vector<Brush>& brushes) {
     };
     bool any = false;
     for (const Brush& brush : brushes) {
-        if (brush.role != BrushRole::Hull) {
+        if (brush.role != BrushRole::Hull && brush.role != BrushRole::Window) {
             continue;
         }
         any = true;
@@ -127,7 +127,7 @@ void buildLeakPath(
     float bestDist = std::numeric_limits<float>::max();
     for (std::int32_t i = 0; i < static_cast<std::int32_t>(tree.leaves.size()); ++i) {
         const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-        if (leaf.solid) {
+        if (leafBlocksFlood(leaf.contents)) {
             continue;
         }
         const float d = distSq(leafCentroid(leaf), target);
@@ -144,7 +144,7 @@ void buildLeakPath(
     std::queue<std::int32_t> queue;
     for (std::int32_t i = 0; i < static_cast<std::int32_t>(tree.leaves.size()); ++i) {
         const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-        if (leaf.solid) {
+        if (leafBlocksFlood(leaf.contents)) {
             continue;
         }
         if (!leafTouchesBounds(leaf, tree.boundsMins, tree.boundsMaxs)) {
@@ -164,7 +164,7 @@ void buildLeakPath(
             if (neighbor < 0 || neighbor >= static_cast<std::int32_t>(tree.leaves.size())) {
                 continue;
             }
-            if (tree.leaves[static_cast<std::size_t>(neighbor)].solid) {
+            if (leafBlocksFlood(tree.leaves[static_cast<std::size_t>(neighbor)].contents)) {
                 continue;
             }
             if (parent[static_cast<std::size_t>(neighbor)] != -2) {
@@ -200,42 +200,13 @@ void buildLeakPath(
     }
 }
 
-void inferHullNodrawFromSurfaces(
-    const BspTree& tree,
-    const std::vector<std::uint8_t>& exteriorEmpty,
-    const std::vector<Brush>& brushes,
-    std::unordered_set<std::string>& inferred) {
-    std::vector<Vector3> probes;
-    for (const Brush& brush : brushes) {
-        if (brush.role != BrushRole::Hull) {
-            continue;
-        }
-        for (const BrushFace& face : brush.faces) {
-            if (face.nodraw || face.id.empty()) {
-                continue;
-            }
-            collectFaceEmptyProbes(face.vertices, face.normal, probes);
-            bool facesInterior = false;
-            for (const Vector3& probe : probes) {
-                if (isInteriorEmpty(tree, exteriorEmpty, pointLeaf(tree, probe))) {
-                    facesInterior = true;
-                    break;
-                }
-            }
-            if (!facesInterior) {
-                inferred.insert(face.id);
-            }
-        }
-    }
-}
-
-void collectDetailWarnings(
+void collectInteriorPlacementWarnings(
     const BspTree& tree,
     const std::vector<std::uint8_t>& exteriorEmpty,
     const std::vector<Brush>& brushes,
     std::vector<std::string>& warnings) {
     for (const Brush& brush : brushes) {
-        if (brush.role != BrushRole::Detail) {
+        if (!brushRoleNeedsInteriorPlacement(brush.role)) {
             continue;
         }
         const Vector3 center{
@@ -245,7 +216,8 @@ void collectDetailWarnings(
         };
         const std::int32_t leafIndex = pointLeaf(tree, center);
         if (!isInteriorEmpty(tree, exteriorEmpty, leafIndex)) {
-            warnings.push_back("detail '" + brush.id + "' is outside sealed hull");
+            warnings.push_back(
+                std::string(brushRoleName(brush.role)) + " '" + brush.id + "' is outside sealed hull");
         }
     }
 }
@@ -270,11 +242,11 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
 
     int exteriorEmpty = 0;
     int interiorEmpty = 0;
-    int solidLeaves = 0;
+    int blockedLeaves = 0;
     bool anyInteriorEmpty = false;
     for (std::size_t i = 0; i < tree.leaves.size(); ++i) {
-        if (tree.leaves[i].solid) {
-            ++solidLeaves;
+        if (leafBlocksFlood(tree.leaves[i].contents)) {
+            ++blockedLeaves;
             continue;
         }
         if (analysis.exteriorEmpty[i] == 0) {
@@ -288,10 +260,11 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
 
     TraceLog(
         LOG_INFO,
-        "BSP: flood exteriorEmpty=%d interiorEmpty=%d solid=%d sealed=%s",
+        "BSP: flood exteriorEmpty=%d interiorEmpty=%d blocked=%d portals=%d sealed=%s",
         exteriorEmpty,
         interiorEmpty,
-        solidLeaves,
+        blockedLeaves,
+        static_cast<int>(tree.portals.size()),
         analysis.sealed ? "yes" : "no");
 
     if (!analysis.sealed) {
@@ -303,18 +276,11 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
         return analysis;
     }
 
-    std::unordered_set<std::string> inferred;
-    inferHullNodrawFromSurfaces(tree, analysis.exteriorEmpty, brushes, inferred);
-
-    analysis.inferredNodrawFaceIds.assign(inferred.begin(), inferred.end());
-    std::sort(analysis.inferredNodrawFaceIds.begin(), analysis.inferredNodrawFaceIds.end());
-
-    collectDetailWarnings(tree, analysis.exteriorEmpty, brushes, analysis.detailOutsideWarnings);
+    collectInteriorPlacementWarnings(tree, analysis.exteriorEmpty, brushes, analysis.detailOutsideWarnings);
 
     TraceLog(
         LOG_INFO,
-        "BSP: analyze done inferredNodraw=%d detailWarnings=%d",
-        static_cast<int>(analysis.inferredNodrawFaceIds.size()),
+        "BSP: analyze done detailWarnings=%d (nodraw via slopvis)",
         static_cast<int>(analysis.detailOutsideWarnings.size()));
     return analysis;
 }

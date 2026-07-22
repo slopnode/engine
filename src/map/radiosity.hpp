@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assets/material_loader.hpp"
+#include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 
@@ -15,13 +16,14 @@ namespace slopengine {
 struct RadiositySettings {
     float luxelsPerMeter = 16.0f;
     int bounces = 2;
-    int samples = 32;
-    int atlasSize = 512;
+    int samples = 16;
+    int atlasSize = 1024;
     float directWrap = 0.35f;
     float coplanarFill = 0.15f;
     float ambientScale = 1.25f;
     bool preferGpu = true;
     std::string directComputeShaderSource;
+    std::string bounceComputeShaderSource;
 };
 
 /** Material + optional albedo/emission images for bake sampling. */
@@ -64,6 +66,8 @@ RadiosityBakeResult bakeRadiosity(
     const MapMeta& meta,
     const MaterialBakeResolver& resolveMaterial,
     const RadiositySettings& settings,
-    const std::vector<RadiosityLight>& lights = {});
+    const std::vector<RadiosityLight>& lights = {},
+    const BspTree* tree = nullptr,
+    bool hullSealed = false);
 
 }

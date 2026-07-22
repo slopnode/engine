@@ -13,13 +13,20 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 ### Maps and world
 
 - [Maps](maps.md)
-- [BSP and radiosity compilation](bsp-rad.md)
+- [BSP compilation](bsp.md)
+- [VIS compilation](vis.md)
+- [Radiosity compilation](rad.md)
 - [Lights](lights.md)
 - [Things](things.md)
 
 ### Player
 
 - [Player](player.md)
+
+### Editor tools
+
+- [slopmap](slopmap.md)
+- [slopsprite](slopsprite.md)
 
 ### Assets
 

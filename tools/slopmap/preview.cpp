@@ -1,11 +1,18 @@
 #include "preview.hpp"
 
+#include "assets/geo_loader.hpp"
 #include "assets/material_loader.hpp"
 #include "map/csg_compile.hpp"
+#include "map/vis_io.hpp"
 
+#include <raymath.h>
+#include <rlgl.h>
+
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string_view>
+#include <unordered_map>
 
 namespace slopmap {
 
@@ -48,7 +55,149 @@ unsigned char mixChannel(unsigned char base, std::uint32_t hash, int shift, int 
     return static_cast<unsigned char>(value);
 }
 
+void drawEditModelTextured(const Model& model) {
+    if (model.meshCount <= 0) {
+        return;
+    }
+    DrawModel(model, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+}
+
+struct FaceSolidInfo {
+    slopengine::BrushRole role = slopengine::BrushRole::Hull;
+    std::string brushId;
+};
+
+Color solidBaseColor(const FaceSolidInfo& info) {
+    const std::uint32_t hash = hashString(info.brushId);
+    if (info.role == slopengine::BrushRole::Hull) {
+        return Color{
+            mixChannel(70, hash, 0, 35),
+            mixChannel(190, hash, 8, 45),
+            mixChannel(90, hash, 16, 35),
+            255,
+        };
+    }
+    if (info.role == slopengine::BrushRole::Window) {
+        return Color{
+            mixChannel(140, hash, 0, 35),
+            mixChannel(200, hash, 8, 40),
+            mixChannel(220, hash, 16, 35),
+            255,
+        };
+    }
+    return Color{
+        mixChannel(70, hash, 0, 35),
+        mixChannel(120, hash, 8, 40),
+        mixChannel(210, hash, 16, 35),
+        255,
+    };
+}
+
+Color applyFauxShade(Color base, Vector3 normal) {
+    const Vector3 lightDir = Vector3Normalize(Vector3{0.45f, 0.85f, 0.35f});
+    const float nLen = Vector3Length(normal);
+    Vector3 n = nLen > 1e-6f ? Vector3Scale(normal, 1.0f / nLen) : Vector3{0.0f, 1.0f, 0.0f};
+    float ndotl = Vector3DotProduct(n, lightDir);
+    if (ndotl < 0.2f) {
+        ndotl = 0.2f;
+    }
+    if (ndotl > 1.0f) {
+        ndotl = 1.0f;
+    }
+    return Color{
+        static_cast<unsigned char>(std::lround(static_cast<float>(base.r) * ndotl)),
+        static_cast<unsigned char>(std::lround(static_cast<float>(base.g) * ndotl)),
+        static_cast<unsigned char>(std::lround(static_cast<float>(base.b) * ndotl)),
+        255,
+    };
+}
+
+void drawEditModelSolid(
+    const Model& model,
+    const std::vector<std::string>& faceIds,
+    const std::vector<slopengine::Brush>& brushes,
+    const std::vector<slopengine::Brush>& instanceBrushes) {
+    if (model.meshCount <= 0) {
+        return;
+    }
+
+    std::unordered_map<std::string, FaceSolidInfo> faceInfo;
+    auto indexBrush = [&](const slopengine::Brush& brush) {
+        for (const slopengine::BrushFace& face : brush.faces) {
+            faceInfo[face.id] = FaceSolidInfo{brush.role, brush.id};
+        }
+    };
+    for (const slopengine::Brush& brush : brushes) {
+        indexBrush(brush);
+    }
+    for (const slopengine::Brush& brush : instanceBrushes) {
+        indexBrush(brush);
+    }
+
+    Material flat = LoadMaterialDefault();
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        FaceSolidInfo info{};
+        if (meshIndex < static_cast<int>(faceIds.size())) {
+            const auto it = faceInfo.find(faceIds[static_cast<std::size_t>(meshIndex)]);
+            if (it != faceInfo.end()) {
+                info = it->second;
+            }
+        }
+        Color tint = solidBaseColor(info);
+        const Mesh& mesh = model.meshes[meshIndex];
+        if (mesh.normals != nullptr && mesh.vertexCount > 0) {
+            const Vector3 normal{
+                mesh.normals[0],
+                mesh.normals[1],
+                mesh.normals[2],
+            };
+            tint = applyFauxShade(tint, normal);
+        }
+        flat.maps[MATERIAL_MAP_ALBEDO].color = tint;
+        DrawMesh(mesh, flat, MatrixIdentity());
+    }
+    UnloadMaterial(flat);
+}
+
 } // namespace
+
+void MapPreview::clearLit() {
+    if (litValid && litModel.meshCount > 0) {
+        for (int materialIndex = 0; materialIndex < litModel.materialCount; ++materialIndex) {
+            Material& material = litModel.materials[materialIndex];
+            if (material.maps != nullptr) {
+                material.maps[MATERIAL_MAP_METALNESS].texture = {};
+            }
+            material.shader = {};
+        }
+        UnloadModel(litModel);
+    }
+    litModel = {};
+    litValid = false;
+
+    for (Texture2D& atlas : lightmapAtlases) {
+        if (atlas.id != 0) {
+            UnloadTexture(atlas);
+        }
+    }
+    lightmapAtlases.clear();
+
+    if (lightmapShader.id != 0) {
+        UnloadShader(lightmapShader);
+        lightmapShader = {};
+    }
+    useLightmapLoc = -1;
+    solidLitLoc = -1;
+    rad = {};
+}
+
+void MapPreview::clearVis() {
+    if (visValid && visModel.meshCount > 0) {
+        UnloadModel(visModel);
+    }
+    visModel = {};
+    visValid = false;
+}
 
 void MapPreview::clear() {
     if (valid && model.meshCount > 0) {
@@ -56,10 +205,18 @@ void MapPreview::clear() {
     }
     model = {};
     valid = false;
+    editFaceIds.clear();
+    clearVis();
+    clearLit();
 }
 
 void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slopengine::Brush>& brushes) {
-    clear();
+    if (valid && model.meshCount > 0) {
+        UnloadModel(model);
+    }
+    model = {};
+    valid = false;
+    editFaceIds.clear();
     if (brushes.empty()) {
         return;
     }
@@ -67,6 +224,11 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
         brushes,
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); });
+
+    editFaceIds.reserve(compiled.asset.primitives.size());
+    for (const auto& primitive : compiled.asset.primitives) {
+        editFaceIds.push_back(primitive.name);
+    }
 
     model = slopengine::buildModelFromGeo(
         compiled.asset,
@@ -76,17 +238,181 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     valid = model.meshCount > 0;
 }
 
+bool MapPreview::reloadVisPreview(
+    slopengine::AssetStore& assets,
+    const std::string& mapName,
+    const std::vector<slopengine::Brush>& brushes) {
+    (void)brushes;
+    clearVis();
+    if (mapName.empty() || mapName == "untitled") {
+        return false;
+    }
+
+    const std::string visVirtualPath = mapName + "/static";
+    if (!assets.hasMapVis(visVirtualPath)) {
+        return false;
+    }
+    const auto visPath = assets.resolvePath(slopengine::AssetKind::MapVis, visVirtualPath);
+    if (!visPath) {
+        return false;
+    }
+    auto loadedVis = slopengine::readVisFile(*visPath);
+    if (!loadedVis || loadedVis->faces.empty()) {
+        return false;
+    }
+
+    const auto resolveUv =
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    const slopengine::CsgCompileResult compiled =
+        slopengine::compileVisibleFacesToGeo(*loadedVis, resolveUv, nullptr);
+
+    visModel = slopengine::buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+    visValid = visModel.meshCount > 0;
+    if (!visValid) {
+        clearVis();
+    }
+    return visValid;
+}
+
+bool MapPreview::reloadBake(
+    slopengine::AssetStore& assets,
+    const std::string& mapName,
+    const std::vector<slopengine::Brush>& brushes) {
+    clearLit();
+    if (mapName.empty() || mapName == "untitled") {
+        return false;
+    }
+
+    const std::string radVirtualPath = mapName + "/rad/static";
+    if (!assets.hasMapRad(radVirtualPath)) {
+        return false;
+    }
+    const auto radPath = assets.resolvePath(slopengine::AssetKind::MapRad, radVirtualPath);
+    if (!radPath) {
+        return false;
+    }
+    auto loadedRad = slopengine::readRadFile(*radPath);
+    if (!loadedRad || loadedRad->charts.empty() || loadedRad->atlases.empty()) {
+        return false;
+    }
+    rad = std::move(*loadedRad);
+
+    lightmapShader = slopengine::loadLightmapShader(assets, useLightmapLoc);
+    if (lightmapShader.id == 0) {
+        rad = {};
+        return false;
+    }
+    solidLitLoc = GetShaderLocation(lightmapShader, "solidLit");
+    if (solidLitLoc >= 0) {
+        const int solidLit = 0;
+        SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
+    }
+
+    lightmapAtlases.reserve(rad.atlases.size());
+    for (const slopengine::LightmapAtlasInfo& atlas : rad.atlases) {
+        const std::string atlasPath = mapName + "/rad/" + atlas.texturePath;
+        const auto resolved = assets.resolvePath(slopengine::AssetKind::MapLightmap, atlasPath);
+        Texture2D texture{};
+        if (resolved) {
+            texture = LoadTexture(resolved->string().c_str());
+            if (texture.id != 0) {
+                SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+                SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
+            }
+        }
+        lightmapAtlases.push_back(texture);
+    }
+
+    const auto resolveUv =
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+
+    slopengine::VisFile vis{};
+    bool haveVis = false;
+    const std::string visVirtualPath = mapName + "/static";
+    if (assets.hasMapVis(visVirtualPath)) {
+        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapVis, visVirtualPath)) {
+            if (auto loadedVis = slopengine::readVisFile(*visPath)) {
+                vis = std::move(*loadedVis);
+                haveVis = true;
+            }
+        }
+    }
+
+    const slopengine::CsgCompileResult compiled = haveVis
+        ? slopengine::compileVisibleFacesToGeo(vis, resolveUv, &rad)
+        : slopengine::compileBrushesToGeo(brushes, resolveUv, &rad);
+
+    std::unordered_map<std::string, std::int32_t> faceAtlasById;
+    for (const slopengine::LightmapChart& chart : rad.charts) {
+        faceAtlasById[chart.faceId] = chart.atlasIndex;
+    }
+
+    litModel = slopengine::buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [&](std::string_view path) {
+            Material material = assets.resolveMaterial(path);
+            material.shader = lightmapShader;
+            if (!lightmapAtlases.empty() && lightmapAtlases[0].id != 0) {
+                SetMaterialTexture(&material, MATERIAL_MAP_METALNESS, lightmapAtlases[0]);
+            }
+            return material;
+        });
+
+    if (litModel.meshCount > 0) {
+        for (int meshIndex = 0; meshIndex < litModel.meshCount; ++meshIndex) {
+            const std::string& faceId =
+                compiled.asset.primitives[static_cast<std::size_t>(meshIndex)].name;
+            std::int32_t atlasIndex = 0;
+            const auto atlasIt = faceAtlasById.find(faceId);
+            if (atlasIt != faceAtlasById.end()) {
+                atlasIndex = atlasIt->second;
+            }
+            if (atlasIndex >= 0 &&
+                atlasIndex < static_cast<std::int32_t>(lightmapAtlases.size())) {
+                const Texture2D lightmap = lightmapAtlases[static_cast<std::size_t>(atlasIndex)];
+                if (lightmap.id != 0) {
+                    SetMaterialTexture(&litModel.materials[meshIndex], MATERIAL_MAP_METALNESS, lightmap);
+                }
+            }
+            litModel.materials[meshIndex].shader = lightmapShader;
+        }
+        litValid = true;
+    } else {
+        clearLit();
+        return false;
+    }
+
+    if (useLightmapLoc >= 0) {
+        const int useLightmap = 1;
+        SetShaderValue(lightmapShader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
+    }
+    return litValid;
+}
+
 Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
     if (selected) {
         return Color{255, 140, 40, 255};
     }
 
     const std::uint32_t hash = hashString(brush.id);
-    if (brush.role == slopengine::BrushRole::Detail) {
+    if (brush.role != slopengine::BrushRole::Hull && brush.role != slopengine::BrushRole::Window) {
         return Color{
             mixChannel(70, hash, 0, 35),
             mixChannel(120, hash, 8, 40),
             mixChannel(210, hash, 16, 35),
+            255,
+        };
+    }
+
+    if (brush.role == slopengine::BrushRole::Window) {
+        return Color{
+            mixChannel(140, hash, 0, 35),
+            mixChannel(200, hash, 8, 40),
+            mixChannel(220, hash, 16, 35),
             255,
         };
     }
@@ -171,26 +497,104 @@ void drawBrushFaceOutlines(
     }
 }
 
+void drawBrushFaceOutlinesXray(const slopengine::Brush& brush, Color color) {
+    for (const slopengine::BrushFace& face : brush.faces) {
+        if (face.vertices.size() < 2) {
+            continue;
+        }
+        for (std::size_t i = 0; i < face.vertices.size(); ++i) {
+            const Vector3& a = face.vertices[i];
+            const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
+            DrawLine3D(a, b, color);
+        }
+    }
+}
+
 void MapPreview::draw(
-    bool wireframe,
+    PreviewFill fill,
+    WireframeOverlay wireframe,
     const std::vector<slopengine::Brush>& brushes,
-    int selectedBrush,
+    const std::vector<slopengine::Brush>& instanceBrushes,
+    const std::vector<int>& selectedBrushes,
     Vector3 eye,
     float lineWidth) const {
-    if (wireframe) {
+    auto outlineBrush = [&](const slopengine::Brush& brush, bool selected) {
+        drawBrushFaceOutlines(brush, brushOutlineColor(brush, selected), eye, lineWidth);
+    };
+
+    switch (fill) {
+    case PreviewFill::Wireframe:
         for (std::size_t i = 0; i < brushes.size(); ++i) {
-            const bool selected = static_cast<int>(i) == selectedBrush;
-            drawBrushFaceOutlines(
-                brushes[i],
-                brushOutlineColor(brushes[i], selected),
-                eye,
-                lineWidth);
+            const bool selected =
+                std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
+                selectedBrushes.end();
+            outlineBrush(brushes[i], selected);
         }
+        break;
+    case PreviewFill::Lit:
+    case PreviewFill::SolidLit:
+        if (litValid) {
+            if (solidLitLoc >= 0) {
+                const int solidLit = fill == PreviewFill::SolidLit ? 1 : 0;
+                SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
+            }
+            DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            break;
+        }
+        [[fallthrough]];
+    case PreviewFill::Unlit:
+        if (visValid) {
+            DrawModel(visModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            break;
+        }
+        [[fallthrough]];
+    case PreviewFill::Textures:
+        if (valid) {
+            drawEditModelTextured(model);
+        }
+        break;
+    case PreviewFill::Solid:
+        if (valid) {
+            drawEditModelSolid(model, editFaceIds, brushes, instanceBrushes);
+        }
+        break;
+    }
+
+    if (fill == PreviewFill::Wireframe || wireframe == WireframeOverlay::Off) {
         return;
     }
 
-    if (valid) {
-        DrawModel(model, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+    rlDrawRenderBatchActive();
+    if (wireframe == WireframeOverlay::All) {
+        rlDisableDepthTest();
+        rlDisableDepthMask();
+        rlDisableBackfaceCulling();
+        for (std::size_t i = 0; i < brushes.size(); ++i) {
+            const bool selected =
+                std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
+                selectedBrushes.end();
+            drawBrushFaceOutlinesXray(
+                brushes[i],
+                selected ? Color{255, 180, 60, 255} : Color{220, 220, 230, 255});
+        }
+        for (const slopengine::Brush& brush : instanceBrushes) {
+            drawBrushFaceOutlinesXray(brush, Color{180, 200, 220, 255});
+        }
+        rlDrawRenderBatchActive();
+        rlEnableBackfaceCulling();
+        rlEnableDepthMask();
+        rlEnableDepthTest();
+    } else if (wireframe == WireframeOverlay::Visible) {
+        for (std::size_t i = 0; i < brushes.size(); ++i) {
+            const bool selected =
+                std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
+                selectedBrushes.end();
+            outlineBrush(brushes[i], selected);
+        }
+        for (const slopengine::Brush& brush : instanceBrushes) {
+            outlineBrush(brush, false);
+        }
+        rlDrawRenderBatchActive();
     }
 }
 
@@ -226,12 +630,39 @@ void drawBrushAabbWires(const slopengine::Brush& brush, Color color) {
     drawAabbWires(brush.mins, brush.maxs, color);
 }
 
-void drawGridY0(float halfExtent, float step, Color color, Vector3 eye, float lineWidth) {
-    for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-        drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
-    }
-    for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-        drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
+void drawGrid(
+    GridPlane plane,
+    float halfExtent,
+    float step,
+    Color color,
+    Vector3 eye,
+    float lineWidth) {
+    switch (plane) {
+    case GridPlane::XY:
+        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
+            drawThickLine3D({x, -halfExtent, 0.0f}, {x, halfExtent, 0.0f}, color, lineWidth, eye);
+        }
+        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
+            drawThickLine3D({-halfExtent, y, 0.0f}, {halfExtent, y, 0.0f}, color, lineWidth, eye);
+        }
+        break;
+    case GridPlane::YZ:
+        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
+            drawThickLine3D({0.0f, y, -halfExtent}, {0.0f, y, halfExtent}, color, lineWidth, eye);
+        }
+        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
+            drawThickLine3D({0.0f, -halfExtent, z}, {0.0f, halfExtent, z}, color, lineWidth, eye);
+        }
+        break;
+    case GridPlane::XZ:
+    default:
+        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
+            drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
+        }
+        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
+            drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
+        }
+        break;
     }
 }
 

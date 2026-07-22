@@ -1,0 +1,5 @@
+(map
+  (id "bsp-smoke")
+  (name "BSP Smoke")
+  (depends)
+  (ambient 0.03 0.03 0.04))

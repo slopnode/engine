@@ -28,4 +28,8 @@ std::filesystem::path userSettingsPath() {
     return userConfigDirectory() / "settings.cfg";
 }
 
+std::filesystem::path userScreenshotDirectory() {
+    return userConfigDirectory() / "screenshots";
+}
+
 }

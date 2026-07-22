@@ -1,17 +1,10 @@
 # Geometry
 
-slopengine has two geometry pipelines:
+slopengine has two geometry pipelines that meet only at runtime.
 
-| | Props / characters | Level geometry |
-|--|--------------------|----------------|
-| Authoring | Blender meshes | Scheme CSG brushes |
-| Package location | `geometry/` (+ `skeletons/` when skinned) | `maps/<name>/` |
-| On disk | `.geo`, `.vert`, optional `.weights` | `.csg` → `.bsp` + optional `rad/` |
-| Topology | Arbitrary triangulated meshes | Axis-aligned boxes |
-| Skinning | Optional | Never |
-| Lightmaps | No | Yes (radiosity atlases) |
+Props and characters are Blender meshes under `geometry/` (plus `skeletons/` when skinned): arbitrary triangulated `.geo` / `.vert` with optional `.weights`, optional skinning, no lightmaps. Level geometry is Scheme CSG under `maps/<name>/`: convex brushes (`brush-convex`, with `brush-box` sugar), never skinned, compiled to `.bsp` / `.vis` and optionally lightmapped under `rad/`.
 
-Both paths end as the same runtime types (`GeoAsset` + `VertBuffer`) and are drawn through `buildModelFromGeo`. They are authored and packaged differently.
+Both paths end as the same runtime types (`GeoAsset` + `VertBuffer`) and are drawn through `buildModelFromGeo`. They are authored and packaged differently on purpose.
 
 Skeleton and clip export for skinned meshes are covered in [Skeletal animation](animation.md). This page covers mesh data and how the Blender exporter chooses prop formats.
 
@@ -71,23 +64,19 @@ Binary skin buffer (`DLKW`, version 1): four joint indices and four weights per 
 
 ## Level geometry (CSG)
 
-Levels are not Blender meshes. They are authored as Scheme brushes under `maps/<name>/`, then compiled with `slopbsp` and optionally `sloprad`. See [Maps](maps.md) for the full authoring and compile pipeline.
+Levels are not Blender meshes. They are authored as Scheme brushes under `maps/<name>/`, then compiled with `slopbsp`, `slopvis`, and optionally `sloprad`. See [Maps](maps.md) for the full authoring and compile pipeline.
 
-There is no package `.geo` / `.vert` for the level itself. At load time, brushes compile into the same in-memory geometry types used by props.
+There is no package `.geo` / `.vert` for the level itself. At load time, VIS faces (or brushes as a fallback) compile into the same in-memory geometry types used by props.
 
 ## Two pipelines, no automatic bridge
 
-| Question | Answer |
-|----------|--------|
-| Does Blender export `.csg`? | No |
-| Can CSG emit package `.geo` files? | No (in-memory only) |
-| When do I use which? | Rooms / structural solids → CSG. Characters, props, clutter meshes → Blender `.geo` |
+There is no converter either direction. The Blender exporter never writes `.csg`, and CSG never emits package `.geo` / `.vert` files -- level faces become the same in-memory geometry types at load time only.
 
-Movable or skinned meshes belong as prop assets. World shells, floors, and fixed detail boxes belong in CSG so they participate in BSP and radiosity.
+Use CSG for rooms and structural solids so they participate in BSP, VIS, and radiosity. Use Blender `.geo` for characters, props, and clutter meshes -- especially anything movable or skinned. World shells, floors, and fixed detail boxes belong in CSG; placeable models belong as prop assets.
 
 ## Blender exporter
 
-Addon: `tools/blender/slopengine_exporter` (File → Export → Slopengine).
+Addon: `tools/blender/slopengine_exporter` (File -> Export -> Slopengine).
 
 | Menu item | Writes | Input |
 |-----------|--------|-------|
@@ -104,7 +93,7 @@ Only `MESH` objects are exported for geo. Armatures, empties, lights, and other 
 
 A mesh with an Armature modifier and target is treated as skinned; otherwise it is static. All selected meshes must share the same armature, or all be static. Skinned output requires a skeleton id, writes `.weights`, and adds `(weights implicit)` plus `(skeleton "...")` to the `.geo`. Static output omits `.weights`; a skeleton id field is ignored with a warning.
 
-Materials become primitives: one primitive per material slot. The Blender material name becomes the material virtual path (leading `materials/` and known extensions stripped; `.` without `/` becomes `/`; empty → `default/unassigned`).
+Materials become primitives: one primitive per material slot. The Blender material name becomes the material virtual path (leading `materials/` and known extensions stripped; `.` without `/` becomes `/`; empty -> `default/unassigned`).
 
 Mesh processing bakes object transforms (into armature space when skinned, world when static), converts Blender Y-up to engine Z-up, triangulates, requires UVs (creates `ExportUV` if missing), and keeps the top four vertex-group influences per vertex. Skinned export temporarily evaluates the armature at bind pose before writing buffers.
 

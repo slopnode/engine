@@ -315,6 +315,11 @@ void drawMainMenuBar(
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
             ImGui::EndMenu();
         }
+        if (beginMenuWithIcon(assets, kIcons, "shape_ungroup", "VIS")) {
+            ImGui::MenuItem("Faces", nullptr, &debugUi.showVisFaces);
+            ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showVisCurrentLeafOnly);
+            ImGui::EndMenu();
+        }
         if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
             ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
@@ -845,6 +850,7 @@ void applyImGuiCursorPolicy(const InputContextStack& contexts) {
 void registerComponents(flecs::world& world) {
     world.component<ConsoleState>();
     world.component<QuitRequest>();
+    world.component<ScreenshotRequest>();
     world.component<SettingsUiState>();
     world.component<DebugUiState>();
 }
@@ -944,6 +950,10 @@ void registerSystems(flecs::world& world) {
                     contexts.pop(InputContext::InteractUI);
                 }
             }
+
+            if (input.pressed(Action::Screenshot)) {
+                it.world().get_mut<ScreenshotRequest>().pending = true;
+            }
         });
 }
 
@@ -953,6 +963,7 @@ void registerUiModule(flecs::world& world) {
     registerComponents(world);
     world.set<ConsoleState>({});
     world.set<QuitRequest>({});
+    world.set<ScreenshotRequest>({});
     world.set<SettingsUiState>({});
     world.set<DebugUiState>({});
     registerSystems(world);

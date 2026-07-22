@@ -31,6 +31,7 @@ constexpr CoreActionInfo kCoreActions[] = {
     {Action::Interact, "Interact", "Interact", KEY_E},
     {Action::Console, "Console", "Console", KEY_GRAVE},
     {Action::MainMenu, "MainMenu", "Main Menu", KEY_F1},
+    {Action::Screenshot, "Screenshot", "Screenshot", KEY_F12},
 };
 
 bool readAssocString(s7_scheme* scheme, s7_pointer alist, const char* key, std::string& out) {

@@ -3,8 +3,10 @@
 #include <raylib.h>
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -20,10 +22,14 @@ enum class BrushBoxSide {
     West,
 };
 
-/** Hull seals the BSP; detail is drawn and collides but does not split the tree. */
+/** Brush participation in BSP / VIS / physics. See maps.md role matrix. */
 enum class BrushRole {
     Hull,
     Detail,
+    Hint,
+    Trigger,
+    Water,
+    Window,
 };
 
 /** One polygonal face of a convex brush. */
@@ -33,6 +39,7 @@ struct BrushFace {
     Vector3 normal{};
     std::vector<Vector3> vertices; /**< Outward winding. */
     Vector2 uvShiftPixels{};
+    Vector2 uvScale{1.0f, 1.0f};
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool nodraw = false; /**< Omit from mesh and lightmaps. */
@@ -51,7 +58,14 @@ struct Brush {
 };
 
 const char* brushBoxSideName(BrushBoxSide side);
+BrushBoxSide brushBoxSideFromNormal(Vector3 normal);
 const char* brushRoleName(BrushRole role);
+bool parseBrushRoleName(std::string_view name, BrushRole& out);
+bool brushRoleContributesSplits(BrushRole role);
+bool brushRoleSeals(BrushRole role);
+bool brushRoleEmitsVisFaces(BrushRole role);
+bool brushRoleDefaultNocollide(BrushRole role);
+bool brushRoleNeedsInteriorPlacement(BrushRole role);
 
 Vector3 faceNormalFromVertices(const std::vector<Vector3>& vertices);
 void recomputeBrushBounds(Brush& brush);
@@ -79,6 +93,59 @@ std::optional<Brush> makeBrushConvex(
     std::string id,
     std::vector<BrushFace> faces,
     BrushRole role,
+    std::string& errorOut);
+
+/** Y-axis prism inscribed in the AABB footprint (circle in XZ), height = Y extent. */
+std::optional<Brush> makeBrushCylinder(
+    std::string id,
+    Vector3 mins,
+    Vector3 maxs,
+    int sides,
+    const std::string& material,
+    BrushRole role,
+    std::string& errorOut);
+
+/** Stacked box steps filling the AABB; rise along Y, run along longer of X/Z. */
+std::vector<Brush> makeBrushStairs(
+    const std::string& idPrefix,
+    Vector3 mins,
+    Vector3 maxs,
+    int steps,
+    const std::string& material,
+    BrushRole role);
+
+/** Six wall slabs leaving an inner void; empty if thickness is invalid. */
+std::vector<Brush> hollowBrushBox(
+    const Brush& source,
+    float thickness,
+    const std::function<std::string()>& allocateId);
+
+/**
+ * Rebuild an AABB brush around a rectangular opening punched from @p faceSide.
+ * Opening is in face UV space: u/v along the two face axes from face mins.
+ * @p depth is distance into the solid along -normal; use brush thickness for full cut.
+ */
+std::vector<Brush> punchOutBrushBox(
+    const Brush& source,
+    BrushBoxSide faceSide,
+    float u0,
+    float u1,
+    float v0,
+    float v1,
+    float depth,
+    const std::function<std::string()>& allocateId);
+
+struct BrushSplitResult {
+    Brush front;
+    Brush back;
+};
+
+/** Split a convex brush by a plane. Nullopt if the plane misses or a half is degenerate. */
+std::optional<BrushSplitResult> splitBrushByPlane(
+    const Brush& source,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    const std::function<std::string()>& allocateId,
     std::string& errorOut);
 
 std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& vertices);

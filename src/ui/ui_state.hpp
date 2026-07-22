@@ -24,6 +24,13 @@ struct QuitRequest {
     bool requested = false;
 };
 
+/** Deferred framebuffer capture after EndDrawing.
+ *  @ingroup ui_components
+ */
+struct ScreenshotRequest {
+    bool pending = false;
+};
+
 /** Draft settings and rebinding state for the settings UI.
  *  @ingroup ui_components
  */
@@ -45,6 +52,8 @@ struct DebugUiState {
     bool showBspPortals = false;
     bool showBspSurfaceFaces = false;
     bool showBspCurrentLeafOnly = false;
+    bool showVisFaces = false;
+    bool showVisCurrentLeafOnly = false;
     bool showSpriteMasks = false;
     bool showSpriteAim = false;
     bool showGraphs = false;

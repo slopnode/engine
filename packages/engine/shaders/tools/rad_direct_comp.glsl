@@ -18,7 +18,7 @@ struct Luxel {
     float ir;
     float ig;
     float ib;
-    float pad;
+    int leafIndex;
 };
 
 struct Emitter {
@@ -33,7 +33,7 @@ struct Emitter {
     float rr;
     float rg;
     float rb;
-    float pad;
+    int leafIndex;
 };
 
 struct Light {
@@ -50,7 +50,7 @@ struct Light {
     float cb;
     float range;
     float coneAngle;
-    float pad0;
+    int leafIndex;
     float pad1;
     float pad2;
 };
@@ -100,8 +100,8 @@ struct Params {
     int emitterBatch;
     int lightOffset;
     int lightBatch;
-    int pad0;
-    int pad1;
+    int leafCount;
+    int wordsPerRow;
     float directWrap;
     float coplanarFill;
     float coplanarSoft;
@@ -131,6 +131,21 @@ layout(std430, binding = 4) readonly buffer ParamsBuffer {
 layout(std430, binding = 5) readonly buffer LightBuffer {
     Light lights[];
 };
+
+layout(std430, binding = 6) readonly buffer ReachBuffer {
+    uint reachBits[];
+};
+
+bool leavesReachable(int a, int b) {
+    if (params.leafCount <= 0 || params.wordsPerRow <= 0) {
+        return true;
+    }
+    if (a < 0 || b < 0 || a >= params.leafCount || b >= params.leafCount) {
+        return true;
+    }
+    uint word = reachBits[a * params.wordsPerRow + (b >> 5)];
+    return (word & (1u << (b & 31))) != 0u;
+}
 
 bool rayAabb(vec3 origin, vec3 invDir, vec3 mins, vec3 maxs, float maxDistance) {
     float tmin = 0.0;
@@ -298,6 +313,12 @@ void main() {
     int emitterEnd = min(params.emitterOffset + params.emitterBatch, params.emitterCount);
     for (int e = emitterBegin; e < emitterEnd; ++e) {
         Emitter emitter = emitters[e];
+        if (emitter.faceIndex == luxel.faceIndex) {
+            continue;
+        }
+        if (!leavesReachable(luxel.leafIndex, emitter.leafIndex)) {
+            continue;
+        }
         vec3 emitterPos = vec3(emitter.px, emitter.py, emitter.pz);
         vec3 emitterNormal = vec3(emitter.nx, emitter.ny, emitter.nz);
         vec3 delta = emitterPos - luxelPos;
@@ -308,32 +329,37 @@ void main() {
         float dist = sqrt(dist2Raw);
         vec3 toLight = delta / dist;
         float dist2 = max(dist2Raw, minDist2);
+        float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+        float nDotV = wrapCosine(-dot(emitterNormal, toLight), wrap);
+        bool formOk = nDotL > 0.0 && nDotV > 0.0;
+        float align = 0.0;
+        bool fillOk = false;
+        if (coplanarFill > 0.0) {
+            align = dot(luxelNormal, emitterNormal);
+            fillOk = align > kCoplanarAlignMin;
+        }
+        if (!formOk && !fillOk) {
+            continue;
+        }
         if (segmentOccluded(luxelPos, emitterPos, luxel.faceIndex, emitter.faceIndex)) {
             continue;
         }
 
         vec3 radiance = vec3(emitter.rr, emitter.rg, emitter.rb);
-        if (emitter.faceIndex != luxel.faceIndex) {
-            float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
-            float nDotV = wrapCosine(-dot(emitterNormal, toLight), wrap);
-            if (nDotL > 0.0 && nDotV > 0.0) {
-                float form = nDotL * nDotV * emitter.area / (dist2 * kPi);
-                if (!isnan(form) && !isinf(form)) {
-                    irradiance += radiance * form;
-                }
+        if (formOk) {
+            float form = nDotL * nDotV * emitter.area / (dist2 * kPi);
+            if (!isnan(form) && !isinf(form)) {
+                irradiance += radiance * form;
             }
         }
 
-        if (coplanarFill > 0.0 && emitter.faceIndex != luxel.faceIndex) {
-            float align = dot(luxelNormal, emitterNormal);
-            if (align > kCoplanarAlignMin) {
-                float planeSep = abs(dot(delta, luxelNormal));
-                float lateral2 = max(0.0, dist2Raw - planeSep * planeSep);
-                float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
-                float fill = emitter.area * coplanarFill * weight / (4.0 * kPi);
-                if (!isnan(fill) && !isinf(fill)) {
-                    irradiance += radiance * fill;
-                }
+        if (fillOk) {
+            float planeSep = abs(dot(delta, luxelNormal));
+            float lateral2 = max(0.0, dist2Raw - planeSep * planeSep);
+            float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
+            float fill = emitter.area * coplanarFill * weight / (4.0 * kPi);
+            if (!isnan(fill) && !isinf(fill)) {
+                irradiance += radiance * fill;
             }
         }
     }
@@ -342,6 +368,9 @@ void main() {
     int lightEnd = min(params.lightOffset + params.lightBatch, params.lightCount);
     for (int li = lightBegin; li < lightEnd; ++li) {
         Light light = lights[li];
+        if (!leavesReachable(luxel.leafIndex, light.leafIndex)) {
+            continue;
+        }
         vec3 lightPos = vec3(light.px, light.py, light.pz);
         vec3 delta = lightPos - luxelPos;
         float dist2Raw = dot(delta, delta);
@@ -355,18 +384,10 @@ void main() {
         }
         vec3 toLight = delta / dist;
         float dist2 = max(dist2Raw, minDist2);
-        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1)) {
-            continue;
-        }
-
         float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
         if (nDotL <= 0.0) {
             continue;
         }
-
-        float t = dist / range;
-        float atten = max(0.0, 1.0 - t * t);
-        atten *= atten;
 
         float spot = 1.0;
         if (light.kind == kLightKindSpot) {
@@ -384,6 +405,14 @@ void main() {
                 continue;
             }
         }
+
+        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1)) {
+            continue;
+        }
+
+        float t = dist / range;
+        float atten = max(0.0, 1.0 - t * t);
+        atten *= atten;
 
         vec3 intensity = vec3(light.cr, light.cg, light.cb) * light.intensity;
         vec3 contrib = intensity * (nDotL * atten * spot / dist2);

@@ -93,4 +93,38 @@ bool setupImGuiWithUiFont(AssetStore& assets, std::string_view uiFontPath, bool 
     return true;
 }
 
+ImFont* setupImGuiWithUiAndMonoFont(
+    AssetStore& assets,
+    std::string_view uiFontPath,
+    std::string_view monoFontPath,
+    bool darkTheme) {
+    rlImGuiBeginInitImGui();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->ClearFonts();
+
+    if (loadImGuiFont(assets, uiFontPath) == nullptr) {
+        ImFontConfig defaultConfig;
+        defaultConfig.SizePixels = defaultFontSizePixels();
+        defaultConfig.PixelSnapH = true;
+#if !defined(__APPLE__)
+        if (!IsWindowState(FLAG_WINDOW_HIGHDPI)) {
+            defaultConfig.RasterizerMultiply = GetWindowScaleDPI().y;
+        }
+#endif
+        io.Fonts->AddFontDefault(&defaultConfig);
+    }
+
+    ImFont* mono = loadImGuiFont(assets, monoFontPath);
+
+    if (darkTheme) {
+        ImGui::StyleColorsDark();
+    } else {
+        ImGui::StyleColorsLight();
+    }
+
+    rlImGuiEndInitImGui();
+    return mono;
+}
+
 }

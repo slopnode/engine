@@ -2,7 +2,7 @@
 
 slopengine is a small hobby project for making first-person games. It is aimed at non-commercial use: personal experiments, learning projects, and weekend games rather than studio pipelines or commercial shipping.
 
-Despite the name, it is not a large self-contained engine. It is an assembly of popular free libraries, with a thin project layer that defines how content is stored, how first-person levels are built, and how tools like Blender feed into a running game. Most of what you would expect from an “engine” (a window, drawing, physics, gameplay structure, scripting) comes from those libraries. What this repository adds is the packaging, formats, and wiring that hold the assembly together.
+Despite the name, it is not a large self-contained engine. It is an assembly of popular free libraries, with a thin project layer that defines how content is stored, how first-person levels are built, and how tools like Blender feed into a running game. Most of what you would expect from an "engine" (a window, drawing, physics, gameplay structure, scripting) comes from those libraries. What this repository adds is the packaging, formats, and wiring that hold the assembly together.
 
 ## A familiar content style
 
@@ -14,7 +14,7 @@ That style favors clarity and direct editing over locking content behind one off
 
 ## First-person levels
 
-Level work is built around first-person spaces: rooms and solids authored as convex brush CSG (with box sugar for common cases), compiled for collision and structure, then lightmapped with offline tools. Lighting is offline lightmaps on diffuse (albedo) surfaces, not a runtime PBR pipeline, with a small ranked dynamic-light overlay for things like a flashlight. Props and characters come in separately as meshes from a modelling tool. The split mirrors the classic approach of world geometry versus placeable models, with tooling focused on walking through baked indoor spaces rather than open-world streaming or cinematic pipelines. See [Lights](lights.md) and [Player](player.md).
+Level work is built around first-person spaces: rooms and solids authored as convex brush CSG (with box sugar for common cases), compiled for structure and visible faces (`slopbsp` -> `slopvis`), then optionally lightmapped with `sloprad`. Lighting is offline lightmaps on diffuse (albedo) surfaces, not a runtime PBR pipeline, with a small ranked dynamic-light overlay for things like a flashlight. Props and characters come in separately as meshes from a modelling tool. The split mirrors the classic approach of world geometry versus placeable models, with tooling focused on walking through baked indoor spaces rather than open-world streaming or cinematic pipelines. See [Lights](lights.md) and [Player](player.md).
 
 ## Working with Blender and free tools
 
