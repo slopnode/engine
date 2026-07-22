@@ -193,7 +193,7 @@ s7_pointer g_material(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_role(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail");
+        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail|hint|trigger|water|window");
     }
     return makeTaggedList(sc, "role", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
@@ -468,10 +468,9 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
         } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
             std::string roleName;
             if (readString(sc, s7_car(rest), roleName)) {
-                if (roleName == "detail") {
-                    role = BrushRole::Detail;
-                } else if (roleName == "hull") {
-                    role = BrushRole::Hull;
+                BrushRole parsed = BrushRole::Hull;
+                if (parseBrushRoleName(roleName, parsed)) {
+                    role = parsed;
                 }
             }
         } else if (std::strcmp(tag, "nocollide") == 0) {
@@ -505,7 +504,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     }
 
     Brush brush = makeBrushBox(std::move(id), mins, maxs, material, overrides, role);
-    brush.nocollide = nocollide;
+    brush.nocollide = nocollide || brushRoleDefaultNocollide(role);
     g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
 }
@@ -593,10 +592,9 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
         } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
             std::string roleName;
             if (readString(sc, s7_car(rest), roleName)) {
-                if (roleName == "detail") {
-                    role = BrushRole::Detail;
-                } else if (roleName == "hull") {
-                    role = BrushRole::Hull;
+                BrushRole parsed = BrushRole::Hull;
+                if (parseBrushRoleName(roleName, parsed)) {
+                    role = parsed;
                 }
             }
         } else if (std::strcmp(tag, "nocollide") == 0) {
@@ -629,7 +627,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "csg-error"),
             s7_list(sc, 1, s7_make_string(sc, error.c_str())));
     }
-    brush->nocollide = nocollide;
+    brush->nocollide = nocollide || brushRoleDefaultNocollide(role);
     g_builder->brushes.push_back(std::move(*brush));
     return s7_t(sc);
 }
@@ -639,7 +637,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "mins", g_mins, 3, 0, false, "(mins x y z)");
     s7_define_function(sc, "maxs", g_maxs, 3, 0, false, "(maxs x y z)");
     s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
-    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail)");
+    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail|hint|trigger|water|window)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
@@ -794,6 +792,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
 
     int hullCount = 0;
     int detailCount = 0;
+    int otherCount = 0;
     int boxCount = 0;
     int nocollideCount = 0;
     for (const Brush& brush : brushes) {
@@ -805,18 +804,21 @@ std::optional<std::vector<Brush>> loadMapBrushes(
         }
         if (brush.role == BrushRole::Detail) {
             ++detailCount;
-        } else {
+        } else if (brush.role == BrushRole::Hull) {
             ++hullCount;
+        } else {
+            ++otherCount;
         }
     }
     const std::string virtualPath = std::string(mapName) + "/static";
     TraceLog(
         LOG_INFO,
-        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d box=%d nocollide=%d instances=%d",
+        "MAP: loaded brushes '%s' total=%d hull=%d detail=%d other=%d box=%d nocollide=%d instances=%d",
         virtualPath.c_str(),
         static_cast<int>(brushes.size()),
         hullCount,
         detailCount,
+        otherCount,
         boxCount,
         nocollideCount,
         static_cast<int>(doc->instances.size()));
@@ -989,7 +991,7 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
         std::vector<std::string> inferred;
         for (const Brush& brush : *brushes) {
-            if (brush.role != BrushRole::Hull) {
+            if (!brushRoleSeals(brush.role)) {
                 continue;
             }
             for (const BrushFace& face : brush.faces) {
@@ -1046,7 +1048,7 @@ std::optional<LoadedMap> loadAndCompileMap(
     int emptyLeaves = 0;
     int solidLeaves = 0;
     for (const BspLeaf& leaf : bsp->leaves) {
-        if (leaf.solid) {
+        if (leafBlocksFlood(leaf.contents)) {
             ++solidLeaves;
         } else {
             ++emptyLeaves;
@@ -1055,7 +1057,7 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     TraceLog(
         LOG_INFO,
-        "MAP: BSP hull=%d detail=%d box=%d nocollide=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaceFaces=%d charts=%d",
+        "MAP: BSP hull=%d detail=%d box=%d nocollide=%d nodes=%d emptyLeaves=%d solidLeaves=%d portals=%d surfaceFaces=%d charts=%d",
         hullCount,
         detailCount,
         boxCount,
@@ -1063,6 +1065,7 @@ std::optional<LoadedMap> loadAndCompileMap(
         static_cast<int>(bsp->nodes.size()),
         emptyLeaves,
         solidLeaves,
+        static_cast<int>(bsp->portals.size()),
         static_cast<int>(bsp->surfaceFaces.size()),
         static_cast<int>(rad.charts.size()));
 

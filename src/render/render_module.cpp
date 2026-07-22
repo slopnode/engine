@@ -267,48 +267,32 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
         }
         const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
         if (debugUi.showBspOutlines) {
-            Color color = leaf.solid ? Color{180, 60, 60, 255} : Color{60, 180, 220, 255};
+            const bool blocked = leafBlocksFlood(leaf.contents);
+            Color color = blocked ? Color{180, 60, 60, 255} : Color{60, 180, 220, 255};
             if (i == currentLeaf) {
-                color = leaf.solid ? Color{255, 220, 40, 255} : Color{40, 255, 120, 255};
+                color = blocked ? Color{255, 220, 40, 255} : Color{40, 255, 120, 255};
             }
             DrawBoundingBox(BoundingBox{leaf.mins, leaf.maxs}, color);
         }
         if (debugUi.showBspLeafFaces) {
             const unsigned char alpha = i == currentLeaf ? static_cast<unsigned char>(140)
                                                         : static_cast<unsigned char>(70);
-            drawBspLeafFaces(leaf, bspLeafDebugColor(i, leaf.solid, alpha));
+            drawBspLeafFaces(leaf, bspLeafDebugColor(i, leafBlocksFlood(leaf.contents), alpha));
         }
     }
 
     if (debugUi.showBspPortals) {
-        for (std::int32_t i = 0; i < leafCount; ++i) {
-            const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-            if (leaf.solid) {
+        for (const BspPortal& portal : tree.portals) {
+            if (debugUi.showBspCurrentLeafOnly
+                && portal.leafA != currentLeaf
+                && portal.leafB != currentLeaf) {
                 continue;
             }
-            if (debugUi.showBspCurrentLeafOnly && i != currentLeaf) {
-                continue;
-            }
-            for (std::int32_t neighbor : leaf.neighbors) {
-                if (neighbor <= i && !debugUi.showBspCurrentLeafOnly) {
-                    continue;
-                }
-                if (neighbor < 0 || neighbor >= leafCount) {
-                    continue;
-                }
-                const BspLeaf& other = tree.leaves[static_cast<std::size_t>(neighbor)];
-                if (other.solid) {
-                    continue;
-                }
-                std::vector<Vector3> portal;
-                if (!portalPolygonBetweenLeaves(leaf, other, portal)) {
-                    continue;
-                }
-                const bool involvesCurrent = i == currentLeaf || neighbor == currentLeaf;
-                const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
-                                                         : Color{255, 80, 220, 100};
-                drawDebugPolygon(portal, portalColor);
-            }
+            const bool involvesCurrent =
+                portal.leafA == currentLeaf || portal.leafB == currentLeaf;
+            const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
+                                                     : Color{255, 80, 220, 100};
+            drawDebugPolygon(portal.vertices, portalColor);
         }
     }
 

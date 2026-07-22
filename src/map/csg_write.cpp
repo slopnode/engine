@@ -137,10 +137,10 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     out << "  (mins " << formatVec3(brush.mins) << ")\n";
     out << "  (maxs " << formatVec3(brush.maxs) << ")\n";
     out << "  (material " << escapeSchemeString(material) << ")\n";
-    if (brush.role == BrushRole::Detail) {
-        out << "  (role \"detail\")\n";
+    if (brush.role != BrushRole::Hull) {
+        out << "  (role \"" << brushRoleName(brush.role) << "\")\n";
     }
-    if (brush.nocollide) {
+    if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
     }
 
@@ -180,10 +180,10 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
 void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     out << "(brush-convex\n";
     out << "  (id " << escapeSchemeString(brush.id) << ")\n";
-    if (brush.role == BrushRole::Detail) {
-        out << "  (role \"detail\")\n";
+    if (brush.role != BrushRole::Hull) {
+        out << "  (role \"" << brushRoleName(brush.role) << "\")\n";
     }
-    if (brush.nocollide) {
+    if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
     }
 

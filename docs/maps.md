@@ -64,7 +64,18 @@ The canonical solid is a convex polyhedron of polygonal faces. Each face is an o
       (verts (v 1.5 0.0 1.2) (v 1.5 0.7 0.7) (v 1.0 0.0 0.5)))))
 ```
 
-`brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role "hull")` or `(role "detail")` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes ux uy uz vx vy vz)`, `(nodraw)`, and `(verts (v x y z)...)`.
+`brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role …)` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes ux uy uz vx vy vz)`, `(nodraw)`, and `(verts (v x y z)...)`.
+
+| Role | Splits | Seals | VIS faces | Default physics | Notes |
+|------|--------|-------|-----------|-----------------|-------|
+| `hull` | yes | yes (`Solid`) | yes | collide | Structural shell |
+| `detail` | no | no | yes | collide | Must sit in sealed interior open space |
+| `hint` | yes | no | no | no collide | Split-only; schema stub |
+| `trigger` | no | no | no | no collide | Marks open leaves `Trigger`; brush callbacks later |
+| `water` | yes | no | yes | no collide | Marks open leaves `Water`; gameplay later |
+| `window` | yes | yes (`Glass`) | yes | collide | Fills openings; later fake-glass rad + breakable prop |
+
+Open leaves may also carry `Water` / `Trigger` bits. Flood / sealing treat `Solid` and `Glass` as blocked.
 
 `(uv-lock)` pins planar texture coordinates to the face. Locked faces store UV axes (defaulting to the usual world-axial basis for the face normal). Prefab thing and editor transforms rotate those axes with the geometry and adjust `uv-shift`, so the texture stays glued under move and rotate. Optional `(uv-axes …)` overrides the basis when it differs from axial. Omit `(uv-lock)` to keep world-aligned tiling (default).
 
@@ -91,7 +102,7 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
 
 ### slopmap prefabs
 
-`slopmap` has a separate Prefab scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the selected write package (defaults to `--base-game`; when multiple packages are mounted, New Map / Save As pickers choose the target); the path you choose is the virtual path used when placing instances. In the Level scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role switches hull/detail. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
+`slopmap` has a separate Prefab scene for authoring brush assemblies without editing the open level (the level document stays in memory). Prefab → New / Open / Save As writes `prefabs/<path>.csg` under the selected write package (defaults to `--base-game`; when multiple packages are mounted, New Map / Save As pickers choose the target); the path you choose is the virtual path used when placing instances. In the Level scene, select a prefab in the Prefabs panel and use Place mode (`3`) to drop instances; Select mode moves (`G`) and rotates yaw by 90° (`R`). Level save round-trips `(prefab …)` forms. New brushes in the Prefab scene default to detail; `H` / Edit → Toggle Brush Role cycles hull → detail → hint → trigger → water → window. `L` / Edit → Toggle UV Lock pins textures on the selected brush (or face in face scope). Explode-to-brushes is not implemented yet.
 
 ### things.s7
 
@@ -158,7 +169,7 @@ Authored `(nodraw)` is never cleared by the tools. When the hull is sealed, `slo
 
 Default authored face ids look like `floor/top` for boxes, or `brushId/N` for convex faces without an explicit id. After VIS, drawable hull fragments use ids such as `floor/top#0`; coplanar merges across sources use `merge/…` ids. Radiosity charts key off those VIS face ids, so renaming a face id or rebuilding VIS without re-baking changes how atlases line up.
 
-Hull brushes form the structural shell of the space and are what seal the map. Detail brushes are still drawn and lightmapped, and become solid convex collision hulls, but they do not contribute splits to the BSP tree and cannot seal a leak. Place detail entirely inside the sealed hull (their center must sit in interior empty space). Use detail for props that should not reshape the leaf structure of the level.
+Hull and window brushes form the structural shell and seal the map (`Solid` / `Glass` leaf contents). Detail, hint, trigger, and water must sit in sealed interior open space (their centers are checked). Detail and water still draw/lightmap; hint and trigger do not. Hint planes reshape the tree without sealing. Window is reserved for later fake-glass radiosity transmission and breakable props; for now it seals and draws like a thin hull.
 
 You can edit `.csg` by hand, generate it from another program, or build a dedicated editor. The contract is the file on disk and the brush API, not a particular authoring UI.
 

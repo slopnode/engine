@@ -151,7 +151,7 @@ bool isInteriorEmpty(
     if (leafIndex < 0 || leafIndex >= static_cast<std::int32_t>(tree.leaves.size())) {
         return false;
     }
-    if (tree.leaves[static_cast<std::size_t>(leafIndex)].solid) {
+    if (leafBlocksFlood(tree.leaves[static_cast<std::size_t>(leafIndex)].contents)) {
         return false;
     }
     return exteriorEmpty[static_cast<std::size_t>(leafIndex)] == 0;
@@ -707,6 +707,9 @@ VisBuildResult buildVisibleFaces(
     const bool canClip = analysis.sealed && !interiorLeaves.empty();
 
     for (const Brush& brush : brushes) {
+        if (!brushRoleEmitsVisFaces(brush.role)) {
+            continue;
+        }
         for (const BrushFace& face : brush.faces) {
             if (face.nodraw || face.vertices.size() < 3 || face.id.empty()) {
                 continue;

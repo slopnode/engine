@@ -619,9 +619,8 @@ int main(int argc, char* argv[]) {
                     }
                     editor.mode = slopmap::EditorMode::Create;
                     editor.statusMessage =
-                        editor.createBrushRole == slopengine::BrushRole::Detail
-                            ? "Create role: Detail (non-cutting)"
-                            : "Create role: Hull (cutting)";
+                        std::string("Create role: ") +
+                        slopengine::brushRoleName(editor.createBrushRole);
                 }
                 if (menuItemWithIcon(
                         assets,
@@ -822,9 +821,8 @@ int main(int argc, char* argv[]) {
                 }
                 editor.mode = slopmap::EditorMode::Create;
                 editor.statusMessage =
-                    editor.createBrushRole == slopengine::BrushRole::Detail
-                        ? "Create role: Detail (non-cutting)"
-                        : "Create role: Hull (cutting)";
+                    std::string("Create role: ") +
+                    slopengine::brushRoleName(editor.createBrushRole);
             }
             if (IsKeyPressed(KEY_THREE) && editor.scene == slopmap::EditorScene::Level) {
                 if (selectTool.translating) {
@@ -931,9 +929,8 @@ int main(int argc, char* argv[]) {
                             ImGui::PushID(static_cast<int>(i));
                             const bool selected = d.selection == slopmap::SelectionTarget::Brush &&
                                 static_cast<int>(i) == d.selectedBrush;
-                            const char* role =
-                                d.brushes[i].role == slopengine::BrushRole::Detail ? " [D]" : " [H]";
-                            const std::string label = d.brushes[i].id + role;
+                            const std::string label =
+                                d.brushes[i].id + " [" + slopengine::brushRoleName(d.brushes[i].role) + "]";
                             if (selectableWithIcon(assets, kIconSet, "bricks", label.c_str(), selected)) {
                                 d.selection = slopmap::SelectionTarget::Brush;
                                 d.selectedBrush = static_cast<int>(i);
@@ -1265,34 +1262,30 @@ int main(int argc, char* argv[]) {
 
                     ImGui::SameLine(0.0f, gap);
                     if (editor.mode == slopmap::EditorMode::Create) {
-                        const bool hullSelected =
-                            editor.createBrushRole == slopengine::BrushRole::Hull;
-                        const bool detailSelected =
-                            editor.createBrushRole == slopengine::BrushRole::Detail;
-                        if (hullSelected) {
-                            ImGui::PushStyleColor(
-                                ImGuiCol_Button,
-                                ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                        }
-                        if (ImGui::SmallButton("Hull")) {
-                            editor.createBrushRole = slopengine::BrushRole::Hull;
-                            editor.statusMessage = "Create role: Hull (cutting)";
-                        }
-                        if (hullSelected) {
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::SameLine();
-                        if (detailSelected) {
-                            ImGui::PushStyleColor(
-                                ImGuiCol_Button,
-                                ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                        }
-                        if (ImGui::SmallButton("Detail")) {
-                            editor.createBrushRole = slopengine::BrushRole::Detail;
-                            editor.statusMessage = "Create role: Detail (non-cutting)";
-                        }
-                        if (detailSelected) {
-                            ImGui::PopStyleColor();
+                        const char* roleLabel = slopengine::brushRoleName(editor.createBrushRole);
+                        if (ImGui::SmallButton(roleLabel)) {
+                            switch (editor.createBrushRole) {
+                            case slopengine::BrushRole::Hull:
+                                editor.createBrushRole = slopengine::BrushRole::Detail;
+                                break;
+                            case slopengine::BrushRole::Detail:
+                                editor.createBrushRole = slopengine::BrushRole::Hint;
+                                break;
+                            case slopengine::BrushRole::Hint:
+                                editor.createBrushRole = slopengine::BrushRole::Trigger;
+                                break;
+                            case slopengine::BrushRole::Trigger:
+                                editor.createBrushRole = slopengine::BrushRole::Water;
+                                break;
+                            case slopengine::BrushRole::Water:
+                                editor.createBrushRole = slopengine::BrushRole::Window;
+                                break;
+                            case slopengine::BrushRole::Window:
+                                editor.createBrushRole = slopengine::BrushRole::Hull;
+                                break;
+                            }
+                            editor.statusMessage = std::string("Create role: ") +
+                                slopengine::brushRoleName(editor.createBrushRole);
                         }
                     } else {
                         ImGui::Dummy(ImVec2(roleW, btn));

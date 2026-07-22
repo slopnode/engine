@@ -82,11 +82,20 @@ Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
     }
 
     const std::uint32_t hash = hashString(brush.id);
-    if (brush.role == slopengine::BrushRole::Detail) {
+    if (brush.role != slopengine::BrushRole::Hull && brush.role != slopengine::BrushRole::Window) {
         return Color{
             mixChannel(70, hash, 0, 35),
             mixChannel(120, hash, 8, 40),
             mixChannel(210, hash, 16, 35),
+            255,
+        };
+    }
+
+    if (brush.role == slopengine::BrushRole::Window) {
+        return Color{
+            mixChannel(140, hash, 0, 35),
+            mixChannel(200, hash, 8, 40),
+            mixChannel(220, hash, 16, 35),
             255,
         };
     }

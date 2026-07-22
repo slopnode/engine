@@ -747,8 +747,27 @@ void Editor::toggleSelectedBrushRole() {
         return;
     }
     slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
-    brush.role = brush.role == slopengine::BrushRole::Detail ? slopengine::BrushRole::Hull
-                                                             : slopengine::BrushRole::Detail;
+    switch (brush.role) {
+    case slopengine::BrushRole::Hull:
+        brush.role = slopengine::BrushRole::Detail;
+        break;
+    case slopengine::BrushRole::Detail:
+        brush.role = slopengine::BrushRole::Hint;
+        break;
+    case slopengine::BrushRole::Hint:
+        brush.role = slopengine::BrushRole::Trigger;
+        break;
+    case slopengine::BrushRole::Trigger:
+        brush.role = slopengine::BrushRole::Water;
+        break;
+    case slopengine::BrushRole::Water:
+        brush.role = slopengine::BrushRole::Window;
+        break;
+    case slopengine::BrushRole::Window:
+        brush.role = slopengine::BrushRole::Hull;
+        break;
+    }
+    brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
     markDirty();
     statusMessage = std::string("Role: ") + slopengine::brushRoleName(brush.role) + " (" + brush.id + ")";
 }

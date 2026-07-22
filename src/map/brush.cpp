@@ -227,8 +227,100 @@ const char* brushRoleName(BrushRole role) {
     switch (role) {
     case BrushRole::Hull: return "hull";
     case BrushRole::Detail: return "detail";
+    case BrushRole::Hint: return "hint";
+    case BrushRole::Trigger: return "trigger";
+    case BrushRole::Water: return "water";
+    case BrushRole::Window: return "window";
     }
     return "unknown";
+}
+
+bool parseBrushRoleName(std::string_view name, BrushRole& out) {
+    if (name == "hull") {
+        out = BrushRole::Hull;
+        return true;
+    }
+    if (name == "detail") {
+        out = BrushRole::Detail;
+        return true;
+    }
+    if (name == "hint") {
+        out = BrushRole::Hint;
+        return true;
+    }
+    if (name == "trigger") {
+        out = BrushRole::Trigger;
+        return true;
+    }
+    if (name == "water") {
+        out = BrushRole::Water;
+        return true;
+    }
+    if (name == "window") {
+        out = BrushRole::Window;
+        return true;
+    }
+    return false;
+}
+
+bool brushRoleContributesSplits(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull:
+    case BrushRole::Window:
+    case BrushRole::Water:
+    case BrushRole::Hint:
+        return true;
+    case BrushRole::Detail:
+    case BrushRole::Trigger:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleSeals(BrushRole role) {
+    return role == BrushRole::Hull || role == BrushRole::Window;
+}
+
+bool brushRoleEmitsVisFaces(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull:
+    case BrushRole::Detail:
+    case BrushRole::Water:
+    case BrushRole::Window:
+        return true;
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleDefaultNocollide(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+    case BrushRole::Water:
+        return true;
+    case BrushRole::Hull:
+    case BrushRole::Detail:
+    case BrushRole::Window:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleNeedsInteriorPlacement(BrushRole role) {
+    switch (role) {
+    case BrushRole::Detail:
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+    case BrushRole::Water:
+        return true;
+    case BrushRole::Hull:
+    case BrushRole::Window:
+        return false;
+    }
+    return false;
 }
 
 Brush makeBrushBox(

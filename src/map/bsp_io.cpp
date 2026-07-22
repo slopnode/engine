@@ -134,8 +134,7 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
 
     writer.writePod(static_cast<std::uint32_t>(tree.leaves.size()));
     for (const BspLeaf& leaf : tree.leaves) {
-        const std::uint8_t solid = leaf.solid ? 1 : 0;
-        writer.writePod(solid);
+        writer.writePod(leaf.contents);
         writer.writePod(leaf.mins);
         writer.writePod(leaf.maxs);
         writer.writePod(static_cast<std::uint32_t>(leaf.faces.size()));
@@ -146,6 +145,13 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
         for (std::int32_t neighbor : leaf.neighbors) {
             writer.writePod(neighbor);
         }
+    }
+
+    writer.writePod(static_cast<std::uint32_t>(tree.portals.size()));
+    for (const BspPortal& portal : tree.portals) {
+        writer.writePod(portal.leafA);
+        writer.writePod(portal.leafB);
+        writePolygon(writer, portal.vertices);
     }
 
     writer.writePod(static_cast<std::uint32_t>(tree.surfaceFaces.size()));
@@ -185,11 +191,12 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
 
     TraceLog(
         LOG_INFO,
-        "BSP: wrote '%s' bytes=%d nodes=%d leaves=%d surfaces=%d strings=%d",
+        "BSP: wrote '%s' bytes=%d nodes=%d leaves=%d portals=%d surfaces=%d strings=%d",
         path.string().c_str(),
         static_cast<int>(writer.buffer().size()),
         static_cast<int>(tree.nodes.size()),
         static_cast<int>(tree.leaves.size()),
+        static_cast<int>(tree.portals.size()),
         static_cast<int>(tree.surfaceFaces.size()),
         static_cast<int>(strings.size()));
     return true;
@@ -200,9 +207,23 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
     std::uint32_t magic = 0;
     std::uint32_t version = 0;
     if (!reader.readPod(magic) || !reader.readPod(version)) {
+        TraceLog(LOG_WARNING, "BSP: truncated header");
         return std::nullopt;
     }
-    if (magic != kBspMagic || version != kBspVersion) {
+    if (magic != kBspMagic) {
+        TraceLog(
+            LOG_WARNING,
+            "BSP: bad magic 0x%08x (need 0x%08x)",
+            magic,
+            kBspMagic);
+        return std::nullopt;
+    }
+    if (version != kBspVersion) {
+        TraceLog(
+            LOG_WARNING,
+            "BSP: unsupported version %u (need %u); rebuild map tools / recompile static.bsp",
+            version,
+            kBspVersion);
         return std::nullopt;
     }
 
@@ -229,14 +250,12 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
     }
     tree.leaves.resize(leafCount);
     for (BspLeaf& leaf : tree.leaves) {
-        std::uint8_t solid = 0;
         std::uint32_t faceCount = 0;
         std::uint32_t neighborCount = 0;
-        if (!reader.readPod(solid) || !reader.readPod(leaf.mins) || !reader.readPod(leaf.maxs)
+        if (!reader.readPod(leaf.contents) || !reader.readPod(leaf.mins) || !reader.readPod(leaf.maxs)
             || !reader.readPod(faceCount)) {
             return std::nullopt;
         }
-        leaf.solid = solid != 0;
         leaf.faces.resize(faceCount);
         for (auto& face : leaf.faces) {
             if (!readPolygon(reader, face)) {
@@ -251,6 +270,18 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
             if (!reader.readPod(neighbor)) {
                 return std::nullopt;
             }
+        }
+    }
+
+    std::uint32_t portalCount = 0;
+    if (!reader.readPod(portalCount)) {
+        return std::nullopt;
+    }
+    tree.portals.resize(portalCount);
+    for (BspPortal& portal : tree.portals) {
+        if (!reader.readPod(portal.leafA) || !reader.readPod(portal.leafB)
+            || !readPolygon(reader, portal.vertices)) {
+            return std::nullopt;
         }
     }
 
@@ -313,16 +344,21 @@ std::optional<BspTree> readBspFile(const std::filesystem::path& path) {
     }
     auto tree = readBspBytes(buffer);
     if (!tree) {
-        TraceLog(LOG_WARNING, "BSP: invalid contents '%s' bytes=%d", path.string().c_str(), static_cast<int>(size));
+        TraceLog(
+            LOG_WARNING,
+            "BSP: failed to parse '%s' bytes=%d",
+            path.string().c_str(),
+            static_cast<int>(size));
         return std::nullopt;
     }
     TraceLog(
         LOG_INFO,
-        "BSP: read '%s' bytes=%d nodes=%d leaves=%d surfaces=%d root=%d",
+        "BSP: read '%s' bytes=%d nodes=%d leaves=%d portals=%d surfaces=%d root=%d",
         path.string().c_str(),
         static_cast<int>(size),
         static_cast<int>(tree->nodes.size()),
         static_cast<int>(tree->leaves.size()),
+        static_cast<int>(tree->portals.size()),
         static_cast<int>(tree->surfaceFaces.size()),
         tree->root);
     return tree;

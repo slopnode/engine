@@ -5,6 +5,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -20,10 +21,14 @@ enum class BrushBoxSide {
     West,
 };
 
-/** Hull seals the BSP; detail is drawn and collides but does not split the tree. */
+/** Brush participation in BSP / VIS / physics. See maps.md role matrix. */
 enum class BrushRole {
     Hull,
     Detail,
+    Hint,
+    Trigger,
+    Water,
+    Window,
 };
 
 /** One polygonal face of a convex brush. */
@@ -52,6 +57,12 @@ struct Brush {
 
 const char* brushBoxSideName(BrushBoxSide side);
 const char* brushRoleName(BrushRole role);
+bool parseBrushRoleName(std::string_view name, BrushRole& out);
+bool brushRoleContributesSplits(BrushRole role);
+bool brushRoleSeals(BrushRole role);
+bool brushRoleEmitsVisFaces(BrushRole role);
+bool brushRoleDefaultNocollide(BrushRole role);
+bool brushRoleNeedsInteriorPlacement(BrushRole role);
 
 Vector3 faceNormalFromVertices(const std::vector<Vector3>& vertices);
 void recomputeBrushBounds(Brush& brush);

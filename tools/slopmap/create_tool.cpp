@@ -149,6 +149,7 @@ void CreateTool::commit(Editor& editor) {
         editor.doc().defaultMaterial,
         {},
         editor.createBrushRole);
+    brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
     EditorDocument& d = editor.doc();
     d.brushes.push_back(std::move(brush));
     d.selection = SelectionTarget::Brush;

@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
     int exteriorEmpty = 0;
     int interiorEmpty = 0;
     for (std::size_t i = 0; i < tree.leaves.size(); ++i) {
-        if (tree.leaves[i].solid) {
+        if (leafBlocksFlood(tree.leaves[i].contents)) {
             continue;
         }
         if (analysis.exteriorEmpty[i] != 0) {

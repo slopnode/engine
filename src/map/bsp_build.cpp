@@ -315,14 +315,187 @@ Vector3 polyCentroid(const Polyhedron& poly) {
     return scale3(sum, 1.0f / static_cast<float>(count));
 }
 
-bool leafCenterInsideAnyHull(const Polyhedron& poly, const std::vector<Brush>& hulls) {
+enum class CellClass {
+    WhollySolid,
+    WhollyOpen,
+    Mixed,
+};
+
+struct CellClassification {
+    CellClass cell = CellClass::WhollyOpen;
+    bool preferGlass = false;
+};
+
+void collectCellSamples(const Polyhedron& poly, std::vector<Vector3>& out) {
+    out.clear();
+    out.push_back(polyCentroid(poly));
+    for (const auto& face : poly.faces) {
+        for (const Vector3& v : face) {
+            out.push_back(v);
+        }
+        if (face.size() >= 3) {
+            out.push_back(polygonCentroid(face));
+        }
+    }
+}
+
+bool pointStrictlyInsideBrush(Vector3 point, const Brush& brush, float epsilon = kPlaneEps) {
+    for (const BrushFace& face : brush.faces) {
+        if (face.vertices.empty()) {
+            return false;
+        }
+        const float side = dot3(sub3(point, face.vertices[0]), face.normal);
+        if (side >= -epsilon) {
+            return false;
+        }
+    }
+    return !brush.faces.empty();
+}
+
+bool centroidInsideSealing(
+    const Polyhedron& poly,
+    const std::vector<Brush>& sealing,
+    bool& preferGlass) {
+    preferGlass = false;
     const Vector3 center = polyCentroid(poly);
-    for (const Brush& brush : hulls) {
-        if (pointInsideBrush(center, brush)) {
+    bool inside = false;
+    for (const Brush& brush : sealing) {
+        if (!pointInsideBrushInclusive(center, brush)) {
+            continue;
+        }
+        inside = true;
+        if (brush.role == BrushRole::Window) {
+            preferGlass = true;
+        } else {
+            preferGlass = false;
             return true;
         }
     }
-    return false;
+    return inside;
+}
+
+CellClassification classifyAgainstSealing(
+    const Polyhedron& poly,
+    const std::vector<Brush>& sealing) {
+    CellClassification result;
+    if (sealing.empty()) {
+        result.cell = CellClass::WhollyOpen;
+        return result;
+    }
+
+    std::vector<Vector3> samples;
+    collectCellSamples(poly, samples);
+
+    bool anyInside = false;
+    bool anyOutside = false;
+    bool glassInside = false;
+    bool solidInside = false;
+
+    for (const Vector3& sample : samples) {
+        bool inside = false;
+        for (const Brush& brush : sealing) {
+            if (!pointStrictlyInsideBrush(sample, brush)) {
+                continue;
+            }
+            inside = true;
+            if (brush.role == BrushRole::Window) {
+                glassInside = true;
+            } else {
+                solidInside = true;
+            }
+        }
+        if (inside) {
+            anyInside = true;
+        } else {
+            anyOutside = true;
+        }
+    }
+
+    if (anyInside && anyOutside) {
+        result.cell = CellClass::Mixed;
+    } else if (anyInside) {
+        result.cell = CellClass::WhollySolid;
+        result.preferGlass = glassInside && !solidInside;
+        if (glassInside && solidInside) {
+            bool preferGlass = false;
+            centroidInsideSealing(poly, sealing, preferGlass);
+            result.preferGlass = preferGlass;
+        } else {
+            result.preferGlass = glassInside;
+        }
+    } else {
+        result.cell = CellClass::WhollyOpen;
+    }
+    return result;
+}
+
+struct BuildBrushes {
+    std::vector<Brush> sealing;
+    std::vector<Brush> water;
+    std::vector<Brush> trigger;
+    std::vector<Brush> surface;
+};
+
+std::uint32_t softContentsAtPoint(
+    Vector3 point,
+    const std::vector<Brush>& waterBrushes,
+    const std::vector<Brush>& triggerBrushes) {
+    std::uint32_t contents = 0;
+    for (const Brush& brush : waterBrushes) {
+        if (pointInsideBrushInclusive(point, brush)) {
+            contents |= BspContents::Water;
+            break;
+        }
+    }
+    for (const Brush& brush : triggerBrushes) {
+        if (pointInsideBrushInclusive(point, brush)) {
+            contents |= BspContents::Trigger;
+            break;
+        }
+    }
+    return contents;
+}
+
+std::uint32_t terminalLeafContents(
+    const Polyhedron& poly,
+    const BuildBrushes& brushes,
+    const CellClassification& classification) {
+    if (classification.cell == CellClass::WhollySolid) {
+        return classification.preferGlass ? BspContents::Glass : BspContents::Solid;
+    }
+    if (classification.cell == CellClass::Mixed) {
+        bool preferGlass = false;
+        if (centroidInsideSealing(poly, brushes.sealing, preferGlass)) {
+            return preferGlass ? BspContents::Glass : BspContents::Solid;
+        }
+    }
+    return softContentsAtPoint(polyCentroid(poly), brushes.water, brushes.trigger);
+}
+
+std::int32_t encodeLeaf(std::int32_t leafIndex) {
+    return -leafIndex - 1;
+}
+
+bool isLeafChild(std::int32_t child) {
+    return child < 0;
+}
+
+std::int32_t decodeLeaf(std::int32_t child) {
+    return -child - 1;
+}
+
+std::int32_t emitLeaf(
+    BspTree& tree,
+    const Polyhedron& poly,
+    std::uint32_t contents) {
+    BspLeaf leaf;
+    leaf.mins = poly.mins;
+    leaf.maxs = poly.maxs;
+    leaf.faces = poly.faces;
+    leaf.contents = contents;
+    const std::int32_t leafIndex = static_cast<std::int32_t>(tree.leaves.size());
+    tree.leaves.push_back(std::move(leaf));
+    return encodeLeaf(leafIndex);
 }
 
 struct SplitScore {
@@ -330,6 +503,11 @@ struct SplitScore {
     int backFaces = 0;
     int splitFaces = 0;
     int onPlaneFaces = 0;
+};
+
+struct SplitPlane {
+    BspPlane plane{};
+    bool hintOnly = false;
 };
 
 SplitScore scoreSplitPlane(const BspPlane& plane, const Polyhedron& poly) {
@@ -360,6 +538,63 @@ float evaluateSplit(const SplitScore& s) {
     return balance - splitPenalty;
 }
 
+float axialAlignment(const BspPlane& plane) {
+    const float ax = std::fabs(plane.normal.x);
+    const float ay = std::fabs(plane.normal.y);
+    const float az = std::fabs(plane.normal.z);
+    return std::max(ax, std::max(ay, az));
+}
+
+float contentSeparationBonus(
+    const BspPlane& plane,
+    const Polyhedron& poly,
+    const std::vector<Brush>& sealing) {
+    if (sealing.empty()) {
+        return 0.0f;
+    }
+    int frontIn = 0;
+    int frontOut = 0;
+    int backIn = 0;
+    int backOut = 0;
+    std::vector<Vector3> samples;
+    collectCellSamples(poly, samples);
+    for (const Vector3& sample : samples) {
+        const float d = planeDistance(plane, sample);
+        if (std::fabs(d) <= kPlaneEps) {
+            continue;
+        }
+        bool inside = false;
+        for (const Brush& brush : sealing) {
+            if (pointInsideBrushInclusive(sample, brush)) {
+                inside = true;
+                break;
+            }
+        }
+        if (d > 0.0f) {
+            if (inside) {
+                ++frontIn;
+            } else {
+                ++frontOut;
+            }
+        } else if (inside) {
+            ++backIn;
+        } else {
+            ++backOut;
+        }
+    }
+    const bool frontSolidish = frontIn > 0 && frontOut == 0;
+    const bool backSolidish = backIn > 0 && backOut == 0;
+    const bool frontOpenish = frontOut > 0 && frontIn == 0;
+    const bool backOpenish = backOut > 0 && backIn == 0;
+    if ((frontSolidish && backOpenish) || (backSolidish && frontOpenish)) {
+        return 0.35f;
+    }
+    if ((frontIn > 0) != (backIn > 0)) {
+        return 0.15f;
+    }
+    return 0.0f;
+}
+
 bool planeCutsPolyhedron(const BspPlane& plane, const Polyhedron& poly) {
     bool anyFront = false;
     bool anyBack = false;
@@ -379,103 +614,90 @@ bool planeCutsPolyhedron(const BspPlane& plane, const Polyhedron& poly) {
     return false;
 }
 
-void collectSplits(const std::vector<Brush>& hulls, std::vector<BspPlane>& out) {
-    out.clear();
-    for (const Brush& brush : hulls) {
-        for (const BrushFace& face : brush.faces) {
-            BspPlane plane = planeFromFace(face);
-            if (length3(plane.normal) < 1e-6f) {
-                continue;
+void addUniqueSplit(std::vector<SplitPlane>& out, const BspPlane& plane, bool hintOnly) {
+    if (length3(plane.normal) < 1e-6f) {
+        return;
+    }
+    for (SplitPlane& existing : out) {
+        if (planesEqual(existing.plane, plane)) {
+            if (!hintOnly) {
+                existing.hintOnly = false;
             }
-            bool unique = true;
-            for (const BspPlane& existing : out) {
-                if (planesEqual(existing, plane)) {
-                    unique = false;
-                    break;
-                }
-            }
-            if (unique) {
-                out.push_back(plane);
-            }
+            return;
         }
     }
+    out.push_back(SplitPlane{plane, hintOnly});
 }
 
-std::int32_t encodeLeaf(std::int32_t leafIndex) {
-    return -leafIndex - 1;
-}
-
-bool isLeafChild(std::int32_t child) {
-    return child < 0;
-}
-
-std::int32_t decodeLeaf(std::int32_t child) {
-    return -child - 1;
+void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& out) {
+    out.clear();
+    for (const Brush& brush : brushes) {
+        if (!brushRoleContributesSplits(brush.role)) {
+            continue;
+        }
+        const bool hintOnly = brush.role == BrushRole::Hint;
+        for (const BrushFace& face : brush.faces) {
+            addUniqueSplit(out, planeFromFace(face), hintOnly);
+        }
+    }
 }
 
 std::int32_t buildNode(
     BspTree& tree,
     const Polyhedron& poly,
-    const std::vector<Brush>& hulls,
-    const std::vector<BspPlane>& splits,
+    const BuildBrushes& brushes,
+    const std::vector<SplitPlane>& splits,
     std::vector<std::uint8_t>& used) {
+    const CellClassification classification = classifyAgainstSealing(poly, brushes.sealing);
+    if (classification.cell == CellClass::WhollySolid) {
+        const std::uint32_t contents =
+            classification.preferGlass ? BspContents::Glass : BspContents::Solid;
+        return emitLeaf(tree, poly, contents);
+    }
+
     BspPlane chosen{};
     bool found = false;
-    float bestScore = -1.0f;
+    float bestScore = -1e9f;
+    std::size_t chosenIndex = 0;
     for (std::size_t pi = 0; pi < splits.size(); ++pi) {
         if (used[pi]) {
             continue;
         }
-        if (!planeCutsPolyhedron(splits[pi], poly)) {
+        if (!planeCutsPolyhedron(splits[pi].plane, poly)) {
             continue;
         }
-        const SplitScore ss = scoreSplitPlane(splits[pi], poly);
-        const float score = evaluateSplit(ss);
+        const SplitScore ss = scoreSplitPlane(splits[pi].plane, poly);
+        float score = evaluateSplit(ss);
+        score += 0.05f * axialAlignment(splits[pi].plane);
+        score += contentSeparationBonus(splits[pi].plane, poly, brushes.sealing);
+        if (splits[pi].hintOnly) {
+            score -= 0.2f;
+        }
         if (score > bestScore) {
             bestScore = score;
-            chosen = splits[pi];
+            chosen = splits[pi].plane;
+            chosenIndex = pi;
             found = true;
         }
     }
 
     if (!found) {
-        BspLeaf leaf;
-        leaf.mins = poly.mins;
-        leaf.maxs = poly.maxs;
-        leaf.faces = poly.faces;
-        leaf.solid = leafCenterInsideAnyHull(poly, hulls);
-        const std::int32_t leafIndex = static_cast<std::int32_t>(tree.leaves.size());
-        tree.leaves.push_back(std::move(leaf));
-        return encodeLeaf(leafIndex);
+        return emitLeaf(tree, poly, terminalLeafContents(poly, brushes, classification));
     }
 
     Polyhedron frontPoly;
     Polyhedron backPoly;
     if (!splitPolyhedron(poly, chosen, frontPoly, backPoly)) {
-        BspLeaf leaf;
-        leaf.mins = poly.mins;
-        leaf.maxs = poly.maxs;
-        leaf.faces = poly.faces;
-        leaf.solid = leafCenterInsideAnyHull(poly, hulls);
-        const std::int32_t leafIndex = static_cast<std::int32_t>(tree.leaves.size());
-        tree.leaves.push_back(std::move(leaf));
-        return encodeLeaf(leafIndex);
+        return emitLeaf(tree, poly, terminalLeafContents(poly, brushes, classification));
     }
 
-    std::size_t chosenIndex = 0;
-    for (std::size_t pi = 0; pi < splits.size(); ++pi) {
-        if (planesEqual(splits[pi], chosen)) {
-            chosenIndex = pi;
-            break;
-        }
-    }
     used[chosenIndex] = 1;
 
     const std::int32_t nodeIndex = static_cast<std::int32_t>(tree.nodes.size());
     tree.nodes.push_back({});
 
-    const std::int32_t front = buildNode(tree, frontPoly, hulls, splits, used);
-    const std::int32_t back = buildNode(tree, backPoly, hulls, splits, used);
+    const std::int32_t front = buildNode(tree, frontPoly, brushes, splits, used);
+    const std::int32_t back = buildNode(tree, backPoly, brushes, splits, used);
 
     used[chosenIndex] = 0;
 
@@ -533,16 +755,21 @@ std::vector<Vector3> intersectPortal(
     const std::vector<Vector3>& a,
     const std::vector<Vector3>& b,
     Vector3 normal) {
-    BspPlane plane;
-    plane.normal = normal;
-    plane.distance = dot3(normal, a[0]);
+    if (a.size() < 3 || b.size() < 3) {
+        return {};
+    }
 
-    auto clipToPoly = [&](std::vector<Vector3> subject, const std::vector<Vector3>& clip) {
+    auto clipToPoly = [&](std::vector<Vector3> subject, const std::vector<Vector3>& clip, Vector3 clipNormal) {
         for (std::size_t i = 0; i < clip.size(); ++i) {
             const Vector3& c0 = clip[i];
             const Vector3& c1 = clip[(i + 1) % clip.size()];
             const Vector3 edge = sub3(c1, c0);
-            const Vector3 inward = normalize3(cross3(normal, edge));
+            Vector3 inward = cross3(clipNormal, edge);
+            const float inwardLen = length3(inward);
+            if (inwardLen <= 1e-8f) {
+                continue;
+            }
+            inward = scale3(inward, 1.0f / inwardLen);
             BspPlane edgePlane;
             edgePlane.normal = inward;
             edgePlane.distance = dot3(inward, c0);
@@ -554,7 +781,11 @@ std::vector<Vector3> intersectPortal(
         return subject;
     };
 
-    auto result = clipToPoly(a, b);
+    auto result = clipToPoly(a, b, normal);
+    if (result.size() >= 3 && polygonArea(result) >= kMinFaceArea) {
+        return result;
+    }
+    result = clipToPoly(a, b, scale3(normal, -1.0f));
     if (result.size() >= 3 && polygonArea(result) >= kMinFaceArea) {
         return result;
     }
@@ -567,7 +798,35 @@ static bool boundsOverlap(const BspLeaf& a, const BspLeaf& b) {
         && a.mins.z <= b.maxs.z && a.maxs.z >= b.mins.z;
 }
 
-static bool facesAreAdjacent(const BspLeaf& a, const BspLeaf& b) {
+static bool portalConnectsLeaves(
+    const BspTree& tree,
+    std::int32_t leafA,
+    std::int32_t leafB,
+    const std::vector<Vector3>& portal,
+    Vector3 normal) {
+    if (portal.size() < 3) {
+        return false;
+    }
+    const Vector3 center = polygonCentroid(portal);
+    constexpr float kNudge = 0.02f;
+    const Vector3 n = normalize3(normal);
+    if (length3(n) < 1e-6f) {
+        return false;
+    }
+    const Vector3 p0{center.x - n.x * kNudge, center.y - n.y * kNudge, center.z - n.z * kNudge};
+    const Vector3 p1{center.x + n.x * kNudge, center.y + n.y * kNudge, center.z + n.z * kNudge};
+    const std::int32_t l0 = pointLeaf(tree, p0);
+    const std::int32_t l1 = pointLeaf(tree, p1);
+    return (l0 == leafA && l1 == leafB) || (l0 == leafB && l1 == leafA);
+}
+
+static bool tryMakePortal(
+    const BspTree& tree,
+    std::int32_t leafA,
+    std::int32_t leafB,
+    const BspLeaf& a,
+    const BspLeaf& b,
+    std::vector<Vector3>& outPortal) {
     for (const auto& fa : a.faces) {
         const Vector3 na = polygonNormal(fa);
         if (length3(na) < 1e-6f) {
@@ -578,25 +837,47 @@ static bool facesAreAdjacent(const BspLeaf& a, const BspLeaf& b) {
             if (dot3(na, nb) > -0.99f) {
                 continue;
             }
-            if (polygonsOverlapCoplanar(fa, fb, na)) {
-                return true;
+            if (!polygonsOverlapCoplanar(fa, fb, na)) {
+                continue;
             }
+            std::vector<Vector3> portal = intersectPortal(fa, fb, na);
+            if (portal.size() < 3) {
+                portal = intersectPortal(fb, fa, nb);
+            }
+            if (portal.size() < 3) {
+                continue;
+            }
+            if (!portalConnectsLeaves(tree, leafA, leafB, portal, na)) {
+                continue;
+            }
+            outPortal = std::move(portal);
+            return true;
         }
     }
     return false;
 }
 
-static void collectEmptyLeaves(const BspTree& tree, std::int32_t child, std::vector<std::int32_t>& out) {
+static void collectOpenLeaves(const BspTree& tree, std::int32_t child, std::vector<std::int32_t>& out) {
     if (isLeafChild(child)) {
         const std::int32_t li = decodeLeaf(child);
-        if (!tree.leaves[static_cast<std::size_t>(li)].solid) {
+        if (leafIsOpen(tree.leaves[static_cast<std::size_t>(li)].contents)) {
             out.push_back(li);
         }
         return;
     }
     const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
-    collectEmptyLeaves(tree, node.front, out);
-    collectEmptyLeaves(tree, node.back, out);
+    collectOpenLeaves(tree, node.front, out);
+    collectOpenLeaves(tree, node.back, out);
+}
+
+static void linkNeighbors(BspLeaf& a, BspLeaf& b, std::int32_t ai, std::int32_t bi) {
+    for (std::int32_t n : a.neighbors) {
+        if (n == bi) {
+            return;
+        }
+    }
+    a.neighbors.push_back(bi);
+    b.neighbors.push_back(ai);
 }
 
 static void buildAdjacencyWalk(BspTree& tree, std::int32_t child) {
@@ -607,20 +888,26 @@ static void buildAdjacencyWalk(BspTree& tree, std::int32_t child) {
 
     std::vector<std::int32_t> frontLeaves;
     std::vector<std::int32_t> backLeaves;
-    collectEmptyLeaves(tree, node.front, frontLeaves);
-    collectEmptyLeaves(tree, node.back, backLeaves);
+    collectOpenLeaves(tree, node.front, frontLeaves);
+    collectOpenLeaves(tree, node.back, backLeaves);
 
     for (const std::int32_t fi : frontLeaves) {
         for (const std::int32_t bi : backLeaves) {
-            const BspLeaf& a = tree.leaves[static_cast<std::size_t>(fi)];
-            const BspLeaf& b = tree.leaves[static_cast<std::size_t>(bi)];
+            BspLeaf& a = tree.leaves[static_cast<std::size_t>(fi)];
+            BspLeaf& b = tree.leaves[static_cast<std::size_t>(bi)];
             if (!boundsOverlap(a, b)) {
                 continue;
             }
-            if (facesAreAdjacent(a, b)) {
-                tree.leaves[static_cast<std::size_t>(fi)].neighbors.push_back(bi);
-                tree.leaves[static_cast<std::size_t>(bi)].neighbors.push_back(fi);
+            std::vector<Vector3> portalVerts;
+            if (!tryMakePortal(tree, fi, bi, a, b, portalVerts)) {
+                continue;
             }
+            BspPortal portal;
+            portal.leafA = fi;
+            portal.leafB = bi;
+            portal.vertices = std::move(portalVerts);
+            tree.portals.push_back(std::move(portal));
+            linkNeighbors(a, b, fi, bi);
         }
     }
 
@@ -629,6 +916,10 @@ static void buildAdjacencyWalk(BspTree& tree, std::int32_t child) {
 }
 
 void buildAdjacency(BspTree& tree) {
+    tree.portals.clear();
+    for (BspLeaf& leaf : tree.leaves) {
+        leaf.neighbors.clear();
+    }
     if (tree.root < 0) {
         return;
     }
@@ -642,53 +933,11 @@ void orientSurfaceWinding(BspSurfaceFace& face) {
     }
 }
 
-void assignSurfaceMaterials(BspTree& tree, const std::vector<Brush>& hulls) {
-    for (std::size_t faceIndex = 0; faceIndex < tree.surfaceFaces.size(); ++faceIndex) {
-        BspSurfaceFace& face = tree.surfaceFaces[faceIndex];
-        const Vector3 faceCenter = polygonCentroid(face.vertices);
-        const Vector3 solidProbe{
-            faceCenter.x - face.normal.x * 0.02f,
-            faceCenter.y - face.normal.y * 0.02f,
-            faceCenter.z - face.normal.z * 0.02f,
-        };
-
-        const BrushFace* bestFace = nullptr;
-        float bestScore = -1.0f;
-        for (const Brush& brush : hulls) {
-            if (!pointInsideBrushInclusive(solidProbe, brush)) {
-                continue;
-            }
-            for (const BrushFace& brushFace : brush.faces) {
-                const float alignment = dot3(brushFace.normal, face.normal);
-                if (alignment < 0.5f) {
-                    continue;
-                }
-                if (alignment > bestScore) {
-                    bestScore = alignment;
-                    bestFace = &brushFace;
-                }
-            }
-        }
-
-        if (bestFace != nullptr) {
-            face.id = bestFace->id;
-            face.material = bestFace->material;
-            face.uvShiftPixels = bestFace->uvShiftPixels;
-            face.normal = bestFace->normal;
-        } else if (face.id.empty()) {
-            face.id = "surface/" + std::to_string(faceIndex);
-            face.material = "default/unassigned";
-        }
-
-        orientSurfaceWinding(face);
-    }
-}
-
-void buildSurfaceFaces(BspTree& tree, const std::vector<Brush>& hulls) {
+void buildSurfaceFaces(BspTree& tree, const std::vector<Brush>& surfaceBrushes) {
     tree.surfaceFaces.clear();
     std::vector<Vector3> probes;
 
-    for (const Brush& brush : hulls) {
+    for (const Brush& brush : surfaceBrushes) {
         for (const BrushFace& brushFace : brush.faces) {
             if (brushFace.vertices.size() < 3) {
                 continue;
@@ -697,7 +946,8 @@ void buildSurfaceFaces(BspTree& tree, const std::vector<Brush>& hulls) {
             std::int32_t emptyLeaf = -1;
             for (const Vector3& probe : probes) {
                 const std::int32_t leafIndex = pointLeaf(tree, probe);
-                if (leafIndex < 0 || tree.leaves[static_cast<std::size_t>(leafIndex)].solid) {
+                if (leafIndex < 0
+                    || !leafIsOpen(tree.leaves[static_cast<std::size_t>(leafIndex)].contents)) {
                     continue;
                 }
                 emptyLeaf = leafIndex;
@@ -788,11 +1038,16 @@ Vector3 leafCentroid(const BspLeaf& leaf) {
 
 BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     BspTree tree;
-    std::vector<Brush> hulls;
-    hulls.reserve(brushes.size());
+    BuildBrushes buildBrushes;
     int detailCount = 0;
+    int hintCount = 0;
+    int triggerCount = 0;
+    int waterCount = 0;
+    int windowCount = 0;
+    int hullCount = 0;
     int boxCount = 0;
     int nocollideCount = 0;
+
     for (const Brush& brush : brushes) {
         if (brush.box) {
             ++boxCount;
@@ -800,24 +1055,49 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
         if (brush.nocollide) {
             ++nocollideCount;
         }
-        if (brush.role == BrushRole::Hull) {
-            hulls.push_back(brush);
-        } else {
+        switch (brush.role) {
+        case BrushRole::Hull:
+            ++hullCount;
+            buildBrushes.sealing.push_back(brush);
+            buildBrushes.surface.push_back(brush);
+            break;
+        case BrushRole::Window:
+            ++windowCount;
+            buildBrushes.sealing.push_back(brush);
+            buildBrushes.surface.push_back(brush);
+            break;
+        case BrushRole::Water:
+            ++waterCount;
+            buildBrushes.water.push_back(brush);
+            break;
+        case BrushRole::Trigger:
+            ++triggerCount;
+            buildBrushes.trigger.push_back(brush);
+            break;
+        case BrushRole::Hint:
+            ++hintCount;
+            break;
+        case BrushRole::Detail:
             ++detailCount;
+            break;
         }
     }
 
     TraceLog(
         LOG_INFO,
-        "BSP: build start brushes=%d hull=%d detail=%d box=%d nocollide=%d",
+        "BSP: build start brushes=%d hull=%d window=%d water=%d hint=%d trigger=%d detail=%d box=%d nocollide=%d",
         static_cast<int>(brushes.size()),
-        static_cast<int>(hulls.size()),
+        hullCount,
+        windowCount,
+        waterCount,
+        hintCount,
+        triggerCount,
         detailCount,
         boxCount,
         nocollideCount);
 
-    if (hulls.empty()) {
-        TraceLog(LOG_WARNING, "BSP: no hull brushes; empty tree");
+    if (buildBrushes.sealing.empty()) {
+        TraceLog(LOG_WARNING, "BSP: no sealing brushes; empty tree");
         return tree;
     }
 
@@ -831,7 +1111,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
         std::numeric_limits<float>::lowest(),
         std::numeric_limits<float>::lowest(),
     };
-    for (const Brush& brush : hulls) {
+    for (const Brush& brush : buildBrushes.sealing) {
         mins.x = std::min(mins.x, brush.mins.x);
         mins.y = std::min(mins.y, brush.mins.y);
         mins.z = std::min(mins.z, brush.mins.z);
@@ -860,37 +1140,38 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
         maxs.z,
         kBoundsPad);
 
-    std::vector<BspPlane> splits;
-    collectSplits(hulls, splits);
+    std::vector<SplitPlane> splits;
+    collectSplits(brushes, splits);
     TraceLog(LOG_INFO, "BSP: split planes=%d", static_cast<int>(splits.size()));
 
     const Polyhedron world = makeBoundsPolyhedron(mins, maxs);
     std::vector<std::uint8_t> used(splits.size(), 0);
     TraceLog(LOG_INFO, "BSP: building nodes...");
-    tree.root = buildNode(tree, world, hulls, splits, used);
+    tree.root = buildNode(tree, world, buildBrushes, splits, used);
     TraceLog(LOG_INFO, "BSP: nodes=%d leaves=%d", static_cast<int>(tree.nodes.size()), static_cast<int>(tree.leaves.size()));
     TraceLog(LOG_INFO, "BSP: building adjacency...");
     buildAdjacency(tree);
     TraceLog(LOG_INFO, "BSP: building surface faces...");
-    buildSurfaceFaces(tree, hulls);
+    buildSurfaceFaces(tree, buildBrushes.surface);
 
-    int emptyLeaves = 0;
-    int solidLeaves = 0;
+    int openLeaves = 0;
+    int blockedLeaves = 0;
     for (const BspLeaf& leaf : tree.leaves) {
-        if (leaf.solid) {
-            ++solidLeaves;
+        if (leafBlocksFlood(leaf.contents)) {
+            ++blockedLeaves;
         } else {
-            ++emptyLeaves;
+            ++openLeaves;
         }
     }
 
     TraceLog(
         LOG_INFO,
-        "BSP: build done root=%d nodes=%d emptyLeaves=%d solidLeaves=%d surfaces=%d",
+        "BSP: build done root=%d nodes=%d openLeaves=%d blockedLeaves=%d portals=%d surfaces=%d",
         tree.root,
         static_cast<int>(tree.nodes.size()),
-        emptyLeaves,
-        solidLeaves,
+        openLeaves,
+        blockedLeaves,
+        static_cast<int>(tree.portals.size()),
         static_cast<int>(tree.surfaceFaces.size()));
     return tree;
 }
@@ -919,7 +1200,7 @@ bool leafIsEmpty(const BspTree& tree, std::int32_t leafIndex) {
     if (leafIndex < 0 || leafIndex >= static_cast<std::int32_t>(tree.leaves.size())) {
         return false;
     }
-    return !tree.leaves[static_cast<std::size_t>(leafIndex)].solid;
+    return leafIsOpen(tree.leaves[static_cast<std::size_t>(leafIndex)].contents);
 }
 
 const std::vector<std::int32_t>& leafNeighbors(const BspTree& tree, std::int32_t leafIndex) {

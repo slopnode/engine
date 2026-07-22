@@ -36,7 +36,7 @@ Shared flags with the game: `--base-game`, repeated `--mod`, and `--map <name>` 
 - Runtime. The game requires BSP to load. It uses the tree for hull analysis, leaf-related debug, and as input when rebuilding VIS in memory if `static.vis` is missing. Collision comes from convex hulls per brush through the physics library.
 - Radiosity prerequisite. `sloprad` loads the BSP for hull analysis / detail warnings. Bake-time ray occlusion itself is against a BVH of lightmap (VIS) faces, not by walking the BSP node tree as a mesh.
 
-Detail brushes never contribute split planes and cannot seal a leak. Their centers must sit in sealed interior empty space or `slopbsp` / `slopvis` / `sloprad` warn.
+Detail brushes never contribute split planes and cannot seal a leak. Hint planes split without sealing. Window brushes seal like hull (`Glass` contents). Trigger / water / hint / detail centers must sit in sealed interior open space or `slopbsp` / `slopvis` / `sloprad` warn.
 
 ## What VIS is for
 
@@ -63,41 +63,41 @@ Entry point: `tools/slopbsp/main.cpp`. Core build: `buildBspFromHullBrushes` in 
 
 Constants used while building: plane epsilon `1e-4`, world bounds pad `0.5` world units, minimum face area `1e-6`.
 
-1. Gather hulls. Copy brushes with `BrushRole::Hull`. Detail / box / nocollide counts are logged only. No hulls → empty tree warning and return.
+1. Gather brushes. Sealing set = `hull` + `window`. Soft contents = `water` + `trigger`. Split planes from `hull`, `window`, `water`, and `hint`. Surface faces from sealing brushes. No sealing brushes → empty tree warning and return.
 
-2. World bounds. Axis-aligned bounds of all hull brushes, expanded by `kBoundsPad` on every side. Stored as `boundsMins` / `boundsMaxs`. That padding is what creates a ring of exterior empty leaves outside the solid shell.
+2. World bounds. Axis-aligned bounds of sealing brushes, expanded by `kBoundsPad` on every side. Stored as `boundsMins` / `boundsMaxs`. That padding is what creates a ring of exterior open leaves outside the solid shell.
 
-3. Split plane list. Every unique face plane from hull faces (`normal` + distance through the first vertex). Planes match when normals align (`dot ≥ 0.999`) and distances differ by at most the plane epsilon. Order is first-seen; the recursive builder picks the first plane that still cuts the current cell.
+3. Split plane list. Unique face planes from split-contributing brushes. Planes match when normals align (`dot ≥ 0.999`) and distances differ by at most the plane epsilon. Hint-only planes are marked so scoring prefers structural splits.
 
 4. Root polyhedron. An axis-aligned box polyhedron from the padded bounds (six quads).
 
 5. Recursive partition (`buildNode`). For the current polyhedron:
 
-- Find the first split plane that has vertices both in front of and behind it.
-- If none (or the geometric split fails): emit a leaf. The leaf stores the polyhedron’s faces and AABB. It is solid if the polyhedron centroid lies inside any hull brush; otherwise empty. Child indices encode leaves as negative (`-leafIndex - 1`).
-- If a plane cuts: clip every face against the plane (Sutherland–Hodgman style), build cap polygons on the cut from coplanar clip vertices (sorted around the plane), recurse front then back, store a `BspNode` with plane + front/back children.
+- Classify the cell against sealing brushes as wholly solid, wholly open, or mixed (vertex + centroid samples).
+- Wholly solid → emit a leaf with `Solid` or `Glass` contents immediately (early-out; no further carving of thick walls).
+- Otherwise score remaining unused planes that cut the cell: face-count balance − split penalty, plus axial alignment, plus a bonus for separating solid-vs-open samples; hint-only planes are penalized.
+- If none (or the geometric split fails): emit an open leaf and OR in `Water` / `Trigger` when the centroid sits in those brushes.
+- If a plane cuts: clip every face against the plane (Sutherland–Hodgman style), build cap polygons on the cut, recurse front then back, store a `BspNode` with plane + front/back children. Child indices encode leaves as negative (`-leafIndex - 1`).
 
-There is no SAH or balancing heuristic. Plane order is the unique-face list order. That keeps the builder simple; maps with many distinct hull planes produce deeper trees.
+6. Open-leaf adjacency / portals. Walk the tree; for each front/back open-leaf pair with overlapping AABBs, clip opposing coplanar faces into a portal polygon (`intersectPortal`). Store `BspPortal` entries and neighbor links. Adjacency is what the exterior flood walks. Debug overlays draw stored portals.
 
-6. Empty-leaf adjacency. Every pair of empty leaves is tested for a shared portal: opposing coplanar faces whose 2D projections overlap in the face plane. Matching pairs append each other to `neighbors`. Solid leaves are ignored. Adjacency is what the exterior flood walks.
-
-7. Occlusion surfaces. For each hull face, probe a point slightly along the outward normal. If that point lands in an empty leaf, emit a `BspSurfaceFace` (vertices, normal, empty-leaf index, face id, material, UV shift) with winding oriented to the brush normal. Buried or exterior-only faces that do not face empty space are omitted here. Surfaces remain available for BSP surface raycasts; draw / bake / audio use VIS instead.
+7. Occlusion surfaces. For each sealing (`hull` / `window`) face, probe a point slightly along the outward normal. If that point lands in an open leaf, emit a `BspSurfaceFace`. Buried or exterior-only faces that do not face open space are omitted. Surfaces remain available for BSP surface raycasts; draw / bake / audio use VIS instead.
 
 ### Hull analysis (after write)
 
-Exterior flood. Mark every empty leaf that touches the padded world AABB, then BFS through `neighbors`. Marked leaves are exterior empty; unmarked empty leaves are interior empty.
+Exterior flood. Mark every open leaf that touches the padded world AABB, then BFS through `neighbors`. Marked leaves are exterior open; unmarked open leaves are interior open. Leaves with `Solid` or `Glass` never participate.
 
-Sealed. The hull is sealed when at least one interior empty leaf exists. If every empty leaf is exterior-connected, the playable volume is open to the outside → leak.
+Sealed. The hull is sealed when at least one interior open leaf exists. If every open leaf is exterior-connected, the playable volume is open to the outside → leak.
 
-Leak path. On failure, BFS from bound-touching empty leaves toward the empty leaf whose centroid is closest to the hull AABB center. The logged path is a chain of `leaf:N@(x,y,z)` strings for debugging in-world.
+Leak path. On failure, BFS from bound-touching open leaves toward the open leaf whose centroid is closest to the sealing AABB center. The logged path is a chain of `leaf:N@(x,y,z)` strings for debugging in-world.
 
-Detail warnings. Each detail brush center is classified with `pointLeaf`. If that leaf is not sealed interior empty, emit `detail '<id>' is outside sealed hull`.
+Interior placement warnings. Each `detail` / `hint` / `trigger` / `water` brush center is classified with `pointLeaf`. If that leaf is not sealed interior open, emit `'<role> <id> is outside sealed hull'`.
 
 Inferred nodraw is no longer decided by sparse whole-face probes in analysis. That decision belongs to `slopvis` (zero visible area after clip).
 
 ### `BSP2` file contents
 
-Magic `BSP2` (little-endian `0x32505342`), version `2`. Payload includes root index, padded bounds, nodes (plane + front/back), leaves (solid flag, AABB, face polygons, neighbor indices), surface faces (geometry + string-table indices for id/material), and a string table. Exact field layout lives in `bsp_io.cpp`; treat the version as the compatibility gate.
+Magic `BSP2` (little-endian `0x32505342`), version `3`. Payload includes root index, padded bounds, nodes (plane + front/back), leaves (`contents` u32 + AABB + face polygons + neighbor indices), portals (`leafA`, `leafB`, polygon), surface faces (geometry + string-table indices for id/material), and a string table. Contents bits: `Solid`, `Glass`, `Water`, `Trigger`. Exact field layout lives in `bsp_io.cpp`; treat the version as the compatibility gate.
 
 ## VIS compilation (`slopvis`)
 
@@ -113,7 +113,7 @@ Entry point: `tools/slopvis/main.cpp`. Core build: `buildVisibleFaces` in `src/m
 
 ### Face visibility algorithm
 
-For each non-authored-nodraw **hull or detail** face (when the hull is sealed):
+For each non-authored-nodraw face on a VIS-emitting brush (`hull`, `detail`, `water`, `window`; not `hint` / `trigger`) when the hull is sealed:
 
 1. Clip the face polygon against every sealed interior empty leaf polyhedron (Sutherland–Hodgman against outward leaf planes).
 2. Keep fragments whose outward-nudged centroid sample lands in interior empty.
