@@ -660,39 +660,6 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
 }
 
-Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
-    useLightmapLoc = -1;
-    const std::string vert = assets.getShaderSource("default/lightmap_vert");
-    const std::string frag = assets.getShaderSource("default/lightmap_frag");
-    if (vert.empty() || frag.empty()) {
-        TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
-        return {};
-    }
-    Shader shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
-    if (shader.id == 0) {
-        TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
-        return {};
-    }
-    shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
-    shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
-    shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
-    shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
-    if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
-        shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
-    }
-    useLightmapLoc = GetShaderLocation(shader, "useLightmap");
-    int useLightmap = 1;
-    if (useLightmapLoc >= 0) {
-        SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
-    }
-    const int lightCountLoc = GetShaderLocation(shader, "dynLightCount");
-    if (lightCountLoc >= 0) {
-        const int zero = 0;
-        SetShaderValue(shader, lightCountLoc, &zero, SHADER_UNIFORM_INT);
-    }
-    return shader;
-}
-
 MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPath) {
     MaterialUvInfo info{};
     const MaterialAsset* asset = assets.getMaterialAsset(materialPath);

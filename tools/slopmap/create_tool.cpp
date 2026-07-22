@@ -68,6 +68,8 @@ void CreateTool::reset() {
     corner1 = {};
     thickness = 0.0f;
     thicknessFromNumeric = false;
+    pendingMins = {};
+    pendingMaxs = {};
 }
 
 bool CreateTool::footprintBounds(Vector3& mins, Vector3& maxs) const {
@@ -133,7 +135,82 @@ bool CreateTool::finalBounds(Vector3& mins, Vector3& maxs) const {
     return true;
 }
 
-void CreateTool::commit(Editor& editor) {
+void CreateTool::commitPending(Editor& editor) {
+    Vector3 mins = pendingMins;
+    Vector3 maxs = pendingMaxs;
+    if (maxs.x <= mins.x || maxs.y <= mins.y || maxs.z <= mins.z) {
+        reset();
+        editor.showPrimitiveParamsModal = false;
+        return;
+    }
+
+    EditorDocument& d = editor.doc();
+    std::vector<int> created;
+    const auto nocollide = slopengine::brushRoleDefaultNocollide(editor.createBrushRole);
+
+    if (editor.createPrimitive == CreatePrimitive::Cylinder) {
+        std::string error;
+        auto brush = slopengine::makeBrushCylinder(
+            editor.allocateBrushId(),
+            mins,
+            maxs,
+            editor.createCylinderSides,
+            d.defaultMaterial,
+            editor.createBrushRole,
+            error);
+        if (!brush) {
+            editor.statusMessage = error;
+            reset();
+            editor.showPrimitiveParamsModal = false;
+            return;
+        }
+        brush->nocollide = nocollide;
+        d.brushes.push_back(std::move(*brush));
+        created.push_back(static_cast<int>(d.brushes.size()) - 1);
+    } else if (editor.createPrimitive == CreatePrimitive::Stairs) {
+        const std::string prefix = editor.allocateBrushId();
+        auto stairs = slopengine::makeBrushStairs(
+            prefix,
+            mins,
+            maxs,
+            editor.createStairsSteps,
+            d.defaultMaterial,
+            editor.createBrushRole);
+        for (slopengine::Brush& brush : stairs) {
+            brush.nocollide = nocollide;
+            d.brushes.push_back(std::move(brush));
+            created.push_back(static_cast<int>(d.brushes.size()) - 1);
+        }
+    } else {
+        slopengine::Brush brush = slopengine::makeBrushBox(
+            editor.allocateBrushId(),
+            mins,
+            maxs,
+            d.defaultMaterial,
+            {},
+            editor.createBrushRole);
+        brush.nocollide = nocollide;
+        d.brushes.push_back(std::move(brush));
+        created.push_back(static_cast<int>(d.brushes.size()) - 1);
+    }
+
+    if (created.empty()) {
+        editor.statusMessage = "Create failed";
+        reset();
+        editor.showPrimitiveParamsModal = false;
+        return;
+    }
+
+    editor.selectBrushes(created, created.back());
+    editor.markDirty();
+    editor.markBrushCompileDirty(editor.createBrushRole);
+    editor.statusMessage = "Created " + std::to_string(created.size()) + " brush(es)";
+    editor.numericBuffer.clear();
+    editor.showPrimitiveParamsModal = false;
+    reset();
+}
+
+void CreateTool::beginCommit(Editor& editor) {
     Vector3 mins{};
     Vector3 maxs{};
     if (!finalBounds(mins, maxs)) {
@@ -141,25 +218,14 @@ void CreateTool::commit(Editor& editor) {
         editor.numericBuffer.clear();
         return;
     }
-
-    slopengine::Brush brush = slopengine::makeBrushBox(
-        editor.allocateBrushId(),
-        mins,
-        maxs,
-        editor.doc().defaultMaterial,
-        {},
-        editor.createBrushRole);
-    brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
-    EditorDocument& d = editor.doc();
-    d.brushes.push_back(std::move(brush));
-    d.selection = SelectionTarget::Brush;
-    d.selectedBrush = static_cast<int>(d.brushes.size()) - 1;
-    d.selectedFace = -1;
-    d.selectedInstance = -1;
-    editor.markDirty();
-    editor.statusMessage = "Created " + d.brushes.back().id;
-    editor.numericBuffer.clear();
-    reset();
+    pendingMins = mins;
+    pendingMaxs = maxs;
+    if (editor.createPrimitive == CreatePrimitive::Box) {
+        commitPending(editor);
+        return;
+    }
+    phase = CreatePhase::AwaitingParams;
+    editor.showPrimitiveParamsModal = true;
 }
 
 void CreateTool::handleNumeric(Editor& editor, bool uiWantsKeyboard) {
@@ -202,10 +268,15 @@ void CreateTool::handleNumeric(Editor& editor, bool uiWantsKeyboard) {
 
 void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMouse, bool uiWantsKeyboard) {
     if (editor.mode != EditorMode::Create) {
-        if (active()) {
+        if (active() || phase == CreatePhase::AwaitingParams) {
             reset();
             editor.numericBuffer.clear();
+            editor.showPrimitiveParamsModal = false;
         }
+        return;
+    }
+
+    if (phase == CreatePhase::AwaitingParams) {
         return;
     }
 
@@ -219,7 +290,7 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
     }
 
     if (!uiWantsKeyboard && phase == CreatePhase::Extruding && IsKeyPressed(KEY_ENTER)) {
-        commit(editor);
+        beginCommit(editor);
         return;
     }
 
@@ -281,13 +352,13 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
         }
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            commit(editor);
+            beginCommit(editor);
         }
     }
 }
 
 void CreateTool::drawPreview() const {
-    if (phase == CreatePhase::Idle) {
+    if (phase == CreatePhase::Idle || phase == CreatePhase::AwaitingParams) {
         return;
     }
 

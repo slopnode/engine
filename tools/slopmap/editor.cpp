@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <system_error>
 
 namespace slopmap {
@@ -59,12 +60,13 @@ bool ensurePrefabPath(
 }
 
 void resetSelectionSerial(EditorDocument& doc) {
-    doc.selection = SelectionTarget::None;
-    doc.selectedBrush = -1;
-    doc.selectedFace = -1;
-    doc.selectedInstance = -1;
-    doc.selectedThing = -1;
-    doc.scope = SelectionScope::Brush;
+    doc.selectionMode = SelectionMode::Brush;
+    doc.selectedBrushes.clear();
+    doc.selectedFaces.clear();
+    doc.selectedEntities.clear();
+    doc.activeBrush = -1;
+    doc.activeFace = {};
+    doc.activeEntity = {};
     doc.nextBrushSerial = 1;
     doc.nextPrefabSerial = 1;
     doc.nextThingSerial = 1;
@@ -313,13 +315,178 @@ const EditorDocument& Editor::doc() const {
     return scene == EditorScene::Level ? levelDoc : prefabDoc;
 }
 
+bool EditorDocument::hasSelection() const {
+    switch (selectionMode) {
+    case SelectionMode::Brush:
+        return !selectedBrushes.empty();
+    case SelectionMode::Face:
+        return !selectedFaces.empty();
+    case SelectionMode::Entity:
+        return !selectedEntities.empty();
+    }
+    return false;
+}
+
+bool EditorDocument::isBrushSelected(int index) const {
+    return std::find(selectedBrushes.begin(), selectedBrushes.end(), index) != selectedBrushes.end();
+}
+
+bool EditorDocument::isFaceSelected(FaceRef ref) const {
+    return std::find(selectedFaces.begin(), selectedFaces.end(), ref) != selectedFaces.end();
+}
+
+bool EditorDocument::isEntitySelected(EntityRef ref) const {
+    return std::find(selectedEntities.begin(), selectedEntities.end(), ref) !=
+        selectedEntities.end();
+}
+
 void Editor::clearSelection() {
     EditorDocument& d = doc();
-    d.selection = SelectionTarget::None;
-    d.selectedBrush = -1;
-    d.selectedFace = -1;
-    d.selectedInstance = -1;
-    d.selectedThing = -1;
+    d.selectedBrushes.clear();
+    d.selectedFaces.clear();
+    d.selectedEntities.clear();
+    d.activeBrush = -1;
+    d.activeFace = {};
+    d.activeEntity = {};
+}
+
+void Editor::setSelectionMode(SelectionMode mode) {
+    EditorDocument& d = doc();
+    if (d.selectionMode == mode) {
+        return;
+    }
+    clearSelection();
+    d.selectionMode = mode;
+    switch (mode) {
+    case SelectionMode::Brush:
+        statusMessage = "Selection mode: Brush";
+        break;
+    case SelectionMode::Face:
+        statusMessage = "Selection mode: Face";
+        break;
+    case SelectionMode::Entity:
+        statusMessage = "Selection mode: Entity";
+        break;
+    }
+}
+
+void Editor::selectBrush(int index, bool additive) {
+    EditorDocument& d = doc();
+    d.selectionMode = SelectionMode::Brush;
+    d.selectedFaces.clear();
+    d.selectedEntities.clear();
+    d.activeFace = {};
+    d.activeEntity = {};
+    if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (!additive) {
+        d.selectedBrushes.clear();
+        d.selectedBrushes.push_back(index);
+        d.activeBrush = index;
+        return;
+    }
+    const auto it = std::find(d.selectedBrushes.begin(), d.selectedBrushes.end(), index);
+    if (it != d.selectedBrushes.end()) {
+        d.selectedBrushes.erase(it);
+        if (d.activeBrush == index) {
+            d.activeBrush = d.selectedBrushes.empty() ? -1 : d.selectedBrushes.back();
+        }
+        return;
+    }
+    d.selectedBrushes.push_back(index);
+    d.activeBrush = index;
+}
+
+void Editor::selectFace(FaceRef ref, bool additive) {
+    EditorDocument& d = doc();
+    d.selectionMode = SelectionMode::Face;
+    d.selectedBrushes.clear();
+    d.selectedEntities.clear();
+    d.activeBrush = -1;
+    d.activeEntity = {};
+    if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size()) ||
+        ref.face >= static_cast<int>(d.brushes[static_cast<std::size_t>(ref.brush)].faces.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (!additive) {
+        d.selectedFaces.clear();
+        d.selectedFaces.push_back(ref);
+        d.activeFace = ref;
+        return;
+    }
+    const auto it = std::find(d.selectedFaces.begin(), d.selectedFaces.end(), ref);
+    if (it != d.selectedFaces.end()) {
+        d.selectedFaces.erase(it);
+        if (d.activeFace == ref) {
+            d.activeFace = d.selectedFaces.empty() ? FaceRef{} : d.selectedFaces.back();
+        }
+        return;
+    }
+    d.selectedFaces.push_back(ref);
+    d.activeFace = ref;
+}
+
+void Editor::selectEntity(EntityRef ref, bool additive) {
+    EditorDocument& d = doc();
+    d.selectionMode = SelectionMode::Entity;
+    d.selectedBrushes.clear();
+    d.selectedFaces.clear();
+    d.activeBrush = -1;
+    d.activeFace = {};
+    if (!ref.valid()) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (ref.kind == EntityRef::Kind::Thing &&
+        ref.index >= static_cast<int>(d.things.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (ref.kind == EntityRef::Kind::Instance &&
+        ref.index >= static_cast<int>(d.instances.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (!additive) {
+        d.selectedEntities.clear();
+        d.selectedEntities.push_back(ref);
+        d.activeEntity = ref;
+        return;
+    }
+    const auto it = std::find(d.selectedEntities.begin(), d.selectedEntities.end(), ref);
+    if (it != d.selectedEntities.end()) {
+        d.selectedEntities.erase(it);
+        if (d.activeEntity == ref) {
+            d.activeEntity = d.selectedEntities.empty() ? EntityRef{} : d.selectedEntities.back();
+        }
+        return;
+    }
+    d.selectedEntities.push_back(ref);
+    d.activeEntity = ref;
+}
+
+void Editor::selectBrushes(const std::vector<int>& indices, int active) {
+    EditorDocument& d = doc();
+    clearSelection();
+    d.selectionMode = SelectionMode::Brush;
+    d.selectedBrushes = indices;
+    d.activeBrush = active;
+    if (d.activeBrush < 0 && !d.selectedBrushes.empty()) {
+        d.activeBrush = d.selectedBrushes.back();
+    }
 }
 
 void Editor::newMap(const std::string& mapName) {
@@ -333,6 +500,8 @@ void Editor::newMap(const std::string& mapName) {
     expandedInstanceBrushes.clear();
     expandedInstanceOwners.clear();
     preview.clear();
+    shading = PreviewShading::Textured;
+    compileDirty = {};
     resetCamera(*this);
     createBrushRole = slopengine::BrushRole::Hull;
     statusMessage = "New map '" + levelDoc.assetPath + "'";
@@ -381,7 +550,9 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
         writePackageId = owned->package->meta().id;
     }
     resetSelectionSerial(levelDoc);
+    compileDirty = {};
     rebuildPreview(assets);
+    shading = reloadLitBake(assets) ? PreviewShading::Lit : PreviewShading::Textured;
     frameSelection();
     createBrushRole = slopengine::BrushRole::Hull;
     statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
@@ -562,6 +733,58 @@ void Editor::markDirty() {
     doc().dirty = true;
 }
 
+void Editor::markBspDirty() {
+    if (scene != EditorScene::Level) {
+        return;
+    }
+    compileDirty.bsp = true;
+    compileDirty.vis = true;
+    compileDirty.rad = true;
+}
+
+void Editor::markVisDirty() {
+    if (scene != EditorScene::Level) {
+        return;
+    }
+    compileDirty.vis = true;
+    compileDirty.rad = true;
+}
+
+void Editor::markRadDirty() {
+    if (scene != EditorScene::Level) {
+        return;
+    }
+    compileDirty.rad = true;
+}
+
+void Editor::markBrushCompileDirty(slopengine::BrushRole role) {
+    if (slopengine::brushRoleContributesSplits(role)) {
+        markBspDirty();
+    } else {
+        markVisDirty();
+    }
+}
+
+void Editor::markThingCompileDirty(slopengine::ThingKind kind) {
+    if (kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight) {
+        markRadDirty();
+    }
+}
+
+void Editor::clearCompileStage(CompileStage stage) {
+    switch (stage) {
+    case CompileStage::Bsp:
+        compileDirty.bsp = false;
+        break;
+    case CompileStage::Vis:
+        compileDirty.vis = false;
+        break;
+    case CompileStage::Rad:
+        compileDirty.rad = false;
+        break;
+    }
+}
+
 void Editor::rebuildPreview(slopengine::AssetStore& assets) {
     EditorDocument& d = doc();
     expandedInstanceBrushes.clear();
@@ -582,6 +805,16 @@ void Editor::rebuildPreview(slopengine::AssetStore& assets) {
         }
     }
     preview.rebuild(assets, combined);
+}
+
+bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
+    if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
+        return false;
+    }
+    std::vector<slopengine::Brush> combined = levelDoc.brushes;
+    combined.insert(
+        combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
+    return preview.reloadBake(assets, levelDoc.assetPath, combined);
 }
 
 namespace {
@@ -695,24 +928,66 @@ void Editor::frameSelection() {
 
 Vector3 Editor::selectionCenter() const {
     const EditorDocument& d = doc();
-    if (d.selection == SelectionTarget::Thing && d.selectedThing >= 0 &&
-        d.selectedThing < static_cast<int>(d.things.size())) {
-        const slopengine::Thing& thing =
-            d.things[static_cast<std::size_t>(d.selectedThing)];
-        return thing.haveAt ? thing.at : Vector3{0.0f, 1.0f, 0.0f};
+    if (d.selectionMode == SelectionMode::Entity && d.activeEntity.valid()) {
+        if (d.activeEntity.kind == EntityRef::Kind::Thing &&
+            d.activeEntity.index < static_cast<int>(d.things.size())) {
+            const slopengine::Thing& thing =
+                d.things[static_cast<std::size_t>(d.activeEntity.index)];
+            return thing.haveAt ? thing.at : Vector3{0.0f, 1.0f, 0.0f};
+        }
+        if (d.activeEntity.kind == EntityRef::Kind::Instance &&
+            d.activeEntity.index < static_cast<int>(d.instances.size())) {
+            return d.instances[static_cast<std::size_t>(d.activeEntity.index)].at;
+        }
     }
-    if (d.selection == SelectionTarget::Instance && d.selectedInstance >= 0 &&
-        d.selectedInstance < static_cast<int>(d.instances.size())) {
-        return d.instances[static_cast<std::size_t>(d.selectedInstance)].at;
+    if (d.selectionMode == SelectionMode::Face && d.activeFace.valid() &&
+        d.activeFace.brush < static_cast<int>(d.brushes.size())) {
+        const slopengine::Brush& brush =
+            d.brushes[static_cast<std::size_t>(d.activeFace.brush)];
+        if (d.activeFace.face < static_cast<int>(brush.faces.size())) {
+            const auto& verts = brush.faces[static_cast<std::size_t>(d.activeFace.face)].vertices;
+            if (!verts.empty()) {
+                Vector3 sum{};
+                for (const Vector3& v : verts) {
+                    sum = {sum.x + v.x, sum.y + v.y, sum.z + v.z};
+                }
+                const float inv = 1.0f / static_cast<float>(verts.size());
+                return {sum.x * inv, sum.y * inv, sum.z * inv};
+            }
+        }
     }
-    if (d.selection == SelectionTarget::Brush && d.selectedBrush >= 0 &&
-        d.selectedBrush < static_cast<int>(d.brushes.size())) {
-        const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
-        return {
-            0.5f * (brush.mins.x + brush.maxs.x),
-            0.5f * (brush.mins.y + brush.maxs.y),
-            0.5f * (brush.mins.z + brush.maxs.z),
+    if (d.selectionMode == SelectionMode::Brush && !d.selectedBrushes.empty()) {
+        Vector3 mins{
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
         };
+        Vector3 maxs{
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest(),
+        };
+        bool any = false;
+        for (int index : d.selectedBrushes) {
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+            any = true;
+            mins.x = std::min(mins.x, brush.mins.x);
+            mins.y = std::min(mins.y, brush.mins.y);
+            mins.z = std::min(mins.z, brush.mins.z);
+            maxs.x = std::max(maxs.x, brush.maxs.x);
+            maxs.y = std::max(maxs.y, brush.maxs.y);
+            maxs.z = std::max(maxs.z, brush.maxs.z);
+        }
+        if (any) {
+            return {
+                0.5f * (mins.x + maxs.x),
+                0.5f * (mins.y + maxs.y),
+                0.5f * (mins.z + maxs.z),
+            };
+        }
     }
     if (!d.brushes.empty()) {
         Vector3 mins = d.brushes[0].mins;
@@ -742,34 +1017,53 @@ Vector3 Editor::selectionCenter() const {
 
 void Editor::toggleSelectedBrushRole() {
     EditorDocument& d = doc();
-    if (d.selection != SelectionTarget::Brush || d.selectedBrush < 0 ||
-        d.selectedBrush >= static_cast<int>(d.brushes.size())) {
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
         return;
     }
-    slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
-    switch (brush.role) {
-    case slopengine::BrushRole::Hull:
-        brush.role = slopengine::BrushRole::Detail;
-        break;
-    case slopengine::BrushRole::Detail:
-        brush.role = slopengine::BrushRole::Hint;
-        break;
-    case slopengine::BrushRole::Hint:
-        brush.role = slopengine::BrushRole::Trigger;
-        break;
-    case slopengine::BrushRole::Trigger:
-        brush.role = slopengine::BrushRole::Water;
-        break;
-    case slopengine::BrushRole::Water:
-        brush.role = slopengine::BrushRole::Window;
-        break;
-    case slopengine::BrushRole::Window:
-        brush.role = slopengine::BrushRole::Hull;
-        break;
+    bool anySplit = false;
+    slopengine::BrushRole lastRole = slopengine::BrushRole::Hull;
+    std::string lastId;
+    for (int index : d.selectedBrushes) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+        const slopengine::BrushRole previous = brush.role;
+        switch (brush.role) {
+        case slopengine::BrushRole::Hull:
+            brush.role = slopengine::BrushRole::Detail;
+            break;
+        case slopengine::BrushRole::Detail:
+            brush.role = slopengine::BrushRole::Hint;
+            break;
+        case slopengine::BrushRole::Hint:
+            brush.role = slopengine::BrushRole::Trigger;
+            break;
+        case slopengine::BrushRole::Trigger:
+            brush.role = slopengine::BrushRole::Water;
+            break;
+        case slopengine::BrushRole::Water:
+            brush.role = slopengine::BrushRole::Window;
+            break;
+        case slopengine::BrushRole::Window:
+            brush.role = slopengine::BrushRole::Hull;
+            break;
+        }
+        brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
+        if (slopengine::brushRoleContributesSplits(previous) ||
+            slopengine::brushRoleContributesSplits(brush.role)) {
+            anySplit = true;
+        }
+        lastRole = brush.role;
+        lastId = brush.id;
     }
-    brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
     markDirty();
-    statusMessage = std::string("Role: ") + slopengine::brushRoleName(brush.role) + " (" + brush.id + ")";
+    if (anySplit) {
+        markBspDirty();
+    } else {
+        markVisDirty();
+    }
+    statusMessage = std::string("Role: ") + slopengine::brushRoleName(lastRole) + " (" + lastId + ")";
 }
 
 }

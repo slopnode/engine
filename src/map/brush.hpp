@@ -3,6 +3,7 @@
 #include <raylib.h>
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -56,6 +57,7 @@ struct Brush {
 };
 
 const char* brushBoxSideName(BrushBoxSide side);
+BrushBoxSide brushBoxSideFromNormal(Vector3 normal);
 const char* brushRoleName(BrushRole role);
 bool parseBrushRoleName(std::string_view name, BrushRole& out);
 bool brushRoleContributesSplits(BrushRole role);
@@ -91,6 +93,46 @@ std::optional<Brush> makeBrushConvex(
     std::vector<BrushFace> faces,
     BrushRole role,
     std::string& errorOut);
+
+/** Y-axis prism inscribed in the AABB footprint (circle in XZ), height = Y extent. */
+std::optional<Brush> makeBrushCylinder(
+    std::string id,
+    Vector3 mins,
+    Vector3 maxs,
+    int sides,
+    const std::string& material,
+    BrushRole role,
+    std::string& errorOut);
+
+/** Stacked box steps filling the AABB; rise along Y, run along longer of X/Z. */
+std::vector<Brush> makeBrushStairs(
+    const std::string& idPrefix,
+    Vector3 mins,
+    Vector3 maxs,
+    int steps,
+    const std::string& material,
+    BrushRole role);
+
+/** Six wall slabs leaving an inner void; empty if thickness is invalid. */
+std::vector<Brush> hollowBrushBox(
+    const Brush& source,
+    float thickness,
+    const std::function<std::string()>& allocateId);
+
+/**
+ * Rebuild an AABB brush around a rectangular opening punched from @p faceSide.
+ * Opening is in face UV space: u/v along the two face axes from face mins.
+ * @p depth is distance into the solid along -normal; use brush thickness for full cut.
+ */
+std::vector<Brush> punchOutBrushBox(
+    const Brush& source,
+    BrushBoxSide faceSide,
+    float u0,
+    float u1,
+    float v0,
+    float v1,
+    float depth,
+    const std::function<std::string()>& allocateId);
 
 std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& vertices);
 

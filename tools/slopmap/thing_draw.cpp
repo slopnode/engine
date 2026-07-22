@@ -2,6 +2,7 @@
 
 #include "assets/sprite_loader.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -162,11 +163,13 @@ void drawLightGizmo(const slopengine::Thing& thing, Color color) {
 void drawThings(
     slopengine::AssetStore& assets,
     const std::vector<slopengine::Thing>& things,
-    int selectedThing,
+    const std::vector<int>& selectedThings,
     const Camera3D& camera) {
     for (std::size_t i = 0; i < things.size(); ++i) {
         const slopengine::Thing& thing = things[i];
-        const bool selected = static_cast<int>(i) == selectedThing;
+        const bool selected =
+            std::find(selectedThings.begin(), selectedThings.end(), static_cast<int>(i)) !=
+            selectedThings.end();
         const Color color = kindColor(thing.kind, selected);
         const Vector3 pos = thingPosition(thing);
 

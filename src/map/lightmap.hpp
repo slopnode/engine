@@ -1,7 +1,10 @@
 #pragma once
 
+#include "assets/asset_store.hpp"
 #include "map/brush.hpp"
 #include "map/vis.hpp"
+
+#include <raylib.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -78,5 +81,7 @@ LightmapPackResult packLightmapCharts(
 bool writeRadFile(const std::filesystem::path& path, const RadFile& rad);
 std::optional<RadFile> readRadFile(const std::filesystem::path& path);
 std::optional<RadFile> readRadBytes(std::span<const std::byte> data);
+
+Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc);
 
 }

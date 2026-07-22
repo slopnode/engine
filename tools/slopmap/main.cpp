@@ -1,9 +1,11 @@
 #include "camera.hpp"
+#include "compile.hpp"
 #include "create_tool.hpp"
 #include "editor.hpp"
 #include "layout.hpp"
 #include "material_browser.hpp"
 #include "place_tool.hpp"
+#include "punch_tool.hpp"
 #include "thing_draw.hpp"
 #include "prefab_browser.hpp"
 #include "preview.hpp"
@@ -27,7 +29,9 @@
 #include <cctype>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -213,33 +217,42 @@ void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets
 
     ImGui::Separator();
     ImGui::TextDisabled("Selection");
-    if (d.selection == slopmap::SelectionTarget::Brush && d.selectedBrush >= 0 &&
-        d.selectedBrush < static_cast<int>(d.brushes.size())) {
-        const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
-        ImGui::Text("Brush: %s", brush.id.c_str());
-        ImGui::Text("Role: %s", slopengine::brushRoleName(brush.role));
-        ImGui::Text("Faces: %d", static_cast<int>(brush.faces.size()));
-        if (d.scope == slopmap::SelectionScope::Face && d.selectedFace >= 0 &&
-            d.selectedFace < static_cast<int>(brush.faces.size())) {
-            const slopengine::BrushFace& face =
-                brush.faces[static_cast<std::size_t>(d.selectedFace)];
-            ImGui::Text("Face: %s", face.id.c_str());
-            ImGui::Text("Material: %s", face.material.c_str());
+    ImGui::Text(
+        "Mode: %s",
+        d.selectionMode == slopmap::SelectionMode::Brush   ? "Brush"
+            : d.selectionMode == slopmap::SelectionMode::Face ? "Face"
+                                                             : "Entity");
+    if (d.selectionMode == slopmap::SelectionMode::Brush && !d.selectedBrushes.empty()) {
+        ImGui::Text("Brushes: %d", static_cast<int>(d.selectedBrushes.size()));
+        if (d.activeBrush >= 0 && d.activeBrush < static_cast<int>(d.brushes.size())) {
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(d.activeBrush)];
+            ImGui::Text("Active: %s", brush.id.c_str());
+            ImGui::Text("Role: %s", slopengine::brushRoleName(brush.role));
         }
-    } else if (
-        d.selection == slopmap::SelectionTarget::Instance && d.selectedInstance >= 0 &&
-        d.selectedInstance < static_cast<int>(d.instances.size())) {
-        const slopengine::PrefabInstance& instance =
-            d.instances[static_cast<std::size_t>(d.selectedInstance)];
-        ImGui::Text("Instance: %s", instance.id.c_str());
-        ImGui::Text("Prefab: %s", instance.path.c_str());
-    } else if (
-        d.selection == slopmap::SelectionTarget::Thing && d.selectedThing >= 0 &&
-        d.selectedThing < static_cast<int>(d.things.size())) {
-        const slopengine::Thing& thing =
-            d.things[static_cast<std::size_t>(d.selectedThing)];
-        ImGui::Text("Thing: %s", thing.id.c_str());
-        ImGui::Text("Kind: %s", slopengine::thingKindName(thing.kind));
+    } else if (d.selectionMode == slopmap::SelectionMode::Face && !d.selectedFaces.empty()) {
+        ImGui::Text("Faces: %d", static_cast<int>(d.selectedFaces.size()));
+        if (d.activeFace.valid() && d.activeFace.brush < static_cast<int>(d.brushes.size())) {
+            const auto& brush = d.brushes[static_cast<std::size_t>(d.activeFace.brush)];
+            if (d.activeFace.face < static_cast<int>(brush.faces.size())) {
+                const auto& face = brush.faces[static_cast<std::size_t>(d.activeFace.face)];
+                ImGui::Text("Active: %s", face.id.c_str());
+                ImGui::Text("Material: %s", face.material.c_str());
+            }
+        }
+    } else if (d.selectionMode == slopmap::SelectionMode::Entity && !d.selectedEntities.empty()) {
+        ImGui::Text("Entities: %d", static_cast<int>(d.selectedEntities.size()));
+        if (d.activeEntity.valid()) {
+            if (d.activeEntity.kind == slopmap::EntityRef::Kind::Thing &&
+                d.activeEntity.index < static_cast<int>(d.things.size())) {
+                const auto& thing = d.things[static_cast<std::size_t>(d.activeEntity.index)];
+                ImGui::Text("Active thing: %s", thing.id.c_str());
+            } else if (
+                d.activeEntity.kind == slopmap::EntityRef::Kind::Instance &&
+                d.activeEntity.index < static_cast<int>(d.instances.size())) {
+                const auto& instance = d.instances[static_cast<std::size_t>(d.activeEntity.index)];
+                ImGui::Text("Active instance: %s", instance.id.c_str());
+            }
+        }
     } else {
         ImGui::TextUnformatted("None");
     }
@@ -251,7 +264,8 @@ void drawScene(
     slopmap::Editor& editor,
     slopengine::AssetStore& assets,
     const Camera3D& camera,
-    const slopmap::CreateTool& createTool) {
+    const slopmap::CreateTool& createTool,
+    const slopmap::PunchTool& punchTool) {
     ClearBackground(Color{32, 34, 38, 255});
     BeginMode3D(camera);
     const Vector3 eye = camera.position;
@@ -263,13 +277,22 @@ void drawScene(
     slopmap::drawThickLine3D({0, 0, -100}, {0, 0, 100}, Color{60, 60, 180, 255}, axisWidth, eye);
 
     const slopmap::EditorDocument& d = editor.doc();
-    const int selectedBrush =
-        d.selection == slopmap::SelectionTarget::Brush ? d.selectedBrush : -1;
-    editor.preview.draw(editor.wireframe, d.brushes, selectedBrush, eye, lineWidth);
-    if (editor.wireframe) {
+    const std::vector<int> selectedBrushes =
+        d.selectionMode == slopmap::SelectionMode::Brush ? d.selectedBrushes
+                                                         : std::vector<int>{};
+    const bool wireframe = editor.shading == slopmap::PreviewShading::Wireframe;
+    editor.preview.draw(
+        editor.shading,
+        d.brushes,
+        editor.expandedInstanceBrushes,
+        selectedBrushes,
+        eye,
+        lineWidth);
+    if (wireframe) {
         for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
-            const bool selected = d.selection == slopmap::SelectionTarget::Instance &&
-                editor.expandedInstanceOwners[i] == d.selectedInstance;
+            const bool selected = d.selectionMode == slopmap::SelectionMode::Entity &&
+                d.isEntitySelected(
+                    {slopmap::EntityRef::Kind::Instance, editor.expandedInstanceOwners[i]});
             slopmap::drawBrushFaceOutlines(
                 editor.expandedInstanceBrushes[i],
                 slopmap::brushOutlineColor(editor.expandedInstanceBrushes[i], selected),
@@ -278,21 +301,36 @@ void drawScene(
         }
     }
 
-    if (d.selection == slopmap::SelectionTarget::Brush && d.selectedBrush >= 0 &&
-        d.selectedBrush < static_cast<int>(d.brushes.size())) {
-        const auto& brush = d.brushes[static_cast<std::size_t>(d.selectedBrush)];
-        if (!editor.wireframe) {
-            slopmap::drawBrushFaceOutlines(
-                brush,
-                slopmap::brushOutlineColor(brush, true),
-                eye,
-                lineWidth);
+    if (d.selectionMode == slopmap::SelectionMode::Brush) {
+        for (int index : d.selectedBrushes) {
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            const auto& brush = d.brushes[static_cast<std::size_t>(index)];
+            if (!wireframe) {
+                slopmap::drawBrushFaceOutlines(
+                    brush,
+                    slopmap::brushOutlineColor(brush, true),
+                    eye,
+                    lineWidth);
+            }
         }
-        if (d.scope == slopmap::SelectionScope::Face && d.selectedFace >= 0 &&
-            d.selectedFace < static_cast<int>(brush.faces.size())) {
-            const auto& face = brush.faces[static_cast<std::size_t>(d.selectedFace)];
-            const Color faceColor =
-                face.uvLock ? Color{255, 200, 80, 255} : Color{80, 220, 255, 255};
+    }
+
+    if (d.selectionMode == slopmap::SelectionMode::Face) {
+        for (const slopmap::FaceRef& ref : d.selectedFaces) {
+            if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+            if (ref.face >= static_cast<int>(brush.faces.size())) {
+                continue;
+            }
+            const auto& face = brush.faces[static_cast<std::size_t>(ref.face)];
+            const bool active = ref == d.activeFace;
+            const Color faceColor = active
+                ? (face.uvLock ? Color{255, 200, 80, 255} : Color{80, 220, 255, 255})
+                : Color{80, 160, 200, 255};
             for (std::size_t i = 0; i < face.vertices.size(); ++i) {
                 const Vector3& a = face.vertices[i];
                 const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
@@ -301,10 +339,10 @@ void drawScene(
         }
     }
 
-    if (!editor.wireframe && d.selection == slopmap::SelectionTarget::Instance &&
-        d.selectedInstance >= 0) {
+    if (!wireframe && d.selectionMode == slopmap::SelectionMode::Entity) {
         for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
-            if (editor.expandedInstanceOwners[i] != d.selectedInstance) {
+            if (!d.isEntitySelected(
+                    {slopmap::EntityRef::Kind::Instance, editor.expandedInstanceOwners[i]})) {
                 continue;
             }
             slopmap::drawBrushFaceOutlines(
@@ -315,11 +353,18 @@ void drawScene(
         }
     }
 
-    const int selectedThing =
-        d.selection == slopmap::SelectionTarget::Thing ? d.selectedThing : -1;
-    slopmap::drawThings(assets, d.things, selectedThing, camera);
+    std::vector<int> selectedThings;
+    if (d.selectionMode == slopmap::SelectionMode::Entity) {
+        for (const slopmap::EntityRef& ref : d.selectedEntities) {
+            if (ref.kind == slopmap::EntityRef::Kind::Thing) {
+                selectedThings.push_back(ref.index);
+            }
+        }
+    }
+    slopmap::drawThings(assets, d.things, selectedThings, camera);
 
     createTool.drawPreview();
+    punchTool.drawPreview();
     EndMode3D();
 }
 
@@ -404,11 +449,92 @@ void armPresentationAsset(
         ")";
 }
 
-void cancelTools(slopmap::CreateTool& createTool, slopmap::SelectTool& selectTool, slopmap::Editor& editor) {
+void cancelTools(
+    slopmap::CreateTool& createTool,
+    slopmap::SelectTool& selectTool,
+    slopmap::PunchTool& punchTool,
+    slopmap::Editor& editor) {
     createTool.reset();
+    punchTool.reset();
+    editor.showPrimitiveParamsModal = false;
+    editor.showHollowModal = false;
     if (selectTool.translating) {
         selectTool.cancelTranslate(editor);
     }
+}
+
+slopengine::BrushRole nextBrushRole(slopengine::BrushRole role) {
+    switch (role) {
+    case slopengine::BrushRole::Hull:
+        return slopengine::BrushRole::Detail;
+    case slopengine::BrushRole::Detail:
+        return slopengine::BrushRole::Hint;
+    case slopengine::BrushRole::Hint:
+        return slopengine::BrushRole::Trigger;
+    case slopengine::BrushRole::Trigger:
+        return slopengine::BrushRole::Water;
+    case slopengine::BrushRole::Water:
+        return slopengine::BrushRole::Window;
+    case slopengine::BrushRole::Window:
+        return slopengine::BrushRole::Hull;
+    }
+    return slopengine::BrushRole::Hull;
+}
+
+const char* brushRoleToolbarLabel(slopengine::BrushRole role) {
+    return slopengine::brushRoleName(role);
+}
+
+const char* brushRoleToolbarIcon(slopengine::BrushRole role) {
+    return slopengine::brushRoleContributesSplits(role) ? "cut" : "brick";
+}
+
+void applyHollow(slopmap::Editor& editor) {
+    slopmap::EditorDocument& d = editor.doc();
+    if (d.selectionMode != slopmap::SelectionMode::Brush || d.selectedBrushes.empty()) {
+        editor.statusMessage = "Hollow: select box brush(es)";
+        return;
+    }
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    std::vector<slopengine::Brush> walls;
+    std::vector<int> removeIndices;
+    slopengine::BrushRole role = slopengine::BrushRole::Hull;
+    auto allocateId = [&]() { return editor.allocateBrushId(); };
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        const slopengine::Brush& source = d.brushes[static_cast<std::size_t>(index)];
+        if (!source.box) {
+            continue;
+        }
+        auto next = slopengine::hollowBrushBox(source, editor.hollowThickness, allocateId);
+        if (next.empty()) {
+            continue;
+        }
+        role = source.role;
+        removeIndices.push_back(index);
+        walls.insert(walls.end(), std::make_move_iterator(next.begin()), std::make_move_iterator(next.end()));
+    }
+    if (walls.empty()) {
+        editor.statusMessage = "Hollow failed (need box brushes, thickness < half size)";
+        return;
+    }
+    std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
+    for (int index : removeIndices) {
+        d.brushes.erase(d.brushes.begin() + index);
+    }
+    std::vector<int> created;
+    for (slopengine::Brush& wall : walls) {
+        d.brushes.push_back(std::move(wall));
+        created.push_back(static_cast<int>(d.brushes.size()) - 1);
+    }
+    editor.selectBrushes(created, created.front());
+    editor.markDirty();
+    editor.markBrushCompileDirty(role);
+    editor.statusMessage = "Hollowed into " + std::to_string(created.size()) + " walls";
 }
 
 void drawWritePackagePicker(slopmap::Editor& editor, const slopengine::AssetStore& assets) {
@@ -470,7 +596,8 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
-    setupImGuiWithUiFont(assets, kDefaultUiFontPath, true);
+    ImFont* monoFont = setupImGuiWithUiAndMonoFont(
+        assets, kDefaultUiFontPath, kMonoUiFontPath, true);
 
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
@@ -502,14 +629,57 @@ int main(int argc, char* argv[]) {
     slopmap::CreateTool createTool;
     slopmap::SelectTool selectTool;
     slopmap::PlaceTool placeTool;
+    slopmap::PunchTool punchTool;
     slopmap::MaterialBrowser materialBrowser;
     slopmap::PrefabBrowser prefabBrowser;
+    slopmap::CompileController compile;
     materialBrowser.rescan(assets);
     prefabBrowser.rescan(assets);
     bool previewNeedsRebuild = false;
+    bool compileWasRunning = false;
+    bool compileRunIncludesRad = false;
     char mapNameBuf[128] = {};
     char prefabPathBuf[256] = {};
     RenderTexture2D contentTarget{};
+
+    auto syncCompileStatus = [&]() {
+        std::string status;
+        if (compile.takeStatusUpdate(status)) {
+            editor.statusMessage = std::move(status);
+        }
+    };
+
+    auto startCompile = [&](std::vector<slopmap::CompileStage> stages) {
+        if (compile.running()) {
+            return;
+        }
+        const std::string& mapName = editor.levelDoc.assetPath;
+        if (mapName.empty() || mapName == "untitled") {
+            editor.statusMessage = "Save the map before compiling";
+            editor.showSaveAsModal = true;
+            mapNameBuf[0] = '\0';
+            return;
+        }
+        if (editor.levelDoc.dirty) {
+            if (!editor.save(assets)) {
+                editor.statusMessage = "Save failed; compile aborted";
+                return;
+            }
+        }
+        compileRunIncludesRad = false;
+        for (const slopmap::CompileStage stage : stages) {
+            if (stage == slopmap::CompileStage::Rad) {
+                compileRunIncludesRad = true;
+                break;
+            }
+        }
+        slopmap::CompileMountArgs mounts;
+        mounts.baseGame = config->mount.base_game;
+        mounts.mods = config->mount.mods;
+        mounts.mapName = mapName;
+        compile.requestRun(std::move(stages), mounts);
+        syncCompileStatus();
+    };
 
     while (!editor.quitConfirmed) {
         if (WindowShouldClose()) {
@@ -530,12 +700,17 @@ int main(int argc, char* argv[]) {
 
         const float chromeHeight = ImGui::GetFrameHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
+        const float toolbarRowH = ImGui::GetFrameHeight() + 8.0f;
+        const float toolbarHeight = toolbarRowH * 2.0f;
         const slopmap::UiLayout layout = slopmap::computeUiLayout(chromeHeight, statusHeight);
-        editor.contentViewport = layout.content;
-        slopmap::ensureContentTarget(contentTarget, layout.content);
+        Rectangle viewport = layout.content;
+        viewport.y += toolbarHeight;
+        viewport.height = std::max(1.0f, viewport.height - toolbarHeight);
+        editor.contentViewport = viewport;
+        slopmap::ensureContentTarget(contentTarget, viewport);
 
         const Vector2 mouse = GetMousePosition();
-        const bool mouseInContent = slopmap::pointInRect(mouse, layout.content);
+        const bool mouseInContent = slopmap::pointInRect(mouse, viewport);
         const bool allowFly =
             !uiWantsKeyboard && !uiWantsMouse && (mouseInContent || IsCursorHidden());
         editor.camera.update(allowFly);
@@ -552,7 +727,7 @@ int main(int argc, char* argv[]) {
                         editor.showNewModal = true;
                         editor.modalMapName = "untitled";
                     } else {
-                        cancelTools(createTool, selectTool, editor);
+                        cancelTools(createTool, selectTool, punchTool, editor);
                         editor.newMap("untitled");
                         previewNeedsRebuild = true;
                     }
@@ -602,21 +777,23 @@ int main(int argc, char* argv[]) {
                         kIcons,
                         "cursor",
                         "Select Mode",
-                        "1",
+                        nullptr,
                         editor.mode == slopmap::EditorMode::Select)) {
                     editor.mode = slopmap::EditorMode::Select;
                     createTool.reset();
+                    punchTool.reset();
                 }
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
                         "shape_square",
                         "Create Mode",
-                        "2",
+                        nullptr,
                         editor.mode == slopmap::EditorMode::Create)) {
                     if (selectTool.translating) {
                         selectTool.cancelTranslate(editor);
                     }
+                    punchTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
                     editor.statusMessage =
                         std::string("Create role: ") +
@@ -627,13 +804,14 @@ int main(int argc, char* argv[]) {
                         kIcons,
                         "package",
                         "Place Mode",
-                        "3",
+                        nullptr,
                         editor.mode == slopmap::EditorMode::Place,
                         editor.scene == slopmap::EditorScene::Level)) {
                     if (selectTool.translating) {
                         selectTool.cancelTranslate(editor);
                     }
                     createTool.reset();
+                    punchTool.reset();
                     editor.mode = slopmap::EditorMode::Place;
                     if (editor.placeThingKind.has_value()) {
                         editor.placeTarget = slopmap::PlaceTarget::Thing;
@@ -643,11 +821,43 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
+                        "bricks",
+                        "Selection: Brush",
+                        nullptr,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Brush,
+                        editor.mode == slopmap::EditorMode::Select)) {
+                    editor.setSelectionMode(slopmap::SelectionMode::Brush);
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "shape_handles",
+                        "Selection: Face",
+                        nullptr,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Face,
+                        editor.mode == slopmap::EditorMode::Select)) {
+                    editor.setSelectionMode(slopmap::SelectionMode::Face);
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "user",
+                        "Selection: Entity",
+                        nullptr,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Entity,
+                        editor.mode == slopmap::EditorMode::Select)) {
+                    editor.setSelectionMode(slopmap::SelectionMode::Entity);
+                }
+                ImGui::Separator();
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
                         "brick",
                         "Toggle Brush Role",
                         "H",
                         false,
-                        editor.doc().selection == slopmap::SelectionTarget::Brush)) {
+                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                            !editor.doc().selectedBrushes.empty())) {
                     editor.toggleSelectedBrushRole();
                     previewNeedsRebuild = true;
                 }
@@ -658,9 +868,39 @@ int main(int argc, char* argv[]) {
                         "Toggle UV Lock",
                         "L",
                         false,
-                        editor.doc().selection == slopmap::SelectionTarget::Brush)) {
+                        (editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                         !editor.doc().selectedBrushes.empty()) ||
+                            (editor.doc().selectionMode == slopmap::SelectionMode::Face &&
+                             !editor.doc().selectedFaces.empty()))) {
                     selectTool.toggleSelectedUvLock(editor);
                     previewNeedsRebuild = true;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "box",
+                        "Hollow...",
+                        nullptr,
+                        false,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                            !editor.doc().selectedBrushes.empty())) {
+                    editor.hollowThickness = editor.gridSize;
+                    editor.showHollowModal = true;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "cut",
+                        "Punch-out",
+                        nullptr,
+                        false,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Face &&
+                            !editor.doc().selectedFaces.empty())) {
+                    if (selectTool.translating) {
+                        selectTool.cancelTranslate(editor);
+                    }
+                    createTool.reset();
+                    punchTool.beginFromSelection(editor);
                 }
                 ImGui::Separator();
                 if (menuItemWithIcon(
@@ -685,7 +925,7 @@ int main(int argc, char* argv[]) {
                         editor.pendingScene = slopmap::EditorScene::Prefab;
                         editor.showSwitchSceneModal = true;
                     } else {
-                        cancelTools(createTool, selectTool, editor);
+                        cancelTools(createTool, selectTool, punchTool, editor);
                         editor.newPrefab();
                         previewNeedsRebuild = true;
                     }
@@ -737,7 +977,7 @@ int main(int argc, char* argv[]) {
                         false,
                         editor.scene == slopmap::EditorScene::Prefab)) {
                     if (editor.switchScene(slopmap::EditorScene::Level)) {
-                        cancelTools(createTool, selectTool, editor);
+                        cancelTools(createTool, selectTool, punchTool, editor);
                         editor.rebuildPreview(assets);
                         previewNeedsRebuild = false;
                     }
@@ -782,12 +1022,121 @@ int main(int argc, char* argv[]) {
                     editor.setViewPlane(slopmap::ViewPlane::Side);
                 }
                 ImGui::Separator();
-                menuItemWithIcon(assets, kIcons, "shape_square", "Wireframe", "Z", &editor.wireframe);
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "shape_square",
+                        "Wireframe",
+                        "Z",
+                        editor.shading == slopmap::PreviewShading::Wireframe)) {
+                    editor.shading = slopmap::PreviewShading::Wireframe;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "box",
+                        "Solid",
+                        nullptr,
+                        editor.shading == slopmap::PreviewShading::Solid)) {
+                    editor.shading = slopmap::PreviewShading::Solid;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "picture",
+                        "Textured",
+                        nullptr,
+                        editor.shading == slopmap::PreviewShading::Textured)) {
+                    editor.shading = slopmap::PreviewShading::Textured;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "lightbulb",
+                        "Lit",
+                        nullptr,
+                        editor.shading == slopmap::PreviewShading::Lit)) {
+                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                        editor.shading = slopmap::PreviewShading::Lit;
+                    } else {
+                        editor.statusMessage = "No lightmap bake; run RAD";
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (beginMenuWithIcon(assets, kIcons, "cog", "Compile")) {
+                const bool canRun = !compile.running();
+                const char* runBspLabel =
+                    editor.compileDirty.bsp ? "Run BSP *" : "Run BSP";
+                const char* runVisLabel =
+                    editor.compileDirty.vis ? "Run VIS *" : "Run VIS";
+                const char* runRadLabel =
+                    editor.compileDirty.rad ? "Run RAD *" : "Run RAD";
+                const char* runAllLabel =
+                    (editor.compileDirty.bsp || editor.compileDirty.vis ||
+                        editor.compileDirty.rad)
+                    ? "Run All *"
+                    : "Run All";
+                if (menuItemWithIcon(
+                        assets, kIcons, "brick", runBspLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Bsp});
+                }
+                if (menuItemWithIcon(
+                        assets, kIcons, "chart_organisation", runVisLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Vis});
+                }
+                if (menuItemWithIcon(
+                        assets, kIcons, "lightbulb", runRadLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Rad});
+                }
+                ImGui::Separator();
+                if (menuItemWithIcon(
+                        assets, kIcons, "script_go", runAllLabel, nullptr, false, canRun)) {
+                    startCompile({
+                        slopmap::CompileStage::Bsp,
+                        slopmap::CompileStage::Vis,
+                        slopmap::CompileStage::Rad,
+                    });
+                }
+                ImGui::Separator();
+                if (menuItemWithIcon(
+                        assets, kIcons, "wrench", "RAD Options…", nullptr, false, true)) {
+                    compile.showOptionsModal = true;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "application_osx_terminal",
+                        "Show Output",
+                        nullptr,
+                        false,
+                        true)) {
+                    compile.showOutputWindow = true;
+                }
                 ImGui::EndMenu();
             }
             drawDiagnosticsMenu(editor, assets);
             ImGui::EndMainMenuBar();
         }
+
+        compile.tick();
+        syncCompileStatus();
+        {
+            slopmap::CompileStage completedStage = slopmap::CompileStage::Bsp;
+            while (compile.takeCompletedStage(completedStage)) {
+                editor.clearCompileStage(completedStage);
+            }
+        }
+        if (compileWasRunning && !compile.running()) {
+            if (compileRunIncludesRad && compile.statusSummary() == "Compile finished") {
+                if (editor.reloadLitBake(assets)) {
+                    editor.shading = slopmap::PreviewShading::Lit;
+                    editor.statusMessage = "Compile finished — viewing Lit bake";
+                }
+            }
+            compileRunIncludesRad = false;
+        }
+        compileWasRunning = compile.running();
 
         if (!uiWantsKeyboard && !rmbFly) {
             if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_S)) {
@@ -802,7 +1151,7 @@ int main(int argc, char* argv[]) {
                 if (editor.levelDoc.dirty) {
                     editor.showNewModal = true;
                 } else {
-                    cancelTools(createTool, selectTool, editor);
+                    cancelTools(createTool, selectTool, punchTool, editor);
                     editor.newMap("untitled");
                     previewNeedsRebuild = true;
                 }
@@ -811,34 +1160,17 @@ int main(int argc, char* argv[]) {
                 editor.showLoadModal = true;
                 std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.levelDoc.assetPath.c_str());
             }
-            if (IsKeyPressed(KEY_ONE)) {
-                editor.mode = slopmap::EditorMode::Select;
-                createTool.reset();
-            }
-            if (IsKeyPressed(KEY_TWO)) {
-                if (selectTool.translating) {
-                    selectTool.cancelTranslate(editor);
-                }
-                editor.mode = slopmap::EditorMode::Create;
-                editor.statusMessage =
-                    std::string("Create role: ") +
-                    slopengine::brushRoleName(editor.createBrushRole);
-            }
-            if (IsKeyPressed(KEY_THREE) && editor.scene == slopmap::EditorScene::Level) {
-                if (selectTool.translating) {
-                    selectTool.cancelTranslate(editor);
-                }
-                createTool.reset();
-                editor.mode = slopmap::EditorMode::Place;
-                if (editor.placeThingKind.has_value()) {
-                    editor.placeTarget = slopmap::PlaceTarget::Thing;
-                }
-            }
-            if (IsKeyPressed(KEY_H) && editor.doc().selection == slopmap::SelectionTarget::Brush) {
+            if (IsKeyPressed(KEY_H) &&
+                editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                !editor.doc().selectedBrushes.empty()) {
                 editor.toggleSelectedBrushRole();
                 previewNeedsRebuild = true;
             }
-            if (IsKeyPressed(KEY_L) && editor.doc().selection == slopmap::SelectionTarget::Brush) {
+            if (IsKeyPressed(KEY_L) &&
+                ((editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                  !editor.doc().selectedBrushes.empty()) ||
+                 (editor.doc().selectionMode == slopmap::SelectionMode::Face &&
+                  !editor.doc().selectedFaces.empty()))) {
                 selectTool.toggleSelectedUvLock(editor);
                 previewNeedsRebuild = true;
             }
@@ -855,19 +1187,41 @@ int main(int argc, char* argv[]) {
                 editor.frameSelection();
             }
             if (IsKeyPressed(KEY_Z) && !selectTool.translating) {
-                editor.wireframe = !editor.wireframe;
+                switch (editor.shading) {
+                case slopmap::PreviewShading::Wireframe:
+                    editor.shading = slopmap::PreviewShading::Solid;
+                    break;
+                case slopmap::PreviewShading::Solid:
+                    editor.shading = slopmap::PreviewShading::Textured;
+                    break;
+                case slopmap::PreviewShading::Textured:
+                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                        editor.shading = slopmap::PreviewShading::Lit;
+                    } else {
+                        editor.shading = slopmap::PreviewShading::Wireframe;
+                        editor.statusMessage = "No lightmap bake; run RAD";
+                    }
+                    break;
+                case slopmap::PreviewShading::Lit:
+                    editor.shading = slopmap::PreviewShading::Wireframe;
+                    break;
+                }
             }
         }
 
         const bool wasTranslating = selectTool.translating;
         const bool createWasActive = createTool.active();
+        const bool punchWasActive = punchTool.active();
         const std::size_t brushCountBefore = editor.doc().brushes.size();
         const std::size_t instanceCountBefore = editor.doc().instances.size();
         const bool dirtyBefore = editor.doc().dirty;
 
-        const bool toolActive = selectTool.translating || createTool.active();
+        const bool toolActive =
+            selectTool.translating || createTool.active() || punchTool.active();
         const bool blockTools = rmbFly || uiWantsMouse || (!mouseInContent && !toolActive);
-        if (editor.mode == slopmap::EditorMode::Create) {
+        if (punchTool.active()) {
+            punchTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
+        } else if (editor.mode == slopmap::EditorMode::Create) {
             createTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
         } else if (editor.mode == slopmap::EditorMode::Place) {
             placeTool.update(editor, assets, camera, blockTools, uiWantsKeyboard || rmbFly);
@@ -878,10 +1232,11 @@ int main(int argc, char* argv[]) {
         if (editor.doc().brushes.size() != brushCountBefore ||
             editor.doc().instances.size() != instanceCountBefore ||
             editor.doc().dirty != dirtyBefore || selectTool.translating || wasTranslating ||
-            createTool.active() != createWasActive) {
+            createTool.active() != createWasActive || punchTool.active() != punchWasActive) {
             previewNeedsRebuild = true;
         }
-        if (previewNeedsRebuild && (!createTool.active() || selectTool.translating)) {
+        if (previewNeedsRebuild &&
+            ((!createTool.active() && !punchTool.active()) || selectTool.translating)) {
             editor.rebuildPreview(assets);
             previewNeedsRebuild = selectTool.translating;
         }
@@ -891,9 +1246,327 @@ int main(int argc, char* argv[]) {
 
         if (contentTarget.id != 0) {
             BeginTextureMode(contentTarget);
-            drawScene(editor, assets, camera, createTool);
+            drawScene(editor, assets, camera, createTool, punchTool);
             EndTextureMode();
-            slopmap::drawContentTarget(contentTarget, layout.content);
+            slopmap::drawContentTarget(contentTarget, viewport);
+        }
+
+        {
+            constexpr const char* kToolbarIcons = kDefaultIconSet;
+            ImGui::SetNextWindowPos(ImVec2(layout.content.x, layout.content.y), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(layout.content.width, toolbarHeight), ImGuiCond_Always);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 4.0f));
+            if (ImGui::Begin(
+                    "##editorToolbar",
+                    nullptr,
+                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar |
+                        ImGuiWindowFlags_NoScrollWithMouse)) {
+                auto toolBtn =
+                    [&](const char* id,
+                        const char* icon,
+                        const char* label,
+                        bool selected,
+                        bool enabled = true) -> bool {
+                    ImGui::PushID(id);
+                    constexpr float kIcon = 16.0f;
+                    const ImGuiStyle& st = ImGui::GetStyle();
+                    const ImVec2 textSize = ImGui::CalcTextSize(label);
+                    const float width =
+                        st.FramePadding.x * 2.0f + kIcon + st.ItemInnerSpacing.x + textSize.x;
+                    const float height = ImGui::GetFrameHeight();
+
+                    if (selected) {
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        ImGui::PushStyleColor(
+                            ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        ImGui::PushStyleColor(
+                            ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+                    }
+                    if (!enabled) {
+                        ImGui::BeginDisabled();
+                    }
+                    const bool pressed = ImGui::Button("##tb", ImVec2(width, height));
+                    const ImVec2 min = ImGui::GetItemRectMin();
+                    const ImVec2 max = ImGui::GetItemRectMax();
+                    const float contentW = kIcon + st.ItemInnerSpacing.x + textSize.x;
+                    const float x = min.x + (max.x - min.x - contentW) * 0.5f;
+                    const float yIcon = min.y + (height - kIcon) * 0.5f;
+                    const float yText = min.y + (height - textSize.y) * 0.5f;
+
+                    ImDrawList* draw = ImGui::GetWindowDrawList();
+                    const IconAtlas* atlas = assets.getIconAtlas(kToolbarIcons);
+                    if (atlas != nullptr && atlas->texture.id != 0) {
+                        if (const auto rect = findIconRect(*atlas, icon)) {
+                            const float tw = static_cast<float>(atlas->texture.width);
+                            const float th = static_cast<float>(atlas->texture.height);
+                            draw->AddImage(
+                                (ImTextureID)(intptr_t)atlas->texture.id,
+                                ImVec2(x, yIcon),
+                                ImVec2(x + kIcon, yIcon + kIcon),
+                                ImVec2(rect->x / tw, rect->y / th),
+                                ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th));
+                        }
+                    }
+                    draw->AddText(
+                        ImVec2(x + kIcon + st.ItemInnerSpacing.x, yText),
+                        ImGui::GetColorU32(ImGuiCol_Text),
+                        label);
+                    if (selected) {
+                        draw->AddRectFilled(
+                            ImVec2(min.x + 3.0f, max.y - 3.0f),
+                            ImVec2(max.x - 3.0f, max.y - 1.0f),
+                            ImGui::GetColorU32(ImGuiCol_CheckMark));
+                    }
+
+                    if (!enabled) {
+                        ImGui::EndDisabled();
+                    }
+                    if (selected) {
+                        ImGui::PopStyleColor(3);
+                    }
+                    ImGui::PopID();
+                    return pressed;
+                };
+
+                auto toolSep = []() {
+                    ImGui::SameLine(0.0f, 10.0f);
+                    const ImVec2 p = ImGui::GetCursorScreenPos();
+                    const float h = ImGui::GetFrameHeight();
+                    ImGui::GetWindowDrawList()->AddLine(
+                        ImVec2(p.x, p.y + 4.0f),
+                        ImVec2(p.x, p.y + h - 4.0f),
+                        ImGui::GetColorU32(ImGuiCol_Separator));
+                    ImGui::Dummy(ImVec2(1.0f, h));
+                    ImGui::SameLine(0.0f, 10.0f);
+                };
+
+                if (toolBtn(
+                        "mode-select",
+                        "cursor",
+                        "Select",
+                        editor.mode == slopmap::EditorMode::Select)) {
+                    if (selectTool.translating) {
+                        selectTool.cancelTranslate(editor);
+                    }
+                    createTool.reset();
+                    punchTool.reset();
+                    editor.mode = slopmap::EditorMode::Select;
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "mode-create",
+                        "shape_square",
+                        "Create",
+                        editor.mode == slopmap::EditorMode::Create)) {
+                    if (selectTool.translating) {
+                        selectTool.cancelTranslate(editor);
+                    }
+                    punchTool.reset();
+                    editor.mode = slopmap::EditorMode::Create;
+                    editor.statusMessage =
+                        std::string("Create role: ") +
+                        slopengine::brushRoleName(editor.createBrushRole);
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "mode-place",
+                        "package",
+                        "Place",
+                        editor.mode == slopmap::EditorMode::Place,
+                        editor.scene == slopmap::EditorScene::Level)) {
+                    if (selectTool.translating) {
+                        selectTool.cancelTranslate(editor);
+                    }
+                    createTool.reset();
+                    punchTool.reset();
+                    editor.mode = slopmap::EditorMode::Place;
+                }
+
+                toolSep();
+                if (toolBtn(
+                        "shade-wire",
+                        "shape_square",
+                        "Wire",
+                        editor.shading == slopmap::PreviewShading::Wireframe)) {
+                    editor.shading = slopmap::PreviewShading::Wireframe;
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "shade-solid",
+                        "box",
+                        "Solid",
+                        editor.shading == slopmap::PreviewShading::Solid)) {
+                    editor.shading = slopmap::PreviewShading::Solid;
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "shade-tex",
+                        "picture",
+                        "Texture",
+                        editor.shading == slopmap::PreviewShading::Textured)) {
+                    editor.shading = slopmap::PreviewShading::Textured;
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "shade-lit",
+                        "lightbulb",
+                        "Lit",
+                        editor.shading == slopmap::PreviewShading::Lit)) {
+                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                        editor.shading = slopmap::PreviewShading::Lit;
+                    } else {
+                        editor.statusMessage = "No lightmap bake; run RAD";
+                    }
+                }
+
+                {
+                    const char* viewLabel = "Persp";
+                    switch (editor.viewPlane) {
+                    case slopmap::ViewPlane::Top:
+                        viewLabel = "Top";
+                        break;
+                    case slopmap::ViewPlane::Front:
+                        viewLabel = "Front";
+                        break;
+                    case slopmap::ViewPlane::Side:
+                        viewLabel = "Side";
+                        break;
+                    case slopmap::ViewPlane::PerspectiveY0:
+                        break;
+                    }
+                    char canvasLabel[64];
+                    std::snprintf(
+                        canvasLabel,
+                        sizeof(canvasLabel),
+                        "%s  ·  Grid %s",
+                        viewLabel,
+                        editor.gridSizeLabel());
+                    const float textW = ImGui::CalcTextSize(canvasLabel).x;
+                    const float avail = ImGui::GetContentRegionAvail().x;
+                    if (avail > textW + 12.0f) {
+                        ImGui::SameLine(0.0f, avail - textW);
+                    } else {
+                        ImGui::SameLine(0.0f, 12.0f);
+                    }
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextDisabled("%s", canvasLabel);
+                }
+
+                if (editor.mode == slopmap::EditorMode::Select) {
+                    if (toolBtn(
+                            "sel-brush",
+                            "bricks",
+                            "Brush",
+                            editor.doc().selectionMode == slopmap::SelectionMode::Brush)) {
+                        editor.setSelectionMode(slopmap::SelectionMode::Brush);
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "sel-face",
+                            "shape_handles",
+                            "Face",
+                            editor.doc().selectionMode == slopmap::SelectionMode::Face)) {
+                        editor.setSelectionMode(slopmap::SelectionMode::Face);
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "sel-entity",
+                            "user",
+                            "Entity",
+                            editor.doc().selectionMode == slopmap::SelectionMode::Entity)) {
+                        editor.setSelectionMode(slopmap::SelectionMode::Entity);
+                    }
+                    if (editor.doc().selectionMode == slopmap::SelectionMode::Brush) {
+                        toolSep();
+                        slopengine::BrushRole selRole = editor.createBrushRole;
+                        bool haveRole = false;
+                        if (editor.doc().activeBrush >= 0 &&
+                            editor.doc().activeBrush <
+                                static_cast<int>(editor.doc().brushes.size())) {
+                            selRole = editor.doc()
+                                          .brushes[static_cast<std::size_t>(editor.doc().activeBrush)]
+                                          .role;
+                            haveRole = true;
+                        }
+                        if (toolBtn(
+                                "sel-role",
+                                brushRoleToolbarIcon(selRole),
+                                brushRoleToolbarLabel(selRole),
+                                false,
+                                haveRole || !editor.doc().selectedBrushes.empty())) {
+                            if (!editor.doc().selectedBrushes.empty()) {
+                                editor.toggleSelectedBrushRole();
+                                previewNeedsRebuild = true;
+                            }
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip(
+                                "Brush role (H). Hull/Window/Water/Hint cut BSP; Detail/Trigger do not.");
+                        }
+                    }
+                    toolSep();
+                    if (toolBtn("op-hollow", "box", "Hollow", false)) {
+                        editor.hollowThickness = editor.gridSize;
+                        editor.showHollowModal = true;
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn("op-punch", "cut", "Punch-out", punchTool.active())) {
+                        if (selectTool.translating) {
+                            selectTool.cancelTranslate(editor);
+                        }
+                        createTool.reset();
+                        punchTool.beginFromSelection(editor);
+                    }
+                } else if (editor.mode == slopmap::EditorMode::Create) {
+                    if (toolBtn(
+                            "prim-box",
+                            "shape_square",
+                            "Box",
+                            editor.createPrimitive == slopmap::CreatePrimitive::Box)) {
+                        editor.createPrimitive = slopmap::CreatePrimitive::Box;
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "prim-cyl",
+                            "contrast",
+                            "Cylinder",
+                            editor.createPrimitive == slopmap::CreatePrimitive::Cylinder)) {
+                        editor.createPrimitive = slopmap::CreatePrimitive::Cylinder;
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "prim-stairs",
+                            "chart_organisation",
+                            "Stairs",
+                            editor.createPrimitive == slopmap::CreatePrimitive::Stairs)) {
+                        editor.createPrimitive = slopmap::CreatePrimitive::Stairs;
+                    }
+                    toolSep();
+                    if (toolBtn(
+                            "create-role",
+                            brushRoleToolbarIcon(editor.createBrushRole),
+                            brushRoleToolbarLabel(editor.createBrushRole),
+                            false)) {
+                        editor.createBrushRole = nextBrushRole(editor.createBrushRole);
+                        editor.statusMessage = std::string("Create role: ") +
+                            brushRoleToolbarLabel(editor.createBrushRole);
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            "Role for new brushes. Hull/Window/Water/Hint cut BSP; Detail/Trigger do not.");
+                    }
+                } else {
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextDisabled("Pick a prefab or thing in Library, then click the viewport");
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleVar(3);
         }
 
         {
@@ -927,16 +1600,13 @@ int main(int argc, char* argv[]) {
                     if (ImGui::BeginChild("##brushes", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                         for (std::size_t i = 0; i < d.brushes.size(); ++i) {
                             ImGui::PushID(static_cast<int>(i));
-                            const bool selected = d.selection == slopmap::SelectionTarget::Brush &&
-                                static_cast<int>(i) == d.selectedBrush;
+                            const bool selected = d.isBrushSelected(static_cast<int>(i));
                             const std::string label =
                                 d.brushes[i].id + " [" + slopengine::brushRoleName(d.brushes[i].role) + "]";
                             if (selectableWithIcon(assets, kIconSet, "bricks", label.c_str(), selected)) {
-                                d.selection = slopmap::SelectionTarget::Brush;
-                                d.selectedBrush = static_cast<int>(i);
-                                d.selectedFace = -1;
-                                d.selectedInstance = -1;
-                                d.selectedThing = -1;
+                                const bool additive =
+                                    ImGui::GetIO().KeyShift;
+                                editor.selectBrush(static_cast<int>(i), additive);
                             }
                             ImGui::PopID();
                         }
@@ -950,15 +1620,13 @@ int main(int argc, char* argv[]) {
                     if (ImGui::BeginChild("##instances", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                         for (std::size_t i = 0; i < d.instances.size(); ++i) {
                             ImGui::PushID(static_cast<int>(i) + 100000);
-                            const bool selected = d.selection == slopmap::SelectionTarget::Instance &&
-                                static_cast<int>(i) == d.selectedInstance;
+                            const bool selected = d.isEntitySelected(
+                                {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)});
                             const std::string label = d.instances[i].id + " (" + d.instances[i].path + ")";
                             if (selectableWithIcon(assets, kIconSet, "package", label.c_str(), selected)) {
-                                d.selection = slopmap::SelectionTarget::Instance;
-                                d.selectedInstance = static_cast<int>(i);
-                                d.selectedBrush = -1;
-                                d.selectedFace = -1;
-                                d.selectedThing = -1;
+                                editor.selectEntity(
+                                    {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)},
+                                    ImGui::GetIO().KeyShift);
                             }
                             ImGui::PopID();
                         }
@@ -975,8 +1643,8 @@ int main(int argc, char* argv[]) {
                         }
                         for (std::size_t i = 0; i < d.things.size(); ++i) {
                             ImGui::PushID(static_cast<int>(i) + 200000);
-                            const bool selected = d.selection == slopmap::SelectionTarget::Thing &&
-                                static_cast<int>(i) == d.selectedThing;
+                            const bool selected = d.isEntitySelected(
+                                {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)});
                             const std::string label =
                                 d.things[i].id + " (" +
                                 slopengine::thingKindName(d.things[i].kind) + ")";
@@ -986,11 +1654,9 @@ int main(int argc, char* argv[]) {
                                        ? "user"
                                        : "transmit");
                             if (selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
-                                d.selection = slopmap::SelectionTarget::Thing;
-                                d.selectedThing = static_cast<int>(i);
-                                d.selectedBrush = -1;
-                                d.selectedFace = -1;
-                                d.selectedInstance = -1;
+                                editor.selectEntity(
+                                    {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)},
+                                    ImGui::GetIO().KeyShift);
                             }
                             ImGui::PopID();
                         }
@@ -1076,7 +1742,7 @@ int main(int argc, char* argv[]) {
                             editor.showSwitchSceneModal = true;
                             editor.modalPrefabPath = editor.placePrefabPath;
                         } else {
-                            cancelTools(createTool, selectTool, editor);
+                            cancelTools(createTool, selectTool, punchTool, editor);
                             if (editor.loadPrefab(assets, scheme, editor.placePrefabPath)) {
                                 previewNeedsRebuild = false;
                             }
@@ -1202,10 +1868,30 @@ int main(int argc, char* argv[]) {
                 const float controlsW = gridLabelW + btn * 2.0f + gap + roleW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
-                ImGui::PushTextWrapPos(controlsX - 8.0f);
+                const float stageChipW = 120.0f;
+                ImGui::PushTextWrapPos(controlsX - stageChipW - 12.0f);
                 ImGui::TextUnformatted(
                     editor.statusMessage.empty() ? "Ready" : editor.statusMessage.c_str());
                 ImGui::PopTextWrapPos();
+
+                ImGui::SameLine(controlsX - stageChipW);
+                {
+                    char stageLabel[48];
+                    std::snprintf(
+                        stageLabel,
+                        sizeof(stageLabel),
+                        "BSP%s VIS%s RAD%s",
+                        editor.compileDirty.bsp ? "*" : "",
+                        editor.compileDirty.vis ? "*" : "",
+                        editor.compileDirty.rad ? "*" : "");
+                    const bool anyDirty = editor.compileDirty.bsp || editor.compileDirty.vis ||
+                        editor.compileDirty.rad;
+                    if (anyDirty) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", stageLabel);
+                    } else {
+                        ImGui::TextDisabled("%s", stageLabel);
+                    }
+                }
 
                 ImGui::SameLine(controlsX);
                 ImGui::BeginGroup();
@@ -1262,30 +1948,10 @@ int main(int argc, char* argv[]) {
 
                     ImGui::SameLine(0.0f, gap);
                     if (editor.mode == slopmap::EditorMode::Create) {
-                        const char* roleLabel = slopengine::brushRoleName(editor.createBrushRole);
-                        if (ImGui::SmallButton(roleLabel)) {
-                            switch (editor.createBrushRole) {
-                            case slopengine::BrushRole::Hull:
-                                editor.createBrushRole = slopengine::BrushRole::Detail;
-                                break;
-                            case slopengine::BrushRole::Detail:
-                                editor.createBrushRole = slopengine::BrushRole::Hint;
-                                break;
-                            case slopengine::BrushRole::Hint:
-                                editor.createBrushRole = slopengine::BrushRole::Trigger;
-                                break;
-                            case slopengine::BrushRole::Trigger:
-                                editor.createBrushRole = slopengine::BrushRole::Water;
-                                break;
-                            case slopengine::BrushRole::Water:
-                                editor.createBrushRole = slopengine::BrushRole::Window;
-                                break;
-                            case slopengine::BrushRole::Window:
-                                editor.createBrushRole = slopengine::BrushRole::Hull;
-                                break;
-                            }
+                        if (ImGui::SmallButton(brushRoleToolbarLabel(editor.createBrushRole))) {
+                            editor.createBrushRole = nextBrushRole(editor.createBrushRole);
                             editor.statusMessage = std::string("Create role: ") +
-                                slopengine::brushRoleName(editor.createBrushRole);
+                                brushRoleToolbarLabel(editor.createBrushRole);
                         }
                     } else {
                         ImGui::Dummy(ImVec2(roleW, btn));
@@ -1295,6 +1961,56 @@ int main(int argc, char* argv[]) {
             }
             ImGui::End();
             ImGui::PopStyleVar();
+        }
+
+        if (editor.showHollowModal) {
+            ImGui::OpenPopup("Hollow Brush");
+            editor.showHollowModal = false;
+        }
+        if (ImGui::BeginPopupModal("Hollow Brush", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Wall thickness");
+            ImGui::DragFloat("##hollowthick", &editor.hollowThickness, 0.01f, 0.01f, 10.0f, "%.3f");
+            if (ImGui::Button("Hollow", ImVec2(120, 0))) {
+                applyHollow(editor);
+                previewNeedsRebuild = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (editor.showPrimitiveParamsModal) {
+            ImGui::OpenPopup("Primitive Params");
+        }
+        if (ImGui::BeginPopupModal("Primitive Params", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (editor.createPrimitive == slopmap::CreatePrimitive::Cylinder) {
+                ImGui::TextUnformatted("Cylinder sides");
+                ImGui::InputInt("##cylsides", &editor.createCylinderSides);
+                if (editor.createCylinderSides < 3) {
+                    editor.createCylinderSides = 3;
+                }
+            } else if (editor.createPrimitive == slopmap::CreatePrimitive::Stairs) {
+                ImGui::TextUnformatted("Stair steps");
+                ImGui::InputInt("##stairsteps", &editor.createStairsSteps);
+                if (editor.createStairsSteps < 1) {
+                    editor.createStairsSteps = 1;
+                }
+            }
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                createTool.commitPending(editor);
+                previewNeedsRebuild = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                createTool.reset();
+                editor.showPrimitiveParamsModal = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         if (editor.showLoadModal) {
@@ -1309,7 +2025,7 @@ int main(int argc, char* argv[]) {
                 if (editor.levelDoc.dirty) {
                     editor.statusMessage = "Save or discard changes before loading";
                 } else {
-                    cancelTools(createTool, selectTool, editor);
+                    cancelTools(createTool, selectTool, punchTool, editor);
                     if (editor.load(assets, scheme, mapNameBuf)) {
                         previewNeedsRebuild = false;
                         ImGui::CloseCurrentPopup();
@@ -1356,7 +2072,7 @@ int main(int argc, char* argv[]) {
                 if (editor.prefabDoc.dirty && editor.scene == slopmap::EditorScene::Prefab) {
                     editor.statusMessage = "Save or discard prefab changes first";
                 } else {
-                    cancelTools(createTool, selectTool, editor);
+                    cancelTools(createTool, selectTool, punchTool, editor);
                     if (editor.loadPrefab(assets, scheme, prefabPathBuf)) {
                         previewNeedsRebuild = false;
                         ImGui::CloseCurrentPopup();
@@ -1401,7 +2117,7 @@ int main(int argc, char* argv[]) {
             ImGui::TextUnformatted("Discard unsaved level changes and create a new map?");
             drawWritePackagePicker(editor, assets);
             if (buttonWithIcon(assets, kIcons, "page_add", "Discard & New", ImVec2(140, 0))) {
-                cancelTools(createTool, selectTool, editor);
+                cancelTools(createTool, selectTool, punchTool, editor);
                 editor.newMap("untitled");
                 previewNeedsRebuild = true;
                 ImGui::CloseCurrentPopup();
@@ -1421,7 +2137,7 @@ int main(int argc, char* argv[]) {
             constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Discard unsaved changes in the current scene?");
             if (buttonWithIcon(assets, kIcons, "accept", "Discard & Switch", ImVec2(160, 0))) {
-                cancelTools(createTool, selectTool, editor);
+                cancelTools(createTool, selectTool, punchTool, editor);
                 if (editor.pendingScene == slopmap::EditorScene::Prefab &&
                     editor.scene == slopmap::EditorScene::Level &&
                     !editor.modalPrefabPath.empty()) {
@@ -1466,10 +2182,77 @@ int main(int argc, char* argv[]) {
             ImGui::EndPopup();
         }
 
+        if (compile.showOptionsModal) {
+            ImGui::OpenPopup("RAD Options");
+            compile.showOptionsModal = false;
+        }
+        if (ImGui::BeginPopupModal("RAD Options", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            constexpr const char* kIcons = kDefaultIconSet;
+            ImGui::DragFloat(
+                "Luxels per meter",
+                &compile.radOptions.luxelsPerMeter,
+                0.5f,
+                1.0f,
+                128.0f,
+                "%.1f");
+            ImGui::InputInt("Bounces", &compile.radOptions.bounces);
+            if (compile.radOptions.bounces < 0) {
+                compile.radOptions.bounces = 0;
+            }
+            ImGui::InputInt("Samples", &compile.radOptions.samples);
+            if (compile.radOptions.samples < 1) {
+                compile.radOptions.samples = 1;
+            }
+            if (ImGui::RadioButton("GPU", compile.radOptions.preferGpu)) {
+                compile.radOptions.preferGpu = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("CPU", !compile.radOptions.preferGpu)) {
+                compile.radOptions.preferGpu = false;
+            }
+            if (buttonWithIcon(assets, kIcons, "accept", "OK", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (compile.showOutputWindow) {
+            ImGui::SetNextWindowSize(ImVec2(720.0f, 360.0f), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Compile Output", &compile.showOutputWindow)) {
+                if (monoFont != nullptr) {
+                    ImGui::PushFont(monoFont, 0.0f);
+                }
+                if (ImGui::BeginChild(
+                        "##compile_log",
+                        ImVec2(0.0f, 0.0f),
+                        ImGuiChildFlags_Borders,
+                        ImGuiWindowFlags_HorizontalScrollbar)) {
+                    for (const std::string& line : compile.logLines()) {
+                        ImGui::TextUnformatted(line.c_str());
+                    }
+                    if (compile.logDirty()) {
+                        if (compile.logAutoScroll()) {
+                            ImGui::SetScrollHereY(1.0f);
+                        }
+                        compile.clearLogDirty();
+                    } else {
+                        const float maxY = ImGui::GetScrollMaxY();
+                        compile.setLogAutoScroll(ImGui::GetScrollY() >= maxY - 1.0f);
+                    }
+                }
+                ImGui::EndChild();
+                if (monoFont != nullptr) {
+                    ImGui::PopFont();
+                }
+            }
+            ImGui::End();
+        }
+
         rlImGuiEnd();
         EndDrawing();
     }
 
+    compile.shutdown();
     if (IsCursorHidden()) {
         EnableCursor();
     }

@@ -2,6 +2,7 @@
 
 #include "assets/asset_store.hpp"
 #include "camera.hpp"
+#include "compile.hpp"
 #include "map/brush.hpp"
 #include "map/thing.hpp"
 #include "map/prefab.hpp"
@@ -34,21 +35,47 @@ enum class ViewPlane {
     Side,
 };
 
-enum class SelectionScope {
+enum class SelectionMode {
     Brush,
     Face,
+    Entity,
 };
 
-enum class SelectionTarget {
-    None,
-    Brush,
-    Instance,
-    Thing,
+enum class CreatePrimitive {
+    Box,
+    Cylinder,
+    Stairs,
 };
 
 enum class PlaceTarget {
     PrefabInstance,
     Thing,
+};
+
+struct FaceRef {
+    int brush = -1;
+    int face = -1;
+
+    bool valid() const { return brush >= 0 && face >= 0; }
+    bool operator==(const FaceRef& other) const {
+        return brush == other.brush && face == other.face;
+    }
+};
+
+struct EntityRef {
+    enum class Kind { Thing, Instance } kind = Kind::Thing;
+    int index = -1;
+
+    bool valid() const { return index >= 0; }
+    bool operator==(const EntityRef& other) const {
+        return kind == other.kind && index == other.index;
+    }
+};
+
+struct CompileDirty {
+    bool bsp = false;
+    bool vis = false;
+    bool rad = false;
 };
 
 struct EditorDocument {
@@ -57,16 +84,22 @@ struct EditorDocument {
     std::vector<slopengine::PrefabInstance> instances;
     std::vector<slopengine::Thing> things;
     bool dirty = false;
-    SelectionTarget selection = SelectionTarget::None;
-    int selectedBrush = -1;
-    int selectedFace = -1;
-    int selectedInstance = -1;
-    int selectedThing = -1;
-    SelectionScope scope = SelectionScope::Brush;
+    SelectionMode selectionMode = SelectionMode::Brush;
+    std::vector<int> selectedBrushes;
+    std::vector<FaceRef> selectedFaces;
+    std::vector<EntityRef> selectedEntities;
+    int activeBrush = -1;
+    FaceRef activeFace{};
+    EntityRef activeEntity{};
     std::string defaultMaterial = "default/cube";
     int nextBrushSerial = 1;
     int nextPrefabSerial = 1;
     int nextThingSerial = 1;
+
+    bool hasSelection() const;
+    bool isBrushSelected(int index) const;
+    bool isFaceSelected(FaceRef ref) const;
+    bool isEntitySelected(EntityRef ref) const;
 };
 
 struct Editor {
@@ -77,9 +110,10 @@ struct Editor {
     ViewPlane viewPlane = ViewPlane::PerspectiveY0;
     FlyCamera camera;
     MapPreview preview;
-    bool wireframe = false;
+    PreviewShading shading = PreviewShading::Textured;
     float gridSize = 0.1f;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
+    CreatePrimitive createPrimitive = CreatePrimitive::Box;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};
     bool showQuitModal = false;
     bool quitConfirmed = false;
@@ -89,6 +123,11 @@ struct Editor {
     bool showOpenPrefabModal = false;
     bool showSavePrefabAsModal = false;
     bool showSwitchSceneModal = false;
+    bool showHollowModal = false;
+    bool showPrimitiveParamsModal = false;
+    float hollowThickness = 0.1f;
+    int createCylinderSides = 16;
+    int createStairsSteps = 8;
     EditorScene pendingScene = EditorScene::Level;
     std::string modalMapName;
     std::string modalPrefabPath;
@@ -104,6 +143,7 @@ struct Editor {
     s7_scheme* scheme = nullptr;
     std::vector<slopengine::Brush> expandedInstanceBrushes;
     std::vector<int> expandedInstanceOwners;
+    CompileDirty compileDirty{};
 
     EditorDocument& doc();
     const EditorDocument& doc() const;
@@ -118,7 +158,14 @@ struct Editor {
     bool savePrefabAs(slopengine::AssetStore& assets, const std::string& prefabPath);
     bool switchScene(EditorScene next, bool force = false);
     void markDirty();
+    void markBspDirty();
+    void markVisDirty();
+    void markRadDirty();
+    void markBrushCompileDirty(slopengine::BrushRole role);
+    void markThingCompileDirty(slopengine::ThingKind kind);
+    void clearCompileStage(CompileStage stage);
     void rebuildPreview(slopengine::AssetStore& assets);
+    bool reloadLitBake(slopengine::AssetStore& assets);
     void cycleGrid(int direction);
     const char* gridSizeLabel() const;
     void setViewPlane(ViewPlane plane);
@@ -127,6 +174,11 @@ struct Editor {
     std::string allocatePrefabId();
     std::string allocateThingId(const char* prefix);
     void clearSelection();
+    void setSelectionMode(SelectionMode mode);
+    void selectBrush(int index, bool additive);
+    void selectFace(FaceRef ref, bool additive);
+    void selectEntity(EntityRef ref, bool additive);
+    void selectBrushes(const std::vector<int>& indices, int active);
     void frameSelection();
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();

@@ -102,12 +102,10 @@ void PlaceTool::update(
         instance.at = snapToGrid(hit, editor.gridSize);
         instance.angles = {};
         editor.doc().instances.push_back(std::move(instance));
-        editor.doc().selection = SelectionTarget::Instance;
-        editor.doc().selectedInstance = static_cast<int>(editor.doc().instances.size()) - 1;
-        editor.doc().selectedBrush = -1;
-        editor.doc().selectedFace = -1;
-        editor.doc().selectedThing = -1;
+        const int index = static_cast<int>(editor.doc().instances.size()) - 1;
+        editor.selectEntity({EntityRef::Kind::Instance, index}, false);
         editor.markDirty();
+        editor.markBspDirty();
         editor.rebuildPreview(assets);
         editor.mode = EditorMode::Select;
         editor.statusMessage = "Placed " + editor.doc().instances.back().id + " (" +
@@ -177,12 +175,10 @@ void PlaceTool::update(
     }
 
     editor.doc().things.push_back(std::move(thing));
-    editor.doc().selection = SelectionTarget::Thing;
-    editor.doc().selectedThing = static_cast<int>(editor.doc().things.size()) - 1;
-    editor.doc().selectedBrush = -1;
-    editor.doc().selectedFace = -1;
-    editor.doc().selectedInstance = -1;
+    const int index = static_cast<int>(editor.doc().things.size()) - 1;
+    editor.selectEntity({EntityRef::Kind::Thing, index}, false);
     editor.markDirty();
+    editor.markThingCompileDirty(kind);
     editor.mode = EditorMode::Select;
     editor.statusMessage =
         "Placed " + editor.doc().things.back().id + " — G move, R rotate yaw";

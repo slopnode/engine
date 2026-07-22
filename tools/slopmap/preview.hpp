@@ -2,23 +2,46 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
+#include "map/lightmap.hpp"
 
 #include <raylib.h>
 
+#include <string>
 #include <vector>
 
 namespace slopmap {
 
+enum class PreviewShading {
+    Wireframe,
+    Solid,
+    Textured,
+    Lit,
+};
+
 struct MapPreview {
     Model model{};
     bool valid = false;
+    std::vector<std::string> editFaceIds;
+
+    Model litModel{};
+    bool litValid = false;
+    slopengine::RadFile rad{};
+    Shader lightmapShader{};
+    int useLightmapLoc = -1;
+    std::vector<Texture2D> lightmapAtlases;
 
     void clear();
+    void clearLit();
     void rebuild(slopengine::AssetStore& assets, const std::vector<slopengine::Brush>& brushes);
+    bool reloadBake(
+        slopengine::AssetStore& assets,
+        const std::string& mapName,
+        const std::vector<slopengine::Brush>& brushes);
     void draw(
-        bool wireframe,
+        PreviewShading shading,
         const std::vector<slopengine::Brush>& brushes,
-        int selectedBrush,
+        const std::vector<slopengine::Brush>& instanceBrushes,
+        const std::vector<int>& selectedBrushes,
         Vector3 eye,
         float lineWidth) const;
 };

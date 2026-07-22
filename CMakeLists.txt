@@ -183,9 +183,11 @@ add_executable(slopmap
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
+    tools/slopmap/punch_tool.cpp
     tools/slopmap/material_browser.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
+    tools/slopmap/compile.cpp
     src/ui/imgui_fonts.cpp
 )
 target_include_directories(slopmap PRIVATE tools/slopmap)

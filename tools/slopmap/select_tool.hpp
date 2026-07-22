@@ -23,8 +23,10 @@ struct SelectTool {
     Vector3 translateOrigin{};
     Vector3 mouseGrabWorld{};
     std::vector<slopengine::Brush> brushSnapshot;
-    Vector3 instanceAtSnapshot{};
-    Vector3 thingAtSnapshot{};
+    std::vector<int> brushSnapshotIndices;
+    std::vector<Vector3> entityAtSnapshots;
+    std::vector<EntityRef> entitySnapshotRefs;
+    FaceRef faceTranslate{};
     bool numericActive = false;
 
     void update(
