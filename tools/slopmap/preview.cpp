@@ -512,12 +512,39 @@ void drawBrushAabbWires(const slopengine::Brush& brush, Color color) {
     drawAabbWires(brush.mins, brush.maxs, color);
 }
 
-void drawGridY0(float halfExtent, float step, Color color, Vector3 eye, float lineWidth) {
-    for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-        drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
-    }
-    for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-        drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
+void drawGrid(
+    GridPlane plane,
+    float halfExtent,
+    float step,
+    Color color,
+    Vector3 eye,
+    float lineWidth) {
+    switch (plane) {
+    case GridPlane::XY:
+        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
+            drawThickLine3D({x, -halfExtent, 0.0f}, {x, halfExtent, 0.0f}, color, lineWidth, eye);
+        }
+        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
+            drawThickLine3D({-halfExtent, y, 0.0f}, {halfExtent, y, 0.0f}, color, lineWidth, eye);
+        }
+        break;
+    case GridPlane::YZ:
+        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
+            drawThickLine3D({0.0f, y, -halfExtent}, {0.0f, y, halfExtent}, color, lineWidth, eye);
+        }
+        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
+            drawThickLine3D({0.0f, -halfExtent, z}, {0.0f, halfExtent, z}, color, lineWidth, eye);
+        }
+        break;
+    case GridPlane::XZ:
+    default:
+        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
+            drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
+        }
+        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
+            drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
+        }
+        break;
     }
 }
 

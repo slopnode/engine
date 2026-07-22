@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -271,7 +272,10 @@ void drawScene(
     const Vector3 eye = camera.position;
     const float lineWidth = std::max(0.015f, editor.gridSize * 0.02f);
     const float axisWidth = lineWidth * 1.5f;
-    slopmap::drawGridY0(32.0f, editor.gridSize, Color{70, 74, 80, 255}, eye, lineWidth);
+    if (editor.showGrid) {
+        slopmap::drawGrid(
+            editor.gridPlane, 32.0f, editor.gridSize, Color{70, 74, 80, 255}, eye, lineWidth);
+    }
     slopmap::drawThickLine3D({-100, 0, 0}, {100, 0, 0}, Color{180, 60, 60, 255}, axisWidth, eye);
     slopmap::drawThickLine3D({0, -100, 0}, {0, 100, 0}, Color{60, 180, 60, 255}, axisWidth, eye);
     slopmap::drawThickLine3D({0, 0, -100}, {0, 0, 100}, Color{60, 60, 180, 255}, axisWidth, eye);
@@ -681,6 +685,36 @@ int main(int argc, char* argv[]) {
         syncCompileStatus();
     };
 
+    auto playMap = [&]() {
+        if (editor.scene != slopmap::EditorScene::Level) {
+            editor.statusMessage = "Play is only available in the Level scene";
+            return;
+        }
+        const std::string& mapName = editor.levelDoc.assetPath;
+        if (mapName.empty() || mapName == "untitled") {
+            editor.statusMessage = "Save the map before playing";
+            editor.showSaveAsModal = true;
+            mapNameBuf[0] = '\0';
+            return;
+        }
+        if (editor.levelDoc.dirty) {
+            if (!editor.save(assets)) {
+                editor.statusMessage = "Save failed; play aborted";
+                return;
+            }
+        }
+        slopmap::CompileMountArgs mounts;
+        mounts.baseGame = config->mount.base_game;
+        mounts.mods = config->mount.mods;
+        mounts.mapName = mapName;
+        std::string error;
+        if (!slopmap::launchGame(mounts, error)) {
+            editor.statusMessage = error;
+            return;
+        }
+        editor.statusMessage = "Playing " + mapName;
+    };
+
     while (!editor.quitConfirmed) {
         if (WindowShouldClose()) {
             if (editor.doc().dirty ||
@@ -1025,6 +1059,50 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
+                        "table",
+                        "Show Grid",
+                        "\\",
+                        editor.showGrid)) {
+                    editor.showGrid = !editor.showGrid;
+                    editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
+                }
+                if (beginMenuWithIcon(assets, kIcons, "layers", "Grid Plane")) {
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "application_view_tile",
+                            "XZ",
+                            nullptr,
+                            editor.gridPlane == slopmap::GridPlane::XZ)) {
+                        editor.gridPlane = slopmap::GridPlane::XZ;
+                        editor.statusMessage = "Grid plane: XZ";
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "application_view_tile",
+                            "XY",
+                            nullptr,
+                            editor.gridPlane == slopmap::GridPlane::XY)) {
+                        editor.gridPlane = slopmap::GridPlane::XY;
+                        editor.statusMessage = "Grid plane: XY";
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "application_view_tile",
+                            "YZ",
+                            nullptr,
+                            editor.gridPlane == slopmap::GridPlane::YZ)) {
+                        editor.gridPlane = slopmap::GridPlane::YZ;
+                        editor.statusMessage = "Grid plane: YZ";
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
                         "shape_square",
                         "Wireframe",
                         "Z",
@@ -1100,6 +1178,17 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::Separator();
                 if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "control_play",
+                        "Play Map",
+                        "F5",
+                        false,
+                        editor.scene == slopmap::EditorScene::Level)) {
+                    playMap();
+                }
+                ImGui::Separator();
+                if (menuItemWithIcon(
                         assets, kIcons, "wrench", "RAD Options…", nullptr, false, true)) {
                     compile.showOptionsModal = true;
                 }
@@ -1160,6 +1249,9 @@ int main(int argc, char* argv[]) {
                 editor.showLoadModal = true;
                 std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.levelDoc.assetPath.c_str());
             }
+            if (IsKeyPressed(KEY_F5)) {
+                playMap();
+            }
             if (IsKeyPressed(KEY_H) &&
                 editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
                 !editor.doc().selectedBrushes.empty()) {
@@ -1182,6 +1274,10 @@ int main(int argc, char* argv[]) {
             }
             if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
                 editor.cycleGrid(-1);
+            }
+            if (IsKeyPressed(KEY_BACKSLASH)) {
+                editor.showGrid = !editor.showGrid;
+                editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
             }
             if (IsKeyPressed(KEY_HOME)) {
                 editor.frameSelection();
@@ -1424,6 +1520,16 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
+                toolSep();
+                if (toolBtn(
+                        "play-map",
+                        "control_play",
+                        "Play",
+                        false,
+                        editor.scene == slopmap::EditorScene::Level)) {
+                    playMap();
+                }
+
                 {
                     const char* viewLabel = "Persp";
                     switch (editor.viewPlane) {
@@ -1443,9 +1549,11 @@ int main(int argc, char* argv[]) {
                     std::snprintf(
                         canvasLabel,
                         sizeof(canvasLabel),
-                        "%s  ·  Grid %s",
+                        "%s  ·  Grid %s %s%s",
                         viewLabel,
-                        editor.gridSizeLabel());
+                        editor.gridPlaneLabel(),
+                        editor.gridSizeLabel(),
+                        editor.showGrid ? "" : " (off)");
                     const float textW = ImGui::CalcTextSize(canvasLabel).x;
                     const float avail = ImGui::GetContentRegionAvail().x;
                     if (avail > textW + 12.0f) {
@@ -1862,10 +1970,11 @@ int main(int argc, char* argv[]) {
                 constexpr const char* kIcons = kDefaultIconSet;
                 const float pad = ImGui::GetStyle().WindowPadding.x;
                 const float btn = ImGui::GetFrameHeight();
-                const float gridLabelW = 88.0f;
+                const float gridLabelW = 72.0f;
+                const float planeW = 28.0f;
                 const float roleW = 108.0f;
                 const float gap = 10.0f;
-                const float controlsW = gridLabelW + btn * 2.0f + gap + roleW;
+                const float controlsW = btn + planeW + gridLabelW + btn * 2.0f + gap + roleW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
                 const float stageChipW = 120.0f;
@@ -1896,19 +2005,6 @@ int main(int argc, char* argv[]) {
                 ImGui::SameLine(controlsX);
                 ImGui::BeginGroup();
                 {
-                    char gridLabel[32];
-                    std::snprintf(gridLabel, sizeof(gridLabel), "Grid: %s", editor.gridSizeLabel());
-                    ImGui::Dummy(ImVec2(gridLabelW, btn));
-                    {
-                        const ImVec2 min = ImGui::GetItemRectMin();
-                        const float textY =
-                            min.y + (btn - ImGui::GetTextLineHeight()) * 0.5f;
-                        ImGui::GetWindowDrawList()->AddText(
-                            ImVec2(min.x, textY),
-                            ImGui::GetColorU32(ImGuiCol_Text),
-                            gridLabel);
-                    }
-
                     auto iconButton = [&](const char* id, const char* icon) -> bool {
                         ImGui::PushID(id);
                         const bool pressed = ImGui::InvisibleButton("##", ImVec2(btn, btn));
@@ -1925,17 +2021,56 @@ int main(int argc, char* argv[]) {
                                 const float v0 = rect->y / th;
                                 const float u1 = (rect->x + rect->width) / tw;
                                 const float v1 = (rect->y + rect->height) / th;
+                                ImU32 tint = ImGui::GetColorU32(ImGuiCol_Text);
+                                if (!editor.showGrid && std::strcmp(id, "grid-toggle") == 0) {
+                                    tint = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                                }
                                 ImGui::GetWindowDrawList()->AddImage(
                                     (ImTextureID)(intptr_t)atlas->texture.id,
                                     ImVec2(x, y),
                                     ImVec2(x + 16.0f, y + 16.0f),
                                     ImVec2(u0, v0),
-                                    ImVec2(u1, v1));
+                                    ImVec2(u1, v1),
+                                    tint);
                             }
                         }
                         ImGui::PopID();
                         return pressed;
                     };
+
+                    if (iconButton("grid-toggle", "table")) {
+                        editor.showGrid = !editor.showGrid;
+                        editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
+                    }
+
+                    ImGui::SameLine(0.0f, 0.0f);
+                    if (ImGui::InvisibleButton("##grid-plane", ImVec2(planeW, btn))) {
+                        editor.cycleGridPlane();
+                    }
+                    {
+                        const ImVec2 min = ImGui::GetItemRectMin();
+                        const float textY =
+                            min.y + (btn - ImGui::GetTextLineHeight()) * 0.5f;
+                        const float textW = ImGui::CalcTextSize(editor.gridPlaneLabel()).x;
+                        ImGui::GetWindowDrawList()->AddText(
+                            ImVec2(min.x + (planeW - textW) * 0.5f, textY),
+                            ImGui::GetColorU32(ImGuiCol_Text),
+                            editor.gridPlaneLabel());
+                    }
+
+                    ImGui::SameLine(0.0f, 0.0f);
+                    char gridLabel[32];
+                    std::snprintf(gridLabel, sizeof(gridLabel), "%s", editor.gridSizeLabel());
+                    ImGui::Dummy(ImVec2(gridLabelW, btn));
+                    {
+                        const ImVec2 min = ImGui::GetItemRectMin();
+                        const float textY =
+                            min.y + (btn - ImGui::GetTextLineHeight()) * 0.5f;
+                        ImGui::GetWindowDrawList()->AddText(
+                            ImVec2(min.x, textY),
+                            ImGui::GetColorU32(ImGuiCol_Text),
+                            gridLabel);
+                    }
 
                     ImGui::SameLine(0.0f, 0.0f);
                     if (iconButton("grid-finer", "bullet_toggle_minus")) {

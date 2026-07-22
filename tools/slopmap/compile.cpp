@@ -537,4 +537,92 @@ void CompileController::shutdown() {
     child_ = {};
 }
 
+bool launchGame(const CompileMountArgs& mounts, std::string& errorOut) {
+    errorOut.clear();
+    if (mounts.mapName.empty() || mounts.mapName == "untitled") {
+        errorOut = "Save the map before playing";
+        return false;
+    }
+    if (mounts.baseGame.empty()) {
+        errorOut = "Missing --base-game";
+        return false;
+    }
+
+    const char* dir = GetApplicationDirectory();
+    std::filesystem::path toolPath = dir ? std::filesystem::path(dir) : std::filesystem::path();
+#if defined(_WIN32)
+    toolPath /= "slopengine.exe";
+#else
+    toolPath /= "slopengine";
+#endif
+
+    std::error_code ec;
+    if (!std::filesystem::exists(toolPath, ec)) {
+        errorOut = "slopengine not found: " + toolPath.string();
+        return false;
+    }
+
+    std::vector<std::string> args;
+    args.emplace_back("slopengine");
+    args.emplace_back("--base-game");
+    args.push_back(mounts.baseGame.string());
+    for (const auto& mod : mounts.mods) {
+        args.emplace_back("--mod");
+        args.push_back(mod.string());
+    }
+    args.emplace_back("--map");
+    args.push_back(mounts.mapName);
+
+#if defined(_WIN32)
+    std::string cmdline;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i > 0) {
+            cmdline.push_back(' ');
+        }
+        cmdline += quoteWinArg(args[i]);
+    }
+    std::vector<char> cmdlineMutable(cmdline.begin(), cmdline.end());
+    cmdlineMutable.push_back('\0');
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    const BOOL ok = CreateProcessA(
+        toolPath.string().c_str(),
+        cmdlineMutable.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        0,
+        nullptr,
+        nullptr,
+        &si,
+        &pi);
+    if (!ok) {
+        errorOut = "Failed to launch slopengine";
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+#else
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
+    std::vector<std::string> argsOwned = args;
+    for (auto& arg : argsOwned) {
+        argv.push_back(arg.data());
+    }
+    argv.push_back(nullptr);
+
+    pid_t pid = -1;
+    const int spawnRc =
+        ::posix_spawn(&pid, toolPath.string().c_str(), nullptr, nullptr, argv.data(), environ);
+    if (spawnRc != 0) {
+        errorOut = std::string("Failed to launch slopengine: ") + std::strerror(spawnRc);
+        return false;
+    }
+    return true;
+#endif
+}
+
 }

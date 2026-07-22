@@ -112,6 +112,8 @@ struct Editor {
     MapPreview preview;
     PreviewShading shading = PreviewShading::Textured;
     float gridSize = 0.1f;
+    bool showGrid = true;
+    GridPlane gridPlane = GridPlane::XZ;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     CreatePrimitive createPrimitive = CreatePrimitive::Box;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};
@@ -168,6 +170,8 @@ struct Editor {
     bool reloadLitBake(slopengine::AssetStore& assets);
     void cycleGrid(int direction);
     const char* gridSizeLabel() const;
+    void cycleGridPlane();
+    const char* gridPlaneLabel() const;
     void setViewPlane(ViewPlane plane);
     void toggleOrthoTop();
     std::string allocateBrushId();
@@ -208,7 +212,8 @@ struct ConstructionPlane {
     Vector3 axisV{};
 };
 
-ConstructionPlane constructionPlaneForView(ViewPlane view);
+ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane = GridPlane::XZ);
+ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane);
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin);
 
 }

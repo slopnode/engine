@@ -238,31 +238,42 @@ Vector3 dragPlaneNormalForAxis(Vector3 axis, Vector3 viewForward) {
     return normalize3(n);
 }
 
-ConstructionPlane constructionPlaneForView(ViewPlane view) {
+ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane) {
     ConstructionPlane plane{};
-    switch (view) {
-    case ViewPlane::Front:
-        plane.origin = {0.0f, 0.0f, 0.0f};
+    plane.origin = {0.0f, 0.0f, 0.0f};
+    switch (gridPlane) {
+    case GridPlane::XY:
         plane.normal = {0.0f, 0.0f, 1.0f};
         plane.axisU = {1.0f, 0.0f, 0.0f};
         plane.axisV = {0.0f, 1.0f, 0.0f};
         break;
-    case ViewPlane::Side:
-        plane.origin = {0.0f, 0.0f, 0.0f};
+    case GridPlane::YZ:
         plane.normal = {1.0f, 0.0f, 0.0f};
         plane.axisU = {0.0f, 0.0f, 1.0f};
         plane.axisV = {0.0f, 1.0f, 0.0f};
         break;
-    case ViewPlane::Top:
-    case ViewPlane::PerspectiveY0:
+    case GridPlane::XZ:
     default:
-        plane.origin = {0.0f, 0.0f, 0.0f};
         plane.normal = {0.0f, 1.0f, 0.0f};
         plane.axisU = {1.0f, 0.0f, 0.0f};
         plane.axisV = {0.0f, 0.0f, 1.0f};
         break;
     }
     return plane;
+}
+
+ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane) {
+    switch (view) {
+    case ViewPlane::Front:
+        return constructionPlaneForGrid(GridPlane::XY);
+    case ViewPlane::Side:
+        return constructionPlaneForGrid(GridPlane::YZ);
+    case ViewPlane::Top:
+        return constructionPlaneForGrid(GridPlane::XZ);
+    case ViewPlane::PerspectiveY0:
+    default:
+        return constructionPlaneForGrid(gridPlane);
+    }
 }
 
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin) {
@@ -873,6 +884,33 @@ void Editor::cycleGrid(int direction) {
 
 const char* Editor::gridSizeLabel() const {
     return kGridSteps[nearestGridStepIndex(gridSize)].label;
+}
+
+void Editor::cycleGridPlane() {
+    switch (gridPlane) {
+    case GridPlane::XZ:
+        gridPlane = GridPlane::XY;
+        break;
+    case GridPlane::XY:
+        gridPlane = GridPlane::YZ;
+        break;
+    case GridPlane::YZ:
+        gridPlane = GridPlane::XZ;
+        break;
+    }
+    statusMessage = std::string("Grid plane: ") + gridPlaneLabel();
+}
+
+const char* Editor::gridPlaneLabel() const {
+    switch (gridPlane) {
+    case GridPlane::XY:
+        return "XY";
+    case GridPlane::YZ:
+        return "YZ";
+    case GridPlane::XZ:
+    default:
+        return "XZ";
+    }
 }
 
 void Editor::setViewPlane(ViewPlane plane) {

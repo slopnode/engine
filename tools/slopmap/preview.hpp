@@ -18,6 +18,12 @@ enum class PreviewShading {
     Lit,
 };
 
+enum class GridPlane {
+    XZ,
+    XY,
+    YZ,
+};
+
 struct MapPreview {
     Model model{};
     bool valid = false;
@@ -56,6 +62,12 @@ void drawBrushFaceOutlines(
 void drawBrushAabbWires(const slopengine::Brush& brush, Color color);
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color);
 void drawAabbSolid(Vector3 mins, Vector3 maxs, Color color);
-void drawGridY0(float halfExtent, float step, Color color, Vector3 eye, float lineWidth);
+void drawGrid(
+    GridPlane plane,
+    float halfExtent,
+    float step,
+    Color color,
+    Vector3 eye,
+    float lineWidth);
 
 }

@@ -3,7 +3,9 @@
 #include "map/uv_math.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -412,23 +414,45 @@ std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& 
     if (vertices.size() < 3) {
         return tris;
     }
-    if (vertices.size() == 3) {
-        tris.push_back({vertices[0], vertices[1], vertices[2]});
-        return tris;
-    }
 
     const Vector3 normal = faceNormalFromVertices(vertices);
     if (length3(normal) < 1e-8f) {
-        for (std::size_t i = 1; i + 1 < vertices.size(); ++i) {
-            tris.push_back({vertices[0], vertices[i], vertices[i + 1]});
-        }
         return tris;
     }
 
-    std::vector<std::size_t> indices(vertices.size());
-    for (std::size_t i = 0; i < vertices.size(); ++i) {
-        indices[i] = i;
-    }
+    const float ax = std::fabs(normal.x);
+    const float ay = std::fabs(normal.y);
+    const float az = std::fabs(normal.z);
+    const int dropAxis = (ax >= ay && ax >= az) ? 0 : ((ay >= ax && ay >= az) ? 1 : 2);
+
+    auto project = [&](Vector3 v) -> std::array<float, 2> {
+        if (dropAxis == 0) {
+            return {v.y, v.z};
+        }
+        if (dropAxis == 1) {
+            return {v.x, v.z};
+        }
+        return {v.x, v.y};
+    };
+
+    auto orient2 = [](std::array<float, 2> a, std::array<float, 2> b, std::array<float, 2> c) {
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    };
+
+    auto segmentsIntersect = [&](std::size_t a0, std::size_t a1, std::size_t b0, std::size_t b1) {
+        if (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1) {
+            return false;
+        }
+        const auto a = project(vertices[a0]);
+        const auto b = project(vertices[a1]);
+        const auto c = project(vertices[b0]);
+        const auto d = project(vertices[b1]);
+        const float o1 = orient2(a, b, c);
+        const float o2 = orient2(a, b, d);
+        const float o3 = orient2(c, d, a);
+        const float o4 = orient2(c, d, b);
+        return (o1 * o2 < 0.0f) && (o3 * o4 < 0.0f);
+    };
 
     auto signedArea = [&](std::size_t i0, std::size_t i1, std::size_t i2) {
         const Vector3 a = sub3(vertices[i1], vertices[i0]);
@@ -444,55 +468,162 @@ std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& 
             || (a <= kPlaneEps && b <= kPlaneEps && c <= kPlaneEps);
     };
 
-    auto isEar = [&](std::size_t earIndex) {
-        const std::size_t n = indices.size();
-        const std::size_t iPrev = indices[(earIndex + n - 1) % n];
-        const std::size_t iCurr = indices[earIndex];
-        const std::size_t iNext = indices[(earIndex + 1) % n];
-        if (signedArea(iPrev, iCurr, iNext) <= kPlaneEps) {
-            return false;
-        }
-        for (std::size_t k = 0; k < n; ++k) {
-            const std::size_t idx = indices[k];
-            if (idx == iPrev || idx == iCurr || idx == iNext) {
+    std::function<void(std::vector<std::size_t>)> triangulateRing;
+    triangulateRing = [&](std::vector<std::size_t> indices) {
+        int guard = 0;
+        while (indices.size() > 3 && guard < 10000) {
+            ++guard;
+            auto isEar = [&](std::size_t earIndex) {
+                const std::size_t n = indices.size();
+                const std::size_t iPrev = indices[(earIndex + n - 1) % n];
+                const std::size_t iCurr = indices[earIndex];
+                const std::size_t iNext = indices[(earIndex + 1) % n];
+                if (signedArea(iPrev, iCurr, iNext) <= kPlaneEps) {
+                    return false;
+                }
+                for (std::size_t k = 0; k < n; ++k) {
+                    const std::size_t idx = indices[k];
+                    if (idx == iPrev || idx == iCurr || idx == iNext) {
+                        continue;
+                    }
+                    if (pointInTriangle(idx, iPrev, iCurr, iNext)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+
+            bool clipped = false;
+            for (std::size_t i = 0; i < indices.size(); ++i) {
+                if (!isEar(i)) {
+                    continue;
+                }
+                const std::size_t n = indices.size();
+                const std::size_t iPrev = indices[(i + n - 1) % n];
+                const std::size_t iCurr = indices[i];
+                const std::size_t iNext = indices[(i + 1) % n];
+                tris.push_back({vertices[iPrev], vertices[iCurr], vertices[iNext]});
+                indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
+                clipped = true;
+                break;
+            }
+            if (clipped) {
                 continue;
             }
-            if (pointInTriangle(idx, iPrev, iCurr, iNext)) {
-                return false;
+
+            bool removedColinear = false;
+            for (std::size_t i = 0; i < indices.size(); ++i) {
+                const std::size_t n = indices.size();
+                const std::size_t iPrev = indices[(i + n - 1) % n];
+                const std::size_t iCurr = indices[i];
+                const std::size_t iNext = indices[(i + 1) % n];
+                if (std::fabs(signedArea(iPrev, iCurr, iNext)) > kPlaneEps) {
+                    continue;
+                }
+                indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
+                removedColinear = true;
+                break;
             }
+            if (removedColinear) {
+                continue;
+            }
+
+            bool split = false;
+            const std::size_t n = indices.size();
+            for (std::size_t i = 0; i < n && !split; ++i) {
+                for (std::size_t j = i + 2; j < n && !split; ++j) {
+                    if (i == 0 && j == n - 1) {
+                        continue;
+                    }
+                    const std::size_t a = indices[i];
+                    const std::size_t b = indices[j];
+                    bool hits = false;
+                    for (std::size_t e = 0; e < n; ++e) {
+                        const std::size_t e0 = indices[e];
+                        const std::size_t e1 = indices[(e + 1) % n];
+                        if (segmentsIntersect(a, b, e0, e1)) {
+                            hits = true;
+                            break;
+                        }
+                    }
+                    if (hits) {
+                        continue;
+                    }
+                    const Vector3 mid{
+                        0.5f * (vertices[a].x + vertices[b].x),
+                        0.5f * (vertices[a].y + vertices[b].y),
+                        0.5f * (vertices[a].z + vertices[b].z),
+                    };
+                    bool inside = false;
+                    {
+                        const auto pt = project(mid);
+                        for (std::size_t e = 0; e < n; ++e) {
+                            const auto pa = project(vertices[indices[e]]);
+                            const auto pb = project(vertices[indices[(e + 1) % n]]);
+                            const bool crossH = ((pa[1] > pt[1]) != (pb[1] > pt[1]))
+                                && (pt[0]
+                                    < (pb[0] - pa[0]) * (pt[1] - pa[1]) / ((pb[1] - pa[1]) + 1e-30f)
+                                        + pa[0]);
+                            if (crossH) {
+                                inside = !inside;
+                            }
+                        }
+                    }
+                    if (!inside) {
+                        continue;
+                    }
+
+                    std::vector<std::size_t> left;
+                    std::vector<std::size_t> right;
+                    for (std::size_t k = i; k <= j; ++k) {
+                        left.push_back(indices[k]);
+                    }
+                    for (std::size_t k = j; k < n; ++k) {
+                        right.push_back(indices[k]);
+                    }
+                    for (std::size_t k = 0; k <= i; ++k) {
+                        right.push_back(indices[k]);
+                    }
+                    triangulateRing(std::move(left));
+                    triangulateRing(std::move(right));
+                    split = true;
+                }
+            }
+            if (split) {
+                return;
+            }
+
+            // Last resort: keep only winding-correct fan tris of the remainder.
+            for (std::size_t i = 1; i + 1 < indices.size(); ++i) {
+                if (signedArea(indices[0], indices[i], indices[i + 1]) > kPlaneEps) {
+                    tris.push_back(
+                        {vertices[indices[0]], vertices[indices[i]], vertices[indices[i + 1]]});
+                }
+            }
+            return;
         }
-        return true;
+
+        if (indices.size() == 3 && signedArea(indices[0], indices[1], indices[2]) > kPlaneEps) {
+            tris.push_back({vertices[indices[0]], vertices[indices[1]], vertices[indices[2]]});
+        }
     };
 
-    int guard = 0;
-    while (indices.size() > 3 && guard < 10000) {
-        ++guard;
-        bool clipped = false;
-        for (std::size_t i = 0; i < indices.size(); ++i) {
-            if (!isEar(i)) {
-                continue;
-            }
-            const std::size_t n = indices.size();
-            const std::size_t iPrev = indices[(i + n - 1) % n];
-            const std::size_t iCurr = indices[i];
-            const std::size_t iNext = indices[(i + 1) % n];
-            tris.push_back({vertices[iPrev], vertices[iCurr], vertices[iNext]});
-            indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
-            clipped = true;
-            break;
-        }
-        if (!clipped) {
-            break;
-        }
+    std::vector<std::size_t> all(vertices.size());
+    for (std::size_t i = 0; i < vertices.size(); ++i) {
+        all[i] = i;
     }
+    triangulateRing(std::move(all));
 
-    if (indices.size() == 3) {
-        tris.push_back({vertices[indices[0]], vertices[indices[1]], vertices[indices[2]]});
-    } else if (indices.size() > 3) {
-        for (std::size_t i = 1; i + 1 < indices.size(); ++i) {
-            tris.push_back({vertices[indices[0]], vertices[indices[i]], vertices[indices[i + 1]]});
-        }
-    }
+    tris.erase(
+        std::remove_if(
+            tris.begin(),
+            tris.end(),
+            [&](const std::array<Vector3, 3>& tri) {
+                const Vector3 e1 = sub3(tri[1], tri[0]);
+                const Vector3 e2 = sub3(tri[2], tri[0]);
+                return dot3(cross3(e1, e2), normal) <= kPlaneEps;
+            }),
+        tris.end());
     return tris;
 }
 

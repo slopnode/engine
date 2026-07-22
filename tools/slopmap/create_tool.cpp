@@ -52,7 +52,7 @@ bool pickCreatePlane(Editor& editor, const Ray& ray, ConstructionPlane& outPlane
         return true;
     }
 
-    outPlane = constructionPlaneForView(editor.viewPlane);
+    outPlane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
     if (!rayPlaneIntersection(ray, outPlane.origin, outPlane.normal, outHit)) {
         return false;
     }

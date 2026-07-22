@@ -84,8 +84,7 @@ void PlaceTool::update(
             return;
         }
 
-        const ConstructionPlane plane = constructionPlaneForView(
-            editor.viewPlane == ViewPlane::PerspectiveY0 ? ViewPlane::Top : editor.viewPlane);
+        const ConstructionPlane plane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
         Vector3 hit{};
         if (!rayPlaneIntersection(
                 mouseRay(camera, editor.contentViewport),
@@ -143,8 +142,7 @@ void PlaceTool::update(
         return;
     }
 
-    const ConstructionPlane plane = constructionPlaneForView(
-        editor.viewPlane == ViewPlane::PerspectiveY0 ? ViewPlane::Top : editor.viewPlane);
+    const ConstructionPlane plane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
     Vector3 hit{};
     if (!rayPlaneIntersection(
             mouseRay(camera, editor.contentViewport),

@@ -68,22 +68,21 @@ void compensateUvLocks(
 
 Vector3 translateDragPlaneNormal(
     ViewPlane view,
+    GridPlane gridPlane,
     TranslateAxis axisLock,
     const Camera3D& camera) {
-    const ViewPlane effective =
-        view == ViewPlane::PerspectiveY0 ? ViewPlane::Top : view;
     const Vector3 forward = cameraForward(camera);
 
     if (axisLock == TranslateAxis::Y) {
         return dragPlaneNormalForAxis({0.0f, 1.0f, 0.0f}, forward);
     }
-    if (axisLock == TranslateAxis::X && effective == ViewPlane::Side) {
+    if (axisLock == TranslateAxis::X && view == ViewPlane::Side) {
         return dragPlaneNormalForAxis({1.0f, 0.0f, 0.0f}, forward);
     }
-    if (axisLock == TranslateAxis::Z && effective == ViewPlane::Front) {
+    if (axisLock == TranslateAxis::Z && view == ViewPlane::Front) {
         return dragPlaneNormalForAxis({0.0f, 0.0f, 1.0f}, forward);
     }
-    return constructionPlaneForView(effective).normal;
+    return constructionPlaneForView(view, gridPlane).normal;
 }
 
 Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
@@ -116,7 +115,7 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
 
 void refreshTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& camera) {
     const Vector3 planeNormal =
-        translateDragPlaneNormal(editor.viewPlane, tool.axisLock, camera);
+        translateDragPlaneNormal(editor.viewPlane, editor.gridPlane, tool.axisLock, camera);
     const Vector3 applied = currentTranslateDelta(editor, tool);
     Vector3 hit{};
     if (rayPlaneIntersection(
@@ -520,7 +519,8 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
         return;
     }
 
-    const Vector3 planeNormal = translateDragPlaneNormal(editor.viewPlane, axisLock, camera);
+    const Vector3 planeNormal =
+        translateDragPlaneNormal(editor.viewPlane, editor.gridPlane, axisLock, camera);
     Vector3 hit{};
     if (rayPlaneIntersection(
             mouseRay(camera, editor.contentViewport),
@@ -1157,7 +1157,7 @@ void SelectTool::update(
             !numericActive && (!entitySnapshotRefs.empty() || !brushSnapshot.empty());
         if (canDrag) {
             const Vector3 planeNormal =
-                translateDragPlaneNormal(editor.viewPlane, axisLock, camera);
+                translateDragPlaneNormal(editor.viewPlane, editor.gridPlane, axisLock, camera);
             Vector3 hit{};
             if (rayPlaneIntersection(
                     mouseRay(camera, editor.contentViewport),

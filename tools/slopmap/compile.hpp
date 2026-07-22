@@ -117,4 +117,6 @@ private:
     std::vector<std::string> buildArgs(CompileStage stage) const;
 };
 
+bool launchGame(const CompileMountArgs& mounts, std::string& errorOut);
+
 }
