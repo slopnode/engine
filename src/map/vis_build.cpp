@@ -445,11 +445,32 @@ bool hasOutAndBackSpike(const std::vector<Vector3>& verts, float eps) {
     return false;
 }
 
+bool hasNonAdjacentDuplicateVertices(const std::vector<Vector3>& verts, float eps) {
+    const std::size_t n = verts.size();
+    if (n < 4) {
+        return false;
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = i + 2; j < n; ++j) {
+            if (i == 0 && j == n - 1) {
+                continue;
+            }
+            if (nearlyEqual(verts[i], verts[j], eps)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool isSimplePolygonRing(const std::vector<Vector3>& verts) {
     if (verts.size() < 3) {
         return false;
     }
     if (hasOutAndBackSpike(verts, kWeldEps)) {
+        return false;
+    }
+    if (hasNonAdjacentDuplicateVertices(verts, kWeldEps)) {
         return false;
     }
     const Vector3 normal = polygonNormal(verts);
@@ -518,6 +539,10 @@ bool acceptMergedPolygon(
     const float combinedArea = polygonArea(combined);
     const float sum = areaA + areaB;
     if (sum > kMinFaceArea && combinedArea < 0.5f * sum) {
+        return false;
+    }
+    constexpr float kAreaInflateTol = 0.05f;
+    if (sum > kMinFaceArea && combinedArea > sum * (1.0f + kAreaInflateTol)) {
         return false;
     }
     return true;

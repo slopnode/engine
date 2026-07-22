@@ -21,7 +21,7 @@ Re-run after BSP changes that affect sealing or face layout, detail brush edits 
 - Interior clip. Hull and detail faces are clipped against sealed interior empty leaf polyhedra so large or buried faces keep only the visible polygon(s).
 - Brush occlusion. Fragments are subtracted against other VIS-emitting brushes so detail–detail contacts (and hull under detail) drop buried area while abutment remainders (e.g. stair risers) stay.
 - Inferred nodraw. Faces with zero remaining visible area (after clip, occlusion, and sliver cull) are treated as nodraw. Authored `(nodraw)` is never cleared.
-- Cleanup. After clip and occlusion: T-junction weld, vertex snap weld, sliver/degenerate cull, coplanar merge (retains non-colinear shared-edge endpoints so concave T-junction corners survive; spike cleanup strips out-and-back A→B→A folds; merges that stay non-simple or lose too much area are refused), then material-major sort. Draw/BVH triangulation uses ear clipping so concave simple rings stay correct.
+- Cleanup. After clip and occlusion: T-junction weld, vertex snap weld, sliver/degenerate cull, coplanar merge (retains non-colinear shared-edge endpoints so concave T-junction corners survive; spike cleanup strips out-and-back A→B→A folds; merges that stay non-simple, inflate area beyond the inputs, or pinch a keyhole with non-adjacent duplicate verts are refused so punched openings stay hollow), then material-major sort. Draw/BVH triangulation uses ear clipping so concave simple rings stay correct.
 - Stable face ids. Fragments use ids such as `wall/north#0`; coplanar merges across sources use `merge/…` ids. Charts and mesh UV2 key off those ids.
 - Interior leaf hint. Each fragment stores an `interiorLeaf` index used by radiosity leaf-reachability culling.
 
@@ -52,7 +52,7 @@ After fragments are collected:
 1. T-junction weld — insert vertices where another face’s vertex lies on an edge.
 2. Vertex snap weld — snap near-coincident verts (grid + epsilon) and collapse consecutive duplicates.
 3. Sliver / degenerate cull — drop faces below minimum area, with needle altitude, or with a tiny area/perimeter² ratio; sources that lose all fragments become inferred nodraw.
-4. Coplanar merge — merge adjacent faces that share an edge and the same material / UV frame; shared-edge endpoints that are not colinear with the new neighbors are kept so concave T-junction corners (e.g. stair side silhouettes) are not chorded away; after each merge, spike cleanup runs and non-simple or area-collapsing merges are refused (scraps stay separate); assign stable ids (`source#N` or `merge/…`).
+4. Coplanar merge — merge adjacent faces that share an edge and the same material / UV frame; shared-edge endpoints that are not colinear with the new neighbors are kept so concave T-junction corners (e.g. stair side silhouettes) are not chorded away; after each merge, spike cleanup runs and merges that stay non-simple, lose too much area, inflate beyond the input areas, or pinch a keyhole (non-adjacent duplicate verts) are refused (scraps stay separate) so punched openings stay hollow; assign stable ids (`source#N` or `merge/…`).
 5. Material sort — order faces by material, then id, for denser draw batches.
 
 ## `VIS1` file contents
