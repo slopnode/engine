@@ -109,9 +109,9 @@ where `baked` is the lightmap sample (or white when unlit), `dynamic` is the ran
 ### Map load
 
 ```text
-brush/face material "surfaces/stone"
+VIS face material "surfaces/stone"
   → resolveMaterialUv (texel-size + albedo size → diffuse UVs)
-  → compile brushes → meshes (+ lightmap UV2 from charts)
+  → compile VIS faces → meshes (+ lightmap UV2 from charts)
   → resolveMaterial (same as props)
   → override shader = lightmap program
   → bind rad/atlasN.png on metalness slot per face chart

@@ -1,6 +1,6 @@
 # Maps
 
-Maps are first-person spaces built from brush solids, compiled for structure, then optionally lightmapped. Authoring is plain Scheme on disk; the shipped tools compile that source into BSP and radiosity data the game can load. Because the source is readable S-expression / s7 text, custom editors and generators that write the same files are welcome alongside the built-in tools.
+Maps are first-person spaces built from brush solids, compiled for structure and visible faces, then optionally lightmapped. Authoring is plain Scheme on disk; the shipped tools compile that source into BSP, VIS, and radiosity data the game can load. Because the source is readable S-expression / s7 text, custom editors and generators that write the same files are welcome alongside the built-in tools.
 
 Props and characters are separate mesh assets. This page covers world geometry under `maps/`. Mesh export is described in [Geometry](geometry.md); surface appearance in [Materials, textures, and shaders](materials.md).
 
@@ -14,15 +14,16 @@ maps/<name>/
   static.csg
   things.s7
   static.bsp
+  static.vis
   rad/
     static.rad
     atlas0.png
     ...
 ```
 
-`map.meta` and `static.csg` are authored. `things.s7` places props, usables, and lights (optional). `static.bsp` comes from `slopbsp`. The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
+`map.meta` and `static.csg` are authored. `things.s7` places props, usables, and lights (optional). `static.bsp` comes from `slopbsp`. `static.vis` comes from `slopvis` (visible face fragments for draw, lightmaps, and audio). The `rad/` folder comes from `sloprad` and may be omitted. `--map <name>` selects that folder name, not a file path.
 
-Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG and BSP, `<name>/things` for things, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
+Virtual paths used by the loader strip the `maps/` prefix and the file extension: `<name>/map` for meta, `<name>/static` for CSG, BSP, and VIS, `<name>/things` for things, `<name>/rad/static` for the bake file, `<name>/rad/atlasN` for atlases.
 
 ## Authoring
 
@@ -153,9 +154,9 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
     (bottom (nodraw))))
 ```
 
-Authored `(nodraw)` is never cleared by the tools. When the hull is sealed, `slopbsp` / `sloprad` / map load also infer nodraw on hull faces that never face sealed interior empty space (outer skins, buried sides) and OR that onto the face flags.
+Authored `(nodraw)` is never cleared by the tools. When the hull is sealed, `slopvis` clips hull faces to sealed interior empty space and treats faces with no remaining visible area as inferred nodraw (outer skins, buried sides). Map load ORs that onto brush face flags. Large faces that are only partly playable keep only the interior-visible fragment(s) in `static.vis` rather than a whole-face keep or drop.
 
-Default face ids look like `floor/top` for boxes, or `brushId/N` for convex faces without an explicit id. Radiosity charts key off those ids, so renaming a face id between bakes changes how atlases line up unless you re-bake.
+Default authored face ids look like `floor/top` for boxes, or `brushId/N` for convex faces without an explicit id. After VIS, drawable hull fragments use ids such as `floor/top#0`; coplanar merges across sources use `merge/…` ids. Radiosity charts key off those VIS face ids, so renaming a face id or rebuilding VIS without re-baking changes how atlases line up.
 
 Hull brushes form the structural shell of the space and are what seal the map. Detail brushes are still drawn and lightmapped, and become solid convex collision hulls, but they do not contribute splits to the BSP tree and cannot seal a leak. Place detail entirely inside the sealed hull (their center must sit in interior empty space). Use detail for props that should not reshape the leaf structure of the level.
 
@@ -167,12 +168,14 @@ Face materials drive diffuse appearance and bake sampling (albedo + emission onl
 
 ## Compile order
 
-Author `map.meta` and `static.csg` first. Run `slopbsp` to produce `static.bsp`. Run `sloprad` only after a current BSP exists; it refuses to bake without one. The game requires meta, CSG, and BSP to load a map. Radiosity is optional: without `rad/` the map still loads, but without baked lightmaps.
+Author `map.meta` and `static.csg` first. Run `slopbsp` → `slopvis` → `sloprad`. Order is strict: VIS refuses an unsealed hull / missing BSP; radiosity refuses a missing VIS. The game requires meta, CSG, and BSP to load. VIS is preferred for the draw mesh (if missing, the loader builds visible faces in memory and warns). Radiosity is optional: without `rad/` the map still loads, but without baked lightmaps.
 
 Typical sequence:
 
 ```bash
 ./build/slopbsp --base-game <package-path> --map <name>
+
+./build/slopvis --base-game <package-path> --map <name>
 
 ./build/sloprad --base-game <package-path> --map <name> \
   --luxels-per-meter 16 --bounces 2 --samples 32
@@ -180,29 +183,33 @@ Typical sequence:
 ./build/slopengine --base-game <package-path> --map <name>
 ```
 
-`--mod` may be repeated on any of these, the same as the game. After editing brushes, rebuild BSP (and radiosity if you use it). After editing only materials or emission for lighting, BSP can stay; re-bake radiosity.
+`--mod` may be repeated on any of these, the same as the game. After editing brushes, rebuild BSP, then VIS, then radiosity if you use it. After editing only materials or emission for lighting, BSP and VIS can stay; re-bake radiosity.
 
-## BSP and radiosity tools
+## BSP, VIS, and radiosity tools
 
 ```bash
 ./build/slopbsp --base-game <package-path> [--mod <path>]... --map <name>
+
+./build/slopvis --base-game <package-path> [--mod <path>]... --map <name>
 
 ./build/sloprad --base-game <package-path> [--mod <path>]... --map <name> \
   [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]
 ```
 
-`slopbsp` mounts packages, loads brushes, builds a hull-only tree, and writes `static.bsp` next to `static.csg`. On a leak it still writes the file for debug but exits with an error and a leaf-center path. On a seal it reports exterior/interior empty counts and inferred hull nodraw. Detail brushes do not split the tree and cannot seal.
+`slopbsp` mounts packages, loads brushes, builds a hull-only tree, and writes `static.bsp` next to `static.csg`. On a leak it still writes the file for debug but exits with an error and a leaf-center path. On a seal it reports exterior/interior empty counts and a preview of visible-face / inferred-nodraw counts (run `slopvis` to write `static.vis`). Detail brushes do not split the tree and cannot seal.
 
-`sloprad` requires that BSP. It reloads CSG, applies auto-nodraw when sealed, clears `maps/<name>/rad/`, and writes `static.rad` plus `atlasN.png`. Defaults are 16 luxels per meter, 2 bounces, 32 samples; atlas size is 512² (not a CLI flag). `--bounces 0` keeps ambient, emission, and direct light only. Emission textures matter at bake time; at runtime the lightmap shader uses flat material emission color/power.
+`slopvis` requires a sealed `static.bsp`. It clips hull faces to sealed interior empty leaves, welds T-junctions, merges compatible coplanar fragments, and writes `static.vis`. Detail faces pass through unchanged. This is not classic leaf↔leaf PVS; it is the visible face set for draw, bake, and audio.
 
-The BSP is structural (sealing, auto-nodraw, runtime leaf debug). Draw meshes come from brush faces; collision from per-brush convex hulls. Bake-time occlusion uses a BVH of lightmap faces. Full algorithms, file formats, settings, and rebuild rules: [BSP and radiosity compilation](bsp-rad.md).
+`sloprad` requires BSP and VIS. It collects lightmap faces from `static.vis`, clears `maps/<name>/rad/`, and writes `static.rad` plus `atlasN.png`. Defaults are 16 luxels per meter, 2 bounces, 32 samples; atlas size is 512² (not a CLI flag). `--bounces 0` keeps ambient, emission, and direct light only. Emission textures matter at bake time; at runtime the lightmap shader uses flat material emission color/power.
+
+The BSP is structural (sealing, runtime leaf debug). Draw meshes and lightmap charts come from VIS faces; collision from per-brush convex hulls. Bake-time occlusion uses a BVH of lightmap faces. Full algorithms, file formats, settings, and rebuild rules: [BSP, VIS, and radiosity compilation](bsp-rad.md).
 
 ## Loading in the game
 
-With `--map <name>`, the game validates meta and package dependencies, loads CSG brushes, reads `static.bsp`, and optionally reads `rad/`. If the BSP hull is sealed, the same auto-nodraw pass as `sloprad` runs before mesh compile. Brushes are compiled into render meshes (skipping nodraw faces): diffuse UVs from materials, lightmap UVs from charts when a bake is present. If radiosity data and atlases load successfully, materials on the map use the lightmap shader and bind the atlases. Otherwise the map draws without baked lighting.
+With `--map <name>`, the game validates meta and package dependencies, loads CSG brushes, reads `static.bsp`, prefers `static.vis` for the draw mesh, and optionally reads `rad/`. Missing VIS warns and builds visible faces in memory when the hull is sealed; otherwise it falls back to authored non-nodraw brush faces. Diffuse UVs come from materials; lightmap UVs from charts when a bake is present. If radiosity data and atlases load successfully, materials on the map use the lightmap shader and bind the atlases. Otherwise the map draws without baked lighting.
 
 All brushes from the CSG are registered as static convex physics hulls. Missing BSP stops the load; missing rad only skips lightmaps. After geometry is up, the game evaluates `things.s7` when present, then spawns the player at `player-start` (or the default pose).
 
 ## Custom tooling
 
-`static.csg` and `map.meta` are ordinary text. Any workflow that emits valid brush forms and meta fields is fine: hand editing, scripts, or a full map editor. The compile tools and the game care about the files and the brush API, not how those files were produced. Re-run `slopbsp` and `sloprad` after your tools rewrite source the same way you would after a manual edit.
+`static.csg` and `map.meta` are ordinary text. Any workflow that emits valid brush forms and meta fields is fine: hand editing, scripts, or a full map editor. The compile tools and the game care about the files and the brush API, not how those files were produced. Re-run `slopbsp`, `slopvis`, and `sloprad` after your tools rewrite source the same way you would after a manual edit.

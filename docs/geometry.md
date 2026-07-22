@@ -71,9 +71,9 @@ Binary skin buffer (`DLKW`, version 1): four joint indices and four weights per 
 
 ## Level geometry (CSG)
 
-Levels are not Blender meshes. They are authored as Scheme brushes under `maps/<name>/`, then compiled with `slopbsp` and optionally `sloprad`. See [Maps](maps.md) for the full authoring and compile pipeline.
+Levels are not Blender meshes. They are authored as Scheme brushes under `maps/<name>/`, then compiled with `slopbsp`, `slopvis`, and optionally `sloprad`. See [Maps](maps.md) for the full authoring and compile pipeline.
 
-There is no package `.geo` / `.vert` for the level itself. At load time, brushes compile into the same in-memory geometry types used by props.
+There is no package `.geo` / `.vert` for the level itself. At load time, VIS faces (or brushes as a fallback) compile into the same in-memory geometry types used by props.
 
 ## Two pipelines, no automatic bridge
 
@@ -83,7 +83,7 @@ There is no package `.geo` / `.vert` for the level itself. At load time, brushes
 | Can CSG emit package `.geo` files? | No (in-memory only) |
 | When do I use which? | Rooms / structural solids → CSG. Characters, props, clutter meshes → Blender `.geo` |
 
-Movable or skinned meshes belong as prop assets. World shells, floors, and fixed detail boxes belong in CSG so they participate in BSP and radiosity.
+Movable or skinned meshes belong as prop assets. World shells, floors, and fixed detail boxes belong in CSG so they participate in BSP, VIS, and radiosity.
 
 ## Blender exporter
 

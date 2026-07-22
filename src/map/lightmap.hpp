@@ -1,6 +1,7 @@
 #pragma once
 
 #include "map/brush.hpp"
+#include "map/vis.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -63,6 +64,9 @@ struct LightmapPackResult {
 
 /** Collects drawable faces from brushes for packing / bake. */
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
+
+/** Collects drawable faces from a VIS visible-face set. */
+std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis);
 
 /** Packs faces into atlas charts at @p luxelsPerMeter. */
 LightmapPackResult packLightmapCharts(

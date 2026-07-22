@@ -119,6 +119,49 @@ void refreshTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& came
     }
 }
 
+const char* translateTargetName(const Editor& editor) {
+    const EditorDocument& d = editor.doc();
+    if (d.selection == SelectionTarget::Thing) {
+        return "Thing";
+    }
+    if (d.selection == SelectionTarget::Instance) {
+        return "Instance";
+    }
+    if (d.selection == SelectionTarget::Brush && d.scope == SelectionScope::Face) {
+        return "Face";
+    }
+    return "Brush";
+}
+
+const char* translateAxisName(const Editor& editor, TranslateAxis axisLock) {
+    const EditorDocument& d = editor.doc();
+    if (d.selection == SelectionTarget::Brush && d.scope == SelectionScope::Face) {
+        return "Normal";
+    }
+    switch (axisLock) {
+    case TranslateAxis::X: return "X";
+    case TranslateAxis::Y: return "Y";
+    case TranslateAxis::Z: return "Z";
+    case TranslateAxis::None: break;
+    }
+    return "Free";
+}
+
+void updateTranslateStatus(Editor& editor, const SelectTool& tool) {
+    std::string message = "Translate ";
+    message += translateTargetName(editor);
+    message += " | ";
+    message += translateAxisName(editor, tool.axisLock);
+    message += " | ";
+    if (tool.numericActive && !editor.numericBuffer.empty()) {
+        message += editor.numericBuffer;
+    } else {
+        message += "drag";
+    }
+    message += "  (Enter confirm, Esc cancel)";
+    editor.statusMessage = std::move(message);
+}
+
 bool rayAabb(Ray ray, Vector3 mins, Vector3 maxs, float& outT) {
     float tmin = 0.0f;
     float tmax = std::numeric_limits<float>::max();
@@ -451,7 +494,7 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
     } else {
         mouseGrabWorld = translateOrigin;
     }
-    editor.statusMessage = "Translate (G): move, X/Y/Z lock, type units, Enter confirm, Esc cancel";
+    updateTranslateStatus(editor, *this);
 }
 
 void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, Vector3 delta) {
@@ -596,6 +639,8 @@ void SelectTool::handleNumeric(
         editor.numericBuffer.pop_back();
         numericActive = !editor.numericBuffer.empty();
     }
+
+    updateTranslateStatus(editor, *this);
 
     if (!numericActive || editor.numericBuffer.empty() || editor.numericBuffer == "-" ||
         editor.numericBuffer == "." || editor.numericBuffer == "-.") {
@@ -926,6 +971,7 @@ void SelectTool::update(
             }
             if (axisLock != previousLock) {
                 refreshTranslateGrab(*this, editor, camera);
+                updateTranslateStatus(editor, *this);
             }
         }
 
@@ -963,6 +1009,7 @@ void SelectTool::update(
                     delta.x = 0.0f;
                 }
                 applyTranslate(editor, assets, delta);
+                updateTranslateStatus(editor, *this);
             }
         }
         return;

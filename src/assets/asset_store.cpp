@@ -357,6 +357,10 @@ bool AssetStore::hasMapBsp(std::string_view path) const {
     return vfs_.exists(AssetKind::MapBsp, path);
 }
 
+bool AssetStore::hasMapVis(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapVis, path);
+}
+
 bool AssetStore::hasMapRad(std::string_view path) const {
     return vfs_.exists(AssetKind::MapRad, path);
 }

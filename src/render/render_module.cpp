@@ -9,6 +9,7 @@
 #include "camera/components.hpp"
 #include "map/csg_script.hpp"
 #include "map/bsp.hpp"
+#include "map/vis.hpp"
 #include "map/things_spawn.hpp"
 #include "map/graph.hpp"
 #include "map/graph_script.hpp"
@@ -1675,6 +1676,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapBsp>()) {
         world.remove<MapBsp>();
     }
+    if (world.has<MapVis>()) {
+        world.remove<MapVis>();
+    }
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
     }
@@ -1730,6 +1734,7 @@ bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     }
 
     MapBsp mapBsp{std::move(loaded->bsp)};
+    MapVis mapVis{std::move(loaded->vis)};
     Color ambientColor{
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.x * 255.0f, 0.0f, 255.0f)),
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.y * 255.0f, 0.0f, 255.0f)),
@@ -1746,11 +1751,12 @@ bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
         AudioContext& audioCtx = world.get_mut<AudioContext>();
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
-            audioCtx.world->setSteamAudioScene(mapBsp.tree);
+            audioCtx.world->setSteamAudioScene(mapVis.vis);
         }
     }
 
     world.set<MapBsp>(std::move(mapBsp));
+    world.set<MapVis>(std::move(mapVis));
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;

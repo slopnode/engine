@@ -3,7 +3,7 @@
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
 
 #include "audio/steam_audio_types.hpp"
-#include "map/bsp.hpp"
+#include "map/vis.hpp"
 
 #include <phonon.h>
 #include <soloud.h>
@@ -59,7 +59,7 @@ public:
 
     SteamAudioSpatializeFilter& spatializeFilter();
 
-    bool setSceneFromBsp(const BspTree& tree);
+    bool setSceneFromVis(const VisFile& vis);
     void clearScene();
 
     int trackVoice(

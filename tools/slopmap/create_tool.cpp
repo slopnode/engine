@@ -142,16 +142,13 @@ void CreateTool::commit(Editor& editor) {
         return;
     }
 
-    const slopengine::BrushRole role = editor.scene == EditorScene::Prefab
-        ? slopengine::BrushRole::Detail
-        : slopengine::BrushRole::Hull;
     slopengine::Brush brush = slopengine::makeBrushBox(
         editor.allocateBrushId(),
         mins,
         maxs,
         editor.doc().defaultMaterial,
         {},
-        role);
+        editor.createBrushRole);
     EditorDocument& d = editor.doc();
     d.brushes.push_back(std::move(brush));
     d.selection = SelectionTarget::Brush;

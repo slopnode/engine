@@ -78,7 +78,8 @@ struct Editor {
     FlyCamera camera;
     MapPreview preview;
     bool wireframe = false;
-    float gridSize = 0.25f;
+    float gridSize = 0.1f;
+    slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};
     bool showQuitModal = false;
     bool quitConfirmed = false;
@@ -119,6 +120,7 @@ struct Editor {
     void markDirty();
     void rebuildPreview(slopengine::AssetStore& assets);
     void cycleGrid(int direction);
+    const char* gridSizeLabel() const;
     void setViewPlane(ViewPlane plane);
     void toggleOrthoTop();
     std::string allocateBrushId();

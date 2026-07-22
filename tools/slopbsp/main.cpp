@@ -4,6 +4,7 @@
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_script.hpp"
+#include "map/vis.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -86,12 +87,15 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    const VisBuildResult vis = buildVisibleFaces(tree, analysis, *brushes);
     TraceLog(
         LOG_INFO,
-        "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d inferredNodraw=%d",
+        "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d visibleFaces=%d inferredNodraw=%d",
         exteriorEmpty,
         interiorEmpty,
-        static_cast<int>(analysis.inferredNodrawFaceIds.size()));
+        static_cast<int>(vis.vis.faces.size()),
+        static_cast<int>(vis.inferredNodrawFaceIds.size()));
+    TraceLog(LOG_INFO, "slopbsp: run slopvis to write static.vis before sloprad");
     for (const std::string& warning : analysis.detailOutsideWarnings) {
         TraceLog(LOG_WARNING, "slopbsp: %s", warning.c_str());
     }

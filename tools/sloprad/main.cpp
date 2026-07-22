@@ -8,6 +8,7 @@
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
 #include "map/radiosity_lights.hpp"
+#include "map/vis_io.hpp"
 
 #include <raylib.h>
 
@@ -226,27 +227,37 @@ int main(int argc, char* argv[]) {
         spotCount);
     std::fflush(stdout);
 
+    auto visPath = assets.resolvePath(AssetKind::MapVis, bspVirtualPath);
+    if (!visPath) {
+        std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
+        CloseWindow();
+        return 1;
+    }
+    TraceLog(LOG_INFO, "sloprad: loading %s", visPath->string().c_str());
+    std::fflush(stdout);
+    auto vis = readVisFile(*visPath);
+    if (!vis) {
+        std::cerr << "sloprad: failed to read " << *visPath << "\n";
+        CloseWindow();
+        return 1;
+    }
+
     const MapHullAnalysis analysis = analyzeMapHull(*tree, *brushes);
     if (!analysis.sealed) {
         TraceLog(
             LOG_WARNING,
-            "sloprad: map hull is not sealed; skipping auto-nodraw (authored nodraw only)");
+            "sloprad: map hull is not sealed; VIS faces used as authored");
         for (const std::string& step : analysis.leakPathFaceIds) {
             TraceLog(LOG_WARNING, "sloprad: leak path %s", step.c_str());
         }
     } else {
-        applyInferredNodraw(*brushes, analysis);
-        TraceLog(
-            LOG_INFO,
-            "sloprad: auto-nodraw faces=%d",
-            static_cast<int>(analysis.inferredNodrawFaceIds.size()));
         for (const std::string& warning : analysis.detailOutsideWarnings) {
             TraceLog(LOG_WARNING, "sloprad: %s", warning.c_str());
         }
     }
 
-    const std::vector<LightmapFace> faces = collectLightmapFaces(*brushes);
-    TraceLog(LOG_INFO, "sloprad: lightmap faces=%d", static_cast<int>(faces.size()));
+    const std::vector<LightmapFace> faces = collectLightmapFaces(*vis);
+    TraceLog(LOG_INFO, "sloprad: lightmap faces=%d (from vis)", static_cast<int>(faces.size()));
     std::fflush(stdout);
 
     auto resolveMaterial = [&assets](std::string_view materialPath) {

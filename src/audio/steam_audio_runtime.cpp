@@ -138,16 +138,16 @@ SteamAudioSpatializeFilter& SteamAudioRuntime::spatializeFilter() {
     return *spatializeFilter_;
 }
 
-bool SteamAudioRuntime::setSceneFromBsp(const BspTree& tree) {
+bool SteamAudioRuntime::setSceneFromVis(const VisFile& vis) {
     if (!ready_) {
         return false;
     }
-    const bool ok = createSteamAudioScene(context_, simulator_, tree, &scene_, &staticMesh_);
+    const bool ok = createSteamAudioScene(context_, simulator_, vis, &scene_, &staticMesh_);
     sceneReady_ = ok;
     if (ok) {
-        TraceLog(LOG_INFO, "STEAM AUDIO: scene built from BSP surface faces");
+        TraceLog(LOG_INFO, "STEAM AUDIO: scene built from VIS faces");
     } else {
-        TraceLog(LOG_WARNING, "STEAM AUDIO: failed to build scene from BSP");
+        TraceLog(LOG_WARNING, "STEAM AUDIO: failed to build scene from VIS");
     }
     return ok;
 }

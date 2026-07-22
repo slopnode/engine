@@ -2,7 +2,7 @@
 
 Lighting is a bake-first pipeline with a small runtime dynamic overlay. Map surfaces get offline lightmaps; moving or toggled lights are `DynamicLight` entities ranked each frame and added on top. Thing light forms in `things.s7` feed the bake (point / spot) and editor gizmos; they are not the same as the runtime dynamic light path.
 
-Related: [Maps](maps.md), [BSP and radiosity](bsp-rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md).
+Related: [Maps](maps.md), [BSP, VIS, and radiosity](bsp-rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md).
 
 ## Layers
 

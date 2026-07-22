@@ -6,6 +6,7 @@
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 #include "map/prefab.hpp"
+#include "map/vis.hpp"
 
 #include <raylib.h>
 
@@ -22,6 +23,7 @@ struct LoadedMap {
     Model model{};
     std::vector<Brush> brushes;
     BspTree bsp{};
+    VisFile vis{};
     RadFile rad{};
     MapMeta meta{};
     bool hasLightmaps = false;

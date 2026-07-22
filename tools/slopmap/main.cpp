@@ -618,6 +618,10 @@ int main(int argc, char* argv[]) {
                         selectTool.cancelTranslate(editor);
                     }
                     editor.mode = slopmap::EditorMode::Create;
+                    editor.statusMessage =
+                        editor.createBrushRole == slopengine::BrushRole::Detail
+                            ? "Create role: Detail (non-cutting)"
+                            : "Create role: Hull (cutting)";
                 }
                 if (menuItemWithIcon(
                         assets,
@@ -817,6 +821,10 @@ int main(int argc, char* argv[]) {
                     selectTool.cancelTranslate(editor);
                 }
                 editor.mode = slopmap::EditorMode::Create;
+                editor.statusMessage =
+                    editor.createBrushRole == slopengine::BrushRole::Detail
+                        ? "Create role: Detail (non-cutting)"
+                        : "Create role: Hull (cutting)";
             }
             if (IsKeyPressed(KEY_THREE) && editor.scene == slopmap::EditorScene::Level) {
                 if (selectTool.translating) {
@@ -1188,8 +1196,109 @@ int main(int argc, char* argv[]) {
                     nullptr,
                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus)) {
+                constexpr const char* kIcons = kDefaultIconSet;
+                const float pad = ImGui::GetStyle().WindowPadding.x;
+                const float btn = ImGui::GetFrameHeight();
+                const float gridLabelW = 88.0f;
+                const float roleW = 108.0f;
+                const float gap = 10.0f;
+                const float controlsW = gridLabelW + btn * 2.0f + gap + roleW;
+                const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
+
+                ImGui::PushTextWrapPos(controlsX - 8.0f);
                 ImGui::TextUnformatted(
                     editor.statusMessage.empty() ? "Ready" : editor.statusMessage.c_str());
+                ImGui::PopTextWrapPos();
+
+                ImGui::SameLine(controlsX);
+                ImGui::BeginGroup();
+                {
+                    char gridLabel[32];
+                    std::snprintf(gridLabel, sizeof(gridLabel), "Grid: %s", editor.gridSizeLabel());
+                    ImGui::Dummy(ImVec2(gridLabelW, btn));
+                    {
+                        const ImVec2 min = ImGui::GetItemRectMin();
+                        const float textY =
+                            min.y + (btn - ImGui::GetTextLineHeight()) * 0.5f;
+                        ImGui::GetWindowDrawList()->AddText(
+                            ImVec2(min.x, textY),
+                            ImGui::GetColorU32(ImGuiCol_Text),
+                            gridLabel);
+                    }
+
+                    auto iconButton = [&](const char* id, const char* icon) -> bool {
+                        ImGui::PushID(id);
+                        const bool pressed = ImGui::InvisibleButton("##", ImVec2(btn, btn));
+                        const IconAtlas* atlas = assets.getIconAtlas(kIcons);
+                        if (atlas != nullptr && atlas->texture.id != 0) {
+                            if (const auto rect = findIconRect(*atlas, icon)) {
+                                const ImVec2 min = ImGui::GetItemRectMin();
+                                const ImVec2 max = ImGui::GetItemRectMax();
+                                const float x = min.x + (max.x - min.x - 16.0f) * 0.5f;
+                                const float y = min.y + (max.y - min.y - 16.0f) * 0.5f;
+                                const float tw = static_cast<float>(atlas->texture.width);
+                                const float th = static_cast<float>(atlas->texture.height);
+                                const float u0 = rect->x / tw;
+                                const float v0 = rect->y / th;
+                                const float u1 = (rect->x + rect->width) / tw;
+                                const float v1 = (rect->y + rect->height) / th;
+                                ImGui::GetWindowDrawList()->AddImage(
+                                    (ImTextureID)(intptr_t)atlas->texture.id,
+                                    ImVec2(x, y),
+                                    ImVec2(x + 16.0f, y + 16.0f),
+                                    ImVec2(u0, v0),
+                                    ImVec2(u1, v1));
+                            }
+                        }
+                        ImGui::PopID();
+                        return pressed;
+                    };
+
+                    ImGui::SameLine(0.0f, 0.0f);
+                    if (iconButton("grid-finer", "bullet_toggle_minus")) {
+                        editor.cycleGrid(1);
+                    }
+                    ImGui::SameLine(0.0f, 0.0f);
+                    if (iconButton("grid-coarser", "bullet_toggle_plus")) {
+                        editor.cycleGrid(-1);
+                    }
+
+                    ImGui::SameLine(0.0f, gap);
+                    if (editor.mode == slopmap::EditorMode::Create) {
+                        const bool hullSelected =
+                            editor.createBrushRole == slopengine::BrushRole::Hull;
+                        const bool detailSelected =
+                            editor.createBrushRole == slopengine::BrushRole::Detail;
+                        if (hullSelected) {
+                            ImGui::PushStyleColor(
+                                ImGuiCol_Button,
+                                ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        }
+                        if (ImGui::SmallButton("Hull")) {
+                            editor.createBrushRole = slopengine::BrushRole::Hull;
+                            editor.statusMessage = "Create role: Hull (cutting)";
+                        }
+                        if (hullSelected) {
+                            ImGui::PopStyleColor();
+                        }
+                        ImGui::SameLine();
+                        if (detailSelected) {
+                            ImGui::PushStyleColor(
+                                ImGuiCol_Button,
+                                ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        }
+                        if (ImGui::SmallButton("Detail")) {
+                            editor.createBrushRole = slopengine::BrushRole::Detail;
+                            editor.statusMessage = "Create role: Detail (non-cutting)";
+                        }
+                        if (detailSelected) {
+                            ImGui::PopStyleColor();
+                        }
+                    } else {
+                        ImGui::Dummy(ImVec2(roleW, btn));
+                    }
+                }
+                ImGui::EndGroup();
             }
             ImGui::End();
             ImGui::PopStyleVar();

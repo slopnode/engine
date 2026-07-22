@@ -13,7 +13,7 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 ### Maps and world
 
 - [Maps](maps.md)
-- [BSP and radiosity compilation](bsp-rad.md)
+- [BSP, VIS, and radiosity compilation](bsp-rad.md)
 - [Lights](lights.md)
 - [Things](things.md)
 

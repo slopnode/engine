@@ -24,13 +24,13 @@ IPLMaterial defaultMaterial() {
 
 }
 
-bool buildSteamAudioMeshFromBsp(const BspTree& tree, SteamAudioSceneMesh& out) {
+bool buildSteamAudioMeshFromVis(const VisFile& vis, SteamAudioSceneMesh& out) {
     out.vertices.clear();
     out.triangles.clear();
     out.materialIndices.clear();
     out.material = defaultMaterial();
 
-    for (const BspSurfaceFace& face : tree.surfaceFaces) {
+    for (const VisibleFace& face : vis.faces) {
         if (face.vertices.size() < 3) {
             continue;
         }
@@ -54,7 +54,7 @@ bool buildSteamAudioMeshFromBsp(const BspTree& tree, SteamAudioSceneMesh& out) {
 bool createSteamAudioScene(
     IPLContext context,
     IPLSimulator simulator,
-    const BspTree& tree,
+    const VisFile& vis,
     IPLScene* outScene,
     IPLStaticMesh* outMesh) {
     if (context == nullptr || simulator == nullptr || outScene == nullptr || outMesh == nullptr) {
@@ -64,7 +64,7 @@ bool createSteamAudioScene(
     destroySteamAudioScene(simulator, outScene, outMesh);
 
     SteamAudioSceneMesh mesh;
-    if (!buildSteamAudioMeshFromBsp(tree, mesh)) {
+    if (!buildSteamAudioMeshFromVis(vis, mesh)) {
         return false;
     }
 
@@ -109,14 +109,12 @@ void destroySteamAudioScene(
         iplSimulatorCommit(simulator);
     }
     if (mesh != nullptr && *mesh != nullptr) {
-        if (scene != nullptr && *scene != nullptr) {
-            iplStaticMeshRemove(*mesh, *scene);
-            iplSceneCommit(*scene);
-        }
         iplStaticMeshRelease(mesh);
+        *mesh = nullptr;
     }
     if (scene != nullptr && *scene != nullptr) {
         iplSceneRelease(scene);
+        *scene = nullptr;
     }
 }
 

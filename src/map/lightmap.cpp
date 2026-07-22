@@ -116,6 +116,27 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
     return faces;
 }
 
+std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis) {
+    std::vector<LightmapFace> faces;
+    faces.reserve(vis.faces.size());
+    for (const VisibleFace& visible : vis.faces) {
+        if (visible.vertices.size() < 3) {
+            continue;
+        }
+        LightmapFace face;
+        face.id = visible.id;
+        face.material = visible.material;
+        face.normal = visible.normal;
+        face.vertices = visible.vertices;
+        face.uvShiftPixels = visible.uvShiftPixels;
+        face.uvUAxis = visible.uvUAxis;
+        face.uvVAxis = visible.uvVAxis;
+        face.uvLock = visible.uvLock;
+        faces.push_back(std::move(face));
+    }
+    return faces;
+}
+
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
     float luxelsPerMeter,

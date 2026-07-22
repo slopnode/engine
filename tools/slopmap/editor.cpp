@@ -334,6 +334,7 @@ void Editor::newMap(const std::string& mapName) {
     expandedInstanceOwners.clear();
     preview.clear();
     resetCamera(*this);
+    createBrushRole = slopengine::BrushRole::Hull;
     statusMessage = "New map '" + levelDoc.assetPath + "'";
 }
 
@@ -350,6 +351,7 @@ void Editor::newPrefab() {
     preview.clear();
     resetCamera(*this);
     mode = EditorMode::Create;
+    createBrushRole = slopengine::BrushRole::Detail;
     statusMessage = "New prefab";
 }
 
@@ -381,6 +383,7 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     resetSelectionSerial(levelDoc);
     rebuildPreview(assets);
     frameSelection();
+    createBrushRole = slopengine::BrushRole::Hull;
     statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
         " brushes, " + std::to_string(levelDoc.instances.size()) + " prefabs, " +
         std::to_string(levelDoc.things.size()) + " things)";
@@ -418,6 +421,7 @@ bool Editor::loadPrefab(
     resetSelectionSerial(prefabDoc);
     rebuildPreview(assets);
     frameSelection();
+    createBrushRole = slopengine::BrushRole::Detail;
     statusMessage =
         "Loaded prefab " + prefabPath + " (" + std::to_string(prefabDoc.brushes.size()) +
         " brushes, " + std::to_string(prefabDoc.things.size()) + " things)";
@@ -547,6 +551,8 @@ bool Editor::switchScene(EditorScene next, bool force) {
         placeTarget == PlaceTarget::PrefabInstance) {
         mode = EditorMode::Select;
     }
+    createBrushRole = scene == EditorScene::Prefab ? slopengine::BrushRole::Detail
+                                                   : slopengine::BrushRole::Hull;
     clearSelection();
     statusMessage = scene == EditorScene::Level ? "Level scene" : "Prefab scene";
     return true;
@@ -578,17 +584,62 @@ void Editor::rebuildPreview(slopengine::AssetStore& assets) {
     preview.rebuild(assets, combined);
 }
 
-void Editor::cycleGrid(int direction) {
-    static constexpr float kSizes[] = {1.0f, 0.5f, 0.25f, 0.125f};
-    int index = 2;
-    for (int i = 0; i < 4; ++i) {
-        if (std::fabs(gridSize - kSizes[i]) < 1e-6f) {
-            index = i;
-            break;
+namespace {
+
+struct GridStep {
+    float meters;
+    const char* label;
+};
+
+constexpr GridStep kGridSteps[] = {
+    {0.001f, "1mm"},
+    {0.005f, "5mm"},
+    {0.01f, "1cm"},
+    {0.02f, "20mm"},
+    {0.05f, "5cm"},
+    {0.1f, "10cm"},
+    {0.2f, "20cm"},
+    {0.5f, "50cm"},
+    {1.0f, "1m"},
+    {5.0f, "5m"},
+    {10.0f, "10m"},
+    {20.0f, "20m"},
+    {50.0f, "50m"},
+    {1000.0f, "1km"},
+    {5000.0f, "5km"},
+    {10000.0f, "10km"},
+    {20000.0f, "20km"},
+    {50000.0f, "50km"},
+};
+constexpr int kGridStepCount = static_cast<int>(sizeof(kGridSteps) / sizeof(kGridSteps[0]));
+
+int nearestGridStepIndex(float meters) {
+    int best = 0;
+    float bestDist = std::fabs(meters - kGridSteps[0].meters);
+    for (int i = 1; i < kGridStepCount; ++i) {
+        const float dist = std::fabs(meters - kGridSteps[i].meters);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
         }
     }
-    index = (index + direction + 4) % 4;
-    gridSize = kSizes[index];
+    return best;
+}
+
+} // namespace
+
+void Editor::cycleGrid(int direction) {
+    int index = nearestGridStepIndex(gridSize);
+    index = (index - direction) % kGridStepCount;
+    if (index < 0) {
+        index += kGridStepCount;
+    }
+    gridSize = kGridSteps[index].meters;
+    statusMessage = std::string("Grid: ") + kGridSteps[index].label;
+}
+
+const char* Editor::gridSizeLabel() const {
+    return kGridSteps[nearestGridStepIndex(gridSize)].label;
 }
 
 void Editor::setViewPlane(ViewPlane plane) {

@@ -8,6 +8,8 @@
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 #include "map/prefab.hpp"
+#include "map/vis.hpp"
+#include "map/vis_io.hpp"
 
 #include <algorithm>
 #include <raylib.h>
@@ -17,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -931,19 +934,80 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     const MapHullAnalysis analysis = analyzeMapHull(*bsp, *brushes);
-    if (!analysis.sealed) {
+    for (const std::string& warning : analysis.detailOutsideWarnings) {
+        TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
+    }
+
+    VisFile vis{};
+    bool haveVis = false;
+    if (assets.hasMapVis(virtualPath)) {
+        if (const auto visPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
+            if (auto loadedVis = readVisFile(*visPath)) {
+                vis = std::move(*loadedVis);
+                haveVis = true;
+                TraceLog(LOG_INFO, "MAP: loaded vis faces=%d", static_cast<int>(vis.faces.size()));
+            } else {
+                TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.vis", virtualPath.c_str());
+            }
+        }
+    }
+    if (!haveVis) {
         TraceLog(
             LOG_WARNING,
-            "MAP: hull is not sealed; skipping auto-nodraw (authored nodraw only)");
+            "MAP: missing maps/%s.vis; building visible faces in-memory (run slopvis)",
+            virtualPath.c_str());
+        if (analysis.sealed) {
+            VisBuildResult built = buildVisibleFaces(*bsp, analysis, *brushes);
+            MapHullAnalysis nodrawAnalysis = analysis;
+            nodrawAnalysis.inferredNodrawFaceIds = std::move(built.inferredNodrawFaceIds);
+            applyInferredNodraw(*brushes, nodrawAnalysis);
+            vis = std::move(built.vis);
+            haveVis = true;
+            TraceLog(
+                LOG_INFO,
+                "MAP: in-memory vis faces=%d inferredNodraw=%d",
+                static_cast<int>(vis.faces.size()),
+                static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
+        } else {
+            TraceLog(
+                LOG_WARNING,
+                "MAP: hull is not sealed; falling back to authored brush faces");
+        }
     } else {
-        applyInferredNodraw(*brushes, analysis);
+        std::unordered_set<std::string> visibleSources;
+        for (const VisibleFace& face : vis.faces) {
+            std::string remaining = face.sourceFaceId;
+            while (!remaining.empty()) {
+                const auto plus = remaining.find('+');
+                if (plus == std::string::npos) {
+                    visibleSources.insert(remaining);
+                    break;
+                }
+                visibleSources.insert(remaining.substr(0, plus));
+                remaining = remaining.substr(plus + 1);
+            }
+        }
+        std::vector<std::string> inferred;
+        for (const Brush& brush : *brushes) {
+            if (brush.role != BrushRole::Hull) {
+                continue;
+            }
+            for (const BrushFace& face : brush.faces) {
+                if (face.nodraw || face.id.empty()) {
+                    continue;
+                }
+                if (!visibleSources.contains(face.id)) {
+                    inferred.push_back(face.id);
+                }
+            }
+        }
+        MapHullAnalysis nodrawAnalysis = analysis;
+        nodrawAnalysis.inferredNodrawFaceIds = std::move(inferred);
+        applyInferredNodraw(*brushes, nodrawAnalysis);
         TraceLog(
             LOG_INFO,
-            "MAP: auto-nodraw faces=%d",
-            static_cast<int>(analysis.inferredNodrawFaceIds.size()));
-        for (const std::string& warning : analysis.detailOutsideWarnings) {
-            TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
-        }
+            "MAP: auto-nodraw faces=%d (from vis)",
+            static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
     }
 
     RadFile rad{};
@@ -1033,10 +1097,12 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     const RadFile* lightmaps = result.hasLightmaps ? &rad : nullptr;
-    const CsgCompileResult compiled = compileBrushesToGeo(
-        *brushes,
-        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); },
-        lightmaps);
+    const auto resolveUv =
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    const CsgCompileResult compiled = haveVis
+        ? compileVisibleFacesToGeo(vis, resolveUv, lightmaps)
+        : compileBrushesToGeo(*brushes, resolveUv, lightmaps);
+    result.vis = std::move(vis);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const LightmapChart& chart : rad.charts) {

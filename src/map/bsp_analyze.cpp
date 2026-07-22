@@ -200,35 +200,6 @@ void buildLeakPath(
     }
 }
 
-void inferHullNodrawFromSurfaces(
-    const BspTree& tree,
-    const std::vector<std::uint8_t>& exteriorEmpty,
-    const std::vector<Brush>& brushes,
-    std::unordered_set<std::string>& inferred) {
-    std::vector<Vector3> probes;
-    for (const Brush& brush : brushes) {
-        if (brush.role != BrushRole::Hull) {
-            continue;
-        }
-        for (const BrushFace& face : brush.faces) {
-            if (face.nodraw || face.id.empty()) {
-                continue;
-            }
-            collectFaceEmptyProbes(face.vertices, face.normal, probes);
-            bool facesInterior = false;
-            for (const Vector3& probe : probes) {
-                if (isInteriorEmpty(tree, exteriorEmpty, pointLeaf(tree, probe))) {
-                    facesInterior = true;
-                    break;
-                }
-            }
-            if (!facesInterior) {
-                inferred.insert(face.id);
-            }
-        }
-    }
-}
-
 void collectDetailWarnings(
     const BspTree& tree,
     const std::vector<std::uint8_t>& exteriorEmpty,
@@ -303,18 +274,11 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
         return analysis;
     }
 
-    std::unordered_set<std::string> inferred;
-    inferHullNodrawFromSurfaces(tree, analysis.exteriorEmpty, brushes, inferred);
-
-    analysis.inferredNodrawFaceIds.assign(inferred.begin(), inferred.end());
-    std::sort(analysis.inferredNodrawFaceIds.begin(), analysis.inferredNodrawFaceIds.end());
-
     collectDetailWarnings(tree, analysis.exteriorEmpty, brushes, analysis.detailOutsideWarnings);
 
     TraceLog(
         LOG_INFO,
-        "BSP: analyze done inferredNodraw=%d detailWarnings=%d",
-        static_cast<int>(analysis.inferredNodrawFaceIds.size()),
+        "BSP: analyze done detailWarnings=%d (nodraw via slopvis)",
         static_cast<int>(analysis.detailOutsideWarnings.size()));
     return analysis;
 }

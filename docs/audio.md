@@ -22,7 +22,7 @@ The Steam Audio SDK is an **out-of-repo binary**: it is not a submodule and is n
 When linked and initialized successfully:
 
 - Spatial voices use an HRTF spatialize filter
-- Map load builds an occlusion/transmission scene from the BSP
+- Map load builds an occlusion/transmission scene from VIS visible faces
 - Parametric reflections run through the simulator
 - `BUILD_RPATH` / `INSTALL_RPATH` point at the SDK lib dir so `libphonon` resolves at run time
 
