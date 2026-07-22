@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -304,6 +305,12 @@ bool findSharedEdge(
     return false;
 }
 
+bool pointsColinear(Vector3 prev, Vector3 mid, Vector3 next, float eps) {
+    const Vector3 ab = sub3(mid, prev);
+    const Vector3 bc = sub3(next, mid);
+    return length3(cross3(ab, bc)) <= eps * std::max(1.0f, length3(ab) * length3(bc));
+}
+
 std::vector<Vector3> mergePolygonsAcrossEdge(
     const std::vector<Vector3>& a,
     const std::vector<Vector3>& b,
@@ -320,14 +327,200 @@ std::vector<Vector3> mergePolygonsAcrossEdge(
     }
 
     std::vector<Vector3> out;
-    out.reserve(a.size() + bUse.size() - 2);
+    out.reserve(a.size() + bUse.size() - 1);
     for (std::size_t k = 1; k < a.size(); ++k) {
         out.push_back(a[(aEdge + k) % a.size()]);
+    }
+    if (bUse.size() > 2 && !out.empty()) {
+        const Vector3 mid = a[aEdge];
+        const Vector3 next = bUse[(bEdgeUse + 2) % bUse.size()];
+        if (!pointsColinear(out.back(), mid, next, kWeldEps)) {
+            out.push_back(mid);
+        }
     }
     for (std::size_t k = 2; k < bUse.size(); ++k) {
         out.push_back(bUse[(bEdgeUse + k) % bUse.size()]);
     }
     return out;
+}
+
+void collapseConsecutiveDuplicates(std::vector<Vector3>& verts, float eps) {
+    if (verts.size() < 2) {
+        return;
+    }
+    std::vector<Vector3> collapsed;
+    collapsed.reserve(verts.size());
+    for (const Vector3& vert : verts) {
+        if (!collapsed.empty() && nearlyEqual(collapsed.back(), vert, eps)) {
+            continue;
+        }
+        collapsed.push_back(vert);
+    }
+    if (collapsed.size() >= 2 && nearlyEqual(collapsed.front(), collapsed.back(), eps)) {
+        collapsed.pop_back();
+    }
+    verts = std::move(collapsed);
+}
+
+bool removeOutAndBackSpikes(std::vector<Vector3>& verts, float eps) {
+    if (verts.size() < 3) {
+        return false;
+    }
+    bool removed = false;
+    bool changed = true;
+    while (changed && verts.size() >= 3) {
+        changed = false;
+        for (std::size_t i = 0; i < verts.size(); ++i) {
+            const Vector3& a = verts[i];
+            const Vector3& c = verts[(i + 2) % verts.size()];
+            if (!nearlyEqual(a, c, eps)) {
+                continue;
+            }
+            const std::size_t removeFirst = (i + 1) % verts.size();
+            const std::size_t removeSecond = (i + 2) % verts.size();
+            if (removeFirst < removeSecond) {
+                verts.erase(verts.begin() + static_cast<std::ptrdiff_t>(removeSecond));
+                verts.erase(verts.begin() + static_cast<std::ptrdiff_t>(removeFirst));
+            } else {
+                verts.erase(verts.begin() + static_cast<std::ptrdiff_t>(removeFirst));
+                verts.erase(verts.begin() + static_cast<std::ptrdiff_t>(removeSecond));
+            }
+            removed = true;
+            changed = true;
+            break;
+        }
+        if (!changed) {
+            for (std::size_t i = 0; i < verts.size(); ++i) {
+                if (nearlyEqual(verts[i], verts[(i + 1) % verts.size()], eps)) {
+                    verts.erase(verts.begin() + static_cast<std::ptrdiff_t>((i + 1) % verts.size()));
+                    removed = true;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+    return removed;
+}
+
+struct Vec2 {
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
+Vec2 projectToFacePlane(Vector3 v, Vector3 normal) {
+    const float ax = std::fabs(normal.x);
+    const float ay = std::fabs(normal.y);
+    const float az = std::fabs(normal.z);
+    if (ax >= ay && ax >= az) {
+        return {v.y, v.z};
+    }
+    if (ay >= ax && ay >= az) {
+        return {v.x, v.z};
+    }
+    return {v.x, v.y};
+}
+
+float orient2d(Vec2 a, Vec2 b, Vec2 c) {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+bool segmentsProperlyIntersect2d(Vec2 a, Vec2 b, Vec2 c, Vec2 d) {
+    const float o1 = orient2d(a, b, c);
+    const float o2 = orient2d(a, b, d);
+    const float o3 = orient2d(c, d, a);
+    const float o4 = orient2d(c, d, b);
+    return (o1 * o2 < 0.0f) && (o3 * o4 < 0.0f);
+}
+
+bool hasOutAndBackSpike(const std::vector<Vector3>& verts, float eps) {
+    if (verts.size() < 3) {
+        return false;
+    }
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        if (nearlyEqual(verts[i], verts[(i + 2) % verts.size()], eps)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isSimplePolygonRing(const std::vector<Vector3>& verts) {
+    if (verts.size() < 3) {
+        return false;
+    }
+    if (hasOutAndBackSpike(verts, kWeldEps)) {
+        return false;
+    }
+    const Vector3 normal = polygonNormal(verts);
+    if (length3(normal) < 1e-8f) {
+        return false;
+    }
+    std::vector<Vec2> pts(verts.size());
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        pts[i] = projectToFacePlane(verts[i], normal);
+    }
+    const std::size_t n = pts.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        const Vec2 a = pts[i];
+        const Vec2 b = pts[(i + 1) % n];
+        for (std::size_t j = i + 1; j < n; ++j) {
+            if ((j + 1) % n == i || (i + 1) % n == j) {
+                continue;
+            }
+            const Vec2 c = pts[j];
+            const Vec2 d = pts[(j + 1) % n];
+            if (nearlyEqual(verts[i], verts[j], kWeldEps)
+                || nearlyEqual(verts[i], verts[(j + 1) % n], kWeldEps)
+                || nearlyEqual(verts[(i + 1) % n], verts[j], kWeldEps)
+                || nearlyEqual(verts[(i + 1) % n], verts[(j + 1) % n], kWeldEps)) {
+                continue;
+            }
+            if (segmentsProperlyIntersect2d(a, b, c, d)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool cleanupPolygonRing(std::vector<Vector3>& verts, Vector3 normal) {
+    bool changed = true;
+    int guard = 0;
+    while (changed && guard < 64) {
+        ++guard;
+        changed = false;
+        const std::size_t before = verts.size();
+        collapseConsecutiveDuplicates(verts, kWeldEps);
+        if (removeOutAndBackSpikes(verts, kWeldEps) || verts.size() != before) {
+            changed = true;
+        }
+    }
+    if (verts.size() < 3 || polygonArea(verts) < kMinFaceArea) {
+        verts.clear();
+        return false;
+    }
+    orientToNormal(verts, normal);
+    return true;
+}
+
+bool acceptMergedPolygon(
+    std::vector<Vector3>& combined,
+    Vector3 normal,
+    float areaA,
+    float areaB) {
+    if (!cleanupPolygonRing(combined, normal)) {
+        return false;
+    }
+    if (!isSimplePolygonRing(combined)) {
+        return false;
+    }
+    const float combinedArea = polygonArea(combined);
+    const float sum = areaA + areaB;
+    if (sum > kMinFaceArea && combinedArea < 0.5f * sum) {
+        return false;
+    }
+    return true;
 }
 
 VisibleFace makeVisibleFromBrushFace(const BrushFace& face, std::string id) {
@@ -362,13 +555,16 @@ std::vector<ClippedFragment> microMergeFragments(std::vector<ClippedFragment> fr
                         fragments[i].vertices, fragments[j].vertices, aEdge, bEdge, bReversed)) {
                     continue;
                 }
+                const float areaA = polygonArea(fragments[i].vertices);
+                const float areaB = polygonArea(fragments[j].vertices);
                 auto combined = mergePolygonsAcrossEdge(
                     fragments[i].vertices,
                     fragments[j].vertices,
                     aEdge,
                     bEdge,
                     bReversed);
-                if (combined.size() < 3 || polygonArea(combined) < kMinFaceArea) {
+                const Vector3 normal = polygonNormal(fragments[i].vertices);
+                if (!acceptMergedPolygon(combined, normal, areaA, areaB)) {
                     continue;
                 }
                 fragments[i].vertices = std::move(combined);
@@ -382,6 +578,245 @@ std::vector<ClippedFragment> microMergeFragments(std::vector<ClippedFragment> fr
         }
     }
     return fragments;
+}
+
+bool pointOnSegmentInclusive(Vector3 p, Vector3 a, Vector3 b, float eps) {
+    const Vector3 ab = sub3(b, a);
+    const float abLenSq = dot3(ab, ab);
+    if (abLenSq <= eps * eps) {
+        return nearlyEqual(p, a, eps);
+    }
+    const float t = dot3(sub3(p, a), ab) / abLenSq;
+    if (t < -eps || t > 1.0f + eps) {
+        return false;
+    }
+    const Vector3 proj = add3(a, scale3(ab, std::clamp(t, 0.0f, 1.0f)));
+    return length3(sub3(p, proj)) <= eps;
+}
+
+bool edgeOnPolygonBoundary(
+    Vector3 e0,
+    Vector3 e1,
+    const std::vector<Vector3>& poly,
+    float eps) {
+    if (poly.size() < 2) {
+        return false;
+    }
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+        const Vector3& a = poly[i];
+        const Vector3& b = poly[(i + 1) % poly.size()];
+        if ((nearlyEqual(e0, a, eps) && nearlyEqual(e1, b, eps))
+            || (nearlyEqual(e0, b, eps) && nearlyEqual(e1, a, eps))) {
+            return true;
+        }
+        if (pointOnSegmentInclusive(e0, a, b, eps) && pointOnSegmentInclusive(e1, a, b, eps)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<Vector3> clipPolygonInsideBrush(
+    const std::vector<Vector3>& input,
+    const Brush& brush) {
+    std::vector<Vector3> current = input;
+    for (const BrushFace& face : brush.faces) {
+        if (face.vertices.size() < 3 || length3(face.normal) < 1e-8f) {
+            continue;
+        }
+        BspPlane plane;
+        plane.normal = face.normal;
+        plane.distance = dot3(face.normal, face.vertices[0]);
+        current = clipPolygonAgainstPlane(current, plane, false);
+        if (current.size() < 3) {
+            return {};
+        }
+    }
+    if (polygonArea(current) < kMinFaceArea) {
+        return {};
+    }
+    return current;
+}
+
+std::vector<Vector3> clipPolygonInsideConvex(
+    const std::vector<Vector3>& input,
+    const std::vector<Vector3>& clip,
+    Vector3 clipNormal) {
+    std::vector<Vector3> subject = input;
+    for (std::size_t i = 0; i < clip.size(); ++i) {
+        const Vector3& c0 = clip[i];
+        const Vector3& c1 = clip[(i + 1) % clip.size()];
+        const Vector3 edge = sub3(c1, c0);
+        Vector3 inward = cross3(clipNormal, edge);
+        const float inwardLen = length3(inward);
+        if (inwardLen <= 1e-8f) {
+            continue;
+        }
+        inward = scale3(inward, 1.0f / inwardLen);
+        BspPlane edgePlane;
+        edgePlane.normal = inward;
+        edgePlane.distance = dot3(inward, c0);
+        subject = clipPolygonAgainstPlane(subject, edgePlane, true);
+        if (subject.size() < 3) {
+            return {};
+        }
+    }
+    if (polygonArea(subject) < kMinFaceArea) {
+        return {};
+    }
+    return subject;
+}
+
+struct CuttingEdge {
+    Vector3 a{};
+    Vector3 b{};
+};
+
+std::vector<std::vector<Vector3>> subtractConvexHole(
+    const std::vector<Vector3>& subject,
+    const std::vector<Vector3>& hole,
+    Vector3 faceNormal) {
+    std::vector<std::vector<Vector3>> empty;
+    if (subject.size() < 3 || hole.size() < 3) {
+        return empty;
+    }
+
+    const float subjectArea = polygonArea(subject);
+    const float holeArea = polygonArea(hole);
+    if (subjectArea < kMinFaceArea) {
+        return empty;
+    }
+    if (holeArea >= subjectArea - kMinFaceArea) {
+        return empty;
+    }
+
+    std::vector<CuttingEdge> cuts;
+    cuts.reserve(hole.size());
+    bool allOnBoundary = true;
+    for (std::size_t i = 0; i < hole.size(); ++i) {
+        const Vector3& e0 = hole[i];
+        const Vector3& e1 = hole[(i + 1) % hole.size()];
+        if (edgeOnPolygonBoundary(e0, e1, subject, kWeldEps)) {
+            continue;
+        }
+        allOnBoundary = false;
+        cuts.push_back(CuttingEdge{e0, e1});
+    }
+    if (allOnBoundary) {
+        return empty;
+    }
+
+    const Vector3 holeCentroid = polygonCentroid(hole);
+
+    auto clipAwayFromHole = [&](const std::vector<Vector3>& poly, const CuttingEdge& cut, bool keepAway)
+        -> std::vector<Vector3> {
+        Vector3 edge = sub3(cut.b, cut.a);
+        Vector3 n = cross3(faceNormal, edge);
+        const float nLen = length3(n);
+        if (nLen <= 1e-8f) {
+            return keepAway ? poly : std::vector<Vector3>{};
+        }
+        n = scale3(n, 1.0f / nLen);
+        BspPlane plane;
+        plane.normal = n;
+        plane.distance = dot3(n, cut.a);
+        const bool holeInFront = planeDistance(plane, holeCentroid) > 0.0f;
+        const bool keepFront = keepAway ? !holeInFront : holeInFront;
+        return clipPolygonAgainstPlane(poly, plane, keepFront);
+    };
+
+    std::function<std::vector<std::vector<Vector3>>(
+        const std::vector<Vector3>&,
+        std::size_t)>
+        recurse;
+    recurse = [&](const std::vector<Vector3>& poly, std::size_t cutIndex)
+        -> std::vector<std::vector<Vector3>> {
+        if (poly.size() < 3 || polygonArea(poly) < kMinFaceArea) {
+            return {};
+        }
+        if (cutIndex >= cuts.size()) {
+            auto stillCovered = clipPolygonInsideConvex(poly, hole, faceNormal);
+            if (stillCovered.size() >= 3
+                && polygonArea(stillCovered) >= polygonArea(poly) - kMinFaceArea) {
+                return {};
+            }
+            return {poly};
+        }
+
+        auto away = clipAwayFromHole(poly, cuts[cutIndex], true);
+        auto toward = clipAwayFromHole(poly, cuts[cutIndex], false);
+        std::vector<std::vector<Vector3>> out;
+        if (away.size() >= 3 && polygonArea(away) >= kMinFaceArea) {
+            orientToNormal(away, faceNormal);
+            out.push_back(std::move(away));
+        }
+        if (toward.size() >= 3 && polygonArea(toward) >= kMinFaceArea) {
+            auto nested = recurse(toward, cutIndex + 1);
+            out.insert(
+                out.end(),
+                std::make_move_iterator(nested.begin()),
+                std::make_move_iterator(nested.end()));
+        }
+        return out;
+    };
+
+    return recurse(subject, 0);
+}
+
+void occludeFragmentsByBrushes(
+    std::vector<ClippedFragment>& fragments,
+    std::size_t sourceBrushIndex,
+    const std::vector<Brush>& brushes,
+    Vector3 faceNormal) {
+    for (std::size_t bi = 0; bi < brushes.size(); ++bi) {
+        if (bi == sourceBrushIndex) {
+            continue;
+        }
+        const Brush& occluder = brushes[bi];
+        if (!brushRoleEmitsVisFaces(occluder.role)) {
+            continue;
+        }
+
+        std::vector<ClippedFragment> next;
+        next.reserve(fragments.size());
+        for (ClippedFragment& fragment : fragments) {
+            Vector3 fMins{};
+            Vector3 fMaxs{};
+            faceBounds(fragment.vertices, fMins, fMaxs);
+            if (!aabbOverlap(fMins, fMaxs, occluder.mins, occluder.maxs, kPlaneEps)) {
+                next.push_back(std::move(fragment));
+                continue;
+            }
+
+            auto covered = clipPolygonInsideBrush(fragment.vertices, occluder);
+            if (covered.size() < 3 || polygonArea(covered) < kMinFaceArea) {
+                next.push_back(std::move(fragment));
+                continue;
+            }
+
+            const float subjectArea = polygonArea(fragment.vertices);
+            const float coveredArea = polygonArea(covered);
+            if (coveredArea >= subjectArea - kMinFaceArea) {
+                continue;
+            }
+
+            orientToNormal(covered, faceNormal);
+            auto remainders = subtractConvexHole(fragment.vertices, covered, faceNormal);
+            for (std::vector<Vector3>& rem : remainders) {
+                if (!cleanupPolygonRing(rem, faceNormal)) {
+                    continue;
+                }
+                ClippedFragment out;
+                out.vertices = std::move(rem);
+                out.interiorLeaf = fragment.interiorLeaf;
+                next.push_back(std::move(out));
+            }
+        }
+        fragments = std::move(next);
+        if (fragments.empty()) {
+            return;
+        }
+    }
 }
 
 struct GridKey {
@@ -637,16 +1072,17 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
                 if (!findSharedEdge(faces[i].vertices, faces[j].vertices, aEdge, bEdge, bReversed)) {
                     continue;
                 }
+                const float areaA = polygonArea(faces[i].vertices);
+                const float areaB = polygonArea(faces[j].vertices);
                 auto combined = mergePolygonsAcrossEdge(
                     faces[i].vertices,
                     faces[j].vertices,
                     aEdge,
                     bEdge,
                     bReversed);
-                if (combined.size() < 3 || polygonArea(combined) < kMinFaceArea) {
+                if (!acceptMergedPolygon(combined, faces[i].normal, areaA, areaB)) {
                     continue;
                 }
-                orientToNormal(combined, faces[i].normal);
                 faces[i].vertices = std::move(combined);
                 if (faces[i].sourceFaceId != faces[j].sourceFaceId) {
                     std::string left = faces[i].sourceFaceId;
@@ -662,6 +1098,18 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
             }
         }
     }
+
+    for (VisibleFace& face : faces) {
+        cleanupPolygonRing(face.vertices, face.normal);
+    }
+    faces.erase(
+        std::remove_if(
+            faces.begin(),
+            faces.end(),
+            [](const VisibleFace& face) {
+                return face.vertices.size() < 3 || polygonArea(face.vertices) < kMinFaceArea;
+            }),
+        faces.end());
 
     std::sort(faces.begin(), faces.end(), [](const VisibleFace& a, const VisibleFace& b) {
         if (a.sourceFaceId != b.sourceFaceId) {
@@ -706,7 +1154,8 @@ VisBuildResult buildVisibleFaces(
 
     const bool canClip = analysis.sealed && !interiorLeaves.empty();
 
-    for (const Brush& brush : brushes) {
+    for (std::size_t brushIndex = 0; brushIndex < brushes.size(); ++brushIndex) {
+        const Brush& brush = brushes[brushIndex];
         if (!brushRoleEmitsVisFaces(brush.role)) {
             continue;
         }
@@ -729,6 +1178,12 @@ VisBuildResult buildVisibleFaces(
             }
 
             fragments = microMergeFragments(std::move(fragments));
+            occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal);
+
+            if (fragments.empty()) {
+                result.inferredNodrawFaceIds.push_back(face.id);
+                continue;
+            }
 
             std::sort(fragments.begin(), fragments.end(), [](const ClippedFragment& a, const ClippedFragment& b) {
                 const Vector3 ca = polygonCentroid(a.vertices);
