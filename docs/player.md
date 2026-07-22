@@ -141,14 +141,17 @@ When rad tint is on, the FP pass samples baked light from the player feet (avera
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `radius` | `0.3` | Capsule radius (meters). |
-| `height` | `1.1` | Cylinder segment between the capsule hemispheres. |
+| `radius` | `0.3` | Capsule radius (meters); box half-width/depth when `hull` is box. |
+| `height` | `1.1` | Cylinder segment between the capsule hemispheres (or box body height). |
 | `moveSpeed` | `6` | Horizontal wish speed. |
 | `gravity` | `9.81` | Applied when grounded / falling (skipped in noclip). |
 | `eyeHeight` | `1.7` | Camera offset above physics feet. |
+| `stepHeight` | `0.4` | Max stair step-up (meters). |
+| `hull` | capsule | `capsule` or `box` (map actors may opt into box; player stays capsule). |
+| `moveMode` | slide | `slide` or `try-move` (no wall slide; see [Things](things.md#actors)). |
 | `wishX` / `wishZ` | `0` | Filled each frame from move input. |
 
-The physics character is a capsule built from `radius` and `height`, created at the `player-start` feet position. Each physics step writes feet position back into `Lens.camera.position` (plus `eyeHeight`) and aims `camera.target` from controller yaw / pitch.
+The player physics character is a capsule built from `radius` and `height`, created at the `player-start` feet position. Each physics step writes feet position back into `Lens.camera.position` (plus `eyeHeight`) and aims `camera.target` from controller yaw / pitch.
 
 ## Input
 

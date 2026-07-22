@@ -294,13 +294,22 @@ void PhysicsWorld::createCharacter(
     const CharacterMotor& motor) {
     characters_.erase(id);
 
-    const float radius = motor.radius;
-    const float cylinderHalf = 0.5f * motor.height;
+    const float radius = motor.radius > 0.0f ? motor.radius : 0.3f;
+    const float height = motor.height > 0.0f ? motor.height : 1.1f;
+    const float cylinderHalf = 0.5f * height;
+    const float halfY = cylinderHalf + radius;
     CharacterEntry entry{};
-    entry.shape = JPH::RotatedTranslatedShapeSettings(
-        JPH::Vec3(0.0f, cylinderHalf + radius, 0.0f),
-        JPH::Quat::sIdentity(),
-        new JPH::CapsuleShape(cylinderHalf, radius)).Create().Get();
+    if (motor.hull == CharacterHull::Box) {
+        entry.shape = JPH::RotatedTranslatedShapeSettings(
+            JPH::Vec3(0.0f, halfY, 0.0f),
+            JPH::Quat::sIdentity(),
+            new JPH::BoxShape(JPH::Vec3(radius, halfY, radius))).Create().Get();
+    } else {
+        entry.shape = JPH::RotatedTranslatedShapeSettings(
+            JPH::Vec3(0.0f, halfY, 0.0f),
+            JPH::Quat::sIdentity(),
+            new JPH::CapsuleShape(cylinderHalf, radius)).Create().Get();
+    }
 
     JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
     settings->mShape = entry.shape;
@@ -315,8 +324,15 @@ void PhysicsWorld::createCharacter(
         system_.get());
 
     characters_[id] = std::move(entry);
-    TraceLog(LOG_INFO, "PHYSICS: character %llu at (%.2f, %.2f, %.2f)",
-        static_cast<unsigned long long>(id), x, y, z);
+    TraceLog(
+        LOG_INFO,
+        "PHYSICS: character %llu at (%.2f, %.2f, %.2f) hull=%s move=%s",
+        static_cast<unsigned long long>(id),
+        x,
+        y,
+        z,
+        motor.hull == CharacterHull::Box ? "box" : "capsule",
+        motor.moveMode == CharacterMoveMode::TryMove ? "try-move" : "slide");
 }
 
 void PhysicsWorld::destroyCharacter(std::uint64_t id) {
@@ -384,13 +400,100 @@ void PhysicsWorld::applyCharacterInput(
     character.SetLinearVelocity(newVelocity);
 }
 
+void PhysicsWorld::stepCharacterTryMove(
+    JPH::CharacterVirtual& character,
+    const CharacterMotor& motor) {
+    applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, false);
+
+    const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
+    const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
+    const JPH::BodyFilter bodyFilter{};
+    const JPH::ShapeFilter shapeFilter{};
+    const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
+    const JPH::Vec3 up = character.GetUp();
+    const JPH::Vec3 stickDown = -up * 0.5f;
+    const float stepHeight = motor.stepHeight > 0.0f ? motor.stepHeight : 0.4f;
+
+    JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
+    const bool hasWish = wish.LengthSq() > 1.0e-6f;
+    if (hasWish) {
+        wish = wish.Normalized() * motor.moveSpeed;
+    }
+
+    const JPH::Vec3 fullVel = character.GetLinearVelocity();
+    character.SetLinearVelocity(fullVel.Dot(up) * up);
+    character.Update(
+        kFixedDt,
+        gravity,
+        broadPhaseFilter,
+        objectFilter,
+        bodyFilter,
+        shapeFilter,
+        *tempAllocator_);
+    const JPH::RVec3 afterVert = character.GetPosition();
+
+    if (!hasWish) {
+        character.StickToFloor(
+            stickDown, broadPhaseFilter, objectFilter, bodyFilter, shapeFilter, *tempAllocator_);
+        return;
+    }
+
+    character.SetLinearVelocity(wish);
+    character.Update(
+        kFixedDt,
+        gravity,
+        broadPhaseFilter,
+        objectFilter,
+        bodyFilter,
+        shapeFilter,
+        *tempAllocator_);
+    const JPH::RVec3 afterMove = character.GetPosition();
+
+    JPH::Vec3 delta = JPH::Vec3(afterMove - afterVert);
+    delta -= delta.Dot(up) * up;
+    const JPH::Vec3 wishDir = wish.Normalized();
+    const float forward = delta.Dot(wishDir);
+    const float desired = motor.moveSpeed * kFixedDt;
+    constexpr float kAcceptFraction = 0.92f;
+    if (forward + 1.0e-4f >= desired * kAcceptFraction) {
+        character.StickToFloor(
+            stickDown, broadPhaseFilter, objectFilter, bodyFilter, shapeFilter, *tempAllocator_);
+        return;
+    }
+
+    character.SetPosition(JPH::RVec3(afterVert.GetX(), afterMove.GetY(), afterVert.GetZ()));
+    character.SetLinearVelocity(wish);
+
+    if (character.CanWalkStairs(wish)) {
+        const JPH::Vec3 stepUp = up * stepHeight;
+        const float forwardLen = desired > 0.02f ? desired : 0.02f;
+        const JPH::Vec3 stepForward = wishDir * forwardLen;
+        const JPH::Vec3 stepForwardTest = wishDir * 0.15f;
+        character.WalkStairs(
+            kFixedDt,
+            stepUp,
+            stepForward,
+            stepForwardTest,
+            JPH::Vec3::sZero(),
+            broadPhaseFilter,
+            objectFilter,
+            bodyFilter,
+            shapeFilter,
+            *tempAllocator_);
+    }
+
+    character.StickToFloor(
+        stickDown, broadPhaseFilter, objectFilter, bodyFilter, shapeFilter, *tempAllocator_);
+    const JPH::Vec3 settled = character.GetLinearVelocity();
+    character.SetLinearVelocity(settled.Dot(up) * up);
+}
+
 void PhysicsWorld::stepCharacter(
     JPH::CharacterVirtual& character,
     const CharacterMotor& motor,
     bool noclip) {
-    applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, noclip);
-
     if (noclip) {
+        applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, true);
         const JPH::RVec3 pos = character.GetPosition();
         const JPH::Vec3 vel = character.GetLinearVelocity();
         character.SetPosition(JPH::RVec3(
@@ -400,7 +503,16 @@ void PhysicsWorld::stepCharacter(
         return;
     }
 
+    if (motor.moveMode == CharacterMoveMode::TryMove) {
+        stepCharacterTryMove(character, motor);
+        return;
+    }
+
+    applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, false);
+
     JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+    const float stepHeight = motor.stepHeight > 0.0f ? motor.stepHeight : 0.4f;
+    updateSettings.mWalkStairsStepUp = character.GetUp() * stepHeight;
     character.ExtendedUpdate(
         kFixedDt,
         -character.GetUp() * system_->GetGravity().Length(),

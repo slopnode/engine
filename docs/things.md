@@ -121,7 +121,7 @@ Packages define recipes (rockets, arcing throws, bolts) with `(motored-spawn ...
 
 ## Actors
 
-An actor is a presented world body with a character capsule motor and opaque `CollisionTags`. It is the engine primitive for walking entities packages may treat as enemies, NPCs, or neutrals. Distinct from:
+An actor is a presented world body with a character motor and opaque `CollisionTags`. It is the engine primitive for walking entities packages may treat as enemies, NPCs, or neutrals. Distinct from:
 
 - Prop: placed, may animate a sprite clip, does not move.
 - Usable: static (or later movable) fixture the player uses.
@@ -136,17 +136,26 @@ An actor is a presented world body with a character capsule motor and opaque `Co
   (yaw 0.0)
   (sprite "characters/guard")
   (anim "idle" #t)
-  (motor (radius 0.3) (height 1.1) (speed 3.5) (gravity 9.81))
+  (motor
+    (radius 0.3)
+    (height 1.1)
+    (speed 3.5)
+    (gravity 9.81)
+    (step-height 0.4)
+    (hull box)
+    (move try-move))
   (tags "actor" "team:security"))
 ```
 
 | Field | Required | Notes |
 |-------|----------|-------|
 | (all `prop` presentation fields) | same rules | Sprite or geo, pose, optional anim. |
-| `(motor ...)` | no | Nested `(radius)`, `(height)`, `(speed)`, `(gravity)`. Defaults match the player capsule (`0.3`, `1.1`, `6`, `9.81`). |
+| `(motor ...)` | no | Nested `(radius)`, `(height)`, `(speed)`, `(gravity)`, `(step-height)`, `(hull ...)`, `(move ...)`. Numeric defaults match the player (`0.3`, `1.1`, `6`, `9.81`, step `0.4`). `(hull capsule\|box)` default `capsule`. `(move slide\|try-move)` default `slide`. |
 | `(tags ...)` | no | Opaque strings copied to `CollisionTags`. Empty → `("actor")`. |
 
-Spawn adds `Actor`, `CharacterMotor`, and `CollisionTags`, then creates a Jolt `CharacterVirtual`. Packages write wish via `(actor-set-wish id wx wz)`; the engine integrates against static hulls. Query helpers (`actors-with-tag`, `actors-in-radius`, `los?`) are in [Scripting](scripting.md). Nav pathfollowing is not shipped yet; `graphs.s7` remains authoring data. Health, factions, and combat stay in package Scheme.
+`hull box` uses an axis-aligned box footprint (half-width/depth = `radius`). `move try-move` disables wall slide: horizontal motion either fully advances or fails, then stair step-up of `step-height` may still succeed. Use box + try-move for Doom-like cornering and package 8-dir chase; the player stays capsule + slide. Packages still drive intent with `(actor-set-wish id wx wz)`.
+
+Spawn adds `Actor`, `CharacterMotor`, and `CollisionTags`, then creates a Jolt `CharacterVirtual`. Query helpers (`actors-with-tag`, `actors-in-radius`, `los?`) are in [Scripting](scripting.md). Nav pathfollowing is not shipped yet; `graphs.s7` remains authoring data. Health, factions, and combat stay in package Scheme.
 
 ## Scripting
 

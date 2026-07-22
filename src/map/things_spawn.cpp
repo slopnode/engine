@@ -328,6 +328,9 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             motor.height = placement.motorHeight;
             motor.moveSpeed = placement.motorSpeed;
             motor.gravity = placement.motorGravity;
+            motor.stepHeight = placement.motorStepHeight;
+            motor.hull = placement.motorHull;
+            motor.moveMode = placement.motorMoveMode;
             entity.add<Actor>().set<CharacterMotor>(motor);
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {

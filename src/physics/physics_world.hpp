@@ -96,6 +96,9 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         bool noclip);
+    void stepCharacterTryMove(
+        JPH::CharacterVirtual& character,
+        const CharacterMotor& motor);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;
     static constexpr int kMaxSubsteps = 4;

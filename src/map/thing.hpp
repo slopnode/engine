@@ -1,5 +1,7 @@
 #pragma once
 
+#include "physics/components.hpp"
+
 #include <raylib.h>
 
 #include <string>
@@ -51,6 +53,9 @@ struct Thing {
     float motorHeight = 1.1f;
     float motorSpeed = 6.0f;
     float motorGravity = 9.81f;
+    float motorStepHeight = 0.4f;
+    CharacterHull motorHull = CharacterHull::Capsule;
+    CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;
 
     Vector3 color{1.0f, 1.0f, 1.0f};

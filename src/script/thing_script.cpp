@@ -10,6 +10,7 @@
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
+#include "render/sprite_billboard.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -577,6 +578,98 @@ s7_pointer g_los(s7_scheme* sc, s7_pointer args) {
     return hit.has_value() ? s7_f(sc) : s7_t(sc);
 }
 
+s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+
+    float ox = 0, oy = 0, oz = 0, dx = 0, dy = 0, dz = 0, maxDistance = 0;
+    if (!readNumberArg(sc, args, ox, "hitscan-actors", 1) ||
+        !readNumberArg(sc, args, oy, "hitscan-actors", 2) ||
+        !readNumberArg(sc, args, oz, "hitscan-actors", 3) ||
+        !readNumberArg(sc, args, dx, "hitscan-actors", 4) ||
+        !readNumberArg(sc, args, dy, "hitscan-actors", 5) ||
+        !readNumberArg(sc, args, dz, "hitscan-actors", 6) ||
+        !readNumberArg(sc, args, maxDistance, "hitscan-actors", 7)) {
+        return s7_wrong_type_arg_error(
+            sc, "hitscan-actors", 1, args, "ox oy oz dx dy dz max-distance numbers");
+    }
+
+    std::string tagFilter;
+    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+        tagFilter = s7_string(s7_car(args));
+    }
+
+    if (maxDistance <= 0.0f) {
+        return s7_f(sc);
+    }
+
+    const Vector3 origin{ox, oy, oz};
+    const Vector3 rawDir{dx, dy, dz};
+    const float dirLen = Vector3Length(rawDir);
+    if (dirLen <= 1.0e-6f) {
+        return s7_f(sc);
+    }
+    const Vector3 dir = Vector3Scale(rawDir, 1.0f / dirLen);
+
+    float range = maxDistance;
+    if (PhysicsWorld* physics = physicsWorld()) {
+        if (const auto wall = physics->castRay(origin, dir, range)) {
+            range = wall->fraction * range;
+        }
+    }
+    if (range <= 0.0f) {
+        return s7_f(sc);
+    }
+
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+
+    const Ray ray{origin, dir};
+    flecs::entity bestEntity{};
+    SpriteBillboardHit bestHit{};
+    float bestDistance = range;
+
+    g_thingWorld->each([&](flecs::entity entity,
+                           Actor,
+                           SpriteInstance& sprite,
+                           GlobalTransformation& global) {
+        if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {
+            return;
+        }
+        if (!tagFilter.empty()) {
+            if (!entity.has<CollisionTags>() || !actorHasTag(entity.get<CollisionTags>(), tagFilter)) {
+                return;
+            }
+        }
+
+        const auto billboard = resolveSpriteBillboard(sprite, global, origin, assets);
+        if (!billboard) {
+            return;
+        }
+        const auto hit = raycastSpriteBillboard(ray, *billboard, bestDistance);
+        if (!hit) {
+            return;
+        }
+        bestDistance = hit->distance;
+        bestHit = *hit;
+        bestEntity = entity;
+    });
+
+    if (!bestEntity.is_valid()) {
+        return s7_f(sc);
+    }
+
+    return s7_list(
+        sc,
+        3,
+        s7_make_string(sc, entityIdString(bestEntity).c_str()),
+        s7_make_string(sc, bestHit.partName.c_str()),
+        s7_make_real(sc, bestHit.distance));
+}
+
 s7_pointer g_actor_los(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-los?", 1, args, "from-id string");
@@ -695,6 +788,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "los?", g_los, 6, 0, false, "(los? x0 y0 z0 x1 y1 z1)");
     s7_define_function(
         scheme, "actor-los?", g_actor_los, 2, 0, false, "(actor-los? from-id to-id)");
+    s7_define_function(
+        scheme,
+        "hitscan-actors",
+        g_hitscan_actors,
+        7,
+        1,
+        false,
+        "(hitscan-actors ox oy oz dx dy dz max-distance [tag])");
 }
 
 }

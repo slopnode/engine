@@ -207,6 +207,27 @@ s7_pointer g_motor_gravity(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "gravity", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_motor_step_height(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "step-height", 1, args, "value");
+    }
+    return makeTaggedList(sc, "step-height", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_motor_hull(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "hull", 1, args, "capsule|box");
+    }
+    return makeTaggedList(sc, "hull", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_motor_move(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "move", 1, args, "slide|try-move");
+    }
+    return makeTaggedList(sc, "move", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_color(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "color", 0, args, "r g b");
@@ -392,7 +413,32 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                 }
                 const char* motorTag = s7_symbol_name(s7_car(motorClause));
                 s7_pointer motorRest = s7_cdr(motorClause);
-                if (!s7_is_pair(motorRest) || !s7_is_number(s7_car(motorRest))) {
+                if (!s7_is_pair(motorRest)) {
+                    continue;
+                }
+                if (std::strcmp(motorTag, "hull") == 0) {
+                    std::string hull;
+                    if (readString(sc, s7_car(motorRest), hull)) {
+                        if (hull == "box") {
+                            out.motorHull = CharacterHull::Box;
+                        } else if (hull == "capsule") {
+                            out.motorHull = CharacterHull::Capsule;
+                        }
+                    }
+                    continue;
+                }
+                if (std::strcmp(motorTag, "move") == 0) {
+                    std::string move;
+                    if (readString(sc, s7_car(motorRest), move)) {
+                        if (move == "try-move") {
+                            out.motorMoveMode = CharacterMoveMode::TryMove;
+                        } else if (move == "slide") {
+                            out.motorMoveMode = CharacterMoveMode::Slide;
+                        }
+                    }
+                    continue;
+                }
+                if (!s7_is_number(s7_car(motorRest))) {
                     continue;
                 }
                 const float value = static_cast<float>(s7_number_to_real(sc, s7_car(motorRest)));
@@ -404,6 +450,8 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorSpeed = value;
                 } else if (std::strcmp(motorTag, "gravity") == 0) {
                     out.motorGravity = value;
+                } else if (std::strcmp(motorTag, "step-height") == 0) {
+                    out.motorStepHeight = value;
                 }
             }
         } else if (std::strcmp(tag, "color") == 0 &&
@@ -614,6 +662,13 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "height", g_motor_height, 1, 0, false, "(height value)");
     s7_define_function(sc, "speed", g_motor_speed, 1, 0, false, "(speed value)");
     s7_define_function(sc, "gravity", g_motor_gravity, 1, 0, false, "(gravity value)");
+    s7_define_function(sc, "step-height", g_motor_step_height, 1, 0, false, "(step-height value)");
+    s7_define_function(sc, "hull", g_motor_hull, 1, 0, false, "(hull capsule|box)");
+    s7_define_function(sc, "move", g_motor_move, 1, 0, false, "(move slide|try-move)");
+    s7_define_variable(sc, "capsule", s7_make_symbol(sc, "capsule"));
+    s7_define_variable(sc, "box", s7_make_symbol(sc, "box"));
+    s7_define_variable(sc, "slide", s7_make_symbol(sc, "slide"));
+    s7_define_variable(sc, "try-move", s7_make_symbol(sc, "try-move"));
     s7_define_function(sc, "color", g_color, 3, 0, false, "(color r g b)");
     s7_define_function(sc, "intensity", g_intensity, 1, 0, false, "(intensity value)");
     s7_define_function(sc, "range", g_range, 1, 0, false, "(range value)");

@@ -57,10 +57,22 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
 
 void writeActorFields(std::ostringstream& out, const Thing& p) {
     if (p.haveMotor || p.motorRadius != 0.3f || p.motorHeight != 1.1f || p.motorSpeed != 6.0f ||
-        p.motorGravity != 9.81f) {
+        p.motorGravity != 9.81f || p.motorStepHeight != 0.4f ||
+        p.motorHull != CharacterHull::Capsule || p.motorMoveMode != CharacterMoveMode::Slide) {
         std::string clause = "(motor (radius " + formatFloat(p.motorRadius) + ") (height " +
             formatFloat(p.motorHeight) + ") (speed " + formatFloat(p.motorSpeed) + ") (gravity " +
-            formatFloat(p.motorGravity) + "))";
+            formatFloat(p.motorGravity) + ") (step-height " + formatFloat(p.motorStepHeight) + ")";
+        if (p.motorHull == CharacterHull::Box) {
+            clause += " (hull box)";
+        } else {
+            clause += " (hull capsule)";
+        }
+        if (p.motorMoveMode == CharacterMoveMode::TryMove) {
+            clause += " (move try-move)";
+        } else {
+            clause += " (move slide)";
+        }
+        clause += ")";
         writeIndentClause(out, clause);
     }
     if (!p.tags.empty()) {
