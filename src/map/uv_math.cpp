@@ -26,19 +26,40 @@ float axisScale(float scale) {
 } // namespace
 
 void axialUvAxes(Vector3 normal, Vector3& uAxis, Vector3& vAxis) {
-    const float ax = std::fabs(normal.x);
-    const float ay = std::fabs(normal.y);
-    const float az = std::fabs(normal.z);
+    // Y-up, Quake/Hammer-style: pick which of six world directions is closest to
+    // the face normal. Each U/V pair is right-handed with that normal (U×V || N).
+    static constexpr Vector3 kBaseAxis[18] = {
+        {0.0f, 1.0f, 0.0f},  {1.0f, 0.0f, 0.0f},  {0.0f, 0.0f, -1.0f}, // +Y floor
+        {0.0f, -1.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, // -Y ceiling
+        {1.0f, 0.0f, 0.0f},  {0.0f, 0.0f, 1.0f},  {0.0f, -1.0f, 0.0f}, // +X east
+        {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {0.0f, -1.0f, 0.0f}, // -X west
+        {0.0f, 0.0f, 1.0f},  {-1.0f, 0.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, // +Z north
+        {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f},  {0.0f, -1.0f, 0.0f}, // -Z south
+    };
 
-    if (ay >= ax && ay >= az) {
-        uAxis = {1.0f, 0.0f, 0.0f};
-        vAxis = {0.0f, 0.0f, -1.0f};
-    } else if (ax >= ay && ax >= az) {
-        uAxis = {0.0f, 0.0f, 1.0f};
-        vAxis = {0.0f, -1.0f, 0.0f};
-    } else {
-        uAxis = {1.0f, 0.0f, 0.0f};
-        vAxis = {0.0f, -1.0f, 0.0f};
+    int bestAxis = 0;
+    float bestDot = -1.0f;
+    for (int i = 0; i < 6; ++i) {
+        const Vector3& axisN = kBaseAxis[i * 3];
+        const float d = normal.x * axisN.x + normal.y * axisN.y + normal.z * axisN.z;
+        if (d > bestDot) {
+            bestDot = d;
+            bestAxis = i;
+        }
+    }
+
+    uAxis = kBaseAxis[bestAxis * 3 + 1];
+    vAxis = kBaseAxis[bestAxis * 3 + 2];
+
+    const Vector3 crossed = {
+        uAxis.y * vAxis.z - uAxis.z * vAxis.y,
+        uAxis.z * vAxis.x - uAxis.x * vAxis.z,
+        uAxis.x * vAxis.y - uAxis.y * vAxis.x,
+    };
+    if (crossed.x * normal.x + crossed.y * normal.y + crossed.z * normal.z < 0.0f) {
+        uAxis.x = -uAxis.x;
+        uAxis.y = -uAxis.y;
+        uAxis.z = -uAxis.z;
     }
 }
 
