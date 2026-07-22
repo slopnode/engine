@@ -327,6 +327,8 @@ void drawMainMenuBar(
         }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
         menuItemWithIcon(
+            assets, kIcons, "chart_curve", "FPS Graph", nullptr, &debugUi.showFpsGraph);
+        menuItemWithIcon(
             assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
         menuItemWithIcon(
@@ -696,6 +698,54 @@ void drawEntityDetail(DebugUiState& debugUi) {
     }
 }
 
+void drawFpsGraph(DebugUiState& debugUi) {
+    if (!debugUi.showFpsGraph) {
+        return;
+    }
+
+    constexpr int kHistorySize = 240;
+    static float history[kHistorySize]{};
+    static int historyOffset = 0;
+    static int historyCount = 0;
+
+    const float fps = ImGui::GetIO().Framerate;
+    history[historyOffset] = fps;
+    historyOffset = (historyOffset + 1) % kHistorySize;
+    if (historyCount < kHistorySize) {
+        ++historyCount;
+    }
+
+    float scaleMax = 60.0f;
+    for (int i = 0; i < historyCount; ++i) {
+        if (history[i] > scaleMax) {
+            scaleMax = history[i];
+        }
+    }
+    if (scaleMax > 300.0f) {
+        scaleMax = 300.0f;
+    }
+
+    ImGui::SetNextWindowSize({280.0f, 160.0f}, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("FPS", &debugUi.showFpsGraph, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("%.0f FPS", static_cast<double>(fps));
+    const int valuesOffset = historyCount < kHistorySize ? 0 : historyOffset;
+    ImGui::PlotLines(
+        "##fps",
+        history,
+        historyCount,
+        valuesOffset,
+        nullptr,
+        0.0f,
+        scaleMax,
+        ImVec2(-1.0f, 80.0f));
+
+    ImGui::End();
+}
+
 void drawEntityList(flecs::world world, DebugUiState& debugUi) {
     if (!debugUi.entityListOpen) {
         return;
@@ -1004,6 +1054,10 @@ void drawUi(flecs::world world) {
         drawControlsSettings(*assets, settingsUi, settings);
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
+    }
+
+    if (world.has<DebugUiState>()) {
+        drawFpsGraph(world.get_mut<DebugUiState>());
     }
 
     if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {
