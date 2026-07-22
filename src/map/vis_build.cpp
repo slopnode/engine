@@ -265,6 +265,10 @@ bool sameUvFrame(const VisibleFace& a, const VisibleFace& b) {
         || std::fabs(a.uvShiftPixels.y - b.uvShiftPixels.y) > 1e-3f) {
         return false;
     }
+    if (std::fabs(a.uvScale.x - b.uvScale.x) > 1e-3f
+        || std::fabs(a.uvScale.y - b.uvScale.y) > 1e-3f) {
+        return false;
+    }
     if (dot3(a.normal, b.normal) < 0.999f) {
         return false;
     }
@@ -556,6 +560,7 @@ VisibleFace makeVisibleFromBrushFace(const BrushFace& face, std::string id) {
     out.normal = face.normal;
     out.vertices = face.vertices;
     out.uvShiftPixels = face.uvShiftPixels;
+    out.uvScale = face.uvScale;
     out.uvUAxis = face.uvUAxis;
     out.uvVAxis = face.uvVAxis;
     out.uvLock = face.uvLock;

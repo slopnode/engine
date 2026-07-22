@@ -10,7 +10,7 @@
 namespace slopengine {
 
 constexpr std::uint32_t kVisMagic = 0x31534956u; // "VIS1" LE
-constexpr std::uint32_t kVisVersion = 1;
+constexpr std::uint32_t kVisVersion = 2;
 
 bool writeVisFile(const std::filesystem::path& path, const VisFile& vis);
 std::optional<VisFile> readVisFile(const std::filesystem::path& path);

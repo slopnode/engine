@@ -107,6 +107,7 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
             face.normal = brushFace.normal;
             face.vertices = brushFace.vertices;
             face.uvShiftPixels = brushFace.uvShiftPixels;
+            face.uvScale = brushFace.uvScale;
             face.uvUAxis = brushFace.uvUAxis;
             face.uvVAxis = brushFace.uvVAxis;
             face.uvLock = brushFace.uvLock;
@@ -129,6 +130,7 @@ std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis) {
         face.normal = visible.normal;
         face.vertices = visible.vertices;
         face.uvShiftPixels = visible.uvShiftPixels;
+        face.uvScale = visible.uvScale;
         face.uvUAxis = visible.uvUAxis;
         face.uvVAxis = visible.uvVAxis;
         face.uvLock = visible.uvLock;

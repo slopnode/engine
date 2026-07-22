@@ -126,6 +126,7 @@ bool writeVisFile(const std::filesystem::path& path, const VisFile& vis) {
         writePolygon(writer, face.vertices);
         writer.writePod(face.normal);
         writer.writePod(face.uvShiftPixels);
+        writer.writePod(face.uvScale);
         writer.writePod(face.uvUAxis);
         writer.writePod(face.uvVAxis);
         writer.writePod(static_cast<std::uint8_t>(face.uvLock ? 1 : 0));
@@ -170,6 +171,7 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
         std::vector<Vector3> vertices;
         Vector3 normal{};
         Vector2 uvShiftPixels{};
+        Vector2 uvScale{1.0f, 1.0f};
         Vector3 uvUAxis{};
         Vector3 uvVAxis{};
         std::uint8_t uvLock = 0;
@@ -184,6 +186,7 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
         if (!readPolygon(reader, record.vertices)
             || !reader.readPod(record.normal)
             || !reader.readPod(record.uvShiftPixels)
+            || !reader.readPod(record.uvScale)
             || !reader.readPod(record.uvUAxis)
             || !reader.readPod(record.uvVAxis)
             || !reader.readPod(record.uvLock)
@@ -220,6 +223,7 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
         face.vertices = record.vertices;
         face.normal = record.normal;
         face.uvShiftPixels = record.uvShiftPixels;
+        face.uvScale = record.uvScale;
         face.uvUAxis = record.uvUAxis;
         face.uvVAxis = record.uvVAxis;
         face.uvLock = record.uvLock != 0;

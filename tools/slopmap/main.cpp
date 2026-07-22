@@ -4,6 +4,7 @@
 #include "editor.hpp"
 #include "layout.hpp"
 #include "material_browser.hpp"
+#include "texture_panel.hpp"
 #include "place_tool.hpp"
 #include "punch_tool.hpp"
 #include "clip_tool.hpp"
@@ -675,6 +676,7 @@ int main(int argc, char* argv[]) {
     slopmap::PunchTool punchTool;
     slopmap::ClipTool clipTool;
     slopmap::MaterialBrowser materialBrowser;
+    slopmap::TexturePanel texturePanel;
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
     materialBrowser.rescan(assets);
@@ -2041,7 +2043,7 @@ int main(int argc, char* argv[]) {
                 ImGuiCond_Always);
             if (ImGui::Begin("Library", nullptr, panelFlags)) {
                 constexpr const char* kIconSet = kDefaultIconSet;
-                static bool libraryOpen[4] = {true, true, true, false};
+                static bool libraryOpen[4] = {true, true, true, true};
                 static std::vector<std::string> spritePaths;
                 static std::vector<std::string> geoPaths;
                 static bool assetListsReady = false;
@@ -2078,8 +2080,18 @@ int main(int argc, char* argv[]) {
                 }
 
                 libraryOpen[1] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "package", "Prefabs", ImGuiTreeNodeFlags_DefaultOpen);
+                    assets, kIconSet, "picture_edit", "Texture", ImGuiTreeNodeFlags_DefaultOpen);
                 if (libraryOpen[1]) {
+                    const slopmap::TexturePanelResult texResult =
+                        texturePanel.drawSection(editor, assets, bodyH);
+                    if (texResult.changed) {
+                        editor.rebuildPreview(assets);
+                    }
+                }
+
+                libraryOpen[2] = collapsingHeaderWithIcon(
+                    assets, kIconSet, "package", "Prefabs", ImGuiTreeNodeFlags_DefaultOpen);
+                if (libraryOpen[2]) {
                     const slopmap::PrefabBrowserResult prefabResult =
                         prefabBrowser.drawSection(editor, assets, bodyH);
                     if (prefabResult.requestRescan) {
@@ -2113,9 +2125,9 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                libraryOpen[2] = collapsingHeaderWithIcon(
+                libraryOpen[3] = collapsingHeaderWithIcon(
                     assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
-                if (libraryOpen[2]) {
+                if (libraryOpen[3]) {
                     if (ImGui::BeginChild("##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                         if (ImGui::Button("player-start")) {
                             beginThingKind(

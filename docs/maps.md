@@ -64,7 +64,7 @@ The canonical solid is a convex polyhedron of polygonal faces. Each face is an o
       (verts (v 1.5 0.0 1.2) (v 1.5 0.7 0.7) (v 1.0 0.0 0.5)))))
 ```
 
-`brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role …)` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes ux uy uz vx vy vz)`, `(nodraw)`, and `(verts (v x y z)...)`.
+`brush-convex` requires `id` and at least four planar faces that form a closed convex. Optional `(role …)` (default hull). Optional brush-level `(material ...)` fills in faces that omit their own. Per-face clauses may set `id`, `material`, `(uv-shift x y)`, `(uv-scale sx sy)`, `(uv-lock)`, `(uv-axes ux uy uz vx vy vz)`, `(nodraw)`, and `(verts (v x y z)...)`.
 
 | Role | Splits | Seals | VIS faces | Default physics | Notes |
 |------|--------|-------|-----------|-----------------|-------|
@@ -77,7 +77,7 @@ The canonical solid is a convex polyhedron of polygonal faces. Each face is an o
 
 Open leaves may also carry `Water` / `Trigger` bits. Flood / sealing treat `Solid` and `Glass` as blocked.
 
-`(uv-lock)` pins planar texture coordinates to the face. Locked faces store UV axes (defaulting to the usual world-axial basis for the face normal). Prefab thing and editor transforms rotate those axes with the geometry and adjust `uv-shift`, so the texture stays glued under move and rotate. Optional `(uv-axes …)` overrides the basis when it differs from axial. Omit `(uv-lock)` to keep world-aligned tiling (default).
+`(uv-lock)` pins planar texture coordinates to the face. Locked faces store UV axes (defaulting to the usual world-axial basis for the face normal). Prefab thing and editor transforms rotate those axes with the geometry and adjust `uv-shift`, so the texture stays glued under move and rotate. Optional `(uv-axes …)` overrides the basis when it differs from axial. Omit `(uv-lock)` to keep world-aligned tiling (default). Optional `(uv-scale sx sy)` multiplies material `texel-size` per UV axis (default `1 1`).
 
 For convenience, `brush-box` expands an axis-aligned box into a six-face convex (same runtime representation):
 
@@ -89,7 +89,7 @@ For convenience, `brush-box` expands an axis-aligned box into a six-face convex 
   (material "surfaces/stone"))
 ```
 
-`id`, `mins`, and `maxs` are required on `brush-box`. Optional `(faces ...)` overrides individual sides (`top`, `bottom`, `north`, `south`, `east`, `west`) with their own `id`, `material`, `(uv-shift x y)`, `(uv-lock)`, `(uv-axes …)`, or `(nodraw)`. Future sugar such as `brush-circle` may expand other primitives the same way; the compiler always sees convexes.
+`id`, `mins`, and `maxs` are required on `brush-box`. Optional `(faces ...)` overrides individual sides (`top`, `bottom`, `north`, `south`, `east`, `west`) with their own `id`, `material`, `(uv-shift x y)`, `(uv-scale sx sy)`, `(uv-lock)`, `(uv-axes …)`, or `(nodraw)`. Future sugar such as `brush-circle` may expand other primitives the same way; the compiler always sees convexes.
 
 `(prefab …)` instances a brush assembly from `prefabs/<path>.csg`. Required: path string argument and `(id …)`. Optional `(at x y z)` (default origin) and `(angles pitch yaw roll)` in radians (default zero). No scale. At load/compile the prefab expands into ordinary brushes: local brush/face ids become `<instance-id>/<local-id>`, vertices are rotated then translated, and rotated boxes are no longer treated as axis-aligned. Faces marked `(uv-lock)` in the prefab keep their local texture thing under that transform. Brush `role` / `nocollide` come from the prefab author (hull modular rooms and detail furniture both work). Prefabs may nest; cycles error. Map files keep `(prefab …)` references (they are not baked on save).
 

@@ -520,6 +520,7 @@ Brush makeBrushBox(
                 face.material = overrideFace.material;
             }
             face.uvShiftPixels = overrideFace.uvShiftPixels;
+            face.uvScale = overrideFace.uvScale;
             face.nodraw = overrideFace.nodraw;
             face.uvLock = overrideFace.uvLock;
             face.uvUAxis = overrideFace.uvUAxis;

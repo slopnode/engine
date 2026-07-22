@@ -268,7 +268,8 @@ Color3 emissionAt(
         uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
         uvInfo.textureWidth = static_cast<float>(material.emissionImage.width);
         uvInfo.textureHeight = static_cast<float>(material.emissionImage.height);
-        const Vector2 uv = worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, uvInfo);
+        const Vector2 uv =
+            worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, face.uvScale, uvInfo);
         const Color3 texel = sampleImageUv(material.emissionImage, uv.x, uv.y);
         if (luminance(texel) < 1.0f / 255.0f) {
             return {};
@@ -304,7 +305,8 @@ Color3 albedoAt(
     uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
     uvInfo.textureWidth = static_cast<float>(material.albedoImage.width);
     uvInfo.textureHeight = static_cast<float>(material.albedoImage.height);
-    const Vector2 uv = worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, uvInfo);
+    const Vector2 uv =
+        worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, face.uvScale, uvInfo);
     return base * sampleImageUv(material.albedoImage, uv.x, uv.y);
 }
 

@@ -39,6 +39,7 @@ struct BrushFace {
     Vector3 normal{};
     std::vector<Vector3> vertices; /**< Outward winding. */
     Vector2 uvShiftPixels{};
+    Vector2 uvScale{1.0f, 1.0f};
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool nodraw = false; /**< Omit from mesh and lightmaps. */

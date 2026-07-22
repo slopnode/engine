@@ -18,6 +18,7 @@ struct VisibleFace {
     Vector3 normal{};
     std::vector<Vector3> vertices;
     Vector2 uvShiftPixels{};
+    Vector2 uvScale{1.0f, 1.0f};
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool uvLock = false;

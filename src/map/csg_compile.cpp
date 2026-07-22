@@ -20,6 +20,7 @@ struct FaceCompileInput {
     Vector3 normal{};
     const std::vector<Vector3>* vertices = nullptr;
     Vector2 uvShiftPixels{};
+    Vector2 uvScale{1.0f, 1.0f};
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool uvLock = false;
@@ -101,7 +102,7 @@ CsgCompileResult compileFacesToGeo(
             result.buffer.positions.push_back(corner);
             result.buffer.normals.push_back(face.normal);
             result.buffer.texcoords.push_back(
-                worldPlanarUv(corner, uAxis, vAxis, face.uvShiftPixels, materialUv));
+                worldPlanarUv(corner, uAxis, vAxis, face.uvShiftPixels, face.uvScale, materialUv));
 
             Vector2 lightUv{0.0f, 0.0f};
             if (chart != nullptr) {
@@ -206,6 +207,7 @@ CsgCompileResult compileBrushesToGeo(
             input.normal = face.normal;
             input.vertices = &face.vertices;
             input.uvShiftPixels = face.uvShiftPixels;
+            input.uvScale = face.uvScale;
             input.uvUAxis = face.uvUAxis;
             input.uvVAxis = face.uvVAxis;
             input.uvLock = face.uvLock;
@@ -231,6 +233,7 @@ CsgCompileResult compileVisibleFacesToGeo(
         input.normal = face.normal;
         input.vertices = &face.vertices;
         input.uvShiftPixels = face.uvShiftPixels;
+        input.uvScale = face.uvScale;
         input.uvUAxis = face.uvUAxis;
         input.uvVAxis = face.uvVAxis;
         input.uvLock = face.uvLock;

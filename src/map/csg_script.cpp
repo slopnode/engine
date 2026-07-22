@@ -145,6 +145,13 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
                    s7_is_number(s7_cadr(rest))) {
             face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
+        } else if (std::strcmp(tag, "uv-scale") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_number(s7_car(rest)) &&
+                   s7_is_number(s7_cadr(rest))) {
+            face.uvScale.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            face.uvScale.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
         } else if (std::strcmp(tag, "nodraw") == 0) {
             face.nodraw = true;
         } else if (std::strcmp(tag, "uv-lock") == 0) {
@@ -203,6 +210,13 @@ s7_pointer g_uv_shift(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "uv-shift", 0, args, "x y");
     }
     return makeTaggedList(sc, "uv-shift", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
+}
+
+s7_pointer g_uv_scale(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args))) {
+        return s7_wrong_type_arg_error(sc, "uv-scale", 0, args, "sx sy");
+    }
+    return makeTaggedList(sc, "uv-scale", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
 }
 
 s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
@@ -535,6 +549,13 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
                    s7_is_number(s7_cadr(rest))) {
             face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
             face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
+        } else if (std::strcmp(tag, "uv-scale") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_number(s7_car(rest)) &&
+                   s7_is_number(s7_cadr(rest))) {
+            face.uvScale.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            face.uvScale.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
         } else if (std::strcmp(tag, "nodraw") == 0) {
             face.nodraw = true;
         } else if (std::strcmp(tag, "uv-lock") == 0) {
@@ -639,6 +660,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
     s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail|hint|trigger|water|window)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
+    s7_define_function(sc, "uv-scale", g_uv_scale, 2, 0, false, "(uv-scale sx sy)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
