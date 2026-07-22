@@ -1,0 +1,151 @@
+/**
+ * @addtogroup input_systems
+ * @{
+ *
+ * @section sys_PollInput PollInput
+ * Phase: `PreUpdate`. Samples device bindings into @ref slopengine::InputState.
+ * Defined in `input/input_module.cpp`.
+ *
+ * @section sys_DispatchPackageActions DispatchPackageActions
+ * Phase: `OnUpdate`. Runs package Scheme handlers for pressed actions.
+ * Defined in `input/input_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup ui_systems
+ * @{
+ *
+ * @section sys_HandleUiActions HandleUiActions
+ * Phase: `PreUpdate`. Opens/closes console, pause, and other UI from input actions.
+ * Defined in `ui/ui_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup physics_systems
+ * @{
+ *
+ * @section sys_CharacterMotorInput CharacterMotorInput
+ * Phase: `PreUpdate`. Copies wish velocity from input onto @ref slopengine::CharacterMotor.
+ * Defined in `physics/physics_module.cpp`.
+ *
+ * @section sys_PhysicsStep PhysicsStep
+ * Phase: `OnUpdate`. Steps Jolt and syncs character pose back to the camera/entity.
+ * Defined in `physics/physics_module.cpp`.
+ *
+ * @section sys_TriggerOverlap TriggerOverlap
+ * Phase: `OnUpdate`. Detects @ref slopengine::TriggerVolume enter/exit and calls Scheme.
+ * Defined in `physics/physics_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup audio_systems
+ * @{
+ *
+ * @section sys_AudioSourceAutoplay AudioSourceAutoplay
+ * Phase: `OnUpdate`. Starts @ref slopengine::AudioSource voices marked `autoplay`.
+ * Defined in `audio/audio_module.cpp`.
+ *
+ * @section sys_Sync3dAudio Sync3dAudio
+ * Phase: `OnUpdate`. Syncs listener and spatial source poses with the audio backend.
+ * Defined in `audio/audio_module.cpp`.
+ *
+ * @section sys_AudioSourceOnRemove AudioSourceOnRemove
+ * Observer: `OnRemove` on @ref slopengine::AudioSource. Stops the voice when the component is removed.
+ * Defined in `audio/audio_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup camera_systems
+ * @{
+ *
+ * @section sys_FirstPersonController FirstPersonController
+ * Phase: `PreUpdate`. Applies look (and free-move when not physics-driven) to the player @ref slopengine::Lens.
+ * Defined in `camera/camera_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup interact_systems
+ * @{
+ *
+ * @section sys_UpdateInteractionTarget UpdateInteractionTarget
+ * Phase: `PreUpdate`. Ray/aim pick of the best @ref slopengine::Interactable into @ref slopengine::InteractionTarget.
+ * Defined in `interact/interact_module.cpp`.
+ *
+ * @section sys_HandleInteractAction HandleInteractAction
+ * Phase: `PreUpdate`. On Interact, invokes the target's Scheme `on-use` handler.
+ * Defined in `interact/interact_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup script_systems
+ * @{
+ *
+ * @section sys_FlushThingDespawns FlushThingDespawns
+ * Phase: `OnUpdate`. Destroys entities queued for despawn by the thing runtime API.
+ * Defined in `script/thing_script.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup render_systems
+ * @{
+ *
+ * @section sys_ApplySpin ApplySpin
+ * Phase: `OnUpdate`. Rotates entities that have @ref slopengine::Spin.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_CallSchemeTick CallSchemeTick
+ * Phase: `OnUpdate`. Invokes the package Scheme per-frame tick hook.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_AdvanceAnimationPlayer AdvanceAnimationPlayer
+ * Phase: `OnUpdate`. Advances @ref slopengine::AnimationPlayer and skins @ref slopengine::Model3D.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_AnimationClipFlipTest AnimationClipFlipTest
+ * Phase: `PostUpdate`. Demo helper that flips clips via @ref slopengine::AnimationClipFlipTest.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_AdvanceSpriteAnimator AdvanceSpriteAnimator
+ * Phase: `OnUpdate`. Advances @ref slopengine::SpriteAnimator into @ref slopengine::SpriteInstance.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_UpdateGlobalTransforms UpdateGlobalTransforms
+ * Phase: `OnUpdate`. Recomputes @ref slopengine::GlobalTransformation from the hierarchy.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_StartDrawing StartDrawing
+ * Phase: `PostUpdate`. Begins the raylib frame (`BeginDrawing`).
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_UpdateFirstPersonScene UpdateFirstPersonScene
+ * Phase: `PostUpdate`. Updates eye-space sockets and viewmodel transforms.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_LensWorld LensWorld
+ * Phase: `PostUpdate`. Renders the world pass from a @ref slopengine::WorldSpace @ref slopengine::Lens.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_ImGuiOverlay ImGuiOverlay
+ * Phase: `PostUpdate`. Draws ImGui UI overlays after the 3D pass.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_EndDrawing EndDrawing
+ * Phase: `PostUpdate`. Ends the raylib frame (`EndDrawing`).
+ * Defined in `render/render_module.cpp`.
+ *
+ * @}
+ */

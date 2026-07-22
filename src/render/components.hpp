@@ -7,37 +7,51 @@
 
 namespace slopengine {
 
-/** Local pose relative to the parent entity (or world root). */
+/** Local pose relative to the parent entity (or world root).
+ *  @ingroup render_components
+ */
 struct LocalTransformation {
     Vector3 position = {0.0f, 0.0f, 0.0f};
     Vector3 scale = {1.0f, 1.0f, 1.0f};
     Quaternion rotation = {0.0f, 0.0f, 0.0f, 1.0f};
 };
 
-/** Cached world matrix after hierarchy update. */
+/** Cached world matrix after hierarchy update.
+ *  @ingroup render_components
+ */
 struct GlobalTransformation {
     Matrix matrix = MatrixIdentity();
 };
 
-/** Tag: entity is drawn and lit in the world pass. */
+/** Tag: entity is drawn and lit in the world pass.
+ *  @ingroup render_components
+ */
 struct WorldSpace {};
 
-/** Tag: entity is drawn in the fixed eye-space first-person pass. */
+/** Tag: entity is drawn in the fixed eye-space first-person pass.
+ *  @ingroup render_components
+ */
 struct ViewSpace {};
 
-/** Package view canvas in virtual pixels (from data/view.s7 *view-canvas*). */
+/** Package view canvas in virtual pixels (from data/view.s7 *view-canvas*).
+ *  @ingroup render_components
+ */
 struct ViewCanvas {
     int width = 320;
     int height = 200;
 };
 
-/** Package HUD canvas in virtual pixels (from data/view.s7 *hud-canvas*). */
+/** Package HUD canvas in virtual pixels (from data/view.s7 *hud-canvas*).
+ *  @ingroup render_components
+ */
 struct HudCanvas {
     int width = 320;
     int height = 200;
 };
 
-/** Screen-space FP sprite: canvasX/Y place the normalized origin on the view canvas. */
+/** Screen-space FP sprite: canvasX/Y place the normalized origin on the view canvas.
+ *  @ingroup render_components
+ */
 struct ViewSprite {
     float canvasX = 160.0f;
     float canvasY = 200.0f;
@@ -48,7 +62,9 @@ struct ViewSprite {
     float originY = 1.0f;
 };
 
-/** Active view camera (usually on Player). */
+/** Active view camera (usually on Player).
+ *  @ingroup render_components
+ */
 struct Lens {
     Camera3D camera = {
         .position = {0.0f, 10.0f, 10.0f},
@@ -59,30 +75,40 @@ struct Lens {
     };
 };
 
-/** Drawable raylib model with a tint color. */
+/** Drawable raylib model with a tint color.
+ *  @ingroup render_components
+ */
 struct Model3D {
     Model model = {};
     Color color = WHITE;
 };
 
-/** Optional cavity / AO style shader binding on an entity. */
+/** Optional cavity / AO style shader binding on an entity.
+ *  @ingroup render_components
+ */
 struct ShaderCavity {
     Shader shader = {};
 };
 
-/** Simple spin animator around @p axis. */
+/** Simple spin animator around @p axis.
+ *  @ingroup render_components
+ */
 struct Spin {
     Vector3 axis = {0.0f, 1.0f, 0.0f};
     float speed = 1.0f;
 };
 
-/** Demo helper that flips between two animation clips. */
+/** Demo helper that flips between two animation clips.
+ *  @ingroup render_components
+ */
 struct AnimationClipFlipTest {
     std::string clipA = "bob";
     std::string clipB = "default";
 };
 
-/** Billboard sprite presentation: asset path, frame id, and facing yaw. */
+/** Billboard sprite presentation: asset path, frame id, and facing yaw.
+ *  @ingroup render_components
+ */
 struct SpriteInstance {
     std::string sprite;
     std::string frame = "A";

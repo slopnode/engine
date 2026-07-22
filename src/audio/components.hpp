@@ -5,10 +5,16 @@
 
 namespace slopengine {
 
+/** Listener pose for spatial audio (usually on the player/camera).
+ *  @ingroup audio_components
+ */
 struct AudioListener {
     bool active = true;
 };
 
+/** One-shot or looping sound source, optionally spatialized.
+ *  @ingroup audio_components
+ */
 struct AudioSource {
     std::string audio;
     std::string clip;

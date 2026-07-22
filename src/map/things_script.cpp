@@ -206,6 +206,67 @@ s7_pointer g_size(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "size", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
 }
 
+s7_pointer g_audio(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "audio", 1, args, "path");
+    }
+    return makeTaggedList(sc, "audio", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_clip(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "clip", 1, args, "path");
+    }
+    return makeTaggedList(sc, "clip", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_volume(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "volume", 1, args, "value");
+    }
+    return makeTaggedList(sc, "volume", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_loop(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "loop", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "loop", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_spatial(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "spatial", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "spatial", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_min_distance(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "min-distance", 1, args, "value");
+    }
+    return makeTaggedList(sc, "min-distance", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_max_distance(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "max-distance", 1, args, "value");
+    }
+    return makeTaggedList(sc, "max-distance", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+bool readBool(s7_scheme* sc, s7_pointer value, bool& out) {
+    if (s7_is_boolean(value)) {
+        out = s7_boolean(sc, value);
+        return true;
+    }
+    if (s7_is_integer(value)) {
+        out = s7_integer(value) != 0;
+        return true;
+    }
+    return false;
+}
+
 void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
         s7_pointer clause = s7_car(cursor);
@@ -294,6 +355,23 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         } else if (std::strcmp(tag, "size") == 0 && s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest))) {
             readVec2(sc, s7_car(rest), s7_cadr(rest), out.size);
+        } else if (std::strcmp(tag, "audio") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.audio);
+        } else if (std::strcmp(tag, "clip") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.clip);
+        } else if (std::strcmp(tag, "volume") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.volume = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "loop") == 0 && s7_is_pair(rest)) {
+            readBool(sc, s7_car(rest), out.looping);
+        } else if (std::strcmp(tag, "spatial") == 0 && s7_is_pair(rest)) {
+            readBool(sc, s7_car(rest), out.spatial);
+        } else if (std::strcmp(tag, "min-distance") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.minDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "max-distance") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.maxDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         }
     }
 }
@@ -391,6 +469,18 @@ s7_pointer g_sun(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "sun requires id", false);
 }
 
+s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultSoundSourceThing();
+    parseThingClauses(sc, args, placement);
+    if (placement.audio.empty() && placement.clip.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "sound-source requires audio or clip")));
+    }
+    return appendThing(sc, std::move(placement), "sound-source requires id and at", true);
+}
+
 s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
     if (g_context == nullptr || g_context->doc == nullptr) {
         return s7_error(
@@ -448,6 +538,13 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "range", g_range, 1, 0, false, "(range value)");
     s7_define_function(sc, "cone", g_cone, 1, 0, false, "(cone radians)");
     s7_define_function(sc, "size", g_size, 2, 0, false, "(size width height)");
+    s7_define_function(sc, "audio", g_audio, 1, 0, false, "(audio path)");
+    s7_define_function(sc, "clip", g_clip, 1, 0, false, "(clip path)");
+    s7_define_function(sc, "volume", g_volume, 1, 0, false, "(volume value)");
+    s7_define_function(sc, "loop", g_loop, 1, 0, false, "(loop bool)");
+    s7_define_function(sc, "spatial", g_spatial, 1, 0, false, "(spatial bool)");
+    s7_define_function(sc, "min-distance", g_min_distance, 1, 0, false, "(min-distance value)");
+    s7_define_function(sc, "max-distance", g_max_distance, 1, 0, false, "(max-distance value)");
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
@@ -456,6 +553,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "spot-light", g_spot_light, 0, 0, true, "(spot-light clauses...)");
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
+    s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
 }
 

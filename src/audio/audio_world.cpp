@@ -1,5 +1,10 @@
 #include "audio/audio_world.hpp"
 
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+#include "audio/steam_audio_runtime.hpp"
+#include "audio/steam_audio_spatialize_filter.hpp"
+#endif
+
 #include <soloud_bassboostfilter.h>
 #include <soloud_biquadresonantfilter.h>
 #include <soloud_dcremovalfilter.h>
@@ -12,7 +17,12 @@
 
 #include <raylib.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <mutex>
 #include <utility>
+#include <vector>
 
 namespace slopengine {
 
@@ -37,6 +47,17 @@ bool AudioWorld::init() {
     sfxBusHandle_ = soloud_.play(sfxBus_);
     musicBusHandle_ = soloud_.play(musicBus_);
     ready_ = true;
+
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    steamAudio_ = std::make_unique<SteamAudioRuntime>();
+    const int sampleRate = static_cast<int>(soloud_.getBackendSamplerate());
+    const int frameSize = static_cast<int>(soloud_.getBackendBufferSize());
+    if (!steamAudio_->init(sampleRate, frameSize > 0 ? frameSize : 1024)) {
+        TraceLog(LOG_WARNING, "AUDIO: Steam Audio init failed; falling back to SoLoud 3D");
+        steamAudio_.reset();
+    }
+#endif
+
     return true;
 }
 
@@ -47,6 +68,16 @@ void AudioWorld::deinit() {
 
     stopMusic();
     soloud_.stopAll();
+
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudio_) {
+        steamAudio_->shutdown();
+        steamAudio_.reset();
+    }
+    stereoClips_.clear();
+#endif
+    listenerAttached_.clear();
+
     clips_.clear();
     clipsByDef_.clear();
     streams_.clear();
@@ -333,8 +364,28 @@ SoLoud::handle AudioWorld::playSfxrDef(
     SoLoud::Bus& target = bus(busFromDef(def.bus));
     SoLoud::handle voice = 0;
     if (spatial3d || def.spatial) {
-        sfxr->set3dMinMaxDistance(def.minDistance, def.maxDistance);
-        voice = target.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+        if (steamAudioEnabled() && def.bus != AudioDefBus::Music) {
+            SoLoud::Wav* baked = bakeSfxrStereo(*sfxr, defPath, def.loop);
+            if (baked == nullptr) {
+                return 0;
+            }
+            voice = playSpatialSteam(
+                *baked,
+                x,
+                y,
+                z,
+                volume,
+                def.minDistance,
+                def.maxDistance,
+                false,
+                0.0f);
+        } else
+#endif
+        {
+            sfxr->set3dMinMaxDistance(def.minDistance, def.maxDistance);
+            voice = target.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+        }
     } else {
         voice = target.play(*sfxr, volume);
     }
@@ -370,7 +421,9 @@ SoLoud::handle AudioWorld::playSound3d(
     float volume,
     bool loop,
     float minDistance,
-    float maxDistance) {
+    float maxDistance,
+    bool followListener,
+    float followForwardOffset) {
     if (!ready_) {
         return 0;
     }
@@ -379,8 +432,30 @@ SoLoud::handle AudioWorld::playSound3d(
         return 0;
     }
     clip->setLooping(loop);
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudioEnabled()) {
+        SoLoud::Wav* spatial = prepareSpatialSteamWav(clip, path, loop);
+        if (spatial == nullptr) {
+            return 0;
+        }
+        return playSpatialSteam(
+            *spatial,
+            x,
+            y,
+            z,
+            volume,
+            minDistance,
+            maxDistance,
+            followListener,
+            followForwardOffset);
+    }
+#endif
     clip->set3dMinMaxDistance(minDistance, maxDistance);
-    return sfxBus_.play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    const SoLoud::handle voice = sfxBus_.play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    if (followListener && voice != 0) {
+        trackListenerAttached(voice, followForwardOffset);
+    }
+    return voice;
 }
 
 SoLoud::handle AudioWorld::playAudioDef(
@@ -421,6 +496,24 @@ SoLoud::handle AudioWorld::playAudioDef(
     }
     clip->setLooping(def.loop);
     if (def.spatial) {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+        if (steamAudioEnabled()) {
+            SoLoud::Wav* spatial = prepareSpatialSteamWav(clip, defPath, def.loop);
+            if (spatial == nullptr) {
+                return 0;
+            }
+            return playSpatialSteam(
+                *spatial,
+                0.0f,
+                0.0f,
+                0.0f,
+                volume,
+                def.minDistance,
+                def.maxDistance,
+                false,
+                0.0f);
+        }
+#endif
         clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
         return sfxBus_.play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume);
     }
@@ -461,6 +554,24 @@ SoLoud::handle AudioWorld::playAudioDef3d(
         return 0;
     }
     clip->setLooping(def.loop);
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudioEnabled()) {
+        SoLoud::Wav* spatial = prepareSpatialSteamWav(clip, defPath, def.loop);
+        if (spatial == nullptr) {
+            return 0;
+        }
+        return playSpatialSteam(
+            *spatial,
+            x,
+            y,
+            z,
+            volume,
+            def.minDistance,
+            def.maxDistance,
+            false,
+            0.0f);
+    }
+#endif
     clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
     return sfxBus_.play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
 }
@@ -469,6 +580,17 @@ void AudioWorld::stop(SoLoud::handle voice) {
     if (!ready_ || voice == 0) {
         return;
     }
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudio_) {
+        steamAudio_->releaseVoice(voice);
+    }
+#endif
+    listenerAttached_.erase(
+        std::remove_if(
+            listenerAttached_.begin(),
+            listenerAttached_.end(),
+            [voice](const ListenerAttachedVoice& attached) { return attached.voice == voice; }),
+        listenerAttached_.end());
     soloud_.stop(voice);
 }
 
@@ -540,6 +662,282 @@ void AudioWorld::update3d() {
     }
     soloud_.update3dAudio();
 }
+
+void AudioWorld::trackListenerAttached(SoLoud::handle voice, float forwardOffset) {
+    if (voice == 0) {
+        return;
+    }
+    listenerAttached_.push_back(ListenerAttachedVoice{voice, forwardOffset});
+}
+
+void AudioWorld::updateListenerAttachedSources(const SteamAudioListenerPose& listener) {
+    if (!ready_) {
+        return;
+    }
+
+    float aheadX = listener.aheadX;
+    float aheadY = listener.aheadY;
+    float aheadZ = listener.aheadZ;
+    const float aheadLen = std::sqrt(aheadX * aheadX + aheadY * aheadY + aheadZ * aheadZ);
+    if (aheadLen > 1.0e-8f) {
+        aheadX /= aheadLen;
+        aheadY /= aheadLen;
+        aheadZ /= aheadLen;
+    } else {
+        aheadX = 0.0f;
+        aheadY = 0.0f;
+        aheadZ = 1.0f;
+    }
+
+    listenerAttached_.erase(
+        std::remove_if(
+            listenerAttached_.begin(),
+            listenerAttached_.end(),
+            [this](const ListenerAttachedVoice& attached) {
+                return attached.voice == 0 || !soloud_.isValidVoiceHandle(attached.voice);
+            }),
+        listenerAttached_.end());
+
+    for (const ListenerAttachedVoice& attached : listenerAttached_) {
+        const float x = listener.posX + aheadX * attached.forwardOffset;
+        const float y = listener.posY + aheadY * attached.forwardOffset;
+        const float z = listener.posZ + aheadZ * attached.forwardOffset;
+        soloud_.set3dSourcePosition(attached.voice, x, y, z);
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+        if (steamAudioEnabled()) {
+            steamAudio_->setVoicePosition(attached.voice, x, y, z);
+        }
+#endif
+    }
+}
+
+bool AudioWorld::steamAudioEnabled() const {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    return steamAudio_ != nullptr && steamAudio_->ready();
+#else
+    return false;
+#endif
+}
+
+void AudioWorld::setSteamAudioScene(const BspTree& tree) {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudioEnabled()) {
+        steamAudio_->setSceneFromBsp(tree);
+    }
+#else
+    (void)tree;
+#endif
+}
+
+void AudioWorld::clearSteamAudioScene() {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudio_) {
+        steamAudio_->clearScene();
+    }
+#endif
+}
+
+void AudioWorld::updateSteamAudio(
+    const SteamAudioListenerPose& listener,
+    const std::vector<SteamAudioSourcePose>& sources) {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudioEnabled()) {
+        steamAudio_->pruneFinishedVoices(soloud_);
+        steamAudio_->update(listener, sources);
+    }
+#else
+    (void)listener;
+    (void)sources;
+#endif
+}
+
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+SoLoud::Wav* AudioWorld::ensureStereoClip(SoLoud::Wav* clip, std::string_view cacheKey) {
+    if (clip == nullptr) {
+        return nullptr;
+    }
+    if (clip->mChannels >= 2) {
+        return clip;
+    }
+
+    const std::string key{cacheKey};
+    if (auto it = stereoClips_.find(key); it != stereoClips_.end()) {
+        return it->second.get();
+    }
+
+    auto stereo = std::make_unique<SoLoud::Wav>();
+    const unsigned int samples = clip->mSampleCount;
+    std::vector<float> data(static_cast<std::size_t>(samples) * 2u);
+    if (clip->mData != nullptr && samples > 0) {
+        std::memcpy(data.data(), clip->mData, samples * sizeof(float));
+        std::memcpy(data.data() + samples, clip->mData, samples * sizeof(float));
+    }
+    const SoLoud::result result = stereo->loadRawWave(
+        data.data(),
+        static_cast<unsigned int>(data.size()),
+        clip->mBaseSamplerate,
+        2,
+        true,
+        true);
+    if (result != SoLoud::SO_NO_ERROR) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to create stereo spatialize clip for %s", key.c_str());
+        return clip;
+    }
+
+    SoLoud::Wav* ptr = stereo.get();
+    stereoClips_.emplace(key, std::move(stereo));
+    return ptr;
+}
+
+SoLoud::Wav* AudioWorld::prepareSpatialSteamWav(
+    SoLoud::Wav* clip,
+    std::string_view cacheKey,
+    bool loop) {
+    if (clip == nullptr || !steamAudioEnabled()) {
+        return nullptr;
+    }
+
+    const std::string key = std::string("steam-wav:") + std::string(cacheKey);
+    if (auto it = stereoClips_.find(key); it != stereoClips_.end()) {
+        it->second->setLooping(loop);
+        return it->second.get();
+    }
+
+    auto stereo = std::make_unique<SoLoud::Wav>();
+    const unsigned int samples = clip->mSampleCount;
+    if (samples == 0 || clip->mData == nullptr) {
+        TraceLog(LOG_WARNING, "AUDIO: empty clip for steam spatialize %s", key.c_str());
+        return nullptr;
+    }
+
+    std::vector<float> data(static_cast<std::size_t>(samples) * 2u);
+    if (clip->mChannels >= 2) {
+        std::memcpy(data.data(), clip->mData, data.size() * sizeof(float));
+    } else {
+        std::memcpy(data.data(), clip->mData, samples * sizeof(float));
+        std::memcpy(data.data() + samples, clip->mData, samples * sizeof(float));
+    }
+
+    const SoLoud::result result = stereo->loadRawWave(
+        data.data(),
+        static_cast<unsigned int>(data.size()),
+        clip->mBaseSamplerate,
+        2,
+        true,
+        true);
+    if (result != SoLoud::SO_NO_ERROR) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to create steam spatialize wav for %s", key.c_str());
+        return nullptr;
+    }
+
+    stereo->setLooping(loop);
+    stereo->setFilter(0, &steamAudio_->spatializeFilter());
+    SoLoud::Wav* ptr = stereo.get();
+    stereoClips_.emplace(key, std::move(stereo));
+    return ptr;
+}
+
+SoLoud::Wav* AudioWorld::bakeSfxrStereo(SoLoud::Sfxr& sfxr, std::string_view cacheKey, bool loop) {
+    if (!steamAudioEnabled()) {
+        return nullptr;
+    }
+
+    const std::string key = std::string("steam-sfxr:") + std::string(cacheKey);
+    if (auto it = stereoClips_.find(key); it != stereoClips_.end()) {
+        it->second->setLooping(loop);
+        return it->second.get();
+    }
+
+    sfxr.setLooping(loop);
+    SoLoud::AudioSourceInstance* instance = sfxr.createInstance();
+    if (instance == nullptr) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to create sfxr instance for %s", key.c_str());
+        return nullptr;
+    }
+    instance->init(sfxr, 0);
+
+    const unsigned int rate =
+        sfxr.mBaseSamplerate > 0.0f ? static_cast<unsigned int>(sfxr.mBaseSamplerate) : 44100u;
+    const unsigned int targetSamples = loop ? rate : rate * 5u;
+    std::vector<float> mono;
+    mono.reserve(targetSamples);
+    std::vector<float> chunk(512);
+    while (mono.size() < targetSamples && !instance->hasEnded()) {
+        const unsigned int want = std::min(
+            static_cast<unsigned int>(chunk.size()),
+            targetSamples - static_cast<unsigned int>(mono.size()));
+        const unsigned int got = instance->getAudio(chunk.data(), want, want);
+        if (got == 0) {
+            break;
+        }
+        mono.insert(mono.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(got));
+    }
+    delete instance;
+
+    if (mono.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: empty sfxr bake for %s", key.c_str());
+        return nullptr;
+    }
+
+    std::vector<float> data(mono.size() * 2u);
+    std::memcpy(data.data(), mono.data(), mono.size() * sizeof(float));
+    std::memcpy(data.data() + mono.size(), mono.data(), mono.size() * sizeof(float));
+
+    auto stereo = std::make_unique<SoLoud::Wav>();
+    const SoLoud::result result = stereo->loadRawWave(
+        data.data(),
+        static_cast<unsigned int>(data.size()),
+        static_cast<float>(rate),
+        2,
+        true,
+        true);
+    if (result != SoLoud::SO_NO_ERROR) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to bake sfxr stereo wav for %s", key.c_str());
+        return nullptr;
+    }
+
+    stereo->setLooping(loop);
+    stereo->setFilter(0, &steamAudio_->spatializeFilter());
+    SoLoud::Wav* ptr = stereo.get();
+    stereoClips_.emplace(key, std::move(stereo));
+    return ptr;
+}
+
+SoLoud::handle AudioWorld::playSpatialSteam(
+    SoLoud::Wav& source,
+    float x,
+    float y,
+    float z,
+    float volume,
+    float minDistance,
+    float maxDistance,
+    bool followListener,
+    float followForwardOffset) {
+    if (!steamAudioEnabled()) {
+        return 0;
+    }
+
+    source.setFilter(0, &steamAudio_->spatializeFilter());
+    const SoLoud::handle voice = sfxBus_.play(source, volume);
+    if (voice == 0) {
+        return 0;
+    }
+
+    const int slot =
+        steamAudio_->trackVoice(voice, x, y, z, minDistance, maxDistance, volume);
+    if (slot >= 0) {
+        soloud_.setFilterParameter(
+            voice,
+            0,
+            static_cast<unsigned int>(SteamAudioRuntime::kSlotParam),
+            static_cast<float>(slot));
+    }
+    if (followListener) {
+        trackListenerAttached(voice, followForwardOffset);
+    }
+    return voice;
+}
+#endif
 
 SoLoud::Filter* AudioWorld::makeBuiltinFilter(std::string_view name) {
     std::unique_ptr<SoLoud::Filter> filter;

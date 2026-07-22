@@ -33,6 +33,7 @@ add_subdirectory(raylib)
 target_compile_definitions(raylib PUBLIC SUPPORT_GPU_SKINNING=1)
 
 include(${CMAKE_SOURCE_DIR}/cmake/SoLoud.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/SteamAudio.cmake)
 
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)

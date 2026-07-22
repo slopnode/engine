@@ -5,10 +5,14 @@
 
 namespace slopengine {
 
-/** Tag: this entity is the first-person player camera. */
+/** Tag: this entity is the first-person player camera.
+ *  @ingroup camera_components
+ */
 struct PlayerCamera {};
 
-/** Handles for the eye-space stage root and sockets under Player. */
+/** Handles for the eye-space stage root and sockets under Player.
+ *  @ingroup camera_components
+ */
 struct FirstPersonScene {
     flecs::entity_t root = 0;           /**< PlayerFp root (ViewSpace). */
     flecs::entity_t weaponSocket = 0;
@@ -19,13 +23,17 @@ struct FirstPersonScene {
     Vector3 radTintSmoothed{1.0f, 1.0f, 1.0f};
 };
 
-/** Runtime on/off state for a light spawned under an FP socket. */
+/** Runtime on/off state for a light spawned under an FP socket.
+ *  @ingroup camera_components
+ */
 struct FpLightControl {
     float onIntensity = 1.0f;
     bool enabled = false;
 };
 
-/** Look state and free-move rates when not physics-driven. */
+/** Look state and free-move rates when not physics-driven.
+ *  @ingroup camera_components
+ */
 struct FirstPersonController {
     float yaw = 0.0f;
     float pitch = 0.0f;
@@ -34,7 +42,9 @@ struct FirstPersonController {
     float eyeHeight = 1.7f;
 };
 
-/** Package-written view-space eye offset (meters). Applied only to presentation camera. */
+/** Package-written view-space eye offset (meters). Applied only to presentation camera.
+ *  @ingroup camera_components
+ */
 struct ViewEyeOffset {
     float x = 0.0f;
     float y = 0.0f;

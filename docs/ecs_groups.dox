@@ -1,0 +1,36 @@
+/**
+ * @defgroup components Components
+ * @brief Flecs component types (including tags).
+ *
+ * @{
+ */
+
+/** @defgroup camera_components Camera */
+/** @defgroup render_components Render */
+/** @defgroup physics_components Physics */
+/** @defgroup audio_components Audio */
+/** @defgroup interact_components Interact */
+/** @defgroup map_components Map */
+/** @defgroup input_components Input */
+/** @defgroup ui_components UI */
+/** @defgroup script_components Script */
+
+/** @} */
+
+/**
+ * @defgroup systems Systems
+ * @brief Named flecs systems and observers.
+ *
+ * @{
+ */
+
+/** @defgroup camera_systems Camera */
+/** @defgroup render_systems Render */
+/** @defgroup physics_systems Physics */
+/** @defgroup audio_systems Audio */
+/** @defgroup interact_systems Interact */
+/** @defgroup input_systems Input */
+/** @defgroup ui_systems UI */
+/** @defgroup script_systems Script */
+
+/** @} */

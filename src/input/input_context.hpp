@@ -13,7 +13,9 @@ enum class InputContext {
     MainMenu,
 };
 
-/** Stack of input contexts. Gameplay is allowed only when it is on top. */
+/** Stack of input contexts. Gameplay is allowed only when it is on top.
+ *  @ingroup input_components
+ */
 struct InputContextStack {
     std::vector<InputContext> stack{InputContext::Gameplay};
 
