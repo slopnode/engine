@@ -181,6 +181,13 @@ Face materials drive diffuse appearance and bake sampling (albedo + emission onl
 
 Author `map.meta` and `static.csg` first. Run `slopbsp` → `slopvis` → `sloprad`. Order is strict: VIS refuses an unsealed hull / missing BSP; radiosity refuses a missing VIS. The game requires meta, CSG, and BSP to load. VIS is preferred for the draw mesh (if missing, the loader builds visible faces in memory and warns). Radiosity is optional: without `rad/` the map still loads, but without baked lightmaps.
 
+| Stage | Input | Output | Required to load map? |
+|-------|--------|--------|------------------------|
+| Author | - | `map.meta`, `static.csg` (+ optional `things.s7`) | meta + CSG yes |
+| `slopbsp` | meta + CSG (hull brushes) | `static.bsp` | yes |
+| `slopvis` | CSG + `static.bsp` | `static.vis` | preferred (in-memory fallback) |
+| `sloprad` | meta + CSG + `static.bsp` + `static.vis` + materials/textures | `rad/static.rad`, `rad/atlasN.png` | no |
+
 Typical sequence:
 
 ```bash
@@ -189,12 +196,23 @@ Typical sequence:
 ./build/slopvis --base-game <package-path> --map <name>
 
 ./build/sloprad --base-game <package-path> --map <name> \
-  --luxels-per-meter 16 --bounces 2 --samples 32
+  --luxels-per-meter 16 --bounces 2 --samples 16
 
 ./build/slopengine --base-game <package-path> --map <name>
 ```
 
 `--mod` may be repeated on any of these, the same as the game. After editing brushes, rebuild BSP, then VIS, then radiosity if you use it. After editing only materials or emission for lighting, BSP and VIS can stay; re-bake radiosity.
+
+### Rebuild cheatsheet
+
+| You changed… | Run |
+|--------------|-----|
+| Hull brushes, sealing, or hull face layout | `slopbsp`, then `slopvis`, then `sloprad` if you use lightmaps |
+| Detail brushes only (no hull / face-id churn) | `slopvis`, then `sloprad`; run `slopbsp` if you care about detail-outside warnings or stale analysis |
+| Face ids | `slopvis` then `sloprad` (charts key off VIS ids); `slopbsp` if hull planes changed |
+| Materials, albedo, emission, ambient | `sloprad` |
+| `things.s7` light thing change | Re-bake `sloprad` if point/spot should change static light; runtime `DynamicLight` is separate ([Lights](lights.md)) |
+| Authored `(nodraw)` | `slopvis`, then `sloprad` |
 
 ## BSP, VIS, and radiosity tools
 
@@ -207,13 +225,13 @@ Typical sequence:
   [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]
 ```
 
-`slopbsp` mounts packages, loads brushes, builds a hull-only tree, and writes `static.bsp` next to `static.csg`. On a leak it still writes the file for debug but exits with an error and a leaf-center path. On a seal it reports exterior/interior empty counts and a preview of visible-face / inferred-nodraw counts (run `slopvis` to write `static.vis`). Detail brushes do not split the tree and cannot seal.
+`slopbsp` mounts packages, loads brushes, builds a hull-only tree, and writes `static.bsp` next to `static.csg`. On a leak it still writes the file for debug but exits with an error and a leaf-center path. On a seal it reports exterior/interior empty counts and a preview of visible-face / inferred-nodraw counts (run `slopvis` to write `static.vis`). Detail brushes do not split the tree and cannot seal. Details: [BSP](bsp.md).
 
-`slopvis` requires a sealed `static.bsp`. It clips hull and detail faces to sealed interior empty leaves, welds T-junctions, snap-welds coincident verts, culls slivers, merges compatible coplanar fragments, sorts by material, and writes `static.vis`. This is not classic leaf↔leaf PVS; it is the visible face set for draw, bake, and audio.
+`slopvis` requires a sealed `static.bsp`. It clips hull and detail faces to sealed interior empty leaves, welds T-junctions, snap-welds coincident verts, culls slivers, merges compatible coplanar fragments, sorts by material, and writes `static.vis`. This is not classic leaf↔leaf PVS; it is the visible face set for draw, bake, and audio. Details: [VIS](vis.md).
 
-`sloprad` requires BSP and VIS. It collects lightmap faces from `static.vis`, clears `maps/<name>/rad/`, and writes `static.rad` plus `atlasN.png`. Defaults are 16 luxels per meter, 2 bounces, 32 samples; atlas size is 512² (not a CLI flag). `--bounces 0` keeps ambient, emission, and direct light only. Emission textures matter at bake time; at runtime the lightmap shader uses flat material emission color/power.
+`sloprad` requires BSP and VIS. It collects lightmap faces from `static.vis`, clears `maps/<name>/rad/`, and writes `static.rad` plus `atlasN.png`. Defaults are 16 luxels per meter, 2 bounces, 16 samples; atlas size is 1024² (not a CLI flag). `--gpu` (default) prefers GPU compute for direct and bounce; `--cpu` forces the CPU paths. `--bounces 0` keeps ambient, emission, and direct light only. Emission textures matter at bake time; at runtime the lightmap shader uses flat material emission color/power. Details: [Radiosity](rad.md).
 
-The BSP is structural (sealing, runtime leaf debug). Draw meshes and lightmap charts come from VIS faces; collision from per-brush convex hulls. Bake-time occlusion uses a BVH of lightmap faces. Full algorithms, file formats, settings, and rebuild rules: [BSP, VIS, and radiosity compilation](bsp-rad.md).
+The BSP is structural (sealing, runtime leaf debug). Draw meshes and lightmap charts come from VIS faces; collision from per-brush convex hulls. Bake-time occlusion uses a BVH of lightmap faces.
 
 ## Loading in the game
 

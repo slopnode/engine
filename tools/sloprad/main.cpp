@@ -133,22 +133,36 @@ int main(int argc, char* argv[]) {
 
     if (cli->settings.preferGpu) {
         cli->settings.directComputeShaderSource = assets.getShaderSource("tools/rad_direct_comp");
+        cli->settings.bounceComputeShaderSource = assets.getShaderSource("tools/rad_bounce_comp");
         if (cli->settings.directComputeShaderSource.empty()) {
             TraceLog(
                 LOG_WARNING,
                 "sloprad: missing shaders/tools/rad_direct_comp.glsl; GPU direct lighting disabled");
             std::fflush(stdout);
-        } else if (!radiosityGpuContextReady()) {
+        }
+        if (cli->settings.bounceComputeShaderSource.empty()) {
             TraceLog(
                 LOG_WARNING,
-                "sloprad: OpenGL compute unavailable; GPU direct lighting disabled");
+                "sloprad: missing shaders/tools/rad_bounce_comp.glsl; GPU bounce lighting disabled");
             std::fflush(stdout);
-        } else {
-            TraceLog(LOG_INFO, "sloprad: GPU direct lighting enabled");
+        }
+        if (!radiosityGpuContextReady()) {
+            TraceLog(
+                LOG_WARNING,
+                "sloprad: OpenGL compute unavailable; GPU lighting disabled");
+            std::fflush(stdout);
+        } else if (
+            !cli->settings.directComputeShaderSource.empty()
+            || !cli->settings.bounceComputeShaderSource.empty()) {
+            TraceLog(
+                LOG_INFO,
+                "sloprad: GPU lighting enabled (direct=%s bounce=%s)",
+                cli->settings.directComputeShaderSource.empty() ? "no" : "yes",
+                cli->settings.bounceComputeShaderSource.empty() ? "no" : "yes");
             std::fflush(stdout);
         }
     } else {
-        TraceLog(LOG_INFO, "sloprad: CPU direct lighting forced");
+        TraceLog(LOG_INFO, "sloprad: CPU lighting forced");
         std::fflush(stdout);
     }
 
@@ -292,8 +306,14 @@ int main(int argc, char* argv[]) {
     }
     std::filesystem::create_directories(radDir);
 
-    RadiosityBakeResult baked =
-        bakeRadiosity(faces, *mapMeta, resolveMaterial, cli->settings, lights);
+    RadiosityBakeResult baked = bakeRadiosity(
+        faces,
+        *mapMeta,
+        resolveMaterial,
+        cli->settings,
+        lights,
+        &*tree,
+        analysis.sealed);
 
     const auto radPath = radDir / "static.rad";
     TraceLog(LOG_INFO, "sloprad: writing %s", radPath.string().c_str());

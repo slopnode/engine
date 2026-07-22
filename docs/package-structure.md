@@ -146,6 +146,6 @@ Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-b
 
 ### Maps
 
-Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `things.s7`, and compiled `static.bsp` / `static.vis` plus optional `rad/`. The map belongs to whichever package directory contains it; `map.meta` `(depends …)` lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, and [BSP, VIS, and radiosity compilation](bsp-rad.md) for the compile tools.
+Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `things.s7`, and compiled `static.bsp` / `static.vis` plus optional `rad/`. The map belongs to whichever package directory contains it; `map.meta` `(depends …)` lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, and [BSP](bsp.md) / [VIS](vis.md) / [Radiosity](rad.md) for the compile tools.
 
 A package is created by adding a `package.meta` with a unique `id`, the category folders you need, and mounting it with `--base-game` or `--mod`. Dependencies listed in `(depends ...)` must also be mounted.

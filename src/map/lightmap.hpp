@@ -25,6 +25,7 @@ struct LightmapFace {
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool uvLock = false;
+    std::int32_t interiorLeaf = -1;
 };
 
 /** One chart's placement in a lightmap atlas. */

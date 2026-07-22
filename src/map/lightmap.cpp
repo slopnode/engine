@@ -132,6 +132,7 @@ std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis) {
         face.uvUAxis = visible.uvUAxis;
         face.uvVAxis = visible.uvVAxis;
         face.uvLock = visible.uvLock;
+        face.interiorLeaf = visible.interiorLeaf;
         faces.push_back(std::move(face));
     }
     return faces;
@@ -143,6 +144,48 @@ LightmapPackResult packLightmapCharts(
     int atlasSize) {
     LightmapPackResult result;
     result.rad.luxelsPerMeter = luxelsPerMeter;
+    atlasSize = std::max(2, atlasSize);
+
+    struct PendingChart {
+        std::int32_t faceIndex = -1;
+        int luxelW = 0;
+        int luxelH = 0;
+    };
+    std::vector<PendingChart> pending;
+    pending.reserve(faces.size());
+    constexpr float kLargeFaceMeters = 4.0f;
+    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
+        const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
+        Vector3 uAxis{};
+        Vector3 vAxis{};
+        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
+        const float widthMeters = faceExtent(face, uAxis);
+        const float heightMeters = faceExtent(face, vAxis);
+        float effectiveLpm = luxelsPerMeter;
+        if (std::max(widthMeters, heightMeters) > kLargeFaceMeters) {
+            effectiveLpm *= 0.5f;
+        }
+        PendingChart chart;
+        chart.faceIndex = faceIndex;
+        chart.luxelW = std::clamp(
+            static_cast<int>(std::ceil(widthMeters * effectiveLpm)) + 2,
+            2,
+            atlasSize);
+        chart.luxelH = std::clamp(
+            static_cast<int>(std::ceil(heightMeters * effectiveLpm)) + 2,
+            2,
+            atlasSize);
+        pending.push_back(chart);
+    }
+    std::sort(pending.begin(), pending.end(), [](const PendingChart& a, const PendingChart& b) {
+        if (a.luxelH != b.luxelH) {
+            return a.luxelH > b.luxelH;
+        }
+        if (a.luxelW != b.luxelW) {
+            return a.luxelW > b.luxelW;
+        }
+        return a.faceIndex < b.faceIndex;
+    });
 
     int atlasIndex = 0;
     int cursorX = 0;
@@ -172,22 +215,9 @@ LightmapPackResult packLightmapCharts(
 
     ensureAtlas();
 
-    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
-        const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
-        Vector3 uAxis{};
-        Vector3 vAxis{};
-        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
-        const float widthMeters = faceExtent(face, uAxis);
-        const float heightMeters = faceExtent(face, vAxis);
-        const int luxelW = std::clamp(
-            static_cast<int>(std::ceil(widthMeters * luxelsPerMeter)) + 2,
-            2,
-            atlasSize);
-        const int luxelH = std::clamp(
-            static_cast<int>(std::ceil(heightMeters * luxelsPerMeter)) + 2,
-            2,
-            atlasSize);
-
+    for (const PendingChart& pendingChart : pending) {
+        const int luxelW = pendingChart.luxelW;
+        const int luxelH = pendingChart.luxelH;
         if (cursorX + luxelW > atlasSize) {
             cursorX = 0;
             cursorY += rowHeight;
@@ -197,8 +227,9 @@ LightmapPackResult packLightmapCharts(
             newAtlas();
         }
 
+        const LightmapFace& face = faces[static_cast<std::size_t>(pendingChart.faceIndex)];
         LightmapChart chart;
-        chart.faceIndex = faceIndex;
+        chart.faceIndex = pendingChart.faceIndex;
         chart.faceId = face.id;
         chart.atlasIndex = atlasIndex;
         chart.luxelWidth = luxelW;
