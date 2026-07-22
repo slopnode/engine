@@ -315,6 +315,11 @@ void drawMainMenuBar(
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
             ImGui::EndMenu();
         }
+        if (beginMenuWithIcon(assets, kIcons, "shape_ungroup", "VIS")) {
+            ImGui::MenuItem("Faces", nullptr, &debugUi.showVisFaces);
+            ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showVisCurrentLeafOnly);
+            ImGui::EndMenu();
+        }
         if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
             ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);

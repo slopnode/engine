@@ -40,7 +40,7 @@ struct VisBuildResult {
     std::vector<std::string> inferredNodrawFaceIds;
 };
 
-/** Clips hull faces to sealed interior empty leaves; detail faces pass through. */
+/** Clips hull and detail faces to sealed interior empty leaves; then welds, culls, merges, sorts. */
 VisBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,

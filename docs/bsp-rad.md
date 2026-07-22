@@ -32,7 +32,7 @@ Shared flags with the game: `--base-game`, repeated `--mod`, and `--map <name>` 
 `static.bsp` is structural data built from hull brushes only. It is not the visible mesh and not the physics mesh.
 
 - Sealing / leaks. Exterior empty space is flooded from the padded world bounds through empty-leaf adjacency. If that flood reaches the playable interior, the hull is leaky.
-- VIS prerequisite. `slopvis` uses sealed interior empty leaves to clip hull faces into drawable fragments.
+- VIS prerequisite. `slopvis` uses sealed interior empty leaves to clip hull and detail faces into drawable fragments.
 - Runtime. The game requires BSP to load. It uses the tree for hull analysis, leaf-related debug, and as input when rebuilding VIS in memory if `static.vis` is missing. Collision comes from convex hulls per brush through the physics library.
 - Radiosity prerequisite. `sloprad` loads the BSP for hull analysis / detail warnings. Bake-time ray occlusion itself is against a BVH of lightmap (VIS) faces, not by walking the BSP node tree as a mesh.
 
@@ -42,10 +42,10 @@ Detail brushes never contribute split planes and cannot seal a leak. Their cente
 
 `static.vis` is the **visible face fragment list** used for the draw mesh, lightmap charts, and Steam Audio occlusion. Despite the Quake-style name, it is **not** a leaf↔leaf PVS bitset and does not drive runtime portal culling.
 
-- Interior clip. Hull faces are clipped against sealed interior empty leaf polyhedra so large walls that are only partly playable keep only the visible polygon(s).
-- Inferred nodraw. Hull faces with zero remaining visible area are treated as nodraw (outer skins, buried sides). Authored `(nodraw)` is never cleared.
+- Interior clip. Hull and detail faces are clipped against sealed interior empty leaf polyhedra so large or buried faces keep only the visible polygon(s).
+- Inferred nodraw. Faces with zero remaining visible area (after clip and sliver cull) are treated as nodraw. Authored `(nodraw)` is never cleared.
+- Cleanup. After clip: T-junction weld, vertex snap weld, sliver/degenerate cull, coplanar merge, then material-major sort.
 - Stable face ids. Fragments use ids such as `wall/north#0`; coplanar merges across sources use `merge/…` ids. Charts and mesh UV2 key off those ids.
-- Detail. Detail faces pass through unchanged in v1 (they already sit in interior empty by policy).
 
 ## BSP compilation (`slopbsp`)
 
@@ -108,25 +108,27 @@ Entry point: `tools/slopvis/main.cpp`. Core build: `buildVisibleFaces` in `src/m
 1. Parse CLI (`AppConfig`); require `--map`.
 2. Require readable `static.bsp`; load CSG brushes.
 3. `analyzeMapHull`. If not sealed: log leak path, exit 1 (no `.vis` written).
-4. `buildVisibleFaces` → clip, weld, merge.
+4. `buildVisibleFaces` → clip, weld, cull, merge, sort.
 5. Write sibling `static.vis` with `writeVisFile`; log face and inferred-nodraw counts.
 
 ### Face visibility algorithm
 
-For each non-authored-nodraw **hull** face:
+For each non-authored-nodraw **hull or detail** face (when the hull is sealed):
 
 1. Clip the face polygon against every sealed interior empty leaf polyhedron (Sutherland–Hodgman against outward leaf planes).
 2. Keep fragments whose outward-nudged centroid sample lands in interior empty.
 3. Discard zero-area scraps; micro-merge coplanar adjacent scraps from the same source face.
-4. Assign stable fragment ids derived from the source face id (e.g. `wall/north#0`).
-5. If no fragments remain → inferred nodraw for that source face id.
+4. Emit fragments with provisional ids `source#N`. If no fragments remain → inferred nodraw for that source face id.
 
-Detail faces and faces on an unsealed fallback path pass through with their authored ids.
+On an unsealed fallback path (loader only), faces pass through with their authored ids.
 
 After fragments are collected:
 
 1. T-junction weld — insert vertices where another face’s vertex lies on an edge.
-2. Coplanar merge — merge adjacent faces that share an edge and the same material / UV frame; multi-source merges get `merge/…` ids.
+2. Vertex snap weld — snap near-coincident verts (grid + epsilon) and collapse consecutive duplicates.
+3. Sliver / degenerate cull — drop faces below minimum area, with needle altitude, or with a tiny area/perimeter² ratio; sources that lose all fragments become inferred nodraw.
+4. Coplanar merge — merge adjacent faces that share an edge and the same material / UV frame; assign stable ids (`source#N` or `merge/…`).
+5. Material sort — order faces by material, then id, for denser draw batches.
 
 ### `VIS1` file contents
 

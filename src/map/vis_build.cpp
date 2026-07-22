@@ -21,6 +21,8 @@ constexpr float kPlaneEps = 1e-4f;
 constexpr float kMinFaceArea = 1e-6f;
 constexpr float kNudge = 0.05f;
 constexpr float kWeldEps = 1e-3f;
+constexpr float kSliverAltitude = 1e-3f;
+constexpr float kSliverAreaPerim2 = 1e-4f;
 
 float dot3(Vector3 a, Vector3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -93,6 +95,17 @@ Vector3 polygonCentroid(const std::vector<Vector3>& verts) {
         sum = add3(sum, v);
     }
     return scale3(sum, 1.0f / static_cast<float>(verts.size()));
+}
+
+float polygonPerimeter(const std::vector<Vector3>& verts) {
+    float peri = 0.0f;
+    if (verts.size() < 2) {
+        return peri;
+    }
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        peri += length3(sub3(verts[(i + 1) % verts.size()], verts[i]));
+    }
+    return peri;
 }
 
 std::vector<Vector3> clipPolygonAgainstPlane(
@@ -331,7 +344,12 @@ VisibleFace makeVisibleFromBrushFace(const BrushFace& face, std::string id) {
     return out;
 }
 
-std::vector<std::vector<Vector3>> microMergeFragments(std::vector<std::vector<Vector3>> fragments) {
+struct ClippedFragment {
+    std::vector<Vector3> vertices;
+    std::int32_t interiorLeaf = -1;
+};
+
+std::vector<ClippedFragment> microMergeFragments(std::vector<ClippedFragment> fragments) {
     bool merged = true;
     while (merged) {
         merged = false;
@@ -340,20 +358,224 @@ std::vector<std::vector<Vector3>> microMergeFragments(std::vector<std::vector<Ve
                 std::size_t aEdge = 0;
                 std::size_t bEdge = 0;
                 bool bReversed = false;
-                if (!findSharedEdge(fragments[i], fragments[j], aEdge, bEdge, bReversed)) {
+                if (!findSharedEdge(
+                        fragments[i].vertices, fragments[j].vertices, aEdge, bEdge, bReversed)) {
                     continue;
                 }
-                auto combined =
-                    mergePolygonsAcrossEdge(fragments[i], fragments[j], aEdge, bEdge, bReversed);
+                auto combined = mergePolygonsAcrossEdge(
+                    fragments[i].vertices,
+                    fragments[j].vertices,
+                    aEdge,
+                    bEdge,
+                    bReversed);
                 if (combined.size() < 3 || polygonArea(combined) < kMinFaceArea) {
                     continue;
                 }
-                fragments[i] = std::move(combined);
+                fragments[i].vertices = std::move(combined);
+                if (fragments[i].interiorLeaf < 0) {
+                    fragments[i].interiorLeaf = fragments[j].interiorLeaf;
+                }
                 fragments.erase(fragments.begin() + static_cast<std::ptrdiff_t>(j));
                 merged = true;
                 break;
             }
         }
+    }
+    return fragments;
+}
+
+struct GridKey {
+    int x = 0;
+    int y = 0;
+    int z = 0;
+
+    bool operator==(const GridKey& other) const {
+        return x == other.x && y == other.y && z == other.z;
+    }
+};
+
+struct GridKeyHash {
+    std::size_t operator()(const GridKey& key) const {
+        const std::size_t hx = static_cast<std::size_t>(key.x) * 73856093u;
+        const std::size_t hy = static_cast<std::size_t>(key.y) * 19349663u;
+        const std::size_t hz = static_cast<std::size_t>(key.z) * 83492791u;
+        return hx ^ hy ^ hz;
+    }
+};
+
+GridKey gridKeyOf(Vector3 v) {
+    return GridKey{
+        static_cast<int>(std::floor(v.x / kWeldEps)),
+        static_cast<int>(std::floor(v.y / kWeldEps)),
+        static_cast<int>(std::floor(v.z / kWeldEps)),
+    };
+}
+
+void snapWeldVisibleFaceVertices(std::vector<VisibleFace>& faces) {
+    std::unordered_map<GridKey, Vector3, GridKeyHash> reps;
+
+    auto resolveRep = [&](Vector3 v) -> Vector3 {
+        const GridKey center = gridKeyOf(v);
+        for (int dz = -1; dz <= 1; ++dz) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const GridKey key{center.x + dx, center.y + dy, center.z + dz};
+                    const auto it = reps.find(key);
+                    if (it != reps.end() && nearlyEqual(it->second, v, kWeldEps)) {
+                        return it->second;
+                    }
+                }
+            }
+        }
+        reps.emplace(center, v);
+        return v;
+    };
+
+    for (VisibleFace& face : faces) {
+        for (Vector3& vert : face.vertices) {
+            vert = resolveRep(vert);
+        }
+        std::vector<Vector3> collapsed;
+        collapsed.reserve(face.vertices.size());
+        for (const Vector3& vert : face.vertices) {
+            if (!collapsed.empty() && nearlyEqual(collapsed.back(), vert, kWeldEps)) {
+                continue;
+            }
+            collapsed.push_back(vert);
+        }
+        if (collapsed.size() >= 2 && nearlyEqual(collapsed.front(), collapsed.back(), kWeldEps)) {
+            collapsed.pop_back();
+        }
+        face.vertices = std::move(collapsed);
+    }
+
+    faces.erase(
+        std::remove_if(
+            faces.begin(),
+            faces.end(),
+            [](const VisibleFace& face) { return face.vertices.size() < 3; }),
+        faces.end());
+}
+
+bool isDegenerateOrSliver(const std::vector<Vector3>& verts) {
+    if (verts.size() < 3) {
+        return true;
+    }
+    const float area = polygonArea(verts);
+    if (area < kMinFaceArea) {
+        return true;
+    }
+    const float peri = polygonPerimeter(verts);
+    if (peri > 1e-8f && (area / (peri * peri)) < kSliverAreaPerim2) {
+        return true;
+    }
+
+    bool anyGoodAltitude = false;
+    for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+        const Vector3 ab = sub3(verts[i], verts[0]);
+        const Vector3 ac = sub3(verts[i + 1], verts[0]);
+        const Vector3 bc = sub3(verts[i + 1], verts[i]);
+        const float triArea = 0.5f * length3(cross3(ab, ac));
+        const float maxEdge = std::max(length3(ab), std::max(length3(ac), length3(bc)));
+        if (maxEdge <= 1e-8f) {
+            continue;
+        }
+        const float altitude = (2.0f * triArea) / maxEdge;
+        if (altitude >= kSliverAltitude) {
+            anyGoodAltitude = true;
+            break;
+        }
+    }
+    return !anyGoodAltitude;
+}
+
+void collectSourceParts(const std::string& sourceFaceId, std::unordered_set<std::string>& out) {
+    std::string remaining = sourceFaceId;
+    while (!remaining.empty()) {
+        const auto plus = remaining.find('+');
+        if (plus == std::string::npos) {
+            out.insert(remaining);
+            break;
+        }
+        out.insert(remaining.substr(0, plus));
+        remaining = remaining.substr(plus + 1);
+    }
+}
+
+void cullDegenerateVisibleFaces(
+    std::vector<VisibleFace>& faces,
+    std::vector<std::string>& inferredNodrawFaceIds) {
+    std::unordered_set<std::string> before;
+    for (const VisibleFace& face : faces) {
+        collectSourceParts(face.sourceFaceId, before);
+    }
+
+    faces.erase(
+        std::remove_if(
+            faces.begin(),
+            faces.end(),
+            [](const VisibleFace& face) { return isDegenerateOrSliver(face.vertices); }),
+        faces.end());
+
+    std::unordered_set<std::string> after;
+    for (const VisibleFace& face : faces) {
+        collectSourceParts(face.sourceFaceId, after);
+    }
+    for (const std::string& source : before) {
+        if (!after.contains(source)) {
+            inferredNodrawFaceIds.push_back(source);
+        }
+    }
+}
+
+void sortVisibleFacesByMaterial(std::vector<VisibleFace>& faces) {
+    std::sort(faces.begin(), faces.end(), [](const VisibleFace& a, const VisibleFace& b) {
+        if (a.material != b.material) {
+            return a.material < b.material;
+        }
+        return a.id < b.id;
+    });
+}
+
+void finalizeInferredNodraw(std::vector<std::string>& inferredNodrawFaceIds) {
+    std::sort(inferredNodrawFaceIds.begin(), inferredNodrawFaceIds.end());
+    inferredNodrawFaceIds.erase(
+        std::unique(inferredNodrawFaceIds.begin(), inferredNodrawFaceIds.end()),
+        inferredNodrawFaceIds.end());
+}
+
+std::vector<ClippedFragment> clipFaceToInteriorLeaves(
+    const BrushFace& face,
+    const BspTree& tree,
+    const MapHullAnalysis& analysis,
+    const std::vector<std::int32_t>& interiorLeaves) {
+    Vector3 faceMins{};
+    Vector3 faceMaxs{};
+    faceBounds(face.vertices, faceMins, faceMaxs);
+
+    std::vector<ClippedFragment> fragments;
+    for (std::int32_t leafIndex : interiorLeaves) {
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(leafIndex)];
+        if (!aabbOverlap(faceMins, faceMaxs, leaf.mins, leaf.maxs, kNudge)) {
+            continue;
+        }
+        auto clipped = clipPolygonToLeaf(face.vertices, leaf);
+        if (clipped.size() < 3) {
+            continue;
+        }
+        orientToNormal(clipped, face.normal);
+        const Vector3 probe = add3(polygonCentroid(clipped), scale3(face.normal, kNudge));
+        const std::int32_t probeLeaf = pointLeaf(tree, probe);
+        if (!isInteriorEmpty(tree, analysis.exteriorEmpty, probeLeaf)) {
+            continue;
+        }
+        if (polygonArea(clipped) < kMinFaceArea) {
+            continue;
+        }
+        ClippedFragment fragment;
+        fragment.vertices = std::move(clipped);
+        fragment.interiorLeaf = probeLeaf;
+        fragments.push_back(std::move(fragment));
     }
     return fragments;
 }
@@ -456,20 +678,10 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
         return ca.z < cb.z;
     });
 
-    std::unordered_map<std::string, int> totalBySource;
-    for (const VisibleFace& face : faces) {
-        ++totalBySource[face.sourceFaceId];
-    }
     std::unordered_map<std::string, int> counts;
     for (VisibleFace& face : faces) {
         const int index = counts[face.sourceFaceId]++;
-        const bool multiSource = face.sourceFaceId.find('+') != std::string::npos;
-        const bool keepOriginalDetailId =
-            !multiSource && totalBySource[face.sourceFaceId] == 1 && face.id == face.sourceFaceId;
-        if (keepOriginalDetailId) {
-            continue;
-        }
-        if (multiSource) {
+        if (face.sourceFaceId.find('+') != std::string::npos) {
             face.id = "merge/" + std::to_string(index) + "/" + face.sourceFaceId;
         } else {
             face.id = face.sourceFaceId + "#" + std::to_string(index);
@@ -492,7 +704,7 @@ VisBuildResult buildVisibleFaces(
         }
     }
 
-    std::unordered_set<std::string> visibleHullFaceIds;
+    const bool canClip = analysis.sealed && !interiorLeaves.empty();
 
     for (const Brush& brush : brushes) {
         for (const BrushFace& face : brush.faces) {
@@ -500,42 +712,13 @@ VisBuildResult buildVisibleFaces(
                 continue;
             }
 
-            if (brush.role == BrushRole::Detail || !analysis.sealed || interiorLeaves.empty()) {
-                VisibleFace visible = makeVisibleFromBrushFace(face, face.id);
-                result.vis.faces.push_back(std::move(visible));
-                if (brush.role == BrushRole::Hull) {
-                    visibleHullFaceIds.insert(face.id);
-                }
+            if (!canClip) {
+                result.vis.faces.push_back(makeVisibleFromBrushFace(face, face.id));
                 continue;
             }
 
-            Vector3 faceMins{};
-            Vector3 faceMaxs{};
-            faceBounds(face.vertices, faceMins, faceMaxs);
-
-            std::vector<std::vector<Vector3>> fragments;
-            std::int32_t sampleLeaf = -1;
-            for (std::int32_t leafIndex : interiorLeaves) {
-                const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(leafIndex)];
-                if (!aabbOverlap(faceMins, faceMaxs, leaf.mins, leaf.maxs, kNudge)) {
-                    continue;
-                }
-                auto clipped = clipPolygonToLeaf(face.vertices, leaf);
-                if (clipped.size() < 3) {
-                    continue;
-                }
-                orientToNormal(clipped, face.normal);
-                const Vector3 probe = add3(polygonCentroid(clipped), scale3(face.normal, kNudge));
-                const std::int32_t probeLeaf = pointLeaf(tree, probe);
-                if (!isInteriorEmpty(tree, analysis.exteriorEmpty, probeLeaf)) {
-                    continue;
-                }
-                if (polygonArea(clipped) < kMinFaceArea) {
-                    continue;
-                }
-                sampleLeaf = probeLeaf;
-                fragments.push_back(std::move(clipped));
-            }
+            std::vector<ClippedFragment> fragments =
+                clipFaceToInteriorLeaves(face, tree, analysis, interiorLeaves);
 
             if (fragments.empty()) {
                 result.inferredNodrawFaceIds.push_back(face.id);
@@ -543,11 +726,10 @@ VisBuildResult buildVisibleFaces(
             }
 
             fragments = microMergeFragments(std::move(fragments));
-            visibleHullFaceIds.insert(face.id);
 
-            std::sort(fragments.begin(), fragments.end(), [](const auto& a, const auto& b) {
-                const Vector3 ca = polygonCentroid(a);
-                const Vector3 cb = polygonCentroid(b);
+            std::sort(fragments.begin(), fragments.end(), [](const ClippedFragment& a, const ClippedFragment& b) {
+                const Vector3 ca = polygonCentroid(a.vertices);
+                const Vector3 cb = polygonCentroid(b.vertices);
                 if (ca.x != cb.x) {
                     return ca.x < cb.x;
                 }
@@ -559,22 +741,19 @@ VisBuildResult buildVisibleFaces(
 
             for (std::size_t i = 0; i < fragments.size(); ++i) {
                 VisibleFace visible = makeVisibleFromBrushFace(face, face.id + "#" + std::to_string(i));
-                visible.vertices = std::move(fragments[i]);
-                visible.interiorLeaf = sampleLeaf;
+                visible.vertices = std::move(fragments[i].vertices);
+                visible.interiorLeaf = fragments[i].interiorLeaf;
                 result.vis.faces.push_back(std::move(visible));
             }
         }
     }
 
-    std::sort(
-        result.inferredNodrawFaceIds.begin(),
-        result.inferredNodrawFaceIds.end());
-    result.inferredNodrawFaceIds.erase(
-        std::unique(result.inferredNodrawFaceIds.begin(), result.inferredNodrawFaceIds.end()),
-        result.inferredNodrawFaceIds.end());
-
     weldVisibleFaceTJunctions(result.vis.faces);
+    snapWeldVisibleFaceVertices(result.vis.faces);
+    cullDegenerateVisibleFaces(result.vis.faces, result.inferredNodrawFaceIds);
     mergeCoplanarVisibleFaces(result.vis.faces);
+    sortVisibleFacesByMaterial(result.vis.faces);
+    finalizeInferredNodraw(result.inferredNodrawFaceIds);
 
     return result;
 }

@@ -154,7 +154,7 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
     (bottom (nodraw))))
 ```
 
-Authored `(nodraw)` is never cleared by the tools. When the hull is sealed, `slopvis` clips hull faces to sealed interior empty space and treats faces with no remaining visible area as inferred nodraw (outer skins, buried sides). Map load ORs that onto brush face flags. Large faces that are only partly playable keep only the interior-visible fragment(s) in `static.vis` rather than a whole-face keep or drop.
+Authored `(nodraw)` is never cleared by the tools. When the hull is sealed, `slopvis` clips hull and detail faces to sealed interior empty space and treats faces with no remaining visible area as inferred nodraw (outer skins, buried sides, buried detail). Map load ORs that onto brush face flags. Large faces that are only partly playable keep only the interior-visible fragment(s) in `static.vis` rather than a whole-face keep or drop.
 
 Default authored face ids look like `floor/top` for boxes, or `brushId/N` for convex faces without an explicit id. After VIS, drawable hull fragments use ids such as `floor/top#0`; coplanar merges across sources use `merge/…` ids. Radiosity charts key off those VIS face ids, so renaming a face id or rebuilding VIS without re-baking changes how atlases line up.
 
@@ -198,7 +198,7 @@ Typical sequence:
 
 `slopbsp` mounts packages, loads brushes, builds a hull-only tree, and writes `static.bsp` next to `static.csg`. On a leak it still writes the file for debug but exits with an error and a leaf-center path. On a seal it reports exterior/interior empty counts and a preview of visible-face / inferred-nodraw counts (run `slopvis` to write `static.vis`). Detail brushes do not split the tree and cannot seal.
 
-`slopvis` requires a sealed `static.bsp`. It clips hull faces to sealed interior empty leaves, welds T-junctions, merges compatible coplanar fragments, and writes `static.vis`. Detail faces pass through unchanged. This is not classic leaf↔leaf PVS; it is the visible face set for draw, bake, and audio.
+`slopvis` requires a sealed `static.bsp`. It clips hull and detail faces to sealed interior empty leaves, welds T-junctions, snap-welds coincident verts, culls slivers, merges compatible coplanar fragments, sorts by material, and writes `static.vis`. This is not classic leaf↔leaf PVS; it is the visible face set for draw, bake, and audio.
 
 `sloprad` requires BSP and VIS. It collects lightmap faces from `static.vis`, clears `maps/<name>/rad/`, and writes `static.rad` plus `atlasN.png`. Defaults are 16 luxels per meter, 2 bounces, 32 samples; atlas size is 512² (not a CLI flag). `--bounces 0` keeps ambient, emission, and direct light only. Emission textures matter at bake time; at runtime the lightmap shader uses flat material emission color/power.
 

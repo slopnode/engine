@@ -330,6 +330,34 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
     EndBlendMode();
 }
 
+void drawVisDebugOverlays(const VisFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
+    if (!debugUi.showVisFaces) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    for (std::size_t faceIndex = 0; faceIndex < vis.faces.size(); ++faceIndex) {
+        const VisibleFace& face = vis.faces[faceIndex];
+        if (face.vertices.size() < 3) {
+            continue;
+        }
+        if (debugUi.showVisCurrentLeafOnly
+            && (face.interiorLeaf < 0 || face.interiorLeaf != currentLeaf)) {
+            continue;
+        }
+        const bool inCurrentLeaf = face.interiorLeaf == currentLeaf;
+        const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 80);
+        const Color outline = inCurrentLeaf ? Color{255, 160, 40, 255} : Color{255, 120, 40, 220};
+        drawDebugPolygon(face.vertices, fill);
+        drawDebugPolygonOutline(face.vertices, outline);
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
 void renderWorldModel(
     flecs::entity entity,
     Model3D& model,
@@ -1282,15 +1310,20 @@ void registerRenderSystems(flecs::world& world) {
                 }
             }
 
-            if (world.has<DebugUiState>() && world.has<MapBsp>()) {
+            if (world.has<DebugUiState>()) {
                 const DebugUiState& debugUi = world.get<DebugUiState>();
-                const MapBsp& mapBsp = world.get<MapBsp>();
                 std::int32_t currentLeaf = -1;
-                flecs::entity camera = world.lookup("Player");
-                if (camera.is_valid() && camera.has<Lens>()) {
-                    currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
+                if (world.has<MapBsp>()) {
+                    const MapBsp& mapBsp = world.get<MapBsp>();
+                    flecs::entity camera = world.lookup("Player");
+                    if (camera.is_valid() && camera.has<Lens>()) {
+                        currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
+                    }
+                    drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
                 }
-                drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
+                if (world.has<MapVis>()) {
+                    drawVisDebugOverlays(world.get<MapVis>().vis, debugUi, currentLeaf);
+                }
             }
 
             if (world.has<DebugUiState>() && world.get<DebugUiState>().showGraphs &&
