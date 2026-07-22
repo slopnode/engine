@@ -24,14 +24,10 @@ cmake --build build --target slopsprite
 
 ## Preview modes
 
-| Mode | Purpose |
-|------|---------|
-| World | 3D billboard preview (optional auto-orbit) |
-| FirstPerson | Screen-space weapon / view canvas; uses authored `(view ...)` defaults when present |
-| Align | Pivot, offset, rotation, scale, translate editing; onion-skin compare against another frame |
+World is the 3D billboard preview: how the sprite reads as a prop in space, with optional auto-orbit so you can check rotation frames without scrubbing by hand. FirstPerson is the screen-space weapon / view canvas; when the asset has authored `(view ...)` defaults, this mode uses them so FP pose matches what the game will start from. Align is the editing surface for pivot, offset, rotation, scale, and translate -- including onion-skin compare against another frame when you need to line up a sequence.
 
 ## Authoring
 
-Frames with rotation modes None / Five / Eight / Custom (five-angle mode keeps mirror pairs in sync). Base pose channels plus tweenable `anim-*` channels. Clip timeline: play, scrub, speed, loop. Frame sounds pick `.ogg` paths from mounted `sound/` via the sound browser.
+Each frame can use rotation mode None, Five, Eight, or Custom. Five-angle mode keeps the usual Doom-style mirror pairs in sync so you only author one side of a mirrored yaw. Pose has base channels plus tweenable `anim-*` channels for clips that interpolate between holds. The clip timeline plays, scrubs, changes speed, and loops; frame `(sound ...)` entries pick `.ogg` paths from mounted `sound/` folders through the sound browser.
 
-Browsers: sprite/anim, texture, sound. Debug -> Masks overlays hit-mask silhouettes in World preview.
+Sprite/anim, texture, and sound browsers keep mounted package content reachable without leaving the tool. Debug -> Masks overlays hit-mask silhouettes in World preview so part boundaries are visible while you tune offsets and rotations.

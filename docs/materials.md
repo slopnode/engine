@@ -49,28 +49,11 @@ Lightmap atlases are separate: PNG files under `maps/<name>/rad/`, loaded as map
 
 ## Shader flow
 
-Shaders are plain GLSL sources, one file per stage. Vert and frag are separate virtual paths.
-
-| Path | Role |
-|------|------|
-| `default/lightmap_vert` / `default/lightmap_frag` | Map geometry with radiosity |
-| `default/viewmodel_vert` / `default/viewmodel_frag` | First-person geo faux shading (probe + Lambert/rim); packages may override |
-| `default/skinning_vert` / `default/skinning_frag` | GPU skinning sources (package may ship these; skinning is CPU-side today) |
-
-`AssetStore::getShaderSource` reads the text; callers compile with raylib when needed.
+Shaders are plain GLSL sources, one file per stage. Vert and frag are separate virtual paths. Stock pairs live under `default/`: `lightmap_*` for map geometry with radiosity, `viewmodel_*` for first-person geo faux shading (probe plus Lambert/rim; packages may override), and `skinning_*` as GPU skinning sources a package may ship (skinning is CPU-side today). `AssetStore::getShaderSource` reads the text; callers compile with raylib when needed.
 
 ### How a draw picks a shader
 
-Materials do not currently drive shader selection from `(shader ...)`. Pipelines hardcode it:
-
-| Draw path | Shader |
-|-----------|--------|
-| Prop / character `.geo` | raylib default material shader |
-| First-person `ViewSpace` geo (when `fp-set-shading` on) | `default/viewmodel_*` |
-| Map with baked lightmaps | `default/lightmap_*`, assigned onto each map material |
-| Map without lightmaps | raylib default |
-
-Custom entity shaders are a separate render path and are not selected from `.mat` files.
+Materials do not currently drive shader selection from `(shader ...)`. Pipelines hardcode it. Prop and character `.geo` use the raylib default material shader. First-person `ViewSpace` geo uses `default/viewmodel_*` when `fp-set-shading` is on. Maps with baked lightmaps assign `default/lightmap_*` onto each map material; maps without lightmaps stay on the raylib default. Custom entity shaders are a separate render path and are not selected from `.mat` files.
 
 ### Lightmap shader
 
@@ -136,12 +119,7 @@ Glow and lit surfaces use the emission fields above. Other effects (scroll, puls
 
 ## Emission summary
 
-| Source | Bake (`sloprad`) | Runtime draw |
-|--------|------------------|--------------|
-| `emission-color` + `emission-power` | Yes | Yes (as `colSpecular` in lightmap shader) |
-| `emission` texture | Yes | No (not bound on the material) |
-
-Without the lightmap shader, specular color is still set on the raylib material but does not get the same additive emit path.
+`emission-color` plus `emission-power` contribute at bake time and again at runtime as `colSpecular` in the lightmap shader. The `emission` texture is sampled only during `sloprad`; it is not bound on the material for draw. Without the lightmap shader, specular color is still set on the raylib material but does not get the same additive emit path.
 
 ## Naming from Blender
 

@@ -121,11 +121,6 @@ Bound only while the matching map file loads, not for general gameplay scripts:
 
 ## What belongs where
 
-| Place | Content |
-|-------|---------|
-| `maps/<name>/things.s7` | Instance data: poses, sprite/geo paths, handler names, light params |
-| `scripts/` | Reusable behavior, constructors, FP presentation, HUD |
-| `data/` | Actions, items, canvas sizes |
-| Engine | Spawn bindings, presentation primitives, interact, player pawn |
+`maps/<name>/things.s7` holds instance data: poses, sprite or geo paths, handler names, light params -- composition for this level, not shared logic. Reusable behavior, constructors, first-person presentation, and HUD live under `scripts/`. Package catalogs such as actions, items, and canvas sizes live under `data/`. The engine supplies spawn bindings, presentation primitives, interact, and the player pawn; it does not own per-game content rules.
 
 Prefer new package procedures and thin map calls over new C++ thing kinds for each content type.

@@ -6,16 +6,9 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprite
 
 ## Kinds
 
-| Kind | Map form | Role today |
-|------|----------|------------|
-| Static prop | `(prop ...)` | Visual only: sprite or mesh at a pose. No interact, no AI. |
-| Usable | `(usable ...)` | Same presentation as a prop, plus an interact prompt and optional Scheme `on-use`. |
-| Point light | `(point-light ...)` | Local omnidirectional light thing (bake + gizmos; see [Lights](lights.md)). |
-| Spot light | `(spot-light ...)` | Directed cone light thing (bake + gizmos). |
-| Area light | `(area-light ...)` | Rectangular area light thing (authoring / gizmo). |
-| Sun | `(sun ...)` | Directional sun thing (authoring / gizmo; optional `at` for editor). |
-| Actor | - | Intended: AI nav agents (enemies, NPCs). Not a map form yet. |
-| Player | `(player-start ...)` | Spawn pose only; the `Player` entity is built by the engine. |
+A static prop (`(prop ...)`) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable (`(usable ...)`) uses the same presentation, then adds an interact prompt and optional Scheme `on-use` handler. Light things cover bake and editor work: `(point-light ...)` and `(spot-light ...)` feed radiosity and gizmos; `(area-light ...)` and `(sun ...)` are authoring / gizmo forms today (sun may omit a meaningful world `at` and still use one for the editor handle). See [Lights](lights.md).
+
+`(player-start ...)` is spawn pose only -- it does not create a prop entity; the engine builds `Player` from that pose after map load. Actors (AI nav agents such as enemies and NPCs) are intended later and have no map form yet; until then, decorative characters belong as props.
 
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 

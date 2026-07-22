@@ -86,12 +86,7 @@ Optional block for first-person authoring defaults (used by `slopsprite`). Parse
 
 ### Rotations
 
-Rotation index is Doom-style:
-
-| Index | Role |
-|-------|------|
-| `1`-`8` | Eight yaw sectors around the sprite (camera relative to `facingYaw`) |
-| `0` | Non-directional (death / special / first-person poses); used when no angle set is needed |
+Rotation index is Doom-style. Indices `1` through `8` are yaw sectors around the sprite (camera relative to `facingYaw`). Index `0` is non-directional -- death, special, or first-person poses when no angle set is needed.
 
 Opposite angles often share one texture with `mirror` on the line (for example rot `2` and rot `8`). Mirrored UVs and hit samples flip at runtime; do not duplicate flipped PNGs unless you want to.
 
@@ -158,10 +153,7 @@ Frame ids must exist in the paired `.spr`. Missing banks or clips leave the inst
 
 ## World vs first-person
 
-| Role | Components | Draw path |
-|------|------------|-----------|
-| World billboard | `SpriteInstance` + `WorldSpace` (+ optional `SpriteAnimator`) | Camera-facing quad; rotation index from camera vs `facingYaw` |
-| View / FP sprite | `SpriteInstance` + `ViewSprite` (+ usually under `ViewSpace`) | Screen-space overlay on the view canvas; typically rot `0` |
+The same `.spr` / `.spanim` assets can draw in two places. A world billboard is a `SpriteInstance` with `WorldSpace` (optional `SpriteAnimator`): a camera-facing quad whose rotation index comes from the camera versus `facingYaw`. A view / first-person sprite keeps `SpriteInstance` but adds `ViewSprite` (usually under `ViewSpace`) and draws as a screen-space overlay on the view canvas, typically with rot `0` because yaw sectors are for world facing.
 
 World props and usables use map clauses `(sprite ...)` / `(anim ...)`; see [Things](things.md). First-person sockets use Scheme `(fp-attach-sprite ...)` and related mutators; see [Player](player.md).
 

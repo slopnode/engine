@@ -47,13 +47,9 @@ The first-person scene is a presentation layer: it shows what the package decide
 
 ### Ownership
 
-| Owns | Does not own |
-|------|----------------|
-| Empty eye-space stage (`PlayerFp`) and sockets | Inventory, ammo, loadouts, weapon switch rules |
-| Draw of `ViewSpace` geo / view sprites after the world | Hit detection, fire, reload, usability |
-| Primitives to attach geo/sprites, mutate sprite pose, eye offset, spawn or toggle a `DynamicLight` | Whether the flashlight "should" be on; raise/lower, bob, or holster policy |
-| Raw `Lens` eye for aim/interact; presentation camera for world draw | Map lighting design (bake + dynamic overlay; see [Lights](lights.md)) |
-| Optional rad tint / faux shading look | - |
+The engine owns the empty eye-space stage (`PlayerFp`) and its sockets, the draw of `ViewSpace` geo and view sprites after the world, and the primitives to attach meshes or sprites, mutate sprite pose, set eye offset, and spawn or toggle a `DynamicLight`. It also owns the raw `Lens` used for aim and interact, the presentation camera for world draw, and optional rad tint / faux shading look.
+
+It does not own inventory, ammo, loadouts, or weapon switch rules. Hit detection, fire, reload, and usability stay in game logic. Whether the flashlight "should" be on, and raise/lower, bob, or holster policy, are package decisions -- the stage only shows the result. Map lighting design (bake plus dynamic overlay) is separate; see [Lights](lights.md).
 
 Input still reaches the package as hooks (for example flashlight -> `(on-action-flashlight)`). The engine does not infer weapons from the stage contents.
 

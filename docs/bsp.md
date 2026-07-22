@@ -29,32 +29,19 @@ Detail brushes never contribute split planes and cannot seal a leak. Hint planes
 
 Most current editors treat a level as an arbitrary triangle soup (or a collection of meshes) plus separate systems for collision, visibility, and lighting. You place geometry anywhere; a BVH or GPU raster path draws it; navmesh / probes / lightmaps are built from whatever faces the baker is told to include. There is usually no authored "inside" that must be watertight against the void.
 
-This BSP path is older Quake-family thinking:
+This BSP path is older Quake-family thinking. A modern mesh level draws whatever is in the scene and often culls at runtime (portals, HZB, GPU occlusion). Here the draw mesh comes from VIS face fragments clipped to sealed interior empty space -- an offline visible-face set (`static.vis`), not leaf<->leaf PVS. Collision is also separate from the BSP: each brush keeps its own convex hull for physics; the tree is structural, not the physics mesh.
 
-| Modern mesh level | This BSP |
-|-------------------|----------|
-| Draw whatever is in the scene | Draw VIS face fragments clipped to sealed interior |
-| Collision meshes / primitives are separate | Per-brush convex hulls; BSP is not the physics mesh |
-| No global seal requirement | Hull must enclose playable empty space or compile fails a leak check |
-| Detail and structure are the same mesh kind | Brush **role** decides who splits, who seals, who only decorates |
-| Visibility often runtime culling / portals / HZB | Offline visible-face set (`static.vis`), not leaf<->leaf PVS |
+Modern tools usually have no global seal requirement. Here the hull must enclose playable empty space or compile fails a leak check. Detail and structure are not the same mesh kind either: brush **role** decides who splits the tree, who seals against the void, and who only decorates inside an already sealed volume.
 
 The tree exists so empty space can be classified as exterior (connected to the padded world bounds) versus interior (playable). That classification drives leak detection, which faces are "inside," and what VIS / radiosity are allowed to treat as the level. A triangle mesh with a hole in the floor is usually fine in a modern editor; here it is a leak because exterior flood walks into the room.
 
 ## Why hull and non-hull
 
-Brush roles are how authors mark structure versus content that lives *inside* structure. Role table on [Maps](maps.md#staticcsg).
+Brush roles are how authors mark structure versus content that lives *inside* structure. The full role matrix (splits / seals / VIS / physics) is on [Maps](maps.md#staticcsg).
 
 **Hull** (and **window**, which seals as `Glass`) form the airtight shell. Their faces supply split planes and sealing contents (`Solid` / `Glass`). Without a closed hull, there is no sealed interior open leaf set, so VIS cannot decide what is buried versus playable and the map is rejected as leaky (the `.bsp` is still written for debug).
 
-**Non-hull** roles do not seal:
-
-| Role | Splits tree? | Seals? | Why it exists |
-|------|--------------|--------|---------------|
-| `detail` | no | no | Furniture, trim, clutter that should draw/lightmap but must not punch holes in the shell or explode the tree with extra planes |
-| `hint` | yes | no | Optional split-only planes to reshape leaves without adding solid |
-| `trigger` / `water` | no / yes | no | Mark open leaves; must sit in already-sealed interior |
-| `window` | yes | yes (`Glass`) | Thin fill for openings; seals like hull for flood |
+**Non-hull** roles do not seal, and that is the point. `detail` is for furniture, trim, and clutter that should still draw and lightmap but must not punch holes in the shell or explode the tree with extra split planes -- detail never splits and never seals. `hint` can split leaves without adding solid, when you want to reshape the tree on purpose. `trigger` and `water` mark open leaves for later gameplay; they must sit in already-sealed interior (`water` may split, `trigger` does not). `window` is the exception among "thin" pieces: it splits and seals as `Glass` so openings stay closed to exterior flood.
 
 If every decorative crate were hull, each face would become a candidate split plane, the tree would fragment, and any gap between crate and floor could open a leak path from exterior into the room. Marking those brushes detail keeps them out of sealing: they still collide and still feed VIS faces when their surfaces see interior empty space, but they cannot define or break the shell.
 

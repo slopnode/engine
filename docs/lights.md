@@ -6,11 +6,9 @@ Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Thing
 
 ## Layers
 
-| Layer | Source | When it applies | What it lights |
-|-------|--------|-----------------|----------------|
-| Baked lightmaps | Material emission + `point-light` / `spot-light` things via `sloprad` | Offline -> `rad/` atlases | Map brush meshes (lightmap shader) |
-| Thing light entities | `(point-light ...)`, `(spot-light ...)`, `(area-light ...)`, `(sun ...)` | Map load -> flecs components | Bake (point/spot); authoring / gizmos at runtime |
-| Dynamic lights | `DynamicLight` component (e.g. FP flashlight) | Each frame, ranked near the camera | Map shader add-on; FP rad tint / probe |
+Lighting is three layers that look related in the editor but do different jobs.
+
+Baked lightmaps are the main look for map brushes. Material emission plus point/spot things go through `sloprad` offline into `rad/` atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (`point-light`, `spot-light`, `area-light`, `sun`) always spawn flecs components and gizmos when the map loads; only point and spot feed the bake today -- they are not gathered as the runtime dynamic overlay. Dynamic lights are a separate `DynamicLight` component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling.
 
 There is no runtime PBR stack. Props and characters are not lightmapped; sprites can sample map light at their feet when lightmaps exist. Viewmodels use optional rad tint and faux shading; see [Player](player.md).
 
@@ -116,11 +114,6 @@ Packages may attach a spot under the `emission` socket and toggle it from Scheme
 
 ## What belongs where
 
-| Goal | Prefer |
-|------|--------|
-| Static room lighting | Emission materials and/or point/spot things + `sloprad` |
-| Editor-visible light markers | Thing forms (always spawn components + gizmos) |
-| Runtime toggle / move / player-held | `DynamicLight` (Scheme FP API or C++ `spawnDynamicLight`) |
-| Viewmodel look (tint / faux shade) | `(fp-set-rad-tint)` / `(fp-set-shading)` (presentation only) |
+For static room lighting, prefer emission materials and/or point/spot things, then re-run `sloprad`. Thing forms are also the right place for editor-visible light markers: they always spawn components and gizmos even when a kind is not a bake emitter. Lights that must toggle, move, or ride with the player belong on `DynamicLight` (Scheme FP API or C++ `spawnDynamicLight`). Viewmodel look -- rad tint and faux shade -- is presentation only via `(fp-set-rad-tint)` / `(fp-set-shading)`.
 
 Do not treat thing `PointLight` / `SpotLight` components as the runtime overlay: only `DynamicLight` is gathered for the map shader and FP probe.

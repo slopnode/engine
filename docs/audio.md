@@ -6,12 +6,7 @@ Related: [Package structure](package-structure.md), [Sprites](sprites.md) (frame
 
 ## Mental model
 
-| Layer | Role |
-|-------|------|
-| Raw clips | `.ogg` under `sound/` (one-shot SFX, music streams, frame sounds) |
-| Audio defs | `.saudio` (procedural Sfxr) or `.s7` sample wrappers under `audio/` |
-| Buses | `sfx` and `music` |
-| Play paths | Scheme API, `.spanim` `(sound ...)`, flecs `AudioSource` autoplay |
+Raw clips are `.ogg` files under `sound/` -- one-shot SFX, music streams, and `.spanim` frame sounds. Audio defs under `audio/` are a second layer: procedural Sfxr (`.saudio`) or sample wrappers (`.s7`) that point at a clip and carry playback options. Mixing goes through two buses, `sfx` and `music`. Playback reaches those layers from Scheme (`play-sound` / `play-audio` and friends), from `.spanim` `(sound ...)` on hold enter, or from flecs `AudioSource` autoplay.
 
 ## Steam Audio (optional)
 
@@ -37,10 +32,7 @@ If init fails, the engine logs a warning and falls back to SoLoud 3D. Authoring 
 
 Author raw clips as `.ogg`. Procedural and sample-wrapper defs resolve `.saudio` then `.s7`. Virtual paths omit the directory and extension.
 
-| API / feature | Uses |
-|---------------|------|
-| `play-sound`, `play-music`, frame `(sound ...)`, `AudioSource.clip` | Raw `sound/` |
-| `play-audio`, `AudioSource.audio` | Defs under `audio/` |
+`play-sound`, `play-music`, frame `(sound ...)`, and `AudioSource.clip` take raw paths under `sound/`. `play-audio` and `AudioSource.audio` take defs under `audio/`.
 
 ## Raw sounds
 
