@@ -15,4 +15,7 @@ struct CharacterMotor {
     float wishZ = 0.0f;     /**< Horizontal wish in world Z (filled from input). */
 };
 
+/** Tag: package-driven world actor (not the first-person player). */
+struct Actor {};
+
 }

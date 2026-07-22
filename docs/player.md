@@ -82,6 +82,8 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 | `(player-speed)` | Horizontal character speed (m/s); `0` if no physics player. |
 | `(player-grounded?)` | `#t` when the character is supported; `#f` if unsupported or no body. |
 | `(player-wish-speed)` | `hypot(wishX, wishZ)` from `CharacterMotor` (move intent). |
+| `(player-eye)` | List `(x y z)` of the raw `Lens` eye position, or `#f` if no player. |
+| `(player-look-dir)` | List `(dx dy dz)` unit look direction from `Lens`, or `#f` if no player. |
 | `(fp-spawn-light socket kind [intensity range cone r g b x y z])` | Spawn a dynamic light under a socket (starts off). |
 | `(fp-set-light-enabled socket enabled)` | Toggle light intensity using the spawn-time on-intensity. |
 | `(fp-set-rad-tint enabled)` | Tint viewmodels from a baked rad probe at the feet (plus dynamic lights). Off by default. |

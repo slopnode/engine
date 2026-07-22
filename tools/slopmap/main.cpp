@@ -2223,6 +2223,10 @@ int main(int argc, char* argv[]) {
                         if (ImGui::Button("usable")) {
                             beginThingKind(editor, slopengine::ThingKind::Usable, createTool);
                         }
+                        ImGui::SameLine();
+                        if (ImGui::Button("actor")) {
+                            beginThingKind(editor, slopengine::ThingKind::Actor, createTool);
+                        }
                         if (ImGui::Button("point-light")) {
                             beginThingKind(
                                 editor, slopengine::ThingKind::PointLight, createTool);
@@ -2242,7 +2246,7 @@ int main(int argc, char* argv[]) {
                         }
 
                         ImGui::Separator();
-                        ImGui::TextDisabled("Presentation (required for prop/usable)");
+                        ImGui::TextDisabled("Presentation (required for prop/usable/actor)");
                         if (editor.mode == slopmap::EditorMode::Place &&
                             editor.placeTarget == slopmap::PlaceTarget::Thing &&
                             editor.placeThingKind.has_value()) {

@@ -5,17 +5,24 @@
 
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
-#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <raylib.h>
+#include <raymath.h>
 
 #include <cstdarg>
 #include <cstdio>
 #include <thread>
+#include <utility>
 
 namespace slopengine {
 
@@ -152,8 +159,8 @@ PhysicsWorld::PhysicsWorld() {
 }
 
 PhysicsWorld::~PhysicsWorld() {
-    character_ = nullptr;
-    characterShape_ = nullptr;
+    characters_.clear();
+    playerId_ = 0;
 
     if (system_) {
         JPH::BodyInterface& bodies = system_->GetBodyInterface();
@@ -279,46 +286,74 @@ void PhysicsWorld::clearStaticBrushes() {
     staticBodies_.clear();
 }
 
-void PhysicsWorld::createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor) {
-    destroyPlayerCharacter();
+void PhysicsWorld::createCharacter(
+    std::uint64_t id,
+    float x,
+    float y,
+    float z,
+    const CharacterMotor& motor) {
+    characters_.erase(id);
 
     const float radius = motor.radius;
     const float cylinderHalf = 0.5f * motor.height;
-    characterShape_ = JPH::RotatedTranslatedShapeSettings(
+    CharacterEntry entry{};
+    entry.shape = JPH::RotatedTranslatedShapeSettings(
         JPH::Vec3(0.0f, cylinderHalf + radius, 0.0f),
         JPH::Quat::sIdentity(),
         new JPH::CapsuleShape(cylinderHalf, radius)).Create().Get();
 
     JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
-    settings->mShape = characterShape_;
+    settings->mShape = entry.shape;
     settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -radius);
     settings->mMass = 70.0f;
 
-    character_ = new JPH::CharacterVirtual(
+    entry.character = new JPH::CharacterVirtual(
         settings,
         JPH::RVec3(x, y, z),
         JPH::Quat::sIdentity(),
         0,
         system_.get());
 
-    TraceLog(LOG_INFO, "PHYSICS: player character at (%.2f, %.2f, %.2f)", x, y, z);
+    characters_[id] = std::move(entry);
+    TraceLog(LOG_INFO, "PHYSICS: character %llu at (%.2f, %.2f, %.2f)",
+        static_cast<unsigned long long>(id), x, y, z);
+}
+
+void PhysicsWorld::destroyCharacter(std::uint64_t id) {
+    characters_.erase(id);
+    if (playerId_ == id) {
+        playerId_ = 0;
+    }
+}
+
+void PhysicsWorld::destroyAllCharacters() {
+    characters_.clear();
+    playerId_ = 0;
+}
+
+void PhysicsWorld::createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor) {
+    if (playerId_ == 0) {
+        TraceLog(LOG_WARNING, "PHYSICS: createPlayerCharacter without player id");
+        return;
+    }
+    createCharacter(playerId_, x, y, z, motor);
 }
 
 void PhysicsWorld::destroyPlayerCharacter() {
-    character_ = nullptr;
-    characterShape_ = nullptr;
+    if (playerId_ != 0) {
+        destroyCharacter(playerId_);
+    } else {
+        destroyAllCharacters();
+    }
 }
 
-void PhysicsWorld::applyPlayerInput(
+void PhysicsWorld::applyCharacterInput(
+    JPH::CharacterVirtual& character,
     const CharacterMotor& motor,
     float wishX,
     float wishZ,
     float dt,
     bool noclip) {
-    if (character_ == nullptr) {
-        return;
-    }
-
     JPH::Vec3 wish(wishX, 0.0f, wishZ);
     if (wish.LengthSq() > 1.0e-6f) {
         wish = wish.Normalized() * motor.moveSpeed;
@@ -327,17 +362,18 @@ void PhysicsWorld::applyPlayerInput(
     }
 
     if (noclip) {
-        character_->SetLinearVelocity(wish);
+        character.SetLinearVelocity(wish);
         return;
     }
 
     const JPH::Vec3 currentVertical =
-        character_->GetLinearVelocity().Dot(character_->GetUp()) * character_->GetUp();
-    const JPH::Vec3 groundVelocity = character_->GetGroundVelocity();
+        character.GetLinearVelocity().Dot(character.GetUp()) * character.GetUp();
+    const JPH::Vec3 groundVelocity = character.GetGroundVelocity();
     JPH::Vec3 newVelocity;
 
     const bool movingTowardsGround = (currentVertical.GetY() - groundVelocity.GetY()) < 0.1f;
-    if (character_->GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround && movingTowardsGround) {
+    if (character.GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround &&
+        movingTowardsGround) {
         newVelocity = groundVelocity;
     } else {
         newVelocity = currentVertical;
@@ -345,11 +381,39 @@ void PhysicsWorld::applyPlayerInput(
 
     newVelocity += JPH::Vec3(0.0f, -motor.gravity, 0.0f) * dt;
     newVelocity += wish;
-    character_->SetLinearVelocity(newVelocity);
+    character.SetLinearVelocity(newVelocity);
 }
 
-void PhysicsWorld::update(float frameDt, const CharacterMotor& motor, bool noclip) {
-    if (character_ == nullptr) {
+void PhysicsWorld::stepCharacter(
+    JPH::CharacterVirtual& character,
+    const CharacterMotor& motor,
+    bool noclip) {
+    applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, noclip);
+
+    if (noclip) {
+        const JPH::RVec3 pos = character.GetPosition();
+        const JPH::Vec3 vel = character.GetLinearVelocity();
+        character.SetPosition(JPH::RVec3(
+            pos.GetX() + static_cast<double>(vel.GetX()) * static_cast<double>(kFixedDt),
+            pos.GetY(),
+            pos.GetZ() + static_cast<double>(vel.GetZ()) * static_cast<double>(kFixedDt)));
+        return;
+    }
+
+    JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+    character.ExtendedUpdate(
+        kFixedDt,
+        -character.GetUp() * system_->GetGravity().Length(),
+        updateSettings,
+        system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        system_->GetDefaultLayerFilter(Layers::MOVING),
+        {},
+        {},
+        *tempAllocator_);
+}
+
+void PhysicsWorld::update(float frameDt, const std::vector<CharacterStep>& steps) {
+    if (characters_.empty() || steps.empty()) {
         return;
     }
 
@@ -361,53 +425,171 @@ void PhysicsWorld::update(float frameDt, const CharacterMotor& motor, bool nocli
     }
 
     accumulator_ += frameDt;
-    int steps = 0;
-    while (accumulator_ >= kFixedDt && steps < kMaxSubsteps) {
-        applyPlayerInput(motor, motor.wishX, motor.wishZ, kFixedDt, noclip);
-
-        if (noclip) {
-            const JPH::RVec3 pos = character_->GetPosition();
-            const JPH::Vec3 vel = character_->GetLinearVelocity();
-            character_->SetPosition(JPH::RVec3(
-                pos.GetX() + static_cast<double>(vel.GetX()) * static_cast<double>(kFixedDt),
-                pos.GetY(),
-                pos.GetZ() + static_cast<double>(vel.GetZ()) * static_cast<double>(kFixedDt)));
-        } else {
-            JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
-            character_->ExtendedUpdate(
-                kFixedDt,
-                -character_->GetUp() * system_->GetGravity().Length(),
-                updateSettings,
-                system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
-                system_->GetDefaultLayerFilter(Layers::MOVING),
-                {},
-                {},
-                *tempAllocator_);
+    int count = 0;
+    while (accumulator_ >= kFixedDt && count < kMaxSubsteps) {
+        for (const CharacterStep& step : steps) {
+            if (step.motor == nullptr) {
+                continue;
+            }
+            auto it = characters_.find(step.id);
+            if (it == characters_.end() || it->second.character == nullptr) {
+                continue;
+            }
+            stepCharacter(*it->second.character, *step.motor, step.noclip);
         }
 
         system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
 
         accumulator_ -= kFixedDt;
-        ++steps;
+        ++count;
     }
+}
+
+bool PhysicsWorld::hasCharacter(std::uint64_t id) const {
+    return characters_.find(id) != characters_.end();
+}
+
+bool PhysicsWorld::hasPlayer() const {
+    return playerId_ != 0 && hasCharacter(playerId_);
+}
+
+JPH::RVec3 PhysicsWorld::characterPosition(std::uint64_t id) const {
+    auto it = characters_.find(id);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return JPH::RVec3::sZero();
+    }
+    return it->second.character->GetPosition();
+}
+
+JPH::Vec3 PhysicsWorld::characterVelocity(std::uint64_t id) const {
+    auto it = characters_.find(id);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return JPH::Vec3::sZero();
+    }
+    return it->second.character->GetLinearVelocity();
+}
+
+bool PhysicsWorld::characterSupported(std::uint64_t id) const {
+    auto it = characters_.find(id);
+    return it != characters_.end() && it->second.character != nullptr &&
+        it->second.character->IsSupported();
 }
 
 JPH::RVec3 PhysicsWorld::playerPosition() const {
-    if (character_ == nullptr) {
-        return JPH::RVec3::sZero();
-    }
-    return character_->GetPosition();
+    return characterPosition(playerId_);
 }
 
 JPH::Vec3 PhysicsWorld::playerVelocity() const {
-    if (character_ == nullptr) {
-        return JPH::Vec3::sZero();
-    }
-    return character_->GetLinearVelocity();
+    return characterVelocity(playerId_);
 }
 
 bool PhysicsWorld::playerSupported() const {
-    return character_ != nullptr && character_->IsSupported();
+    return characterSupported(playerId_);
+}
+
+std::optional<SphereCastHit> PhysicsWorld::castSphere(
+    Vector3 origin,
+    Vector3 direction,
+    float distance,
+    float radius) const {
+    if (system_ == nullptr || distance <= 1.0e-8f || radius <= 0.0f) {
+        return std::nullopt;
+    }
+
+    const float dirLenSq = direction.x * direction.x + direction.y * direction.y + direction.z * direction.z;
+    if (dirLenSq <= 1.0e-12f) {
+        return std::nullopt;
+    }
+    const Vector3 unitDir = Vector3Normalize(direction);
+
+    const JPH::SphereShape sphere(radius);
+    const JPH::RMat44 start = JPH::RMat44::sTranslation(JPH::RVec3(origin.x, origin.y, origin.z));
+    const JPH::Vec3 castDir(unitDir.x * distance, unitDir.y * distance, unitDir.z * distance);
+    const JPH::RShapeCast shapeCast = JPH::RShapeCast::sFromWorldTransform(&sphere, JPH::Vec3::sOne(), start, castDir);
+
+    JPH::ShapeCastSettings settings;
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
+
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    system_->GetNarrowPhaseQuery().CastShape(
+        shapeCast,
+        settings,
+        shapeCast.mCenterOfMassStart.GetTranslation(),
+        collector,
+        system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        system_->GetDefaultLayerFilter(Layers::MOVING));
+
+    if (!collector.HadHit()) {
+        return std::nullopt;
+    }
+
+    const JPH::ShapeCastResult& hit = collector.mHit;
+    const JPH::RVec3 centerOnHit = shapeCast.GetPointOnRay(hit.mFraction);
+    JPH::Vec3 normal = hit.mPenetrationAxis;
+    if (normal.LengthSq() > 1.0e-12f) {
+        normal = normal.Normalized();
+    } else {
+        normal = JPH::Vec3(0, 1, 0);
+    }
+
+    SphereCastHit result{};
+    result.fraction = hit.mFraction;
+    result.point = {
+        static_cast<float>(centerOnHit.GetX()),
+        static_cast<float>(centerOnHit.GetY()),
+        static_cast<float>(centerOnHit.GetZ()),
+    };
+    result.normal = {normal.GetX(), normal.GetY(), normal.GetZ()};
+    return result;
+}
+
+std::optional<RayCastHit> PhysicsWorld::castRay(
+    Vector3 origin,
+    Vector3 direction,
+    float distance) const {
+    if (system_ == nullptr || distance <= 1.0e-8f) {
+        return std::nullopt;
+    }
+
+    const float dirLenSq = direction.x * direction.x + direction.y * direction.y + direction.z * direction.z;
+    if (dirLenSq <= 1.0e-12f) {
+        return std::nullopt;
+    }
+    const Vector3 unitDir = Vector3Normalize(direction);
+
+    const JPH::RRayCast ray(
+        JPH::RVec3(origin.x, origin.y, origin.z),
+        JPH::Vec3(unitDir.x * distance, unitDir.y * distance, unitDir.z * distance));
+
+    JPH::RayCastSettings settings;
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+    settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
+
+    JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+    system_->GetNarrowPhaseQuery().CastRay(
+        ray,
+        settings,
+        collector,
+        system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        system_->GetDefaultLayerFilter(Layers::MOVING));
+
+    if (!collector.HadHit()) {
+        return std::nullopt;
+    }
+
+    const JPH::RayCastResult& hit = collector.mHit;
+    const JPH::RVec3 point = ray.GetPointOnRay(hit.mFraction);
+
+    RayCastHit result{};
+    result.fraction = hit.mFraction;
+    result.point = {
+        static_cast<float>(point.GetX()),
+        static_cast<float>(point.GetY()),
+        static_cast<float>(point.GetZ()),
+    };
+    result.normal = {0.0f, 1.0f, 0.0f};
+    return result;
 }
 
 }

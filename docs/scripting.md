@@ -109,13 +109,27 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 
 | Binding | Meaning |
 |---------|---------|
-| `(thing-despawn id)` | Queue despawn of a spawned thing by entity name string |
+| `(thing-despawn id)` | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule) |
+| `(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact])` | Spawn a motored body at runtime (`kind` is `"sprite"` or `"geo"`). Defaults: radius `0.12`, gravity `0`, lifetime `8`, on-impact `""`. Integrates velocity against static brush hulls; positive gravity pulls down; empty on-impact silently despawns on hit. See [Things](things.md#motored-bodies). |
+| `(actor-spawn id x y z yaw kind path [radius height speed gravity tags-list])` | Runtime actor (`kind` `"sprite"` or `"geo"`). Defaults match player motor; empty tags → `("actor")`. |
+| `(actor-pos id)` | Feet `(x y z)` or `#f` |
+| `(actor-yaw id)` | Yaw radians or `#f` |
+| `(actor-set-wish id wx wz)` | Write horizontal wish on the actor motor |
+| `(actor-grounded? id)` | `#t` when the character is supported |
+| `(actor-play-anim id clip [loop])` | Play a world sprite clip on the actor |
+| `(actor-tags id)` | Tag string list or `#f` |
+| `(actors-with-tag tag)` | List of actor id strings with that tag |
+| `(actors-in-radius x y z r [tag])` | Actor ids whose feet are within `r` (optional tag filter) |
+| `(los? x0 y0 z0 x1 y1 z1)` | `#t` if the segment is clear of static brush hulls |
+| `(actor-los? from-id to-id)` | LOS between approximate eye heights of two actors |
+
+Player aim helpers for spawn recipes: `(player-eye)` and `(player-look-dir)` — see [Player](player.md#scheme-api-engine-primitives).
 
 ### Map authoring DSLs
 
 Bound only while the matching map file loads, not for general gameplay scripts:
 
-- Things: `prop`, `usable`, `trigger`, lights, `prefab`, ... -> [Things](things.md), [Maps](maps.md)
+- Things: `prop`, `usable`, `actor`, `trigger`, lights, `prefab`, ... -> [Things](things.md), [Maps](maps.md)
 - CSG brushes -> [Maps](maps.md)
 - Nav graphs -> `maps/<name>/graphs.s7` (`graph`, `node`, `edge`, ...)
 

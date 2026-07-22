@@ -374,6 +374,9 @@ const char* entityKindLabel(flecs::entity entity) {
     if (entity.has<Interactable>()) {
         return "usable";
     }
+    if (entity.has<Actor>()) {
+        return "actor";
+    }
     if (entity.has<TriggerVolume>() && !entity.has<SpriteInstance>() && !entity.has<Model3D>()) {
         return "trigger";
     }

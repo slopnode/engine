@@ -171,6 +171,42 @@ s7_pointer g_collide_tags(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "collide-tags", args);
 }
 
+s7_pointer g_tags(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "tags", args);
+}
+
+s7_pointer g_motor(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "motor", args);
+}
+
+s7_pointer g_motor_radius(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "radius", 1, args, "value");
+    }
+    return makeTaggedList(sc, "radius", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_motor_height(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "height", 1, args, "value");
+    }
+    return makeTaggedList(sc, "height", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_motor_speed(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "speed", 1, args, "value");
+    }
+    return makeTaggedList(sc, "speed", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_motor_gravity(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "gravity", 1, args, "value");
+    }
+    return makeTaggedList(sc, "gravity", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_color(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "color", 0, args, "r g b");
@@ -338,6 +374,38 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.collideTags.push_back(std::move(tagValue));
                 }
             }
+        } else if (std::strcmp(tag, "tags") == 0) {
+            out.tags.clear();
+            for (s7_pointer tagCursor = rest; s7_is_pair(tagCursor); tagCursor = s7_cdr(tagCursor)) {
+                std::string tagValue;
+                if (readString(sc, s7_car(tagCursor), tagValue) && !tagValue.empty()) {
+                    out.tags.push_back(std::move(tagValue));
+                }
+            }
+        } else if (std::strcmp(tag, "motor") == 0) {
+            out.haveMotor = true;
+            for (s7_pointer motorCursor = rest; s7_is_pair(motorCursor);
+                 motorCursor = s7_cdr(motorCursor)) {
+                s7_pointer motorClause = s7_car(motorCursor);
+                if (!s7_is_pair(motorClause) || !s7_is_symbol(s7_car(motorClause))) {
+                    continue;
+                }
+                const char* motorTag = s7_symbol_name(s7_car(motorClause));
+                s7_pointer motorRest = s7_cdr(motorClause);
+                if (!s7_is_pair(motorRest) || !s7_is_number(s7_car(motorRest))) {
+                    continue;
+                }
+                const float value = static_cast<float>(s7_number_to_real(sc, s7_car(motorRest)));
+                if (std::strcmp(motorTag, "radius") == 0) {
+                    out.motorRadius = value;
+                } else if (std::strcmp(motorTag, "height") == 0) {
+                    out.motorHeight = value;
+                } else if (std::strcmp(motorTag, "speed") == 0) {
+                    out.motorSpeed = value;
+                } else if (std::strcmp(motorTag, "gravity") == 0) {
+                    out.motorGravity = value;
+                }
+            }
         } else if (std::strcmp(tag, "color") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -430,6 +498,13 @@ s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
     placement.kind = ThingKind::Usable;
     parseThingClauses(sc, args, placement);
     return appendThing(sc, std::move(placement), "usable requires id and at", true);
+}
+
+s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
+    Thing placement{};
+    placement.kind = ThingKind::Actor;
+    parseThingClauses(sc, args, placement);
+    return appendThing(sc, std::move(placement), "actor requires id and at", true);
 }
 
 s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
@@ -533,6 +608,12 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "on-exit", g_on_exit, 1, 0, false, "(on-exit handler)");
     s7_define_function(sc, "trigger-size", g_trigger_size, 3, 0, false, "(trigger-size w h d)");
     s7_define_function(sc, "collide-tags", g_collide_tags, 0, 0, true, "(collide-tags values...)");
+    s7_define_function(sc, "tags", g_tags, 0, 0, true, "(tags values...)");
+    s7_define_function(sc, "motor", g_motor, 0, 0, true, "(motor clauses...)");
+    s7_define_function(sc, "radius", g_motor_radius, 1, 0, false, "(radius value)");
+    s7_define_function(sc, "height", g_motor_height, 1, 0, false, "(height value)");
+    s7_define_function(sc, "speed", g_motor_speed, 1, 0, false, "(speed value)");
+    s7_define_function(sc, "gravity", g_motor_gravity, 1, 0, false, "(gravity value)");
     s7_define_function(sc, "color", g_color, 3, 0, false, "(color r g b)");
     s7_define_function(sc, "intensity", g_intensity, 1, 0, false, "(intensity value)");
     s7_define_function(sc, "range", g_range, 1, 0, false, "(range value)");
@@ -548,6 +629,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
+    s7_define_function(sc, "actor", g_actor, 0, 0, true, "(actor clauses...)");
     s7_define_function(sc, "trigger", g_trigger, 0, 0, true, "(trigger clauses...)");
     s7_define_function(sc, "point-light", g_point_light, 0, 0, true, "(point-light clauses...)");
     s7_define_function(sc, "spot-light", g_spot_light, 0, 0, true, "(spot-light clauses...)");

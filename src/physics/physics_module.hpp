@@ -12,5 +12,6 @@ struct PhysicsContext {
 
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics);
 void unregisterPhysicsModule(flecs::world& world);
+void registerMotoredBodySystem(flecs::world& world);
 
 }

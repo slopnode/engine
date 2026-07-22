@@ -1689,7 +1689,7 @@ void unloadMapScene(flecs::world& world) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
             physics->clearStaticBrushes();
-            physics->destroyPlayerCharacter();
+            physics->destroyAllCharacters();
         }
     }
 
@@ -1859,6 +1859,7 @@ bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
+            physics->setPlayerId(static_cast<std::uint64_t>(player.id()));
             physics->createPlayerCharacter(
                 playerStart.position.x,
                 playerStart.position.y,

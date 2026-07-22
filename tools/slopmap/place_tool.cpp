@@ -14,6 +14,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "prop";
     case slopengine::ThingKind::Usable:
         return "usable";
+    case slopengine::ThingKind::Actor:
+        return "actor";
     case slopengine::ThingKind::Trigger:
         return "trigger";
     case slopengine::ThingKind::PointLight:
@@ -170,6 +172,10 @@ void PlaceTool::update(
         thing.sprite = editor.placeSpritePath;
         thing.geo = editor.placeGeoPath;
         thing.frame = "A";
+    }
+    if (kind == slopengine::ThingKind::Actor) {
+        thing.tags = {"actor"};
+        thing.haveMotor = true;
     }
 
     editor.doc().things.push_back(std::move(thing));

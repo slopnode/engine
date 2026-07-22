@@ -11,6 +11,7 @@ enum class ThingKind {
     PlayerStart,
     Prop,
     Usable,
+    Actor,
     Trigger,
     PointLight,
     SpotLight,
@@ -44,6 +45,13 @@ struct Thing {
     Vector3 triggerSize{1.0f, 1.0f, 1.0f};
     bool haveTriggerSize = false;
     std::vector<std::string> collideTags;
+    std::vector<std::string> tags;
+
+    float motorRadius = 0.3f;
+    float motorHeight = 1.1f;
+    float motorSpeed = 6.0f;
+    float motorGravity = 9.81f;
+    bool haveMotor = false;
 
     Vector3 color{1.0f, 1.0f, 1.0f};
     float intensity = 1.0f;
@@ -96,6 +104,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "prop";
     case ThingKind::Usable:
         return "usable";
+    case ThingKind::Actor:
+        return "actor";
     case ThingKind::Trigger:
         return "trigger";
     case ThingKind::PointLight:
@@ -120,7 +130,7 @@ inline bool thingKindIsLight(ThingKind kind) {
 }
 
 inline bool thingKindNeedsPresentation(ThingKind kind) {
-    return kind == ThingKind::Prop || kind == ThingKind::Usable;
+    return kind == ThingKind::Prop || kind == ThingKind::Usable || kind == ThingKind::Actor;
 }
 
 }

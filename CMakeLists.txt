@@ -104,6 +104,7 @@ add_executable(slopengine
     src/ui/imgui_fonts.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/motored_body.cpp
     src/physics/map_collision.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp

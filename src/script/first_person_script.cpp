@@ -708,6 +708,41 @@ s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
     return s7_make_real(sc, static_cast<double>(speed));
 }
 
+s7_pointer g_player_eye(s7_scheme* sc, s7_pointer) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<Lens>()) {
+        return s7_f(sc);
+    }
+    const Vector3 eye = player.get<Lens>().camera.position;
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, static_cast<double>(eye.x)),
+        s7_make_real(sc, static_cast<double>(eye.y)),
+        s7_make_real(sc, static_cast<double>(eye.z)));
+}
+
+s7_pointer g_player_look_dir(s7_scheme* sc, s7_pointer) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<Lens>()) {
+        return s7_f(sc);
+    }
+    const Camera3D& camera = player.get<Lens>().camera;
+    const Vector3 dir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, static_cast<double>(dir.x)),
+        s7_make_real(sc, static_cast<double>(dir.y)),
+        s7_make_real(sc, static_cast<double>(dir.z)));
+}
+
 } // namespace
 
 void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
@@ -748,6 +783,9 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(player-grounded?)");
     s7_define_function(scheme, "player-wish-speed", g_player_wish_speed, 0, 0, false,
                        "(player-wish-speed)");
+    s7_define_function(scheme, "player-eye", g_player_eye, 0, 0, false, "(player-eye)");
+    s7_define_function(scheme, "player-look-dir", g_player_look_dir, 0, 0, false,
+                       "(player-look-dir)");
 }
 
 void ensureFirstPersonScene(flecs::world& world, flecs::entity player) {
