@@ -188,6 +188,7 @@ add_executable(slopmap
     tools/slopmap/material_browser.cpp
     tools/slopmap/texture_panel.cpp
     tools/slopmap/thing_panel.cpp
+    tools/slopmap/brush_panel.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
     tools/slopmap/compile.cpp

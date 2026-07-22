@@ -798,6 +798,116 @@ void Editor::clearCompileStage(CompileStage stage) {
     }
 }
 
+bool Editor::cleanCompileData(
+    slopengine::AssetStore& assets,
+    const std::vector<CompileStage>& stages) {
+    if (scene != EditorScene::Level) {
+        statusMessage = "Clean compile data is only available in the Level scene";
+        return false;
+    }
+    const std::string& mapName = levelDoc.assetPath;
+    if (mapName.empty() || mapName == "untitled") {
+        statusMessage = "Save the map before cleaning compile data";
+        return false;
+    }
+    if (stages.empty()) {
+        return false;
+    }
+
+    std::filesystem::path packageRoot = writePackageRoot;
+    auto existing = assets.resolveOwned(slopengine::AssetKind::MapCsg, mapName + "/static");
+    if (existing && existing->package != nullptr) {
+        packageRoot = existing->package->root();
+        writePackageRoot = packageRoot;
+        writePackageId = existing->package->meta().id;
+    }
+    if (packageRoot.empty()) {
+        statusMessage = "Clean failed: no package root";
+        return false;
+    }
+
+    const std::filesystem::path mapDir = packageRoot / "maps" / mapName;
+    bool removedAny = false;
+    bool cleanBsp = false;
+    bool cleanVis = false;
+    bool cleanRad = false;
+    for (const CompileStage stage : stages) {
+        switch (stage) {
+        case CompileStage::Bsp:
+            cleanBsp = true;
+            break;
+        case CompileStage::Vis:
+            cleanVis = true;
+            break;
+        case CompileStage::Rad:
+            cleanRad = true;
+            break;
+        }
+    }
+
+    std::error_code ec;
+    auto removePath = [&](const std::filesystem::path& path, bool recursive) {
+        if (!std::filesystem::exists(path, ec)) {
+            return;
+        }
+        if (recursive) {
+            std::filesystem::remove_all(path, ec);
+        } else {
+            std::filesystem::remove(path, ec);
+        }
+        if (!ec) {
+            removedAny = true;
+        }
+    };
+
+    if (cleanBsp) {
+        removePath(mapDir / "static.bsp", false);
+        compileDirty.bsp = true;
+    }
+    if (cleanVis) {
+        removePath(mapDir / "static.vis", false);
+        preview.clearVis();
+        compileDirty.vis = true;
+    }
+    if (cleanRad) {
+        removePath(mapDir / "rad", true);
+        preview.clearLit();
+        compileDirty.rad = true;
+    }
+
+    if (fill == PreviewFill::Lit || fill == PreviewFill::SolidLit) {
+        if (!preview.litValid) {
+            fill = preview.visValid ? PreviewFill::Unlit : PreviewFill::Textures;
+        }
+    } else if (fill == PreviewFill::Unlit && !preview.visValid) {
+        fill = PreviewFill::Textures;
+    }
+
+    if (!removedAny) {
+        statusMessage = "No compile data to clean for " + mapName;
+        return false;
+    }
+
+    std::string cleaned;
+    if (cleanBsp) {
+        cleaned += "BSP";
+    }
+    if (cleanVis) {
+        if (!cleaned.empty()) {
+            cleaned += "+";
+        }
+        cleaned += "VIS";
+    }
+    if (cleanRad) {
+        if (!cleaned.empty()) {
+            cleaned += "+";
+        }
+        cleaned += "RAD";
+    }
+    statusMessage = "Cleaned " + cleaned + " for " + mapName;
+    return true;
+}
+
 void Editor::rebuildPreview(slopengine::AssetStore& assets) {
     EditorDocument& d = doc();
     expandedInstanceBrushes.clear();

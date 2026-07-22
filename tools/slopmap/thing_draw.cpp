@@ -1,6 +1,8 @@
 #include "thing_draw.hpp"
 
+#include "assets/icon_atlas.hpp"
 #include "assets/sprite_loader.hpp"
+#include "ui/icon_ui.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -115,22 +117,69 @@ void drawSpriteOrGeo(
     DrawSphere(pos, 0.15f, tint);
 }
 
-void drawLightGizmo(const slopengine::Thing& thing, Color color) {
+Color lightColor(const slopengine::Thing& thing, bool selected) {
+    const float r = std::clamp(thing.color.x, 0.0f, 1.0f);
+    const float g = std::clamp(thing.color.y, 0.0f, 1.0f);
+    const float b = std::clamp(thing.color.z, 0.0f, 1.0f);
+    Color color = {
+        static_cast<unsigned char>(r * 255.0f),
+        static_cast<unsigned char>(g * 255.0f),
+        static_cast<unsigned char>(b * 255.0f),
+        255,
+    };
+    if (selected) {
+        color.r = static_cast<unsigned char>(std::min(255, static_cast<int>(color.r) + 40));
+        color.g = static_cast<unsigned char>(std::min(255, static_cast<int>(color.g) + 40));
+        color.b = static_cast<unsigned char>(std::min(255, static_cast<int>(color.b) + 40));
+    }
+    return color;
+}
+
+bool drawThingIcon(
+    slopengine::AssetStore& assets,
+    const Camera3D& camera,
+    Vector3 pos,
+    const char* iconId,
+    Color tint,
+    float size = 0.4f) {
+    const slopengine::IconAtlas* atlas = assets.getIconAtlas(slopengine::kDefaultIconSet);
+    if (atlas == nullptr || atlas->texture.id == 0) {
+        return false;
+    }
+    const auto rect = slopengine::findIconRect(*atlas, iconId);
+    if (!rect.has_value()) {
+        return false;
+    }
+    DrawBillboardRec(camera, atlas->texture, *rect, pos, {size, size}, tint);
+    return true;
+}
+
+void drawLightGizmo(
+    slopengine::AssetStore& assets,
+    const Camera3D& camera,
+    const slopengine::Thing& thing,
+    bool selected) {
     const Vector3 pos = thingPosition(thing);
-    DrawSphere(pos, 0.12f, color);
+    const Color color = lightColor(thing, selected);
+    if (!drawThingIcon(assets, camera, pos, "lightbulb", color)) {
+        DrawSphere(pos, 0.12f, color);
+    }
     switch (thing.kind) {
-    case slopengine::ThingKind::PointLight:
-        DrawCircle3D(pos, std::min(thing.range, 2.0f), {0.0f, 1.0f, 0.0f}, 90.0f, color);
+    case slopengine::ThingKind::PointLight: {
+        const float radius = std::max(thing.range, 0.01f);
+        DrawSphereWires(pos, radius, 8, 8, color);
         break;
+    }
     case slopengine::ThingKind::SpotLight: {
         drawYawArrow(pos, thing.yaw, color);
-        const float reach = std::min(thing.range, 2.0f);
+        const float reach = std::max(thing.range, 0.01f);
         const Vector3 tip = {
             pos.x + std::sin(thing.yaw) * reach,
             pos.y,
             pos.z + std::cos(thing.yaw) * reach,
         };
         DrawLine3D(pos, tip, color);
+        DrawSphereWires(pos, reach, 8, 8, Fade(color, 0.55f));
         break;
     }
     case slopengine::ThingKind::AreaLight: {
@@ -175,7 +224,9 @@ void drawThings(
 
         switch (thing.kind) {
         case slopengine::ThingKind::PlayerStart:
-            DrawCube(pos, 0.25f, 0.5f, 0.25f, color);
+            if (!drawThingIcon(assets, camera, pos, "user", color)) {
+                DrawCube(pos, 0.25f, 0.5f, 0.25f, color);
+            }
             drawYawArrow(pos, thing.yaw, color);
             break;
         case slopengine::ThingKind::Prop:
@@ -194,15 +245,22 @@ void drawThings(
         case slopengine::ThingKind::SpotLight:
         case slopengine::ThingKind::AreaLight:
         case slopengine::ThingKind::Sun:
-            drawLightGizmo(thing, color);
+            drawLightGizmo(assets, camera, thing, selected);
             break;
         case slopengine::ThingKind::Prefab:
             DrawCubeWires(pos, 0.4f, 0.4f, 0.4f, color);
             break;
-        case slopengine::ThingKind::SoundSource:
-            DrawSphere(pos, 0.18f, color);
-            DrawSphereWires(pos, 0.45f, 8, 8, color);
+        case slopengine::ThingKind::SoundSource: {
+            if (!drawThingIcon(assets, camera, pos, "sound", color)) {
+                DrawSphere(pos, 0.18f, color);
+            }
+            const float radius = std::max(thing.maxDistance, 0.01f);
+            DrawSphereWires(pos, radius, 8, 8, color);
+            if (thing.minDistance > 0.01f && thing.minDistance < radius) {
+                DrawSphereWires(pos, thing.minDistance, 6, 6, Fade(color, 0.45f));
+            }
             break;
+        }
         }
     }
 }

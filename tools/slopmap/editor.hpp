@@ -168,6 +168,9 @@ struct Editor {
     void markBrushCompileDirty(slopengine::BrushRole role);
     void markThingCompileDirty(slopengine::ThingKind kind);
     void clearCompileStage(CompileStage stage);
+    bool cleanCompileData(
+        slopengine::AssetStore& assets,
+        const std::vector<CompileStage>& stages);
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);

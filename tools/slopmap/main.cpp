@@ -5,6 +5,7 @@
 #include "layout.hpp"
 #include "material_browser.hpp"
 #include "texture_panel.hpp"
+#include "brush_panel.hpp"
 #include "thing_panel.hpp"
 #include "place_tool.hpp"
 #include "punch_tool.hpp"
@@ -679,6 +680,7 @@ int main(int argc, char* argv[]) {
     slopmap::MaterialBrowser materialBrowser;
     slopmap::TexturePanel texturePanel;
     slopmap::ThingPanel thingPanel;
+    slopmap::BrushPanel brushPanel;
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
     materialBrowser.rescan(assets);
@@ -1306,6 +1308,45 @@ int main(int argc, char* argv[]) {
                         slopmap::CompileStage::Vis,
                         slopmap::CompileStage::Rad,
                     });
+                }
+                ImGui::Separator();
+                const bool canClean =
+                    canRun && editor.scene == slopmap::EditorScene::Level &&
+                    !editor.levelDoc.assetPath.empty() &&
+                    editor.levelDoc.assetPath != "untitled";
+                if (menuItemWithIcon(
+                        assets, kIcons, "brick_delete", "Clean BSP", nullptr, false, canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Bsp});
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "chart_organisation_delete",
+                        "Clean VIS",
+                        nullptr,
+                        false,
+                        canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Vis});
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "lightbulb_delete",
+                        "Clean RAD",
+                        nullptr,
+                        false,
+                        canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Rad});
+                }
+                if (menuItemWithIcon(
+                        assets, kIcons, "bin", "Clean All Compile Data", nullptr, false, canClean)) {
+                    editor.cleanCompileData(
+                        assets,
+                        {
+                            slopmap::CompileStage::Bsp,
+                            slopmap::CompileStage::Vis,
+                            slopmap::CompileStage::Rad,
+                        });
                 }
                 ImGui::Separator();
                 if (menuItemWithIcon(
@@ -2017,9 +2058,11 @@ int main(int argc, char* argv[]) {
                                 slopengine::thingKindName(d.things[i].kind) + ")";
                             const char* icon = slopengine::thingKindIsLight(d.things[i].kind)
                                 ? "lightbulb"
-                                : (d.things[i].kind == slopengine::ThingKind::PlayerStart
-                                       ? "user"
-                                       : "transmit");
+                                : (d.things[i].kind == slopengine::ThingKind::SoundSource
+                                       ? "sound"
+                                       : (d.things[i].kind == slopengine::ThingKind::PlayerStart
+                                              ? "user"
+                                              : "transmit"));
                             if (selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
                                 editor.selectEntity(
                                     {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)},
@@ -2032,9 +2075,17 @@ int main(int argc, char* argv[]) {
                 }
 
                 sectionOpen[3] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "lightbulb", "Properties", ImGuiTreeNodeFlags_DefaultOpen);
+                    assets,
+                    kIconSet,
+                    d.selectionMode == slopmap::SelectionMode::Brush ? "brick" : "lightbulb",
+                    "Properties",
+                    ImGuiTreeNodeFlags_DefaultOpen);
                 if (sectionOpen[3]) {
-                    thingPanel.drawSection(editor, bodyH);
+                    if (d.selectionMode == slopmap::SelectionMode::Brush) {
+                        brushPanel.drawSection(editor, bodyH);
+                    } else {
+                        thingPanel.drawSection(editor, bodyH);
+                    }
                 }
             }
             ImGui::End();

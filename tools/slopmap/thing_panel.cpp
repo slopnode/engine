@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <functional>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace slopmap {
@@ -30,9 +31,20 @@ bool sizeEqual(Vector2 a, Vector2 b) {
     return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y);
 }
 
-std::vector<int> collectLightTargets(const EditorDocument& doc) {
+enum class ThingEditKind {
+    None,
+    Light,
+    Sound,
+    Mixed,
+};
+
+std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind* outKind) {
     std::vector<int> targets;
+    ThingEditKind kind = ThingEditKind::None;
     if (doc.selectionMode != SelectionMode::Entity) {
+        if (outKind != nullptr) {
+            *outKind = ThingEditKind::None;
+        }
         return targets;
     }
     for (const EntityRef& ref : doc.selectedEntities) {
@@ -40,10 +52,25 @@ std::vector<int> collectLightTargets(const EditorDocument& doc) {
             ref.index >= static_cast<int>(doc.things.size())) {
             continue;
         }
-        if (!slopengine::thingKindIsLight(doc.things[static_cast<std::size_t>(ref.index)].kind)) {
+        const slopengine::ThingKind thingKind =
+            doc.things[static_cast<std::size_t>(ref.index)].kind;
+        ThingEditKind entryKind = ThingEditKind::None;
+        if (slopengine::thingKindIsLight(thingKind)) {
+            entryKind = ThingEditKind::Light;
+        } else if (thingKind == slopengine::ThingKind::SoundSource) {
+            entryKind = ThingEditKind::Sound;
+        } else {
             continue;
         }
+        if (kind == ThingEditKind::None) {
+            kind = entryKind;
+        } else if (kind != entryKind) {
+            kind = ThingEditKind::Mixed;
+        }
         targets.push_back(ref.index);
+    }
+    if (outKind != nullptr) {
+        *outKind = targets.empty() ? ThingEditKind::None : kind;
     }
     return targets;
 }
@@ -92,15 +119,16 @@ std::optional<T> commonValue(
     return commonValue<T>(doc, targets, getter, [](const T& a, const T& b) { return a == b; });
 }
 
-bool forEachLight(
+bool forEachTarget(
     Editor& editor,
     const std::vector<int>& targets,
+    const std::function<bool(const slopengine::Thing&)>& pred,
     const std::function<void(slopengine::Thing&)>& fn) {
     EditorDocument& doc = editor.doc();
     int count = 0;
     for (int index : targets) {
         slopengine::Thing* thing = thingAt(doc, index);
-        if (thing == nullptr || !slopengine::thingKindIsLight(thing->kind)) {
+        if (thing == nullptr || !pred(*thing)) {
             continue;
         }
         fn(*thing);
@@ -112,6 +140,30 @@ bool forEachLight(
     }
     editor.markDirty();
     return true;
+}
+
+bool forEachLight(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) { return slopengine::thingKindIsLight(thing.kind); },
+        fn);
+}
+
+bool forEachSound(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) {
+            return thing.kind == slopengine::ThingKind::SoundSource;
+        },
+        fn);
 }
 
 bool dragFloatMixed(const char* label, float* value, bool mixed, float speed, float minV, float maxV) {
@@ -141,6 +193,34 @@ bool colorEdit3Mixed(const char* label, float color[3], bool mixed) {
     return changed;
 }
 
+bool inputTextMixed(const char* label, char* buf, std::size_t bufSize, bool mixed) {
+    if (mixed) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    const bool changed = ImGui::InputText(label, buf, bufSize);
+    if (mixed) {
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+    }
+    return changed;
+}
+
+bool checkboxMixed(const char* label, bool* value, bool mixed) {
+    if (mixed) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    const bool changed = ImGui::Checkbox(label, value);
+    if (mixed) {
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+    }
+    return changed;
+}
+
 bool allKindsMatch(
     const EditorDocument& doc,
     const std::vector<int>& targets,
@@ -154,22 +234,16 @@ bool allKindsMatch(
     return !targets.empty();
 }
 
-} // namespace
-
-ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
-    ThingPanelResult result{};
-    if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
-        ImGui::EndChild();
-        return result;
+void copyToBuf(char* buf, std::size_t bufSize, const std::string& value) {
+    if (bufSize == 0) {
+        return;
     }
+    std::snprintf(buf, bufSize, "%s", value.c_str());
+}
 
+bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
     const EditorDocument& doc = editor.doc();
-    const std::vector<int> targets = collectLightTargets(doc);
-    if (targets.empty()) {
-        ImGui::TextDisabled("Select light thing(s) to edit");
-        ImGui::EndChild();
-        return result;
-    }
 
     const auto kindCommon = commonValue<slopengine::ThingKind>(
         doc,
@@ -203,7 +277,7 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
         if (forEachLight(editor, targets, [color](slopengine::Thing& thing) {
                 thing.color = {color[0], color[1], color[2]};
             })) {
-            result.changed = true;
+            changed = true;
             editor.statusMessage = "Set light color";
         }
     }
@@ -216,7 +290,7 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
         if (forEachLight(editor, targets, [intensity](slopengine::Thing& thing) {
                 thing.intensity = intensity;
             })) {
-            result.changed = true;
+            changed = true;
             editor.statusMessage = "Set light intensity";
         }
     }
@@ -238,7 +312,7 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
             if (forEachLight(editor, targets, [range](slopengine::Thing& thing) {
                     thing.range = range;
                 })) {
-                result.changed = true;
+                changed = true;
                 editor.statusMessage = "Set light range";
             }
         }
@@ -271,7 +345,7 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
             if (forEachLight(editor, targets, [coneRadians](slopengine::Thing& thing) {
                     thing.coneAngle = coneRadians;
                 })) {
-                result.changed = true;
+                changed = true;
                 editor.statusMessage = "Set spot cone";
             }
         }
@@ -295,7 +369,7 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
             if (forEachLight(editor, targets, [sizeW](slopengine::Thing& thing) {
                     thing.size.x = sizeW;
                 })) {
-                result.changed = true;
+                changed = true;
                 editor.statusMessage = "Set area light size";
             }
         }
@@ -306,10 +380,173 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
             if (forEachLight(editor, targets, [sizeH](slopengine::Thing& thing) {
                     thing.size.y = sizeH;
                 })) {
-                result.changed = true;
+                changed = true;
                 editor.statusMessage = "Set area light size";
             }
         }
+    }
+
+    return changed;
+}
+
+bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::Text("Kind: sound-source");
+    ImGui::Text("%d sound(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto audioCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.audio; });
+    const auto clipCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.clip; });
+    const auto volumeCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.volume; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto minCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.minDistance; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto maxCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.maxDistance; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto loopingCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.looping; });
+    const auto spatialCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.spatial; });
+
+    char audioBuf[256];
+    copyToBuf(audioBuf, sizeof(audioBuf), audioCommon.value_or(std::string{}));
+    if (inputTextMixed("Audio", audioBuf, sizeof(audioBuf), !audioCommon.has_value())) {
+        const std::string audio = audioBuf;
+        if (forEachSound(editor, targets, [&audio](slopengine::Thing& thing) {
+                thing.audio = audio;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound audio";
+        }
+    }
+
+    char clipBuf[256];
+    copyToBuf(clipBuf, sizeof(clipBuf), clipCommon.value_or(std::string{}));
+    if (inputTextMixed("Clip", clipBuf, sizeof(clipBuf), !clipCommon.has_value())) {
+        const std::string clip = clipBuf;
+        if (forEachSound(editor, targets, [&clip](slopengine::Thing& thing) {
+                thing.clip = clip;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound clip";
+        }
+    }
+
+    float volume = volumeCommon.value_or(1.0f);
+    if (dragFloatMixed("Volume", &volume, !volumeCommon.has_value(), 0.01f, 0.0f, 4.0f)) {
+        if (volume < 0.0f) {
+            volume = 0.0f;
+        }
+        if (forEachSound(editor, targets, [volume](slopengine::Thing& thing) {
+                thing.volume = volume;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound volume";
+        }
+    }
+
+    float minDistance = minCommon.value_or(1.0f);
+    if (dragFloatMixed("Min distance", &minDistance, !minCommon.has_value(), 0.05f, 0.01f, 1000.0f)) {
+        if (minDistance < 0.01f) {
+            minDistance = 0.01f;
+        }
+        if (forEachSound(editor, targets, [minDistance](slopengine::Thing& thing) {
+                thing.minDistance = minDistance;
+                if (thing.maxDistance < thing.minDistance) {
+                    thing.maxDistance = thing.minDistance;
+                }
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound min distance";
+        }
+    }
+
+    float maxDistance = maxCommon.value_or(30.0f);
+    if (dragFloatMixed("Max distance", &maxDistance, !maxCommon.has_value(), 0.1f, 0.01f, 1000.0f)) {
+        if (maxDistance < 0.01f) {
+            maxDistance = 0.01f;
+        }
+        if (forEachSound(editor, targets, [maxDistance](slopengine::Thing& thing) {
+                thing.maxDistance = maxDistance;
+                if (thing.minDistance > thing.maxDistance) {
+                    thing.minDistance = thing.maxDistance;
+                }
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound max distance";
+        }
+    }
+
+    bool looping = loopingCommon.value_or(true);
+    if (checkboxMixed("Looping", &looping, !loopingCommon.has_value())) {
+        if (forEachSound(editor, targets, [looping](slopengine::Thing& thing) {
+                thing.looping = looping;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound looping";
+        }
+    }
+
+    bool spatial = spatialCommon.value_or(true);
+    if (checkboxMixed("Spatial", &spatial, !spatialCommon.has_value())) {
+        if (forEachSound(editor, targets, [spatial](slopengine::Thing& thing) {
+                thing.spatial = spatial;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set sound spatial";
+        }
+    }
+
+    return changed;
+}
+
+} // namespace
+
+ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
+    ThingPanelResult result{};
+    if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+        ImGui::EndChild();
+        return result;
+    }
+
+    ThingEditKind editKind = ThingEditKind::None;
+    const std::vector<int> targets = collectEditableTargets(editor.doc(), &editKind);
+    if (targets.empty() || editKind == ThingEditKind::None) {
+        ImGui::TextDisabled("Select light or sound thing(s) to edit");
+        ImGui::EndChild();
+        return result;
+    }
+    if (editKind == ThingEditKind::Mixed) {
+        ImGui::TextDisabled("Select only lights or only sounds");
+        ImGui::EndChild();
+        return result;
+    }
+
+    if (editKind == ThingEditKind::Light) {
+        result.changed = drawLightSection(editor, targets);
+    } else if (editKind == ThingEditKind::Sound) {
+        result.changed = drawSoundSection(editor, targets);
     }
 
     ImGui::EndChild();
