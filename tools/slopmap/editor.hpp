@@ -41,6 +41,11 @@ enum class SelectionMode {
     Entity,
 };
 
+enum class TranslateSnapMode {
+    Offset,
+    Absolute,
+};
+
 enum class CreatePrimitive {
     Box,
     Cylinder,
@@ -116,6 +121,7 @@ struct Editor {
     float gridSize = 0.1f;
     bool showGrid = true;
     GridPlane gridPlane = GridPlane::XZ;
+    TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     CreatePrimitive createPrimitive = CreatePrimitive::Box;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};

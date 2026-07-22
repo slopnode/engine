@@ -64,25 +64,6 @@ void compensateUvLocks(
     }
 }
 
-Vector3 translateDragPlaneNormal(
-    ViewPlane view,
-    GridPlane gridPlane,
-    TranslateAxis axisLock,
-    const Camera3D& camera) {
-    const Vector3 forward = cameraForward(camera);
-
-    if (axisLock == TranslateAxis::Y) {
-        return dragPlaneNormalForAxis({0.0f, 1.0f, 0.0f}, forward);
-    }
-    if (axisLock == TranslateAxis::X && view == ViewPlane::Side) {
-        return dragPlaneNormalForAxis({1.0f, 0.0f, 0.0f}, forward);
-    }
-    if (axisLock == TranslateAxis::Z && view == ViewPlane::Front) {
-        return dragPlaneNormalForAxis({0.0f, 0.0f, 1.0f}, forward);
-    }
-    return constructionPlaneForView(view, gridPlane).normal;
-}
-
 Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
     const EditorDocument& d = editor.doc();
     if (d.selectionMode == SelectionMode::Entity && !tool.entitySnapshotRefs.empty() &&
@@ -100,6 +81,26 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
             return sub3(thing.haveAt ? thing.at : Vector3{}, tool.entityAtSnapshots[0]);
         }
     }
+    if (d.selectionMode == SelectionMode::Face && tool.faceTranslate.valid() &&
+        !tool.brushSnapshot.empty() && !tool.brushSnapshotIndices.empty()) {
+        const slopengine::Brush& src = tool.brushSnapshot[0];
+        const int faceIndex = tool.faceTranslate.face;
+        if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
+            const auto& oldFace = src.faces[static_cast<std::size_t>(faceIndex)];
+            const int brushIndex = tool.brushSnapshotIndices[0];
+            if (brushIndex >= 0 && brushIndex < static_cast<int>(d.brushes.size()) &&
+                faceIndex < static_cast<int>(
+                    d.brushes[static_cast<std::size_t>(brushIndex)].faces.size()) &&
+                !oldFace.vertices.empty()) {
+                const auto& newFace =
+                    d.brushes[static_cast<std::size_t>(brushIndex)]
+                        .faces[static_cast<std::size_t>(faceIndex)];
+                if (!newFace.vertices.empty()) {
+                    return sub3(newFace.vertices[0], oldFace.vertices[0]);
+                }
+            }
+        }
+    }
     if (!tool.brushSnapshot.empty() && !tool.brushSnapshotIndices.empty()) {
         const int index = tool.brushSnapshotIndices[0];
         if (index >= 0 && index < static_cast<int>(d.brushes.size())) {
@@ -111,10 +112,77 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
     return {};
 }
 
-void refreshTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& camera) {
-    const Vector3 planeNormal =
-        translateDragPlaneNormal(editor.viewPlane, editor.gridPlane, tool.axisLock, camera);
+std::optional<Vector3> constrainedTranslateAxis(
+    const Editor& editor,
+    const SelectTool& tool) {
+    if (editor.doc().selectionMode == SelectionMode::Face && tool.faceTranslate.valid() &&
+        !tool.brushSnapshot.empty()) {
+        const int faceIndex = tool.faceTranslate.face;
+        const slopengine::Brush& src = tool.brushSnapshot[0];
+        if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
+            return normalize3(src.faces[static_cast<std::size_t>(faceIndex)].normal);
+        }
+    }
+    switch (tool.axisLock) {
+    case TranslateAxis::X:
+        return Vector3{1.0f, 0.0f, 0.0f};
+    case TranslateAxis::Y:
+        return Vector3{0.0f, 1.0f, 0.0f};
+    case TranslateAxis::Z:
+        return Vector3{0.0f, 0.0f, 1.0f};
+    case TranslateAxis::None:
+        break;
+    }
+    return std::nullopt;
+}
+
+Vector2 screenAxisForWorldAxis(
+    Vector3 origin,
+    Vector3 axis,
+    const Camera3D& camera,
+    Rectangle viewport) {
+    const Vector2 s0 = worldToViewportScreen(origin, camera, viewport);
+    const Vector2 s1 = worldToViewportScreen(add3(origin, axis), camera, viewport);
+    return {s1.x - s0.x, s1.y - s0.y};
+}
+
+Vector3 computeAxisTranslateDelta(
+    Vector3 axis,
+    Vector3 origin,
+    Vector2 mouseGrabScreen,
+    const Camera3D& camera,
+    Rectangle viewport) {
+    const Vector2 mouse = GetMousePosition();
+    const Vector2 axisScreen = screenAxisForWorldAxis(origin, axis, camera, viewport);
+    const float lenSq = axisScreen.x * axisScreen.x + axisScreen.y * axisScreen.y;
+    const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
+    float amount = 0.0f;
+    if (lenSq < 4.0f) {
+        const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
+        amount = -mouseDelta.y * dist * 0.0025f;
+    } else {
+        amount = (mouseDelta.x * axisScreen.x + mouseDelta.y * axisScreen.y) / lenSq;
+    }
+    return scale3(axis, amount);
+}
+
+Vector3 freeTranslatePlaneNormal(const Editor& editor, const Camera3D& camera) {
+    if (editor.viewPlane == ViewPlane::PerspectiveY0) {
+        const Vector3 gridNormal =
+            constructionPlaneForView(editor.viewPlane, editor.gridPlane).normal;
+        const Vector3 forward = cameraForward(camera);
+        if (std::fabs(dot3(forward, gridNormal)) < 0.2f) {
+            return forward;
+        }
+        return gridNormal;
+    }
+    return cameraForward(camera);
+}
+
+void captureTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& camera) {
+    tool.mouseGrabScreen = GetMousePosition();
     const Vector3 applied = currentTranslateDelta(editor, tool);
+    const Vector3 planeNormal = freeTranslatePlaneNormal(editor, camera);
     Vector3 hit{};
     if (rayPlaneIntersection(
             mouseRay(camera, editor.contentViewport),
@@ -122,7 +190,24 @@ void refreshTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& came
             planeNormal,
             hit)) {
         tool.mouseGrabWorld = sub3(hit, applied);
+    } else {
+        tool.mouseGrabWorld = sub3(tool.translateOrigin, applied);
     }
+
+    if (const auto axis = constrainedTranslateAxis(editor, tool)) {
+        const Vector2 axisScreen = screenAxisForWorldAxis(
+            tool.translateOrigin, *axis, camera, editor.contentViewport);
+        const float appliedAmount = dot3(applied, *axis);
+        const Vector2 mouse = tool.mouseGrabScreen;
+        tool.mouseGrabScreen = {
+            mouse.x - axisScreen.x * appliedAmount,
+            mouse.y - axisScreen.y * appliedAmount,
+        };
+    }
+}
+
+void refreshTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& camera) {
+    captureTranslateGrab(tool, editor, camera);
 }
 
 const char* translateTargetName(const Editor& editor) {
@@ -149,18 +234,60 @@ const char* translateAxisName(const Editor& editor, TranslateAxis axisLock) {
     return "Free";
 }
 
+const char* translateSnapModeName(TranslateSnapMode mode) {
+    switch (mode) {
+    case TranslateSnapMode::Offset:
+        return "Offset";
+    case TranslateSnapMode::Absolute:
+        return "Absolute";
+    }
+    return "Offset";
+}
+
+bool bufferHasDigit(const std::string& buffer) {
+    for (char c : buffer) {
+        if (c >= '0' && c <= '9') {
+            return true;
+        }
+    }
+    return false;
+}
+
+Vector3 snapTranslateDelta(Vector3 rawDelta, Vector3 origin, float grid, TranslateSnapMode mode) {
+    if (mode == TranslateSnapMode::Absolute) {
+        return sub3(snapToGrid(add3(origin, rawDelta), grid), origin);
+    }
+    return snapToGrid(rawDelta, grid);
+}
+
+float snapTranslateDistance(
+    float rawDistance,
+    float originAlong,
+    float grid,
+    TranslateSnapMode mode) {
+    if (mode == TranslateSnapMode::Absolute) {
+        return snapToGrid(originAlong + rawDistance, grid) - originAlong;
+    }
+    return snapToGrid(rawDistance, grid);
+}
+
 void updateTranslateStatus(Editor& editor, const SelectTool& tool) {
     std::string message = "Translate ";
     message += translateTargetName(editor);
     message += " | ";
     message += translateAxisName(editor, tool.axisLock);
     message += " | ";
-    if (tool.numericActive && !editor.numericBuffer.empty()) {
+    message += translateSnapModeName(editor.translateSnapMode);
+    message += " | ";
+    if (tool.numericLocked(editor)) {
+        message += editor.numericBuffer;
+    } else if (!editor.numericBuffer.empty()) {
+        message += "drag ";
         message += editor.numericBuffer;
     } else {
         message += "drag";
     }
-    message += "  (Enter confirm, Esc cancel)";
+    message += "  (Enter confirm, Esc cancel, O snap)";
     editor.statusMessage = std::move(message);
 }
 
@@ -551,25 +678,18 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
         return;
     }
 
-    const Vector3 planeNormal =
-        translateDragPlaneNormal(editor.viewPlane, editor.gridPlane, axisLock, camera);
-    Vector3 hit{};
-    if (rayPlaneIntersection(
-            mouseRay(camera, editor.contentViewport),
-            translateOrigin,
-            planeNormal,
-            hit)) {
-        mouseGrabWorld = hit;
-    } else {
-        mouseGrabWorld = translateOrigin;
-    }
+    captureTranslateGrab(*this, editor, camera);
     updateTranslateStatus(editor, *this);
 }
 
 void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, Vector3 delta) {
     EditorDocument& d = editor.doc();
+    const bool exact = numericLocked(editor);
     if (d.selectionMode == SelectionMode::Entity) {
-        delta = snapToGrid(delta, editor.gridSize);
+        if (!exact) {
+            delta = snapTranslateDelta(
+                delta, translateOrigin, editor.gridSize, editor.translateSnapMode);
+        }
         for (std::size_t i = 0; i < entitySnapshotRefs.size(); ++i) {
             const EntityRef& ref = entitySnapshotRefs[i];
             if (ref.kind == EntityRef::Kind::Thing &&
@@ -599,13 +719,24 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
         }
         const slopengine::BrushFace& face =
             src.faces[static_cast<std::size_t>(faceTranslate.face)];
-        float distance = snapToGrid(dot3(delta, face.normal), editor.gridSize);
+        const float rawDistance = dot3(delta, face.normal);
+        float distance = rawDistance;
+        if (!exact) {
+            const Vector3 originPoint =
+                face.vertices.empty() ? translateOrigin : face.vertices[0];
+            const float originAlong = dot3(originPoint, face.normal);
+            distance = snapTranslateDistance(
+                rawDistance, originAlong, editor.gridSize, editor.translateSnapMode);
+        }
         d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
             pushFace(src, faceTranslate.face, distance, assets);
         return;
     }
 
-    delta = snapToGrid(delta, editor.gridSize);
+    if (!exact) {
+        delta = snapTranslateDelta(
+            delta, translateOrigin, editor.gridSize, editor.translateSnapMode);
+    }
     for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
         const int index = brushSnapshotIndices[i];
         if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
@@ -700,6 +831,10 @@ void SelectTool::cancelTranslate(Editor& editor) {
     editor.statusMessage = "Translate cancelled";
 }
 
+bool SelectTool::numericLocked(const Editor& editor) const {
+    return bufferHasDigit(editor.numericBuffer);
+}
+
 void SelectTool::handleNumeric(
     Editor& editor,
     slopengine::AssetStore& assets,
@@ -717,23 +852,33 @@ void SelectTool::handleNumeric(
     if (IsKeyPressed(KEY_PERIOD) || IsKeyPressed(KEY_KP_DECIMAL)) {
         if (editor.numericBuffer.find('.') == std::string::npos) {
             editor.numericBuffer.push_back('.');
-            numericActive = true;
         }
     }
     if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
-        if (editor.numericBuffer.empty()) {
+        if (numericLocked(editor)) {
+            if (!editor.numericBuffer.empty() && editor.numericBuffer.front() == '-') {
+                editor.numericBuffer.erase(editor.numericBuffer.begin());
+            } else {
+                editor.numericBuffer.insert(editor.numericBuffer.begin(), '-');
+            }
+        } else if (editor.numericBuffer.empty()) {
             editor.numericBuffer.push_back('-');
-            numericActive = true;
+        } else if (editor.numericBuffer == "-") {
+            editor.numericBuffer.clear();
+        } else if (editor.numericBuffer == ".") {
+            editor.numericBuffer = "-.";
+        } else if (editor.numericBuffer == "-.") {
+            editor.numericBuffer = ".";
         }
     }
     if (IsKeyPressed(KEY_BACKSPACE) && !editor.numericBuffer.empty()) {
         editor.numericBuffer.pop_back();
-        numericActive = !editor.numericBuffer.empty();
+        numericActive = numericLocked(editor);
     }
 
     updateTranslateStatus(editor, *this);
 
-    if (!numericActive || editor.numericBuffer.empty() || editor.numericBuffer == "-" ||
+    if (!numericLocked(editor) || editor.numericBuffer.empty() || editor.numericBuffer == "-" ||
         editor.numericBuffer == "." || editor.numericBuffer == "-.") {
         return;
     }
@@ -1298,24 +1443,36 @@ void SelectTool::update(
                 confirmTranslate(editor, assets);
                 return;
             }
+            if (IsKeyPressed(KEY_O) && !IsKeyDown(KEY_LEFT_CONTROL) &&
+                !IsKeyDown(KEY_RIGHT_CONTROL)) {
+                editor.translateSnapMode =
+                    editor.translateSnapMode == TranslateSnapMode::Offset
+                    ? TranslateSnapMode::Absolute
+                    : TranslateSnapMode::Offset;
+                updateTranslateStatus(editor, *this);
+            }
             const TranslateAxis previousLock = axisLock;
             if (IsKeyPressed(KEY_X)) {
-                axisLock = TranslateAxis::X;
+                axisLock = axisLock == TranslateAxis::X ? TranslateAxis::None : TranslateAxis::X;
                 numericActive = false;
                 editor.numericBuffer.clear();
             }
             if (IsKeyPressed(KEY_Y)) {
-                axisLock = TranslateAxis::Y;
+                axisLock = axisLock == TranslateAxis::Y ? TranslateAxis::None : TranslateAxis::Y;
                 numericActive = false;
                 editor.numericBuffer.clear();
             }
             if (IsKeyPressed(KEY_Z)) {
-                axisLock = TranslateAxis::Z;
+                axisLock = axisLock == TranslateAxis::Z ? TranslateAxis::None : TranslateAxis::Z;
                 numericActive = false;
                 editor.numericBuffer.clear();
             }
             if (axisLock != previousLock) {
+                const Vector3 applied = currentTranslateDelta(editor, *this);
                 refreshTranslateGrab(*this, editor, camera);
+                if (const auto axis = constrainedTranslateAxis(editor, *this)) {
+                    applyTranslate(editor, assets, scale3(*axis, dot3(applied, *axis)));
+                }
                 updateTranslateStatus(editor, *this);
             }
         }
@@ -1326,30 +1483,42 @@ void SelectTool::update(
         }
 
         const bool canDrag =
-            !numericActive && (!entitySnapshotRefs.empty() || !brushSnapshot.empty());
+            !numericLocked(editor) &&
+            (!entitySnapshotRefs.empty() || !brushSnapshot.empty());
         if (canDrag) {
-            const Vector3 planeNormal =
-                translateDragPlaneNormal(editor.viewPlane, editor.gridPlane, axisLock, camera);
-            Vector3 hit{};
-            if (rayPlaneIntersection(
-                    mouseRay(camera, editor.contentViewport),
+            Vector3 delta{};
+            bool haveDelta = false;
+            if (const auto axis = constrainedTranslateAxis(editor, *this)) {
+                delta = computeAxisTranslateDelta(
+                    *axis,
                     translateOrigin,
-                    planeNormal,
-                    hit)) {
-                Vector3 delta = sub3(hit, mouseGrabWorld);
-                if (axisLock == TranslateAxis::X) {
-                    delta = {delta.x, 0.0f, 0.0f};
-                } else if (axisLock == TranslateAxis::Y) {
-                    delta = {0.0f, delta.y, 0.0f};
-                } else if (axisLock == TranslateAxis::Z) {
-                    delta = {0.0f, 0.0f, delta.z};
-                } else if (editor.viewPlane == ViewPlane::Top ||
-                           editor.viewPlane == ViewPlane::PerspectiveY0) {
-                    delta.y = 0.0f;
-                } else if (editor.viewPlane == ViewPlane::Front) {
-                    delta.z = 0.0f;
-                } else if (editor.viewPlane == ViewPlane::Side) {
-                    delta.x = 0.0f;
+                    mouseGrabScreen,
+                    camera,
+                    editor.contentViewport);
+                haveDelta = true;
+            } else {
+                const Vector3 planeNormal = freeTranslatePlaneNormal(editor, camera);
+                Vector3 hit{};
+                if (rayPlaneIntersection(
+                        mouseRay(camera, editor.contentViewport),
+                        translateOrigin,
+                        planeNormal,
+                        hit)) {
+                    delta = sub3(hit, mouseGrabWorld);
+                    if (editor.viewPlane == ViewPlane::PerspectiveY0 ||
+                        editor.viewPlane == ViewPlane::Top) {
+                        delta.y = 0.0f;
+                    } else if (editor.viewPlane == ViewPlane::Front) {
+                        delta.z = 0.0f;
+                    } else if (editor.viewPlane == ViewPlane::Side) {
+                        delta.x = 0.0f;
+                    }
+                    haveDelta = true;
+                }
+            }
+            if (haveDelta) {
+                if (editor.numericBuffer == "-") {
+                    delta = scale3(delta, -1.0f);
                 }
                 applyTranslate(editor, assets, delta);
                 updateTranslateStatus(editor, *this);

@@ -22,6 +22,7 @@ struct SelectTool {
     TranslateAxis axisLock = TranslateAxis::None;
     Vector3 translateOrigin{};
     Vector3 mouseGrabWorld{};
+    Vector2 mouseGrabScreen{};
     std::vector<slopengine::Brush> brushSnapshot;
     std::vector<int> brushSnapshotIndices;
     std::vector<Vector3> entityAtSnapshots;
@@ -38,6 +39,7 @@ struct SelectTool {
     void cancelTranslate(Editor& editor);
     void toggleSelectedUvLock(Editor& editor);
     bool active() const { return translating; }
+    bool numericLocked(const Editor& editor) const;
 
 private:
     Vector2 pickCycleMouse{};

@@ -1130,6 +1130,29 @@ int main(int argc, char* argv[]) {
                     editor.showGrid = !editor.showGrid;
                     editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
                 }
+                if (beginMenuWithIcon(assets, kIcons, "arrow_refresh", "Translate Snap")) {
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "arrow_right",
+                            "Offset",
+                            "O",
+                            editor.translateSnapMode == slopmap::TranslateSnapMode::Offset)) {
+                        editor.translateSnapMode = slopmap::TranslateSnapMode::Offset;
+                        editor.statusMessage = "Translate snap: Offset";
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "anchor",
+                            "Absolute",
+                            "O",
+                            editor.translateSnapMode == slopmap::TranslateSnapMode::Absolute)) {
+                        editor.translateSnapMode = slopmap::TranslateSnapMode::Absolute;
+                        editor.statusMessage = "Translate snap: Absolute";
+                    }
+                    ImGui::EndMenu();
+                }
                 if (beginMenuWithIcon(assets, kIcons, "layers", "Grid Plane")) {
                     if (menuItemWithIcon(
                             assets,
