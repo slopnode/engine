@@ -15,7 +15,7 @@ Related: [Package structure](package-structure.md), [Sprites](sprites.md) (frame
 
 ## Steam Audio (optional)
 
-By default, spatial playback uses SoLoud’s built-in 3D path. Building with Steam Audio replaces that backend for spatial sources.
+By default, spatial playback uses SoLoud's built-in 3D path. Building with Steam Audio replaces that backend for spatial sources.
 
 The Steam Audio SDK is an **out-of-repo binary**: it is not a submodule and is not under `lib/`. Each machine that opts in supplies `STEAM_AUDIO_ROOT` at configure time (see the [README](../README.md#optional-steam-audio) for CMake flags and expected SDK layout).
 
