@@ -1,4 +1,5 @@
 #include "script/thing_script.hpp"
+#include "script/script_scope.hpp"
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
@@ -72,6 +73,9 @@ PhysicsWorld* physicsWorld() {
 }
 
 s7_pointer g_thing_despawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
     if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "thing-despawn", 1, args, "thing-id string");
     }
@@ -138,6 +142,9 @@ bool readNumberArg(s7_scheme* sc, s7_pointer& args, float& out, const char* name
 }
 
 s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
@@ -255,6 +262,9 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
@@ -382,6 +392,9 @@ s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_pos(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-pos", 1, args, "id string");
     }
@@ -399,6 +412,9 @@ s7_pointer g_actor_pos(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_yaw(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-yaw", 1, args, "id string");
     }
@@ -417,6 +433,9 @@ s7_pointer g_actor_yaw(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_set_wish(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-set-wish", 1, args, "id string");
     }
@@ -439,6 +458,9 @@ s7_pointer g_actor_set_wish(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_grounded(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-grounded?", 1, args, "id string");
     }
@@ -455,6 +477,9 @@ s7_pointer g_actor_grounded(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-play-anim", 1, args, "id string");
     }
@@ -489,6 +514,9 @@ s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_tags(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-tags", 1, args, "id string");
     }
@@ -505,6 +533,9 @@ s7_pointer g_actor_tags(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actors_with_tag(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actors-with-tag", 1, args, "tag string");
     }
@@ -520,6 +551,9 @@ s7_pointer g_actors_with_tag(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actors_in_radius(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
@@ -555,6 +589,9 @@ s7_pointer g_actors_in_radius(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_los(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     float x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
     if (!readNumberArg(sc, args, x0, "los?", 1) || !readNumberArg(sc, args, y0, "los?", 2) ||
         !readNumberArg(sc, args, z0, "los?", 3) || !readNumberArg(sc, args, x1, "los?", 4) ||
@@ -579,6 +616,9 @@ s7_pointer g_los(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
@@ -672,6 +712,9 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_actor_los(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-los?", 1, args, "from-id string");
     }

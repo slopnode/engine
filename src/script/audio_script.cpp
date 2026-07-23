@@ -1,4 +1,5 @@
 #include "script/audio_script.hpp"
+#include "script/script_scope.hpp"
 
 #include "assets/audio_def.hpp"
 #include "audio/audio_module.hpp"
@@ -138,6 +139,9 @@ s7_pointer g_register_audio(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_play_audio(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     AssetStore* assets = audioAssets();
     if (audio == nullptr || assets == nullptr || !audio->ready()) {
@@ -166,6 +170,9 @@ s7_pointer g_play_audio(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_play_sound(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     AssetStore* assets = audioAssets();
     if (audio == nullptr || assets == nullptr || !audio->ready()) {
@@ -195,6 +202,9 @@ s7_pointer g_play_sound(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_stop_sound(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     if (audio == nullptr) {
         return s7_f(sc);
@@ -207,6 +217,9 @@ s7_pointer g_stop_sound(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_set_sound_volume(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     if (audio == nullptr) {
         return s7_f(sc);
@@ -224,6 +237,9 @@ s7_pointer g_set_sound_volume(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_set_bus_volume(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     if (audio == nullptr) {
         return s7_f(sc);
@@ -247,6 +263,9 @@ s7_pointer g_set_bus_volume(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_play_music(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     AssetStore* assets = audioAssets();
     if (audio == nullptr || assets == nullptr || !audio->ready()) {
@@ -266,6 +285,9 @@ s7_pointer g_play_music(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_stop_music(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     if (audio == nullptr) {
         return s7_f(sc);
@@ -275,6 +297,9 @@ s7_pointer g_stop_music(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_audio_filter_attach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     if (audio == nullptr || !audio->ready()) {
         return s7_f(sc);
@@ -308,6 +333,9 @@ s7_pointer g_audio_filter_attach(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_register_audio_filter(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
     AudioWorld* audio = audioWorld();
     if (audio == nullptr) {
         return s7_f(sc);

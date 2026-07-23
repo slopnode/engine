@@ -10,7 +10,7 @@ cmake --build build --target slopbsp
 ./build/slopbsp --base-game <package-path> [--mod <path>]... --map <name>
 ```
 
-Shared flags with the game: `--base-game`, repeated `--mod`, and `--map <name>` (folder name under `maps/`, not a file path).
+Shared mount flags with the game: `--base-game` and repeated `--mod`. Tools also require `--map <name>` (folder under `maps/`). The game runtime takes `--map` only when the base package declares it in `data/cli.s7`.
 
 Re-run when hull brushes, sealing, or hull face layout change. Downstream [VIS](vis.md) (and [radiosity](rad.md) if you use lightmaps) must follow.
 

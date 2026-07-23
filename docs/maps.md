@@ -200,7 +200,7 @@ Typical sequence:
 ./build/sloprad --base-game <package-path> --map <name> \
   --luxels-per-meter 16 --bounces 2 --samples 16
 
-./build/slopengine --base-game <package-path> --map <name>
+./build/slopengine --base-game <package-path> --map <name>   # --map is a package CLI flag when declared in data/cli.s7
 ```
 
 `--mod` may be repeated on any of these, the same as the game. After editing brushes, rebuild BSP, then VIS, then radiosity if you use it. After editing only materials or emission for lighting, BSP and VIS can stay; re-bake radiosity.

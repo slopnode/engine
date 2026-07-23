@@ -2,9 +2,11 @@
 
 Game logic and presentation hooks are written in s7 Scheme (`.s7`). One Scheme heap lives for the whole run. C++ binds primitives, loads package scripts, and calls optional procedures by name.
 
-Related: [Package structure](package-structure.md), [Player](player.md), [Things](things.md), [Maps](maps.md), [Audio](audio.md).
+Related: [Writing s7](s7.md), [Package structure](package-structure.md), [Persistence](persistence.md), [Player](player.md), [Things](things.md), [Maps](maps.md), [Audio](audio.md).
 
 ## Getting started
+
+Language basics: [Writing s7](s7.md).
 
 1. Add or override package scripts under `scripts/` and data under `data/` (virtual paths omit the extension and `scripts/` / `data/` prefix).
 2. Declare input actions in `data/actions.s7` (`*package-actions*`).
@@ -28,12 +30,15 @@ Minimal player hook:
 | 2 | `data/actions.s7` | App start -> registers `*package-actions*` |
 | 3 | `data/items.s7` | App start -> `*item-catalog*` (if present) |
 | 4 | `data/view.s7` | App start -> `*view-canvas*` / `*hud-canvas*` |
-| 5 | `scripts/things.s7` | App start |
-| 6 | Module API binds | Render / audio / input / thing-runtime |
-| 7 | `scripts/player.s7` | After FP / HUD / input / thing-runtime binds |
-| 8 | Map CSG | Map load (`maps/<name>/static.csg`) |
-| 9 | `maps/<name>/things.s7` | Map load (thing spawn forms) |
-| 10 | `maps/<name>/graphs.s7` | Map load if present (nav graphs) |
+| 5 | `data/cli.s7` | App start -> `*package-cli*` parsed for extra argv flags |
+| 6 | `scripts/things.s7` | App start |
+| 7 | Module API binds | Render / audio / input / thing-runtime / save / UI |
+| 8 | `scripts/player.s7` | After those binds |
+| 9 | `scripts/menus.s7` | After player (optional; File/Pause/modals / `on-startup`) |
+| 10 | `(on-startup)` | Once after menus load |
+| 11 | Map CSG | Map load (`maps/<name>/static.csg`) |
+| 12 | `maps/<name>/things.s7` | Map load (thing spawn forms) |
+| 13 | `maps/<name>/graphs.s7` | Map load if present (nav graphs) |
 
 Later packages override earlier ones at the same virtual path. Map thing / CSG / graph bindings are active only while that file evaluates.
 
@@ -45,11 +50,38 @@ Later packages override earlier ones at the same virtual path. Map thing / CSG /
 | `*item-catalog*` | Item definitions (`data/items.s7`) when used by the package |
 | `*view-canvas*` | View resolution pair, e.g. `(320 200)` |
 | `*hud-canvas*` | HUD resolution pair |
+| `*package-cli*` | Extra CLI flags (`data/cli.s7`) |
+| `*package-campaign*` | Package-owned table for menus (optional; loaded by package Scheme, not the engine) |
 
 ```text
 (define *view-canvas* '(320 200))
 (define *hud-canvas* '(320 200))
 ```
+
+### Package CLI
+
+`data/cli.s7` defines `*package-cli*` after packages are mounted. The engine only parses `--base-game` and `--mod` up front; remaining argv must match this schema or startup fails with combined usage text.
+
+```text
+(define *package-cli*
+  '((flags
+     ((name "map") (value "string") (help "Initial map folder under maps/"))
+     ((name "mission") (value "string") (help "Mission id for a fresh run")))))
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Flag without `--` |
+| `value` | `"string"` (requires an argument) or `"flag"` (presence → `"#t"`) |
+| `help` | Usage line text |
+
+Read values with `(startup-arg "map")` → string or `#f`, or `(startup-args)` → alist. Handle them in `(on-startup)` (for example `(request-map-load …)` when `map` is set).
+
+### Package menus
+
+The F1 menu bar (File / Config / Debug) and Pause window stay engine chrome. Packages opt in by defining draw hooks that use Scheme ImGui bindings. No hooks → no New/Load/Save entries. Structure and presentation (labels, fields, mission lists, modal layout) live entirely in package Scheme, often `scripts/menus.s7` plus optional data such as `data/campaign.s7` loaded via `(package-load-data "campaign")`.
+
+Save context layout is in [Persistence](persistence.md). Listing files for a Load UI uses `(save-list dir suffix)`.
 
 ## Engine hooks
 
@@ -57,7 +89,12 @@ Call these by defining a procedure with the exact name. Missing procedures are s
 
 | Procedure | When |
 |-----------|------|
-| `(prepare-first-person player-id)` | After the FP scene exists on map / free-camera spawn |
+| `(prepare-first-person player-id)` | After the FP scene exists on map / free-camera spawn; presentation only |
+| `(on-map-ready map-id reason)` | After `prepare-first-person` on map spawn; `reason` is a string from `request-map-load` (default `"fresh"`). Packages apply carry/reset/restore policy here |
+| `(on-startup)` | Once after `player` / `menus` load; read `(startup-arg …)` and start a map or leave the menu |
+| `(draw-file-menu)` | Inside File menu (before Quit); use `(ui-menu-item …)` |
+| `(draw-pause-menu)` | Inside Pause after Resume; typically `(ui-button …)` |
+| `(draw-modals)` | Every UI frame; package-owned popup open flags |
 | `(tick dt)` | Each update frame (delta seconds), if defined |
 | `(draw-hud)` | When the HUD pass runs, if defined |
 | `(on-action-<id>)` | When package action `<id>` is pressed |
@@ -68,6 +105,45 @@ Call these by defining a procedure with the exact name. Missing procedures are s
 Handlers receive string ids (flecs entity names). There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
 
 ## Runtime APIs
+
+### Save I/O and map flow
+
+Player progress is written under the user config directory (not inside packages), scoped by the mounted stack engine → base game → mods. Path layout, `mount.s7`, and ownership are in [Persistence](persistence.md). The engine does not define campaigns, checkpoints, or save policies; packages own those and call these primitives when something in the game triggers a save or map change.
+
+| Binding | Meaning |
+|---------|---------|
+| `(save-root)` | Absolute path string for the current mount's save context |
+| `(save-write rel form)` | Write an S-expression under the context root; creates dirs and `mount.s7`; `#t` / `#f` |
+| `(save-read rel)` | Read one S-expression from a relative path, or `#f` |
+| `(save-exists? rel)` | `#t` if a regular file exists at the relative path |
+| `(save-delete rel)` | Delete a regular file under the context root; `#t` / `#f` |
+| `(save-timestamp)` | Local time stamp string `YYYYMMDD_HHMMSS` for named save files |
+| `(save-list dir suffix)` | List of `(rel-path . display)` pairs under a relative directory |
+| `(package-load-data path)` / `(package-load-script path)` | Load another package `data/` or `scripts/` virtual path |
+| `(startup-arg name)` / `(startup-args)` | Package CLI values from `data/cli.s7` |
+| `(request-map-load name)` / `(request-map-load name reason)` | Queue a map change; `reason` is delivered to `on-map-ready` (default `"fresh"`) |
+| `(current-map)` | Current map folder id string, or `#f` |
+| `(player-pose)` | `(x y z yaw pitch)` feet position and look, or `#f` |
+| `(player-set-pose x y z yaw pitch)` | Teleport player and set look |
+
+Relative save paths must stay under the context root (`..` and absolute paths are rejected). Suggested envelope for package blobs: `(save (version N) (package "id") ...)`. Body fields are package-defined.
+
+### Package UI (ImGui)
+
+Used from `(draw-file-menu)`, `(draw-pause-menu)`, and `(draw-modals)`.
+
+| Binding | Meaning |
+|---------|---------|
+| `(playing?)` / `(main-menu?)` / `(pause-menu?)` | Context predicates |
+| `(ui-menu-item label [enabled?])` | File/Pause menu row; `#t` if clicked |
+| `(ui-button label)` / `(ui-text str)` / `(ui-separator)` / `(ui-same-line)` | Basic widgets |
+| `(ui-begin title)` / `(ui-end)` | Window; always call `ui-end` |
+| `(ui-begin-child id [height])` / `(ui-end-child)` | Scroll region |
+| `(ui-set-next-window-size w h)` / `(ui-center-next-window)` | Next window placement |
+| `(ui-input-text id initial)` / `(ui-input-text-set id str)` | Text field; returns current string |
+| `(ui-begin-combo id preview)` / `(ui-combo-item label [selected?])` / `(ui-end-combo)` | Combo |
+| `(ui-selectable label [selected?])` | List row |
+| `(ui-indent)` / `(ui-unindent)` | Indentation |
 
 ### First-person
 
@@ -136,6 +212,6 @@ Bound only while the matching map file loads, not for general gameplay scripts:
 
 ## What belongs where
 
-`maps/<name>/things.s7` holds instance data: poses, sprite or geo paths, handler names, light params -- composition for this level, not shared logic. Reusable behavior, constructors, first-person presentation, and HUD live under `scripts/`. Package catalogs such as actions, items, and canvas sizes live under `data/`. The engine supplies spawn bindings, presentation primitives, interact, and the player pawn; it does not own per-game content rules.
+`maps/<name>/things.s7` holds instance data: poses, sprite or geo paths, handler names, light params -- composition for this level, not shared logic. Reusable behavior, constructors, first-person presentation, HUD, and New/Load/Save menus live under `scripts/`. Package catalogs such as actions, items, CLI flags, and canvas sizes live under `data/`. The engine supplies save I/O under the config saves tree, map/pose hooks, F1/Pause chrome, and ImGui bindings (see [Persistence](persistence.md)); it does not own per-game menu structure or content rules.
 
 Prefer new package procedures and thin map calls over new C++ thing kinds for each content type.

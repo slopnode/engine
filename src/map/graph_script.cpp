@@ -1,5 +1,7 @@
 #include "map/graph_script.hpp"
 
+#include "script/script_scope.hpp"
+
 #include <raylib.h>
 #include <s7.h>
 
@@ -322,14 +324,19 @@ std::optional<GraphDocument> loadMapGraphs(
         return GraphDocument{};
     }
 
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(scheme, s7_rootlet(scheme), s7_nil(scheme));
+    const s7_pointer previousEnv = s7_set_curlet(scheme, env);
+
     GraphDocument doc{};
     GraphLoadContext context{};
     context.doc = &doc;
     g_context = &context;
     bindGraphApi(scheme);
 
-    const bool loaded = assets.loadMapGraphs(scheme, virtualPath);
+    const bool loaded = assets.loadMapGraphs(scheme, virtualPath, env);
     g_context = nullptr;
+    s7_set_curlet(scheme, previousEnv);
 
     if (!loaded) {
         TraceLog(

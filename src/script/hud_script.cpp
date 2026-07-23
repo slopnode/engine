@@ -1,4 +1,5 @@
 #include "script/hud_script.hpp"
+#include "script/script_scope.hpp"
 
 #include "render/components.hpp"
 #include "render/hud.hpp"
@@ -112,6 +113,9 @@ bool readColor(s7_scheme* sc, s7_pointer& args, Color& out) {
 }
 
 s7_pointer g_hud_anchor(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
@@ -128,6 +132,9 @@ s7_pointer g_hud_anchor(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_font(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
@@ -140,6 +147,9 @@ s7_pointer g_hud_font(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_rect(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
@@ -172,6 +182,9 @@ s7_pointer g_hud_rect(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_image(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
@@ -220,6 +233,9 @@ s7_pointer g_hud_image(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_text(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);

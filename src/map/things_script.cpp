@@ -1,5 +1,7 @@
 #include "map/things_script.hpp"
 
+#include "script/script_scope.hpp"
+
 #include <raylib.h>
 #include <s7.h>
 
@@ -324,11 +326,12 @@ bool readBool(s7_scheme* sc, s7_pointer value, bool& out) {
     return false;
 }
 
-void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
+bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
         s7_pointer clause = s7_car(cursor);
         if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
-            continue;
+            TraceLog(LOG_WARNING, "THING: expected clause list, got non-clause form");
+            return false;
         }
 
         const char* tag = s7_symbol_name(s7_car(clause));
@@ -409,37 +412,39 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                  motorCursor = s7_cdr(motorCursor)) {
                 s7_pointer motorClause = s7_car(motorCursor);
                 if (!s7_is_pair(motorClause) || !s7_is_symbol(s7_car(motorClause))) {
-                    continue;
+                    TraceLog(LOG_WARNING, "THING: motor expected clause list");
+                    return false;
                 }
                 const char* motorTag = s7_symbol_name(s7_car(motorClause));
                 s7_pointer motorRest = s7_cdr(motorClause);
                 if (!s7_is_pair(motorRest)) {
-                    continue;
+                    TraceLog(LOG_WARNING, "THING: malformed motor clause '%s'", motorTag);
+                    return false;
                 }
                 if (std::strcmp(motorTag, "hull") == 0) {
                     std::string hull;
-                    if (readString(sc, s7_car(motorRest), hull)) {
-                        if (hull == "box") {
-                            out.motorHull = CharacterHull::Box;
-                        } else if (hull == "capsule") {
-                            out.motorHull = CharacterHull::Capsule;
-                        }
+                    if (!readString(sc, s7_car(motorRest), hull) ||
+                        (hull != "box" && hull != "capsule")) {
+                        TraceLog(LOG_WARNING, "THING: motor hull must be box or capsule");
+                        return false;
                     }
+                    out.motorHull = (hull == "box") ? CharacterHull::Box : CharacterHull::Capsule;
                     continue;
                 }
                 if (std::strcmp(motorTag, "move") == 0) {
                     std::string move;
-                    if (readString(sc, s7_car(motorRest), move)) {
-                        if (move == "try-move") {
-                            out.motorMoveMode = CharacterMoveMode::TryMove;
-                        } else if (move == "slide") {
-                            out.motorMoveMode = CharacterMoveMode::Slide;
-                        }
+                    if (!readString(sc, s7_car(motorRest), move) ||
+                        (move != "try-move" && move != "slide")) {
+                        TraceLog(LOG_WARNING, "THING: motor move must be slide or try-move");
+                        return false;
                     }
+                    out.motorMoveMode = (move == "try-move") ? CharacterMoveMode::TryMove
+                                                             : CharacterMoveMode::Slide;
                     continue;
                 }
                 if (!s7_is_number(s7_car(motorRest))) {
-                    continue;
+                    TraceLog(LOG_WARNING, "THING: unknown or malformed motor clause '%s'", motorTag);
+                    return false;
                 }
                 const float value = static_cast<float>(s7_number_to_real(sc, s7_car(motorRest)));
                 if (std::strcmp(motorTag, "radius") == 0) {
@@ -452,6 +457,9 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorGravity = value;
                 } else if (std::strcmp(motorTag, "step-height") == 0) {
                     out.motorStepHeight = value;
+                } else {
+                    TraceLog(LOG_WARNING, "THING: unknown motor clause '%s'", motorTag);
+                    return false;
                 }
             }
         } else if (std::strcmp(tag, "color") == 0 &&
@@ -488,8 +496,12 @@ void parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         } else if (std::strcmp(tag, "max-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
             out.maxDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else {
+            TraceLog(LOG_WARNING, "THING: unknown or malformed clause '%s'", tag);
+            return false;
         }
     }
+    return true;
 }
 
 s7_pointer appendThing(s7_scheme* sc, Thing placement, const char* requireMsg, bool requireAt) {
@@ -530,35 +542,60 @@ s7_pointer appendThing(s7_scheme* sc, Thing placement, const char* requireMsg, b
 s7_pointer g_player_start(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::PlayerStart;
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "player-start has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "player-start requires id and at", true);
 }
 
 s7_pointer g_prop(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Prop;
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prop has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "prop requires id and at", true);
 }
 
 s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Usable;
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "usable has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "usable requires id and at", true);
 }
 
 s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Actor;
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "actor has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "actor requires id and at", true);
 }
 
 s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Trigger;
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "trigger has invalid clauses")));
+    }
     if (placement.onEnter.empty() && placement.onExit.empty()) {
         return s7_error(
             sc,
@@ -570,31 +607,56 @@ s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_point_light(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultLightThing(ThingKind::PointLight);
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "point-light has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "point-light requires id and at", true);
 }
 
 s7_pointer g_spot_light(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultLightThing(ThingKind::SpotLight);
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "spot-light has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "spot-light requires id and at", true);
 }
 
 s7_pointer g_area_light(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultLightThing(ThingKind::AreaLight);
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "area-light has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "area-light requires id and at", true);
 }
 
 s7_pointer g_sun(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultLightThing(ThingKind::Sun);
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "sun has invalid clauses")));
+    }
     return appendThing(sc, std::move(placement), "sun requires id", false);
 }
 
 s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultSoundSourceThing();
-    parseThingClauses(sc, args, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "sound-source has invalid clauses")));
+    }
     if (placement.audio.empty() && placement.clip.empty()) {
         return s7_error(
             sc,
@@ -625,7 +687,12 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "prefab requires a path")));
     }
 
-    parseThingClauses(sc, s7_cdr(args), placement);
+    if (!parseThingClauses(sc, s7_cdr(args), placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "prefab has invalid clauses")));
+    }
     if (placement.id.empty()) {
         return s7_error(
             sc,
@@ -697,11 +764,15 @@ void bindThingApi(s7_scheme* sc) {
 std::optional<ThingDocument> evaluateThings(
     s7_scheme* scheme,
     AssetStore& assets,
-    bool (*loader)(AssetStore&, s7_scheme*, std::string_view),
+    bool (*loader)(AssetStore&, s7_scheme*, std::string_view, s7_pointer),
     std::string_view virtualPath) {
     if (scheme == nullptr) {
         return std::nullopt;
     }
+
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(scheme, s7_rootlet(scheme), s7_nil(scheme));
+    const s7_pointer previousEnv = s7_set_curlet(scheme, env);
 
     ThingDocument doc{};
     ThingLoadContext context{};
@@ -710,8 +781,9 @@ std::optional<ThingDocument> evaluateThings(
     g_context = &context;
     bindThingApi(scheme);
 
-    const bool loaded = loader(assets, scheme, virtualPath);
+    const bool loaded = loader(assets, scheme, virtualPath, env);
     g_context = nullptr;
+    s7_set_curlet(scheme, previousEnv);
 
     if (!loaded) {
         return std::nullopt;
@@ -719,12 +791,20 @@ std::optional<ThingDocument> evaluateThings(
     return doc;
 }
 
-bool loadMapThingsThunk(AssetStore& assets, s7_scheme* scheme, std::string_view path) {
-    return assets.loadMapThings(scheme, path);
+bool loadMapThingsThunk(
+    AssetStore& assets,
+    s7_scheme* scheme,
+    std::string_view path,
+    s7_pointer env) {
+    return assets.loadMapThings(scheme, path, env);
 }
 
-bool loadPrefabThingsThunk(AssetStore& assets, s7_scheme* scheme, std::string_view path) {
-    return assets.loadPrefabThings(scheme, path);
+bool loadPrefabThingsThunk(
+    AssetStore& assets,
+    s7_scheme* scheme,
+    std::string_view path,
+    s7_pointer env) {
+    return assets.loadPrefabThings(scheme, path, env);
 }
 
 } // namespace

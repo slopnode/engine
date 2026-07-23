@@ -74,7 +74,8 @@ void registerMotoredBodySystem(flecs::world& world) {
                     tryCallSchemeProc1String(
                         world.get<ScriptContext>().scheme,
                         body.onImpact,
-                        entityIdString(entity));
+                        entityIdString(entity),
+                        ScriptScope::World);
                 }
                 queueThingDespawn(world, entityIdString(entity));
                 return;

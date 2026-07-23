@@ -8,6 +8,8 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 
 - [Overview](overview.md)
 - [Package structure](package-structure.md)
+- [Persistence](persistence.md)
+- [Writing s7](s7.md)
 - [Scripting](scripting.md)
 
 ### Maps and world

@@ -35,7 +35,7 @@ bool parseCanvasSize(s7_scheme* scheme, const char* name, int& outWidth, int& ou
 
 } // namespace
 
-bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name) {
+bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name, ScriptScope scope) {
     if (scheme == nullptr || name.empty()) {
         return false;
     }
@@ -45,11 +45,16 @@ bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name) {
         return false;
     }
 
+    ScriptScopeGuard guard(scope);
     s7_call(scheme, func, s7_nil(scheme));
     return true;
 }
 
-bool tryCallSchemeProc1String(s7_scheme* scheme, std::string_view name, const std::string& arg) {
+bool tryCallSchemeProc1String(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg,
+    ScriptScope scope) {
     if (scheme == nullptr || name.empty()) {
         return false;
     }
@@ -59,11 +64,16 @@ bool tryCallSchemeProc1String(s7_scheme* scheme, std::string_view name, const st
         return false;
     }
 
+    ScriptScopeGuard guard(scope);
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_string(scheme, arg.c_str())));
     return true;
 }
 
-bool tryCallSchemeProc1Real(s7_scheme* scheme, std::string_view name, double arg) {
+bool tryCallSchemeProc1Integer(
+    s7_scheme* scheme,
+    std::string_view name,
+    int arg,
+    ScriptScope scope) {
     if (scheme == nullptr || name.empty()) {
         return false;
     }
@@ -73,6 +83,26 @@ bool tryCallSchemeProc1Real(s7_scheme* scheme, std::string_view name, double arg
         return false;
     }
 
+    ScriptScopeGuard guard(scope);
+    s7_call(scheme, func, s7_list(scheme, 1, s7_make_integer(scheme, arg)));
+    return true;
+}
+
+bool tryCallSchemeProc1Real(
+    s7_scheme* scheme,
+    std::string_view name,
+    double arg,
+    ScriptScope scope) {
+    if (scheme == nullptr || name.empty()) {
+        return false;
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+
+    ScriptScopeGuard guard(scope);
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_real(scheme, arg)));
     return true;
 }
@@ -81,7 +111,8 @@ bool tryCallSchemeProc2String(
     s7_scheme* scheme,
     std::string_view name,
     const std::string& arg0,
-    const std::string& arg1) {
+    const std::string& arg1,
+    ScriptScope scope) {
     if (scheme == nullptr || name.empty()) {
         return false;
     }
@@ -91,6 +122,7 @@ bool tryCallSchemeProc2String(
         return false;
     }
 
+    ScriptScopeGuard guard(scope);
     s7_call(
         scheme,
         func,

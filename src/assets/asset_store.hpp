@@ -22,6 +22,7 @@
 #include <vector>
 
 struct s7_scheme;
+struct s7_cell;
 
 namespace slopengine {
 
@@ -244,22 +245,22 @@ public:
     bool loadScript(s7_scheme* scheme, std::string_view path);
 
     /** Loads and evaluates the map CSG script at @p path in @p scheme. */
-    bool loadMapCsg(s7_scheme* scheme, std::string_view path);
+    bool loadMapCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
     /** Loads and evaluates the map things script at @p path in @p scheme. */
-    bool loadMapThings(s7_scheme* scheme, std::string_view path);
+    bool loadMapThings(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
     /** Loads and evaluates the map graphs script at @p path in @p scheme. */
-    bool loadMapGraphs(s7_scheme* scheme, std::string_view path);
+    bool loadMapGraphs(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
     /** Loads and evaluates the data script at @p path in @p scheme. */
     bool loadData(s7_scheme* scheme, std::string_view path);
 
     /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
-    bool loadPrefabCsg(s7_scheme* scheme, std::string_view path);
+    bool loadPrefabCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
     /** Loads and evaluates the prefab things script at @p path in @p scheme. */
-    bool loadPrefabThings(s7_scheme* scheme, std::string_view path);
+    bool loadPrefabThings(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
 private:
     static std::string cacheKey(std::string_view path);

@@ -19,6 +19,8 @@
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/sprite_animator.hpp"
+#include "script/script_context.hpp"
+#include "script/ui_script.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/ui_state.hpp"
 
@@ -104,8 +106,8 @@ void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
     settings.save();
 }
 
-void drawPauseMenu(AssetStore& assets, InputContextStack& contexts) {
-    ImGui::SetNextWindowSize({320.0f, 180.0f}, ImGuiCond_FirstUseEver);
+void drawPauseMenu(flecs::world world, AssetStore& assets, InputContextStack& contexts) {
+    ImGui::SetNextWindowSize({320.0f, 220.0f}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(
         {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f},
         ImGuiCond_Always,
@@ -116,6 +118,7 @@ void drawPauseMenu(AssetStore& assets, InputContextStack& contexts) {
         if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
             contexts.pop(InputContext::PauseMenu);
         }
+        callDrawPauseMenu(world);
     }
     ImGui::End();
 }
@@ -273,6 +276,7 @@ void drawMainMenuBar(
     constexpr const char* kIcons = kDefaultIconSet;
 
     if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+        callDrawFileMenu(world);
         if (menuItemWithIcon(assets, kIcons, "door", "Quit")) {
             quit.requested = true;
         }
@@ -1061,8 +1065,10 @@ void drawUi(flecs::world world) {
     }
 
     if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {
-        drawPauseMenu(*assets, contexts);
+        drawPauseMenu(world, *assets, contexts);
     }
+
+    callDrawModals(world);
 
     if (contexts.contains(InputContext::InteractUI)) {
         drawInteractPanel(contexts, target);

@@ -10,7 +10,7 @@ cmake --build build --target slopvis
 ./build/slopvis --base-game <package-path> [--mod <path>]... --map <name>
 ```
 
-Shared flags with the game: `--base-game`, repeated `--mod`, and `--map <name>` (folder name under `maps/`, not a file path).
+Shared mount flags with the game: `--base-game` and repeated `--mod`. Tools also require `--map <name>` (folder under `maps/`). The game runtime takes `--map` only when the base package declares it in `data/cli.s7`.
 
 Re-run after BSP changes that affect sealing or face layout, detail brush edits that change visible fragments, face-id churn, or authored `(nodraw)`. Re-bake [radiosity](rad.md) when chart keys (VIS ids) change.
 

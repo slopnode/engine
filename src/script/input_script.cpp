@@ -1,5 +1,7 @@
 #include "script/input_script.hpp"
 
+#include "script/script_scope.hpp"
+
 #include "input/action_registry.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
@@ -18,6 +20,9 @@ enum class ActionQuery {
 };
 
 s7_pointer queryAction(s7_scheme* sc, s7_pointer args, const char* proc, ActionQuery query) {
+    if (!requireCap(sc, ScriptCap::InputQuery)) {
+        return s7_f(sc);
+    }
     if (g_inputWorld == nullptr) {
         return s7_f(sc);
     }

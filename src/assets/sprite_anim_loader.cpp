@@ -1,8 +1,7 @@
 #include "assets/sprite_anim_loader.hpp"
 
-#include <cctype>
-#include <charconv>
-#include <optional>
+#include "core/sexpr.hpp"
+
 #include <sstream>
 #include <string>
 
@@ -10,81 +9,15 @@ namespace slopengine {
 
 namespace {
 
-std::string_view trim(std::string_view value) {
-    while (!value.empty() && (value.front() == ' ' || value.front() == '\t' || value.front() == '\r')) {
-        value.remove_prefix(1);
-    }
-    while (!value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\r')) {
-        value.remove_suffix(1);
-    }
-    return value;
-}
-
-std::optional<std::string> readQuotedField(std::string_view line, std::string_view prefix) {
-    const std::size_t prefixPos = line.find(prefix);
-    if (prefixPos == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    const std::size_t quoteStart = line.find('"', prefixPos + prefix.size());
-    if (quoteStart == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    const std::size_t quoteEnd = line.find('"', quoteStart + 1);
-    if (quoteEnd == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    return std::string{line.substr(quoteStart + 1, quoteEnd - quoteStart - 1)};
-}
-
-bool readFloat(std::string_view text, float& out, std::string_view* remaining = nullptr) {
-    text = trim(text);
-    if (text.empty()) {
+bool parseTweenForm(const Sexpr& form, SpriteAnimFrame& out) {
+    if (!form.isList() || form.list.empty() || !form.list[0].isAtom("tween")) {
         return false;
     }
-
-    float parsed = 0.0f;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, parsed);
-    if (result.ec != std::errc{} || result.ptr == begin) {
-        return false;
-    }
-    out = parsed;
-    if (remaining != nullptr) {
-        *remaining = trim(std::string_view{result.ptr, static_cast<std::size_t>(end - result.ptr)});
-    }
-    return true;
-}
-
-bool readInt(std::string_view text, int& out) {
-    text = trim(text);
-    if (text.empty()) {
-        return false;
-    }
-
-    int parsed = 0;
-    const auto* begin = text.data();
-    const auto* end = text.data() + text.size();
-    const auto result = std::from_chars(begin, end, parsed);
-    if (result.ec != std::errc{} || result.ptr == begin) {
-        return false;
-    }
-    out = parsed;
-    return true;
-}
-
-bool parseTweenTokens(std::string_view text, SpriteAnimFrame& out) {
-    text = trim(text);
-    while (!text.empty()) {
-        std::size_t end = 0;
-        while (end < text.size() && !std::isspace(static_cast<unsigned char>(text[end])) &&
-               text[end] != ')') {
-            ++end;
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        if (form.list[i].kind != SexprKind::Atom) {
+            return false;
         }
-        const std::string_view token = text.substr(0, end);
+        const std::string& token = form.list[i].text;
         if (token == "all") {
             out.tweenRotation = true;
             out.tweenScale = true;
@@ -96,148 +29,120 @@ bool parseTweenTokens(std::string_view text, SpriteAnimFrame& out) {
         } else if (token == "translate") {
             out.tweenTranslate = true;
         } else if (token == "offset") {
-            // Legacy token ignored; offset is not tweenable.
-        } else if (!token.empty()) {
+            continue;
+        } else {
             return false;
         }
-        text = trim(text.substr(end));
     }
     return true;
 }
 
-bool parseSoundForm(std::string_view body, SpriteAnimFrame& out) {
-    body = trim(body);
-    if (body.empty() || body.front() != '"') {
+bool parseSoundForm(const Sexpr& form, SpriteAnimFrame& out) {
+    if (!form.isList() || form.list.size() < 2 || form.list.size() > 3 ||
+        !form.list[0].isAtom("sound") || !form.list[1].isString() || form.list[1].text.empty()) {
         return false;
     }
-    const std::size_t quoteEnd = body.find('"', 1);
-    if (quoteEnd == std::string_view::npos) {
-        return false;
-    }
-    out.sound = std::string{body.substr(1, quoteEnd - 1)};
-    if (out.sound.empty()) {
-        return false;
-    }
-    std::string_view afterPath = trim(body.substr(quoteEnd + 1));
-    if (afterPath.empty()) {
-        out.soundVolume = 1.0f;
-        return true;
-    }
-    float volume = 1.0f;
-    std::string_view remaining;
-    if (!readFloat(afterPath, volume, &remaining) || !remaining.empty()) {
-        return false;
-    }
-    out.soundVolume = volume;
-    return true;
-}
-
-bool parseHintForm(std::string_view body, SpriteAnimFrame& out) {
-    body = trim(body);
-    if (body.empty() || body.front() != '"') {
-        return false;
-    }
-    const std::size_t quoteEnd = body.find('"', 1);
-    if (quoteEnd == std::string_view::npos) {
-        return false;
-    }
-    const std::string name{body.substr(1, quoteEnd - 1)};
-    if (name.empty() || !trim(body.substr(quoteEnd + 1)).empty()) {
-        return false;
-    }
-    out.hints.push_back(name);
-    return true;
-}
-
-bool takeSexpForm(std::string_view& remaining, std::string_view& formOut) {
-    remaining = trim(remaining);
-    if (remaining.empty() || remaining.front() != '(') {
-        return false;
-    }
-    int depth = 0;
-    for (std::size_t i = 0; i < remaining.size(); ++i) {
-        if (remaining[i] == '(') {
-            ++depth;
-        } else if (remaining[i] == ')') {
-            --depth;
-            if (depth == 0) {
-                formOut = remaining.substr(0, i + 1);
-                remaining = trim(remaining.substr(i + 1));
-                return true;
-            }
+    out.sound = form.list[1].text;
+    out.soundVolume = 1.0f;
+    if (form.list.size() == 3) {
+        if (!form.list[2].isNumber()) {
+            return false;
         }
+        out.soundVolume = static_cast<float>(form.list[2].number);
     }
-    return false;
+    return true;
 }
 
-bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
-    if (line.rfind("(frame ", 0) != 0) {
+bool parseHintForm(const Sexpr& form, SpriteAnimFrame& out) {
+    if (!form.isList() || form.list.size() != 2 || !form.list[0].isAtom("hint") ||
+        !form.list[1].isString() || form.list[1].text.empty()) {
         return false;
     }
+    out.hints.push_back(form.list[1].text);
+    return true;
+}
 
-    std::string_view rest = trim(line.substr(std::string_view("(frame ").size()));
-    if (!rest.empty() && rest.back() == ')') {
-        rest.remove_suffix(1);
-        rest = trim(rest);
-    }
-
-    if (rest.empty() || rest.front() != '"') {
-        return false;
-    }
-    const std::size_t quoteEnd = rest.find('"', 1);
-    if (quoteEnd == std::string_view::npos) {
+bool parseFrameForm(const Sexpr& form, SpriteAnimFrame& out) {
+    if (!form.isList() || form.list.size() < 3 || !form.list[0].isAtom("frame") ||
+        !form.list[1].isString() || form.list[1].text.empty() || !form.list[2].isNumber() ||
+        form.list[2].number <= 0.0) {
         return false;
     }
 
     out = {};
-    out.id = std::string{rest.substr(1, quoteEnd - 1)};
-    std::string_view afterId = trim(rest.substr(quoteEnd + 1));
-    float duration = 0.0f;
-    std::string_view remaining;
-    if (out.id.empty() || !readFloat(afterId, duration, &remaining) || duration <= 0.0f) {
-        return false;
-    }
-    out.duration = duration;
-
-    remaining = trim(remaining);
-    while (!remaining.empty()) {
-        std::string_view form;
-        if (!takeSexpForm(remaining, form)) {
+    out.id = form.list[1].text;
+    out.duration = static_cast<float>(form.list[2].number);
+    for (std::size_t i = 3; i < form.list.size(); ++i) {
+        const Sexpr& child = form.list[i];
+        if (!child.isList() || child.list.empty() || child.list[0].kind != SexprKind::Atom) {
             return false;
         }
-        if (form.rfind("(tween", 0) == 0) {
-            std::string_view tweenBody = trim(form.substr(std::string_view("(tween").size()));
-            if (!tweenBody.empty() && tweenBody.back() == ')') {
-                tweenBody.remove_suffix(1);
-                tweenBody = trim(tweenBody);
-            }
-            if (!parseTweenTokens(tweenBody, out)) {
+        const std::string& tag = child.list[0].text;
+        if (tag == "tween") {
+            if (!parseTweenForm(child, out)) {
                 return false;
             }
-        } else if (form.rfind("(sound", 0) == 0) {
-            std::string_view soundBody = trim(form.substr(std::string_view("(sound").size()));
-            if (!soundBody.empty() && soundBody.back() == ')') {
-                soundBody.remove_suffix(1);
-                soundBody = trim(soundBody);
-            }
-            if (!parseSoundForm(soundBody, out)) {
+        } else if (tag == "sound") {
+            if (!parseSoundForm(child, out)) {
                 return false;
             }
-        } else if (form.rfind("(hint", 0) == 0) {
-            std::string_view hintBody = trim(form.substr(std::string_view("(hint").size()));
-            if (!hintBody.empty() && hintBody.back() == ')') {
-                hintBody.remove_suffix(1);
-                hintBody = trim(hintBody);
-            }
-            if (!parseHintForm(hintBody, out)) {
+        } else if (tag == "hint") {
+            if (!parseHintForm(child, out)) {
                 return false;
             }
         } else {
             return false;
         }
     }
-
     return true;
+}
+
+bool parseClipForm(const Sexpr& form, SpriteAnimClip& clip, bool& legacyClipTween) {
+    if (!form.isList() || form.list.size() < 2 || !form.list[0].isAtom("clip") ||
+        !form.list[1].isString() || form.list[1].text.empty()) {
+        return false;
+    }
+
+    clip = {};
+    clip.name = form.list[1].text;
+    clip.loop = true;
+    legacyClipTween = false;
+
+    for (std::size_t i = 2; i < form.list.size(); ++i) {
+        const Sexpr& child = form.list[i];
+        if (!child.isList() || child.list.empty() || child.list[0].kind != SexprKind::Atom) {
+            return false;
+        }
+        const std::string& tag = child.list[0].text;
+        if (tag == "loop") {
+            if (child.list.size() != 2 || !child.list[1].isNumber()) {
+                return false;
+            }
+            clip.loop = static_cast<int>(child.list[1].number) != 0;
+        } else if (tag == "tween") {
+            if (child.list.size() != 2 || !child.list[1].isNumber()) {
+                return false;
+            }
+            legacyClipTween = static_cast<int>(child.list[1].number) != 0;
+        } else if (tag == "frame") {
+            SpriteAnimFrame frame{};
+            if (!parseFrameForm(child, frame)) {
+                return false;
+            }
+            clip.frames.push_back(std::move(frame));
+        } else {
+            return false;
+        }
+    }
+
+    if (legacyClipTween) {
+        for (SpriteAnimFrame& frame : clip.frames) {
+            frame.tweenRotation = true;
+            frame.tweenScale = true;
+            frame.tweenTranslate = true;
+        }
+    }
+    return !clip.frames.empty();
 }
 
 void writeTweenSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
@@ -282,66 +187,24 @@ void writeHintSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
 
 bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
     bank = {};
-    SpriteAnimClip* currentClip = nullptr;
-    bool legacyClipTween = false;
-
-    auto finishClip = [&]() {
-        if (currentClip == nullptr) {
-            return;
-        }
-        if (legacyClipTween) {
-            for (SpriteAnimFrame& frame : currentClip->frames) {
-                frame.tweenRotation = true;
-                frame.tweenScale = true;
-                frame.tweenTranslate = true;
-            }
-        }
-        legacyClipTween = false;
-    };
-
-    std::size_t lineStart = 0;
-    while (lineStart <= source.size()) {
-        const std::size_t lineEnd = source.find('\n', lineStart);
-        const std::string_view line = trim(source.substr(
-            lineStart,
-            lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - lineStart));
-
-        if (lineEnd == std::string_view::npos && line.empty()) {
-            break;
-        }
-
-        if (auto clipName = readQuotedField(line, "(clip ")) {
-            finishClip();
-            bank.clips.push_back(SpriteAnimClip{});
-            currentClip = &bank.clips.back();
-            currentClip->name = *clipName;
-            legacyClipTween = false;
-        } else if (currentClip != nullptr && line.rfind("(loop ", 0) == 0) {
-            int loopValue = 1;
-            if (!readInt(line.substr(std::string_view("(loop ").size()), loopValue)) {
-                return false;
-            }
-            currentClip->loop = loopValue != 0;
-        } else if (currentClip != nullptr && line.rfind("(tween ", 0) == 0) {
-            int tweenValue = 0;
-            if (!readInt(line.substr(std::string_view("(tween ").size()), tweenValue)) {
-                return false;
-            }
-            legacyClipTween = tweenValue != 0;
-        } else if (currentClip != nullptr && line.rfind("(frame ", 0) == 0) {
-            SpriteAnimFrame frame{};
-            if (!parseFrameLine(line, frame)) {
-                return false;
-            }
-            currentClip->frames.push_back(std::move(frame));
-        }
-
-        if (lineEnd == std::string_view::npos) {
-            break;
-        }
-        lineStart = lineEnd + 1;
+    const SexprParseResult parsed = parseSexprs(source);
+    if (!parsed.ok) {
+        return false;
     }
-    finishClip();
+    if (parsed.forms.size() != 1 || !parsed.forms[0].isList() || parsed.forms[0].list.empty() ||
+        !parsed.forms[0].list[0].isAtom("sprite-anim")) {
+        return false;
+    }
+
+    const Sexpr& root = parsed.forms[0];
+    for (std::size_t i = 1; i < root.list.size(); ++i) {
+        SpriteAnimClip clip{};
+        bool legacyClipTween = false;
+        if (!parseClipForm(root.list[i], clip, legacyClipTween)) {
+            return false;
+        }
+        bank.clips.push_back(std::move(clip));
+    }
 
     if (bank.clips.empty()) {
         return false;

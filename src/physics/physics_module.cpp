@@ -270,7 +270,8 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                             scheme,
                             volume.onEnter,
                             thingId,
-                            entityIdString(candidate.entity));
+                            entityIdString(candidate.entity),
+                            ScriptScope::World);
                     }
                 }
 
@@ -284,7 +285,8 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                     flecs::entity other = world.entity(previousId);
                     const std::string otherId = other.is_alive() ? entityIdString(other)
                                                                 : std::to_string(previousId);
-                    tryCallSchemeProc2String(scheme, volume.onExit, thingId, otherId);
+                    tryCallSchemeProc2String(
+                        scheme, volume.onExit, thingId, otherId, ScriptScope::World);
                 }
 
                 volume.inside = std::move(currentlyInside);

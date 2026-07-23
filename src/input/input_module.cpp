@@ -85,7 +85,7 @@ void registerSystems(flecs::world& world) {
                     continue;
                 }
                 const std::string procName = std::string("on-action-") + registry.at(i).id;
-                tryCallSchemeProc(scheme, procName);
+                tryCallSchemeProc(scheme, procName, ScriptScope::World);
             }
         });
 }

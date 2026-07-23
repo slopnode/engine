@@ -26,6 +26,7 @@ void changeMap(
     flecs::world& world,
     AssetStore& assets,
     s7_scheme* scheme,
-    std::string_view mapName);
+    std::string_view mapName,
+    std::string_view reason = "fresh");
 
 }

@@ -17,6 +17,11 @@ struct GameState {
     GameStateKind kind = GameStateKind::Menu;
 };
 
+struct PendingMapLoad {
+    std::string mapName;
+    std::string reason = "fresh";
+};
+
 void enterMenu(flecs::world& world);
 void enterPlaying(flecs::world& world);
 
@@ -28,7 +33,7 @@ inline bool isMenu(const flecs::world& world) {
     return !isPlaying(world);
 }
 
-void requestMapLoad(std::string_view mapName);
-std::optional<std::string> takeRequestedMapLoad();
+void requestMapLoad(std::string_view mapName, std::string_view reason = "fresh");
+std::optional<PendingMapLoad> takeRequestedMapLoad();
 
 }

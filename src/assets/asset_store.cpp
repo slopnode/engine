@@ -943,33 +943,45 @@ bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
     return true;
 }
 
-bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path) {
+bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
     const auto resolved = vfs_.resolve(AssetKind::MapCsg, path);
     if (!resolved) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    if (environment != nullptr) {
+        s7_load_with_environment(scheme, resolved->string().c_str(), environment);
+    } else {
+        s7_load(scheme, resolved->string().c_str());
+    }
     return true;
 }
 
-bool AssetStore::loadMapThings(s7_scheme* scheme, std::string_view path) {
+bool AssetStore::loadMapThings(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
     const auto resolved = vfs_.resolve(AssetKind::MapThings, path);
     if (!resolved) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    if (environment != nullptr) {
+        s7_load_with_environment(scheme, resolved->string().c_str(), environment);
+    } else {
+        s7_load(scheme, resolved->string().c_str());
+    }
     return true;
 }
 
-bool AssetStore::loadMapGraphs(s7_scheme* scheme, std::string_view path) {
+bool AssetStore::loadMapGraphs(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
     const auto resolved = vfs_.resolve(AssetKind::MapGraphs, path);
     if (!resolved) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    if (environment != nullptr) {
+        s7_load_with_environment(scheme, resolved->string().c_str(), environment);
+    } else {
+        s7_load(scheme, resolved->string().c_str());
+    }
     return true;
 }
 
@@ -983,23 +995,31 @@ bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
     return true;
 }
 
-bool AssetStore::loadPrefabCsg(s7_scheme* scheme, std::string_view path) {
+bool AssetStore::loadPrefabCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
     const auto resolved = vfs_.resolve(AssetKind::PrefabCsg, path);
     if (!resolved) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    if (environment != nullptr) {
+        s7_load_with_environment(scheme, resolved->string().c_str(), environment);
+    } else {
+        s7_load(scheme, resolved->string().c_str());
+    }
     return true;
 }
 
-bool AssetStore::loadPrefabThings(s7_scheme* scheme, std::string_view path) {
+bool AssetStore::loadPrefabThings(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
     const auto resolved = vfs_.resolve(AssetKind::PrefabThings, path);
     if (!resolved) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    if (environment != nullptr) {
+        s7_load_with_environment(scheme, resolved->string().c_str(), environment);
+    } else {
+        s7_load(scheme, resolved->string().c_str());
+    }
     return true;
 }
 

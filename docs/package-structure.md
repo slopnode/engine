@@ -4,15 +4,16 @@ A package is a directory of game content mounted by the engine. The base game is
 
 ## Mounting
 
-Packages are mounted from the command line:
+Packages are mounted from the command line. The engine owns only mount flags; other flags come from the base game's `data/cli.s7` (see [Scripting](scripting.md#package-cli)):
 
 ```bash
-./build/slopengine --base-game <package-path> [--mod <mod-path>]... [--map <name>]
+./build/slopengine --base-game <package-path> [--mod <mod-path>]... [package-flags...]
 ```
 
 - `--base-game`: path to the base package directory (required)
 - `--mod`: additional package directory; can be repeated
-- `--map`: map folder name under `maps/` (loads `maps/<name>/static.csg`)
+
+Compile tools (`slopbsp`, `slopvis`, `sloprad`) and editors still take `--map` as a tool flag. The game runtime treats `--map` as a package flag when the base game declares it in `data/cli.s7`.
 
 Later packages override earlier ones when the same virtual asset path exists in more than one package. Package ids must be unique across the mount set, and every `depends` entry in `package.meta` must resolve to a mounted package.
 
@@ -42,7 +43,7 @@ my-package/
   package.meta
   animations/     # .anim, .tracks
   audio/          # .saudio, .s7 audio defs
-  data/           # .s7 (actions, items, view, ...)
+  data/           # .s7 (actions, items, view, cli, campaign, ...)
   fonts/          # .ttf (ImGui / UI)
   geometry/       # .geo, .vert, .weights
   icons/          # .png atlas + .iconmap (+ source folders)
@@ -104,7 +105,7 @@ GLSL sources under `shaders/`. Vertex and fragment programs are separate virtual
 
 ### Scripts
 
-Scheme (s7) sources under `scripts/` and package data under `data/`. Startup loads `init`, then `data/actions`, `data/items`, `data/view`, then `things`; after API binds, `player`. Map things are a separate `maps/<name>/things.s7`. See [Scripting](scripting.md) and [Things](things.md).
+Scheme (s7) sources under `scripts/` and package data under `data/`. Startup loads `init`, then `data/actions`, `data/items`, `data/view`, `data/cli`, then `things`; after API binds, `player` and optional `menus`. Map things are a separate `maps/<name>/things.s7`. See [Scripting](scripting.md) and [Things](things.md).
 
 ### Sound and audio
 
@@ -149,3 +150,7 @@ Reusable brush assemblies under `prefabs/`. A `.csg` file uses the same `brush-b
 Each map is a folder under `maps/<name>/` with authored `map.meta` / `static.csg`, optional `things.s7` / `graphs.s7`, and compiled `static.bsp` / `static.vis` plus optional `rad/`. The map belongs to whichever package directory contains it; `map.meta` `(depends ...)` lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, [slopmap](slopmap.md) for the editor, and [BSP](bsp.md) / [VIS](vis.md) / [Radiosity](rad.md) for the compile tools.
 
 A package is created by adding a `package.meta` with a unique `id`, the category folders you need, and mounting it with `--base-game` or `--mod`. Dependencies listed in `(depends ...)` must also be mounted.
+
+## Saves
+
+Player save data is not stored in packages. It lives under the user config directory (same root as `settings.cfg`), scoped by the mounted stack engine → base game → mods. Packages choose relative layout and S-expr body fields under that context, draw New/Load/Save UI in Scheme, and decide when to write. Full path rules and ownership: [Persistence](persistence.md). Menus, CLI, and save API: [Scripting](scripting.md#package-menus), [Scripting](scripting.md#save-io-and-map-flow).

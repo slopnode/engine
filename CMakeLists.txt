@@ -39,7 +39,9 @@ set(SLOPLIB_SOURCES
     src/core/engine_package.cpp
     src/core/package.cpp
     src/core/package_meta.cpp
+    src/core/sexpr.cpp
     src/core/vfs.cpp
+    src/script/script_scope.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
@@ -95,6 +97,7 @@ add_executable(slopengine
     src/game/user_settings.cpp
     src/game/app.cpp
     src/game/game_state.cpp
+    src/game/package_cli.cpp
     src/input/action_registry.cpp
     src/input/bind_code.cpp
     src/input/input_module.cpp
@@ -117,11 +120,14 @@ add_executable(slopengine
     src/render/render_module.cpp
     src/render/hud.cpp
     src/script/scheme_call.cpp
+    src/script/scheme_harden.cpp
     src/script/first_person_script.cpp
     src/script/hud_script.cpp
     src/script/input_script.cpp
     src/script/audio_script.cpp
     src/script/thing_script.cpp
+    src/script/save_script.cpp
+    src/script/ui_script.cpp
 )
 
 target_link_libraries(slopengine PRIVATE
@@ -244,5 +250,8 @@ add_custom_target(pack-silk-icons
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/packages/engine/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/slopengine/engine"
 )
+
+enable_testing()
+add_subdirectory(test)
 
 include(cmake/Doxygen.cmake)

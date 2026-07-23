@@ -1,4 +1,5 @@
 #include "script/first_person_script.hpp"
+#include "script/script_scope.hpp"
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
@@ -101,6 +102,9 @@ flecs::entity findSpriteUnderSocket(flecs::entity socket) {
 }
 
 s7_pointer g_fp_clear_socket(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "fp-clear-socket", 1, args, "socket-name string");
     }
@@ -115,6 +119,9 @@ s7_pointer g_fp_clear_socket(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -201,6 +208,9 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -295,6 +305,9 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -322,6 +335,9 @@ s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_play_sprite_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -356,6 +372,9 @@ s7_pointer g_fp_play_sprite_anim(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_sprite_anim_busy(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -379,6 +398,9 @@ s7_pointer g_fp_sprite_anim_busy(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_sprite_pos(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -414,6 +436,9 @@ s7_pointer g_fp_set_sprite_pos(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_sprite_scale(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -449,6 +474,9 @@ s7_pointer g_fp_set_sprite_scale(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_sprite_rotation(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -477,6 +505,9 @@ s7_pointer g_fp_set_sprite_rotation(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_sprite_origin(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -512,6 +543,9 @@ s7_pointer g_fp_set_sprite_origin(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_spawn_light(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -604,6 +638,9 @@ s7_pointer g_fp_spawn_light(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_light_enabled(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -638,6 +675,9 @@ s7_pointer g_fp_set_light_enabled(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_rad_tint(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr || !s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "fp-set-rad-tint", 1, args, "enabled");
     }
@@ -650,6 +690,9 @@ s7_pointer g_fp_set_rad_tint(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_shading(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr || !s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "fp-set-shading", 1, args, "enabled");
     }
@@ -662,6 +705,9 @@ s7_pointer g_fp_set_shading(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_eye_offset(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -695,6 +741,9 @@ s7_pointer g_fp_set_eye_offset(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
         return s7_make_real(sc, 0.0);
     }
@@ -708,6 +757,9 @@ s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
         return s7_f(sc);
     }
@@ -719,6 +771,9 @@ s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_make_real(sc, 0.0);
     }
@@ -732,6 +787,9 @@ s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_eye(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -749,6 +807,9 @@ s7_pointer g_player_eye(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_player_look_dir(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -885,7 +946,11 @@ void callPrepareFirstPerson(flecs::world& world) {
     if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    tryCallSchemeProc1String(world.get<ScriptContext>().scheme, "prepare-first-person", "Player");
+    tryCallSchemeProc1String(
+        world.get<ScriptContext>().scheme,
+        "prepare-first-person",
+        "Player",
+        ScriptScope::World);
 }
 
 FirstPersonViewShader createFirstPersonViewShader(AssetStore& assets) {

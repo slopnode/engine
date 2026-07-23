@@ -6,7 +6,7 @@ namespace slopengine {
 
 namespace {
 
-std::optional<std::string> g_pendingMapLoad;
+std::optional<PendingMapLoad> g_pendingMapLoad;
 
 }
 
@@ -28,12 +28,15 @@ void enterPlaying(flecs::world& world) {
     }
 }
 
-void requestMapLoad(std::string_view mapName) {
-    g_pendingMapLoad = std::string(mapName);
+void requestMapLoad(std::string_view mapName, std::string_view reason) {
+    PendingMapLoad pending;
+    pending.mapName = std::string(mapName);
+    pending.reason = reason.empty() ? std::string("fresh") : std::string(reason);
+    g_pendingMapLoad = std::move(pending);
 }
 
-std::optional<std::string> takeRequestedMapLoad() {
-    std::optional<std::string> pending = std::move(g_pendingMapLoad);
+std::optional<PendingMapLoad> takeRequestedMapLoad() {
+    std::optional<PendingMapLoad> pending = std::move(g_pendingMapLoad);
     g_pendingMapLoad.reset();
     return pending;
 }

@@ -3,13 +3,17 @@
 #include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
 #include "game/game_state.hpp"
+#include "game/package_cli.hpp"
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
+#include "script/save_script.hpp"
 #include "script/scheme_call.hpp"
+#include "script/scheme_harden.hpp"
+#include "script/script_scope.hpp"
 #include "ui/imgui_fonts.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
@@ -18,6 +22,9 @@
 
 #include <raylib.h>
 #include <s7.h>
+
+#include <stdexcept>
+#include <string>
 
 namespace slopengine {
 
@@ -47,6 +54,7 @@ App::App(AppConfig config)
     registerCameraModule(world_);
     registerInteractModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
+    callOnStartup(world_);
     running_ = true;
 }
 
@@ -57,7 +65,7 @@ App::~App() {
 int App::run() {
     while (running_ && !WindowShouldClose()) {
         if (auto pendingMap = takeRequestedMapLoad()) {
-            changeMap(world_, assetStore_, scheme_, *pendingMap);
+            changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
         }
         world_.progress();
         if (world_.get<QuitRequest>().requested) {
@@ -77,6 +85,8 @@ void App::init_window() {
 
 void App::init_script() {
     scheme_ = s7_init();
+    hardenSchemeRuntime(scheme_);
+    ScriptScopeGuard bootScope(ScriptScope::Boot);
     if (!assetStore_.loadScript(scheme_, "init")) {
         TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
     }
@@ -95,6 +105,21 @@ void App::init_script() {
     world_.set<ViewCanvas>(parseViewCanvasFromScheme(scheme_));
     world_.component<HudCanvas>();
     world_.set<HudCanvas>(parseHudCanvasFromScheme(scheme_));
+
+    std::vector<PackageCliFlag> cliSchema;
+    if (assetStore_.loadData(scheme_, "cli")) {
+        cliSchema = parsePackageCliFromScheme(scheme_);
+    } else {
+        TraceLog(LOG_INFO, "SCRIPT: data/cli.s7 not loaded (no package CLI flags)");
+    }
+
+    std::string cliError;
+    if (!config_.parsePackageArgs(cliSchema, cliError)) {
+        AppConfig::printUsage(config_.programName.c_str(), cliSchema);
+        throw std::invalid_argument(cliError.empty() ? "invalid package CLI" : cliError);
+    }
+    bindStartupApi(scheme_, config_.packageArgs);
+
     if (!assetStore_.loadScript(scheme_, "things")) {
         TraceLog(LOG_WARNING, "SCRIPT: things.s7 not loaded");
     }

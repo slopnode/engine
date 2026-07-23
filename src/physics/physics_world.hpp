@@ -76,6 +76,7 @@ struct PhysicsWorld {
     bool characterSupported(std::uint64_t id) const;
 
     JPH::RVec3 playerPosition() const;
+    void setPlayerPosition(float x, float y, float z);
     JPH::Vec3 playerVelocity() const;
     bool playerSupported() const;
 

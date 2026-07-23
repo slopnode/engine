@@ -1,66 +1,14 @@
 #include "assets/material_loader.hpp"
 
+#include "core/sexpr.hpp"
+
 #include <rlgl.h>
 
-#include <charconv>
-#include <optional>
 #include <string>
 
 namespace slopengine {
 
 namespace {
-
-std::string_view trim(std::string_view value) {
-    while (!value.empty() && (value.front() == ' ' || value.front() == '\t' || value.front() == '\r')) {
-        value.remove_prefix(1);
-    }
-    while (!value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\r')) {
-        value.remove_suffix(1);
-    }
-    return value;
-}
-
-std::optional<std::string> readQuotedField(std::string_view line, std::string_view prefix) {
-    const std::size_t prefixPos = line.find(prefix);
-    if (prefixPos == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    const std::size_t quoteStart = line.find('"', prefixPos + prefix.size());
-    if (quoteStart == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    const std::size_t quoteEnd = line.find('"', quoteStart + 1);
-    if (quoteEnd == std::string_view::npos) {
-        return std::nullopt;
-    }
-
-    return std::string{line.substr(quoteStart + 1, quoteEnd - quoteStart - 1)};
-}
-
-bool readFloats(std::string_view text, std::size_t count, float* out) {
-    std::string_view value = trim(text);
-    for (std::size_t index = 0; index < count; ++index) {
-        value = trim(value);
-        if (value.empty()) {
-            return false;
-        }
-
-        float parsed = 0.0f;
-        const auto* begin = value.data();
-        const auto* end = value.data() + value.size();
-        const auto result = std::from_chars(begin, end, parsed);
-        if (result.ec != std::errc{} || result.ptr == begin) {
-            return false;
-        }
-
-        out[index] = parsed;
-        value.remove_prefix(static_cast<std::size_t>(result.ptr - begin));
-    }
-
-    return true;
-}
 
 Color colorFromNormalized(float r, float g, float b, float a) {
     return {
@@ -71,60 +19,116 @@ Color colorFromNormalized(float r, float g, float b, float a) {
     };
 }
 
+bool readStringField(const Sexpr& form, std::string& out) {
+    if (!form.isList() || form.list.size() != 2 || !form.list[1].isString()) {
+        return false;
+    }
+    out = form.list[1].text;
+    return true;
+}
+
+bool readNumberField(const Sexpr& form, std::size_t count, float* out) {
+    if (!form.isList() || form.list.size() != count + 1) {
+        return false;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!form.list[i + 1].isNumber()) {
+            return false;
+        }
+        out[i] = static_cast<float>(form.list[i + 1].number);
+    }
+    return true;
+}
+
+bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
+    if (!form.isList() || form.list.empty() || form.list[0].kind != SexprKind::Atom) {
+        error = {"expected material field list", form.line, form.column};
+        return false;
+    }
+
+    const std::string& tag = form.list[0].text;
+    if (tag == "shader") {
+        if (!readStringField(form, asset.shader)) {
+            error = {"(shader \"name\")", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
+    if (tag == "texture") {
+        if (!readStringField(form, asset.albedoTexture)) {
+            error = {"(texture \"path\")", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
+    if (tag == "emission") {
+        if (!readStringField(form, asset.emissionTexture)) {
+            error = {"(emission \"path\")", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
+    if (tag == "base-color") {
+        float rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        if (!readNumberField(form, 4, rgba)) {
+            error = {"(base-color r g b a)", form.line, form.column};
+            return false;
+        }
+        asset.baseColor = colorFromNormalized(rgba[0], rgba[1], rgba[2], rgba[3]);
+        return true;
+    }
+    if (tag == "texel-size") {
+        float texelSize = 64.0f;
+        if (!readNumberField(form, 1, &texelSize)) {
+            error = {"(texel-size n)", form.line, form.column};
+            return false;
+        }
+        asset.pixelsPerMeter = texelSize;
+        return true;
+    }
+    if (tag == "emission-color") {
+        float rgba[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        if (!readNumberField(form, 4, rgba)) {
+            error = {"(emission-color r g b a)", form.line, form.column};
+            return false;
+        }
+        asset.emissionColor = colorFromNormalized(rgba[0], rgba[1], rgba[2], rgba[3]);
+        return true;
+    }
+    if (tag == "emission-power") {
+        float power = 0.0f;
+        if (!readNumberField(form, 1, &power)) {
+            error = {"(emission-power n)", form.line, form.column};
+            return false;
+        }
+        asset.emissionPower = power;
+        return true;
+    }
+
+    error = {"unknown material field '" + tag + "'", form.line, form.column};
+    return false;
+}
+
 } // namespace
 
 bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
     asset = {};
-
-    std::size_t lineStart = 0;
-    while (lineStart <= source.size()) {
-        const std::size_t lineEnd = source.find('\n', lineStart);
-        const std::string_view line = trim(source.substr(
-            lineStart,
-            lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - lineStart));
-
-        if (lineEnd == std::string_view::npos && line.empty()) {
-            break;
-        }
-
-        if (auto shader = readQuotedField(line, "(shader ")) {
-            asset.shader = *shader;
-        } else if (auto texture = readQuotedField(line, "(texture ")) {
-            asset.albedoTexture = *texture;
-        } else if (line.rfind("(base-color ", 0) == 0) {
-            float rgba[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-            if (!readFloats(line.substr(std::string_view("(base-color ").size()), 4, rgba)) {
-                return false;
-            }
-            asset.baseColor = colorFromNormalized(rgba[0], rgba[1], rgba[2], rgba[3]);
-        } else if (line.rfind("(texel-size ", 0) == 0) {
-            float texelSize = 64.0f;
-            if (!readFloats(line.substr(std::string_view("(texel-size ").size()), 1, &texelSize)) {
-                return false;
-            }
-            asset.pixelsPerMeter = texelSize;
-        } else if (auto emission = readQuotedField(line, "(emission ")) {
-            asset.emissionTexture = *emission;
-        } else if (line.rfind("(emission-color ", 0) == 0) {
-            float rgba[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-            if (!readFloats(line.substr(std::string_view("(emission-color ").size()), 4, rgba)) {
-                return false;
-            }
-            asset.emissionColor = colorFromNormalized(rgba[0], rgba[1], rgba[2], rgba[3]);
-        } else if (line.rfind("(emission-power ", 0) == 0) {
-            float power = 0.0f;
-            if (!readFloats(line.substr(std::string_view("(emission-power ").size()), 1, &power)) {
-                return false;
-            }
-            asset.emissionPower = power;
-        }
-
-        if (lineEnd == std::string_view::npos) {
-            break;
-        }
-        lineStart = lineEnd + 1;
+    const SexprParseResult parsed = parseSexprs(source);
+    if (!parsed.ok) {
+        return false;
+    }
+    if (parsed.forms.size() != 1 || !parsed.forms[0].isList() || parsed.forms[0].list.empty() ||
+        !parsed.forms[0].list[0].isAtom("material")) {
+        return false;
     }
 
+    const Sexpr& root = parsed.forms[0];
+    SexprParseError error{};
+    for (std::size_t i = 1; i < root.list.size(); ++i) {
+        if (!applyMaterialField(root.list[i], asset, error)) {
+            return false;
+        }
+    }
     return true;
 }
 

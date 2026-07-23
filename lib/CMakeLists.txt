@@ -79,6 +79,11 @@ set_target_properties(s7 PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
+target_compile_definitions(s7 PRIVATE
+    WITH_SYSTEM_EXTRAS=0
+    WITH_C_LOADER=0
+)
+
 if(MSVC)
     target_compile_definitions(s7 PRIVATE
         MUS_CONFIG_H_LOADED=1

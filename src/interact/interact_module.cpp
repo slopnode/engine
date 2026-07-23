@@ -9,6 +9,7 @@
 #include "render/components.hpp"
 #include "render/sprite_billboard.hpp"
 #include "script/script_context.hpp"
+#include "script/script_scope.hpp"
 
 #include <limits>
 #include <string>
@@ -66,6 +67,7 @@ bool tryCallUseHandler(s7_scheme* scheme, const std::string& handlerName, const 
         return false;
     }
 
+    ScriptScopeGuard guard(ScriptScope::World);
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_string(scheme, entityId.c_str())));
     return true;
 }

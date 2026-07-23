@@ -1,5 +1,7 @@
 #include "map/csg_script.hpp"
 
+#include "script/script_scope.hpp"
+
 #include "map/brush.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
@@ -331,11 +333,16 @@ bool expandPrefabIntoBrushes(
     child.nestStack = parentNest;
     child.nestStack.push_back(instance.path);
 
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(sc, s7_rootlet(sc), s7_nil(sc));
+    const s7_pointer previousEnv = s7_set_curlet(sc, env);
+
     CsgBuilder* previous = g_builder;
     g_builder = &child;
     bindCsgApi(sc);
-    const bool loaded = assets.loadPrefabCsg(sc, instance.path);
+    const bool loaded = assets.loadPrefabCsg(sc, instance.path, env);
     g_builder = previous;
+    s7_set_curlet(sc, previousEnv);
     if (!loaded || child.brushes.empty()) {
         return false;
     }
@@ -741,13 +748,18 @@ std::optional<MapCsgDocument> loadMapCsgDocument(
         return std::nullopt;
     }
 
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(scheme, s7_rootlet(scheme), s7_nil(scheme));
+    const s7_pointer previousEnv = s7_set_curlet(scheme, env);
+
     CsgBuilder builder;
     builder.assets = &assets;
     builder.recordTopLevelInstances = true;
     g_builder = &builder;
     bindCsgApi(scheme);
-    const bool loaded = assets.loadMapCsg(scheme, virtualPath);
+    const bool loaded = assets.loadMapCsg(scheme, virtualPath, env);
     g_builder = nullptr;
+    s7_set_curlet(scheme, previousEnv);
     if (!loaded || (builder.brushes.empty() && builder.instances.empty())) {
         return std::nullopt;
     }
@@ -823,13 +835,18 @@ std::optional<std::vector<Brush>> loadPrefabBrushes(
         return std::nullopt;
     }
 
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(scheme, s7_rootlet(scheme), s7_nil(scheme));
+    const s7_pointer previousEnv = s7_set_curlet(scheme, env);
+
     CsgBuilder builder;
     builder.assets = &assets;
     builder.recordTopLevelInstances = false;
     g_builder = &builder;
     bindCsgApi(scheme);
-    const bool loaded = assets.loadPrefabCsg(scheme, prefabPath);
+    const bool loaded = assets.loadPrefabCsg(scheme, prefabPath, env);
     g_builder = nullptr;
+    s7_set_curlet(scheme, previousEnv);
     if (!loaded || builder.brushes.empty()) {
         return std::nullopt;
     }

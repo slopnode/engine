@@ -11,7 +11,7 @@ cmake --build build --target sloprad
   [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]
 ```
 
-Shared flags with the game: `--base-game`, repeated `--mod`, and `--map <name>` (folder name under `maps/`, not a file path).
+Shared mount flags with the game: `--base-game` and repeated `--mod`. Tools also require `--map <name>` (folder under `maps/`). The game runtime takes `--map` only when the base package declares it in `data/cli.s7`.
 
 Re-run after VIS face-id churn, material / albedo / emission / ambient edits, or `things.s7` point/spot changes that should affect static light. Missing `rad/` only skips lightmaps at load.
 

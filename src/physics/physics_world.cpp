@@ -780,6 +780,15 @@ JPH::RVec3 PhysicsWorld::playerPosition() const {
     return characterPosition(playerId_);
 }
 
+void PhysicsWorld::setPlayerPosition(float x, float y, float z) {
+    auto it = characters_.find(playerId_);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return;
+    }
+    it->second.character->SetPosition(JPH::RVec3(x, y, z));
+    it->second.character->SetLinearVelocity(JPH::Vec3::sZero());
+}
+
 JPH::Vec3 PhysicsWorld::playerVelocity() const {
     return characterVelocity(playerId_);
 }

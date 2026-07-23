@@ -32,9 +32,12 @@
 #include "script/first_person_script.hpp"
 #include "script/hud_script.hpp"
 #include "script/input_script.hpp"
+#include "script/save_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
+#include "script/script_scope.hpp"
 #include "script/thing_script.hpp"
+#include "script/ui_script.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
 #include "core/screenshot.hpp"
@@ -751,7 +754,10 @@ void registerSchemeTickSystem(flecs::world& world) {
                 return;
             }
             tryCallSchemeProc1Real(
-                world.get<ScriptContext>().scheme, "tick", static_cast<double>(GetFrameTime()));
+                world.get<ScriptContext>().scheme,
+                "tick",
+                static_cast<double>(GetFrameTime()),
+                ScriptScope::World);
         });
 }
 
@@ -1071,7 +1077,8 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
                 s7_scheme* scheme = world.get<ScriptContext>().scheme;
                 for (const std::string& hint : frame.hints) {
-                    tryCallSchemeProc2String(scheme, "on-sprite-hint", source, hint);
+                    tryCallSchemeProc2String(
+                        scheme, "on-sprite-hint", source, hint, ScriptScope::World);
                 }
             };
 
@@ -1642,7 +1649,8 @@ void registerRenderSystems(flecs::world& world) {
                 HudDrawList& hud = world.get_mut<HudDrawList>();
                 hud.clear();
                 if (world.has<ScriptContext>() && world.get<ScriptContext>().scheme != nullptr) {
-                    tryCallSchemeProc(world.get<ScriptContext>().scheme, "draw-hud");
+                    tryCallSchemeProc(
+                        world.get<ScriptContext>().scheme, "draw-hud", ScriptScope::Hud);
                 }
                 flushHudDrawList(hud, viewAssets, world.get_mut<HudFontCache>(), hudFit);
             }
@@ -1815,7 +1823,12 @@ void unloadMapScene(flecs::world& world) {
     }
 }
 
-bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view mapName) {
+bool registerMapScene(
+    flecs::world& world,
+    AssetStore& assets,
+    s7_scheme* scheme,
+    std::string_view mapName,
+    std::string_view reason) {
     auto loaded = loadAndCompileMap(scheme, assets, mapName);
     if (!loaded) {
         TraceLog(LOG_WARNING, "MAP: failed to spawn map '%.*s'", static_cast<int>(mapName.size()), mapName.data());
@@ -1952,6 +1965,7 @@ bool registerMapScene(flecs::world& world, AssetStore& assets, s7_scheme* scheme
     }
     updateFirstPersonSceneTransforms(world);
     callPrepareFirstPerson(world);
+    callOnMapReady(world, mapName, reason);
 
     world.set<CurrentMap>(CurrentMap{std::string(mapName)});
     return true;
@@ -1961,9 +1975,10 @@ void changeMap(
     flecs::world& world,
     AssetStore& assets,
     s7_scheme* scheme,
-    std::string_view mapName) {
+    std::string_view mapName,
+    std::string_view reason) {
     unloadMapScene(world);
-    if (registerMapScene(world, assets, scheme, mapName)) {
+    if (registerMapScene(world, assets, scheme, mapName, reason)) {
         enterPlaying(world);
     } else {
         enterMenu(world);
@@ -1990,8 +2005,16 @@ void registerRenderModule(
     bindHudApi(world, scheme);
     bindInputApi(world, scheme);
     bindThingRuntimeApi(world, scheme);
-    if (scheme != nullptr && !assets.loadScript(scheme, "player")) {
-        TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");
+    bindSaveApi(world, assets, scheme);
+    bindUiApi(world, scheme);
+    {
+        ScriptScopeGuard bootScope(ScriptScope::Boot);
+        if (scheme != nullptr && !assets.loadScript(scheme, "player")) {
+            TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");
+        }
+        if (scheme != nullptr && !assets.loadScript(scheme, "menus")) {
+            TraceLog(LOG_INFO, "SCRIPT: menus.s7 not loaded");
+        }
     }
 
     registerSpinSystem(world);
@@ -2002,17 +2025,9 @@ void registerRenderModule(
     registerTransformSystems(world);
     registerRenderSystems(world);
 
-    if (config.map) {
-        if (registerMapScene(world, assets, scheme, *config.map)) {
-            enterPlaying(world);
-        } else {
-            TraceLog(LOG_WARNING, "RENDER: --map '%s' failed to load; entering menu", config.map->c_str());
-            enterMenu(world);
-        }
-    } else {
-        TraceLog(LOG_INFO, "RENDER: no --map; entering menu (Debug → Map)");
-        enterMenu(world);
-    }
+    (void)config;
+    TraceLog(LOG_INFO, "RENDER: entering menu (package on-startup / Debug → Map)");
+    enterMenu(world);
 }
 
 }
