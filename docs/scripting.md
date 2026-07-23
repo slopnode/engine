@@ -193,7 +193,8 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (mover-progress id) | Current 0..1 progress, or #f. |
 | (mover-state id) | Alist `((open? . bool) (progress . n) (locked? . bool))` or #f — for save capture. |
 | (mover-set-state id open? progress [locked?]) | Restore after map load (snaps pose / kinematic). |
-| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "". Integrates velocity against static brush hulls; positive gravity pulls down; empty on-impact silently despawns on hit. See [Things](things.md#motored-bodies). |
+| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "". Integrates velocity against static brush hulls; positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z)` with the sphere-cast hit point, then despawns. See [Things](things.md#motored-bodies). |
+| (sprite-spawn id x y z path [clip] [lifetime]) | Spawn a world billboard at runtime. Optional non-looping `.spanim` clip; optional lifetime (default 0.5) queues despawn. |
 | (actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) | Runtime actor (kind "sprite" or "geo"). Defaults match player motor; empty tags → ("actor"). |
 | (actor-pos id) | Feet (x y z) or #f |
 | (actor-yaw id) | Yaw radians or #f |

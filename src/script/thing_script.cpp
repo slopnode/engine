@@ -35,6 +35,11 @@ struct ThingDespawnQueue {
     std::vector<std::string> ids;
 };
 
+struct TimedDespawn {
+    float age = 0.0f;
+    float lifetime = 0.0f;
+};
+
 bool isProtectedThingId(std::string_view id) {
     return id == "Player" || id == "MapStatic";
 }
@@ -131,6 +136,23 @@ void registerFlushThingDespawns(flecs::world& world) {
                 }
             }
             queue.ids.clear();
+        });
+}
+
+void registerTimedDespawnSystem(flecs::world& world) {
+    world.component<TimedDespawn>();
+    world.system<TimedDespawn>("TimedDespawnAdvance")
+        .kind(flecs::OnUpdate)
+        .each([](flecs::entity entity, TimedDespawn& timed) {
+            const float dt = GetFrameTime();
+            if (dt <= 0.0f) {
+                return;
+            }
+            timed.age += dt;
+            if (timed.lifetime > 0.0f && timed.age >= timed.lifetime) {
+                flecs::world world = entity.world();
+                queueThingDespawn(world, entityIdString(entity));
+            }
         });
 }
 
@@ -261,6 +283,85 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     body.age = 0.0f;
     body.onImpact = std::move(onImpact);
     entity.set<MotoredBody>(body);
+
+    return s7_t(sc);
+}
+
+s7_pointer g_sprite_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "sprite-spawn", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0, y = 0, z = 0;
+    if (!readNumberArg(sc, args, x, "sprite-spawn", 2) ||
+        !readNumberArg(sc, args, y, "sprite-spawn", 3) ||
+        !readNumberArg(sc, args, z, "sprite-spawn", 4)) {
+        return s7_wrong_type_arg_error(sc, "sprite-spawn", 2, args, "x y z numbers");
+    }
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "sprite-spawn", 5, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    std::string clip;
+    float lifetime = 0.5f;
+    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+        clip = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        lifetime = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasSprite(path)) {
+        TraceLog(LOG_WARNING, "sprite-spawn: missing sprite '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = g_thingWorld->entity(id.c_str());
+    LocalTransformation local{};
+    local.position = {x, y, z};
+    local.scale = {1.0f, 1.0f, 1.0f};
+    local.rotation = QuaternionIdentity();
+
+    entity.add<WorldSpace>().add<MapOwned>().set<LocalTransformation>(local);
+    entity.set<SpriteInstance>({
+        .sprite = path,
+        .frame = "A",
+        .facingYaw = 0.0f,
+    });
+
+    if (!clip.empty()) {
+        SpriteAnimator animator{};
+        animator.animPath = path;
+        animator.play(clip, false);
+        entity.set<SpriteAnimator>(animator);
+    }
+
+    if (lifetime > 0.0f) {
+        entity.set<TimedDespawn>({.age = 0.0f, .lifetime = lifetime});
+    }
 
     return s7_t(sc);
 }
@@ -956,6 +1057,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         world.set<ThingDespawnQueue>({});
     }
     registerFlushThingDespawns(world);
+    registerTimedDespawnSystem(world);
 
     if (scheme == nullptr) {
         return;
@@ -977,6 +1079,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         4,
         false,
         "(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact])");
+    s7_define_function(
+        scheme,
+        "sprite-spawn",
+        g_sprite_spawn,
+        5,
+        2,
+        false,
+        "(sprite-spawn id x y z path [clip] [lifetime])");
     s7_define_function(
         scheme,
         "actor-spawn",

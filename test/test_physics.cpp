@@ -2,6 +2,7 @@
 
 #include "map/brush.hpp"
 #include "physics/components.hpp"
+#include "physics/motored_sweep.hpp"
 #include "physics/physics_world.hpp"
 #include "physics/rigid_mover.hpp"
 
@@ -226,11 +227,118 @@ void runKinematicTests() {
     }
 }
 
+void runCastScanTests() {
+    PhysicsWorld world;
+    const Brush wall = makeBrushBox(
+        "wall",
+        {-0.5f, 0.0f, 2.0f},
+        {0.5f, 2.0f, 2.2f},
+        "mat/a",
+        {});
+    world.addStaticBrushes({wall});
+
+    {
+        const auto hit = world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f);
+        CHECK(hit.has_value());
+        CHECK(hit->fraction > 0.0f);
+        CHECK(hit->fraction < 1.0f);
+        CHECK(std::fabs(hit->point.z - 2.0f) < 0.05f);
+    }
+
+    {
+        const auto miss = world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 10.0f);
+        CHECK_FALSE(miss.has_value());
+    }
+
+    {
+        const auto hit = world.castSphere({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, 0.15f);
+        CHECK(hit.has_value());
+        CHECK(hit->fraction > 0.0f);
+        CHECK(hit->fraction < 1.0f);
+        CHECK(hit->point.z < 2.0f);
+    }
+
+    {
+        const auto miss = world.castSphere({0.0f, 1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, 1.0f, 0.15f);
+        CHECK_FALSE(miss.has_value());
+    }
+}
+
+void runMotoredSweepTests() {
+    CharacterMotor motor{};
+    motor.radius = 0.35f;
+    motor.height = 1.1f;
+    const Vector3 feet{0.0f, 0.0f, 5.0f};
+    const Vector3 axisA{feet.x, feet.y + motor.radius, feet.z};
+    const Vector3 axisB{feet.x, feet.y + motor.radius + motor.height, feet.z};
+
+    {
+        const auto hit =
+            raycastCapsule({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, axisA, axisB, motor.radius);
+        CHECK(hit.has_value());
+        CHECK(std::fabs(*hit - (5.0f - motor.radius)) < 0.05f);
+    }
+
+    {
+        const auto miss =
+            raycastCapsule({3.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, axisA, axisB, motor.radius);
+        CHECK_FALSE(miss.has_value());
+    }
+
+    {
+        const auto top =
+            raycastCapsule({0.0f, 3.0f, 5.0f}, {0.0f, -1.0f, 0.0f}, 10.0f, axisA, axisB, motor.radius);
+        CHECK(top.has_value());
+        CHECK(*top > 0.0f);
+        CHECK(*top < 3.0f);
+    }
+
+    {
+        constexpr float rocketR = 0.15f;
+        const auto hit = sweepSphereActorCapsule(
+            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, rocketR, feet, motor);
+        CHECK(hit.has_value());
+        CHECK(*hit > 0.0f);
+        CHECK(*hit < 1.0f);
+        const float expectedDist = 5.0f - motor.radius - rocketR;
+        CHECK(std::fabs((*hit) * 10.0f - expectedDist) < 0.08f);
+    }
+
+    {
+        const auto miss = sweepSphereActorCapsule(
+            {3.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, 0.15f, feet, motor);
+        CHECK_FALSE(miss.has_value());
+    }
+
+    {
+        const auto inside = sweepSphereActorCapsule(
+            {0.0f, 1.0f, 5.0f}, {0.0f, 0.0f, 1.0f}, 2.0f, 0.15f, feet, motor);
+        CHECK(inside.has_value());
+        CHECK_EQ(*inside, 0.0f);
+    }
+
+    {
+        CharacterMotor nearMotor = motor;
+        const Vector3 nearFeet{0.0f, 0.0f, 2.0f};
+        const Vector3 farFeet{0.0f, 0.0f, 8.0f};
+        const auto nearHit = sweepSphereActorCapsule(
+            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, 0.15f, nearFeet, nearMotor);
+        const auto farHit = sweepSphereActorCapsule(
+            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, 0.15f, farFeet, nearMotor);
+        CHECK(nearHit.has_value());
+        CHECK(farHit.has_value());
+        CHECK(*nearHit < *farHit);
+    }
+}
+
 } // namespace
 
 void runPhysicsTests() {
     runAutoCloseTests();
     runKinematicTests();
+    runCastScanTests();
+    runMotoredSweepTests();
 }
 
 }
+

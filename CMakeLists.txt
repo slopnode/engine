@@ -112,6 +112,7 @@ add_executable(slopengine
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/motored_body.cpp
+    src/physics/motored_sweep.cpp
     src/physics/rigid_mover.cpp
     src/physics/rigid_mover_motion.cpp
     src/physics/map_collision.cpp

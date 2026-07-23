@@ -32,6 +32,14 @@ bool tryCallSchemeProc2String(
     const std::string& arg0,
     const std::string& arg1,
     ScriptScope scope);
+bool tryCallSchemeProc1String3Reals(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    double x,
+    double y,
+    double z,
+    ScriptScope scope);
 
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme);
 HudCanvas parseHudCanvasFromScheme(s7_scheme* scheme);

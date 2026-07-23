@@ -12,6 +12,7 @@ add_executable(sloptests
     test_frustum.cpp
     test_transform.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp

@@ -134,6 +134,37 @@ bool tryCallSchemeProc2String(
     return true;
 }
 
+bool tryCallSchemeProc1String3Reals(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    double x,
+    double y,
+    double z,
+    ScriptScope scope) {
+    if (scheme == nullptr || name.empty()) {
+        return false;
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+
+    ScriptScopeGuard guard(scope);
+    s7_call(
+        scheme,
+        func,
+        s7_list(
+            scheme,
+            4,
+            s7_make_string(scheme, arg0.c_str()),
+            s7_make_real(scheme, x),
+            s7_make_real(scheme, y),
+            s7_make_real(scheme, z)));
+    return true;
+}
+
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme) {
     ViewCanvas canvas{};
     int width = 0;
