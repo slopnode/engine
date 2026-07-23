@@ -193,6 +193,13 @@ s7_pointer g_duration(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "duration", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_auto_close(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "auto-close", 1, args, "seconds");
+    }
+    return makeTaggedList(sc, "auto-close", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_collide_size(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "collide-size", 0, args, "w h d");
@@ -500,6 +507,10 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                    s7_is_number(s7_car(rest))) {
             out.haveMoverDuration = true;
             out.moverDuration = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "auto-close") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.haveMoverAutoClose = true;
+            out.moverAutoClose = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "collide-size") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -887,6 +898,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "open-yaw", g_open_yaw, 1, 0, false, "(open-yaw radians)");
     s7_define_function(sc, "open-roll", g_open_roll, 1, 0, false, "(open-roll radians)");
     s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
+    s7_define_function(sc, "auto-close", g_auto_close, 1, 0, false, "(auto-close seconds)");
     s7_define_function(sc, "collide-size", g_collide_size, 3, 0, false, "(collide-size w h d)");
     s7_define_function(sc, "collide-center", g_collide_center, 3, 0, false, "(collide-center x y z)");
     s7_define_function(sc, "block-mode", g_block_mode, 1, 0, false, "(block-mode shove|crush)");

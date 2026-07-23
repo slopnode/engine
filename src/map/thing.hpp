@@ -53,6 +53,8 @@ struct Thing {
     bool haveMoverOpenAngle = false;
     float moverDuration = 0.8f;
     bool haveMoverDuration = false;
+    float moverAutoClose = 0.0f;
+    bool haveMoverAutoClose = false;
     Vector3 moverCollideSize{1.0f, 2.0f, 0.1f};
     bool haveMoverCollideSize = false;
     Vector3 moverCollideCenter{0.0f, 1.0f, 0.0f};

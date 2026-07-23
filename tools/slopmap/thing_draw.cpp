@@ -67,9 +67,15 @@ void drawSpriteOrGeo(
     const Vector3 pos = thingPosition(thing);
     if (!thing.geo.empty() && assets.hasGeo(thing.geo)) {
         Model model = assets.getGeoModel(thing.geo);
-        const float yawDeg = thing.yaw * RAD2DEG;
-        DrawModelEx(model, pos, {0.0f, 1.0f, 0.0f}, yawDeg, {1.0f, 1.0f, 1.0f}, tint);
-        return;
+        if (model.meshCount > 0) {
+            const float yawDeg = thing.yaw * RAD2DEG;
+            Vector3 scale{1.0f, 1.0f, 1.0f};
+            if (thing.kind == slopengine::ThingKind::Mover) {
+                scale = thing.moverCollideSize;
+            }
+            DrawModelEx(model, pos, {0.0f, 1.0f, 0.0f}, yawDeg, scale, tint);
+            return;
+        }
     }
     if (!thing.sprite.empty()) {
         const slopengine::SpriteAsset* asset = assets.getSpriteAsset(thing.sprite);

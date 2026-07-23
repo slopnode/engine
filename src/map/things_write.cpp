@@ -80,6 +80,9 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     if (p.haveMoverDuration) {
         writeIndentClause(out, "(duration " + formatFloat(p.moverDuration) + ")");
     }
+    if (p.haveMoverAutoClose) {
+        writeIndentClause(out, "(auto-close " + formatFloat(p.moverAutoClose) + ")");
+    }
     if (p.haveMoverCollideSize) {
         writeIndentClause(
             out,

@@ -287,22 +287,15 @@ void registerRigidMoverSystem(flecs::world& world) {
             }
 
             const float dt = GetFrameTime();
-            if (dt > 0.0f) {
-                const float duration = mover.duration > 1.0e-4f ? mover.duration : 0.8f;
-                const float step = dt / duration;
-                if (mover.progress < mover.target) {
-                    mover.progress = std::min(mover.target, mover.progress + step);
-                } else if (mover.progress > mover.target) {
-                    mover.progress = std::max(mover.target, mover.progress - step);
-                }
-            }
+            tickRigidMover(mover, dt);
 
             Vector3 pos{};
             Quaternion rot{};
             computeMoverPose(mover, mover.progress, pos, rot);
             local.position = pos;
             local.rotation = rot;
-            syncKinematic(physics, entity, mover, dt > 0.0f ? dt : (1.0f / 60.0f));
+            const float physDt = (dt > 1.0e-4f && dt <= 0.25f) ? dt : (1.0f / 60.0f);
+            syncKinematic(physics, entity, mover, physDt);
         });
 
     world.system("RigidMoverCharacterResolve")

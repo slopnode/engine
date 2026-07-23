@@ -299,7 +299,16 @@ void PhysicsWorld::clearStaticBrushes() {
 namespace {
 
 JPH::Quat joltQuatFromRaylib(Quaternion q) {
-    return JPH::Quat(q.x, q.y, q.z, q.w);
+    const float lenSq = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+    if (!(lenSq > 1.0e-12f) || !std::isfinite(lenSq)) {
+        return JPH::Quat::sIdentity();
+    }
+    const float invLen = 1.0f / std::sqrt(lenSq);
+    return JPH::Quat(q.x * invLen, q.y * invLen, q.z * invLen, q.w * invLen);
+}
+
+bool finiteVec3(Vector3 v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
 
 } // namespace
@@ -310,6 +319,21 @@ void PhysicsWorld::createKinematicBox(
     Vector3 halfExtents,
     Quaternion rotation) {
     if (!system_ || halfExtents.x <= 0.0f || halfExtents.y <= 0.0f || halfExtents.z <= 0.0f) {
+        return;
+    }
+    if (!finiteVec3(center) || !finiteVec3(halfExtents)) {
+        TraceLog(LOG_WARNING, "PHYSICS: kinematic box rejected non-finite pose for id %llu",
+            static_cast<unsigned long long>(id));
+        return;
+    }
+    constexpr float kMaxCoord = 1.0e6f;
+    if (std::fabs(center.x) > kMaxCoord || std::fabs(center.y) > kMaxCoord ||
+        std::fabs(center.z) > kMaxCoord) {
+        TraceLog(LOG_WARNING, "PHYSICS: kinematic box rejected out-of-range center for id %llu (%.3f %.3f %.3f)",
+            static_cast<unsigned long long>(id),
+            center.x,
+            center.y,
+            center.z);
         return;
     }
 
@@ -329,12 +353,22 @@ void PhysicsWorld::createKinematicBox(
         JPH::RVec3(center.x, center.y, center.z),
         joltQuatFromRaylib(rotation),
         JPH::EMotionType::Kinematic,
-        Layers::NON_MOVING);
+        Layers::MOVING);
     settings.mFriction = 0.8f;
 
     JPH::BodyInterface& bodies = system_->GetBodyInterface();
-    const JPH::BodyID bodyId = bodies.CreateAndAddBody(settings, JPH::EActivation::Activate);
+    const JPH::BodyID bodyId = bodies.CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+    bodies.SetLinearVelocity(bodyId, JPH::Vec3::sZero());
+    bodies.SetAngularVelocity(bodyId, JPH::Vec3::sZero());
     kinematicBodies_[id] = bodyId;
+    TraceLog(LOG_INFO, "PHYSICS: kinematic box %llu at (%.3f %.3f %.3f) he=(%.3f %.3f %.3f)",
+        static_cast<unsigned long long>(id),
+        center.x,
+        center.y,
+        center.z,
+        halfExtents.x,
+        halfExtents.y,
+        halfExtents.z);
 }
 
 void PhysicsWorld::setKinematicPose(
@@ -349,13 +383,65 @@ void PhysicsWorld::setKinematicPose(
     if (it == kinematicBodies_.end()) {
         return;
     }
+    if (!finiteVec3(center)) {
+        TraceLog(LOG_WARNING, "PHYSICS: kinematic pose rejected non-finite center for id %llu",
+            static_cast<unsigned long long>(id));
+        return;
+    }
+    constexpr float kMaxCoord = 1.0e6f;
+    if (std::fabs(center.x) > kMaxCoord || std::fabs(center.y) > kMaxCoord ||
+        std::fabs(center.z) > kMaxCoord) {
+        TraceLog(LOG_WARNING, "PHYSICS: kinematic pose rejected out-of-range center for id %llu",
+            static_cast<unsigned long long>(id));
+        return;
+    }
+
     JPH::BodyInterface& bodies = system_->GetBodyInterface();
-    const float stepDt = dt > 1.0e-6f ? dt : (1.0f / 60.0f);
-    bodies.MoveKinematic(
-        it->second,
-        JPH::RVec3(center.x, center.y, center.z),
-        joltQuatFromRaylib(rotation),
-        stepDt);
+    const JPH::BodyID bodyId = it->second;
+    JPH::Quat targetRot = joltQuatFromRaylib(rotation);
+    const JPH::RVec3 targetPos(center.x, center.y, center.z);
+
+    const JPH::RVec3 currentPos = bodies.GetPosition(bodyId);
+    const JPH::Quat currentRot = bodies.GetRotation(bodyId);
+    if (currentRot.Dot(targetRot) < 0.0f) {
+        targetRot = -targetRot;
+    }
+    const JPH::Vec3 deltaPos = JPH::Vec3(targetPos - currentPos);
+    const float posErrSq = deltaPos.LengthSq();
+    constexpr float kSnapPosSq = 1.0e-8f;
+    if (posErrSq <= kSnapPosSq && currentRot.IsClose(targetRot)) {
+        bodies.SetLinearAndAngularVelocity(bodyId, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+        bodies.SetPositionAndRotationWhenChanged(
+            bodyId, targetPos, targetRot, JPH::EActivation::DontActivate);
+        return;
+    }
+
+    float stepDt = dt;
+    if (!(stepDt > 1.0e-4f) || !std::isfinite(stepDt)) {
+        stepDt = kFixedDt;
+    } else if (stepDt > 0.25f) {
+        stepDt = 0.25f;
+    }
+
+    constexpr float kMaxLin = 200.0f;
+    const float maxStep = kMaxLin * stepDt;
+    if (!(posErrSq <= maxStep * maxStep) || !std::isfinite(posErrSq)) {
+        bodies.SetLinearAndAngularVelocity(bodyId, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+        bodies.SetPositionAndRotation(
+            bodyId, targetPos, targetRot, JPH::EActivation::Activate);
+        return;
+    }
+
+    bodies.MoveKinematic(bodyId, targetPos, targetRot, stepDt);
+    const JPH::Vec3 lin = bodies.GetLinearVelocity(bodyId);
+    const JPH::Vec3 ang = bodies.GetAngularVelocity(bodyId);
+    constexpr float kMaxAng = 50.0f;
+    if (!std::isfinite(lin.LengthSq()) || !std::isfinite(ang.LengthSq()) ||
+        lin.LengthSq() > kMaxLin * kMaxLin || ang.LengthSq() > kMaxAng * kMaxAng) {
+        bodies.SetLinearAndAngularVelocity(bodyId, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+        bodies.SetPositionAndRotation(
+            bodyId, targetPos, targetRot, JPH::EActivation::Activate);
+    }
 }
 
 void PhysicsWorld::destroyKinematic(std::uint64_t id) {
@@ -387,6 +473,29 @@ void PhysicsWorld::clearKinematics() {
 
 bool PhysicsWorld::hasKinematic(std::uint64_t id) const {
     return kinematicBodies_.find(id) != kinematicBodies_.end();
+}
+
+bool PhysicsWorld::tryGetKinematicAabb(std::uint64_t id, Vector3& outMin, Vector3& outMax) const {
+    if (!system_) {
+        return false;
+    }
+    auto it = kinematicBodies_.find(id);
+    if (it == kinematicBodies_.end()) {
+        return false;
+    }
+    const JPH::TransformedShape shape = system_->GetBodyInterface().GetTransformedShape(it->second);
+    const JPH::AABox bounds = shape.GetWorldSpaceBounds();
+    outMin = {
+        bounds.mMin.GetX(),
+        bounds.mMin.GetY(),
+        bounds.mMin.GetZ(),
+    };
+    outMax = {
+        bounds.mMax.GetX(),
+        bounds.mMax.GetY(),
+        bounds.mMax.GetZ(),
+    };
+    return true;
 }
 
 void PhysicsWorld::createCharacter(

@@ -354,6 +354,9 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             if (placement.haveMoverDuration) {
                 mover.duration = placement.moverDuration > 0.0f ? placement.moverDuration : 0.8f;
             }
+            if (placement.haveMoverAutoClose) {
+                mover.autoClose = std::max(0.0f, placement.moverAutoClose);
+            }
             if (placement.haveMoverCollideSize) {
                 mover.collideHalfExtents = {
                     placement.moverCollideSize.x * 0.5f,

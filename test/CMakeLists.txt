@@ -7,6 +7,9 @@ add_executable(sloptests
     test_bsp_build.cpp
     test_bsp_analyze.cpp
     test_vis_build.cpp
+    test_physics.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
 )
 
@@ -15,7 +18,7 @@ target_include_directories(sloptests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(sloptests PRIVATE sloplib)
+target_link_libraries(sloptests PRIVATE sloplib Jolt::Jolt flecs::flecs_static)
 
 if(MSVC)
     target_compile_options(sloptests PRIVATE /W4 /permissive-)
@@ -30,3 +33,4 @@ add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.vis_build COMMAND sloptests vis_build)
+add_test(NAME sloptests.physics COMMAND sloptests physics)

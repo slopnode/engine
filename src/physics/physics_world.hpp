@@ -59,6 +59,7 @@ struct PhysicsWorld {
     void destroyKinematic(std::uint64_t id);
     void clearKinematics();
     bool hasKinematic(std::uint64_t id) const;
+    bool tryGetKinematicAabb(std::uint64_t id, Vector3& outMin, Vector3& outMax) const;
 
     void createCharacter(std::uint64_t id, float x, float y, float z, const CharacterMotor& motor);
     void destroyCharacter(std::uint64_t id);

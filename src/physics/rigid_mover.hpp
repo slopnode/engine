@@ -33,6 +33,8 @@ struct RigidMover {
     float duration = 0.8f;
     float progress = 0.0f;
     float target = 0.0f;
+    float autoClose = 0.0f;
+    float autoCloseTimer = 0.0f;
     MoverBlockMode blockMode = MoverBlockMode::Shove;
     std::string groupId;
     Vector3 collideHalfExtents = {0.5f, 1.0f, 0.05f};
@@ -50,6 +52,8 @@ void computeMoverPose(
     Quaternion& outRot);
 
 Vector3 moverCollideWorldCenter(const Vector3& pos, const Quaternion& rot, const RigidMover& mover);
+
+void tickRigidMover(RigidMover& mover, float dt);
 
 void registerRigidMoverSystem(flecs::world& world);
 
