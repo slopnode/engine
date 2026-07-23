@@ -1,0 +1,125 @@
+#include "test_assert.hpp"
+#include "map_fixtures.hpp"
+
+#include "map/bsp.hpp"
+#include "map/bsp_analyze.hpp"
+#include "map/brush.hpp"
+
+#include <algorithm>
+#include <string>
+#include <vector>
+
+namespace slopengine {
+
+void runBspBuildTests() {
+    {
+        const std::vector<Brush> brushes = mapfixtures::sealedHollowRoom();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        CHECK(tree.root >= 0);
+        CHECK_FALSE(tree.nodes.empty());
+        CHECK_FALSE(tree.leaves.empty());
+        CHECK_FALSE(tree.portals.empty());
+
+        const std::int32_t interiorLeaf = pointLeaf(tree, {0.0f, 1.25f, 0.0f});
+        CHECK(interiorLeaf >= 0);
+        CHECK(leafIsEmpty(tree, interiorLeaf));
+
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const std::int32_t exteriorLeaf = pointLeaf(
+            tree,
+            {tree.boundsMins.x + 0.1f, tree.boundsMins.y + 0.1f, tree.boundsMins.z + 0.1f});
+        CHECK(exteriorLeaf >= 0);
+        CHECK(leafIsEmpty(tree, exteriorLeaf));
+        CHECK(static_cast<std::size_t>(exteriorLeaf) < analysis.exteriorEmpty.size());
+        CHECK_EQ(analysis.exteriorEmpty[static_cast<std::size_t>(exteriorLeaf)], 1u);
+    }
+
+    {
+        const std::vector<Brush> brushes = mapfixtures::leakyHollowRoom();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        CHECK(tree.root >= 0);
+        CHECK_FALSE(tree.leaves.empty());
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK_FALSE(analysis.sealed);
+    }
+
+    {
+        const Brush solid = makeBrushBox(
+            "solid",
+            {-1.0f, -1.0f, -1.0f},
+            {1.0f, 1.0f, 1.0f},
+            "mat/a",
+            {});
+        const BspTree tree = buildBspFromHullBrushes({solid});
+        CHECK(tree.root >= 0);
+        CHECK(mapfixtures::hasSolidLeaf(tree));
+        const std::int32_t inside = pointLeaf(tree, {0.0f, 0.0f, 0.0f});
+        CHECK(inside >= 0);
+        CHECK_FALSE(leafIsEmpty(tree, inside));
+        CHECK((tree.leaves[static_cast<std::size_t>(inside)].contents & BspContents::Solid) != 0);
+    }
+
+    {
+        const std::vector<Brush> brushes = mapfixtures::sealedRoomWithWindow();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        CHECK(tree.root >= 0);
+        CHECK(mapfixtures::hasGlassLeaf(tree));
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+    }
+
+    {
+        std::vector<Brush> withoutHint = mapfixtures::sealedHollowRoom();
+        const BspTree treeNoHint = buildBspFromHullBrushes(withoutHint);
+        const int openNoHint = mapfixtures::countOpenLeaves(treeNoHint);
+
+        std::vector<Brush> withHint = withoutHint;
+        withHint.push_back(mapfixtures::hintMidPlane());
+        const BspTree treeHint = buildBspFromHullBrushes(withHint);
+        const int openHint = mapfixtures::countOpenLeaves(treeHint);
+        CHECK(openHint > openNoHint);
+
+        const MapHullAnalysis analysis = analyzeMapHull(treeHint, withHint);
+        CHECK(analysis.sealed);
+    }
+
+    {
+        const Brush detail = makeBrushBox(
+            "crate",
+            {-0.5f, 0.0f, -0.5f},
+            {0.5f, 1.0f, 0.5f},
+            "mat/a",
+            {},
+            BrushRole::Detail);
+        const BspTree tree = buildBspFromHullBrushes({detail});
+        CHECK(tree.root < 0);
+        CHECK(tree.leaves.empty());
+        CHECK(tree.nodes.empty());
+    }
+
+    {
+        const std::vector<Brush> brushes = mapfixtures::sealedHollowRoom();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        CHECK_FALSE(tree.surfaceFaces.empty());
+
+        // Inner hull fully inside outer solid: outward probes from the inner faces land in solid.
+        Brush outer = makeBrushBox("outer", {-2.0f, -2.0f, -2.0f}, {2.0f, 2.0f, 2.0f}, "mat/a", {});
+        Brush inner = makeBrushBox("inner", {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}, "mat/a", {});
+        const BspTree nested = buildBspFromHullBrushes({outer, inner});
+        const auto hasSurface = [&](const std::string& id) {
+            return std::any_of(
+                nested.surfaceFaces.begin(),
+                nested.surfaceFaces.end(),
+                [&](const BspSurfaceFace& face) { return face.id == id; });
+        };
+        CHECK(hasSurface("outer/east") || hasSurface("outer/west") || hasSurface("outer/top"));
+        CHECK_FALSE(hasSurface("inner/east"));
+        CHECK_FALSE(hasSurface("inner/west"));
+        CHECK_FALSE(hasSurface("inner/top"));
+        CHECK_FALSE(hasSurface("inner/bottom"));
+    }
+}
+
+}

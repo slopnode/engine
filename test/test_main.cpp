@@ -9,6 +9,9 @@ void runSexprTests();
 void runAssetTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
+void runBspBuildTests();
+void runBspAnalyzeTests();
+void runVisBuildTests();
 
 }
 
@@ -24,6 +27,9 @@ const Suite kSuites[] = {
     {"assets", slopengine::runAssetTests},
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},
+    {"bsp_build", slopengine::runBspBuildTests},
+    {"bsp_analyze", slopengine::runBspAnalyzeTests},
+    {"vis_build", slopengine::runVisBuildTests},
 };
 
 bool runSuite(const Suite& suite) {
