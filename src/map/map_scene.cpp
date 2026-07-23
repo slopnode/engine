@@ -21,6 +21,7 @@
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/render_context.hpp"
 #include "script/first_person_script.hpp"
 #include "script/save_script.hpp"
 #include "ui/ui_state.hpp"
@@ -144,6 +145,9 @@ void unloadMapScene(flecs::world& world) {
     }
     if (world.has<CurrentMap>()) {
         world.remove<CurrentMap>();
+    }
+    if (world.has<PlayerEntity>()) {
+        world.get_mut<PlayerEntity>().entity = {};
     }
 
     if (world.has<DebugUiState>()) {
@@ -275,6 +279,7 @@ bool registerMapScene(
         .set<ViewEyeOffset>(ViewEyeOffset{})
         .set<AudioListener>(AudioListener{})
         .set<CollisionTags>(CollisionTags{{"player"}});
+    world.set<PlayerEntity>(PlayerEntity{player});
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;

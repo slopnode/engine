@@ -140,7 +140,10 @@ void drawFirstPersonPass(
     eyeCam.projection = CAMERA_PERSPECTIVE;
 
     Color fpTint = WHITE;
-    flecs::entity playerEntity = world.lookup("Player");
+    flecs::entity playerEntity{};
+    if (world.has<PlayerEntity>()) {
+        playerEntity = world.get<PlayerEntity>().entity;
+    }
     const bool hasFpScene =
         playerEntity.is_valid() && playerEntity.has<FirstPersonScene>();
     const bool useRadTint =
@@ -230,10 +233,7 @@ void drawFirstPersonPass(
     BeginMode3D(eyeCam);
     rlScalef(-1.0f, 1.0f, 1.0f);
     rlDisableBackfaceCulling();
-    context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
-        if (!modelEntity.has<ViewSpace>() || modelEntity.has<WorldSpace>()) {
-            return;
-        }
+    context.viewModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
         const Color previousColor = model.color;
         if (useRadTint && !shadedDraw) {
             model.color = fpTint;

@@ -88,6 +88,10 @@ struct Model3D {
  */
 struct ShaderCavity {
     Shader shader = {};
+    int modelLoc = -1;
+    int viewLoc = -1;
+    int projectionLoc = -1;
+    bool resolved = false;
 };
 
 /** Simple spin animator around @p axis.

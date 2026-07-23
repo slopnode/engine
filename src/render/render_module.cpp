@@ -14,6 +14,7 @@
 #include "render/render_context.hpp"
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
+#include "render/render_frustum.hpp"
 #include "render/sprite_animator.hpp"
 #include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
@@ -58,12 +59,17 @@ void registerComponents(flecs::world& world) {
     world.component<DynamicLight>();
     world.component<MapOwned>();
     world.component<CurrentMap>();
+    world.component<PlayerEntity>();
     world.component<ShaderCavity>()
         .on_remove([](flecs::iter&, size_t, ShaderCavity& shader) {
             if (shader.shader.id != 0) {
                 UnloadShader(shader.shader);
             }
             shader.shader = {};
+            shader.modelLoc = -1;
+            shader.viewLoc = -1;
+            shader.projectionLoc = -1;
+            shader.resolved = false;
         });
 }
 
@@ -109,14 +115,19 @@ void registerRenderSystems(flecs::world& world) {
             Lens presentLens = lens;
             presentLens.camera = presentCam;
 
+            const float aspect = static_cast<float>(GetRenderWidth()) /
+                static_cast<float>(GetRenderHeight() > 0 ? GetRenderHeight() : 1);
+            const Frustum frustum = makeFrustumFromCamera(presentCam, aspect);
+
             std::vector<RankedDynamicLight> rankedLights =
-                gatherDynamicLights(world, lens, presentLens, unlit);
+                gatherDynamicLights(world, lens, presentLens, frustum, unlit);
             storeDynamicLightFrameState(world, rankedLights);
+            uploadMapDynamicLights(world, rankedLights, unlit);
 
             BeginMode3D(presentCam);
-            drawWorldModels(world, context, lens, rankedLights, unlit);
+            drawWorldModels(world, context, lens, frustum, unlit);
             const std::string spriteAimStatus =
-                drawWorldSprites(world, context, lens, unlit);
+                drawWorldSprites(world, context, lens, frustum, unlit);
             drawWorldDebugOverlays(world);
             EndMode3D();
 
@@ -177,9 +188,22 @@ void registerRenderModule(
     world.set<ScriptContext>(ScriptContext{scheme});
     world.set<FirstPersonViewShader>(createFirstPersonViewShader(assets));
     world.set<RenderContext>({
-        world.query<Model3D, GlobalTransformation>(),
-        world.query<SpriteInstance, GlobalTransformation>(),
+        world.query_builder<Model3D, GlobalTransformation>()
+            .with<WorldSpace>()
+            .build(),
+        world.query_builder<Model3D, GlobalTransformation>()
+            .with<ViewSpace>()
+            .without<WorldSpace>()
+            .build(),
+        world.query_builder<SpriteInstance, GlobalTransformation>()
+            .with<WorldSpace>()
+            .without<ViewSprite>()
+            .build(),
+        world.query_builder<Model3D, GlobalTransformation, AnimationPlayer>()
+            .with<WorldSpace>()
+            .build(),
     });
+    world.set<PlayerEntity>({});
 
     registerSpinSystem(world);
     registerSchemeTickSystem(world);

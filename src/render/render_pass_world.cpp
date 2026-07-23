@@ -56,14 +56,17 @@ void renderWorldModel(
 
     if (entity.has<ShaderCavity>()) {
         ShaderCavity& shader = entity.get_mut<ShaderCavity>();
-        const int modelLoc = GetShaderLocation(shader.shader, "model");
-        const int viewLoc = GetShaderLocation(shader.shader, "view");
-        const int projectionLoc = GetShaderLocation(shader.shader, "projection");
-        SetShaderValueMatrix(shader.shader, modelLoc, globalTransform.matrix);
-        SetShaderValueMatrix(shader.shader, viewLoc, GetCameraMatrix(lens.camera));
+        if (!shader.resolved) {
+            shader.modelLoc = GetShaderLocation(shader.shader, "model");
+            shader.viewLoc = GetShaderLocation(shader.shader, "view");
+            shader.projectionLoc = GetShaderLocation(shader.shader, "projection");
+            shader.resolved = true;
+        }
+        SetShaderValueMatrix(shader.shader, shader.modelLoc, globalTransform.matrix);
+        SetShaderValueMatrix(shader.shader, shader.viewLoc, GetCameraMatrix(lens.camera));
         SetShaderValueMatrix(
             shader.shader,
-            projectionLoc,
+            shader.projectionLoc,
             MatrixPerspective(
                 lens.camera.fovy,
                 static_cast<float>(GetScreenWidth()) / static_cast<float>(GetScreenHeight()),
@@ -204,6 +207,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     flecs::world& world,
     const Lens& lens,
     const Lens& presentLens,
+    const Frustum& frustum,
     bool unlit) {
     std::vector<RankedDynamicLight> rankedLights;
     if (unlit) {
@@ -226,6 +230,9 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         } else {
             ranked.position = localPos;
             ranked.direction = localDir;
+        }
+        if (!sphereInFrustum(frustum, ranked.position, std::max(light.range, 0.0f))) {
+            return;
         }
         ranked.linearRgb = dynamicLightLinearRgb(light);
         candidates.push_back(ranked);
@@ -260,62 +267,79 @@ void storeDynamicLightFrameState(
     }
 }
 
+void uploadMapDynamicLights(
+    flecs::world& world,
+    const std::vector<RankedDynamicLight>& rankedLights,
+    bool unlit) {
+    flecs::entity mapEntity = world.lookup("MapStatic");
+    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>() || !mapEntity.has<Model3D>()) {
+        return;
+    }
+    const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
+    Model3D& model = mapEntity.get_mut<Model3D>();
+    if (!lightmaps.available || model.model.materialCount <= 0) {
+        return;
+    }
+    Shader& mapShader = model.model.materials[0].shader;
+    if (mapShader.id == 0) {
+        return;
+    }
+    if (world.has<DynamicLightFrameState>()) {
+        DynamicLightFrameState& frameState = world.get_mut<DynamicLightFrameState>();
+        if (!frameState.bindings.resolved) {
+            resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
+        }
+        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, nullptr);
+    }
+    if (lightmaps.useLightmapLoc >= 0) {
+        const int useLightmap = (!unlit) ? 1 : 0;
+        SetShaderValue(
+            mapShader,
+            lightmaps.useLightmapLoc,
+            &useLightmap,
+            SHADER_UNIFORM_INT);
+    }
+}
+
 void drawWorldModels(
     flecs::world& world,
     RenderContext& context,
     const Lens& lens,
-    const std::vector<RankedDynamicLight>& rankedLights,
+    const Frustum& frustum,
     bool unlit) {
+    (void)world;
+    (void)unlit;
     context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
-        if (!modelEntity.has<WorldSpace>()) {
-            return;
-        }
-        if (modelEntity.has<MapLightmapState>()) {
-            const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
-            if (lightmaps.available && model.model.materialCount > 0) {
-                Shader& mapShader = model.model.materials[0].shader;
-                if (mapShader.id != 0) {
-                    if (world.has<DynamicLightFrameState>()) {
-                        DynamicLightFrameState& frameState =
-                            world.get_mut<DynamicLightFrameState>();
-                        if (!frameState.bindings.resolved) {
-                            resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
-                        }
-                        uploadDynamicLightsToShader(
-                            mapShader,
-                            frameState.bindings,
-                            rankedLights,
-                            nullptr);
-                    }
-                    if (lightmaps.useLightmapLoc >= 0) {
-                        const int useLightmap = (!unlit) ? 1 : 0;
-                        SetShaderValue(
-                            mapShader,
-                            lightmaps.useLightmapLoc,
-                            &useLightmap,
-                            SHADER_UNIFORM_INT);
-                    }
-                }
+        if (!modelEntity.has<MapLightmapState>()) {
+            const BoundingBox localBounds = GetModelBoundingBox(model.model);
+            const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+            if (!aabbInFrustum(frustum, worldBounds)) {
+                return;
             }
         }
         renderWorldModel(modelEntity, model, global, lens);
     });
-    context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
-        if (!modelEntity.has<WorldSpace>() || !modelEntity.has<AnimationPlayer>()) {
-            return;
-        }
-        const AnimationPlayer& animationPlayer = modelEntity.get<AnimationPlayer>();
-        rlPushMatrix();
-        rlMultMatrixf(MatrixToFloatV(global.matrix).v);
-        drawSkeletonOverlay(model.model, &animationPlayer);
-        rlPopMatrix();
-    });
+    context.animOverlayQuery.each(
+        [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
+            if (!modelEntity.has<MapLightmapState>()) {
+                const BoundingBox localBounds = GetModelBoundingBox(model.model);
+                const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+                if (!aabbInFrustum(frustum, worldBounds)) {
+                    return;
+                }
+            }
+            rlPushMatrix();
+            rlMultMatrixf(MatrixToFloatV(global.matrix).v);
+            drawSkeletonOverlay(model.model, &animationPlayer);
+            rlPopMatrix();
+        });
 }
 
 std::string drawWorldSprites(
     flecs::world& world,
     RenderContext& context,
     const Lens& lens,
+    const Frustum& frustum,
     bool unlit) {
     std::string spriteAimStatus;
     if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
@@ -341,10 +365,19 @@ std::string drawWorldSprites(
     spriteDrawList.reserve(32);
     context.worldSpriteQuery.each(
         [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
-            if (!spriteEntity.has<WorldSpace>() || spriteEntity.has<ViewSprite>()) {
+            const Vector3 position = translationFromMatrix(global.matrix);
+            const float scaleRadius = std::max(
+                std::max(std::fabs(global.matrix.m0), std::fabs(global.matrix.m5)),
+                std::max(std::fabs(global.matrix.m10), 1.0f));
+            const float radius = std::max(2.0f, scaleRadius * 2.0f);
+            const Vector3 cullCenter{
+                position.x,
+                position.y + radius * 0.5f,
+                position.z,
+            };
+            if (!sphereInFrustum(frustum, cullCenter, radius)) {
                 return;
             }
-            const Vector3 position = translationFromMatrix(global.matrix);
             const float dx = position.x - lens.camera.position.x;
             const float dy = position.y - lens.camera.position.y;
             const float dz = position.z - lens.camera.position.z;
@@ -396,7 +429,10 @@ void drawWorldDebugOverlays(flecs::world& world) {
         std::int32_t currentLeaf = -1;
         if (world.has<MapBsp>()) {
             const MapBsp& mapBsp = world.get<MapBsp>();
-            flecs::entity camera = world.lookup("Player");
+            flecs::entity camera{};
+            if (world.has<PlayerEntity>()) {
+                camera = world.get<PlayerEntity>().entity;
+            }
             if (camera.is_valid() && camera.has<Lens>()) {
                 currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
             }

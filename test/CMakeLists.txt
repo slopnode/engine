@@ -8,6 +8,7 @@ add_executable(sloptests
     test_bsp_analyze.cpp
     test_vis_build.cpp
     test_physics.cpp
+    test_frustum.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
@@ -34,3 +35,4 @@ add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.vis_build COMMAND sloptests vis_build)
 add_test(NAME sloptests.physics COMMAND sloptests physics)
+add_test(NAME sloptests.frustum COMMAND sloptests frustum)

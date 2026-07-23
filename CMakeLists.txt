@@ -75,6 +75,7 @@ set(SLOPLIB_SOURCES
     src/map/vis_build.cpp
     src/map/vis_io.cpp
     src/render/sprite_billboard.cpp
+    src/render/render_frustum.cpp
 )
 
 add_library(sloplib STATIC ${SLOPLIB_SOURCES})
