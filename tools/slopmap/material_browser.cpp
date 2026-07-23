@@ -144,7 +144,7 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
             return false;
         }
         editor.markDirty();
-        editor.markVisDirty();
+        editor.markFacDirty();
         editor.statusMessage =
             "Applied " + materialPath + " to " + std::to_string(count) + " face(s)";
         return true;
@@ -167,7 +167,7 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
         ++count;
     }
     editor.markDirty();
-    editor.markVisDirty();
+    editor.markFacDirty();
     editor.statusMessage =
         "Applied " + materialPath + " to " + std::to_string(count) + " brush(es)";
     return true;

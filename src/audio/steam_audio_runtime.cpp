@@ -138,7 +138,7 @@ SteamAudioSpatializeFilter& SteamAudioRuntime::spatializeFilter() {
     return *spatializeFilter_;
 }
 
-bool SteamAudioRuntime::setSceneFromVis(const VisFile& vis) {
+bool SteamAudioRuntime::setSceneFromFac(const FacFile& vis) {
     if (!ready_) {
         return false;
     }

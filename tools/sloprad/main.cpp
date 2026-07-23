@@ -8,7 +8,7 @@
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
 #include "map/radiosity_lights.hpp"
-#include "map/vis_io.hpp"
+#include "map/fac_io.hpp"
 
 #include <raylib.h>
 
@@ -241,17 +241,22 @@ int main(int argc, char* argv[]) {
         spotCount);
     std::fflush(stdout);
 
-    auto visPath = assets.resolvePath(AssetKind::MapVis, bspVirtualPath);
-    if (!visPath) {
+    auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath);
+    if (!facPath) {
+        std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".fac (run slopfac first)\n";
+        CloseWindow();
+        return 1;
+    }
+    if (!assets.hasMapVis(bspVirtualPath)) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
         CloseWindow();
         return 1;
     }
-    TraceLog(LOG_INFO, "sloprad: loading %s", visPath->string().c_str());
+    TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
     std::fflush(stdout);
-    auto vis = readVisFile(*visPath);
+    auto vis = readFacFile(*facPath);
     if (!vis) {
-        std::cerr << "sloprad: failed to read " << *visPath << "\n";
+        std::cerr << "sloprad: failed to read " << *facPath << "\n";
         CloseWindow();
         return 1;
     }

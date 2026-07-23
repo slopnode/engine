@@ -24,7 +24,7 @@ IPLMaterial defaultMaterial() {
 
 }
 
-bool buildSteamAudioMeshFromVis(const VisFile& vis, SteamAudioSceneMesh& out) {
+bool buildSteamAudioMeshFromFac(const FacFile& vis, SteamAudioSceneMesh& out) {
     out.vertices.clear();
     out.triangles.clear();
     out.materialIndices.clear();
@@ -54,7 +54,7 @@ bool buildSteamAudioMeshFromVis(const VisFile& vis, SteamAudioSceneMesh& out) {
 bool createSteamAudioScene(
     IPLContext context,
     IPLSimulator simulator,
-    const VisFile& vis,
+    const FacFile& vis,
     IPLScene* outScene,
     IPLStaticMesh* outMesh) {
     if (context == nullptr || simulator == nullptr || outScene == nullptr || outMesh == nullptr) {
@@ -64,7 +64,7 @@ bool createSteamAudioScene(
     destroySteamAudioScene(simulator, outScene, outMesh);
 
     SteamAudioSceneMesh mesh;
-    if (!buildSteamAudioMeshFromVis(vis, mesh)) {
+    if (!buildSteamAudioMeshFromFac(vis, mesh)) {
         return false;
     }
 

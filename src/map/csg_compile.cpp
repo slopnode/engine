@@ -218,7 +218,7 @@ CsgCompileResult compileBrushesToGeo(
 }
 
 CsgCompileResult compileVisibleFacesToGeo(
-    const VisFile& vis,
+    const FacFile& vis,
     const MaterialUvResolver& resolveMaterialUv,
     const RadFile* lightmaps) {
     std::vector<FaceCompileInput> faces;

@@ -72,8 +72,10 @@ set(SLOPLIB_SOURCES
     src/map/radiosity_gpu.cpp
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
-    src/map/vis_build.cpp
-    src/map/vis_io.cpp
+    src/map/fac_build.cpp
+    src/map/fac_io.cpp
+    src/map/pvs_build.cpp
+    src/map/pvs_io.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
 )
@@ -182,6 +184,14 @@ if(MSVC)
     target_compile_options(sloprad PRIVATE /W4 /permissive-)
 else()
     target_compile_options(sloprad PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopfac tools/slopfac/main.cpp)
+target_link_libraries(slopfac PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopfac PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopfac PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopvis tools/slopvis/main.cpp)

@@ -1302,18 +1302,22 @@ int main(int argc, char* argv[]) {
                 const bool canRun = !compile.running();
                 const char* runBspLabel =
                     editor.compileDirty.bsp ? "Run BSP *" : "Run BSP";
+                const char* runFacLabel =
+                    editor.compileDirty.fac ? "Run FAC *" : "Run FAC";
                 const char* runVisLabel =
                     editor.compileDirty.vis ? "Run VIS *" : "Run VIS";
                 const char* runRadLabel =
                     editor.compileDirty.rad ? "Run RAD *" : "Run RAD";
-                const char* runAllLabel =
-                    (editor.compileDirty.bsp || editor.compileDirty.vis ||
-                        editor.compileDirty.rad)
-                    ? "Run All *"
-                    : "Run All";
+                const bool anyCompileDirty = editor.compileDirty.bsp || editor.compileDirty.fac ||
+                    editor.compileDirty.vis || editor.compileDirty.rad;
+                const char* runAllLabel = anyCompileDirty ? "Run All *" : "Run All";
                 if (menuItemWithIcon(
                         assets, kIcons, "brick", runBspLabel, nullptr, false, canRun)) {
                     startCompile({slopmap::CompileStage::Bsp});
+                }
+                if (menuItemWithIcon(
+                        assets, kIcons, "shape_handles", runFacLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Fac});
                 }
                 if (menuItemWithIcon(
                         assets, kIcons, "chart_organisation", runVisLabel, nullptr, false, canRun)) {
@@ -1328,6 +1332,7 @@ int main(int argc, char* argv[]) {
                         assets, kIcons, "script_go", runAllLabel, nullptr, false, canRun)) {
                     startCompile({
                         slopmap::CompileStage::Bsp,
+                        slopmap::CompileStage::Fac,
                         slopmap::CompileStage::Vis,
                         slopmap::CompileStage::Rad,
                     });
@@ -1340,6 +1345,16 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets, kIcons, "brick_delete", "Clean BSP", nullptr, false, canClean)) {
                     editor.cleanCompileData(assets, {slopmap::CompileStage::Bsp});
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "shape_handles",
+                        "Clean FAC",
+                        nullptr,
+                        false,
+                        canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Fac});
                 }
                 if (menuItemWithIcon(
                         assets,
@@ -1367,6 +1382,7 @@ int main(int argc, char* argv[]) {
                         assets,
                         {
                             slopmap::CompileStage::Bsp,
+                            slopmap::CompileStage::Fac,
                             slopmap::CompileStage::Vis,
                             slopmap::CompileStage::Rad,
                         });
@@ -1409,7 +1425,7 @@ int main(int argc, char* argv[]) {
             slopmap::CompileStage completedStage = slopmap::CompileStage::Bsp;
             while (compile.takeCompletedStage(completedStage)) {
                 editor.clearCompileStage(completedStage);
-                if (completedStage == slopmap::CompileStage::Vis) {
+                if (completedStage == slopmap::CompileStage::Fac) {
                     editor.reloadVisPreview(assets);
                 }
             }
@@ -2334,7 +2350,7 @@ int main(int argc, char* argv[]) {
                 const float controlsW = btn + planeW + gridLabelW + btn * 2.0f + gap + roleW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
-                const float stageChipW = 120.0f;
+                const float stageChipW = 180.0f;
                 ImGui::PushTextWrapPos(controlsX - stageChipW - 12.0f);
                 ImGui::TextUnformatted(
                     editor.statusMessage.empty() ? "Ready" : editor.statusMessage.c_str());
@@ -2346,12 +2362,13 @@ int main(int argc, char* argv[]) {
                     std::snprintf(
                         stageLabel,
                         sizeof(stageLabel),
-                        "BSP%s VIS%s RAD%s",
+                        "BSP%s FAC%s VIS%s RAD%s",
                         editor.compileDirty.bsp ? "*" : "",
+                        editor.compileDirty.fac ? "*" : "",
                         editor.compileDirty.vis ? "*" : "",
                         editor.compileDirty.rad ? "*" : "");
-                    const bool anyDirty = editor.compileDirty.bsp || editor.compileDirty.vis ||
-                        editor.compileDirty.rad;
+                    const bool anyDirty = editor.compileDirty.bsp || editor.compileDirty.fac ||
+                        editor.compileDirty.vis || editor.compileDirty.rad;
                     if (anyDirty) {
                         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", stageLabel);
                     } else {

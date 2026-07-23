@@ -266,7 +266,7 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
     EndBlendMode();
 }
 
-void drawVisDebugOverlays(const VisFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
+void drawFacDebugOverlays(const FacFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
     if (!debugUi.showVisFaces) {
         return;
     }

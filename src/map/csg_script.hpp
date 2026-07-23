@@ -6,7 +6,8 @@
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 #include "map/prefab.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
+#include "map/pvs.hpp"
 
 #include <raylib.h>
 
@@ -23,7 +24,8 @@ struct LoadedMap {
     Model model{};
     std::vector<Brush> brushes;
     BspTree bsp{};
-    VisFile vis{};
+    FacFile fac{};
+    PvsFile pvs{};
     RadFile rad{};
     MapMeta meta{};
     bool hasLightmaps = false;

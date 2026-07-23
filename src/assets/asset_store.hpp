@@ -106,7 +106,10 @@ public:
     /** Returns true when a compiled map BSP exists at @p path. */
     bool hasMapBsp(std::string_view path) const;
 
-    /** Returns true when a compiled map VIS file exists at @p path. */
+    /** Returns true when a compiled map FAC file exists at @p path. */
+    bool hasMapFac(std::string_view path) const;
+
+    /** Returns true when a compiled map PVS (VIS) file exists at @p path. */
     bool hasMapVis(std::string_view path) const;
 
     /** Returns true when a compiled map radiosity file exists at @p path. */

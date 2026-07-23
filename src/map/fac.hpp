@@ -25,24 +25,24 @@ struct VisibleFace {
     std::int32_t interiorLeaf = -1;
 };
 
-/** In-memory / on-disk visible face set (VIS1). */
-struct VisFile {
+/** In-memory / on-disk face set (FAC1). */
+struct FacFile {
     std::vector<VisibleFace> faces;
 };
 
-/** Runtime map VIS blob. */
-struct MapVis {
-    VisFile vis{};
+/** Runtime map FAC blob. */
+struct MapFac {
+    FacFile fac{};
 };
 
 /** Result of building visible faces from BSP + brushes. */
-struct VisBuildResult {
-    VisFile vis{};
+struct FacBuildResult {
+    FacFile fac{};
     std::vector<std::string> inferredNodrawFaceIds;
 };
 
 /** Clips hull and detail faces to sealed interior empty leaves; then welds, culls, merges, sorts. */
-VisBuildResult buildVisibleFaces(
+FacBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,
     const std::vector<Brush>& brushes);

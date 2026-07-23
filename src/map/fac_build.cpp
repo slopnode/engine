@@ -1,4 +1,4 @@
-#include "map/vis.hpp"
+#include "map/fac.hpp"
 
 #include <raylib.h>
 
@@ -1185,11 +1185,11 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
     }
 }
 
-VisBuildResult buildVisibleFaces(
+FacBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,
     const std::vector<Brush>& brushes) {
-    VisBuildResult result;
+    FacBuildResult result;
 
     std::vector<std::int32_t> interiorLeaves;
     if (analysis.sealed) {
@@ -1213,7 +1213,7 @@ VisBuildResult buildVisibleFaces(
             }
 
             if (!canClip) {
-                result.vis.faces.push_back(makeVisibleFromBrushFace(face, face.id));
+                result.fac.faces.push_back(makeVisibleFromBrushFace(face, face.id));
                 continue;
             }
 
@@ -1249,16 +1249,16 @@ VisBuildResult buildVisibleFaces(
                 VisibleFace visible = makeVisibleFromBrushFace(face, face.id + "#" + std::to_string(i));
                 visible.vertices = std::move(fragments[i].vertices);
                 visible.interiorLeaf = fragments[i].interiorLeaf;
-                result.vis.faces.push_back(std::move(visible));
+                result.fac.faces.push_back(std::move(visible));
             }
         }
     }
 
-    weldVisibleFaceTJunctions(result.vis.faces);
-    snapWeldVisibleFaceVertices(result.vis.faces);
-    cullDegenerateVisibleFaces(result.vis.faces, result.inferredNodrawFaceIds);
-    mergeCoplanarVisibleFaces(result.vis.faces);
-    sortVisibleFacesByMaterial(result.vis.faces);
+    weldVisibleFaceTJunctions(result.fac.faces);
+    snapWeldVisibleFaceVertices(result.fac.faces);
+    cullDegenerateVisibleFaces(result.fac.faces, result.inferredNodrawFaceIds);
+    mergeCoplanarVisibleFaces(result.fac.faces);
+    sortVisibleFacesByMaterial(result.fac.faces);
     finalizeInferredNodraw(result.inferredNodrawFaceIds);
 
     return result;

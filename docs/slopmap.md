@@ -2,7 +2,7 @@
 
 CSG level / prefab / things editor (raylib + rlImGui). Writes map and prefab source under --target. File formats and compile algorithms stay on their own guides; this page covers how to build and run the editor.
 
-Related: [Maps](maps.md), [Things](things.md), [Lights](lights.md), [Icons](icons.md), [BSP](bsp.md), [VIS](vis.md), [Radiosity](rad.md), [slopsprite](slopsprite.md).
+Related: [Maps](maps.md), [Things](things.md), [Lights](lights.md), [Icons](icons.md), [BSP](bsp.md), [FAC](fac.md), [VIS](vis.md), [Radiosity](rad.md), [slopsprite](slopsprite.md).
 
 ## Build and CLI
 
@@ -43,15 +43,15 @@ In Level scene, pick a prefab in the Prefabs panel and use Place to drop instanc
 
 Cameras are Perspective, Top, Front, and Side. Grid size steps with [ ] \. While translating, O toggles snap between Offset and Absolute. Ignore backfaces is a view toggle for picking through one-sided faces.
 
-Z cycles viewport fill so you can judge source CSG versus compiled results. Wireframe and Solid are quick CSG readouts (edges only, or faux-shaded solids). Textures shows CSG albedo. Unlit and Lit show the compiled VIS mesh without and with lightmaps. SolidLit shades the CSG solids with the bake when you want structure and lighting together without switching fully to the VIS mesh.
+Z cycles viewport fill so you can judge source CSG versus compiled results. Wireframe and Solid are quick CSG readouts (edges only, or faux-shaded solids). Textures shows CSG albedo. Unlit and Lit show the compiled FAC mesh without and with lightmaps. SolidLit shades the CSG solids with the bake when you want structure and lighting together without switching fully to the FAC mesh.
 
 X-Ray Overlay (Shift+Z, toolbar **XRay**, or View -> X-Ray Overlay) draws brush edges on top of the fill: Off, Visible (depth-tested), or All (every edge through the fill with depth off). Use it when nested or overlapping brushes hide each other in solid fills.
 
 ## Compile and play
 
-Compile menu spawns the same CLI tools as a hand-run bake: Run BSP, Run VIS, Run RAD, or **Run All** (slopbsp -> slopvis -> sloprad). Dirty markers show when source is ahead of compile data. Clean BSP / VIS / RAD / All removes generated files for the open map. RAD Options sets luxels, bounces, samples, and GPU/CPU. Play Map (F5) launches slopengine with the current package mount and map.
+Compile menu spawns the same CLI tools as a hand-run bake: Run BSP, Run FAC, Run VIS, Run RAD, or **Run All** (slopbsp -> slopfac -> slopvis -> sloprad). Dirty markers show when source is ahead of compile data. Clean BSP / FAC / VIS / RAD / All removes generated files for the open map. RAD Options sets luxels, bounces, samples, and GPU/CPU. Play Map (F5) launches slopengine with the current package mount and map.
 
-Compile order and rebuild rules: [Maps](maps.md). Tool details: [BSP](bsp.md), [VIS](vis.md), [Radiosity](rad.md).
+Compile order and rebuild rules: [Maps](maps.md). Tool details: [BSP](bsp.md), [FAC](fac.md), [VIS](vis.md), [Radiosity](rad.md).
 
 ## Shortcuts
 

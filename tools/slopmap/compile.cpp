@@ -64,6 +64,8 @@ const char* CompileController::stageToolName(CompileStage stage) {
     switch (stage) {
     case CompileStage::Bsp:
         return "slopbsp";
+    case CompileStage::Fac:
+        return "slopfac";
     case CompileStage::Vis:
         return "slopvis";
     case CompileStage::Rad:

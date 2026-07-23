@@ -1,6 +1,6 @@
-# VIS compilation
+# VIS compilation (PVS)
 
-slopvis builds the visible face fragment list static.vis. Requires a sealed [BSP](bsp.md). Authoring stays on [Maps](maps.md). Lightmaps consume VIS face ids: [Radiosity](rad.md).
+slopvis builds the leaf↔leaf potentially visible set `static.vis` (PVS1). Requires a sealed [BSP](bsp.md) and an existing [FAC](fac.md) file (pipeline gate; FAC is not read as input). Authoring stays on [Maps](maps.md). Runtime uses PVS for object culling and visibility queries, not for subsetting world FAC geometry: [View frustum culling](frustum.md).
 
 CMake target slopvis (root CMakeLists.txt), linked against sloplib.
 
@@ -10,60 +10,36 @@ cmake --build build --target slopvis
 ./build/slopvis --base-game {package-path} [--mod {path}]... --map {name}
 ```
 
-Shared mount flags with the game: --base-game and repeated --mod. Tools also require --map {name} (folder under maps/). The game runtime takes --map only when the base package declares it in data/cli.s7.
-
-Re-run after BSP changes that affect sealing or face layout, detail brush edits that change visible fragments, face-id churn, or authored (nodraw). Re-bake [radiosity](rad.md) when chart keys (VIS ids) change.
+Shared mount flags with the game: --base-game and repeated --mod. Tools also require --map {name}. Re-run after BSP portal / leaf changes. [Radiosity](rad.md) requires VIS to have been run even though bake still uses its own leaf-reachability cull.
 
 ## What VIS is for
 
-static.vis is the **visible face fragment list** used for the draw mesh, lightmap charts, and Steam Audio occlusion. Despite the Quake-style name, it is **not** a leaf<->leaf PVS bitset and does not drive runtime portal culling. Runtime draw filtering for props, sprites, and dynamic lights uses the camera frustum instead: [View frustum culling](frustum.md).
+`static.vis` is a **leaf↔leaf PVS bitmatrix**. From the camera leaf (or any point's leaf), it answers which other leaves might be visible through the portal graph. It does **not** replace [FAC](fac.md); world draw still uses the full FAC mesh.
 
-- Interior clip. Hull and detail faces are clipped against sealed interior empty leaf polyhedra so large or buried faces keep only the visible polygon(s).
-- Brush occlusion. Fragments are subtracted against other VIS-emitting brushes so detail-detail contacts (and hull under detail) drop buried area while abutment remainders (e.g. stair risers) stay.
-- Inferred nodraw. Faces with zero remaining visible area (after clip, occlusion, and sliver cull) are treated as nodraw. Authored (nodraw) is never cleared.
-- Cleanup. After clip and occlusion: T-junction weld, vertex snap weld, sliver/degenerate cull, coplanar merge (retains non-colinear shared-edge endpoints so concave T-junction corners survive; spike cleanup strips out-and-back A->B->A folds; merges that stay non-simple, inflate area beyond the inputs, or pinch a keyhole with non-adjacent duplicate verts are refused so punched openings stay hollow), then material-major sort. Draw/BVH triangulation uses ear clipping so concave simple rings stay correct.
-- Stable face ids. Fragments use ids such as wall/north#0; coplanar merges across sources use merge/... ids. Charts and mesh UV2 key off those ids.
-- Interior leaf hint. Each fragment stores an interiorLeaf index used by radiosity leaf-reachability culling.
+- One cluster per open leaf in v1 (no auto room merge).
+- Portal-flow visibility with winding clipping through `BspPortal` polygons.
+- Symmetric bits (if A might see B, B might see A).
+- Solid / non-open leaves are unused as sources.
 
 ## Tool sequence
 
-Entry point: tools/slopvis/main.cpp. Core build: buildVisibleFaces in src/map/vis_build.cpp. On-disk format: VIS1 via src/map/vis_io.cpp.
+Entry point: tools/slopvis/main.cpp. Core build: buildPvs in src/map/pvs_build.cpp. On-disk format: PVS1 via src/map/pvs_io.cpp.
 
 1. Parse CLI (AppConfig); require --map.
-2. Require readable static.bsp; load CSG brushes.
+2. Require readable static.bsp and static.fac.
 3. analyzeMapHull. If not sealed: log leak path, exit 1 (no .vis written).
-4. buildVisibleFaces -> clip, weld, cull, merge, sort.
-5. Write sibling static.vis with writeVisFile; log face and inferred-nodraw counts.
+4. buildPvs from BSP portals.
+5. Write sibling static.vis with writePvsFile.
 
-## Face visibility algorithm
+## PVS1 file contents
 
-For each non-authored-nodraw face on a VIS-emitting brush (hull, detail, water, window; not hint / trigger) when the hull is sealed:
-
-1. Clip the face polygon against every sealed interior empty leaf polyhedron (Sutherland-Hodgman against outward leaf planes).
-2. Keep fragments whose outward-nudged centroid sample lands in interior empty.
-3. Discard zero-area scraps; micro-merge coplanar adjacent scraps from the same source face.
-4. Occlude against other VIS-emitting brushes: clip the fragment into each occluder, drop fully covered scraps, otherwise subtract the covered hole (splitting into multiple remainders when needed); remainder rings are spike-cleaned.
-5. Emit fragments with provisional ids source#N. If no fragments remain -> inferred nodraw for that source face id.
-
-On an unsealed fallback path (loader only), faces pass through with their authored ids.
-
-After fragments are collected:
-
-1. T-junction weld -- insert vertices where another face's vertex lies on an edge.
-2. Vertex snap weld -- snap near-coincident verts (grid + epsilon) and collapse consecutive duplicates.
-3. Sliver / degenerate cull -- drop faces below minimum area, with needle altitude, or with a tiny area/perimeter^2 ratio; sources that lose all fragments become inferred nodraw.
-4. Coplanar merge -- merge adjacent faces that share an edge and the same material / UV frame; shared-edge endpoints that are not colinear with the new neighbors are kept so concave T-junction corners (e.g. stair side silhouettes) are not chorded away; after each merge, spike cleanup runs and merges that stay non-simple, lose too much area, inflate beyond the input areas, or pinch a keyhole (non-adjacent duplicate verts) are refused (scraps stay separate) so punched openings stay hollow; assign stable ids (source#N or merge/...).
-5. Material sort -- order faces by material, then id, for denser draw batches.
-
-## VIS1 file contents
-
-Magic VIS1 (0x31534956), version 2 (reader also accepts v1). Field layout: [Binary formats — VIS1](binary-formats.md#vis1-vis).
+Magic PVS1 (0x31535650), version 1. Field layout: [Binary formats — PVS1](binary-formats.md#pvs1-vis).
 
 ## Source map
 
 | Concern | Location |
 |---------|----------|
-| Visible faces + weld/merge | src/map/vis.hpp, src/map/vis_build.cpp |
-| VIS file IO | src/map/vis_io.cpp |
+| PVS build | src/map/pvs.hpp, src/map/pvs_build.cpp |
+| PVS file IO | src/map/pvs_io.cpp |
 | CLI | tools/slopvis/main.cpp |
 | CMake target | root CMakeLists.txt (slopvis) |

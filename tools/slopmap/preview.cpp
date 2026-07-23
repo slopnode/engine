@@ -3,7 +3,7 @@
 #include "assets/geo_loader.hpp"
 #include "assets/material_loader.hpp"
 #include "map/csg_compile.hpp"
-#include "map/vis_io.hpp"
+#include "map/fac_io.hpp"
 
 #include <raymath.h>
 #include <rlgl.h>
@@ -249,22 +249,22 @@ bool MapPreview::reloadVisPreview(
     }
 
     const std::string visVirtualPath = mapName + "/static";
-    if (!assets.hasMapVis(visVirtualPath)) {
+    if (!assets.hasMapFac(visVirtualPath)) {
         return false;
     }
-    const auto visPath = assets.resolvePath(slopengine::AssetKind::MapVis, visVirtualPath);
+    const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath);
     if (!visPath) {
         return false;
     }
-    auto loadedVis = slopengine::readVisFile(*visPath);
-    if (!loadedVis || loadedVis->faces.empty()) {
+    auto loadedFac = slopengine::readFacFile(*visPath);
+    if (!loadedFac || loadedFac->faces.empty()) {
         return false;
     }
 
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
     const slopengine::CsgCompileResult compiled =
-        slopengine::compileVisibleFacesToGeo(*loadedVis, resolveUv, nullptr);
+        slopengine::compileVisibleFacesToGeo(*loadedFac, resolveUv, nullptr);
 
     visModel = slopengine::buildModelFromGeo(
         compiled.asset,
@@ -329,13 +329,13 @@ bool MapPreview::reloadBake(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
 
-    slopengine::VisFile vis{};
+    slopengine::FacFile vis{};
     bool haveVis = false;
     const std::string visVirtualPath = mapName + "/static";
-    if (assets.hasMapVis(visVirtualPath)) {
-        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapVis, visVirtualPath)) {
-            if (auto loadedVis = slopengine::readVisFile(*visPath)) {
-                vis = std::move(*loadedVis);
+    if (assets.hasMapFac(visVirtualPath)) {
+        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
+            if (auto loadedFac = slopengine::readFacFile(*visPath)) {
+                vis = std::move(*loadedFac);
                 haveVis = true;
             }
         }

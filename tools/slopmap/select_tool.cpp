@@ -940,7 +940,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
             return;
         }
         editor.markDirty();
-        editor.markVisDirty();
+        editor.markFacDirty();
         editor.statusMessage = lastLock ? "UV lock on " + lastId : "UV lock off " + lastId;
         return;
     }
@@ -985,7 +985,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
         lastId = brush.id;
     }
     editor.markDirty();
-    editor.markVisDirty();
+    editor.markFacDirty();
     editor.statusMessage = next ? "UV lock on " + lastId : "UV lock off " + lastId;
 }
 

@@ -4,7 +4,7 @@
 #include "assets/rigged_assets.hpp"
 #include "map/brush.hpp"
 #include "map/lightmap.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
 
 #include <functional>
 #include <string_view>
@@ -35,7 +35,7 @@ CsgCompileResult compileBrushesToGeo(
 
 /** Triangulates VIS faces into geo; embeds lightmap UV2 when @p lightmaps is set. */
 CsgCompileResult compileVisibleFacesToGeo(
-    const VisFile& vis,
+    const FacFile& vis,
     const MaterialUvResolver& resolveMaterialUv = {},
     const RadFile* lightmaps = nullptr);
 

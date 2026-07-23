@@ -117,7 +117,7 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
     return faces;
 }
 
-std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis) {
+std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis) {
     std::vector<LightmapFace> faces;
     faces.reserve(vis.faces.size());
     for (const VisibleFace& visible : vis.faces) {

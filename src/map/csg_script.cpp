@@ -10,8 +10,9 @@
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 #include "map/prefab.hpp"
-#include "map/vis.hpp"
-#include "map/vis_io.hpp"
+#include "map/fac.hpp"
+#include "map/fac_io.hpp"
+#include "map/pvs_io.hpp"
 
 #include <algorithm>
 #include <raylib.h>
@@ -946,35 +947,35 @@ std::optional<LoadedMap> loadAndCompileMap(
         TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
     }
 
-    VisFile vis{};
-    bool haveVis = false;
-    if (assets.hasMapVis(virtualPath)) {
-        if (const auto visPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
-            if (auto loadedVis = readVisFile(*visPath)) {
-                vis = std::move(*loadedVis);
-                haveVis = true;
-                TraceLog(LOG_INFO, "MAP: loaded vis faces=%d", static_cast<int>(vis.faces.size()));
+    FacFile fac{};
+    bool haveFac = false;
+    if (assets.hasMapFac(virtualPath)) {
+        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath)) {
+            if (auto loadedFac = readFacFile(*facPath)) {
+                fac = std::move(*loadedFac);
+                haveFac = true;
+                TraceLog(LOG_INFO, "MAP: loaded fac faces=%d", static_cast<int>(fac.faces.size()));
             } else {
-                TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.vis", virtualPath.c_str());
+                TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.fac", virtualPath.c_str());
             }
         }
     }
-    if (!haveVis) {
+    if (!haveFac) {
         TraceLog(
             LOG_WARNING,
-            "MAP: missing maps/%s.vis; building visible faces in-memory (run slopvis)",
+            "MAP: missing maps/%s.fac; building visible faces in-memory (run slopfac)",
             virtualPath.c_str());
         if (analysis.sealed) {
-            VisBuildResult built = buildVisibleFaces(*bsp, analysis, *brushes);
+            FacBuildResult built = buildVisibleFaces(*bsp, analysis, *brushes);
             MapHullAnalysis nodrawAnalysis = analysis;
             nodrawAnalysis.inferredNodrawFaceIds = std::move(built.inferredNodrawFaceIds);
             applyInferredNodraw(*brushes, nodrawAnalysis);
-            vis = std::move(built.vis);
-            haveVis = true;
+            fac = std::move(built.fac);
+            haveFac = true;
             TraceLog(
                 LOG_INFO,
-                "MAP: in-memory vis faces=%d inferredNodraw=%d",
-                static_cast<int>(vis.faces.size()),
+                "MAP: in-memory fac faces=%d inferredNodraw=%d",
+                static_cast<int>(fac.faces.size()),
                 static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
         } else {
             TraceLog(
@@ -983,7 +984,7 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
     } else {
         std::unordered_set<std::string> visibleSources;
-        for (const VisibleFace& face : vis.faces) {
+        for (const VisibleFace& face : fac.faces) {
             std::string remaining = face.sourceFaceId;
             while (!remaining.empty()) {
                 const auto plus = remaining.find('+');
@@ -1014,8 +1015,38 @@ std::optional<LoadedMap> loadAndCompileMap(
         applyInferredNodraw(*brushes, nodrawAnalysis);
         TraceLog(
             LOG_INFO,
-            "MAP: auto-nodraw faces=%d (from vis)",
+            "MAP: auto-nodraw faces=%d (from fac)",
             static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
+    }
+
+    PvsFile pvs{};
+    if (assets.hasMapVis(virtualPath)) {
+        if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
+            if (auto loadedPvs = readPvsFile(*pvsPath)) {
+                pvs = std::move(*loadedPvs);
+                TraceLog(
+                    LOG_INFO,
+                    "MAP: loaded pvs leaves=%d",
+                    pvs.leafCount);
+            } else {
+                TraceLog(LOG_ERROR, "MAP: failed to read maps/%s.vis", virtualPath.c_str());
+                return std::nullopt;
+            }
+        }
+    } else {
+        TraceLog(
+            LOG_ERROR,
+            "MAP: missing maps/%s.vis (run slopvis)",
+            virtualPath.c_str());
+        return std::nullopt;
+    }
+    if (pvs.leafCount != static_cast<int>(bsp->leaves.size())) {
+        TraceLog(
+            LOG_ERROR,
+            "MAP: pvs leafCount=%d does not match bsp leaves=%d (re-run slopvis)",
+            pvs.leafCount,
+            static_cast<int>(bsp->leaves.size()));
+        return std::nullopt;
     }
 
     RadFile rad{};
@@ -1108,10 +1139,11 @@ std::optional<LoadedMap> loadAndCompileMap(
     const RadFile* lightmaps = result.hasLightmaps ? &rad : nullptr;
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
-    const CsgCompileResult compiled = haveVis
-        ? compileVisibleFacesToGeo(vis, resolveUv, lightmaps)
+    const CsgCompileResult compiled = haveFac
+        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
         : compileBrushesToGeo(*brushes, resolveUv, lightmaps);
-    result.vis = std::move(vis);
+    result.fac = std::move(fac);
+    result.pvs = std::move(pvs);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const LightmapChart& chart : rad.charts) {

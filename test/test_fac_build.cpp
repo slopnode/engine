@@ -4,7 +4,7 @@
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/brush.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -107,16 +107,16 @@ bool pointInPolygon3(
 
 } // namespace
 
-void runVisBuildTests() {
+void runFacBuildTests() {
     {
         const std::vector<Brush> brushes = mapfixtures::sealedHollowRoom();
         const BspTree tree = buildBspFromHullBrushes(brushes);
         const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
         CHECK(analysis.sealed);
-        const VisBuildResult result = buildVisibleFaces(tree, analysis, brushes);
-        CHECK_FALSE(result.vis.faces.empty());
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+        CHECK_FALSE(result.fac.faces.empty());
         CHECK_FALSE(result.inferredNodrawFaceIds.empty());
-        for (const VisibleFace& face : result.vis.faces) {
+        for (const VisibleFace& face : result.fac.faces) {
             CHECK(idContainsHashOrMerge(face.id));
         }
     }
@@ -134,13 +134,13 @@ void runVisBuildTests() {
         const BspTree tree = buildBspFromHullBrushes(brushes);
         const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
         CHECK(analysis.sealed);
-        const VisBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
 
         // Window seals but emits no VIS. Opening center must stay hollow (not filled by merge).
         const Vector3 openingCenter{2.0f, 1.25f, 0.0f};
         const Vector3 eastInward{-1.0f, 0.0f, 0.0f};
         bool openingCovered = false;
-        for (const VisibleFace& face : result.vis.faces) {
+        for (const VisibleFace& face : result.fac.faces) {
             if (pointInPolygon3(openingCenter, face.vertices, eastInward)) {
                 openingCovered = true;
                 break;
@@ -154,13 +154,13 @@ void runVisBuildTests() {
             const BspTree tree = buildBspFromHullBrushes(brushes);
             const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
             CHECK(analysis.sealed);
-            const VisBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+            const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
 
             const Vector3 openingCenter{0.0f, 1.1f, 0.0f};
             const Vector3 northInward{0.0f, 0.0f, 1.0f};
             const Vector3 southInward{0.0f, 0.0f, -1.0f};
             bool openingCovered = false;
-            for (const VisibleFace& face : result.vis.faces) {
+            for (const VisibleFace& face : result.fac.faces) {
                 if (pointInPolygon3(openingCenter, face.vertices, northInward)
                     || pointInPolygon3(openingCenter, face.vertices, southInward)) {
                     openingCovered = true;
@@ -180,7 +180,7 @@ void runVisBuildTests() {
             const Vector3 wallENorth{4.0f, 1.0f, -3.0f};
 
             auto covered = [&](Vector3 point, Vector3 normal) {
-                for (const VisibleFace& face : result.vis.faces) {
+                for (const VisibleFace& face : result.fac.faces) {
                     if (pointInPolygon3(point, face.vertices, normal)) {
                         return true;
                     }
@@ -213,10 +213,10 @@ void runVisBuildTests() {
         const BspTree tree = buildBspFromHullBrushes(brushes);
         const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
         CHECK(analysis.sealed);
-        const VisBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
 
         int stairFragments = 0;
-        for (const VisibleFace& face : result.vis.faces) {
+        for (const VisibleFace& face : result.fac.faces) {
             if (face.sourceFaceId.find("stairs") != std::string::npos
                 || face.id.find("stairs") != std::string::npos) {
                 ++stairFragments;
@@ -280,10 +280,10 @@ void runVisBuildTests() {
             BrushRole::Detail);
         std::vector<Brush> withNeedle = brushes;
         withNeedle.push_back(needle);
-        const VisBuildResult result = buildVisibleFaces(tree, analysis, withNeedle);
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, withNeedle);
 
         bool anyNeedleVisible = false;
-        for (const VisibleFace& face : result.vis.faces) {
+        for (const VisibleFace& face : result.fac.faces) {
             if (face.sourceFaceId.find("needle") != std::string::npos
                 || face.id.find("needle") != std::string::npos) {
                 anyNeedleVisible = true;
@@ -303,11 +303,11 @@ void runVisBuildTests() {
         const BspTree tree = buildBspFromHullBrushes(brushes);
         MapHullAnalysis analysis{};
         analysis.sealed = false;
-        const VisBuildResult result = buildVisibleFaces(tree, analysis, brushes);
-        CHECK_FALSE(result.vis.faces.empty());
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+        CHECK_FALSE(result.fac.faces.empty());
         // Unsealed path skips interior clip, so authored faces are not discarded as buried.
-        CHECK(result.inferredNodrawFaceIds.empty() || result.vis.faces.size() >= 6u);
-        for (const VisibleFace& face : result.vis.faces) {
+        CHECK(result.inferredNodrawFaceIds.empty() || result.fac.faces.size() >= 6u);
+        for (const VisibleFace& face : result.fac.faces) {
             CHECK_FALSE(face.id.empty());
             CHECK_FALSE(face.sourceFaceId.empty());
         }

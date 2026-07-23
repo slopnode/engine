@@ -79,6 +79,7 @@ struct EntityRef {
 
 struct CompileDirty {
     bool bsp = false;
+    bool fac = false;
     bool vis = false;
     bool rad = false;
 };
@@ -169,6 +170,7 @@ struct Editor {
     bool switchScene(EditorScene next, bool force = false);
     void markDirty();
     void markBspDirty();
+    void markFacDirty();
     void markVisDirty();
     void markRadDirty();
     void markBrushCompileDirty(slopengine::BrushRole role);

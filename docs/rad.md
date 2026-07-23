@@ -1,6 +1,6 @@
 # Radiosity compilation
 
-sloprad bakes lightmap atlases under maps/{name}/rad/. Requires [BSP](bsp.md) and [VIS](vis.md). Authoring stays on [Maps](maps.md); materials and emission on [Materials](materials.md); bake vs runtime dynamic lights on [Lights](lights.md).
+sloprad bakes lightmap atlases under maps/{name}/rad/. Requires [BSP](bsp.md), [FAC](fac.md), and [VIS](vis.md). Authoring stays on [Maps](maps.md); materials and emission on [Materials](materials.md); bake vs runtime dynamic lights on [Lights](lights.md).
 
 CMake target sloprad (root CMakeLists.txt), linked against sloplib.
 
@@ -13,7 +13,7 @@ cmake --build build --target sloprad
 
 Shared mount flags with the game: --base-game and repeated --mod. Tools also require --map {name} (folder under maps/). The game runtime takes --map only when the base package declares it in data/cli.s7.
 
-Re-run after VIS face-id churn, material / albedo / emission / ambient edits, or things.s7 point/spot changes that should affect static light. Missing rad/ only skips lightmaps at load.
+Re-run after FAC face-id churn, material / albedo / emission / ambient edits, or things.s7 point/spot changes that should affect static light. Missing rad/ only skips lightmaps at load.
 
 ## Tool sequence
 
@@ -22,9 +22,9 @@ Entry point: tools/sloprad/main.cpp. Bake: bakeRadiosity in src/map/radiosity.cp
 1. Parse CLI (map + bake settings). Defaults: 16 luxels/m, 2 bounces, 16 samples, atlas size 1024 (not CLI), preferGpu true unless --cpu.
 2. Create a hidden OpenGL window (raylib) so GPU compute can run when available. Load direct and bounce shader sources when GPU is preferred.
 3. Load map meta (ambient color), require static.bsp, load brushes from CSG.
-4. Require readable static.vis.
-5. analyzeMapHull for seal / detail warnings (bake still uses VIS faces even if leaky).
-6. collectLightmapFaces from the VIS file (not raw brush faces), including each face's interiorLeaf.
+4. Require readable static.fac and static.vis.
+5. analyzeMapHull for seal / detail warnings (bake still uses FAC faces even if leaky).
+6. collectLightmapFaces from the FAC file (not raw brush faces), including each face's interiorLeaf.
 7. Collect point-light / spot-light things from things.s7 (and prefabs) as bake emitters.
 8. Delete and recreate maps/{name}/rad/.
 9. bakeRadiosity (passes the BSP tree and sealed flag for leaf reachability) -> static.rad + atlas PNGs named from the rad sidecar (atlas0.png, ...).
@@ -44,7 +44,7 @@ Entry point: tools/sloprad/main.cpp. Bake: bakeRadiosity in src/map/radiosity.cp
 
 ## Bake stages
 
-1. Leaf reachability. When the hull is sealed, BFS open-leaf adjacency into a bitmatrix. Luxels and emitter patches use VIS interiorLeaf (fallback: pointLeaf on position). Unreachable emitter<->receiver and light<->receiver pairs are skipped before occlusion. Unsealed maps or negative leaf indices disable the cull for that pair.
+1. Leaf reachability. When the hull is sealed, BFS open-leaf adjacency into a bitmatrix. Luxels and emitter patches use FAC interiorLeaf (fallback: pointLeaf on position). Unreachable emitter<->receiver and light<->receiver pairs are skipped before occlusion. Unsealed maps or negative leaf indices disable the cull for that pair. (Runtime PVS in static.vis is a separate visibility predicate; rad does not consume it for luxel culls.)
 
 2. Pack charts. For each lightmap face, measure extent along the face UV axes (locked axes or world-axial basis from the normal). Effective luxels/m equals the setting when max(extentU, extentV) <= 4, otherwise half that (large flats get coarser charts). Luxel width/height = ceil(extent * effectiveLpm) + 2, clamped to [2, atlasSize]. Charts are sorted by descending height, then packed left-to-right in shelves, spilling to a new 1024^2 atlas when needed. The rad sidecar still stores the nominal luxelsPerMeter. Each chart records atlas index, pixel origin, luxel size, and normalized UV bounds inset by half a luxel.
 
@@ -72,11 +72,11 @@ Emission at a world point: emission-color * emission-power, multiplied by the em
 
 ## RAD1 sidecar
 
-Magic RAD1 (0x31444152), version 2. Atlas PNGs are separate files under rad/; face ids are VIS fragment ids. Field layout: [Binary formats — RAD1](binary-formats.md#rad1-rad).
+Magic RAD1 (0x31444152), version 2. Atlas PNGs are separate files under rad/; face ids are FAC fragment ids. Field layout: [Binary formats — RAD1](binary-formats.md#rad1-rad).
 
 ## Runtime relationship
 
-At map load, VIS faces (from static.vis or an in-memory rebuild) become the draw mesh. If rad/ loads, chart UVs become mesh lightmap UV2 and atlas textures bind on the lightmap shader. Emission textures mattered at bake time; at runtime the lightmap shader adds a flat emit from material emission-color when emission-power > 0 and does not re-sample the emission map. See [Materials](materials.md).
+At map load, FAC faces (from static.fac or an in-memory rebuild) become the draw mesh. If rad/ loads, chart UVs become mesh lightmap UV2 and atlas textures bind on the lightmap shader. Emission textures mattered at bake time; at runtime the lightmap shader adds a flat emit from material emission-color when emission-power > 0 and does not re-sample the emission map. See [Materials](materials.md).
 
 ## Source map
 

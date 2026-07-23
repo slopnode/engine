@@ -719,10 +719,10 @@ bool AudioWorld::steamAudioEnabled() const {
 #endif
 }
 
-void AudioWorld::setSteamAudioScene(const VisFile& vis) {
+void AudioWorld::setSteamAudioScene(const FacFile& vis) {
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
     if (steamAudioEnabled()) {
-        steamAudio_->setSceneFromVis(vis);
+        steamAudio_->setSceneFromFac(vis);
     }
 #else
     (void)vis;

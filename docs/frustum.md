@@ -1,8 +1,8 @@
 # View frustum culling
 
-Each frame the world pass builds a camera frustum from the presentation camera and skips objects that fall entirely outside it. This is runtime draw filtering only: it does not change bake data, and it is not a PVS.
+Each frame the world pass builds a camera frustum from the presentation camera and skips objects that fall entirely outside it. Object culling also consults the compiled leaf [PVS](vis.md) (`static.vis`): an object must pass **frustum ∩ PVS**. This is runtime draw filtering only; it does not change bake data. The map FAC mesh is never culled by frustum or PVS.
 
-Related: [Player](player.md), [Sprites](sprites.md), [Lights](lights.md), [Geometry](geometry.md), [VIS](vis.md).
+Related: [Player](player.md), [Sprites](sprites.md), [Lights](lights.md), [Geometry](geometry.md), [FAC](fac.md), [VIS](vis.md).
 
 ## What a frustum is
 
@@ -17,24 +17,24 @@ Tests live in `sloptests frustum` ([test/test_frustum.cpp](../test/test_frustum.
 In the world lens pass:
 
 1. Build the frustum from the presentation camera.
-2. Gather dynamic lights (sphere cull by range, then rank).
+2. Gather dynamic lights (sphere cull by range, then PVS, then rank).
 3. Upload ranked lights to the map lightmap shader once.
-4. Draw world models (map always; props if AABB in frustum).
-5. Collect and draw world sprites (sphere cull, then back-to-front sort).
-6. First-person viewmodels and screen-space view sprites are not frustum-culled.
+4. Draw world models (map always; props if AABB in frustum and PVS-visible).
+5. Collect and draw world sprites (sphere cull, PVS, then back-to-front sort).
+6. First-person viewmodels and screen-space view sprites are not frustum- or PVS-culled.
 
 ## What is culled
 
 | Target | Test | Notes |
 |--------|------|--------|
-| Map brush model (`MapLightmapState`) | Never culled | The viewer stands inside the map AABB; frustum-culling the whole mesh would hide the level. |
-| World props (`Model3D` + `WorldSpace`, no map lightmaps) | Transformed model AABB | Local `GetModelBoundingBox`, then `transformAabb` by `GlobalTransformation`. |
-| Skeleton debug overlays | Same AABB test as props | Skipped when the prop is out of view. |
-| World sprites | Sphere | Center lifted above the entity feet (billboards grow upward); radius from entity scale with a minimum. Culled before light sampling and sort. |
-| Dynamic lights | Sphere at light position with `range` | Out-of-frustum candidates never enter ranking. Still capped by `kMaxDynamicLights` after score. |
+| Map brush model (`MapLightmapState`) | Never culled | Full FAC mesh always draws. |
+| World props (`Model3D` + `WorldSpace`, no map lightmaps) | AABB ∩ frustum, then PVS on AABB center | Leaf via `pvsSampleLeaf` (nudges up into open space). |
+| Skeleton debug overlays | Same as props | Skipped when the prop is out of view. |
+| World sprites | Sphere ∩ frustum, then PVS at feet | Feet often sit in solid floor; sample nudges up. Fail-open if no open leaf. |
+| Dynamic lights | Sphere ∩ frustum, then PVS | `ViewSpace` lights (e.g. flashlight) skip PVS. Still capped by `kMaxDynamicLights` after score. |
 | FP viewmodels / view sprites / HUD | Not culled | Eye-space or screen-space; intended on screen. |
 
-Frustum culling only answers “is this roughly in the camera cone?” Walls do not occlude other rooms. Compile-time [VIS](vis.md) still builds the map face list; it does not drive this pass. True portal / leaf PVS is not implemented.
+Scheme: `(pvs-can-see x0 y0 z0 x1 y1 z1)` answers leaf visibility between two points (separate from physics `(los? …)`).
 
 ## Helpers
 
@@ -44,6 +44,7 @@ Frustum culling only answers “is this roughly in the camera cone?” Walls do 
 | `aabbInFrustum` | True if the box is not fully outside any plane. |
 | `sphereInFrustum` | True if the sphere is not fully outside any plane. |
 | `transformAabb` | World AABB from a local box and a matrix (eight corners). |
+| `pvsCanSee` | Leaf↔leaf bit test from `MapPvs` / PVS1. |
 
 Raylib’s `MatrixMultiply(A, B)` combines matrices in the order the engine already uses for MVP-style products; frustum construction follows that convention so planes match what `BeginMode3D` draws.
 
@@ -53,6 +54,7 @@ Raylib’s `MatrixMultiply(A, B)` combines matrices in the order the engine alre
 - Sprite spheres are conservative approximations; a tall billboard uses an elevated center so feet-only origins are not culled while the art is still on screen.
 - A dynamic light behind the camera with a large range can still pass if its sphere intersects the frustum (correct for lighting surfaces you can see).
 - Turning away from props, sprites, or lights should stop drawing / ranking them; the map and FP weapon should stay visible.
+- Missing or mismatched `static.vis` fails map load; re-run `slopvis` after BSP changes.
 
 ## Source map
 
@@ -61,4 +63,5 @@ Raylib’s `MatrixMultiply(A, B)` combines matrices in the order the engine alre
 | Plane extract + tests | `src/render/render_frustum.hpp`, `render_frustum.cpp` |
 | Frame wiring | `src/render/render_module.cpp` (`LensWorld`) |
 | Prop / sprite / light cull | `src/render/render_pass_world.cpp` |
-| Unit tests | `test/test_frustum.cpp` (`sloptests frustum`) |
+| PVS bake / IO | `src/map/pvs_build.cpp`, `pvs_io.cpp` |
+| Unit tests | `test/test_frustum.cpp` (`sloptests frustum`), `test/test_pvs_build.cpp` |

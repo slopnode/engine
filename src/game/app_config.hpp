@@ -24,7 +24,7 @@ struct AppConfig {
     std::string programName = "slopengine";
     std::filesystem::path base_game;
     std::vector<std::filesystem::path> mods;
-    /** Tool-facing map id (`slopbsp` / `slopvis` / editors). Not used by the game runtime. */
+    /** Tool-facing map id (`slopbsp` / `slopfac` / `slopvis` / editors). Not used by the game runtime. */
     std::optional<std::string> map;
     std::vector<std::string> pendingArgs;
     std::unordered_map<std::string, std::string> packageArgs;

@@ -751,6 +751,16 @@ void Editor::markBspDirty() {
         return;
     }
     compileDirty.bsp = true;
+    compileDirty.fac = true;
+    compileDirty.vis = true;
+    compileDirty.rad = true;
+}
+
+void Editor::markFacDirty() {
+    if (scene != EditorScene::Level) {
+        return;
+    }
+    compileDirty.fac = true;
     compileDirty.vis = true;
     compileDirty.rad = true;
 }
@@ -774,7 +784,7 @@ void Editor::markBrushCompileDirty(slopengine::BrushRole role) {
     if (slopengine::brushRoleContributesSplits(role)) {
         markBspDirty();
     } else {
-        markVisDirty();
+        markFacDirty();
     }
 }
 
@@ -788,6 +798,9 @@ void Editor::clearCompileStage(CompileStage stage) {
     switch (stage) {
     case CompileStage::Bsp:
         compileDirty.bsp = false;
+        break;
+    case CompileStage::Fac:
+        compileDirty.fac = false;
         break;
     case CompileStage::Vis:
         compileDirty.vis = false;
@@ -829,12 +842,16 @@ bool Editor::cleanCompileData(
     const std::filesystem::path mapDir = packageRoot / "maps" / mapName;
     bool removedAny = false;
     bool cleanBsp = false;
+    bool cleanFac = false;
     bool cleanVis = false;
     bool cleanRad = false;
     for (const CompileStage stage : stages) {
         switch (stage) {
         case CompileStage::Bsp:
             cleanBsp = true;
+            break;
+        case CompileStage::Fac:
+            cleanFac = true;
             break;
         case CompileStage::Vis:
             cleanVis = true;
@@ -864,10 +881,17 @@ bool Editor::cleanCompileData(
         removePath(mapDir / "static.bsp", false);
         compileDirty.bsp = true;
     }
+    if (cleanFac) {
+        removePath(mapDir / "static.fac", false);
+        preview.clearVis();
+        compileDirty.fac = true;
+        compileDirty.vis = true;
+        compileDirty.rad = true;
+    }
     if (cleanVis) {
         removePath(mapDir / "static.vis", false);
-        preview.clearVis();
         compileDirty.vis = true;
+        compileDirty.rad = true;
     }
     if (cleanRad) {
         removePath(mapDir / "rad", true);
@@ -1221,7 +1245,7 @@ void Editor::toggleSelectedBrushRole() {
     if (anySplit) {
         markBspDirty();
     } else {
-        markVisDirty();
+        markFacDirty();
     }
     statusMessage = std::string("Role: ") + slopengine::brushRoleName(lastRole) + " (" + lastId + ")";
 }

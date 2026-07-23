@@ -256,7 +256,7 @@ bool forEachTarget(
         return false;
     }
     editor.markDirty();
-    editor.markVisDirty();
+    editor.markFacDirty();
     return true;
 }
 

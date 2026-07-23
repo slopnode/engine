@@ -13,7 +13,7 @@ Packages are mounted from the command line. The engine owns only mount flags; ot
 - --base-game: path to the base package directory (required)
 - --mod: additional package directory; can be repeated
 
-Compile tools (slopbsp, slopvis, sloprad) and editors still take --map as a tool flag. The game runtime treats --map as a package flag when the base game declares it in data/cli.s7.
+Compile tools (slopbsp, slopfac, sloprad) and editors still take --map as a tool flag. The game runtime treats --map as a package flag when the base game declares it in data/cli.s7.
 
 Later packages override earlier ones when the same virtual asset path exists in more than one package. Package ids must be unique across the mount set, and every depends entry in package.meta must resolve to a mounted package.
 
@@ -76,7 +76,7 @@ Example: material virtual path surfaces/stone resolves to materials/surfaces/sto
 | icons/ | .png, .iconmap | silk -> icons/silk.png / icons/silk.iconmap |
 | fonts/ | .ttf | FiraSans/FiraSans-Regular -> fonts/FiraSans/FiraSans-Regular.ttf |
 | prefabs/ | .csg, .s7 | furniture/desk -> prefabs/furniture/desk.csg (optional sibling .s7) |
-| maps/ | see below | {name}/static -> .csg / .bsp / .vis; {name}/things -> things.s7; {name}/graphs -> graphs.s7; {name}/rad/static -> rad/static.rad |
+| maps/ | see below | {name}/static -> .csg / .bsp / .fac / .vis; {name}/things -> things.s7; {name}/graphs -> graphs.s7; {name}/rad/static -> rad/static.rad |
 
 Nested folders under each category are allowed. Related assets are often grouped by shared name under geometry/, skeletons/, and animations/.
 
@@ -145,7 +145,7 @@ Reusable brush assemblies under prefabs/. A .csg file uses the same brush-box / 
 
 ### Maps
 
-Each map is a folder under maps/{name}/ with authored map.meta / static.csg, optional things.s7 / graphs.s7, and compiled static.bsp / static.vis plus optional rad/. The map belongs to whichever package directory contains it; map.meta (depends ...) lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, [slopmap](slopmap.md) for the editor, and [BSP](bsp.md) / [VIS](vis.md) / [Radiosity](rad.md) for the compile tools.
+Each map is a folder under maps/{name}/ with authored map.meta / static.csg, optional things.s7 / graphs.s7, and compiled static.bsp / static.fac plus optional rad/. The map belongs to whichever package directory contains it; map.meta (depends ...) lists other packages only when the map uses their assets. See [Maps](maps.md) for authoring and things, [slopmap](slopmap.md) for the editor, and [BSP](bsp.md) / [VIS](vis.md) / [Radiosity](rad.md) for the compile tools.
 
 A package is created by adding a package.meta with a unique id, the category folders you need, and mounting it with --base-game or --mod. Dependencies listed in (depends ...) must also be mounted.
 

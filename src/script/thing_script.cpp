@@ -5,6 +5,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "map/bsp.hpp"
+#include "map/pvs.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
@@ -754,6 +755,32 @@ s7_pointer g_actor_los(s7_scheme* sc, s7_pointer args) {
     return g_los(sc, losArgs);
 }
 
+s7_pointer g_pvs_can_see(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    float x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+    if (!readNumberArg(sc, args, x0, "pvs-can-see", 1) ||
+        !readNumberArg(sc, args, y0, "pvs-can-see", 2) ||
+        !readNumberArg(sc, args, z0, "pvs-can-see", 3) ||
+        !readNumberArg(sc, args, x1, "pvs-can-see", 4) ||
+        !readNumberArg(sc, args, y1, "pvs-can-see", 5) ||
+        !readNumberArg(sc, args, z1, "pvs-can-see", 6)) {
+        return s7_wrong_type_arg_error(
+            sc, "pvs-can-see", 1, args, "x0 y0 z0 x1 y1 z1 numbers");
+    }
+    if (g_thingWorld == nullptr || !g_thingWorld->has<MapPvs>() || !g_thingWorld->has<MapBsp>()) {
+        return s7_t(sc);
+    }
+    return pvsVisiblePoints(
+               g_thingWorld->get<MapBsp>().tree,
+               g_thingWorld->get<MapPvs>().pvs,
+               {x0, y0, z0},
+               {x1, y1, z1})
+        ? s7_t(sc)
+        : s7_f(sc);
+}
+
 } // namespace
 
 void queueThingDespawn(flecs::world& world, std::string_view id) {
@@ -990,6 +1017,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(actors-in-radius x y z r [tag])");
     s7_define_function(scheme, "los?", g_los, 6, 0, false, "(los? x0 y0 z0 x1 y1 z1)");
+    s7_define_function(
+        scheme,
+        "pvs-can-see",
+        g_pvs_can_see,
+        6,
+        0,
+        false,
+        "(pvs-can-see x0 y0 z0 x1 y1 z1)");
     s7_define_function(
         scheme, "actor-los?", g_actor_los, 2, 0, false, "(actor-los? from-id to-id)");
     s7_define_function(

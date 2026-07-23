@@ -34,7 +34,7 @@ Each engine or base segment is the package id and version from package.meta, joi
 Example with no mods on Linux:
 
 ```text
-~/.config/slopengine/saves/slopengine.engine_0.1.0/slopdoom_0.1.0/vanilla/
+~/.config/slopengine/saves/slopengine.engine_0.2.0/slopdoom_0.2.0/vanilla/
 ```
 
 Relative paths passed to (save-write) and (save-read) are resolved under that context root only. Empty paths, absolute paths, and .. segments are rejected.

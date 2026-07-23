@@ -60,7 +60,7 @@ AssetStore::getGeoModel loads .geo + .vert, optionally .weights, resolves each p
 
 ## Level geometry (CSG)
 
-Levels are not Blender meshes. They are authored as Scheme brushes under maps/{name}/, then compiled with slopbsp, slopvis, and optionally sloprad. See [Maps](maps.md) for the full authoring and compile pipeline.
+Levels are not Blender meshes. They are authored as Scheme brushes under maps/{name}/, then compiled with slopbsp, slopfac, slopvis, and optionally sloprad. See [Maps](maps.md) for the full authoring and compile pipeline.
 
 There is no package .geo / .vert for the level itself. At load time, VIS faces (or brushes as a fallback) compile into the same in-memory geometry types used by props.
 

@@ -19,17 +19,17 @@ Re-run when hull brushes, sealing, or hull face layout change. Downstream [VIS](
 static.bsp is structural data built from hull brushes only. It is not the visible mesh and not the physics mesh.
 
 - Sealing / leaks. Exterior empty space is flooded from the padded world bounds through empty-leaf adjacency. If that flood reaches the playable interior, the hull is leaky.
-- VIS prerequisite. slopvis uses sealed interior empty leaves to clip hull and detail faces into drawable fragments.
-- Runtime. The game requires BSP to load. It uses the tree for hull analysis, leaf-related debug, and as input when rebuilding VIS in memory if static.vis is missing. Collision comes from convex hulls per brush through the physics library.
+- VIS prerequisite. slopfac uses sealed interior empty leaves to clip hull and detail faces into drawable fragments.
+- Runtime. The game requires BSP to load. It uses the tree for hull analysis, leaf-related debug, and as input when rebuilding VIS in memory if static.fac is missing. Collision comes from convex hulls per brush through the physics library.
 - Radiosity prerequisite. sloprad loads the BSP for hull analysis / detail warnings and open-leaf reachability culling. Bake-time ray occlusion itself is against a BVH of lightmap (VIS) faces, not by walking the BSP node tree as a mesh.
 
-Detail brushes never contribute split planes and cannot seal a leak. Hint planes split without sealing. Window brushes seal like hull (Glass contents). Trigger / water / hint / detail centers must sit in sealed interior open space or slopbsp / slopvis / sloprad warn.
+Detail brushes never contribute split planes and cannot seal a leak. Hint planes split without sealing. Window brushes seal like hull (Glass contents). Trigger / water / hint / detail centers must sit in sealed interior open space or slopbsp / slopfac / sloprad warn.
 
 ## Why this is not a modern mesh pipeline
 
 Most current editors treat a level as an arbitrary triangle soup (or a collection of meshes) plus separate systems for collision, visibility, and lighting. You place geometry anywhere; a BVH or GPU raster path draws it; navmesh / probes / lightmaps are built from whatever faces the baker is told to include. There is usually no authored "inside" that must be watertight against the void.
 
-This BSP path is older Quake-family thinking. A modern mesh level draws whatever is in the scene and often culls at runtime (portals, HZB, GPU occlusion). Here the draw mesh comes from VIS face fragments clipped to sealed interior empty space -- an offline visible-face set (static.vis), not leaf<->leaf PVS. Collision is also separate from the BSP: each brush keeps its own convex hull for physics; the tree is structural, not the physics mesh.
+This BSP path is older Quake-family thinking. A modern mesh level draws whatever is in the scene and often culls at runtime (portals, HZB, GPU occlusion). Here the draw mesh comes from VIS face fragments clipped to sealed interior empty space -- an offline visible-face set (static.fac), not leaf<->leaf PVS. Collision is also separate from the BSP: each brush keeps its own convex hull for physics; the tree is structural, not the physics mesh.
 
 Modern tools usually have no global seal requirement. Here the hull must enclose playable empty space or compile fails a leak check. Detail and structure are not the same mesh kind either: brush **role** decides who splits the tree, who seals against the void, and who only decorates inside an already sealed volume.
 
@@ -91,7 +91,7 @@ Leak path. On failure, BFS from bound-touching open leaves toward the open leaf 
 
 Interior placement warnings. Each detail / hint / trigger / water brush center is classified with pointLeaf. If that leaf is not sealed interior open, emit '{role} {id} is outside sealed hull'.
 
-Inferred nodraw is no longer decided by sparse whole-face probes in analysis. That decision belongs to slopvis (zero visible area after clip).
+Inferred nodraw is no longer decided by sparse whole-face probes in analysis. That decision belongs to slopfac (zero visible area after clip).
 
 ## BSP2 file contents
 

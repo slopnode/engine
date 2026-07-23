@@ -2,7 +2,7 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
 
 #include <raylib.h>
 
@@ -71,7 +71,7 @@ struct LightmapPackResult {
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
 
 /** Collects drawable faces from a VIS visible-face set. */
-std::vector<LightmapFace> collectLightmapFaces(const VisFile& vis);
+std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis);
 
 /** Packs faces into atlas charts at @p luxelsPerMeter. */
 LightmapPackResult packLightmapCharts(

@@ -3,7 +3,7 @@
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
 
 #include "audio/steam_audio_types.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
 
 #include <phonon.h>
 #include <soloud.h>
@@ -59,7 +59,7 @@ public:
 
     SteamAudioSpatializeFilter& spatializeFilter();
 
-    bool setSceneFromVis(const VisFile& vis);
+    bool setSceneFromFac(const FacFile& vis);
     void clearScene();
 
     int trackVoice(

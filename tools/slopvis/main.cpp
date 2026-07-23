@@ -3,8 +3,8 @@
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_script.hpp"
-#include "map/vis.hpp"
-#include "map/vis_io.hpp"
+#include "map/pvs.hpp"
+#include "map/pvs_io.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -36,6 +36,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath);
+    if (!facPath) {
+        std::cerr << "slopvis: missing maps/" << virtualPath << ".fac (run slopfac first)\n";
+        s7_quit(scheme);
+        return 1;
+    }
+
     auto tree = readBspFile(*bspPath);
     if (!tree) {
         std::cerr << "slopvis: failed to read " << *bspPath << "\n";
@@ -52,7 +59,7 @@ int main(int argc, char* argv[]) {
 
     const MapHullAnalysis analysis = analyzeMapHull(*tree, *brushes);
     if (!analysis.sealed) {
-        TraceLog(LOG_ERROR, "slopvis: LEAK — refuse to build visible faces for an unsealed hull");
+        TraceLog(LOG_ERROR, "slopvis: LEAK — refuse to build PVS for an unsealed hull");
         for (const std::string& step : analysis.leakPathFaceIds) {
             TraceLog(LOG_ERROR, "slopvis: leak path %s", step.c_str());
         }
@@ -60,23 +67,35 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const VisBuildResult built = buildVisibleFaces(*tree, analysis, *brushes);
+    const PvsFile pvs = buildPvs(*tree, &analysis.exteriorEmpty);
     const auto visPath = bspPath->parent_path() / "static.vis";
-    if (!writeVisFile(visPath, built.vis)) {
+    if (!writePvsFile(visPath, pvs)) {
         std::cerr << "slopvis: failed to write " << visPath << "\n";
         s7_quit(scheme);
         return 1;
     }
 
+    int openLeaves = 0;
+    int visiblePairs = 0;
+    for (int a = 0; a < pvs.leafCount; ++a) {
+        if (!leafIsOpen(tree->leaves[static_cast<std::size_t>(a)].contents)) {
+            continue;
+        }
+        ++openLeaves;
+        for (int b = 0; b < pvs.leafCount; ++b) {
+            if (pvsCanSee(pvs, a, b)) {
+                ++visiblePairs;
+            }
+        }
+    }
+
     TraceLog(
         LOG_INFO,
-        "slopvis: wrote %s (faces=%d inferredNodraw=%d)",
+        "slopvis: wrote %s (leaves=%d openLeaves=%d visiblePairs=%d)",
         visPath.string().c_str(),
-        static_cast<int>(built.vis.faces.size()),
-        static_cast<int>(built.inferredNodrawFaceIds.size()));
-    for (const std::string& warning : analysis.detailOutsideWarnings) {
-        TraceLog(LOG_WARNING, "slopvis: %s", warning.c_str());
-    }
+        pvs.leafCount,
+        openLeaves,
+        visiblePairs);
 
     s7_quit(scheme);
     return 0;

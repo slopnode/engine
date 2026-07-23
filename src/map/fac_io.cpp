@@ -1,4 +1,4 @@
-#include "map/vis_io.hpp"
+#include "map/fac_io.hpp"
 
 #include <raylib.h>
 
@@ -112,17 +112,17 @@ bool readPolygon(BinaryReader& reader, std::vector<Vector3>& verts) {
 
 } // namespace
 
-bool writeVisFile(const std::filesystem::path& path, const VisFile& vis) {
+bool writeFacFile(const std::filesystem::path& path, const FacFile& fac) {
     std::unordered_map<std::string, std::uint32_t> stringTable;
     std::vector<std::string> strings;
     internString(stringTable, strings, "");
 
     BinaryWriter writer;
-    writer.writePod(kVisMagic);
-    writer.writePod(kVisVersion);
-    writer.writePod(static_cast<std::uint32_t>(vis.faces.size()));
+    writer.writePod(kFacMagic);
+    writer.writePod(kFacVersion);
+    writer.writePod(static_cast<std::uint32_t>(fac.faces.size()));
 
-    for (const VisibleFace& face : vis.faces) {
+    for (const VisibleFace& face : fac.faces) {
         writePolygon(writer, face.vertices);
         writer.writePod(face.normal);
         writer.writePod(face.uvShiftPixels);
@@ -151,14 +151,14 @@ bool writeVisFile(const std::filesystem::path& path, const VisFile& vis) {
     return static_cast<bool>(out);
 }
 
-std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
+std::optional<FacFile> readFacBytes(std::span<const std::byte> data) {
     BinaryReader reader(data);
     std::uint32_t magic = 0;
     std::uint32_t version = 0;
     if (!reader.readPod(magic) || !reader.readPod(version)) {
         return std::nullopt;
     }
-    if (magic != kVisMagic || (version != 1 && version != kVisVersion)) {
+    if (magic != kFacMagic || (version != 1 && version != kFacVersion)) {
         return std::nullopt;
     }
     const bool hasUvScale = version >= 2;
@@ -221,8 +221,8 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
         return strings[index];
     };
 
-    VisFile vis;
-    vis.faces.reserve(records.size());
+    FacFile fac;
+    fac.faces.reserve(records.size());
     for (const FaceRecord& record : records) {
         VisibleFace face;
         face.vertices = record.vertices;
@@ -236,12 +236,12 @@ std::optional<VisFile> readVisBytes(std::span<const std::byte> data) {
         face.id = resolve(record.idIndex);
         face.sourceFaceId = resolve(record.sourceIndex);
         face.material = resolve(record.materialIndex);
-        vis.faces.push_back(std::move(face));
+        fac.faces.push_back(std::move(face));
     }
-    return vis;
+    return fac;
 }
 
-std::optional<VisFile> readVisFile(const std::filesystem::path& path) {
+std::optional<FacFile> readFacFile(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in) {
         return std::nullopt;
@@ -258,7 +258,7 @@ std::optional<VisFile> readVisFile(const std::filesystem::path& path) {
             return std::nullopt;
         }
     }
-    return readVisBytes(bytes);
+    return readFacBytes(bytes);
 }
 
 }

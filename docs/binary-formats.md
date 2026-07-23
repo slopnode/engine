@@ -2,7 +2,7 @@
 
 Custom little-endian binary schemas used by package and map assets. Domain guides cover build/load semantics; this page is the field layout reference for tool authors.
 
-Related: [Package structure](package-structure.md), [Maps](maps.md), [BSP](bsp.md), [VIS](vis.md), [RAD](rad.md), [Geometry](geometry.md), [Skeletal animation](animation.md).
+Related: [Package structure](package-structure.md), [Maps](maps.md), [BSP](bsp.md), [FAC](fac.md), [VIS](vis.md), [RAD](rad.md), [Geometry](geometry.md), [Skeletal animation](animation.md).
 
 PNG, OGG, and TTF are external formats and are not specified here. Prop meshes use .geo / .vert (this page covers the binary companions). Text / S-expression assets (.geo, .skel, .anim, .mat, .csg, .s7, …) stay on their own pages.
 
@@ -17,9 +17,9 @@ PNG, OGG, and TTF are external formats and are not specified here. Prop meshes u
 | Length-prefixed string | u32 byte length, then that many bytes (no trailing NUL) |
 | Polygon | u32 vertex count, then that many Vector3 |
 
-Map sidecars (BSP2, VIS1, RAD1) store magic as a u32 fourCC in little-endian (ASCII when viewed on a LE host). Geometry / skeleton / track files (DLK*) store magic as **four ASCII bytes**, then a u16 version.
+Map sidecars (BSP2, FAC1, PVS1, RAD1) store magic as a u32 fourCC in little-endian (ASCII when viewed on a LE host). Geometry / skeleton / track files (DLK*) store magic as **four ASCII bytes**, then a u16 version.
 
-Writers are authoritative: src/map/bsp_io.cpp, vis_io.cpp, lightmap.cpp, and tools/blender/slopengine_exporter/format_utils.py with matching loaders under src/assets/.
+Writers are authoritative: src/map/bsp_io.cpp, fac_io.cpp, pvs_io.cpp, lightmap.cpp, and tools/blender/slopengine_exporter/format_utils.py with matching loaders under src/assets/.
 
 ## BSP2 (.bsp)
 
@@ -110,9 +110,9 @@ Each surface face:
 | stringCount | u32 | Index 0 is always the empty string |
 | strings[stringCount] | string | Length-prefixed |
 
-## VIS1 (.vis)
+## FAC1 (.fac)
 
-Path: maps/{name}/static.vis. Magic 0x31534956 (VIS1), version 2. Semantics: [VIS](vis.md).
+Path: maps/{name}/static.fac. Magic 0x31434146 (FAC1), version 2. Semantics: [FAC](fac.md).
 
 The reader also accepts version 1 (same layout without uvScale; defaults to (1, 1)).
 
@@ -120,7 +120,7 @@ The reader also accepts version 1 (same layout without uvScale; defaults to (1, 
 
 | Field | Type | Notes |
 |-------|------|-------|
-| magic | u32 | 0x31534956 |
+| magic | u32 | 0x31434146 |
 | version | u32 | 2 (or 1) |
 | faceCount | u32 |  |
 
@@ -149,11 +149,23 @@ Each face (repeated faceCount times):
 | stringCount | u32 | Index 0 is always the empty string |
 | strings[stringCount] | string | Length-prefixed |
 
+## PVS1 (.vis)
+
+Path: maps/{name}/static.vis. Magic 0x31535650 (PVS1), version 1. Semantics: [VIS](vis.md).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| magic | u32 | 0x31535650 |
+| version | u32 | 1 |
+| leafCount | u32 | Matches BSP leaf count |
+| wordsPerRow | u32 | `(leafCount + 31) / 32` |
+| bits[leafCount * wordsPerRow] | u32 | Row-major; bit `(to & 31)` in word `from * wordsPerRow + (to >> 5)` |
+
 ## RAD1 (.rad)
 
 Path: maps/{name}/rad/static.rad. Magic 0x31444152 (RAD1), version 2. Semantics: [RAD](rad.md).
 
-Atlas pixels are **not** embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match VIS fragment ids. Strings in this file are inline length-prefixed (no trailing string table).
+Atlas pixels are **not** embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match FAC fragment ids. Strings in this file are inline length-prefixed (no trailing string table).
 
 ### Header
 

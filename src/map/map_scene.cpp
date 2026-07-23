@@ -13,7 +13,8 @@
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "map/things_spawn.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
+#include "map/pvs.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
 #include "physics/physics_module.hpp"
@@ -131,8 +132,11 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapBsp>()) {
         world.remove<MapBsp>();
     }
-    if (world.has<MapVis>()) {
-        world.remove<MapVis>();
+    if (world.has<MapFac>()) {
+        world.remove<MapFac>();
+    }
+    if (world.has<MapPvs>()) {
+        world.remove<MapPvs>();
     }
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
@@ -197,7 +201,7 @@ bool registerMapScene(
     }
 
     MapBsp mapBsp{std::move(loaded->bsp)};
-    MapVis mapVis{std::move(loaded->vis)};
+    MapFac mapFac{std::move(loaded->fac)};
     Color ambientColor{
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.x * 255.0f, 0.0f, 255.0f)),
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.y * 255.0f, 0.0f, 255.0f)),
@@ -214,12 +218,13 @@ bool registerMapScene(
         AudioContext& audioCtx = world.get_mut<AudioContext>();
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
-            audioCtx.world->setSteamAudioScene(mapVis.vis);
+            audioCtx.world->setSteamAudioScene(mapFac.fac);
         }
     }
 
     world.set<MapBsp>(std::move(mapBsp));
-    world.set<MapVis>(std::move(mapVis));
+    world.set<MapFac>(std::move(mapFac));
+    world.set<MapPvs>(MapPvs{std::move(loaded->pvs)});
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;

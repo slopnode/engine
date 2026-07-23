@@ -6,7 +6,8 @@
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
-#include "map/vis.hpp"
+#include "map/fac.hpp"
+#include "map/pvs.hpp"
 #include "render/animation_player.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
@@ -90,6 +91,20 @@ Vector3 directionFromMatrix(const Matrix& matrix) {
         return {0.0f, 0.0f, 1.0f};
     }
     return Vector3Normalize(dir);
+}
+
+bool pvsVisibleFromCamera(
+    flecs::world& world,
+    Vector3 cameraPos,
+    Vector3 objectPos) {
+    if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
+        return true;
+    }
+    return pvsVisiblePoints(
+        world.get<MapBsp>().tree,
+        world.get<MapPvs>().pvs,
+        cameraPos,
+        objectPos);
 }
 
 void drawWorldSprite(
@@ -224,7 +239,8 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         ranked.light = light;
         const Vector3 localPos = translationFromMatrix(global.matrix);
         const Vector3 localDir = directionFromMatrix(global.matrix);
-        if (entity.has<ViewSpace>()) {
+        const bool viewSpace = entity.has<ViewSpace>();
+        if (viewSpace) {
             ranked.position = viewToWorldPoint(presentLens, localPos);
             ranked.direction = viewToWorldDirection(presentLens, localDir);
         } else {
@@ -232,6 +248,10 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
             ranked.direction = localDir;
         }
         if (!sphereInFrustum(frustum, ranked.position, std::max(light.range, 0.0f))) {
+            return;
+        }
+        if (!viewSpace &&
+            !pvsVisibleFromCamera(world, lens.camera.position, ranked.position)) {
             return;
         }
         ranked.linearRgb = dynamicLightLinearRgb(light);
@@ -316,6 +336,14 @@ void drawWorldModels(
             if (!aabbInFrustum(frustum, worldBounds)) {
                 return;
             }
+            const Vector3 center{
+                (worldBounds.min.x + worldBounds.max.x) * 0.5f,
+                (worldBounds.min.y + worldBounds.max.y) * 0.5f,
+                (worldBounds.min.z + worldBounds.max.z) * 0.5f,
+            };
+            if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
+                return;
+            }
         }
         renderWorldModel(modelEntity, model, global, lens);
     });
@@ -325,6 +353,14 @@ void drawWorldModels(
                 const BoundingBox localBounds = GetModelBoundingBox(model.model);
                 const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
                 if (!aabbInFrustum(frustum, worldBounds)) {
+                    return;
+                }
+                const Vector3 center{
+                    (worldBounds.min.x + worldBounds.max.x) * 0.5f,
+                    (worldBounds.min.y + worldBounds.max.y) * 0.5f,
+                    (worldBounds.min.z + worldBounds.max.z) * 0.5f,
+                };
+                if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
                     return;
                 }
             }
@@ -376,6 +412,9 @@ std::string drawWorldSprites(
                 position.z,
             };
             if (!sphereInFrustum(frustum, cullCenter, radius)) {
+                return;
+            }
+            if (!pvsVisibleFromCamera(world, lens.camera.position, position)) {
                 return;
             }
             const float dx = position.x - lens.camera.position.x;
@@ -438,8 +477,8 @@ void drawWorldDebugOverlays(flecs::world& world) {
             }
             drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
         }
-        if (world.has<MapVis>()) {
-            drawVisDebugOverlays(world.get<MapVis>().vis, debugUi, currentLeaf);
+        if (world.has<MapFac>()) {
+            drawFacDebugOverlays(world.get<MapFac>().fac, debugUi, currentLeaf);
         }
     }
 
