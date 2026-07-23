@@ -145,6 +145,95 @@ s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "on-use", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_pivot(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "pivot", 0, args, "x y z");
+    }
+    return makeTaggedList(
+        sc,
+        "pivot",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_open_offset(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "open-offset", 0, args, "dx dy dz");
+    }
+    return makeTaggedList(
+        sc,
+        "open-offset",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_open_pitch(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "open-pitch", 1, args, "radians");
+    }
+    return makeTaggedList(sc, "open-pitch", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_open_yaw(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "open-yaw", 1, args, "radians");
+    }
+    return makeTaggedList(sc, "open-yaw", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_open_roll(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "open-roll", 1, args, "radians");
+    }
+    return makeTaggedList(sc, "open-roll", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_duration(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "duration", 1, args, "seconds");
+    }
+    return makeTaggedList(sc, "duration", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_collide_size(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "collide-size", 0, args, "w h d");
+    }
+    return makeTaggedList(
+        sc,
+        "collide-size",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_collide_center(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "collide-center", 0, args, "x y z");
+    }
+    return makeTaggedList(
+        sc,
+        "collide-center",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_block_mode(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "block-mode", 1, args, "shove|crush");
+    }
+    return makeTaggedList(sc, "block-mode", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_on_crush(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-crush", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-crush", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_group(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "group", 1, args, "id");
+    }
+    return makeTaggedList(sc, "group", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_on_enter(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-enter", 1, args, "handler");
@@ -377,9 +466,58 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                 }
             }
         } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.prompt);
+            out.havePrompt = readString(sc, s7_car(rest), out.prompt);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.onUse);
+        } else if (std::strcmp(tag, "pivot") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            out.haveMoverPivot =
+                readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.moverPivot);
+        } else if (std::strcmp(tag, "open-offset") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            out.haveMoverOpenOffset =
+                readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.moverOpenOffset);
+        } else if (std::strcmp(tag, "open-pitch") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.haveMoverOpenAngle = true;
+            out.moverRotAxis = 0;
+            out.moverOpenAngle = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "open-yaw") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.haveMoverOpenAngle = true;
+            out.moverRotAxis = 1;
+            out.moverOpenAngle = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "open-roll") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.haveMoverOpenAngle = true;
+            out.moverRotAxis = 2;
+            out.moverOpenAngle = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "duration") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.haveMoverDuration = true;
+            out.moverDuration = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "collide-size") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            out.haveMoverCollideSize =
+                readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.moverCollideSize);
+        } else if (std::strcmp(tag, "collide-center") == 0 &&
+                   s7_is_pair(rest) &&
+                   s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            out.haveMoverCollideCenter =
+                readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.moverCollideCenter);
+        } else if (std::strcmp(tag, "block-mode") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.moverBlockMode);
+        } else if (std::strcmp(tag, "on-crush") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.onCrush);
+        } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.moverGroup);
         } else if (std::strcmp(tag, "on-enter") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.onEnter);
         } else if (std::strcmp(tag, "on-exit") == 0 && s7_is_pair(rest)) {
@@ -587,6 +725,30 @@ s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "actor requires id and at", true);
 }
 
+s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
+    Thing placement{};
+    placement.kind = ThingKind::Mover;
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "mover has invalid clauses")));
+    }
+    if (!placement.haveMoverCollideSize) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "mover requires collide-size")));
+    }
+    if (!placement.haveMoverOpenOffset && !placement.haveMoverOpenAngle) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "mover requires open-offset or open-pitch/yaw/roll")));
+    }
+    return appendThing(sc, std::move(placement), "mover requires id and at", true);
+}
+
 s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Trigger;
@@ -719,6 +881,17 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "anim", g_anim, 1, 1, false, "(anim clip [loop])");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt text)");
     s7_define_function(sc, "on-use", g_on_use, 1, 0, false, "(on-use handler)");
+    s7_define_function(sc, "pivot", g_pivot, 3, 0, false, "(pivot x y z)");
+    s7_define_function(sc, "open-offset", g_open_offset, 3, 0, false, "(open-offset dx dy dz)");
+    s7_define_function(sc, "open-pitch", g_open_pitch, 1, 0, false, "(open-pitch radians)");
+    s7_define_function(sc, "open-yaw", g_open_yaw, 1, 0, false, "(open-yaw radians)");
+    s7_define_function(sc, "open-roll", g_open_roll, 1, 0, false, "(open-roll radians)");
+    s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
+    s7_define_function(sc, "collide-size", g_collide_size, 3, 0, false, "(collide-size w h d)");
+    s7_define_function(sc, "collide-center", g_collide_center, 3, 0, false, "(collide-center x y z)");
+    s7_define_function(sc, "block-mode", g_block_mode, 1, 0, false, "(block-mode shove|crush)");
+    s7_define_function(sc, "on-crush", g_on_crush, 1, 0, false, "(on-crush handler)");
+    s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
     s7_define_function(sc, "on-enter", g_on_enter, 1, 0, false, "(on-enter handler)");
     s7_define_function(sc, "on-exit", g_on_exit, 1, 0, false, "(on-exit handler)");
     s7_define_function(sc, "trigger-size", g_trigger_size, 3, 0, false, "(trigger-size w h d)");
@@ -752,6 +925,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
     s7_define_function(sc, "actor", g_actor, 0, 0, true, "(actor clauses...)");
+    s7_define_function(sc, "mover", g_mover, 0, 0, true, "(mover clauses...)");
     s7_define_function(sc, "trigger", g_trigger, 0, 0, true, "(trigger clauses...)");
     s7_define_function(sc, "point-light", g_point_light, 0, 0, true, "(point-light clauses...)");
     s7_define_function(sc, "spot-light", g_spot_light, 0, 0, true, "(spot-light clauses...)");

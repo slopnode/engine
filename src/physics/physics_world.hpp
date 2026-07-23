@@ -46,6 +46,20 @@ struct PhysicsWorld {
     void addStaticBrushes(const std::vector<Brush>& brushes);
     void clearStaticBrushes();
 
+    void createKinematicBox(
+        std::uint64_t id,
+        Vector3 center,
+        Vector3 halfExtents,
+        Quaternion rotation);
+    void setKinematicPose(
+        std::uint64_t id,
+        Vector3 center,
+        Quaternion rotation,
+        float dt);
+    void destroyKinematic(std::uint64_t id);
+    void clearKinematics();
+    bool hasKinematic(std::uint64_t id) const;
+
     void createCharacter(std::uint64_t id, float x, float y, float z, const CharacterMotor& motor);
     void destroyCharacter(std::uint64_t id);
     void destroyAllCharacters();
@@ -55,6 +69,8 @@ struct PhysicsWorld {
 
     void createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor);
     void destroyPlayerCharacter();
+
+    void setCharacterPosition(std::uint64_t id, float x, float y, float z);
 
     void update(float frameDt, const std::vector<CharacterStep>& steps);
 
@@ -112,6 +128,7 @@ private:
     std::unique_ptr<JPH::ObjectLayerPairFilter> objectLayerPairFilter_;
     std::unique_ptr<JPH::PhysicsSystem> system_;
     std::unordered_map<std::uint64_t, CharacterEntry> characters_;
+    std::unordered_map<std::uint64_t, JPH::BodyID> kinematicBodies_;
     std::uint64_t playerId_ = 0;
     std::vector<JPH::BodyID> staticBodies_;
     float accumulator_ = 0.0f;

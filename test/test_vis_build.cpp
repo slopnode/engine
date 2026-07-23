@@ -150,6 +150,57 @@ void runVisBuildTests() {
     }
 
     {
+        auto checkDoorwaySides = [](const std::vector<Brush>& brushes) {
+            const BspTree tree = buildBspFromHullBrushes(brushes);
+            const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+            CHECK(analysis.sealed);
+            const VisBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+
+            const Vector3 openingCenter{0.0f, 1.1f, 0.0f};
+            const Vector3 northInward{0.0f, 0.0f, 1.0f};
+            const Vector3 southInward{0.0f, 0.0f, -1.0f};
+            bool openingCovered = false;
+            for (const VisibleFace& face : result.vis.faces) {
+                if (pointInPolygon3(openingCenter, face.vertices, northInward)
+                    || pointInPolygon3(openingCenter, face.vertices, southInward)) {
+                    openingCovered = true;
+                    break;
+                }
+            }
+            CHECK_FALSE(openingCovered);
+
+            const Vector3 floorUp{0.0f, 1.0f, 0.0f};
+            const Vector3 ceilDown{0.0f, -1.0f, 0.0f};
+            const Vector3 wallEInward{-1.0f, 0.0f, 0.0f};
+            const Vector3 floorSouth{0.0f, 0.0f, 3.0f};
+            const Vector3 floorNorth{0.0f, 0.0f, -3.0f};
+            const Vector3 ceilSouth{0.0f, 4.0f, 3.0f};
+            const Vector3 ceilNorth{0.0f, 4.0f, -3.0f};
+            const Vector3 wallESouth{4.0f, 1.0f, 3.0f};
+            const Vector3 wallENorth{4.0f, 1.0f, -3.0f};
+
+            auto covered = [&](Vector3 point, Vector3 normal) {
+                for (const VisibleFace& face : result.vis.faces) {
+                    if (pointInPolygon3(point, face.vertices, normal)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            CHECK(covered(floorSouth, floorUp));
+            CHECK(covered(floorNorth, floorUp));
+            CHECK(covered(ceilSouth, ceilDown));
+            CHECK(covered(ceilNorth, ceilDown));
+            CHECK(covered(wallESouth, wallEInward));
+            CHECK(covered(wallENorth, wallEInward));
+        };
+
+        checkDoorwaySides(mapfixtures::sealedRoomWithInteriorDoorway(BrushRole::Hull));
+        checkDoorwaySides(mapfixtures::sealedRoomWithInteriorDoorway(BrushRole::Detail));
+    }
+
+    {
         std::vector<Brush> brushes = mapfixtures::sealedHollowRoom();
         std::vector<Brush> stairs = makeBrushStairs(
             "stairs",

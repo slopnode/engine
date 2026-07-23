@@ -6,13 +6,13 @@ World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprite
 
 ## Kinds
 
-A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable ((usable ...)) uses the same presentation, then adds an interact prompt and optional Scheme on-use handler. An actor ((actor ...)) uses the same presentation plus a character capsule motor and opaque tags; packages own brains, health, and factions. Light things cover bake and editor work: (point-light ...) and (spot-light ...) feed radiosity and gizmos; (area-light ...) and (sun ...) are authoring / gizmo forms today (sun may omit a meaningful world at and still use one for the editor handle). See [Lights](lights.md).
+A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable ((usable ...)) uses the same presentation, then adds an interact prompt and optional Scheme on-use handler. A mover ((mover ...)) is a presented rigid leaf with kinematic collision and A/B open/close motion (doors, hatches). An actor ((actor ...)) uses the same presentation plus a character capsule motor and opaque tags; packages own brains, health, and factions. Light things cover bake and editor work: (point-light ...) and (spot-light ...) feed radiosity and gizmos; (area-light ...) and (sun ...) are authoring / gizmo forms today (sun may omit a meaningful world at and still use one for the editor handle). See [Lights](lights.md).
 
 (player-start ...) is spawn pose only -- it does not create a prop entity; the engine builds Player from that pose after map load.
 
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
-Debug entity list labels match this split: prop, usable, actor, point-light, spot-light, area-light, sun, player (plus map for MapStatic).
+Debug entity list labels match this split: prop, usable, mover, actor, point-light, spot-light, area-light, sun, player (plus map for MapStatic).
 
 [slopmap](slopmap.md) edits things in the Things outliner and Library palette (load/save of things.s7). Viewport shows sprite/geo previews and light gizmos.
 
@@ -98,7 +98,45 @@ Interact casts a ray from the player Lens. Closest hit among usables with Model3
 1. If on-use names a procedure, call it with one argument: the entity id string.
 2. Otherwise open the inspect Interact UI.
 
-Usables are the content-facing wrapper around the engine Interactable primitive. Doors, switches, and terminals can be package-named helpers later that expand to usable (or other primitives) without new C++ per object.
+Usables are the content-facing wrapper around the engine Interactable primitive. Panels and terminals stay as usables; sliding/swinging doors use [Movers](#movers-mover).
+
+## Movers (mover)
+
+A mover is a presented entity (sprite or geo) with a kinematic collision box and an A/B transform animation. Progress 0 is closed (spawn pose); 1 is open. Motion lerps a local **open-offset** and/or a single-axis rotation (**open-pitch** / **open-yaw** / **open-roll**) about a local **pivot**. The engine drives `LocalTransformation` and a Jolt kinematic box each frame.
+
+```text
+(mover
+  (id "door-armory-l")
+  (at 4.12 1.1 0.0)
+  (yaw 0.0)
+  (geo "default/cube")
+  (pivot 0.0 0.0 0.0)
+  (open-offset 0.0 0.0 -2.6)
+  (duration 0.7)
+  (collide-size 2.5 2.2 0.12)
+  (collide-center 0.0 0.0 0.0)
+  (block-mode "shove")
+  (group "armory-doors")
+  (prompt "Open")
+  (on-use "on-use-mover-toggle"))
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| (all prop presentation fields) | same rules | Geo recommended for solid doors. |
+| collide-size | yes | Full width/height/depth of the kinematic box. |
+| open-offset and/or open-pitch\|yaw\|roll | at least one | Local-space slide and/or radians about the chosen axis. |
+| pivot | no | Local hinge/reference (default origin). |
+| collide-center | no | Box center in local space (default 0, half-height, 0). |
+| duration | no | Seconds closed↔open (default 0.8). |
+| block-mode | no | `"shove"` (default) or `"crush"`. |
+| on-crush | no | Scheme proc `(on-crush mover-id victim-id)` when crush traps a character. |
+| group | no | Shared id for double doors / multi-leaf. |
+| prompt / on-use | no | If either is set, adds Interactable like usable. |
+
+**block-mode shove** pushes CharacterVirtuals out of the moving box. **crush** still shoves, then calls `on-crush` when penetration remains (package owns damage/death). Geo movers tint `Model3D.color` from a downward lightmap probe.
+
+Runtime control: `(mover-open id)`, `(mover-close id)`, `(mover-toggle id)`, group variants, `(mover-set-locked id bool)`, `(mover-state id)` / `(mover-set-state …)` for save restore — see [Scripting](scripting.md#thing-runtime).
 
 ## Lights
 
@@ -124,7 +162,8 @@ Packages define recipes (rockets, arcing throws, bolts) with (motored-spawn ...)
 An actor is a presented world body with a character motor and opaque CollisionTags. It is the engine primitive for walking entities packages may treat as enemies, NPCs, or neutrals. Distinct from:
 
 - Prop: placed, may animate a sprite clip, does not move.
-- Usable: static (or later movable) fixture the player uses.
+- Usable: static fixture the player uses.
+- Mover: animated rigid leaf with kinematic collision; see [Movers](#movers-mover).
 - Motored body: runtime flyer with package velocity/gravity; see [Motored bodies](#motored-bodies).
 - Light: illumination thing (bake for point/spot; runtime dynamic overlay is separate; see [Lights](lights.md)).
 - Player: engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)). Shares the same character-motor registry as actors.
@@ -175,8 +214,8 @@ The engine looks up the name with s7_name_to_value, checks it is a procedure, an
 ### What belongs where
 
 - Map things.s7: instance data (where things are, which sprite/geo, which handler name, prompts, light params).
-- Package scripts/: reusable behavior and, over time, constructors that wrap engine forms (usable, lights, future trigger / movable / actor) so levels stay thin.
-- Engine: spawn bindings, presentation, interact ray, player pawn, light thing forms. Not content catalogs.
+- Package scripts/: reusable behavior and constructors that wrap engine forms (usable, mover, lights, actor) so levels stay thin.
+- Engine: spawn bindings, presentation, interact ray, player pawn, rigid movers, light thing forms. Not content catalogs.
 
 ### Extending without engine churn
 

@@ -30,6 +30,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{220, 160, 80, 255};
     case slopengine::ThingKind::Actor:
         return Color{220, 100, 100, 255};
+    case slopengine::ThingKind::Mover:
+        return Color{220, 140, 60, 255};
     case slopengine::ThingKind::Trigger:
         return Color{80, 200, 220, 255};
     case slopengine::ThingKind::PointLight:
@@ -234,6 +236,7 @@ void drawThings(
         case slopengine::ThingKind::Prop:
         case slopengine::ThingKind::Usable:
         case slopengine::ThingKind::Actor:
+        case slopengine::ThingKind::Mover:
             drawSpriteOrGeo(assets, camera, thing, color);
             if (selected) {
                 DrawSphereWires(pos, 0.35f, 6, 6, color);

@@ -8,6 +8,7 @@
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
+#include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
@@ -321,6 +322,89 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                 .eventName = placement.onUse,
                 .maxDistance = 5.0f,
             });
+        }
+        if (placement.kind == ThingKind::Mover) {
+            RigidMover mover{};
+            if (entity.has<LocalTransformation>()) {
+                const LocalTransformation& local = entity.get<LocalTransformation>();
+                mover.closedPos = local.position;
+                mover.closedRot = local.rotation;
+            }
+            if (placement.haveMoverPivot) {
+                mover.pivotLocal = placement.moverPivot;
+            }
+            if (placement.haveMoverOpenOffset) {
+                mover.openPosOffset = placement.moverOpenOffset;
+            }
+            if (placement.haveMoverOpenAngle) {
+                mover.openAngleRadians = placement.moverOpenAngle;
+                switch (placement.moverRotAxis) {
+                case 0:
+                    mover.rotAxis = MoverRotAxis::Pitch;
+                    break;
+                case 2:
+                    mover.rotAxis = MoverRotAxis::Roll;
+                    break;
+                case 1:
+                default:
+                    mover.rotAxis = MoverRotAxis::Yaw;
+                    break;
+                }
+            }
+            if (placement.haveMoverDuration) {
+                mover.duration = placement.moverDuration > 0.0f ? placement.moverDuration : 0.8f;
+            }
+            if (placement.haveMoverCollideSize) {
+                mover.collideHalfExtents = {
+                    placement.moverCollideSize.x * 0.5f,
+                    placement.moverCollideSize.y * 0.5f,
+                    placement.moverCollideSize.z * 0.5f,
+                };
+            }
+            if (placement.haveMoverCollideCenter) {
+                mover.collideCenterLocal = placement.moverCollideCenter;
+            } else {
+                mover.collideCenterLocal = {
+                    0.0f,
+                    mover.collideHalfExtents.y,
+                    0.0f,
+                };
+            }
+            if (placement.moverBlockMode == "crush") {
+                mover.blockMode = MoverBlockMode::Crush;
+            } else {
+                mover.blockMode = MoverBlockMode::Shove;
+            }
+            mover.onCrush = placement.onCrush;
+            mover.groupId = placement.moverGroup;
+            entity.set<RigidMover>(mover);
+            if (entity.has<LocalTransformation>() && placement.haveMoverCollideSize &&
+                !placement.geo.empty()) {
+                entity.get_mut<LocalTransformation>().scale = placement.moverCollideSize;
+            }
+
+            if (ctx.world->has<PhysicsContext>()) {
+                PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
+                if (physics != nullptr) {
+                    Vector3 pos{};
+                    Quaternion rot{};
+                    computeMoverPose(mover, 0.0f, pos, rot);
+                    physics->createKinematicBox(
+                        static_cast<std::uint64_t>(entity.id()),
+                        moverCollideWorldCenter(pos, rot, mover),
+                        mover.collideHalfExtents,
+                        rot);
+                    entity.get_mut<RigidMover>().kinematicReady = true;
+                }
+            }
+
+            if (placement.havePrompt || !placement.onUse.empty()) {
+                entity.set<Interactable>({
+                    .prompt = placement.prompt,
+                    .eventName = placement.onUse,
+                    .maxDistance = 5.0f,
+                });
+            }
         }
         if (placement.kind == ThingKind::Actor) {
             CharacterMotor motor{};

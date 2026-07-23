@@ -534,6 +534,15 @@ bool acceptMergedPolygon(
     Vector3 normal,
     float areaA,
     float areaB) {
+    collapseConsecutiveDuplicates(combined, kWeldEps);
+    if (combined.size() < 3 || polygonArea(combined) < kMinFaceArea) {
+        return false;
+    }
+    if (hasNonAdjacentDuplicateVertices(combined, kWeldEps) || hasOutAndBackSpike(combined, kWeldEps)) {
+        return false;
+    }
+
+    const float preCleanupArea = polygonArea(combined);
     if (!cleanupPolygonRing(combined, normal)) {
         return false;
     }
@@ -541,8 +550,13 @@ bool acceptMergedPolygon(
         return false;
     }
     const float combinedArea = polygonArea(combined);
+    constexpr float kCleanupAreaKeep = 0.95f;
+    if (preCleanupArea > kMinFaceArea && combinedArea < preCleanupArea * kCleanupAreaKeep) {
+        return false;
+    }
     const float sum = areaA + areaB;
-    if (sum > kMinFaceArea && combinedArea < 0.5f * sum) {
+    constexpr float kInputAreaKeep = 0.9f;
+    if (sum > kMinFaceArea && combinedArea < sum * kInputAreaKeep) {
         return false;
     }
     constexpr float kAreaInflateTol = 0.05f;
@@ -722,18 +736,18 @@ std::vector<std::vector<Vector3>> subtractConvexHole(
 
     std::vector<CuttingEdge> cuts;
     cuts.reserve(hole.size());
-    bool allOnBoundary = true;
     for (std::size_t i = 0; i < hole.size(); ++i) {
         const Vector3& e0 = hole[i];
         const Vector3& e1 = hole[(i + 1) % hole.size()];
         if (edgeOnPolygonBoundary(e0, e1, subject, kWeldEps)) {
             continue;
         }
-        allOnBoundary = false;
         cuts.push_back(CuttingEdge{e0, e1});
     }
-    if (allOnBoundary) {
-        return empty;
+    if (cuts.empty()) {
+        // Degenerate coplanar contact (sliver on the subject rim) is not a real hole.
+        // Returning empty would drop the whole subject in the occluder loop.
+        return {subject};
     }
 
     const Vector3 holeCentroid = polygonCentroid(hole);
@@ -832,6 +846,10 @@ void occludeFragmentsByBrushes(
 
             orientToNormal(covered, faceNormal);
             auto remainders = subtractConvexHole(fragment.vertices, covered, faceNormal);
+            if (remainders.empty() && coveredArea < subjectArea * 0.5f) {
+                next.push_back(std::move(fragment));
+                continue;
+            }
             for (std::vector<Vector3>& rem : remainders) {
                 if (!cleanupPolygonRing(rem, faceNormal)) {
                     continue;

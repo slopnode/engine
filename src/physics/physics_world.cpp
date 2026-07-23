@@ -173,6 +173,12 @@ PhysicsWorld::~PhysicsWorld() {
             bodies.DestroyBody(id);
         }
         staticBodies_.clear();
+        for (const auto& [entityId, bodyId] : kinematicBodies_) {
+            (void)entityId;
+            bodies.RemoveBody(bodyId);
+            bodies.DestroyBody(bodyId);
+        }
+        kinematicBodies_.clear();
     }
 
     system_.reset();
@@ -288,6 +294,99 @@ void PhysicsWorld::clearStaticBrushes() {
         bodies.DestroyBody(id);
     }
     staticBodies_.clear();
+}
+
+namespace {
+
+JPH::Quat joltQuatFromRaylib(Quaternion q) {
+    return JPH::Quat(q.x, q.y, q.z, q.w);
+}
+
+} // namespace
+
+void PhysicsWorld::createKinematicBox(
+    std::uint64_t id,
+    Vector3 center,
+    Vector3 halfExtents,
+    Quaternion rotation) {
+    if (!system_ || halfExtents.x <= 0.0f || halfExtents.y <= 0.0f || halfExtents.z <= 0.0f) {
+        return;
+    }
+
+    destroyKinematic(id);
+
+    JPH::BoxShapeSettings boxSettings(JPH::Vec3(halfExtents.x, halfExtents.y, halfExtents.z));
+    auto result = boxSettings.Create();
+    if (result.HasError()) {
+        TraceLog(LOG_WARNING, "PHYSICS: kinematic box shape failed for id %llu: %s",
+            static_cast<unsigned long long>(id),
+            result.GetError().c_str());
+        return;
+    }
+
+    JPH::BodyCreationSettings settings(
+        result.Get(),
+        JPH::RVec3(center.x, center.y, center.z),
+        joltQuatFromRaylib(rotation),
+        JPH::EMotionType::Kinematic,
+        Layers::NON_MOVING);
+    settings.mFriction = 0.8f;
+
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    const JPH::BodyID bodyId = bodies.CreateAndAddBody(settings, JPH::EActivation::Activate);
+    kinematicBodies_[id] = bodyId;
+}
+
+void PhysicsWorld::setKinematicPose(
+    std::uint64_t id,
+    Vector3 center,
+    Quaternion rotation,
+    float dt) {
+    if (!system_) {
+        return;
+    }
+    auto it = kinematicBodies_.find(id);
+    if (it == kinematicBodies_.end()) {
+        return;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    const float stepDt = dt > 1.0e-6f ? dt : (1.0f / 60.0f);
+    bodies.MoveKinematic(
+        it->second,
+        JPH::RVec3(center.x, center.y, center.z),
+        joltQuatFromRaylib(rotation),
+        stepDt);
+}
+
+void PhysicsWorld::destroyKinematic(std::uint64_t id) {
+    if (!system_) {
+        return;
+    }
+    auto it = kinematicBodies_.find(id);
+    if (it == kinematicBodies_.end()) {
+        return;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    bodies.RemoveBody(it->second);
+    bodies.DestroyBody(it->second);
+    kinematicBodies_.erase(it);
+}
+
+void PhysicsWorld::clearKinematics() {
+    if (!system_) {
+        return;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    for (const auto& [entityId, bodyId] : kinematicBodies_) {
+        (void)entityId;
+        bodies.RemoveBody(bodyId);
+        bodies.DestroyBody(bodyId);
+    }
+    kinematicBodies_.clear();
+}
+
+bool PhysicsWorld::hasKinematic(std::uint64_t id) const {
+    return kinematicBodies_.find(id) != kinematicBodies_.end();
 }
 
 void PhysicsWorld::createCharacter(
@@ -781,7 +880,11 @@ JPH::RVec3 PhysicsWorld::playerPosition() const {
 }
 
 void PhysicsWorld::setPlayerPosition(float x, float y, float z) {
-    auto it = characters_.find(playerId_);
+    setCharacterPosition(playerId_, x, y, z);
+}
+
+void PhysicsWorld::setCharacterPosition(std::uint64_t id, float x, float y, float z) {
+    auto it = characters_.find(id);
     if (it == characters_.end() || it->second.character == nullptr) {
         return;
     }

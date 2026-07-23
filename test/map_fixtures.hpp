@@ -118,6 +118,72 @@ inline Brush hintMidPlane() {
         BrushRole::Hint);
 }
 
+/**
+ * Sealed outer shell with an interior partition doorway (jambs + lintel, no window seal).
+ * Topology class of games/slopdoom/maps/doors. Partition role defaults to hull (forgot detail).
+ */
+inline std::vector<Brush> sealedRoomWithInteriorDoorway(BrushRole partitionRole = BrushRole::Hull) {
+    std::vector<Brush> brushes;
+    brushes.push_back(makeBrushBox(
+        "floor",
+        {-4.0f, -0.25f, -6.0f},
+        {4.0f, 0.0f, 6.0f},
+        "mat/a",
+        {}));
+    brushes.push_back(makeBrushBox(
+        "ceiling",
+        {-4.0f, 4.0f, -6.0f},
+        {4.0f, 4.25f, 6.0f},
+        "mat/a",
+        {}));
+    brushes.push_back(makeBrushBox(
+        "wall-n",
+        {-4.0f, 0.0f, -6.25f},
+        {4.0f, 4.0f, -6.0f},
+        "mat/a",
+        {}));
+    brushes.push_back(makeBrushBox(
+        "wall-s",
+        {-4.0f, 0.0f, 6.0f},
+        {4.0f, 4.0f, 6.25f},
+        "mat/a",
+        {}));
+    brushes.push_back(makeBrushBox(
+        "wall-w",
+        {-4.25f, 0.0f, -6.0f},
+        {-4.0f, 4.0f, 6.0f},
+        "mat/a",
+        {}));
+    brushes.push_back(makeBrushBox(
+        "wall-e",
+        {4.0f, 0.0f, -6.0f},
+        {4.25f, 4.0f, 6.0f},
+        "mat/a",
+        {}));
+    brushes.push_back(makeBrushBox(
+        "partition-w",
+        {-4.0f, 0.0f, -0.15f},
+        {-1.0f, 4.0f, 0.15f},
+        "mat/a",
+        {},
+        partitionRole));
+    brushes.push_back(makeBrushBox(
+        "partition-e",
+        {1.0f, 0.0f, -0.15f},
+        {4.0f, 4.0f, 0.15f},
+        "mat/a",
+        {},
+        partitionRole));
+    brushes.push_back(makeBrushBox(
+        "partition-lintel",
+        {-1.0f, 2.2f, -0.15f},
+        {1.0f, 4.0f, 0.15f},
+        "mat/a",
+        {},
+        partitionRole));
+    return brushes;
+}
+
 inline int countOpenLeaves(const BspTree& tree) {
     int count = 0;
     for (const BspLeaf& leaf : tree.leaves) {

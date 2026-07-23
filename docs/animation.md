@@ -62,9 +62,9 @@ Skin the mesh to that armature in Blender, export geometry with weights and the 
 
 ## Rigid motion: component animators
 
-For rigid objects (crates that slide, doors that swing as a whole, platforms, bobbing pickups), author motion in the game as component animator systems: components on flecs entities that update LocalTransformation (and whatever else you need) over time.
+For rigid objects (crates that slide, doors that swing as a whole, platforms), use the engine **mover** thing / `RigidMover` component: A/B lerp of position and/or pitch/yaw/roll about a configurable pivot, with a kinematic collision box. See [Things — Movers](things.md#movers-mover). Bobbing pickups and other one-off motions can still be small package or component systems on `LocalTransformation`.
 
-That keeps Blender export focused on characters and skinned props, and keeps object motion explicit in gameplay code where timing, triggers, and interaction live. A spinning decoration might use a simple spin component; a scripted door would use whatever animator components and systems you build for that behavior. None of that goes through .anim bone tracks unless the object is genuinely skinned to a skeleton.
+That keeps Blender export focused on characters and skinned props, and keeps object motion explicit in gameplay where timing, triggers, and interaction live. None of that goes through .anim bone tracks unless the object is genuinely skinned to a skeleton.
 
 In short: Blender actions map to skeleton bones on a skinned mesh; entity transform animation belongs in component systems.
 

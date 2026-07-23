@@ -16,6 +16,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "usable";
     case slopengine::ThingKind::Actor:
         return "actor";
+    case slopengine::ThingKind::Mover:
+        return "mover";
     case slopengine::ThingKind::Trigger:
         return "trigger";
     case slopengine::ThingKind::PointLight:
@@ -176,6 +178,20 @@ void PlaceTool::update(
     if (kind == slopengine::ThingKind::Actor) {
         thing.tags = {"actor"};
         thing.haveMotor = true;
+    }
+    if (kind == slopengine::ThingKind::Mover) {
+        thing.haveMoverOpenOffset = true;
+        thing.moverOpenOffset = {0.0f, 0.0f, -1.2f};
+        thing.haveMoverCollideSize = true;
+        thing.moverCollideSize = {1.0f, 2.2f, 0.12f};
+        thing.haveMoverCollideCenter = true;
+        thing.moverCollideCenter = {0.0f, 1.1f, 0.0f};
+        thing.haveMoverDuration = true;
+        thing.moverDuration = 0.8f;
+        thing.moverBlockMode = "shove";
+        thing.havePrompt = true;
+        thing.prompt = "Open";
+        thing.onUse = "on-use-mover-toggle";
     }
 
     editor.doc().things.push_back(std::move(thing));

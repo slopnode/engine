@@ -30,6 +30,56 @@
   (prompt "Take red key")
   (on-use "on-use-key-red"))
 
+(mover
+  (id "door-east")
+  (at 4.12 1.1 0.0)
+  (yaw 0.0)
+  (geo "default/cube")
+  (open-offset 0.0 0.0 -2.6)
+  (duration 0.7)
+  (collide-size 2.5 2.2 0.12)
+  (collide-center 0.0 0.0 0.0)
+  (block-mode "shove")
+  (prompt "Open")
+  (on-use "on-use-mover-toggle"))
+
+(mover
+  (id "door-north-l")
+  (at -0.625 1.1 -4.12)
+  (yaw 0.0)
+  (geo "default/cube")
+  (open-offset -1.35 0.0 0.0)
+  (duration 0.7)
+  (collide-size 1.25 2.2 0.12)
+  (collide-center 0.0 0.0 0.0)
+  (block-mode "shove")
+  (group "north-doors")
+  (prompt "Open")
+  (on-use "on-use-north-doors"))
+
+(mover
+  (id "door-north-r")
+  (at 0.625 1.1 -4.12)
+  (yaw 0.0)
+  (geo "default/cube")
+  (open-offset 1.35 0.0 0.0)
+  (duration 0.7)
+  (collide-size 1.25 2.2 0.12)
+  (collide-center 0.0 0.0 0.0)
+  (block-mode "shove")
+  (group "north-doors")
+  (prompt "Open")
+  (on-use "on-use-north-doors"))
+
+(usable
+  (id "panel-east-door")
+  (at 3.2 1.2 1.8)
+  (yaw 0.0)
+  (sprite "usmc/umca")
+  (frame "A")
+  (prompt "Open east door")
+  (on-use "on-use-panel-east-door"))
+
 (point-light
   (id "hall-bn-lamp")
   (at 14.0 1.8 -8.0)

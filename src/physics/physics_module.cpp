@@ -6,6 +6,7 @@
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
+#include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "script/scheme_call.hpp"
@@ -106,6 +107,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CollisionTags>();
     world.component<TriggerVolume>();
     world.set<PhysicsContext>(PhysicsContext{physics});
+    registerRigidMoverSystem(world);
 
     world.system("CharacterMotorInput")
         .kind(flecs::PreUpdate)

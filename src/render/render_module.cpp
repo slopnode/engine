@@ -1774,6 +1774,7 @@ void unloadMapScene(flecs::world& world) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
             physics->clearStaticBrushes();
+            physics->clearKinematics();
             physics->destroyAllCharacters();
         }
     }

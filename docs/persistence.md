@@ -66,3 +66,5 @@ Package UI or gameplay calls save helpers, then (save-write rel form). Loading t
 ```text
 (save (version N) (package "id") ...)
 ```
+
+Include mover open/locked state when the package cares about doors. Capture with `(mover-state id)` (alist of `open?`, `progress`, `locked?`) into the save body; after `(request-map-load … "load")`, restore in `(on-map-ready … "load")` with `(mover-set-state id open? progress locked?)`. The engine does not auto-persist movers. Base package helpers `capture-mover-states` / `restore-mover-states` in `scripts/things.s7` show the pattern.

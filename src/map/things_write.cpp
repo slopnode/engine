@@ -49,9 +49,66 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                 formatFloat(p.angles.z) + ")");
     } else if (p.yaw != 0.0f || p.kind == ThingKind::PlayerStart ||
                p.kind == ThingKind::Prop || p.kind == ThingKind::Usable ||
-               p.kind == ThingKind::Actor || p.kind == ThingKind::Trigger ||
-               p.kind == ThingKind::SpotLight) {
+               p.kind == ThingKind::Actor || p.kind == ThingKind::Mover ||
+               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
+    }
+}
+
+void writeMoverFields(std::ostringstream& out, const Thing& p) {
+    if (p.haveMoverPivot) {
+        writeIndentClause(
+            out,
+            "(pivot " + formatFloat(p.moverPivot.x) + " " + formatFloat(p.moverPivot.y) + " " +
+                formatFloat(p.moverPivot.z) + ")");
+    }
+    if (p.haveMoverOpenOffset) {
+        writeIndentClause(
+            out,
+            "(open-offset " + formatFloat(p.moverOpenOffset.x) + " " +
+                formatFloat(p.moverOpenOffset.y) + " " + formatFloat(p.moverOpenOffset.z) + ")");
+    }
+    if (p.haveMoverOpenAngle) {
+        const char* tag = "open-yaw";
+        if (p.moverRotAxis == 0) {
+            tag = "open-pitch";
+        } else if (p.moverRotAxis == 2) {
+            tag = "open-roll";
+        }
+        writeIndentClause(out, std::string("(") + tag + " " + formatFloat(p.moverOpenAngle) + ")");
+    }
+    if (p.haveMoverDuration) {
+        writeIndentClause(out, "(duration " + formatFloat(p.moverDuration) + ")");
+    }
+    if (p.haveMoverCollideSize) {
+        writeIndentClause(
+            out,
+            "(collide-size " + formatFloat(p.moverCollideSize.x) + " " +
+                formatFloat(p.moverCollideSize.y) + " " + formatFloat(p.moverCollideSize.z) + ")");
+    }
+    if (p.haveMoverCollideCenter) {
+        writeIndentClause(
+            out,
+            "(collide-center " + formatFloat(p.moverCollideCenter.x) + " " +
+                formatFloat(p.moverCollideCenter.y) + " " + formatFloat(p.moverCollideCenter.z) +
+                ")");
+    }
+    if (!p.moverBlockMode.empty() && p.moverBlockMode != "shove") {
+        writeIndentClause(out, "(block-mode " + escapeSchemeString(p.moverBlockMode) + ")");
+    } else if (p.kind == ThingKind::Mover) {
+        writeIndentClause(out, "(block-mode \"shove\")");
+    }
+    if (!p.onCrush.empty()) {
+        writeIndentClause(out, "(on-crush " + escapeSchemeString(p.onCrush) + ")");
+    }
+    if (!p.moverGroup.empty()) {
+        writeIndentClause(out, "(group " + escapeSchemeString(p.moverGroup) + ")");
+    }
+    if (p.havePrompt || !p.onUse.empty()) {
+        writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
+        if (!p.onUse.empty()) {
+            writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
+        }
     }
 }
 
@@ -185,6 +242,9 @@ void writeThing(std::ostringstream& out, const Thing& p) {
         if (!p.onUse.empty()) {
             writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
         }
+    }
+    if (p.kind == ThingKind::Mover) {
+        writeMoverFields(out, p);
     }
     if (p.kind == ThingKind::Actor) {
         writeActorFields(out, p);

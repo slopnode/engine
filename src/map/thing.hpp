@@ -14,6 +14,7 @@ enum class ThingKind {
     Prop,
     Usable,
     Actor,
+    Mover,
     Trigger,
     PointLight,
     SpotLight,
@@ -41,6 +42,24 @@ struct Thing {
 
     std::string prompt = "Interact";
     std::string onUse;
+    bool havePrompt = false;
+
+    Vector3 moverPivot{0.0f, 0.0f, 0.0f};
+    bool haveMoverPivot = false;
+    Vector3 moverOpenOffset{0.0f, 0.0f, 0.0f};
+    bool haveMoverOpenOffset = false;
+    float moverOpenAngle = 0.0f;
+    int moverRotAxis = 1;
+    bool haveMoverOpenAngle = false;
+    float moverDuration = 0.8f;
+    bool haveMoverDuration = false;
+    Vector3 moverCollideSize{1.0f, 2.0f, 0.1f};
+    bool haveMoverCollideSize = false;
+    Vector3 moverCollideCenter{0.0f, 1.0f, 0.0f};
+    bool haveMoverCollideCenter = false;
+    std::string moverBlockMode = "shove";
+    std::string onCrush;
+    std::string moverGroup;
 
     std::string onEnter;
     std::string onExit;
@@ -111,6 +130,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "usable";
     case ThingKind::Actor:
         return "actor";
+    case ThingKind::Mover:
+        return "mover";
     case ThingKind::Trigger:
         return "trigger";
     case ThingKind::PointLight:
@@ -135,7 +156,8 @@ inline bool thingKindIsLight(ThingKind kind) {
 }
 
 inline bool thingKindNeedsPresentation(ThingKind kind) {
-    return kind == ThingKind::Prop || kind == ThingKind::Usable || kind == ThingKind::Actor;
+    return kind == ThingKind::Prop || kind == ThingKind::Usable || kind == ThingKind::Actor ||
+        kind == ThingKind::Mover;
 }
 
 }

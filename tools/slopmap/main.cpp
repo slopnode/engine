@@ -2227,6 +2227,10 @@ int main(int argc, char* argv[]) {
                         if (ImGui::Button("actor")) {
                             beginThingKind(editor, slopengine::ThingKind::Actor, createTool);
                         }
+                        ImGui::SameLine();
+                        if (ImGui::Button("mover")) {
+                            beginThingKind(editor, slopengine::ThingKind::Mover, createTool);
+                        }
                         if (ImGui::Button("point-light")) {
                             beginThingKind(
                                 editor, slopengine::ThingKind::PointLight, createTool);

@@ -14,6 +14,7 @@
 #include "map/bsp.hpp"
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
+#include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
@@ -376,6 +377,9 @@ const char* entityKindLabel(flecs::entity entity) {
     }
     if (entity.has<SunLight>()) {
         return "sun";
+    }
+    if (entity.has<RigidMover>()) {
+        return "mover";
     }
     if (entity.has<Interactable>()) {
         return "usable";

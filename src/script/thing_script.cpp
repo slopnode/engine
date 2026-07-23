@@ -8,6 +8,7 @@
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
+#include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
@@ -120,7 +121,9 @@ void registerFlushThingDespawns(flecs::world& world) {
                     if (world.has<PhysicsContext>()) {
                         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
                         if (physics != nullptr) {
-                            physics->destroyCharacter(static_cast<std::uint64_t>(entity.id()));
+                            const std::uint64_t eid = static_cast<std::uint64_t>(entity.id());
+                            physics->destroyCharacter(eid);
+                            physics->destroyKinematic(eid);
                         }
                     }
                     entity.destruct();
@@ -763,6 +766,163 @@ void queueThingDespawn(flecs::world& world, std::string_view id) {
     world.get_mut<ThingDespawnQueue>().ids.emplace_back(std::string(id));
 }
 
+s7_pointer g_mover_open(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-open", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    return moverRequestOpen(entity) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_mover_close(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-close", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    return moverRequestClose(entity) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_mover_toggle(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-toggle", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    return moverRequestToggle(entity) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_mover_open_group(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-open-group", 1, args, "group string");
+    }
+    moverRequestOpenGroup(*g_thingWorld, s7_string(s7_car(args)));
+    return s7_t(sc);
+}
+
+s7_pointer g_mover_close_group(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-close-group", 1, args, "group string");
+    }
+    moverRequestCloseGroup(*g_thingWorld, s7_string(s7_car(args)));
+    return s7_t(sc);
+}
+
+s7_pointer g_mover_toggle_group(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-toggle-group", 1, args, "group string");
+    }
+    moverRequestToggleGroup(*g_thingWorld, s7_string(s7_car(args)));
+    return s7_t(sc);
+}
+
+s7_pointer g_mover_set_locked(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args)) ||
+        !s7_is_pair(s7_cdr(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-set-locked", 1, args, "id bool");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<RigidMover>()) {
+        return s7_f(sc);
+    }
+    const bool locked = s7_boolean(sc, s7_cadr(args));
+    entity.get_mut<RigidMover>().locked = locked;
+    return s7_t(sc);
+}
+
+s7_pointer g_mover_locked_p(s7_scheme* sc, s7_pointer args) {
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-locked?", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<RigidMover>()) {
+        return s7_f(sc);
+    }
+    return entity.get<RigidMover>().locked ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_mover_progress(s7_scheme* sc, s7_pointer args) {
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-progress", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<RigidMover>()) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(entity.get<RigidMover>().progress));
+}
+
+s7_pointer g_mover_state(s7_scheme* sc, s7_pointer args) {
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "mover-state", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<RigidMover>()) {
+        return s7_f(sc);
+    }
+    const RigidMover& mover = entity.get<RigidMover>();
+    const bool open = mover.target >= 0.5f || mover.progress >= 0.5f;
+    s7_pointer openPair = s7_cons(sc, s7_make_symbol(sc, "open?"), open ? s7_t(sc) : s7_f(sc));
+    s7_pointer progressPair =
+        s7_cons(sc, s7_make_symbol(sc, "progress"), s7_make_real(sc, mover.progress));
+    s7_pointer lockedPair =
+        s7_cons(sc, s7_make_symbol(sc, "locked?"), mover.locked ? s7_t(sc) : s7_f(sc));
+    return s7_list(sc, 3, openPair, progressPair, lockedPair);
+}
+
+s7_pointer g_mover_set_state(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(
+            sc, "mover-set-state", 1, args, "id open? progress [locked?]");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_pair(s7_cdr(rest))) {
+        return s7_wrong_type_arg_error(
+            sc, "mover-set-state", 2, args, "id open? progress [locked?]");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<RigidMover>()) {
+        return s7_f(sc);
+    }
+    const bool open = s7_boolean(sc, s7_car(rest));
+    rest = s7_cdr(rest);
+    if (!s7_is_number(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "mover-set-state", 3, args, "progress number");
+    }
+    const float progress = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+    rest = s7_cdr(rest);
+    bool setLocked = false;
+    bool locked = false;
+    if (s7_is_pair(rest)) {
+        setLocked = true;
+        locked = s7_boolean(sc, s7_car(rest));
+    }
+    moverApplyState(entity, open, progress, setLocked, locked);
+    return s7_t(sc);
+}
+
 void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     g_thingWorld = &world;
     if (!world.has<ThingDespawnQueue>()) {
@@ -840,6 +1000,34 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         1,
         false,
         "(hitscan-actors ox oy oz dx dy dz max-distance [tag])");
+    s7_define_function(scheme, "mover-open", g_mover_open, 1, 0, false, "(mover-open id)");
+    s7_define_function(scheme, "mover-close", g_mover_close, 1, 0, false, "(mover-close id)");
+    s7_define_function(scheme, "mover-toggle", g_mover_toggle, 1, 0, false, "(mover-toggle id)");
+    s7_define_function(
+        scheme, "mover-open-group", g_mover_open_group, 1, 0, false, "(mover-open-group group)");
+    s7_define_function(
+        scheme, "mover-close-group", g_mover_close_group, 1, 0, false, "(mover-close-group group)");
+    s7_define_function(
+        scheme,
+        "mover-toggle-group",
+        g_mover_toggle_group,
+        1,
+        0,
+        false,
+        "(mover-toggle-group group)");
+    s7_define_function(
+        scheme, "mover-set-locked", g_mover_set_locked, 2, 0, false, "(mover-set-locked id bool)");
+    s7_define_function(scheme, "mover-locked?", g_mover_locked_p, 1, 0, false, "(mover-locked? id)");
+    s7_define_function(scheme, "mover-progress", g_mover_progress, 1, 0, false, "(mover-progress id)");
+    s7_define_function(scheme, "mover-state", g_mover_state, 1, 0, false, "(mover-state id)");
+    s7_define_function(
+        scheme,
+        "mover-set-state",
+        g_mover_set_state,
+        3,
+        1,
+        false,
+        "(mover-set-state id open? progress [locked?])");
 }
 
 }

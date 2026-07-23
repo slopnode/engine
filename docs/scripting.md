@@ -186,7 +186,13 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 
 | Binding | Meaning |
 |---------|---------|
-| (thing-despawn id) | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule) |
+| (thing-despawn id) | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule / mover kinematic) |
+| (mover-open id) / (mover-close id) / (mover-toggle id) | Request mover target open/closed/flip; no-op if locked. See [Movers](things.md#movers-mover). |
+| (mover-open-group g) / (mover-close-group g) / (mover-toggle-group g) | Same for all movers with that group id (double doors). |
+| (mover-set-locked id bool) / (mover-locked? id) | Latch; open requests fail while locked. |
+| (mover-progress id) | Current 0..1 progress, or #f. |
+| (mover-state id) | Alist `((open? . bool) (progress . n) (locked? . bool))` or #f — for save capture. |
+| (mover-set-state id open? progress [locked?]) | Restore after map load (snaps pose / kinematic). |
 | (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "". Integrates velocity against static brush hulls; positive gravity pulls down; empty on-impact silently despawns on hit. See [Things](things.md#motored-bodies). |
 | (actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) | Runtime actor (kind "sprite" or "geo"). Defaults match player motor; empty tags → ("actor"). |
 | (actor-pos id) | Feet (x y z) or #f |
@@ -206,7 +212,7 @@ Player aim helpers for spawn recipes: (player-eye) and (player-look-dir) — see
 
 Bound only while the matching map file loads, not for general gameplay scripts:
 
-- Things: prop, usable, actor, trigger, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
+- Things: prop, usable, actor, mover, trigger, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
 - CSG brushes -> [Maps](maps.md)
 - Nav graphs -> maps/{name}/graphs.s7 (graph, node, edge, ...)
 
