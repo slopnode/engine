@@ -1,6 +1,6 @@
 # slopsprite
 
-Authoring tool for `.spr` / `.spanim` with live previews. File formats stay on [Sprites](sprites.md); frame `(sound ...)` paths on [Audio](audio.md). This page covers how to build and run the editor.
+Authoring tool for `.spr` / `.spanim` with live previews. File formats stay on [Sprites](sprites.md); frame `(sound ...)` paths on [Audio](audio.md); logic `(hint ...)` markers on [Sprites: Logic hints](sprites.md#logic-hints). This page covers how to build and run the editor.
 
 Related: [Sprites](sprites.md), [Audio](audio.md), [Icons](icons.md), [slopmap](slopmap.md).
 
@@ -28,6 +28,6 @@ World is the 3D billboard preview: how the sprite reads as a prop in space, with
 
 ## Authoring
 
-Each frame can use rotation mode None, Five, Eight, or Custom. Five-angle mode keeps the usual Doom-style mirror pairs in sync so you only author one side of a mirrored yaw. Pose has base channels plus tweenable `anim-*` channels for clips that interpolate between holds. The clip timeline plays, scrubs, changes speed, and loops; frame `(sound ...)` entries pick `.ogg` paths from mounted `sound/` folders through the sound browser.
+Each frame can use rotation mode None, Five, Eight, or Custom. Five-angle mode keeps the usual Doom-style mirror pairs in sync so you only author one side of a mirrored yaw. Pose has base channels plus tweenable `anim-*` channels for clips that interpolate between holds. The clip timeline plays, scrubs, changes speed, and loops; frame `(sound ...)` entries pick `.ogg` paths from mounted `sound/` folders through the sound browser; frame hints are a space-separated list of `(hint ...)` names for gameplay callbacks.
 
 Sprite/anim, texture, and sound browsers keep mounted package content reachable without leaving the tool. Debug -> Masks overlays hit-mask silhouettes in World preview so part boundaries are visible while you tune offsets and rotations.

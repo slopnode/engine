@@ -49,8 +49,39 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                 formatFloat(p.angles.z) + ")");
     } else if (p.yaw != 0.0f || p.kind == ThingKind::PlayerStart ||
                p.kind == ThingKind::Prop || p.kind == ThingKind::Usable ||
-               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight) {
+               p.kind == ThingKind::Actor || p.kind == ThingKind::Trigger ||
+               p.kind == ThingKind::SpotLight) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
+    }
+}
+
+void writeActorFields(std::ostringstream& out, const Thing& p) {
+    if (p.haveMotor || p.motorRadius != 0.3f || p.motorHeight != 1.1f || p.motorSpeed != 6.0f ||
+        p.motorGravity != 9.81f || p.motorStepHeight != 0.4f ||
+        p.motorHull != CharacterHull::Capsule || p.motorMoveMode != CharacterMoveMode::Slide) {
+        std::string clause = "(motor (radius " + formatFloat(p.motorRadius) + ") (height " +
+            formatFloat(p.motorHeight) + ") (speed " + formatFloat(p.motorSpeed) + ") (gravity " +
+            formatFloat(p.motorGravity) + ") (step-height " + formatFloat(p.motorStepHeight) + ")";
+        if (p.motorHull == CharacterHull::Box) {
+            clause += " (hull box)";
+        } else {
+            clause += " (hull capsule)";
+        }
+        if (p.motorMoveMode == CharacterMoveMode::TryMove) {
+            clause += " (move try-move)";
+        } else {
+            clause += " (move slide)";
+        }
+        clause += ")";
+        writeIndentClause(out, clause);
+    }
+    if (!p.tags.empty()) {
+        std::string clause = "(tags";
+        for (const std::string& tag : p.tags) {
+            clause += " " + escapeSchemeString(tag);
+        }
+        clause += ")";
+        writeIndentClause(out, clause);
     }
 }
 
@@ -154,6 +185,9 @@ void writeThing(std::ostringstream& out, const Thing& p) {
         if (!p.onUse.empty()) {
             writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
         }
+    }
+    if (p.kind == ThingKind::Actor) {
+        writeActorFields(out, p);
     }
     if (p.kind == ThingKind::Trigger || !p.onEnter.empty() || !p.onExit.empty() ||
         p.haveTriggerSize || !p.collideTags.empty()) {

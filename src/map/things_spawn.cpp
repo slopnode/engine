@@ -6,9 +6,13 @@
 #include "map/bsp.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
+#include "physics/components.hpp"
+#include "physics/physics_module.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
+
+#include <cstdint>
 
 #include <raylib.h>
 #include <raymath.h>
@@ -317,6 +321,34 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                 .eventName = placement.onUse,
                 .maxDistance = 5.0f,
             });
+        }
+        if (placement.kind == ThingKind::Actor) {
+            CharacterMotor motor{};
+            motor.radius = placement.motorRadius;
+            motor.height = placement.motorHeight;
+            motor.moveSpeed = placement.motorSpeed;
+            motor.gravity = placement.motorGravity;
+            motor.stepHeight = placement.motorStepHeight;
+            motor.hull = placement.motorHull;
+            motor.moveMode = placement.motorMoveMode;
+            entity.add<Actor>().set<CharacterMotor>(motor);
+            std::vector<std::string> tags = placement.tags;
+            if (tags.empty()) {
+                tags.push_back("actor");
+            }
+            entity.set<CollisionTags>(CollisionTags{std::move(tags)});
+            if (ctx.world->has<PhysicsContext>()) {
+                PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
+                if (physics != nullptr) {
+                    const Vector3 feet = placement.haveAt ? placement.at : Vector3{0.0f, 0.0f, 0.0f};
+                    physics->createCharacter(
+                        static_cast<std::uint64_t>(entity.id()),
+                        feet.x,
+                        feet.y,
+                        feet.z,
+                        motor);
+                }
+            }
         }
         if (thingHasTrigger(placement)) {
             applyTriggerVolume(entity, placement);

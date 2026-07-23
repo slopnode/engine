@@ -67,9 +67,16 @@ struct SpriteViewDefaults {
     float eyeOffsetZ = 0.0f;
 };
 
+enum class SpriteBillboardMode {
+    Face,
+    Fixed,
+    View,
+};
+
 /** Parsed .spr sprite asset. */
 struct SpriteAsset {
     float pixelsPerMeter = 64.0f;
+    SpriteBillboardMode billboardMode = SpriteBillboardMode::Face;
     SpriteViewDefaults view{};
     std::vector<SpriteHitPartDef> hitParts;
     std::vector<SpriteFrame> frames;

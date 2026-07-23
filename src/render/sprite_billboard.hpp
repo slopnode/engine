@@ -54,6 +54,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     Vector3 viewPosition,
+    float cameraYaw,
     AssetStore& assets,
     const SpriteAnimTween* tween = nullptr);
 
@@ -65,16 +66,19 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     float facingYaw,
     const GlobalTransformation& global,
     Vector3 viewPosition,
+    float cameraYaw,
     const SpriteAnimTween* tween = nullptr);
 
-/** Builds a billboard using an explicit Doom rotation index (0..8), ignoring camera yaw. */
+/** Builds a billboard using an explicit Doom rotation index (0..8), ignoring camera yaw for rot pick. */
 std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
     const SpriteAsset& asset,
     const SpriteAtlas& atlas,
     std::string_view frameId,
     int rotation,
+    float facingYaw,
     const GlobalTransformation& global,
     Vector3 viewPosition,
+    float cameraYaw,
     const SpriteAnimTween* tween = nullptr);
 
 /** Builds a billboard facing the Lens camera. */
@@ -84,6 +88,9 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     const Lens& lens,
     AssetStore& assets,
     const SpriteAnimTween* tween = nullptr);
+
+/** Horizontal look yaw (radians) from eye toward target on XZ. */
+float horizontalCameraYaw(Vector3 eye, Vector3 target);
 
 /** Atlas sample for a screen-space view sprite (rot 0 / non-directional). */
 struct ViewSpriteFrame {

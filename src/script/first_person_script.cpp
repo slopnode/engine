@@ -355,6 +355,29 @@ s7_pointer g_fp_play_sprite_anim(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_fp_sprite_anim_busy(s7_scheme* sc, s7_pointer args) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-sprite-anim-busy?", 1, args, "socket-name string");
+    }
+
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
+    flecs::entity entity = findSpriteUnderSocket(socket);
+    if (!entity.is_valid() || !entity.has<SpriteAnimator>()) {
+        return s7_f(sc);
+    }
+
+    const SpriteAnimator& animator = entity.get<SpriteAnimator>();
+    return (animator.playing && !animator.loop) ? s7_t(sc) : s7_f(sc);
+}
+
 s7_pointer g_fp_set_sprite_pos(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
@@ -708,6 +731,41 @@ s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
     return s7_make_real(sc, static_cast<double>(speed));
 }
 
+s7_pointer g_player_eye(s7_scheme* sc, s7_pointer) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<Lens>()) {
+        return s7_f(sc);
+    }
+    const Vector3 eye = player.get<Lens>().camera.position;
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, static_cast<double>(eye.x)),
+        s7_make_real(sc, static_cast<double>(eye.y)),
+        s7_make_real(sc, static_cast<double>(eye.z)));
+}
+
+s7_pointer g_player_look_dir(s7_scheme* sc, s7_pointer) {
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<Lens>()) {
+        return s7_f(sc);
+    }
+    const Camera3D& camera = player.get<Lens>().camera;
+    const Vector3 dir = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, static_cast<double>(dir.x)),
+        s7_make_real(sc, static_cast<double>(dir.y)),
+        s7_make_real(sc, static_cast<double>(dir.z)));
+}
+
 } // namespace
 
 void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
@@ -725,6 +783,8 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(fp-set-sprite-frame socket frame-id)");
     s7_define_function(scheme, "fp-play-sprite-anim", g_fp_play_sprite_anim, 2, 1, false,
                        "(fp-play-sprite-anim socket clip [loop])");
+    s7_define_function(scheme, "fp-sprite-anim-busy?", g_fp_sprite_anim_busy, 1, 0, false,
+                       "(fp-sprite-anim-busy? socket)");
     s7_define_function(scheme, "fp-set-sprite-pos", g_fp_set_sprite_pos, 3, 0, false,
                        "(fp-set-sprite-pos socket x y)");
     s7_define_function(scheme, "fp-set-sprite-scale", g_fp_set_sprite_scale, 3, 0, false,
@@ -748,6 +808,9 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(player-grounded?)");
     s7_define_function(scheme, "player-wish-speed", g_player_wish_speed, 0, 0, false,
                        "(player-wish-speed)");
+    s7_define_function(scheme, "player-eye", g_player_eye, 0, 0, false, "(player-eye)");
+    s7_define_function(scheme, "player-look-dir", g_player_look_dir, 0, 0, false,
+                       "(player-look-dir)");
 }
 
 void ensureFirstPersonScene(flecs::world& world, flecs::entity player) {

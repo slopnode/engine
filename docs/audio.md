@@ -139,7 +139,7 @@ Per-def `(filter "...")` lists apply when that def plays.
 
 ## Frame sounds
 
-In `.spanim`, a hold may include `(sound "path" [volume])`. On hold enter, the animator plays the raw `sound/` clip (not an audio def). World entities with a global transform get 3D playback. See [Sprites: Frame sounds](sprites.md#frame-sounds).
+In `.spanim`, a hold may include `(sound "path" [volume])`. On hold enter, the animator plays the raw `sound/` clip (not an audio def). World entities with a global transform get 3D playback. See [Sprites: Frame sounds](sprites.md#frame-sounds). Sibling `(hint "name")` annotations are not audio; they call Scheme `(on-sprite-hint ...)` on the same hold enter — see [Sprites: Logic hints](sprites.md#logic-hints).
 
 ```text
 (frame "Fire" 0.08 (sound "weapons/fire" 0.9))

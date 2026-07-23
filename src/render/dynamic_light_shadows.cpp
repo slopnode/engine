@@ -102,7 +102,8 @@ void drawShadowCasters(
     AssetStore& assets,
     Shader depthShader,
     int useAlphaClipLoc,
-    Vector3 viewPosition) {
+    Vector3 viewPosition,
+    float cameraYaw) {
     const int alphaOff = 0;
     const int alphaOn = 1;
     if (useAlphaClipLoc >= 0) {
@@ -136,7 +137,7 @@ void drawShadowCasters(
         if (!entity.has<WorldSpace>()) {
             return;
         }
-        const auto billboard = resolveSpriteBillboard(sprite, global, viewPosition, assets);
+        const auto billboard = resolveSpriteBillboard(sprite, global, viewPosition, cameraYaw, assets);
         if (!billboard || billboard->texture == nullptr) {
             return;
         }
@@ -188,7 +189,8 @@ void renderShadowFace(
         assets,
         shadowState.depthShader,
         shadowState.useAlphaClipLoc,
-        camera.position);
+        camera.position,
+        horizontalCameraYaw(camera.position, camera.target));
     EndMode3D();
     EndTextureMode();
     rlSetClipPlanes(RL_CULL_DISTANCE_NEAR, RL_CULL_DISTANCE_FAR);

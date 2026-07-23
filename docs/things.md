@@ -1,18 +1,18 @@
 # Things
 
-Placed content in a level (static props, usables, lights, and later actors) is authored in `maps/<name>/things.s7`. A thing is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs entity from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
+Placed content in a level (static props, usables, actors, lights) is authored in `maps/<name>/things.s7`. A thing is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs entity from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
 
 World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
 
 ## Kinds
 
-A static prop (`(prop ...)`) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable (`(usable ...)`) uses the same presentation, then adds an interact prompt and optional Scheme `on-use` handler. Light things cover bake and editor work: `(point-light ...)` and `(spot-light ...)` feed radiosity and gizmos; `(area-light ...)` and `(sun ...)` are authoring / gizmo forms today (sun may omit a meaningful world `at` and still use one for the editor handle). See [Lights](lights.md).
+A static prop (`(prop ...)`) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable (`(usable ...)`) uses the same presentation, then adds an interact prompt and optional Scheme `on-use` handler. An actor (`(actor ...)`) uses the same presentation plus a character capsule motor and opaque tags; packages own brains, health, and factions. Light things cover bake and editor work: `(point-light ...)` and `(spot-light ...)` feed radiosity and gizmos; `(area-light ...)` and `(sun ...)` are authoring / gizmo forms today (sun may omit a meaningful world `at` and still use one for the editor handle). See [Lights](lights.md).
 
-`(player-start ...)` is spawn pose only -- it does not create a prop entity; the engine builds `Player` from that pose after map load. Actors (AI nav agents such as enemies and NPCs) are intended later and have no map form yet; until then, decorative characters belong as props.
+`(player-start ...)` is spawn pose only -- it does not create a prop entity; the engine builds `Player` from that pose after map load.
 
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
-Debug entity list labels match this split: `prop`, `usable`, `point-light`, `spot-light`, `area-light`, `sun`, `player` (plus `map` for `MapStatic`).
+Debug entity list labels match this split: `prop`, `usable`, `actor`, `point-light`, `spot-light`, `area-light`, `sun`, `player` (plus `map` for `MapStatic`).
 
 [slopmap](slopmap.md) edits things in the Things outliner and Library palette (load/save of `things.s7`). Viewport shows sprite/geo previews and light gizmos.
 
@@ -113,16 +113,49 @@ Shared optional fields: `(color r g b)` (default `1 1 1`), `(intensity N)` (defa
 | `(area-light ...)` | `id`, `at` | `(angles ...)`, `(size width height)` default `1 1` |
 | `(sun ...)` | `id` | Direction from `(angles ...)` or `(yaw ...)`; optional `(at ...)` for editor gizmo only |
 
+## Motored bodies
+
+A motored body is a runtime-spawned presented entity (`sprite` or `geo`) plus a `MotoredBody` motor: package-chosen velocity, gravity, sweep radius, and lifetime. The engine integrates motion each frame and sphere-casts against static brush hulls (the same solids the player walks on). The player capsule is a `CharacterVirtual`, not a rigid body, so world casts ignore the player.
+
+Packages define recipes (rockets, arcing throws, bolts) with `(motored-spawn ...)` from [Scripting](scripting.md). Aim helpers `(player-eye)` / `(player-look-dir)` supply spawn origin and direction. On world hit, the engine calls an optional `on-impact` Scheme handler with the thing id, then despawns. Empty handler = silent despawn. This is motor-driven flight, not full dynamic rigid-body simulation.
+
 ## Actors
 
-Actor means an AI-capable agent that can navigate and interact: enemies, NPCs, and similar. That is distinct from:
+An actor is a presented world body with a character motor and opaque `CollisionTags`. It is the engine primitive for walking entities packages may treat as enemies, NPCs, or neutrals. Distinct from:
 
-- Prop: placed, may animate a sprite clip, does not think or pathfind.
+- Prop: placed, may animate a sprite clip, does not move.
 - Usable: static (or later movable) fixture the player uses.
+- Motored body: runtime flyer with package velocity/gravity; see [Motored bodies](#motored-bodies).
 - Light: illumination thing (bake for point/spot; runtime dynamic overlay is separate; see [Lights](lights.md)).
-- Player: engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)).
+- Player: engine-owned first-person pawn; FP stage is presentation only ([Player](player.md)). Shares the same character-motor registry as actors.
 
-There is no `(actor ...)` form yet and no nav / AI stack in the engine. Until that exists, decorative or ambient characters belong as `(prop ...)` (optionally with `(anim ...)`). When actors land, expect a map form or package constructor that still uses the same presentation clauses (`sprite` / `geo`, pose) and adds motor / brain / nav data on top. Behavior stays in package scripts where possible, with engine primitives for movement and sensing.
+```text
+(actor
+  (id "guard-a")
+  (at -2.0 0.0 -2.0)
+  (yaw 0.0)
+  (sprite "characters/guard")
+  (anim "idle" #t)
+  (motor
+    (radius 0.3)
+    (height 1.1)
+    (speed 3.5)
+    (gravity 9.81)
+    (step-height 0.4)
+    (hull box)
+    (move try-move))
+  (tags "actor" "team:security"))
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| (all `prop` presentation fields) | same rules | Sprite or geo, pose, optional anim. |
+| `(motor ...)` | no | Nested `(radius)`, `(height)`, `(speed)`, `(gravity)`, `(step-height)`, `(hull ...)`, `(move ...)`. Numeric defaults match the player (`0.3`, `1.1`, `6`, `9.81`, step `0.4`). `(hull capsule\|box)` default `capsule`. `(move slide\|try-move)` default `slide`. |
+| `(tags ...)` | no | Opaque strings copied to `CollisionTags`. Empty → `("actor")`. |
+
+`hull box` uses an axis-aligned box footprint (half-width/depth = `radius`). `move try-move` disables wall slide: horizontal motion either fully advances or fails, then stair step-up of `step-height` may still succeed. Use box + try-move for Doom-like cornering and package 8-dir chase; the player stays capsule + slide. Packages still drive intent with `(actor-set-wish id wx wz)`.
+
+Spawn adds `Actor`, `CharacterMotor`, and `CollisionTags`, then creates a Jolt `CharacterVirtual`. Query helpers (`actors-with-tag`, `actors-in-radius`, `los?`) are in [Scripting](scripting.md). Nav pathfollowing is not shipped yet; `graphs.s7` remains authoring data. Health, factions, and combat stay in package Scheme.
 
 ## Scripting
 
@@ -147,4 +180,4 @@ The engine looks up the name with `s7_name_to_value`, checks it is a procedure, 
 
 ### Extending without engine churn
 
-Prefer new package procedures and map calls over new C++ thing kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, rigid mover, light type), that is when a new engine primitive earns a map binding; content still supplies meshes, prompts, and Scheme reactions.
+Prefer new package procedures and map calls over new C++ thing kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, motored body / rigid mover, light type), that is when a new engine primitive earns a binding; content still supplies meshes, prompts, and Scheme reactions.

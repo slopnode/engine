@@ -35,6 +35,7 @@ enum class ThingEditKind {
     None,
     Light,
     Sound,
+    Actor,
     Mixed,
 };
 
@@ -59,6 +60,8 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
             entryKind = ThingEditKind::Light;
         } else if (thingKind == slopengine::ThingKind::SoundSource) {
             entryKind = ThingEditKind::Sound;
+        } else if (thingKind == slopengine::ThingKind::Actor) {
+            entryKind = ThingEditKind::Actor;
         } else {
             continue;
         }
@@ -163,6 +166,17 @@ bool forEachSound(
         [](const slopengine::Thing& thing) {
             return thing.kind == slopengine::ThingKind::SoundSource;
         },
+        fn);
+}
+
+bool forEachActor(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) { return thing.kind == slopengine::ThingKind::Actor; },
         fn);
 }
 
@@ -521,6 +535,121 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
+bool drawActorSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::Text("Kind: actor");
+    ImGui::Text("%d actor(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto radiusCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.motorRadius; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto heightCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.motorHeight; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto speedCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.motorSpeed; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto gravityCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.motorGravity; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto tagsCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) {
+            std::string joined;
+            for (std::size_t i = 0; i < t.tags.size(); ++i) {
+                if (i > 0) {
+                    joined.push_back(' ');
+                }
+                joined += t.tags[i];
+            }
+            return joined;
+        });
+
+    float radius = radiusCommon.value_or(0.3f);
+    if (dragFloatMixed("Radius", &radius, !radiusCommon.has_value(), 0.01f, 0.05f, 2.0f)) {
+        if (forEachActor(editor, targets, [radius](slopengine::Thing& thing) {
+                thing.motorRadius = radius;
+                thing.haveMotor = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor motor radius";
+        }
+    }
+
+    float height = heightCommon.value_or(1.1f);
+    if (dragFloatMixed("Height", &height, !heightCommon.has_value(), 0.01f, 0.1f, 4.0f)) {
+        if (forEachActor(editor, targets, [height](slopengine::Thing& thing) {
+                thing.motorHeight = height;
+                thing.haveMotor = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor motor height";
+        }
+    }
+
+    float speed = speedCommon.value_or(6.0f);
+    if (dragFloatMixed("Speed", &speed, !speedCommon.has_value(), 0.05f, 0.0f, 20.0f)) {
+        if (forEachActor(editor, targets, [speed](slopengine::Thing& thing) {
+                thing.motorSpeed = speed;
+                thing.haveMotor = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor motor speed";
+        }
+    }
+
+    float gravity = gravityCommon.value_or(9.81f);
+    if (dragFloatMixed("Gravity", &gravity, !gravityCommon.has_value(), 0.05f, 0.0f, 40.0f)) {
+        if (forEachActor(editor, targets, [gravity](slopengine::Thing& thing) {
+                thing.motorGravity = gravity;
+                thing.haveMotor = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor motor gravity";
+        }
+    }
+
+    char tagsBuf[256];
+    copyToBuf(tagsBuf, sizeof(tagsBuf), tagsCommon.value_or(std::string{}));
+    if (inputTextMixed("Tags", tagsBuf, sizeof(tagsBuf), !tagsCommon.has_value())) {
+        std::vector<std::string> tags;
+        std::string token;
+        for (const char* p = tagsBuf; *p != '\0'; ++p) {
+            if (*p == ' ' || *p == '\t' || *p == ',') {
+                if (!token.empty()) {
+                    tags.push_back(token);
+                    token.clear();
+                }
+                continue;
+            }
+            token.push_back(*p);
+        }
+        if (!token.empty()) {
+            tags.push_back(token);
+        }
+        if (forEachActor(editor, targets, [&tags](slopengine::Thing& thing) {
+                thing.tags = tags;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor tags";
+        }
+    }
+
+    return changed;
+}
+
 } // namespace
 
 ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
@@ -533,12 +662,12 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
     ThingEditKind editKind = ThingEditKind::None;
     const std::vector<int> targets = collectEditableTargets(editor.doc(), &editKind);
     if (targets.empty() || editKind == ThingEditKind::None) {
-        ImGui::TextDisabled("Select light or sound thing(s) to edit");
+        ImGui::TextDisabled("Select light, sound, or actor thing(s) to edit");
         ImGui::EndChild();
         return result;
     }
     if (editKind == ThingEditKind::Mixed) {
-        ImGui::TextDisabled("Select only lights or only sounds");
+        ImGui::TextDisabled("Select only one editable kind");
         ImGui::EndChild();
         return result;
     }
@@ -547,6 +676,8 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
         result.changed = drawLightSection(editor, targets);
     } else if (editKind == ThingEditKind::Sound) {
         result.changed = drawSoundSection(editor, targets);
+    } else if (editKind == ThingEditKind::Actor) {
+        result.changed = drawActorSection(editor, targets);
     }
 
     ImGui::EndChild();

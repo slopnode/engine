@@ -5,6 +5,7 @@
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
+#include "physics/motored_body.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "script/scheme_call.hpp"
@@ -101,6 +102,7 @@ std::string entityIdString(flecs::entity entity) {
 
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CharacterMotor>();
+    world.component<Actor>();
     world.component<CollisionTags>();
     world.component<TriggerVolume>();
     world.set<PhysicsContext>(PhysicsContext{physics});
@@ -161,34 +163,70 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             }
 
             PhysicsContext& physics = it.world().get_mut<PhysicsContext>();
-            if (physics.world == nullptr || !physics.world->hasPlayer()) {
+            if (physics.world == nullptr) {
                 return;
             }
+
+            const bool playerNoclip =
+                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
+
+            std::vector<CharacterStep> steps;
+            it.world().each([&](flecs::entity entity, CharacterMotor& motor) {
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                if (!physics.world->hasCharacter(id)) {
+                    return;
+                }
+                CharacterStep step{};
+                step.id = id;
+                step.motor = &motor;
+                step.noclip = entity.has<PlayerCamera>() && playerNoclip;
+                steps.push_back(step);
+            });
+
+            if (steps.empty()) {
+                return;
+            }
+
+            physics.world->update(GetFrameTime(), steps);
 
             const flecs::entity camera = it.world().lookup("Player");
-            if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<Lens>() ||
-                !camera.has<FirstPersonController>()) {
-                return;
+            if (camera.is_valid() && camera.has<CharacterMotor>() && camera.has<Lens>() &&
+                camera.has<FirstPersonController>() && physics.world->hasPlayer()) {
+                CharacterMotor& motor = camera.get_mut<CharacterMotor>();
+                FirstPersonController& controller = camera.get_mut<FirstPersonController>();
+                Lens& lens = camera.get_mut<Lens>();
+
+                const JPH::RVec3 feet = physics.world->playerPosition();
+                lens.camera.position = {
+                    static_cast<float>(feet.GetX()),
+                    static_cast<float>(feet.GetY()) + motor.eyeHeight,
+                    static_cast<float>(feet.GetZ()),
+                };
+
+                const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
+                lens.camera.target = Vector3Add(lens.camera.position, forward);
+                lens.camera.up = {0.0f, 1.0f, 0.0f};
             }
 
-            CharacterMotor& motor = camera.get_mut<CharacterMotor>();
-            FirstPersonController& controller = camera.get_mut<FirstPersonController>();
-            Lens& lens = camera.get_mut<Lens>();
+            it.world().each([&](flecs::entity entity, Actor, CharacterMotor&, LocalTransformation& local) {
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                if (!physics.world->hasCharacter(id)) {
+                    return;
+                }
+                const JPH::RVec3 feet = physics.world->characterPosition(id);
+                local.position = {
+                    static_cast<float>(feet.GetX()),
+                    static_cast<float>(feet.GetY()),
+                    static_cast<float>(feet.GetZ()),
+                };
 
-            const bool noclip =
-                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
-            physics.world->update(GetFrameTime(), motor, noclip);
-
-            const JPH::RVec3 feet = physics.world->playerPosition();
-            lens.camera.position = {
-                static_cast<float>(feet.GetX()),
-                static_cast<float>(feet.GetY()) + motor.eyeHeight,
-                static_cast<float>(feet.GetZ()),
-            };
-
-            const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
-            lens.camera.target = Vector3Add(lens.camera.position, forward);
-            lens.camera.up = {0.0f, 1.0f, 0.0f};
+                const JPH::Vec3 vel = physics.world->characterVelocity(id);
+                const float horizSq = vel.GetX() * vel.GetX() + vel.GetZ() * vel.GetZ();
+                if (horizSq > 1.0e-4f && entity.has<SpriteInstance>()) {
+                    entity.get_mut<SpriteInstance>().facingYaw =
+                        std::atan2(vel.GetX(), vel.GetZ());
+                }
+            });
         });
 
     world.system("TriggerOverlap")
@@ -252,6 +290,8 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 volume.inside = std::move(currentlyInside);
             });
         });
+
+    registerMotoredBodySystem(world);
 }
 
 void unregisterPhysicsModule(flecs::world& world) {

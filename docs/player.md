@@ -73,7 +73,7 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 | `(fp-attach-geo socket geo [x y z sx sy sz])` | Attach a geo viewmodel under a socket. |
 | `(fp-attach-sprite socket sprite [canvas-x canvas-y])` | Attach a screen-space sprite under a socket. Optional canvas position places the sprite origin (default bottom-center) on the view canvas. Formats and pose/tween: [Sprites](sprites.md). |
 | `(fp-set-sprite-frame socket frame-id)` | Set the current sprite frame id. |
-| `(fp-play-sprite-anim socket clip [loop])` | Play a `.spanim` clip on the socket sprite (tween / frame sounds apply; see [Sprites](sprites.md), [Audio](audio.md)). |
+| `(fp-play-sprite-anim socket clip [loop])` | Play a `.spanim` clip on the socket sprite (tween / frame sounds / logic hints apply; see [Sprites](sprites.md), [Audio](audio.md)). |
 | `(fp-set-sprite-pos socket x y)` | Move the view-sprite origin on the view canvas. |
 | `(fp-set-sprite-scale socket sx sy)` | Independent X/Y scale multipliers (default `1 1`). |
 | `(fp-set-sprite-rotation socket degrees)` | Rotation in degrees around the sprite origin. |
@@ -82,6 +82,8 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 | `(player-speed)` | Horizontal character speed (m/s); `0` if no physics player. |
 | `(player-grounded?)` | `#t` when the character is supported; `#f` if unsupported or no body. |
 | `(player-wish-speed)` | `hypot(wishX, wishZ)` from `CharacterMotor` (move intent). |
+| `(player-eye)` | List `(x y z)` of the raw `Lens` eye position, or `#f` if no player. |
+| `(player-look-dir)` | List `(dx dy dz)` unit look direction from `Lens`, or `#f` if no player. |
 | `(fp-spawn-light socket kind [intensity range cone r g b x y z])` | Spawn a dynamic light under a socket (starts off). |
 | `(fp-set-light-enabled socket enabled)` | Toggle light intensity using the spawn-time on-intensity. |
 | `(fp-set-rad-tint enabled)` | Tint viewmodels from a baked rad probe at the feet (plus dynamic lights). Off by default. |
@@ -96,6 +98,7 @@ Raise/lower, bob, kick, and similar presentation policies stay in package Scheme
 | `(prepare-first-person player-id)` | After FP scene exists on map / free-camera spawn; build the initial view from game state. |
 | `(tick dt)` | Each update frame with frame delta seconds, if defined. Use for package-owned pose stepping (raise/lower, bob, etc.). |
 | `(on-action-<id>)` | When a package action with that id is pressed (see Package actions below). |
+| `(on-sprite-hint source name)` | When a socket sprite hold with `(hint "name")` is entered; for FP, `source` is the socket name (`weapon` / `emission`). See [Sprites](sprites.md#logic-hints). |
 | `(action-down? id)` | `#t` while the bound action is held (gameplay context only). Works for package and core action ids. |
 | `(action-pressed? id)` | `#t` on the press edge this frame (gameplay context only). Works for package and core action ids. |
 
@@ -139,14 +142,17 @@ When rad tint is on, the FP pass samples baked light from the player feet (avera
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `radius` | `0.3` | Capsule radius (meters). |
-| `height` | `1.1` | Cylinder segment between the capsule hemispheres. |
+| `radius` | `0.3` | Capsule radius (meters); box half-width/depth when `hull` is box. |
+| `height` | `1.1` | Cylinder segment between the capsule hemispheres (or box body height). |
 | `moveSpeed` | `6` | Horizontal wish speed. |
 | `gravity` | `9.81` | Applied when grounded / falling (skipped in noclip). |
 | `eyeHeight` | `1.7` | Camera offset above physics feet. |
+| `stepHeight` | `0.4` | Max stair step-up (meters). |
+| `hull` | capsule | `capsule` or `box` (map actors may opt into box; player stays capsule). |
+| `moveMode` | slide | `slide` or `try-move` (no wall slide; see [Things](things.md#actors)). |
 | `wishX` / `wishZ` | `0` | Filled each frame from move input. |
 
-The physics character is a capsule built from `radius` and `height`, created at the `player-start` feet position. Each physics step writes feet position back into `Lens.camera.position` (plus `eyeHeight`) and aims `camera.target` from controller yaw / pitch.
+The player physics character is a capsule built from `radius` and `height`, created at the `player-start` feet position. Each physics step writes feet position back into `Lens.camera.position` (plus `eyeHeight`) and aims `camera.target` from controller yaw / pitch.
 
 ## Input
 
