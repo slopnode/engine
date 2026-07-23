@@ -4,6 +4,22 @@ slopengine is a small hobby project for making first-person games. It is aimed a
 
 Despite the name, it is not a large self-contained engine. It is an assembly of popular free libraries, with a thin project layer that defines how content is stored, how first-person levels are built, and how tools like Blender feed into a running game. Most of what you would expect from an "engine" (a window, drawing, physics, gameplay structure, scripting) comes from those libraries. What this repository adds is the packaging, formats, and wiring that hold the assembly together.
 
+Its main features are:
+
+- **Package-based content** with plain folders, text descriptors, and binary companions. Mods stack on a base package and override assets by path. [Package structure](package-structure.md)
+- **S-expression and Scheme (s7)** for materials, maps, scripts, and related descriptors — readable on disk and easy to generate from custom tools. [Scripting](scripting.md), [Writing s7](s7.md)
+- **First-person movement and view**: character capsule, look, eye-space weapon / viewmodel sockets, and package-owned presentation hooks. [Player](player.md)
+- **Brush CSG levels** compiled through slopbsp → slopvis → optional sloprad lightmaps, with an interactive editor (slopmap). [Maps](maps.md), [slopmap](slopmap.md)
+- **Bake-first lighting**: offline lightmaps on diffuse surfaces, plus a small ranked dynamic-light overlay (flashlight and similar). Not a runtime PBR stack. [Lights](lights.md), [Radiosity](rad.md)
+- **Albedo + emission materials**, PNG textures, and custom GLSL shaders. [Materials, textures, and shaders](materials.md)
+- **Prop and character meshes** (.geo) with optional skeletal skinning from a Blender exporter. [Geometry](geometry.md), [Skeletal animation](animation.md)
+- **Doom-style sprites**: multi-rotation frames, hit masks, and .spanim clip banks (world and first-person). [Sprites](sprites.md), [slopsprite](slopsprite.md)
+- **Placed things** in maps: static props, usables, actors, and bake / editor lights. [Things](things.md)
+- **Audio** via SoLoud (.ogg, procedural Sfxr defs, music bus); optional Valve Steam Audio for HRTF, occlusion, and reflections. [Audio](audio.md)
+- **flecs ECS** for runtime entities and systems, with Scheme bindings for gameplay and UI hooks. [Scripting](scripting.md)
+- **User data outside packages**: settings, screenshots, and save blobs keyed by the mount stack. [Persistence](persistence.md)
+- Built in **C++20** on **raylib**, **flecs**, and **s7**; CMake on Windows, Linux, and macOS.
+
 ## A familiar content style
 
 Asset handling is deliberately old-school. Content lives in plain package folders with simple text descriptors and binary companions, closer to classic early-2000s game directories than to a single opaque project file. Materials, meshes, skeletons, animations, and maps are separate files you can open, copy, and override. Mods stack on a base package and replace assets by path.
