@@ -2,7 +2,7 @@
 
 Placed content in a level (static props, usables, actors, lights) is authored in `maps/<name>/things.s7`. A thing is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs entity from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under `scripts/`. The player is separate; see [Player](player.md).
 
-World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprites ([Sprites](sprites.md)) or prop meshes ([Geometry](geometry.md)).
+World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprites ([Sprites](sprites.md)) or `.geo` ([Geometry](geometry.md)).
 
 ## Kinds
 
@@ -53,7 +53,7 @@ Debug entity list labels match this split: `prop`, `usable`, `actor`, `point-lig
 
 ## Static props (`prop`)
 
-A prop is a named flecs entity with world transform and exactly one presentation path: sprite billboard or `.geo` mesh. It does not get `Interactable`, a character motor, or a physics capsule. Use props for clutter, scenery characters that only idle or loop an anim, and anything that should appear in the level without use or AI.
+A prop is a named flecs entity with world transform and exactly one presentation path: sprite billboard or `.geo`. It does not get `Interactable`, a character motor, or a physics capsule. Use props for clutter, scenery characters that only idle or loop an anim, and anything that should appear in the level without use or AI.
 
 | Field | Required | Notes |
 |-------|----------|-------|
@@ -73,7 +73,7 @@ SpriteInstance      { sprite, frame, facingYaw }
 SpriteAnimator      { optional; from (anim ...) }
 ```
 
-For `geo`, the entity gets `Model3D` (cloned instance) instead of sprite components. Props are not lightmapped; they sample or draw like other placeable meshes/sprites.
+For `geo`, the entity gets `Model3D` (cloned instance) instead of sprite components. Props are not lightmapped; they sample or draw like other placeable `.geo` / sprites.
 
 Failed presentation (missing asset, both or neither of `sprite`/`geo`) destroys the entity and skips it.
 
@@ -180,4 +180,4 @@ The engine looks up the name with `s7_name_to_value`, checks it is a procedure, 
 
 ### Extending without engine churn
 
-Prefer new package procedures and map calls over new C++ thing kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, motored body / rigid mover, light type), that is when a new engine primitive earns a binding; content still supplies meshes, prompts, and Scheme reactions.
+Prefer new package procedures and map calls over new C++ thing kinds for each crate or NPC. When many packages need the same mechanic (trigger volume, motored body / rigid mover, light type), that is when a new engine primitive earns a binding; content still supplies sprites or `.geo`, prompts, and Scheme reactions.

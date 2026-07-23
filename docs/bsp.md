@@ -95,7 +95,7 @@ Inferred nodraw is no longer decided by sparse whole-face probes in analysis. Th
 
 ## `BSP2` file contents
 
-Magic `BSP2` (little-endian `0x32505342`), version `3`. Payload includes root index, padded bounds, nodes (plane + front/back), leaves (`contents` u32 + AABB + face polygons + neighbor indices), portals (`leafA`, `leafB`, polygon), surface faces (geometry + string-table indices for id/material), and a string table. Contents bits: `Solid`, `Glass`, `Water`, `Trigger`. Exact field layout lives in `bsp_io.cpp`; treat the version as the compatibility gate.
+Magic `BSP2` (`0x32505342`), version `3`. Contents bits: `Solid`, `Glass`, `Water`, `Trigger`. Field layout: [Binary formats — BSP2](binary-formats.md#bsp2-bsp).
 
 ## Source map
 

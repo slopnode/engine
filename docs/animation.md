@@ -67,3 +67,7 @@ For rigid objects (crates that slide, doors that swing as a whole, platforms, bo
 That keeps Blender export focused on characters and skinned props, and keeps object motion explicit in gameplay code where timing, triggers, and interaction live. A spinning decoration might use a simple spin component; a scripted door would use whatever animator components and systems you build for that behavior. None of that goes through `.anim` bone tracks unless the object is genuinely skinned to a skeleton.
 
 In short: Blender actions map to skeleton bones on a skinned mesh; entity transform animation belongs in component systems.
+
+## Binary bind and tracks
+
+Skeleton bind matrices are `.bind` (`DLKB`). Per-clip pose samples are `.tracks` (`DLKT`, version 2 matrix from the Blender exporter; version 1 TRS also loads). Field layouts: [Binary formats — DLKB](binary-formats.md#dlkb-bind), [Binary formats — DLKT](binary-formats.md#dlkt-tracks). Clip bank metadata stays in the text `.anim` file above.

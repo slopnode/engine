@@ -20,6 +20,7 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 - [Radiosity compilation](rad.md)
 - [Lights](lights.md)
 - [Things](things.md)
+- [Binary formats](binary-formats.md)
 
 ### Player
 

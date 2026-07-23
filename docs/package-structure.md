@@ -49,7 +49,6 @@ my-package/
   icons/          # .png atlas + .iconmap (+ source folders)
   maps/           # map folders
   materials/      # .mat
-  meshes/         # .glb (optional; supported by VFS)
   prefabs/        # brush assemblies (+ optional entity sidecars)
   scripts/        # .s7
   shaders/        # .glsl
@@ -65,7 +64,6 @@ Example: material virtual path `surfaces/stone` resolves to `materials/surfaces/
 |-----------|------------|----------------------|
 | `textures/` | `.png` | `surfaces/stone` -> `textures/surfaces/stone.png` |
 | `materials/` | `.mat` | `surfaces/stone` -> `materials/surfaces/stone.mat` |
-| `meshes/` | `.glb` | `props/crate` -> `meshes/props/crate.glb` |
 | `shaders/` | `.glsl` | `default/lightmap_vert` -> `shaders/default/lightmap_vert.glsl` |
 | `scripts/` | `.s7` | `init` -> `scripts/init.s7` |
 | `data/` | `.s7` | `actions` -> `data/actions.s7` |

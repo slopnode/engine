@@ -6,7 +6,7 @@ Props and characters are Blender meshes under `geometry/` (plus `skeletons/` whe
 
 Both paths end as the same runtime types (`GeoAsset` + `VertBuffer`) and are drawn through `buildModelFromGeo`. They are authored and packaged differently on purpose.
 
-Skeleton and clip export for skinned meshes are covered in [Skeletal animation](animation.md). This page covers mesh data and how the Blender exporter chooses prop formats.
+Skeleton and clip export for skinned meshes are covered in [Skeletal animation](animation.md). This page covers `.geo` / `.vert` data and how the Blender exporter writes them.
 
 ## Prop and character geometry
 
@@ -50,13 +50,9 @@ S-expression descriptor. Typical skinned export:
 
 Static meshes omit `weights` and `skeleton`. One `.geo` can contain several primitives (usually one per material).
 
-### `.vert`
+### `.vert` / `.weights`
 
-Binary vertex/index buffer (`DLKV`, version 1): positions, optional normals and UVs, then `u32` indices. All primitives share this buffer and select ranges via offsets and counts.
-
-### `.weights`
-
-Binary skin buffer (`DLKW`, version 1): four joint indices and four weights per vertex. Written only for skinned exports.
+Binary companions of `.geo`: `.vert` (`DLKV`) holds positions, optional normals/UVs, and indices; `.weights` (`DLKW`) holds four joints/weights per vertex for skinned exports. Layouts: [Binary formats — DLKV](binary-formats.md#dlkv-vert), [DLKW](binary-formats.md#dlkw-weights). Bind pose matrices: [Skeletal animation](animation.md#binary-bind-and-tracks).
 
 ### Runtime load
 

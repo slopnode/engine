@@ -123,4 +123,4 @@ Glow and lit surfaces use the emission fields above. Other effects (scroll, puls
 
 ## Naming from Blender
 
-The exporter does not write `.mat` files. Blender material names become material virtual paths on `.geo` primitives: a leading `materials/` prefix and known extensions are stripped; if there is no `/` but there is a `.`, the `.` is treated as `/` (`surfaces.stone` -> `surfaces/stone`); an empty name becomes `default/unassigned`. Blender material names should match paths under `materials/`.
+The exporter does not write `.mat` files. Blender material names become material virtual paths on `.geo` primitives; naming rules are in [Geometry — How Geometry export decides formats](geometry.md#how-geometry-export-decides-formats). Blender material names should match paths under `materials/`.

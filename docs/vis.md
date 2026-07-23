@@ -57,7 +57,7 @@ After fragments are collected:
 
 ## `VIS1` file contents
 
-Magic `VIS1` (little-endian `0x31534956`), version `2`. Payload is a list of visible faces (polygon, normal, UV shift/scale/axes, uv-lock, interior leaf hint, string-table indices for id / source face id / material) plus a string table. Exact field layout lives in `vis_io.cpp`.
+Magic `VIS1` (`0x31534956`), version `2` (reader also accepts v1). Field layout: [Binary formats — VIS1](binary-formats.md#vis1-vis).
 
 ## Source map
 

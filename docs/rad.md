@@ -72,7 +72,7 @@ Emission at a world point: `emission-color * emission-power`, multiplied by the 
 
 ## `RAD1` sidecar
 
-Magic `RAD1` (`0x31444152`), version `2`. Stores luxels-per-meter, atlas texture path stems + sizes, and charts keyed by face id / face index with atlas index and UV bounds. Atlases are separate PNGs; the sidecar does not embed pixels. Face ids are VIS fragment ids.
+Magic `RAD1` (`0x31444152`), version `2`. Atlas PNGs are separate files under `rad/`; face ids are VIS fragment ids. Field layout: [Binary formats — RAD1](binary-formats.md#rad1-rad).
 
 ## Runtime relationship
 

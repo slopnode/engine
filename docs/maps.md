@@ -2,7 +2,7 @@
 
 Maps are first-person spaces built from brush solids, compiled for structure and visible faces, then optionally lightmapped. Authoring is plain Scheme on disk; the shipped tools compile that source into BSP, VIS, and radiosity data the game can load. Because the source is readable S-expression / s7 text, custom editors and generators that write the same files are welcome alongside the built-in tools. The interactive editor is [slopmap](slopmap.md).
 
-Props and characters are separate mesh assets. This page covers world geometry under `maps/`. Mesh export is described in [Geometry](geometry.md); surface appearance in [Materials, textures, and shaders](materials.md).
+Props and characters are separate `.geo` assets. This page covers world geometry under `maps/`. Prop export is described in [Geometry](geometry.md); surface appearance in [Materials, textures, and shaders](materials.md).
 
 ## Folder layout
 
