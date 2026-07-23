@@ -131,7 +131,7 @@ Sibling of the `.spr` at the same virtual path:
   (clip "fire"
     (loop 0)
     (frame "FireStart" 0.05 (tween all) (sound "weapons/fire"))
-    (frame "Fire" 0.08 (tween rot translate) (sound "weapons/fire" 0.8))
+    (frame "Fire" 0.08 (tween rot translate) (sound "weapons/fire" 0.8) (hint "fire"))
     (frame "Idle" 0.1)))
 ```
 
@@ -142,6 +142,7 @@ Sibling of the `.spr` at the same virtual path:
 | `(frame "id" seconds ...)` | Ordered hold: `.spr` frame id and duration in seconds |
 | `(tween all\|rot\|scale\|translate ...)` | Per-hold: interpolate `anim-*` toward the next hold for the listed channels (`all` = rot + scale + translate) |
 | `(sound "path" [volume])` | On hold enter, play a raw clip from `sound/` (see [Audio](audio.md)). Optional volume defaults to `1.0`. |
+| `(hint "name")` | On hold enter, call Scheme `(on-sprite-hint source name)` if defined. Repeatable on one hold. |
 
 Legacy clip-level `(tween 0|1)` expands to tween-all on every frame in that clip. A bare `offset` token inside `(tween ...)` is ignored (offset is not tweenable).
 
@@ -151,6 +152,16 @@ Frame ids must exist in the paired `.spr`. Missing banks or clips leave the inst
 
 `(sound ...)` paths are virtual sound paths (`weapons/fire` -> `sound/weapons/fire.ogg`), not audio defs under `audio/`. Playback uses `playSound` / `playSound3d`: 3D when the entity has a `GlobalTransformation`, otherwise 2D on the sfx bus. See [Audio](audio.md).
 
+### Logic hints
+
+`(hint "name")` is a gameplay marker, not audio. On the same hold-enter path as frame sounds, `AdvanceSpriteAnimator` invokes `(on-sprite-hint source name)` when that procedure exists.
+
+| Arg | Meaning |
+|-----|---------|
+| `source` | Flecs entity name when set; otherwise the FP socket parent name (`weapon` or `emission`). Anonymous entities skip the callback (one warn log). |
+| `name` | The string from `(hint "...")`. |
+
+Multiple `(hint ...)` forms on one hold each fire once, in order. Holds skipped in a single `dt` still fire (same as sounds). Packages own what a name means (hitscan, spawn, muzzle flash, etc.).
 ## World vs first-person
 
 The same `.spr` / `.spanim` assets can draw in two places. A world billboard is a `SpriteInstance` with `WorldSpace` (optional `SpriteAnimator`): a camera-facing quad whose rotation index comes from the camera versus `facingYaw`. A view / first-person sprite keeps `SpriteInstance` but adds `ViewSprite` (usually under `ViewSpace`) and draws as a screen-space overlay on the view canvas, typically with rot `0` because yaw sectors are for world facing.
@@ -171,7 +182,7 @@ Place the entity with `LocalTransformation` / `GlobalTransformation` and `WorldS
 
 ### `SpriteAnimator`
 
-Drives `SpriteInstance.frame` from a `.spanim` bank, advances tween state, and fires frame sounds.
+Drives `SpriteInstance.frame` from a `.spanim` bank, advances tween state, and fires frame sounds and logic hints.
 
 | Field | Meaning |
 |-------|---------|
@@ -189,7 +200,7 @@ animator.animPath = "characters/guard";
 animator.play("walk", true);
 ```
 
-`play(clip, shouldLoop = true, playbackSpeed = 1)` resets time and starts the clip. `stop()` clears `playing`. The `AdvanceSpriteAnimator` system loads the bank, picks the clip, advances `time` by `delta * speed`, writes the frame id into `SpriteInstance.frame`, updates tween blend, and plays frame sounds on hold enter. Non-looping clips clamp on the last frame, set `playing = false`, and pulse `justFinished`.
+`play(clip, shouldLoop = true, playbackSpeed = 1)` resets time and starts the clip. `stop()` clears `playing`. The `AdvanceSpriteAnimator` system loads the bank, picks the clip, advances `time` by `delta * speed`, writes the frame id into `SpriteInstance.frame`, updates tween blend, and on hold enter plays frame sounds and calls `(on-sprite-hint ...)` for any `(hint ...)` markers. Non-looping clips clamp on the last frame, set `playing = false`, and pulse `justFinished`.
 
 ### `ViewSprite`
 

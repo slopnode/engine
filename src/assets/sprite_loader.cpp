@@ -351,6 +351,22 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
                 return false;
             }
             asset.pixelsPerMeter = texelSize;
+        } else if (line.rfind("(billboard ", 0) == 0) {
+            inView = false;
+            std::string_view rest = trim(line.substr(std::string_view("(billboard ").size()));
+            if (!rest.empty() && rest.back() == ')') {
+                rest.remove_suffix(1);
+                rest = trim(rest);
+            }
+            if (rest == "fixed") {
+                asset.billboardMode = SpriteBillboardMode::Fixed;
+            } else if (rest == "face") {
+                asset.billboardMode = SpriteBillboardMode::Face;
+            } else if (rest == "view") {
+                asset.billboardMode = SpriteBillboardMode::View;
+            } else {
+                return false;
+            }
         } else if (auto partName = readQuotedField(line, "(hit-part ")) {
             inView = false;
             std::string_view rest = line;
@@ -456,6 +472,11 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
     std::ostringstream out;
     out << "(sprite\n";
     out << "  (texel-size " << asset.pixelsPerMeter << ")\n";
+    if (asset.billboardMode == SpriteBillboardMode::Fixed) {
+        out << "  (billboard fixed)\n";
+    } else if (asset.billboardMode == SpriteBillboardMode::View) {
+        out << "  (billboard view)\n";
+    }
     if (asset.view.present) {
         out << "  (view\n";
         out << "    (canvas " << asset.view.canvasX << ' ' << asset.view.canvasY << ")\n";

@@ -61,6 +61,7 @@ Call these by defining a procedure with the exact name. Missing procedures are s
 | `(tick dt)` | Each update frame (delta seconds), if defined |
 | `(draw-hud)` | When the HUD pass runs, if defined |
 | `(on-action-<id>)` | When package action `<id>` is pressed |
+| `(on-sprite-hint source name)` | When a `.spanim` hold with `(hint "name")` is entered; `source` is the entity name or FP socket (`weapon` / `emission`). See [Sprites](sprites.md#logic-hints). |
 | `(on-use-<name> thing-id)` / named handlers | From map `(on-use "...")`; see [Things](things.md) |
 | Trigger enter/exit handlers | From map `(on-enter ...)` / `(on-exit ...)` by handler name |
 

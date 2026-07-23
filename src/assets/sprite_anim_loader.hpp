@@ -16,6 +16,7 @@ struct SpriteAnimFrame {
     bool tweenTranslate = false;
     std::string sound;
     float soundVolume = 1.0f;
+    std::vector<std::string> hints;
 
     bool hasTween() const {
         return tweenRotation || tweenScale || tweenTranslate;
@@ -23,6 +24,10 @@ struct SpriteAnimFrame {
 
     bool hasSound() const {
         return !sound.empty();
+    }
+
+    bool hasHints() const {
+        return !hints.empty();
     }
 };
 

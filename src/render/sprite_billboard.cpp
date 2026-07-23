@@ -144,16 +144,10 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     const SpriteRotation* next,
     const SpriteAnimTween* tween,
     const GlobalTransformation& global,
-    Vector3 viewPosition) {
+    Vector3 viewPosition,
+    float facingYaw,
+    float cameraYaw) {
     const Vector3 position = translationFromMatrix(global.matrix);
-    const Vector3 toCamera{
-        viewPosition.x - position.x,
-        0.0f,
-        viewPosition.z - position.z,
-    };
-    if (Vector3LengthSqr(toCamera) < 0.000001f) {
-        return std::nullopt;
-    }
 
     const auto rectIt = atlas.rects.find(selected.texturePath);
     if (rectIt == atlas.rects.end()) {
@@ -193,10 +187,27 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
         return std::nullopt;
     }
 
-    const Matrix matView = MatrixLookAt(viewPosition, position, {0.0f, 1.0f, 0.0f});
-    Vector3 rightDir{matView.m0, matView.m4, matView.m8};
-    rightDir = Vector3Normalize(rightDir);
+    Vector3 rightDir{};
     Vector3 upDir{0.0f, 1.0f, 0.0f};
+    if (asset.billboardMode == SpriteBillboardMode::Fixed) {
+        rightDir = {std::cos(facingYaw), 0.0f, -std::sin(facingYaw)};
+        rightDir = Vector3Normalize(rightDir);
+    } else if (asset.billboardMode == SpriteBillboardMode::View) {
+        rightDir = {std::cos(cameraYaw), 0.0f, -std::sin(cameraYaw)};
+        rightDir = Vector3Normalize(rightDir);
+    } else {
+        const Vector3 toCamera{
+            viewPosition.x - position.x,
+            0.0f,
+            viewPosition.z - position.z,
+        };
+        if (Vector3LengthSqr(toCamera) < 0.000001f) {
+            return std::nullopt;
+        }
+        const Matrix matView = MatrixLookAt(viewPosition, position, {0.0f, 1.0f, 0.0f});
+        rightDir = {matView.m0, matView.m4, matView.m8};
+        rightDir = Vector3Normalize(rightDir);
+    }
     if (pose.rotationDeg != 0.0f) {
         const float rad = pose.rotationDeg * DEG2RAD;
         const float c = std::cos(rad);
@@ -257,6 +268,15 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
 
 } // namespace
 
+float horizontalCameraYaw(Vector3 eye, Vector3 target) {
+    const float dx = target.x - eye.x;
+    const float dz = target.z - eye.z;
+    if (dx * dx + dz * dz < 0.000001f) {
+        return 0.0f;
+    }
+    return std::atan2(dx, dz);
+}
+
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteAsset& asset,
     const SpriteAtlas& atlas,
@@ -264,6 +284,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     float facingYaw,
     const GlobalTransformation& global,
     Vector3 viewPosition,
+    float cameraYaw,
     const SpriteAnimTween* tween) {
     if (atlas.textures.empty()) {
         return std::nullopt;
@@ -280,12 +301,13 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         0.0f,
         viewPosition.z - position.z,
     };
-    if (Vector3LengthSqr(toCamera) < 0.000001f) {
+    int rotation = 0;
+    if (Vector3LengthSqr(toCamera) >= 0.000001f) {
+        const float viewYaw = std::atan2(toCamera.x, toCamera.z);
+        rotation = doomRotationFromViewYaw(viewYaw - facingYaw);
+    } else if (asset.billboardMode == SpriteBillboardMode::Face) {
         return std::nullopt;
     }
-
-    const float viewYaw = std::atan2(toCamera.x, toCamera.z);
-    const int rotation = doomRotationFromViewYaw(viewYaw - facingYaw);
     const SpriteRotation* selected = selectSpriteRotation(*frame, rotation);
     if (selected == nullptr) {
         return std::nullopt;
@@ -293,7 +315,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
 
     const SpriteRotation* next = nextRotationForTween(asset, rotation, tween);
     return buildBillboardFromRotation(
-        asset, atlas, *selected, next, tween, global, viewPosition);
+        asset, atlas, *selected, next, tween, global, viewPosition, facingYaw, cameraYaw);
 }
 
 std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
@@ -301,8 +323,10 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
     const SpriteAtlas& atlas,
     std::string_view frameId,
     int rotation,
+    float facingYaw,
     const GlobalTransformation& global,
     Vector3 viewPosition,
+    float cameraYaw,
     const SpriteAnimTween* tween) {
     if (atlas.textures.empty()) {
         return std::nullopt;
@@ -320,13 +344,14 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
 
     const SpriteRotation* next = nextRotationForTween(asset, rotation, tween);
     return buildBillboardFromRotation(
-        asset, atlas, *selected, next, tween, global, viewPosition);
+        asset, atlas, *selected, next, tween, global, viewPosition, facingYaw, cameraYaw);
 }
 
 std::optional<SpriteBillboard> resolveSpriteBillboard(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     Vector3 viewPosition,
+    float cameraYaw,
     AssetStore& assets,
     const SpriteAnimTween* tween) {
     if (sprite.sprite.empty()) {
@@ -340,7 +365,14 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     }
 
     return resolveSpriteBillboard(
-        *asset, *atlas, sprite.frame, sprite.facingYaw, global, viewPosition, tween);
+        *asset,
+        *atlas,
+        sprite.frame,
+        sprite.facingYaw,
+        global,
+        viewPosition,
+        cameraYaw,
+        tween);
 }
 
 std::optional<SpriteBillboard> resolveSpriteBillboard(
@@ -349,7 +381,10 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
     const Lens& lens,
     AssetStore& assets,
     const SpriteAnimTween* tween) {
-    return resolveSpriteBillboard(sprite, global, lens.camera.position, assets, tween);
+    const float cameraYaw =
+        horizontalCameraYaw(lens.camera.position, lens.camera.target);
+    return resolveSpriteBillboard(
+        sprite, global, lens.camera.position, cameraYaw, assets, tween);
 }
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(

@@ -44,6 +44,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -932,6 +933,51 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 animator.nextFrame = clip.frames[nextIndex].id;
             };
 
+            auto resolveHintSource = [&]() -> std::string {
+                if (entity.name() != nullptr && entity.name()[0] != '\0') {
+                    return std::string{entity.name()};
+                }
+
+                flecs::entity parent = entity.parent();
+                if (parent.is_valid()) {
+                    const char* parentName = parent.name();
+                    if (parentName != nullptr &&
+                        (std::strcmp(parentName, "weapon") == 0 ||
+                         std::strcmp(parentName, "emission") == 0)) {
+                        return std::string{parentName};
+                    }
+
+                    const flecs::entity_t parentId = parent.id();
+                    std::string socketSource;
+                    world.each([&](flecs::entity, FirstPersonScene& scene) {
+                        if (!socketSource.empty()) {
+                            return;
+                        }
+                        if (scene.weaponSocket != 0 && parentId == scene.weaponSocket) {
+                            socketSource = "weapon";
+                        } else if (
+                            scene.emissionSocket != 0 && parentId == scene.emissionSocket) {
+                            socketSource = "emission";
+                        }
+                    });
+                    if (!socketSource.empty()) {
+                        return socketSource;
+                    }
+
+                    flecs::entity cursor = parent.parent();
+                    while (cursor.is_valid()) {
+                        const char* name = cursor.name();
+                        if (name != nullptr &&
+                            (std::strcmp(name, "weapon") == 0 ||
+                             std::strcmp(name, "emission") == 0)) {
+                            return std::string{name};
+                        }
+                        cursor = cursor.parent();
+                    }
+                }
+                return {};
+            };
+
             auto fireSound = [&](const SpriteAnimFrame& frame) {
                 if (!frame.hasSound() || !world.has<AudioContext>()) {
                     return;
@@ -1003,13 +1049,44 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
             };
 
+            auto fireHints = [&](const SpriteAnimFrame& frame) {
+                if (!frame.hasHints()) {
+                    return;
+                }
+                if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
+                    return;
+                }
+                const std::string source = resolveHintSource();
+                if (source.empty()) {
+                    static bool warnedAnonymousHint = false;
+                    if (!warnedAnonymousHint) {
+                        TraceLog(
+                            LOG_WARNING,
+                            "Sprite hint fired on unnamed entity (anim '%s'); "
+                            "(on-sprite-hint) skipped",
+                            animator.animPath.c_str());
+                        warnedAnonymousHint = true;
+                    }
+                    return;
+                }
+                s7_scheme* scheme = world.get<ScriptContext>().scheme;
+                for (const std::string& hint : frame.hints) {
+                    tryCallSchemeProc2String(scheme, "on-sprite-hint", source, hint);
+                }
+            };
+
+            auto fireHoldEnter = [&](const SpriteAnimFrame& frame) {
+                fireSound(frame);
+                fireHints(frame);
+            };
+
             auto fireEnteredHolds = [&](int previousIndex, int currentIndex) {
                 if (currentIndex < 0 || clip.frames.empty()) {
                     return;
                 }
                 const int frameCount = static_cast<int>(clip.frames.size());
                 if (previousIndex < 0) {
-                    fireSound(clip.frames[static_cast<std::size_t>(currentIndex)]);
+                    fireHoldEnter(clip.frames[static_cast<std::size_t>(currentIndex)]);
                     return;
                 }
                 if (previousIndex == currentIndex) {
@@ -1017,17 +1094,17 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
                 if (useLoop && currentIndex < previousIndex) {
                     for (int i = previousIndex + 1; i < frameCount; ++i) {
-                        fireSound(clip.frames[static_cast<std::size_t>(i)]);
+                        fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
                     }
                     for (int i = 0; i <= currentIndex; ++i) {
-                        fireSound(clip.frames[static_cast<std::size_t>(i)]);
+                        fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
                     }
                     return;
                 }
                 const int begin = previousIndex + 1;
                 const int end = std::min(currentIndex, frameCount - 1);
                 for (int i = begin; i <= end; ++i) {
-                    fireSound(clip.frames[static_cast<std::size_t>(i)]);
+                    fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
                 }
             };
 
@@ -1039,8 +1116,8 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
             } else if (localTime >= clipDuration) {
                 const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
-                fireEnteredHolds(animator.lastSoundFrameIndex, lastIndex);
-                animator.lastSoundFrameIndex = lastIndex;
+                fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+                animator.lastEnteredHoldIndex = lastIndex;
                 animator.playing = false;
                 animator.justFinished = true;
                 animator.time = clipDuration;
@@ -1053,8 +1130,8 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 const SpriteAnimFrame& frame = clip.frames[frameIndex];
                 if (localTime < frame.duration) {
                     const int currentIndex = static_cast<int>(frameIndex);
-                    fireEnteredHolds(animator.lastSoundFrameIndex, currentIndex);
-                    animator.lastSoundFrameIndex = currentIndex;
+                    fireEnteredHolds(animator.lastEnteredHoldIndex, currentIndex);
+                    animator.lastEnteredHoldIndex = currentIndex;
                     sprite.frame = frame.id;
                     applyTween(frameIndex, localTime, frame.duration);
                     return;
@@ -1063,8 +1140,8 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             }
 
             const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
-            fireEnteredHolds(animator.lastSoundFrameIndex, lastIndex);
-            animator.lastSoundFrameIndex = lastIndex;
+            fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+            animator.lastEnteredHoldIndex = lastIndex;
             sprite.frame = clip.frames.back().id;
             clearTween();
         });

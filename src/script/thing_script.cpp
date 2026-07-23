@@ -645,7 +645,8 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
             }
         }
 
-        const auto billboard = resolveSpriteBillboard(sprite, global, origin, assets);
+        const auto billboard =
+            resolveSpriteBillboard(sprite, global, origin, horizontalCameraYaw(origin, Vector3Add(origin, dir)), assets);
         if (!billboard) {
             return;
         }

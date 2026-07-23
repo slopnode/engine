@@ -324,6 +324,35 @@ void drawClipFramesSection(
             }
         }
 
+        ImGui::SetNextItemWidth(-1.0f);
+        std::string hintsJoined;
+        for (std::size_t hi = 0; hi < animFrame.hints.size(); ++hi) {
+            if (hi > 0) {
+                hintsJoined.push_back(' ');
+            }
+            hintsJoined += animFrame.hints[hi];
+        }
+        char hintsBuf[256] = {};
+        std::snprintf(hintsBuf, sizeof(hintsBuf), "%s", hintsJoined.c_str());
+        if (ImGui::InputTextWithHint("##hints", "hints (space-separated)", hintsBuf, sizeof(hintsBuf))) {
+            animFrame.hints.clear();
+            const char* cursor = hintsBuf;
+            while (*cursor != '\0') {
+                while (*cursor == ' ' || *cursor == '\t' || *cursor == ',') {
+                    ++cursor;
+                }
+                if (*cursor == '\0') {
+                    break;
+                }
+                const char* begin = cursor;
+                while (*cursor != '\0' && *cursor != ' ' && *cursor != '\t' && *cursor != ',') {
+                    ++cursor;
+                }
+                animFrame.hints.emplace_back(begin, static_cast<std::size_t>(cursor - begin));
+            }
+            editor.doc.animDirty = true;
+        }
+
         ImGui::Separator();
         ImGui::PopID();
     }
@@ -792,6 +821,37 @@ void drawInspector(
     if (ImGui::DragFloat("Texel size", &texel, 0.5f, 1.0f, 512.0f, "%.1f")) {
         editor.doc.asset.pixelsPerMeter = texel;
         editor.markDirty();
+    }
+
+    {
+        const char* modeLabel = "Face";
+        if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Fixed) {
+            modeLabel = "Fixed";
+        } else if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::View) {
+            modeLabel = "View";
+        }
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::BeginCombo("Billboard", modeLabel)) {
+            if (ImGui::Selectable(
+                    "Face",
+                    editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Face)) {
+                editor.doc.asset.billboardMode = slopengine::SpriteBillboardMode::Face;
+                editor.markDirty();
+            }
+            if (ImGui::Selectable(
+                    "View",
+                    editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::View)) {
+                editor.doc.asset.billboardMode = slopengine::SpriteBillboardMode::View;
+                editor.markDirty();
+            }
+            if (ImGui::Selectable(
+                    "Fixed",
+                    editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Fixed)) {
+                editor.doc.asset.billboardMode = slopengine::SpriteBillboardMode::Fixed;
+                editor.markDirty();
+            }
+            ImGui::EndCombo();
+        }
     }
 
     const bool isAlign = editor.mode == slopsprite::PreviewMode::Align;

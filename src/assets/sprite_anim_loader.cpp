@@ -132,6 +132,23 @@ bool parseSoundForm(std::string_view body, SpriteAnimFrame& out) {
     return true;
 }
 
+bool parseHintForm(std::string_view body, SpriteAnimFrame& out) {
+    body = trim(body);
+    if (body.empty() || body.front() != '"') {
+        return false;
+    }
+    const std::size_t quoteEnd = body.find('"', 1);
+    if (quoteEnd == std::string_view::npos) {
+        return false;
+    }
+    const std::string name{body.substr(1, quoteEnd - 1)};
+    if (name.empty() || !trim(body.substr(quoteEnd + 1)).empty()) {
+        return false;
+    }
+    out.hints.push_back(name);
+    return true;
+}
+
 bool takeSexpForm(std::string_view& remaining, std::string_view& formOut) {
     remaining = trim(remaining);
     if (remaining.empty() || remaining.front() != '(') {
@@ -206,6 +223,15 @@ bool parseFrameLine(std::string_view line, SpriteAnimFrame& out) {
             if (!parseSoundForm(soundBody, out)) {
                 return false;
             }
+        } else if (form.rfind("(hint", 0) == 0) {
+            std::string_view hintBody = trim(form.substr(std::string_view("(hint").size()));
+            if (!hintBody.empty() && hintBody.back() == ')') {
+                hintBody.remove_suffix(1);
+                hintBody = trim(hintBody);
+            }
+            if (!parseHintForm(hintBody, out)) {
+                return false;
+            }
         } else {
             return false;
         }
@@ -244,6 +270,12 @@ void writeSoundSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
         out << ' ' << frame.soundVolume;
     }
     out << ')';
+}
+
+void writeHintSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
+    for (const std::string& hint : frame.hints) {
+        out << " (hint \"" << hint << "\")";
+    }
 }
 
 } // namespace
@@ -341,6 +373,7 @@ std::string serializeSpriteAnimBank(const SpriteAnimBank& bank) {
             out << "    (frame \"" << frame.id << "\" " << frame.duration;
             writeTweenSuffix(out, frame);
             writeSoundSuffix(out, frame);
+            writeHintSuffix(out, frame);
             out << ")\n";
         }
         out << "  )\n";

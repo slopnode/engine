@@ -58,6 +58,7 @@ void WorldPreview::draw(Editor& editor, RenderTexture2D& target, bool allowInput
             editor.doc.facingYaw,
             global,
             rayCam.position,
+            slopengine::horizontalCameraYaw(rayCam.position, rayCam.target),
             tweenPtr);
         if (billboard && billboard->texture != nullptr) {
             if (framePending) {
