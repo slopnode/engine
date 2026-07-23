@@ -2,7 +2,7 @@
 
 Lighting is a bake-first pipeline with a small runtime dynamic overlay. Map surfaces get offline lightmaps; moving or toggled lights are DynamicLight entities ranked each frame and added on top. Thing light forms in things.s7 feed the bake (point / spot) and editor gizmos; they are not the same as the runtime dynamic light path.
 
-Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md), [slopmap](slopmap.md).
+Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md), [slopmap](slopmap.md), [View frustum culling](frustum.md).
 
 ## Layers
 
@@ -97,7 +97,7 @@ Each frame (player Lens world draw), the engine:
 
 1. Collects every entity with DynamicLight + GlobalTransformation and intensity > 0.
 2. Converts ViewSpace lights through the lens.
-3. Scores candidates near the camera (intensity * range / (1 + distance)).
+3. Scores candidates near the camera (intensity * range / (1 + distance)). Out-of-frustum lights (sphere at position with range) are dropped before ranking; see [View frustum culling](frustum.md).
 4. Keeps up to 8 lights (kMaxDynamicLights); up to 2 may take shadow slots if castShadows is set.
 
 Ranked lights live in DynamicLightFrameState for the frame. The map lightmap shader receives them as dynLight* uniforms. The same list feeds first-person rad tint sampling at the player feet.

@@ -25,6 +25,7 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 ### Player
 
 - [Player](player.md)
+- [View frustum culling](frustum.md)
 
 ### Editor tools
 

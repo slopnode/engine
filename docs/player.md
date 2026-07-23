@@ -1,6 +1,6 @@
 # Player
 
-Related: [Scripting](scripting.md), [Sprites](sprites.md), [Audio](audio.md), [Lights](lights.md), [Things](things.md).
+Related: [Scripting](scripting.md), [Sprites](sprites.md), [Audio](audio.md), [Lights](lights.md), [Things](things.md), [View frustum culling](frustum.md).
 
 The first-person avatar is a single flecs entity named Player. Maps do not place a visible character mesh for it; they only set spawn pose. Movement, look, and camera follow from components on that entity plus a physics character capsule. Props, usables, lights, and other things are separate; see [Things](things.md), [Lights](lights.md), and [Maps](maps.md).
 

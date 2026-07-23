@@ -16,7 +16,7 @@ Re-run after BSP changes that affect sealing or face layout, detail brush edits 
 
 ## What VIS is for
 
-static.vis is the **visible face fragment list** used for the draw mesh, lightmap charts, and Steam Audio occlusion. Despite the Quake-style name, it is **not** a leaf<->leaf PVS bitset and does not drive runtime portal culling.
+static.vis is the **visible face fragment list** used for the draw mesh, lightmap charts, and Steam Audio occlusion. Despite the Quake-style name, it is **not** a leaf<->leaf PVS bitset and does not drive runtime portal culling. Runtime draw filtering for props, sprites, and dynamic lights uses the camera frustum instead: [View frustum culling](frustum.md).
 
 - Interior clip. Hull and detail faces are clipped against sealed interior empty leaf polyhedra so large or buried faces keep only the visible polygon(s).
 - Brush occlusion. Fragments are subtracted against other VIS-emitting brushes so detail-detail contacts (and hull under detail) drop buried area while abutment remainders (e.g. stair risers) stay.

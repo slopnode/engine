@@ -8,7 +8,7 @@ Its main features are:
 
 - **Package-based content** with plain folders, text descriptors, and binary companions. Mods stack on a base package and override assets by path. [Package structure](package-structure.md)
 - **S-expression and Scheme (s7)** for materials, maps, scripts, and related descriptors — readable on disk and easy to generate from custom tools. [Scripting](scripting.md), [Writing s7](s7.md)
-- **First-person movement and view**: character capsule, look, eye-space weapon / viewmodel sockets, and package-owned presentation hooks. [Player](player.md)
+- **First-person movement and view**: character capsule, look, eye-space weapon / viewmodel sockets, and package-owned presentation hooks. [Player](player.md), [View frustum culling](frustum.md)
 - **Brush CSG levels** compiled through slopbsp → slopvis → optional sloprad lightmaps, with an interactive editor (slopmap). [Maps](maps.md), [slopmap](slopmap.md)
 - **Bake-first lighting**: offline lightmaps on diffuse surfaces, plus a small ranked dynamic-light overlay (flashlight and similar). Not a runtime PBR stack. [Lights](lights.md), [Radiosity](rad.md)
 - **Albedo + emission materials**, PNG textures, and custom GLSL shaders. [Materials, textures, and shaders](materials.md)

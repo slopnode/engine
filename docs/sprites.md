@@ -2,7 +2,7 @@
 
 Sprites are Doom-style billboards: named frames of PNG art, optional view rotations, and optional hit masks. A sibling .spanim clip bank advances which frame a SpriteInstance shows and can tween pose channels or fire sounds. This is not skeletal animation; see [Skeletal animation](animation.md) for skinned meshes.
 
-Package layout is summarized in [Package structure](package-structure.md). Authoring UI: [slopsprite](slopsprite.md). First-person screen-space sprites use the same assets with different components; see [World vs first-person](#world-vs-first-person) and [Player](player.md).
+Package layout is summarized in [Package structure](package-structure.md). Authoring UI: [slopsprite](slopsprite.md). First-person screen-space sprites use the same assets with different components; see [World vs first-person](#world-vs-first-person) and [Player](player.md). World sprites are frustum-culled each frame before draw; see [View frustum culling](frustum.md).
 
 ## Assets
 
