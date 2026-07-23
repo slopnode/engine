@@ -1,5 +1,7 @@
 #pragma once
 
+#include <flecs.h>
+
 #include <string>
 #include <string_view>
 
@@ -33,5 +35,7 @@ struct SpriteAnimator {
     /** Stops playback and clears transition flags. */
     void stop();
 };
+
+void registerSpriteAnimatorSystem(flecs::world& world);
 
 }

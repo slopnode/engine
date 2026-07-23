@@ -1,0 +1,416 @@
+#include "render/render_pass_world.hpp"
+
+#include "assets/asset_services.hpp"
+#include "assets/asset_store.hpp"
+#include "map/bsp.hpp"
+#include "map/graph.hpp"
+#include "map/light_components.hpp"
+#include "map/light_sample.hpp"
+#include "map/vis.hpp"
+#include "render/animation_player.hpp"
+#include "render/dynamic_light.hpp"
+#include "render/dynamic_light_shadows.hpp"
+#include "render/render_debug.hpp"
+#include "render/sprite_animator.hpp"
+#include "render/sprite_billboard.hpp"
+#include "script/first_person_script.hpp"
+#include "ui/ui_state.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include <raylib.h>
+#include <raymath.h>
+#include <rlgl.h>
+
+namespace slopengine {
+
+void renderWorldModel(
+    flecs::entity entity,
+    Model3D& model,
+    GlobalTransformation& globalTransform,
+    const Lens& lens) {
+    rlPushMatrix();
+    rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
+
+    if (entity.has<MapLightmapState>()) {
+        const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
+        if (lightmaps.available && model.model.materialCount > 0) {
+            Shader shader = model.model.materials[0].shader;
+            if (shader.id != 0) {
+                if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
+                    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+                }
+                if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
+                    SetShaderValueMatrix(
+                        shader,
+                        shader.locs[SHADER_LOC_MATRIX_MODEL],
+                        globalTransform.matrix);
+                }
+            }
+        }
+    }
+
+    if (entity.has<ShaderCavity>()) {
+        ShaderCavity& shader = entity.get_mut<ShaderCavity>();
+        const int modelLoc = GetShaderLocation(shader.shader, "model");
+        const int viewLoc = GetShaderLocation(shader.shader, "view");
+        const int projectionLoc = GetShaderLocation(shader.shader, "projection");
+        SetShaderValueMatrix(shader.shader, modelLoc, globalTransform.matrix);
+        SetShaderValueMatrix(shader.shader, viewLoc, GetCameraMatrix(lens.camera));
+        SetShaderValueMatrix(
+            shader.shader,
+            projectionLoc,
+            MatrixPerspective(
+                lens.camera.fovy,
+                static_cast<float>(GetScreenWidth()) / static_cast<float>(GetScreenHeight()),
+                0.1f,
+                100.0f));
+    }
+
+    DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+    rlPopMatrix();
+}
+
+namespace {
+
+Vector3 translationFromMatrix(const Matrix& matrix) {
+    return {matrix.m12, matrix.m13, matrix.m14};
+}
+
+Vector3 directionFromMatrix(const Matrix& matrix) {
+    const Vector3 dir{matrix.m8, matrix.m9, matrix.m10};
+    if (Vector3LengthSqr(dir) < 1e-8f) {
+        return {0.0f, 0.0f, 1.0f};
+    }
+    return Vector3Normalize(dir);
+}
+
+void drawWorldSprite(
+    const SpriteInstance& sprite,
+    const GlobalTransformation& global,
+    const Lens& lens,
+    AssetStore& assets,
+    const MapLighting* lighting,
+    const BspTree* bspTree,
+    const std::vector<RankedDynamicLight>* dynamicLights,
+    bool unlit,
+    const SpriteAnimator* animator) {
+    SpriteAnimTween tween{};
+    const SpriteAnimTween* tweenPtr = nullptr;
+    if (animator != nullptr && animator->hasTween() && !animator->nextFrame.empty()) {
+        tween.nextFrame = animator->nextFrame;
+        tween.blend = animator->transformBlend;
+        tween.tweenRotation = animator->tweenRotation;
+        tween.tweenScale = animator->tweenScale;
+        tween.tweenTranslate = animator->tweenTranslate;
+        tweenPtr = &tween;
+    }
+    const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets, tweenPtr);
+    if (!billboard || billboard->texture == nullptr) {
+        return;
+    }
+
+    Color colorFeet = WHITE;
+    Color colorHead = WHITE;
+    if (!unlit && lighting != nullptr && lighting->available && bspTree != nullptr) {
+        const Vector3 feetOrigin{billboard->position.x, billboard->position.y + 0.05f, billboard->position.z};
+        if (auto feet = sampleMapLight(*lighting, *bspTree, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            colorFeet = *feet;
+        }
+
+        const Vector3 headPos{
+            billboard->position.x,
+            billboard->position.y + billboard->size.y,
+            billboard->position.z};
+        Vector3 headDir{
+            lens.camera.position.x - headPos.x,
+            0.0f,
+            lens.camera.position.z - headPos.z,
+        };
+        const float headLenSq = Vector3LengthSqr(headDir);
+        if (headLenSq > 1e-8f) {
+            headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
+            if (auto head = sampleMapLight(*lighting, *bspTree, headPos, headDir, 4.0f)) {
+                colorHead = *head;
+            } else {
+                colorHead = colorFeet;
+            }
+        } else {
+            colorHead = colorFeet;
+        }
+    }
+
+    if (!unlit && dynamicLights != nullptr && !dynamicLights->empty()) {
+        const auto addDynamic = [&](Color base, Vector3 point) {
+            const Vector3 dyn = evaluateDynamicLightsAtPoint(*dynamicLights, point, {0.0f, 1.0f, 0.0f});
+            return Color{
+                static_cast<unsigned char>(std::clamp(
+                    static_cast<int>(base.r) + static_cast<int>(dyn.x * 255.0f),
+                    0,
+                    255)),
+                static_cast<unsigned char>(std::clamp(
+                    static_cast<int>(base.g) + static_cast<int>(dyn.y * 255.0f),
+                    0,
+                    255)),
+                static_cast<unsigned char>(std::clamp(
+                    static_cast<int>(base.b) + static_cast<int>(dyn.z * 255.0f),
+                    0,
+                    255)),
+                base.a,
+            };
+        };
+        const Vector3 feetPoint{
+            billboard->position.x,
+            billboard->position.y + 0.05f,
+            billboard->position.z};
+        const Vector3 headPoint{
+            billboard->position.x,
+            billboard->position.y + billboard->size.y,
+            billboard->position.z};
+        colorFeet = addDynamic(colorFeet, feetPoint);
+        colorHead = addDynamic(colorHead, headPoint);
+    }
+
+    const Texture2D& texture = *billboard->texture;
+    const Rectangle source = billboard->source;
+    const float texW = static_cast<float>(texture.width);
+    const float texH = static_cast<float>(texture.height);
+    const Vector2 texcoords[4] = {
+        {source.x / texW, (source.y + source.height) / texH},
+        {(source.x + source.width) / texW, (source.y + source.height) / texH},
+        {(source.x + source.width) / texW, source.y / texH},
+        {source.x / texW, source.y / texH},
+    };
+    const Color colors[4] = {colorFeet, colorFeet, colorHead, colorHead};
+
+    rlSetTexture(texture.id);
+    rlBegin(RL_QUADS);
+    for (int i = 0; i < 4; ++i) {
+        rlColor4ub(colors[i].r, colors[i].g, colors[i].b, colors[i].a);
+        rlTexCoord2f(texcoords[i].x, texcoords[i].y);
+        rlVertex3f(billboard->points[i].x, billboard->points[i].y, billboard->points[i].z);
+    }
+    rlEnd();
+    rlSetTexture(0);
+}
+
+} // namespace
+
+std::vector<RankedDynamicLight> gatherDynamicLights(
+    flecs::world& world,
+    const Lens& lens,
+    const Lens& presentLens,
+    bool unlit) {
+    std::vector<RankedDynamicLight> rankedLights;
+    if (unlit) {
+        return rankedLights;
+    }
+    std::vector<RankedDynamicLight> candidates;
+    world.each([&](flecs::entity entity,
+                   const DynamicLight& light,
+                   const GlobalTransformation& global) {
+        if (light.intensity <= 0.0f) {
+            return;
+        }
+        RankedDynamicLight ranked{};
+        ranked.light = light;
+        const Vector3 localPos = translationFromMatrix(global.matrix);
+        const Vector3 localDir = directionFromMatrix(global.matrix);
+        if (entity.has<ViewSpace>()) {
+            ranked.position = viewToWorldPoint(presentLens, localPos);
+            ranked.direction = viewToWorldDirection(presentLens, localDir);
+        } else {
+            ranked.position = localPos;
+            ranked.direction = localDir;
+        }
+        ranked.linearRgb = dynamicLightLinearRgb(light);
+        candidates.push_back(ranked);
+    });
+    rankedLights = rankDynamicLights(candidates, lens.camera.position);
+    static int sLastDynCount = -1;
+    if (static_cast<int>(rankedLights.size()) != sLastDynCount) {
+        sLastDynCount = static_cast<int>(rankedLights.size());
+        TraceLog(LOG_INFO, "MAP: active dynamic lights=%d", sLastDynCount);
+        for (const RankedDynamicLight& light : rankedLights) {
+            TraceLog(
+                LOG_INFO,
+                "MAP: dyn light pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) intensity=%.2f kind=%s",
+                light.position.x,
+                light.position.y,
+                light.position.z,
+                light.direction.x,
+                light.direction.y,
+                light.direction.z,
+                light.light.intensity,
+                light.light.kind == DynamicLightKind::Spot ? "spot" : "point");
+        }
+    }
+    return rankedLights;
+}
+
+void storeDynamicLightFrameState(
+    flecs::world& world,
+    const std::vector<RankedDynamicLight>& rankedLights) {
+    if (world.has<DynamicLightFrameState>()) {
+        world.get_mut<DynamicLightFrameState>().lights = rankedLights;
+    }
+}
+
+void drawWorldModels(
+    flecs::world& world,
+    RenderContext& context,
+    const Lens& lens,
+    const std::vector<RankedDynamicLight>& rankedLights,
+    bool unlit) {
+    context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
+        if (!modelEntity.has<WorldSpace>()) {
+            return;
+        }
+        if (modelEntity.has<MapLightmapState>()) {
+            const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
+            if (lightmaps.available && model.model.materialCount > 0) {
+                Shader& mapShader = model.model.materials[0].shader;
+                if (mapShader.id != 0) {
+                    if (world.has<DynamicLightFrameState>()) {
+                        DynamicLightFrameState& frameState =
+                            world.get_mut<DynamicLightFrameState>();
+                        if (!frameState.bindings.resolved) {
+                            resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
+                        }
+                        uploadDynamicLightsToShader(
+                            mapShader,
+                            frameState.bindings,
+                            rankedLights,
+                            nullptr);
+                    }
+                    if (lightmaps.useLightmapLoc >= 0) {
+                        const int useLightmap = (!unlit) ? 1 : 0;
+                        SetShaderValue(
+                            mapShader,
+                            lightmaps.useLightmapLoc,
+                            &useLightmap,
+                            SHADER_UNIFORM_INT);
+                    }
+                }
+            }
+        }
+        renderWorldModel(modelEntity, model, global, lens);
+    });
+    context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
+        if (!modelEntity.has<WorldSpace>() || !modelEntity.has<AnimationPlayer>()) {
+            return;
+        }
+        const AnimationPlayer& animationPlayer = modelEntity.get<AnimationPlayer>();
+        rlPushMatrix();
+        rlMultMatrixf(MatrixToFloatV(global.matrix).v);
+        drawSkeletonOverlay(model.model, &animationPlayer);
+        rlPopMatrix();
+    });
+}
+
+std::string drawWorldSprites(
+    flecs::world& world,
+    RenderContext& context,
+    const Lens& lens,
+    bool unlit) {
+    std::string spriteAimStatus;
+    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
+        return spriteAimStatus;
+    }
+    AssetStore& assets = *world.get_mut<AssetServices>().store;
+    const MapLighting* lighting =
+        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+    const BspTree* bspTree =
+        world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
+    const std::vector<RankedDynamicLight>* dynamicLights =
+        (!unlit && world.has<DynamicLightFrameState>())
+            ? &world.get<DynamicLightFrameState>().lights
+            : nullptr;
+
+    struct SpriteDrawItem {
+        const SpriteInstance* sprite = nullptr;
+        const GlobalTransformation* global = nullptr;
+        const SpriteAnimator* animator = nullptr;
+        float distSq = 0.0f;
+    };
+    std::vector<SpriteDrawItem> spriteDrawList;
+    spriteDrawList.reserve(32);
+    context.worldSpriteQuery.each(
+        [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
+            if (!spriteEntity.has<WorldSpace>() || spriteEntity.has<ViewSprite>()) {
+                return;
+            }
+            const Vector3 position = translationFromMatrix(global.matrix);
+            const float dx = position.x - lens.camera.position.x;
+            const float dy = position.y - lens.camera.position.y;
+            const float dz = position.z - lens.camera.position.z;
+            spriteDrawList.push_back(SpriteDrawItem{
+                &sprite,
+                &global,
+                spriteEntity.has<SpriteAnimator>() ? &spriteEntity.get<SpriteAnimator>()
+                                                   : nullptr,
+                dx * dx + dy * dy + dz * dz,
+            });
+        });
+    std::sort(
+        spriteDrawList.begin(),
+        spriteDrawList.end(),
+        [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
+            return a.distSq > b.distSq;
+        });
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+    for (const SpriteDrawItem& item : spriteDrawList) {
+        drawWorldSprite(
+            *item.sprite,
+            *item.global,
+            lens,
+            assets,
+            lighting,
+            bspTree,
+            dynamicLights,
+            unlit,
+            item.animator);
+    }
+    rlEnableDepthMask();
+    EndBlendMode();
+
+    if (world.has<DebugUiState>()) {
+        spriteAimStatus = drawSpriteDebugOverlays(
+            lens,
+            assets,
+            world.get<DebugUiState>(),
+            context.worldSpriteQuery);
+    }
+    return spriteAimStatus;
+}
+
+void drawWorldDebugOverlays(flecs::world& world) {
+    if (world.has<DebugUiState>()) {
+        const DebugUiState& debugUi = world.get<DebugUiState>();
+        std::int32_t currentLeaf = -1;
+        if (world.has<MapBsp>()) {
+            const MapBsp& mapBsp = world.get<MapBsp>();
+            flecs::entity camera = world.lookup("Player");
+            if (camera.is_valid() && camera.has<Lens>()) {
+                currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
+            }
+            drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
+        }
+        if (world.has<MapVis>()) {
+            drawVisDebugOverlays(world.get<MapVis>().vis, debugUi, currentLeaf);
+        }
+    }
+
+    if (world.has<DebugUiState>() && world.get<DebugUiState>().showGraphs &&
+        world.has<MapGraphs>()) {
+        drawGraphDebugOverlays(world.get<MapGraphs>().document);
+    }
+}
+
+}

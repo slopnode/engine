@@ -4,9 +4,11 @@
 #include "camera/camera_module.hpp"
 #include "game/game_state.hpp"
 #include "game/package_cli.hpp"
+#include "game/script_boot.hpp"
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
+#include "map/map_scene.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
@@ -54,6 +56,7 @@ App::App(AppConfig config)
     registerCameraModule(world_);
     registerInteractModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
+    registerScriptBoot(world_, assetStore_, scheme_);
     callOnStartup(world_);
     running_ = true;
 }

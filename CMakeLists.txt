@@ -114,11 +114,18 @@ add_executable(slopengine
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
+    src/map/map_scene.cpp
+    src/game/script_boot.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
+    src/render/sprite_animator_system.cpp
+    src/render/animation_systems.cpp
     src/render/dynamic_light.cpp
     src/render/dynamic_light_shadows.cpp
+    src/render/render_debug.cpp
+    src/render/render_pass_world.cpp
+    src/render/render_pass_fp.cpp
     src/render/render_module.cpp
     src/render/hud.cpp
     src/script/scheme_call.cpp

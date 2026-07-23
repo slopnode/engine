@@ -1,0 +1,388 @@
+#include "render/render_debug.hpp"
+
+#include "render/sprite_billboard.hpp"
+
+#include <rlgl.h>
+
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace slopengine {
+
+void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPlayer) {
+    if (model.skeleton.boneCount <= 0 || model.skeleton.bones == nullptr) {
+        return;
+    }
+
+    const Transform* jointPoses = model.skeleton.bindPose;
+    if (animationPlayer != nullptr && animationPlayer->playing && model.currentPose != nullptr) {
+        jointPoses = model.currentPose;
+    }
+
+    if (jointPoses == nullptr) {
+        return;
+    }
+
+    const float jointRadius = 0.12f;
+    const Color boneColor = {255, 220, 0, 255};
+    const Color jointColor = {255, 64, 64, 255};
+
+    rlDisableDepthTest();
+    rlDisableDepthMask();
+
+    for (int boneIndex = 0; boneIndex < model.skeleton.boneCount; ++boneIndex) {
+        const Vector3 jointPosition = jointPoses[boneIndex].translation;
+        DrawSphereWires(jointPosition, jointRadius, 6, 8, jointColor);
+
+        const int parentIndex = model.skeleton.bones[boneIndex].parent;
+        if (parentIndex >= 0 && parentIndex < model.skeleton.boneCount) {
+            const Vector3 parentPosition = jointPoses[parentIndex].translation;
+            DrawLine3D(parentPosition, jointPosition, boneColor);
+        }
+    }
+
+    rlEnableDepthMask();
+    rlEnableDepthTest();
+}
+
+Color bspLeafDebugColor(std::int32_t leafIndex, bool solid, unsigned char alpha) {
+    const std::uint32_t h = static_cast<std::uint32_t>(leafIndex) * 2654435761u;
+    Color color{
+        static_cast<unsigned char>(40 + (h & 0x7Fu)),
+        static_cast<unsigned char>(40 + ((h >> 8) & 0x7Fu)),
+        static_cast<unsigned char>(40 + ((h >> 16) & 0x7Fu)),
+        alpha,
+    };
+    if (solid) {
+        color.r = static_cast<unsigned char>(std::min(255, static_cast<int>(color.r) + 80));
+        color.g = static_cast<unsigned char>(color.g / 2);
+        color.b = static_cast<unsigned char>(color.b / 2);
+    }
+    return color;
+}
+
+void drawDebugPolygon(const std::vector<Vector3>& verts, Color color) {
+    if (verts.size() < 3) {
+        return;
+    }
+    for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+        DrawTriangle3D(verts[0], verts[i], verts[i + 1], color);
+        DrawTriangle3D(verts[0], verts[i + 1], verts[i], color);
+    }
+}
+
+void drawDebugPolygonOutline(const std::vector<Vector3>& verts, Color color) {
+    if (verts.size() < 2) {
+        return;
+    }
+    for (std::size_t i = 0; i < verts.size(); ++i) {
+        DrawLine3D(verts[i], verts[(i + 1) % verts.size()], color);
+    }
+}
+
+void drawBspLeafFaces(const BspLeaf& leaf, Color color) {
+    for (const auto& face : leaf.faces) {
+        drawDebugPolygon(face, color);
+    }
+}
+
+bool portalPolygonBetweenLeaves(const BspLeaf& a, const BspLeaf& b, std::vector<Vector3>& out) {
+    constexpr float kEps = 1e-3f;
+    auto normalOf = [](const std::vector<Vector3>& verts) -> Vector3 {
+        if (verts.size() < 3) {
+            return {};
+        }
+        Vector3 accum{};
+        for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+            const Vector3 e0{
+                verts[i].x - verts[0].x,
+                verts[i].y - verts[0].y,
+                verts[i].z - verts[0].z,
+            };
+            const Vector3 e1{
+                verts[i + 1].x - verts[0].x,
+                verts[i + 1].y - verts[0].y,
+                verts[i + 1].z - verts[0].z,
+            };
+            accum.x += e0.y * e1.z - e0.z * e1.y;
+            accum.y += e0.z * e1.x - e0.x * e1.z;
+            accum.z += e0.x * e1.y - e0.y * e1.x;
+        }
+        const float len = std::sqrt(accum.x * accum.x + accum.y * accum.y + accum.z * accum.z);
+        if (len < 1e-8f) {
+            return {};
+        }
+        return {accum.x / len, accum.y / len, accum.z / len};
+    };
+
+    for (const auto& fa : a.faces) {
+        const Vector3 na = normalOf(fa);
+        if (na.x == 0.0f && na.y == 0.0f && na.z == 0.0f) {
+            continue;
+        }
+        for (const auto& fb : b.faces) {
+            const Vector3 nb = normalOf(fb);
+            const float align = na.x * nb.x + na.y * nb.y + na.z * nb.z;
+            if (align > -0.99f) {
+                continue;
+            }
+            Vector3 ca{};
+            for (const Vector3& v : fa) {
+                ca.x += v.x;
+                ca.y += v.y;
+                ca.z += v.z;
+            }
+            ca.x /= static_cast<float>(fa.size());
+            ca.y /= static_cast<float>(fa.size());
+            ca.z /= static_cast<float>(fa.size());
+            Vector3 cb{};
+            for (const Vector3& v : fb) {
+                cb.x += v.x;
+                cb.y += v.y;
+                cb.z += v.z;
+            }
+            cb.x /= static_cast<float>(fb.size());
+            cb.y /= static_cast<float>(fb.size());
+            cb.z /= static_cast<float>(fb.size());
+            const float dx = ca.x - cb.x;
+            const float dy = ca.y - cb.y;
+            const float dz = ca.z - cb.z;
+            if (std::fabs(dx * na.x + dy * na.y + dz * na.z) > kEps * 8.0f) {
+                continue;
+            }
+            out = fa;
+            return true;
+        }
+    }
+    return false;
+}
+
+void drawDebugQuadOutline(Vector3 a, Vector3 b, Vector3 c, Vector3 d, Color color) {
+    DrawLine3D(a, b, color);
+    DrawLine3D(b, c, color);
+    DrawLine3D(c, d, color);
+    DrawLine3D(d, a, color);
+}
+
+void drawGraphDebugOverlays(const GraphDocument& document) {
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    const Color nodeColor{80, 220, 120, 255};
+    const Color edgeColor{80, 180, 255, 220};
+
+    for (const NamedGraph& graph : document.graphs) {
+        for (const GraphNode& node : graph.nodes) {
+            DrawSphereWires(node.at, 0.12f, 8, 8, nodeColor);
+        }
+
+        for (const GraphEdge& edge : graph.edges) {
+            const GraphNode* from = nullptr;
+            const GraphNode* to = nullptr;
+            for (const GraphNode& node : graph.nodes) {
+                if (from == nullptr && node.id == edge.from) {
+                    from = &node;
+                }
+                if (to == nullptr && node.id == edge.to) {
+                    to = &node;
+                }
+            }
+            if (from == nullptr || to == nullptr) {
+                continue;
+            }
+            DrawLine3D(from->at, to->at, edgeColor);
+        }
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std::int32_t currentLeaf) {
+    const bool any = debugUi.showBspOutlines || debugUi.showBspLeafFaces || debugUi.showBspPortals
+        || debugUi.showBspSurfaceFaces;
+    if (!any) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    const std::int32_t leafCount = static_cast<std::int32_t>(tree.leaves.size());
+    for (std::int32_t i = 0; i < leafCount; ++i) {
+        if (debugUi.showBspCurrentLeafOnly && i != currentLeaf) {
+            continue;
+        }
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (debugUi.showBspOutlines) {
+            const bool blocked = leafBlocksFlood(leaf.contents);
+            Color color = blocked ? Color{180, 60, 60, 255} : Color{60, 180, 220, 255};
+            if (i == currentLeaf) {
+                color = blocked ? Color{255, 220, 40, 255} : Color{40, 255, 120, 255};
+            }
+            DrawBoundingBox(BoundingBox{leaf.mins, leaf.maxs}, color);
+        }
+        if (debugUi.showBspLeafFaces) {
+            const unsigned char alpha = i == currentLeaf ? static_cast<unsigned char>(140)
+                                                        : static_cast<unsigned char>(70);
+            drawBspLeafFaces(leaf, bspLeafDebugColor(i, leafBlocksFlood(leaf.contents), alpha));
+        }
+    }
+
+    if (debugUi.showBspPortals) {
+        for (const BspPortal& portal : tree.portals) {
+            if (debugUi.showBspCurrentLeafOnly
+                && portal.leafA != currentLeaf
+                && portal.leafB != currentLeaf) {
+                continue;
+            }
+            const bool involvesCurrent =
+                portal.leafA == currentLeaf || portal.leafB == currentLeaf;
+            const Color portalColor = involvesCurrent ? Color{255, 200, 40, 160}
+                                                     : Color{255, 80, 220, 100};
+            drawDebugPolygon(portal.vertices, portalColor);
+        }
+    }
+
+    if (debugUi.showBspSurfaceFaces) {
+        for (std::size_t faceIndex = 0; faceIndex < tree.surfaceFaces.size(); ++faceIndex) {
+            const BspSurfaceFace& face = tree.surfaceFaces[faceIndex];
+            if (debugUi.showBspCurrentLeafOnly && face.emptyLeaf != currentLeaf) {
+                continue;
+            }
+            const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 90);
+            const Color outline = face.emptyLeaf == currentLeaf ? Color{40, 255, 120, 255}
+                                                               : Color{255, 255, 255, 220};
+            drawDebugPolygon(face.vertices, fill);
+            drawDebugPolygonOutline(face.vertices, outline);
+        }
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+void drawVisDebugOverlays(const VisFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
+    if (!debugUi.showVisFaces) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    for (std::size_t faceIndex = 0; faceIndex < vis.faces.size(); ++faceIndex) {
+        const VisibleFace& face = vis.faces[faceIndex];
+        if (face.vertices.size() < 3) {
+            continue;
+        }
+        if (debugUi.showVisCurrentLeafOnly
+            && (face.interiorLeaf < 0 || face.interiorLeaf != currentLeaf)) {
+            continue;
+        }
+        const bool inCurrentLeaf = face.interiorLeaf == currentLeaf;
+        const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 80);
+        const Color outline = inCurrentLeaf ? Color{255, 160, 40, 255} : Color{255, 120, 40, 220};
+        drawDebugPolygon(face.vertices, fill);
+        drawDebugPolygonOutline(face.vertices, outline);
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+Ray spriteAimRay(const Lens& lens) {
+    Ray ray{};
+    ray.position = lens.camera.position;
+    ray.direction = Vector3Normalize(Vector3Subtract(lens.camera.target, lens.camera.position));
+    return ray;
+}
+
+constexpr float kSpriteAimMaxDistance = 100.0f;
+
+std::string drawSpriteDebugOverlays(
+    const Lens& lens,
+    AssetStore& assets,
+    const DebugUiState& debugUi,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
+    std::string aimStatus;
+    if (!debugUi.showSpriteMasks && !debugUi.showSpriteAim) {
+        return aimStatus;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthTest();
+    rlDisableDepthMask();
+
+    if (debugUi.showSpriteMasks) {
+        spriteQuery.each(
+            [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
+                if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {
+                    return;
+                }
+                if (const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets)) {
+                    drawSpriteMaskDebug(*billboard);
+                }
+            });
+    }
+
+    if (debugUi.showSpriteAim) {
+        const Ray ray = spriteAimRay(lens);
+        std::optional<SpriteBillboardHit> bestHit;
+        std::string hitSprite;
+        std::string hitFrame;
+        float bestDistance = kSpriteAimMaxDistance;
+
+        spriteQuery.each(
+            [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
+                if (!entity.has<WorldSpace>()) {
+                    return;
+                }
+                const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
+                if (!billboard) {
+                    return;
+                }
+                if (const auto hit = raycastSpriteBillboard(ray, *billboard, bestDistance)) {
+                    bestDistance = hit->distance;
+                    bestHit = *hit;
+                    hitSprite = sprite.sprite;
+                    hitFrame = sprite.frame;
+                }
+            });
+
+        const Vector3 rayEnd = bestHit
+            ? bestHit->point
+            : Vector3Add(ray.position, Vector3Scale(ray.direction, kSpriteAimMaxDistance));
+        DrawLine3D(ray.position, rayEnd, bestHit ? Color{80, 255, 120, 255} : Color{255, 220, 40, 255});
+
+        if (bestHit) {
+            DrawSphereWires(bestHit->point, 0.04f, 6, 6, Color{80, 255, 120, 255});
+            const Vector3 tickEnd = Vector3Add(bestHit->point, Vector3Scale(ray.direction, -0.12f));
+            DrawLine3D(bestHit->point, tickEnd, Color{255, 255, 255, 255});
+            char buffer[256];
+            std::snprintf(
+                buffer,
+                sizeof(buffer),
+                "Sprite aim: %s frame=%s part=%s px=(%d,%d) dist=%.2f",
+                hitSprite.c_str(),
+                hitFrame.c_str(),
+                bestHit->partName.c_str(),
+                bestHit->pixelX,
+                bestHit->pixelY,
+                bestHit->distance);
+            aimStatus = buffer;
+        } else {
+            aimStatus = "Sprite aim: no hit";
+        }
+    }
+
+    rlEnableDepthMask();
+    rlEnableDepthTest();
+    EndBlendMode();
+    return aimStatus;
+}
+
+}
