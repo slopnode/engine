@@ -2,6 +2,7 @@
 
 #include "assets/asset_services.hpp"
 #include "camera/components.hpp"
+#include "core/frame_perf.hpp"
 #include "game/game_state.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
@@ -12,13 +13,20 @@
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
+#include "map/fac.hpp"
+#include "map/graph.hpp"
 #include "map/light_components.hpp"
+#include "map/light_sample.hpp"
+#include "map/pvs.hpp"
 #include "physics/components.hpp"
+#include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
+#include "render/dynamic_light_shadows.hpp"
+#include "render/render_context.hpp"
 #include "render/sprite_animator.hpp"
 #include "script/script_context.hpp"
 #include "script/ui_script.hpp"
@@ -27,6 +35,7 @@
 
 #include "imgui.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <raylib.h>
@@ -332,7 +341,7 @@ void drawMainMenuBar(
         }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
         menuItemWithIcon(
-            assets, kIcons, "chart_curve", "FPS Graph", nullptr, &debugUi.showFpsGraph);
+            assets, kIcons, "chart_curve", "Performance", nullptr, &debugUi.showPerformance);
         menuItemWithIcon(
             assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
@@ -706,50 +715,192 @@ void drawEntityDetail(DebugUiState& debugUi) {
     }
 }
 
-void drawFpsGraph(DebugUiState& debugUi) {
-    if (!debugUi.showFpsGraph) {
-        return;
-    }
-
-    constexpr int kHistorySize = 240;
-    static float history[kHistorySize]{};
-    static int historyOffset = 0;
-    static int historyCount = 0;
-
-    const float fps = ImGui::GetIO().Framerate;
-    history[historyOffset] = fps;
-    historyOffset = (historyOffset + 1) % kHistorySize;
-    if (historyCount < kHistorySize) {
-        ++historyCount;
-    }
-
-    float scaleMax = 60.0f;
+float historyScaleMax(const float* history, int historyCount, float floorMs) {
+    float scaleMax = floorMs;
     for (int i = 0; i < historyCount; ++i) {
         if (history[i] > scaleMax) {
             scaleMax = history[i];
         }
     }
-    if (scaleMax > 300.0f) {
-        scaleMax = 300.0f;
+    return scaleMax;
+}
+
+void plotMsHistory(
+    const char* id,
+    const FramePerfStats& perf,
+    const float* history,
+    float floorMs,
+    ImVec4 color) {
+    const int valuesOffset = perf.historyCount < kFramePerfHistorySize ? 0 : perf.historyOffset;
+    ImGui::PushStyleColor(ImGuiCol_PlotLines, color);
+    ImGui::PlotLines(
+        id,
+        history,
+        perf.historyCount,
+        valuesOffset,
+        nullptr,
+        0.0f,
+        historyScaleMax(history, perf.historyCount, floorMs),
+        ImVec2(-1.0f, 56.0f));
+    ImGui::PopStyleColor();
+}
+
+void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
+    if (!debugUi.showPerformance) {
+        return;
     }
 
-    ImGui::SetNextWindowSize({280.0f, 160.0f}, ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("FPS", &debugUi.showFpsGraph, ImGuiWindowFlags_NoCollapse)) {
+    ImGui::SetNextWindowSize({420.0f, 480.0f}, ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Performance", &debugUi.showPerformance, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
 
-    ImGui::Text("%.0f FPS", static_cast<double>(fps));
-    const int valuesOffset = historyCount < kHistorySize ? 0 : historyOffset;
-    ImGui::PlotLines(
-        "##fps",
-        history,
-        historyCount,
-        valuesOffset,
-        nullptr,
-        0.0f,
-        scaleMax,
-        ImVec2(-1.0f, 80.0f));
+    static const FramePerfStats kEmptyPerf{};
+    const FramePerfStats& perf =
+        world.has<FramePerfStats>() ? world.get<FramePerfStats>() : kEmptyPerf;
+
+    static double displayLastUpdate = 0.0;
+    static float displayFps = 0.0f;
+    static float displayFrameMs = 0.0f;
+    static float displayPhysicsMs = 0.0f;
+    static float displayRenderMs = 0.0f;
+    static float displayUiMs = 0.0f;
+    static float displayRssMb = 0.0f;
+    const double now = GetTime();
+    if (displayLastUpdate == 0.0 || (now - displayLastUpdate) >= 0.2) {
+        displayLastUpdate = now;
+        displayFps = ImGui::GetIO().Framerate;
+        displayFrameMs = perf.frameMs;
+        displayPhysicsMs = perf.physicsMs;
+        displayRenderMs = perf.renderMs;
+        displayUiMs = perf.uiMs;
+        displayRssMb = processRssMb();
+    }
+
+    constexpr ImVec4 kFrameColor{0.45f, 0.85f, 1.0f, 1.0f};
+    constexpr ImVec4 kPhysicsColor{1.0f, 0.70f, 0.30f, 1.0f};
+    constexpr ImVec4 kRenderColor{0.45f, 0.90f, 0.50f, 1.0f};
+    constexpr ImVec4 kUiColor{0.90f, 0.50f, 0.95f, 1.0f};
+
+    if (ImGui::CollapsingHeader("Timings", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::TextColored(
+            kFrameColor,
+            "Frame  %.2f ms  (%.0f FPS)",
+            static_cast<double>(displayFrameMs),
+            static_cast<double>(displayFps));
+        plotMsHistory("##frameMs", perf, perf.frameHistory, 16.7f, kFrameColor);
+
+        ImGui::TextColored(
+            kPhysicsColor, "Physics  %.2f ms", static_cast<double>(displayPhysicsMs));
+        plotMsHistory("##physicsMs", perf, perf.physicsHistory, 4.0f, kPhysicsColor);
+
+        ImGui::TextColored(
+            kRenderColor, "Render  %.2f ms", static_cast<double>(displayRenderMs));
+        plotMsHistory("##renderMs", perf, perf.renderHistory, 4.0f, kRenderColor);
+
+        ImGui::TextColored(kUiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
+        plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, kUiColor);
+    }
+
+    if (ImGui::CollapsingHeader("Memory", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("RSS %.1f MB", static_cast<double>(displayRssMb));
+    }
+
+    if (ImGui::CollapsingHeader("Entities", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("WorldSpace %d", world.count<WorldSpace>());
+        ImGui::Text("MapOwned %d", world.count<MapOwned>());
+        ImGui::Text("Actor %d", world.count<Actor>());
+        ImGui::Text("CharacterMotor %d", world.count<CharacterMotor>());
+        ImGui::Text("RigidMover %d", world.count<RigidMover>());
+        ImGui::Text("SpriteInstance %d", world.count<SpriteInstance>());
+        ImGui::Text("Model3D %d", world.count<Model3D>());
+        ImGui::Text("DynamicLight %d", world.count<DynamicLight>());
+        if (world.has<DynamicLightFrameState>()) {
+            ImGui::Text(
+                "Active lights %zu",
+                world.get<DynamicLightFrameState>().lights.size());
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (world.has<PhysicsContext>() && world.get<PhysicsContext>().world != nullptr) {
+            PhysicsWorld& physics = *world.get<PhysicsContext>().world;
+            const auto stats = physics.system().GetBodyStats();
+            ImGui::Text("Bodies %u / %u", stats.mNumBodies, stats.mMaxBodies);
+            ImGui::Text(
+                "Static %u  Dynamic %u  Kinematic %u",
+                stats.mNumBodiesStatic,
+                stats.mNumBodiesDynamic,
+                stats.mNumBodiesKinematic);
+            ImGui::Text(
+                "Active dyn %u  Active kin %u",
+                stats.mNumActiveBodiesDynamic,
+                stats.mNumActiveBodiesKinematic);
+            ImGui::Text("CharacterMotor %d", world.count<CharacterMotor>());
+        } else {
+            ImGui::TextUnformatted("(no physics world)");
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Map", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (world.has<CurrentMap>()) {
+            ImGui::Text("Map %s", world.get<CurrentMap>().id.c_str());
+        } else {
+            ImGui::TextUnformatted("Map (none)");
+        }
+
+        if (world.has<MapBsp>()) {
+            const BspTree& tree = world.get<MapBsp>().tree;
+            ImGui::Text(
+                "BSP nodes %zu  leaves %zu  portals %zu  surfaces %zu",
+                tree.nodes.size(),
+                tree.leaves.size(),
+                tree.portals.size(),
+                tree.surfaceFaces.size());
+
+            std::int32_t currentLeaf = -1;
+            if (world.has<PlayerEntity>()) {
+                flecs::entity camera = world.get<PlayerEntity>().entity;
+                if (camera.is_valid() && camera.has<Lens>()) {
+                    currentLeaf = pointLeaf(tree, camera.get<Lens>().camera.position);
+                }
+            }
+            ImGui::Text("Current leaf %d", static_cast<int>(currentLeaf));
+        }
+
+        if (world.has<MapFac>()) {
+            ImGui::Text("FAC faces %zu", world.get<MapFac>().fac.faces.size());
+        }
+        if (world.has<MapPvs>()) {
+            ImGui::Text("PVS leaves %d", world.get<MapPvs>().pvs.leafCount);
+        }
+        if (world.has<MapGraphs>()) {
+            const GraphDocument& document = world.get<MapGraphs>().document;
+            std::size_t nodes = 0;
+            std::size_t edges = 0;
+            for (const NamedGraph& graph : document.graphs) {
+                nodes += graph.nodes.size();
+                edges += graph.edges.size();
+            }
+            ImGui::Text(
+                "Graphs %zu  nodes %zu  edges %zu",
+                document.graphs.size(),
+                nodes,
+                edges);
+        }
+        if (world.has<MapLighting>()) {
+            const MapLighting& lighting = world.get<MapLighting>();
+            if (lighting.available) {
+                ImGui::Text(
+                    "Lighting charts %zu  atlases %zu",
+                    lighting.rad.charts.size(),
+                    lighting.rad.atlases.size());
+            } else {
+                ImGui::TextUnformatted("Lighting unavailable");
+            }
+        }
+    }
 
     ImGui::End();
 }
@@ -914,6 +1065,7 @@ void registerComponents(flecs::world& world) {
     world.component<ScreenshotRequest>();
     world.component<SettingsUiState>();
     world.component<DebugUiState>();
+    world.component<FramePerfStats>();
 }
 
 void registerSystems(flecs::world& world) {
@@ -1027,6 +1179,7 @@ void registerUiModule(flecs::world& world) {
     world.set<ScreenshotRequest>({});
     world.set<SettingsUiState>({});
     world.set<DebugUiState>({});
+    world.set<FramePerfStats>({});
     registerSystems(world);
 }
 
@@ -1065,7 +1218,7 @@ void drawUi(flecs::world world) {
     }
 
     if (world.has<DebugUiState>()) {
-        drawFpsGraph(world.get_mut<DebugUiState>());
+        drawPerformanceWindow(world, world.get_mut<DebugUiState>());
     }
 
     if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {

@@ -2,6 +2,7 @@
 
 #include "assets/asset_services.hpp"
 #include "camera/components.hpp"
+#include "core/frame_perf.hpp"
 #include "core/screenshot.hpp"
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
@@ -76,7 +77,10 @@ void registerComponents(flecs::world& world) {
 void registerRenderSystems(flecs::world& world) {
     world.system("StartDrawing")
         .kind(flecs::PostUpdate)
-        .run([](flecs::iter&) {
+        .run([](flecs::iter& it) {
+            if (it.world().has<FramePerfStats>()) {
+                it.world().get_mut<FramePerfStats>().renderMs = 0.0f;
+            }
             BeginDrawing();
             ClearBackground(BLACK);
         });
@@ -119,6 +123,8 @@ void registerRenderSystems(flecs::world& world) {
                 static_cast<float>(GetRenderHeight() > 0 ? GetRenderHeight() : 1);
             const Frustum frustum = makeFrustumFromCamera(presentCam, aspect);
 
+            const double renderStart = perfNow();
+
             std::vector<RankedDynamicLight> rankedLights =
                 gatherDynamicLights(world, lens, presentLens, frustum, unlit);
             storeDynamicLightFrameState(world, rankedLights);
@@ -134,14 +140,29 @@ void registerRenderSystems(flecs::world& world) {
             drawFirstPersonPass(world, context, lens, unlit);
             drawViewSpritesAndHud(world);
             drawSpriteAimHudText(spriteAimStatus);
+
+            if (world.has<FramePerfStats>()) {
+                world.get_mut<FramePerfStats>().renderMs += perfElapsedMs(renderStart);
+            }
         });
 
     world.system("ImGuiOverlay")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
+            FramePerfStats* perf =
+                it.world().has<FramePerfStats>() ? &it.world().get_mut<FramePerfStats>() : nullptr;
+            if (perf != nullptr) {
+                perf->frameMs = GetFrameTime() * 1000.0f;
+            }
+
             prepareUiInput(it.world());
             rlImGuiBegin();
+            const double uiStart = perfNow();
             drawUi(it.world());
+            if (perf != nullptr) {
+                perf->uiMs = perfElapsedMs(uiStart);
+                perf->pushSample();
+            }
             rlImGuiEnd();
         });
 

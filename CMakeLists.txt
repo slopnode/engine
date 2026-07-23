@@ -97,6 +97,7 @@ add_executable(slopengine
     src/main.cpp
     src/core/user_paths.cpp
     src/core/screenshot.cpp
+    src/core/frame_perf.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
     src/game/game_state.cpp

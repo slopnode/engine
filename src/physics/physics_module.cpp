@@ -1,6 +1,7 @@
 #include "physics/physics_module.hpp"
 
 #include "camera/components.hpp"
+#include "core/frame_perf.hpp"
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
@@ -160,6 +161,12 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.system("PhysicsStep")
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
+            FramePerfStats* perf =
+                it.world().has<FramePerfStats>() ? &it.world().get_mut<FramePerfStats>() : nullptr;
+            if (perf != nullptr) {
+                perf->physicsMs = 0.0f;
+            }
+
             if (!it.world().has<PhysicsContext>()) {
                 return;
             }
@@ -189,7 +196,11 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 return;
             }
 
+            const double physicsStart = perfNow();
             physics.world->update(GetFrameTime(), steps);
+            if (perf != nullptr) {
+                perf->physicsMs = perfElapsedMs(physicsStart);
+            }
 
             const flecs::entity camera = it.world().lookup("Player");
             if (camera.is_valid() && camera.has<CharacterMotor>() && camera.has<Lens>() &&
