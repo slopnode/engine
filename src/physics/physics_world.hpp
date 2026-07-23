@@ -22,7 +22,7 @@ struct Brush;
 
 struct CharacterStep {
     std::uint64_t id = 0;
-    const CharacterMotor* motor = nullptr;
+    CharacterMotor* motor = nullptr;
     bool noclip = false;
 };
 
@@ -99,6 +99,7 @@ private:
     void stepCharacterTryMove(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor);
+    void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;
     static constexpr int kMaxSubsteps = 4;

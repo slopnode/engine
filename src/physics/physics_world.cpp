@@ -19,10 +19,14 @@
 #include <raylib.h>
 #include <raymath.h>
 
+#include <cmath>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <thread>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace slopengine {
 
@@ -524,6 +528,189 @@ void PhysicsWorld::stepCharacter(
         *tempAllocator_);
 }
 
+namespace {
+
+constexpr float kSoftSepRadiusSlack = 1.02f;
+constexpr float kSoftSepPushGain = 2.5f;
+constexpr float kSoftSepPushMax = 1.5f;
+constexpr float kSoftSepPosCorr = 0.85f;
+constexpr float kSoftSepEps = 1.0e-4f;
+constexpr float kSoftSepMinCell = 0.5f;
+
+void removeInwardWish(float& wishX, float& wishZ, float nx, float nz) {
+    const float inward = wishX * nx + wishZ * nz;
+    if (inward > 0.0f) {
+        wishX -= inward * nx;
+        wishZ -= inward * nz;
+    }
+}
+
+JPH::Vec3 wishVelocity(const CharacterMotor& motor) {
+    JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
+    if (wish.LengthSq() > 1.0e-6f) {
+        return wish.Normalized() * motor.moveSpeed;
+    }
+    return JPH::Vec3::sZero();
+}
+
+struct SoftSepBody {
+    std::uint64_t id = 0;
+    CharacterMotor* motor = nullptr;
+    JPH::CharacterVirtual* character = nullptr;
+};
+
+std::uint64_t softSepCellKey(int cellX, int cellZ) {
+    return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(cellX)) << 32) |
+        static_cast<std::uint32_t>(cellZ);
+}
+
+void resolveSoftSeparationPair(
+    SoftSepBody& a,
+    SoftSepBody& b,
+    float dt) {
+    CharacterMotor& motorA = *a.motor;
+    CharacterMotor& motorB = *b.motor;
+    JPH::CharacterVirtual& charA = *a.character;
+    JPH::CharacterVirtual& charB = *b.character;
+
+    const JPH::RVec3 feetA = charA.GetPosition();
+    const JPH::RVec3 feetB = charB.GetPosition();
+    const float ax = static_cast<float>(feetA.GetX());
+    const float ay = static_cast<float>(feetA.GetY());
+    const float az = static_cast<float>(feetA.GetZ());
+    const float bx = static_cast<float>(feetB.GetX());
+    const float by = static_cast<float>(feetB.GetY());
+    const float bz = static_cast<float>(feetB.GetZ());
+
+    const float dy = ay - by;
+    const float maxDy = 0.5f * (motorA.height + motorB.height) + motorA.radius + motorB.radius;
+    if (std::fabs(dy) > maxDy) {
+        return;
+    }
+
+    const float minDist = kSoftSepRadiusSlack * (motorA.radius + motorB.radius);
+    if (minDist <= kSoftSepEps) {
+        return;
+    }
+
+    const float dx = ax - bx;
+    const float dz = az - bz;
+    const float distSq = dx * dx + dz * dz;
+    float nx = 0.0f;
+    float nz = 1.0f;
+    float dist = 0.0f;
+    if (distSq > kSoftSepEps * kSoftSepEps) {
+        dist = std::sqrt(distSq);
+        nx = dx / dist;
+        nz = dz / dist;
+    }
+
+    const JPH::Vec3 wishVelA = wishVelocity(motorA);
+    const JPH::Vec3 wishVelB = wishVelocity(motorB);
+    const float predDx = (ax + wishVelA.GetX() * dt) - (bx + wishVelB.GetX() * dt);
+    const float predDz = (az + wishVelA.GetZ() * dt) - (bz + wishVelB.GetZ() * dt);
+    const float predDistSq = predDx * predDx + predDz * predDz;
+    const bool overlapping = dist < minDist;
+    const bool wouldOverlap = predDistSq < minDist * minDist;
+    if (!overlapping && !wouldOverlap) {
+        return;
+    }
+
+    removeInwardWish(motorA.wishX, motorA.wishZ, -nx, -nz);
+    removeInwardWish(motorB.wishX, motorB.wishZ, nx, nz);
+
+    if (!overlapping) {
+        return;
+    }
+
+    const float penetration = minDist - dist;
+    float push = kSoftSepPushGain * penetration;
+    if (push > kSoftSepPushMax) {
+        push = kSoftSepPushMax;
+    }
+    motorA.wishX += nx * push;
+    motorA.wishZ += nz * push;
+    motorB.wishX -= nx * push;
+    motorB.wishZ -= nz * push;
+
+    const float corr = 0.5f * kSoftSepPosCorr * penetration;
+    if (corr > kSoftSepEps) {
+        charA.SetPosition(JPH::RVec3(
+            feetA.GetX() + static_cast<double>(nx * corr),
+            feetA.GetY(),
+            feetA.GetZ() + static_cast<double>(nz * corr)));
+        charB.SetPosition(JPH::RVec3(
+            feetB.GetX() - static_cast<double>(nx * corr),
+            feetB.GetY(),
+            feetB.GetZ() - static_cast<double>(nz * corr)));
+    }
+}
+
+} // namespace
+
+void PhysicsWorld::applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps) {
+    std::vector<SoftSepBody> bodies;
+    bodies.reserve(steps.size());
+    float maxRadius = 0.0f;
+
+    for (const CharacterStep& step : steps) {
+        if (step.motor == nullptr || step.noclip) {
+            continue;
+        }
+        auto it = characters_.find(step.id);
+        if (it == characters_.end() || it->second.character == nullptr) {
+            continue;
+        }
+        SoftSepBody body{};
+        body.id = step.id;
+        body.motor = step.motor;
+        body.character = it->second.character.GetPtr();
+        if (step.motor->radius > maxRadius) {
+            maxRadius = step.motor->radius;
+        }
+        bodies.push_back(body);
+    }
+
+    if (bodies.size() < 2) {
+        return;
+    }
+
+    float cellSize = 2.0f * maxRadius;
+    if (cellSize < kSoftSepMinCell) {
+        cellSize = kSoftSepMinCell;
+    }
+    const float invCell = 1.0f / cellSize;
+
+    std::unordered_map<std::uint64_t, std::vector<std::size_t>> cells;
+    cells.reserve(bodies.size() * 2);
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        const JPH::RVec3 feet = bodies[i].character->GetPosition();
+        const int cellX = static_cast<int>(std::floor(static_cast<float>(feet.GetX()) * invCell));
+        const int cellZ = static_cast<int>(std::floor(static_cast<float>(feet.GetZ()) * invCell));
+        cells[softSepCellKey(cellX, cellZ)].push_back(i);
+    }
+
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        const JPH::RVec3 feet = bodies[i].character->GetPosition();
+        const int cellX = static_cast<int>(std::floor(static_cast<float>(feet.GetX()) * invCell));
+        const int cellZ = static_cast<int>(std::floor(static_cast<float>(feet.GetZ()) * invCell));
+        for (int ox = -1; ox <= 1; ++ox) {
+            for (int oz = -1; oz <= 1; ++oz) {
+                const auto cellIt = cells.find(softSepCellKey(cellX + ox, cellZ + oz));
+                if (cellIt == cells.end()) {
+                    continue;
+                }
+                for (const std::size_t j : cellIt->second) {
+                    if (bodies[i].id >= bodies[j].id) {
+                        continue;
+                    }
+                    resolveSoftSeparationPair(bodies[i], bodies[j], kFixedDt);
+                }
+            }
+        }
+    }
+}
+
 void PhysicsWorld::update(float frameDt, const std::vector<CharacterStep>& steps) {
     if (characters_.empty() || steps.empty()) {
         return;
@@ -539,6 +726,8 @@ void PhysicsWorld::update(float frameDt, const std::vector<CharacterStep>& steps
     accumulator_ += frameDt;
     int count = 0;
     while (accumulator_ >= kFixedDt && count < kMaxSubsteps) {
+        applyCharacterSoftSeparation(steps);
+
         for (const CharacterStep& step : steps) {
             if (step.motor == nullptr) {
                 continue;
