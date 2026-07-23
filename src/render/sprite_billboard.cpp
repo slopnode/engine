@@ -193,7 +193,7 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
         rightDir = {std::cos(facingYaw), 0.0f, -std::sin(facingYaw)};
         rightDir = Vector3Normalize(rightDir);
     } else if (asset.billboardMode == SpriteBillboardMode::View) {
-        rightDir = {std::cos(cameraYaw), 0.0f, -std::sin(cameraYaw)};
+        rightDir = {-std::cos(cameraYaw), 0.0f, std::sin(cameraYaw)};
         rightDir = Vector3Normalize(rightDir);
     } else {
         const Vector3 toCamera{
