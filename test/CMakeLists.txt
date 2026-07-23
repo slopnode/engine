@@ -9,9 +9,11 @@ add_executable(sloptests
     test_vis_build.cpp
     test_physics.cpp
     test_frustum.cpp
+    test_transform.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
 )
 
 target_include_directories(sloptests PRIVATE
@@ -36,3 +38,4 @@ add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.vis_build COMMAND sloptests vis_build)
 add_test(NAME sloptests.physics COMMAND sloptests physics)
 add_test(NAME sloptests.frustum COMMAND sloptests frustum)
+add_test(NAME sloptests.transform COMMAND sloptests transform)

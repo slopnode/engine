@@ -14,6 +14,7 @@ void runBspAnalyzeTests();
 void runVisBuildTests();
 void runPhysicsTests();
 void runFrustumTests();
+void runTransformTests();
 
 }
 
@@ -34,6 +35,7 @@ const Suite kSuites[] = {
     {"vis_build", slopengine::runVisBuildTests},
     {"physics", slopengine::runPhysicsTests},
     {"frustum", slopengine::runFrustumTests},
+    {"transform", slopengine::runTransformTests},
 };
 
 bool runSuite(const Suite& suite) {

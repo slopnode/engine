@@ -18,14 +18,14 @@ void updateTransform(flecs::entity entity, LocalTransformation& local, GlobalTra
         global.matrix = mLocal;
     }
 
-    flecs::query<LocalTransformation, GlobalTransformation> childQuery =
-        entity.world()
-            .query_builder<LocalTransformation, GlobalTransformation>()
-            .with(flecs::ChildOf, entity)
-            .build();
-
-    childQuery.each([](flecs::entity child, LocalTransformation& childLocal, GlobalTransformation& childGlobal) {
-        updateTransform(child, childLocal, childGlobal);
+    entity.children([](flecs::entity child) {
+        if (!child.has<LocalTransformation>() || !child.has<GlobalTransformation>()) {
+            return;
+        }
+        updateTransform(
+            child,
+            child.get_mut<LocalTransformation>(),
+            child.get_mut<GlobalTransformation>());
     });
 }
 
