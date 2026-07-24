@@ -213,7 +213,6 @@ Vector3 evaluateDynamicLightAtPoint(
     const RankedDynamicLight& light,
     Vector3 point,
     Vector3 normal) {
-    (void)normal;
     Vector3 delta = Vector3Subtract(light.position, point);
     const float dist2Raw = Vector3DotProduct(delta, delta);
     if (dist2Raw < 1e-6f) {
@@ -225,6 +224,7 @@ Vector3 evaluateDynamicLightAtPoint(
         return {};
     }
 
+    (void)normal;
     const Vector3 toLight = Vector3Scale(delta, 1.0f / dist);
 
     const float t = dist / range;

@@ -118,11 +118,18 @@ bool aabbContainsPointInset(BoundingBox box, Vector3 point, float inset) {
         point.z >= box.min.z + insetZ && point.z <= box.max.z - insetZ;
 }
 
+bool aabbDeeplyContainsPoint(BoundingBox box, Vector3 point, float minDepth) {
+    const float dx = std::min(point.x - box.min.x, box.max.x - point.x);
+    const float dy = std::min(point.y - box.min.y, box.max.y - point.y);
+    const float dz = std::min(point.z - box.min.z, box.max.z - point.z);
+    return dx >= minDepth && dy >= minDepth && dz >= minDepth;
+}
+
 bool shouldSkipShadowCaster(bool isMapLightmapped, BoundingBox worldBounds, Vector3 lightPos) {
     if (isMapLightmapped) {
         return false;
     }
-    return aabbContainsPointInset(worldBounds, lightPos);
+    return aabbDeeplyContainsPoint(worldBounds, lightPos);
 }
 
 bool shadowSampleFaceDecision(

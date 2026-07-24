@@ -27,6 +27,7 @@ float shadowNearPlane(float range);
 
 bool aabbContainsPoint(BoundingBox box, Vector3 point, float epsilon = 0.02f);
 bool aabbContainsPointInset(BoundingBox box, Vector3 point, float inset = 0.04f);
+bool aabbDeeplyContainsPoint(BoundingBox box, Vector3 point, float minDepth = 0.05f);
 bool shouldSkipShadowCaster(bool isMapLightmapped, BoundingBox worldBounds, Vector3 lightPos);
 
 bool shadowSampleFaceDecision(

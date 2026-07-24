@@ -17,6 +17,7 @@ const int MAX_DYN_LIGHTS = 8;
 const int MAX_SHADOW_SLOTS = 2;
 const int SHADOW_FACES = 6;
 const int MAX_SHADOW_MAPS = MAX_SHADOW_SLOTS * SHADOW_FACES;
+const float SHADOW_MAP_TEXEL = 1.0 / 512.0;
 
 uniform int dynLightCount;
 uniform vec4 dynLightPosRange[MAX_DYN_LIGHTS];
@@ -52,6 +53,12 @@ int cubeFaceIndexAxis(vec3 dir, int axis)
     return dir.z > 0.0 ? 4 : 5;
 }
 
+float shadowCompareDepth(int mapIndex, vec2 uv, float current)
+{
+    float closest = texture(dynShadowMaps, vec3(uv, float(mapIndex))).r;
+    return current - dynShadowBias > closest ? 0.0 : 1.0;
+}
+
 bool shadowSampleFace(int slot, int face, vec3 samplePos, out float visibility)
 {
     visibility = 1.0;
@@ -69,10 +76,17 @@ bool shadowSampleFace(int slot, int face, vec3 samplePos, out float visibility)
         return false;
     }
     vec2 uv = clamp(ndc.xy * 0.5 + 0.5, vec2(0.0), vec2(1.0));
-
     float current = ndc.z * 0.5 + 0.5;
-    float closest = texture(dynShadowMaps, vec3(uv, float(mapIndex))).r;
-    visibility = current - dynShadowBias > closest ? 0.0 : 1.0;
+    float sum = 0.0;
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            sum += shadowCompareDepth(
+                mapIndex,
+                uv + vec2(float(x), float(y)) * SHADOW_MAP_TEXEL,
+                current);
+        }
+    }
+    visibility = sum / 9.0;
     return true;
 }
 

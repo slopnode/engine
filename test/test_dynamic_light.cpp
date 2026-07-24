@@ -198,6 +198,29 @@ void runDynamicLightTests() {
     }
 
     {
+        const Vector3 lightPos{0.0f, 0.0f, 0.0f};
+        const Matrix proj = MatrixPerspective(90.0f * DEG2RAD, 1.0f, 0.05f, 8.0f);
+        const Vector3 samples[] = {
+            {3.0f, 0.5f, 0.2f},
+            {0.2f, 3.0f, 0.5f},
+            {-2.0f, 0.1f, 0.1f},
+            {0.5f, -2.0f, 0.2f},
+            {0.3f, 0.2f, 3.0f},
+            {0.1f, 0.2f, -3.0f},
+        };
+        for (const Vector3& sample : samples) {
+            const Vector3 dir = Vector3Subtract(sample, lightPos);
+            const int face = cubeFaceIndexAxis(dir, cubeFacePrimaryAxis(dir));
+            const ShadowCameraDesc desc = pointShadowFaceCamera(lightPos, face);
+            const Matrix view = MatrixLookAt(desc.position, desc.target, desc.up);
+            const Matrix vp = MatrixMultiply(view, proj);
+            float visibility = 0.0f;
+            CHECK(shadowSampleFaceDecision(vp, sample, 1.0f, kDynamicShadowBias, visibility));
+            CHECK(nearEq(visibility, 1.0f));
+        }
+    }
+
+    {
         const BoundingBox box{{-1.0f, -1.0f, -0.06f}, {1.0f, 1.0f, 0.06f}};
         CHECK(aabbContainsPoint(box, {0.0f, 0.0f, 0.0f}));
         CHECK_FALSE(aabbContainsPoint(box, {0.0f, 0.0f, 1.0f}, 0.02f));
@@ -217,6 +240,17 @@ void runDynamicLightTests() {
             false,
             BoundingBox{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}},
             {0.0f, 0.0f, 0.0f}));
+    }
+
+    {
+        const BoundingBox door{{-1.0f, 0.0f, -0.06f}, {1.0f, 2.2f, 0.06f}};
+        const Vector3 surfaceHit{0.0f, 1.1f, 0.06f};
+        CHECK_FALSE(aabbDeeplyContainsPoint(door, surfaceHit, 0.05f));
+        CHECK(aabbDeeplyContainsPoint(door, {0.0f, 1.1f, 0.0f}, 0.05f));
+        CHECK_FALSE(shouldSkipShadowCaster(false, door, surfaceHit));
+        CHECK(shouldSkipShadowCaster(false, door, {0.0f, 1.1f, 0.0f}));
+        CHECK(aabbContainsPointInset(door, {0.0f, 1.1f, 0.0f}, 0.04f));
+        CHECK_FALSE(shouldSkipShadowCaster(false, door, {0.0f, 1.1f, 0.14f}));
     }
 }
 
