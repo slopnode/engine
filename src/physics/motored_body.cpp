@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace slopengine {
 
@@ -33,7 +34,8 @@ void impactMotoredBody(
     MotoredBody& body,
     LocalTransformation& local,
     Vector3 impactPoint,
-    Vector3 dir) {
+    Vector3 dir,
+    std::string_view hitTarget) {
     local.position = impactPoint;
     if (entity.has<SpriteInstance>()) {
         const float horiz = std::sqrt(dir.x * dir.x + dir.z * dir.z);
@@ -43,13 +45,14 @@ void impactMotoredBody(
     }
 
     if (!body.onImpact.empty() && world.has<ScriptContext>()) {
-        tryCallSchemeProc1String3Reals(
+        tryCallSchemeProc1String3Reals1OptString(
             world.get<ScriptContext>().scheme,
             body.onImpact,
             entityIdString(entity),
             impactPoint.x,
             impactPoint.y,
             impactPoint.z,
+            hitTarget,
             ScriptScope::World);
     }
     queueThingDespawn(world, entityIdString(entity));
@@ -93,10 +96,12 @@ void registerMotoredBodySystem(flecs::world& world) {
 
             float bestFraction = 2.0f;
             Vector3 bestPoint = local.position;
+            std::string bestHitTarget;
 
             if (const auto wall = physics->castSphere(local.position, dir, distance, radius)) {
                 bestFraction = wall->fraction;
                 bestPoint = wall->point;
+                bestHitTarget.clear();
             }
 
             world.each([&](flecs::entity actorEntity, Actor, const CharacterMotor& motor,
@@ -109,12 +114,13 @@ void registerMotoredBodySystem(flecs::world& world) {
                     if (*hit < bestFraction) {
                         bestFraction = *hit;
                         bestPoint = Vector3Add(local.position, Vector3Scale(dir, distance * (*hit)));
+                        bestHitTarget = entityIdString(actorEntity);
                     }
                 }
             });
 
             if (bestFraction <= 1.0f) {
-                impactMotoredBody(world, entity, body, local, bestPoint, dir);
+                impactMotoredBody(world, entity, body, local, bestPoint, dir, bestHitTarget);
                 return;
             }
 

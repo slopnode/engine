@@ -155,7 +155,7 @@ Shared optional fields: (color r g b) (default 1 1 1), (intensity N) (default 1)
 
 A motored body is a runtime-spawned presented entity (sprite or geo) plus a MotoredBody motor: package-chosen velocity, gravity, sweep radius, and lifetime. The engine integrates motion each frame, sphere-casts against static brush hulls, and sweeps the same radius against actor character capsules. The nearer hit wins. The player capsule is a CharacterVirtual, not a rigid body, so world casts ignore the player; actor sweeps also skip the player (not an Actor).
 
-Packages define recipes (rockets, arcing throws, bolts) with (motored-spawn ...) from [Scripting](scripting.md). Aim helpers (player-eye) / (player-look-dir) supply spawn origin and direction. On world hit, the engine calls an optional on-impact Scheme handler as `(handler id x y z)` with the sphere-cast hit point, then despawns. Empty handler = silent despawn. This is motor-driven flight, not full dynamic rigid-body simulation.
+Packages define recipes (rockets, arcing throws, bolts) with (motored-spawn ...) from [Scripting](scripting.md). Aim helpers (player-eye) / (player-look-dir) supply spawn origin and direction. On hit, the engine calls an optional on-impact Scheme handler as `(handler id x y z hit)` with the hit point and `hit` = actor id when an actor capsule won the sweep, or `#f` for a brush/world hit, then despawns. Empty handler = silent despawn. Direct bolts can damage `hit`; splash recipes can ignore it and query a radius. This is motor-driven flight, not full dynamic rigid-body simulation.
 
 ## Actors
 

@@ -40,6 +40,16 @@ bool tryCallSchemeProc1String3Reals(
     double y,
     double z,
     ScriptScope scope);
+/** Like 1String3Reals, plus a 5th arg: hit target id string, or #f when @p hitTarget is empty. */
+bool tryCallSchemeProc1String3Reals1OptString(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    double x,
+    double y,
+    double z,
+    std::string_view hitTarget,
+    ScriptScope scope);
 
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme);
 HudCanvas parseHudCanvasFromScheme(s7_scheme* scheme);
