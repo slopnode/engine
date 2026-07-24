@@ -102,4 +102,18 @@ void storeFxLightFrameState(flecs::world& world, FxLightFrameState state);
 /** Baked probe (when available) plus ranked dyn + FX overlay at @p origin. */
 Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit);
 
+/** Tint for a world model using AABB sample points (survives mover motion). */
+Color sampleReceiverTintColorForModel(
+    flecs::world& world,
+    const Model& model,
+    const Matrix& globalMatrix,
+    bool unlit);
+
+/** Bake/ambient probe only for GPU-lit world models (no dyn/FX overlay). */
+Color sampleBakeTintColorForModel(
+    flecs::world& world,
+    const Model& model,
+    const Matrix& globalMatrix,
+    bool unlit);
+
 }

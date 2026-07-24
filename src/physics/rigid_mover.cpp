@@ -384,32 +384,24 @@ void registerRigidMoverSystem(flecs::world& world) {
             });
         });
 
-    world.system<RigidMover, Model3D, LocalTransformation>("RigidMoverRadTint")
+    world.system<RigidMover, Model3D, GlobalTransformation>("RigidMoverRadTint")
         .kind(flecs::PreUpdate)
-        .each([](flecs::entity entity, RigidMover&, Model3D& model, const LocalTransformation& local) {
+        .each([](flecs::entity entity, RigidMover&, Model3D& model, const GlobalTransformation& global) {
             flecs::world world = entity.world();
-            const Vector3 origin = {
-                local.position.x,
-                local.position.y + 0.05f,
-                local.position.z,
-            };
-            model.color = sampleReceiverTintColor(world, origin, false);
+            model.color =
+                sampleBakeTintColorForModel(world, model.model, global.matrix, false);
         });
 
-    world.system<Model3D, LocalTransformation>("WorldModelLightTint")
+    world.system<Model3D, GlobalTransformation>("WorldModelLightTint")
         .with<WorldSpace>()
         .without<RigidMover>()
         .without<MapLightmapState>()
         .without<ViewSpace>()
         .kind(flecs::PreUpdate)
-        .each([](flecs::entity entity, Model3D& model, const LocalTransformation& local) {
+        .each([](flecs::entity entity, Model3D& model, const GlobalTransformation& global) {
             flecs::world world = entity.world();
-            const Vector3 origin = {
-                local.position.x,
-                local.position.y + 0.05f,
-                local.position.z,
-            };
-            model.color = sampleReceiverTintColor(world, origin, false);
+            model.color =
+                sampleBakeTintColorForModel(world, model.model, global.matrix, false);
         });
 }
 

@@ -5,12 +5,14 @@
 #include "core/frame_perf.hpp"
 #include "core/screenshot.hpp"
 #include "game/game_state.hpp"
+#include "game/user_settings.hpp"
 #include "map/bsp.hpp"
 #include "map/light_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/animation_systems.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
+#include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/render_context.hpp"
@@ -127,10 +129,44 @@ void registerRenderSystems(flecs::world& world) {
 
             const double renderStart = perfNow();
 
-            std::vector<RankedDynamicLight> rankedLights =
-                gatherDynamicLights(world, lens, presentLens, frustum, unlit);
+            const GraphicsSettings graphics =
+                world.has<UserSettings>() ? world.get<UserSettings>().graphics : GraphicsSettings{};
+            const bool enableDynamicLights = graphics.dynamicLights;
+            const int maxShadowed =
+                graphics.dynamicLightShadows ? kMaxShadowedDynamicLights : 0;
+
+            std::vector<RankedDynamicLight> rankedLights = gatherDynamicLights(
+                world,
+                lens,
+                presentLens,
+                frustum,
+                unlit,
+                enableDynamicLights,
+                maxShadowed);
             storeDynamicLightFrameState(world, rankedLights);
-            uploadMapDynamicLights(world, rankedLights, unlit);
+
+            const DynamicLightShadowState* shadowState = nullptr;
+            if (maxShadowed > 0 && world.has<DynamicLightShadowState>() &&
+                world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                bool needsShadows = false;
+                for (const RankedDynamicLight& light : rankedLights) {
+                    if (light.shadowSlot >= 0) {
+                        needsShadows = true;
+                        break;
+                    }
+                }
+                if (needsShadows) {
+                    DynamicLightShadowState& shadows = world.get_mut<DynamicLightShadowState>();
+                    renderDynamicLightShadows(
+                        shadows,
+                        rankedLights,
+                        world,
+                        *world.get<AssetServices>().store);
+                    shadowState = &shadows;
+                }
+            }
+
+            uploadMapDynamicLights(world, rankedLights, unlit, shadowState);
 
             FxLightFrameState fxLights{};
             buildFxLightFrameState(world, &frustum, unlit, fxLights);

@@ -747,7 +747,7 @@ s7_pointer g_fp_spawn_light(s7_scheme* sc, s7_pointer args) {
     dyn.intensity = 0.0f;
     dyn.range = range;
     dyn.coneAngle = cone;
-    dyn.castShadows = false;
+    dyn.castShadows = true;
     setDynamicLightRgb(dyn, color);
 
     LocalTransformation local{};

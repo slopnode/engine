@@ -16,6 +16,7 @@ void runPvsBuildTests();
 void runPhysicsTests();
 void runFrustumTests();
 void runTransformTests();
+void runDynamicLightTests();
 
 }
 
@@ -38,6 +39,7 @@ const Suite kSuites[] = {
     {"physics", slopengine::runPhysicsTests},
     {"frustum", slopengine::runFrustumTests},
     {"transform", slopengine::runTransformTests},
+    {"dynamic_light", slopengine::runDynamicLightTests},
 };
 
 bool runSuite(const Suite& suite) {

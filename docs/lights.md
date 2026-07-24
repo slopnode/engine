@@ -87,7 +87,7 @@ A dynamic light is a flecs entity with DynamicLight plus a transform (LocalTrans
 | intensity | Scale; <= 0 skips the light in gather |
 | range | Falloff distance (meters) |
 | coneAngle | Spot outer cone (radians); ignored for point |
-| castShadows | Eligible for a shadow slot when ranking (shadow maps exist; map draw currently uploads lights without binding shadow maps) |
+| castShadows | Eligible for a shadow slot when ranking (up to 2 shadowed lights; map lightmap shader samples depth maps for hard occlusion) |
 
 Helpers: spawnDynamicLight, color setters / modulators in src/render/dynamic_light.hpp. First-person Scheme uses (fp-spawn-light ...) / (fp-set-light-enabled ...); see [Player](player.md).
 
@@ -98,15 +98,15 @@ Each frame (player Lens world draw), the engine:
 1. Collects every entity with DynamicLight + GlobalTransformation and intensity > 0.
 2. Converts ViewSpace lights through the lens.
 3. Scores candidates near the camera (intensity * range / (1 + distance)). Out-of-frustum lights (sphere at position with range) are dropped before ranking; see [View frustum culling](frustum.md).
-4. Keeps up to 8 lights (kMaxDynamicLights); up to 2 may take shadow slots if castShadows is set.
+4. Keeps up to 8 lights (kMaxDynamicLights); up to 2 may take shadow slots if castShadows is set and Graphics → Dynamic Light Shadows is on.
 
-Ranked lights live in DynamicLightFrameState for the frame. The map lightmap shader receives them as dynLight* uniforms. The same list feeds first-person rad tint sampling at the player feet.
+Ranked lights live in DynamicLightFrameState for the frame. Shadow maps are rendered for slotted lights, then the map lightmap shader receives dynLight* uniforms plus depth maps / light view-projections. The same ranked list feeds first-person rad tint sampling at the player feet.
 
-Unlit debug clears dynamic contribution (and can force white baked light).
+Unlit debug clears dynamic contribution (and can force white baked light). Graphics → Dynamic Lights off skips gather/upload; Dynamic Light Shadows off keeps lights but assigns no shadow slots.
 
 ### Shader add-on
 
-In default/lightmap_frag, each ranked light applies range-squared attenuation; spots also apply a smooth cone. Contribution is added to the baked sample before multiplying albedo. Dynamic lights do not replace lightmaps.
+In default/lightmap_frag, each ranked light applies range-squared attenuation; spots also apply a smooth cone. Lights with a shadow slot multiply by a hard depth-map visibility test (point: cube face from light→fragment; spot: single face). Contribution is added to the baked sample before multiplying albedo. Dynamic lights do not replace lightmaps.
 
 ### First-person lights
 
@@ -122,7 +122,7 @@ FxLocalLight is for many short-lived point lights that should affect dynamic rec
 | Count | Ranked top 8 | High count (spatial grid; per-receiver nearest 16) |
 | Lights map brushes | Yes (lightmap shader uniforms) | No |
 | Lights sprites / models / movers / FP tint | Yes | Yes |
-| Shadows | Shadow slots exist (map path unfinished) | None |
+| Shadows | Up to 2 GPU shadow-map slots (hard occlusion on map brushes) | None |
 | Kind | Point or spot | Point only |
 
 Each frame the engine gathers FxLocalLight entities with intensity > 0, frustum-culls by range, and builds FxLightFrameState (dense list + uniform grid). Receivers query nearby cells and evaluate up to 16 nearest lights with the same attenuation math as DynamicLight points. Unlit debug clears FX contribution with the other overlays.
@@ -131,7 +131,7 @@ Each frame the engine gathers FxLocalLight entities with intensity > 0, frustum-
 
 CPU overlays (sprites, models/movers, FP rad tint) skip a DynamicLight or FxLocalLight when `bspSegmentOccluded` on `MapLighting.surfaceBvh` reports a wall between the light and the probe (endpoints nudged a few centimeters to avoid contact false positives). This is the same bake-time segment test radiosity uses.
 
-Map brushes lit by ranked DynamicLights in the lightmap shader are **not** occluded this way; that still needs the unfinished shadow-map path. FxLocalLight never hits map brushes.
+Map brushes lit by ranked DynamicLights use the GPU shadow-map path above (not this CPU segment test). FxLocalLight never hits map brushes.
 
 ### Component and spawn
 
@@ -150,7 +150,7 @@ C++: spawnFxLocalLight in src/render/fx_local_light.hpp. Scheme:
 (dyn-light-attach id r g b intensity range)
 ```
 
-`fx-light-spawn` / `dyn-light-spawn` create a new MapOwned entity (optional TimedDespawn). `*-attach` adds the component to an existing entity so the light rides its transform (e.g. a motored plasma bolt).
+`fx-light-spawn` / `dyn-light-spawn` create a new MapOwned entity (optional TimedDespawn). `*-attach` adds the component to an existing entity so the light rides its transform (e.g. a motored plasma bolt). Scheme `dyn-light-*` and `fp-spawn-light` default `castShadows` on so they can take a shadow slot when Graphics → Dynamic Light Shadows is enabled.
 
 ## What belongs where
 

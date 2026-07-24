@@ -151,6 +151,10 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault() {
             }
         } else if (key == "vsync") {
             parseBool(value, graphics.vsync);
+        } else if (key == "dynamic_lights") {
+            parseBool(value, graphics.dynamicLights);
+        } else if (key == "dynamic_light_shadows") {
+            parseBool(value, graphics.dynamicLightShadows);
         }
     }
 
@@ -230,7 +234,9 @@ bool UserSettings::save() const {
            << "width=" << graphics.width << '\n'
            << "height=" << graphics.height << '\n'
            << "mode=" << windowModeId(graphics.mode) << '\n'
-           << "vsync=" << (graphics.vsync ? "1" : "0") << "\n\n"
+           << "vsync=" << (graphics.vsync ? "1" : "0") << '\n'
+           << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
+           << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << "\n\n"
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

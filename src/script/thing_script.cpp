@@ -305,7 +305,7 @@ DynamicLight makePointDynamicLight(float r, float g, float b, float intensity, f
     setDynamicLightRgb(light, {r, g, b});
     light.intensity = intensity;
     light.range = range;
-    light.castShadows = false;
+    light.castShadows = true;
     return light;
 }
 

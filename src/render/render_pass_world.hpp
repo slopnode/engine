@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/dynamic_light.hpp"
+#include "render/dynamic_light_shadows.hpp"
 #include "render/render_context.hpp"
 #include "render/render_frustum.hpp"
 #include "render/components.hpp"
@@ -24,7 +25,9 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     const Lens& lens,
     const Lens& presentLens,
     const Frustum& frustum,
-    bool unlit);
+    bool unlit,
+    bool enableDynamicLights = true,
+    int maxShadowed = kMaxShadowedDynamicLights);
 
 void storeDynamicLightFrameState(
     flecs::world& world,
@@ -33,7 +36,8 @@ void storeDynamicLightFrameState(
 void uploadMapDynamicLights(
     flecs::world& world,
     const std::vector<RankedDynamicLight>& rankedLights,
-    bool unlit);
+    bool unlit,
+    const DynamicLightShadowState* shadowState = nullptr);
 
 void drawWorldModels(
     flecs::world& world,

@@ -5,6 +5,7 @@
 #include "map/light_sample.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/render_frustum.hpp"
 
 #include <flecs.h>
 #include <raymath.h>
@@ -20,6 +21,51 @@ constexpr float kLightLosNudge = 0.04f;
 
 Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
+}
+
+Vector3 colorToLinear(Color color) {
+    return {
+        static_cast<float>(color.r) / 255.0f,
+        static_cast<float>(color.g) / 255.0f,
+        static_cast<float>(color.b) / 255.0f,
+    };
+}
+
+Color linearToColor(Vector3 linearRgb, unsigned char alpha = 255) {
+    return Color{
+        static_cast<unsigned char>(std::clamp(static_cast<int>(linearRgb.x * 255.0f), 0, 255)),
+        static_cast<unsigned char>(std::clamp(static_cast<int>(linearRgb.y * 255.0f), 0, 255)),
+        static_cast<unsigned char>(std::clamp(static_cast<int>(linearRgb.z * 255.0f), 0, 255)),
+        alpha,
+    };
+}
+
+float linearLuminance(Vector3 linearRgb) {
+    return 0.2126f * linearRgb.x + 0.7152f * linearRgb.y + 0.0722f * linearRgb.z;
+}
+
+Vector3 composeReceiverLighting(Color bakeTint, Vector3 overlay) {
+    Vector3 bake = colorToLinear(bakeTint);
+    const float overlayPeak = std::max({overlay.x, overlay.y, overlay.z, 0.0f});
+    const float bakePeak = std::max({bake.x, bake.y, bake.z, 0.0f});
+    if (overlayPeak > bakePeak && overlayPeak > 1e-4f) {
+        const float bakeLum = linearLuminance(bake);
+        bake = {bakeLum, bakeLum, bakeLum};
+    }
+    Vector3 lighting{
+        bake.x + overlay.x,
+        bake.y + overlay.y,
+        bake.z + overlay.z,
+    };
+    const float peak = std::max({lighting.x, lighting.y, lighting.z, 1.0f});
+    lighting.x /= peak;
+    lighting.y /= peak;
+    lighting.z /= peak;
+    return lighting;
+}
+
+float overlayStrength(Vector3 overlay) {
+    return std::max({overlay.x, overlay.y, overlay.z, 0.0f});
 }
 
 const QuadBvh* occlusionBvhFromLighting(const MapLighting* lighting) {
@@ -201,7 +247,11 @@ void storeFxLightFrameState(flecs::world& world, FxLightFrameState state) {
     }
 }
 
-Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
+Color sampleReceiverTintAtOrigin(
+    flecs::world& world,
+    Vector3 origin,
+    bool unlit,
+    bool includeFxLights) {
     if (unlit) {
         return WHITE;
     }
@@ -221,8 +271,9 @@ Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
     const std::vector<RankedDynamicLight>* dynLights =
         world.has<DynamicLightFrameState>() ? &world.get<DynamicLightFrameState>().lights
                                             : nullptr;
-    const FxLightFrameState* fxLights =
-        world.has<FxLightFrameState>() ? &world.get<FxLightFrameState>() : nullptr;
+    const FxLightFrameState* fxLights = includeFxLights && world.has<FxLightFrameState>()
+        ? &world.get<FxLightFrameState>()
+        : nullptr;
     const MapLighting* lighting =
         world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
     const Vector3 overlay = evaluateOverlayLightsAtPoint(
@@ -231,7 +282,118 @@ Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
         origin,
         {0.0f, 1.0f, 0.0f},
         occlusionBvhFromLighting(lighting));
-    return addLinearRgbToColor(tint, overlay);
+    return linearToColor(composeReceiverLighting(tint, overlay));
+}
+
+Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
+    return sampleReceiverTintAtOrigin(world, origin, unlit, true);
+}
+
+namespace {
+
+void modelTintSamplePoints(
+    const Model& model,
+    const Matrix& globalMatrix,
+    Vector3 outSamples[3]) {
+    const BoundingBox localBounds = GetModelBoundingBox(model);
+    const BoundingBox worldBounds = transformAabb(localBounds, globalMatrix);
+    const Vector3 center{
+        (worldBounds.min.x + worldBounds.max.x) * 0.5f,
+        (worldBounds.min.y + worldBounds.max.y) * 0.5f,
+        (worldBounds.min.z + worldBounds.max.z) * 0.5f,
+    };
+    const float extentY = std::max(0.0f, worldBounds.max.y - worldBounds.min.y);
+    const float insetY = std::min(0.15f, extentY * 0.25f);
+    outSamples[0] = center;
+    outSamples[1] = {center.x, worldBounds.min.y + insetY, center.z};
+    outSamples[2] = {center.x, worldBounds.max.y - insetY, center.z};
+}
+
+Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
+    if (unlit) {
+        return WHITE;
+    }
+    Color tint = WHITE;
+    if (world.has<MapLighting>()) {
+        const MapLighting& lighting = world.get<MapLighting>();
+        tint = lighting.ambient;
+        if (lighting.available) {
+            if (auto sample =
+                    sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                tint = *sample;
+            }
+        }
+    }
+    return tint;
+}
+
+} // namespace
+
+Color sampleReceiverTintColorForModel(
+    flecs::world& world,
+    const Model& model,
+    const Matrix& globalMatrix,
+    bool unlit) {
+    if (unlit) {
+        return WHITE;
+    }
+
+    Vector3 samples[3]{};
+    modelTintSamplePoints(model, globalMatrix, samples);
+
+    const std::vector<RankedDynamicLight>* dynLights =
+        world.has<DynamicLightFrameState>() ? &world.get<DynamicLightFrameState>().lights
+                                            : nullptr;
+    const MapLighting* lighting =
+        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+    const QuadBvh* occlusionBvh = occlusionBvhFromLighting(lighting);
+
+    Color best = sampleReceiverTintAtOrigin(world, samples[0], false, false);
+    float bestStrength = overlayStrength(evaluateOverlayLightsAtPoint(
+        dynLights,
+        nullptr,
+        samples[0],
+        {0.0f, 1.0f, 0.0f},
+        occlusionBvh));
+    for (int i = 1; i < 3; ++i) {
+        const float strength = overlayStrength(evaluateOverlayLightsAtPoint(
+            dynLights,
+            nullptr,
+            samples[i],
+            {0.0f, 1.0f, 0.0f},
+            occlusionBvh));
+        const Color candidate = sampleReceiverTintAtOrigin(world, samples[i], false, false);
+        if (strength > bestStrength) {
+            best = candidate;
+            bestStrength = strength;
+        }
+    }
+    return best;
+}
+
+Color sampleBakeTintColorForModel(
+    flecs::world& world,
+    const Model& model,
+    const Matrix& globalMatrix,
+    bool unlit) {
+    if (unlit) {
+        return WHITE;
+    }
+
+    Vector3 samples[3]{};
+    modelTintSamplePoints(model, globalMatrix, samples);
+
+    Color best = sampleBakeTintAtOrigin(world, samples[0], false);
+    float bestLum = linearLuminance(colorToLinear(best));
+    for (int i = 1; i < 3; ++i) {
+        const Color candidate = sampleBakeTintAtOrigin(world, samples[i], false);
+        const float lum = linearLuminance(colorToLinear(candidate));
+        if (lum > bestLum) {
+            best = candidate;
+            bestLum = lum;
+        }
+    }
+    return best;
 }
 
 Vector3 evaluateFxLightsAtPoint(

@@ -1,12 +1,14 @@
 #include "render/dynamic_light_shadows.hpp"
 
-#include "render/sprite_billboard.hpp"
+#include "render/dynamic_light_shadow_math.hpp"
+#include "map/bsp.hpp"
+#include "render/render_frustum.hpp"
 
 #include <rlgl.h>
+#include "external/glad.h"
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -14,104 +16,25 @@ namespace slopengine {
 
 namespace {
 
-RenderTexture2D loadShadowmapRenderTexture(int width, int height) {
-    RenderTexture2D target{};
-    target.id = rlLoadFramebuffer();
-    target.texture.width = width;
-    target.texture.height = height;
-
-    if (target.id > 0) {
-        rlEnableFramebuffer(target.id);
-        target.depth.id = rlLoadTextureDepth(width, height, false);
-        target.depth.width = width;
-        target.depth.height = height;
-        target.depth.format = 19;
-        target.depth.mipmaps = 1;
-        rlFramebufferAttach(
-            target.id,
-            target.depth.id,
-            RL_ATTACHMENT_DEPTH,
-            RL_ATTACHMENT_TEXTURE2D,
-            0);
-        rlFramebufferComplete(target.id);
-        rlDisableFramebuffer();
-    }
-    return target;
-}
-
-void unloadShadowmapRenderTexture(RenderTexture2D& target) {
-    if (target.id > 0) {
-        rlUnloadFramebuffer(target.id);
-        target = {};
-    }
-}
-
-Vector3 cubeFaceTarget(int face) {
-    switch (face) {
-    case 0:
-        return {1.0f, 0.0f, 0.0f};
-    case 1:
-        return {-1.0f, 0.0f, 0.0f};
-    case 2:
-        return {0.0f, 1.0f, 0.0f};
-    case 3:
-        return {0.0f, -1.0f, 0.0f};
-    case 4:
-        return {0.0f, 0.0f, 1.0f};
-    default:
-        return {0.0f, 0.0f, -1.0f};
-    }
-}
-
-Vector3 cubeFaceUp(int face) {
-    switch (face) {
-    case 2:
-        return {0.0f, 0.0f, 1.0f};
-    case 3:
-        return {0.0f, 0.0f, -1.0f};
-    default:
-        return {0.0f, -1.0f, 0.0f};
-    }
-}
-
-Camera3D makeSpotLightCamera(const RankedDynamicLight& light) {
-    Camera3D camera{};
-    camera.position = light.position;
-    const Vector3 forward = Vector3Normalize(light.direction);
-    camera.target = Vector3Add(light.position, forward);
-    const float align = std::fabs(Vector3DotProduct(forward, {0.0f, 1.0f, 0.0f}));
-    camera.up = align > 0.95f ? Vector3{0.0f, 0.0f, 1.0f} : Vector3{0.0f, 1.0f, 0.0f};
-    const float coneDeg = light.light.coneAngle * RAD2DEG;
-    camera.fovy = std::clamp(coneDeg * 2.0f * 1.15f, 10.0f, 170.0f);
-    camera.projection = CAMERA_PERSPECTIVE;
-    return camera;
-}
-
-Camera3D makePointLightFaceCamera(const RankedDynamicLight& light, int face) {
-    Camera3D camera{};
-    camera.position = light.position;
-    camera.target = Vector3Add(light.position, cubeFaceTarget(face));
-    camera.up = cubeFaceUp(face);
-    camera.fovy = 90.0f;
-    camera.projection = CAMERA_PERSPECTIVE;
-    return camera;
-}
-
 void drawShadowCasters(
     flecs::world& world,
-    AssetStore& assets,
     Shader depthShader,
     int useAlphaClipLoc,
-    Vector3 viewPosition,
-    float cameraYaw) {
+    Vector3 lightPosition) {
     const int alphaOff = 0;
-    const int alphaOn = 1;
     if (useAlphaClipLoc >= 0) {
         SetShaderValue(depthShader, useAlphaClipLoc, &alphaOff, SHADER_UNIFORM_INT);
     }
 
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.0f, 2.0f);
     world.each([&](flecs::entity entity, Model3D& model, GlobalTransformation& global) {
         if (!entity.has<WorldSpace>()) {
+            return;
+        }
+        const BoundingBox localBounds = GetModelBoundingBox(model.model);
+        const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+        if (shouldSkipShadowCaster(entity.has<MapLightmapState>(), worldBounds, lightPosition)) {
             return;
         }
         std::vector<Shader> previous;
@@ -128,57 +51,31 @@ void drawShadowCasters(
             model.model.materials[i].shader = previous[static_cast<std::size_t>(i)];
         }
     });
-
-    if (useAlphaClipLoc >= 0) {
-        SetShaderValue(depthShader, useAlphaClipLoc, &alphaOn, SHADER_UNIFORM_INT);
-    }
-
-    world.each([&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
-        if (!entity.has<WorldSpace>()) {
-            return;
-        }
-        const auto billboard = resolveSpriteBillboard(sprite, global, viewPosition, cameraYaw, assets);
-        if (!billboard || billboard->texture == nullptr) {
-            return;
-        }
-
-        const Texture2D& texture = *billboard->texture;
-        const Rectangle source = billboard->source;
-        const float texW = static_cast<float>(texture.width);
-        const float texH = static_cast<float>(texture.height);
-        const Vector2 texcoords[4] = {
-            {source.x / texW, (source.y + source.height) / texH},
-            {(source.x + source.width) / texW, (source.y + source.height) / texH},
-            {(source.x + source.width) / texW, source.y / texH},
-            {source.x / texW, source.y / texH},
-        };
-
-        rlSetTexture(texture.id);
-        BeginShaderMode(depthShader);
-        rlBegin(RL_QUADS);
-        for (int i = 0; i < 4; ++i) {
-            rlColor4ub(255, 255, 255, 255);
-            rlTexCoord2f(texcoords[i].x, texcoords[i].y);
-            rlVertex3f(billboard->points[i].x, billboard->points[i].y, billboard->points[i].z);
-        }
-        rlEnd();
-        EndShaderMode();
-        rlSetTexture(0);
-    });
+    glDisable(GL_POLYGON_OFFSET_FILL);
 }
 
 void renderShadowFace(
     DynamicLightShadowState& shadowState,
-    DynamicLightShadowSlot& slot,
+    int slotIndex,
     int faceIndex,
     const Camera3D& camera,
     float nearPlane,
     float farPlane,
     flecs::world& world,
-    AssetStore& assets) {
-    RenderTexture2D& target = slot.faces[faceIndex];
-    BeginTextureMode(target);
-    ClearBackground(WHITE);
+    Vector3 lightPosition) {
+    const int layer = slotIndex * kDynamicShadowFacesPerSlot + faceIndex;
+    DynamicLightShadowSlot& slot = shadowState.slots[slotIndex];
+
+    BeginTextureMode(shadowState.scratch);
+    rlEnableFramebuffer(shadowState.fboId);
+    glFramebufferTextureLayer(
+        GL_FRAMEBUFFER,
+        GL_DEPTH_ATTACHMENT,
+        shadowState.depthArrayId,
+        0,
+        layer);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
     rlSetClipPlanes(nearPlane, farPlane);
     BeginMode3D(camera);
     const Matrix lightView = rlGetMatrixModelview();
@@ -186,26 +83,30 @@ void renderShadowFace(
     slot.viewProj[faceIndex] = MatrixMultiply(lightView, lightProj);
     drawShadowCasters(
         world,
-        assets,
         shadowState.depthShader,
         shadowState.useAlphaClipLoc,
-        camera.position,
-        horizontalCameraYaw(camera.position, camera.target));
+        lightPosition);
     EndMode3D();
-    EndTextureMode();
     rlSetClipPlanes(RL_CULL_DISTANCE_NEAR, RL_CULL_DISTANCE_FAR);
+    EndTextureMode();
 }
 
 } // namespace
 
 DynamicLightShadowState::DynamicLightShadowState(DynamicLightShadowState&& other) noexcept
-    : depthShader(other.depthShader)
+    : depthArrayId(other.depthArrayId)
+    , fboId(other.fboId)
+    , scratch(other.scratch)
+    , depthShader(other.depthShader)
     , useAlphaClipLoc(other.useAlphaClipLoc)
     , ready(other.ready) {
     for (int i = 0; i < kMaxShadowedDynamicLights; ++i) {
         slots[i] = other.slots[i];
         other.slots[i] = {};
     }
+    other.depthArrayId = 0;
+    other.fboId = 0;
+    other.scratch = {};
     other.depthShader = {};
     other.useAlphaClipLoc = -1;
     other.ready = false;
@@ -220,9 +121,15 @@ DynamicLightShadowState& DynamicLightShadowState::operator=(DynamicLightShadowSt
         slots[i] = other.slots[i];
         other.slots[i] = {};
     }
+    depthArrayId = other.depthArrayId;
+    fboId = other.fboId;
+    scratch = other.scratch;
     depthShader = other.depthShader;
     useAlphaClipLoc = other.useAlphaClipLoc;
     ready = other.ready;
+    other.depthArrayId = 0;
+    other.fboId = 0;
+    other.scratch = {};
     other.depthShader = {};
     other.useAlphaClipLoc = -1;
     other.ready = false;
@@ -234,11 +141,20 @@ DynamicLightShadowState::~DynamicLightShadowState() {
 }
 
 void DynamicLightShadowState::unload() {
-    for (int slotIndex = 0; slotIndex < kMaxShadowedDynamicLights; ++slotIndex) {
-        for (int face = 0; face < kDynamicShadowFacesPerSlot; ++face) {
-            unloadShadowmapRenderTexture(slots[slotIndex].faces[face]);
-        }
-        slots[slotIndex] = {};
+    for (int i = 0; i < kMaxShadowedDynamicLights; ++i) {
+        slots[i] = {};
+    }
+    if (depthArrayId != 0) {
+        glDeleteTextures(1, &depthArrayId);
+        depthArrayId = 0;
+    }
+    if (fboId != 0) {
+        rlUnloadFramebuffer(fboId);
+        fboId = 0;
+    }
+    if (scratch.id != 0) {
+        UnloadRenderTexture(scratch);
+        scratch = {};
     }
     if (depthShader.id != 0) {
         UnloadShader(depthShader);
@@ -261,13 +177,32 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets) {
         }
     }
 
-    for (int slotIndex = 0; slotIndex < kMaxShadowedDynamicLights; ++slotIndex) {
-        for (int face = 0; face < kDynamicShadowFacesPerSlot; ++face) {
-            state.slots[slotIndex].faces[face] =
-                loadShadowmapRenderTexture(kDynamicShadowMapResolution, kDynamicShadowMapResolution);
-        }
+    glGenTextures(1, &state.depthArrayId);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, state.depthArrayId);
+    glTexImage3D(
+        GL_TEXTURE_2D_ARRAY,
+        0,
+        GL_DEPTH_COMPONENT24,
+        kDynamicShadowMapResolution,
+        kDynamicShadowMapResolution,
+        kDynamicShadowMapCount,
+        0,
+        GL_DEPTH_COMPONENT,
+        GL_FLOAT,
+        nullptr);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+    state.fboId = rlLoadFramebuffer();
+    state.scratch = LoadRenderTexture(kDynamicShadowMapResolution, kDynamicShadowMapResolution);
+    state.ready = state.depthShader.id != 0 && state.depthArrayId != 0 && state.fboId != 0 &&
+        state.scratch.id != 0;
+    if (!state.ready) {
+        state.unload();
     }
-    state.ready = state.depthShader.id != 0;
     return state;
 }
 
@@ -276,6 +211,7 @@ void renderDynamicLightShadows(
     const std::vector<RankedDynamicLight>& lights,
     flecs::world& world,
     AssetStore& assets) {
+    (void)assets;
     if (!shadowState.ready) {
         return;
     }
@@ -294,31 +230,34 @@ void renderDynamicLightShadows(
         slot.kind = light.light.kind;
         slot.lightPosition = light.position;
         slot.farPlane = std::max(light.light.range, 0.5f);
-        constexpr float kNear = 0.05f;
+        const float nearPlane = shadowNearPlane(light.light.range);
 
         if (light.light.kind == DynamicLightKind::Spot) {
             slot.faceCount = 1;
+            const ShadowCameraDesc desc =
+                spotShadowCamera(light.position, light.direction, light.light.coneAngle);
             renderShadowFace(
                 shadowState,
-                slot,
+                light.shadowSlot,
                 0,
-                makeSpotLightCamera(light),
-                kNear,
+                shadowCameraFromDesc(desc),
+                nearPlane,
                 slot.farPlane,
                 world,
-                assets);
+                light.position);
         } else {
             slot.faceCount = kDynamicShadowFacesPerSlot;
             for (int face = 0; face < kDynamicShadowFacesPerSlot; ++face) {
+                const ShadowCameraDesc desc = pointShadowFaceCamera(light.position, face);
                 renderShadowFace(
                     shadowState,
-                    slot,
+                    light.shadowSlot,
                     face,
-                    makePointLightFaceCamera(light, face),
-                    kNear,
+                    shadowCameraFromDesc(desc),
+                    nearPlane,
                     slot.farPlane,
                     world,
-                    assets);
+                    light.position);
             }
         }
     }
@@ -343,22 +282,25 @@ void resolveDynamicLightShaderBindings(Shader shader, DynamicLightShaderBindings
     bindings.lightColorIntensityLoc = locateArray("dynLightColorIntensity");
     bindings.lightDirConeLoc = locateArray("dynLightDirCone");
     bindings.lightMetaLoc = locateArray("dynLightMeta");
-    bindings.shadowBiasLoc = -1;
-    bindings.shadowVpLoc = -1;
-    for (int& shadowMapLoc : bindings.shadowMapLoc) {
-        shadowMapLoc = -1;
+    bindings.shadowBiasLoc = GetShaderLocation(shader, "dynShadowBias");
+    bindings.shadowMapsLoc = GetShaderLocation(shader, "dynShadowMaps");
+    for (int i = 0; i < kDynamicShadowMapCount; ++i) {
+        bindings.shadowVpLoc[i] =
+            GetShaderLocation(shader, TextFormat("dynShadowVp[%d]", i));
     }
     bindings.resolved = bindings.lightCountLoc >= 0 && bindings.lightPosRangeLoc >= 0 &&
         bindings.lightColorIntensityLoc >= 0;
     TraceLog(
         LOG_INFO,
-        "MAP: dynamic light uniforms resolved=%s count=%d pos=%d color=%d dir=%d meta=%d",
+        "MAP: dynamic light uniforms resolved=%s count=%d pos=%d color=%d dir=%d meta=%d bias=%d maps=%d",
         bindings.resolved ? "yes" : "no",
         bindings.lightCountLoc,
         bindings.lightPosRangeLoc,
         bindings.lightColorIntensityLoc,
         bindings.lightDirConeLoc,
-        bindings.lightMetaLoc);
+        bindings.lightMetaLoc,
+        bindings.shadowBiasLoc,
+        bindings.shadowMapsLoc);
 }
 
 void uploadDynamicLightsToShader(
@@ -366,13 +308,9 @@ void uploadDynamicLightsToShader(
     const DynamicLightShaderBindings& bindings,
     const std::vector<RankedDynamicLight>& lights,
     const DynamicLightShadowState* shadowState) {
-    (void)shadowState;
     if (shader.id == 0 || !bindings.resolved) {
         return;
     }
-
-    const int count = static_cast<int>(std::min<std::size_t>(lights.size(), kMaxDynamicLights));
-    SetShaderValue(shader, bindings.lightCountLoc, &count, SHADER_UNIFORM_INT);
 
     Vector4 posRange[kMaxDynamicLights]{};
     Vector4 colorIntensity[kMaxDynamicLights]{};
@@ -381,31 +319,42 @@ void uploadDynamicLightsToShader(
     for (int i = 0; i < kMaxDynamicLights; ++i) {
         dirCone[i] = {0.0f, 0.0f, 1.0f, 0.0f};
         meta[i] = {0.0f, -1.0f, 0.0f, 0.0f};
-        if (i >= count) {
+    }
+
+    int count = 0;
+    const bool shadowsActive = shadowState != nullptr && shadowState->ready;
+    for (const RankedDynamicLight& light : lights) {
+        if (count >= kMaxDynamicLights) {
+            break;
+        }
+        if (shadowsActive && light.light.castShadows && light.shadowSlot < 0) {
             continue;
         }
-        const RankedDynamicLight& light = lights[static_cast<std::size_t>(i)];
-        posRange[i] = {
+        posRange[count] = {
             light.position.x,
             light.position.y,
             light.position.z,
             light.light.range,
         };
-        colorIntensity[i] = {
+        colorIntensity[count] = {
             light.linearRgb.x,
             light.linearRgb.y,
             light.linearRgb.z,
             light.light.intensity,
         };
         const Vector3 dir = Vector3Normalize(light.direction);
-        dirCone[i] = {dir.x, dir.y, dir.z, light.light.coneAngle};
-        meta[i] = {
+        dirCone[count] = {dir.x, dir.y, dir.z, light.light.coneAngle};
+        const float shadowSlot =
+            (shadowsActive && light.shadowSlot >= 0) ? static_cast<float>(light.shadowSlot) : -1.0f;
+        meta[count] = {
             light.light.kind == DynamicLightKind::Spot ? 1.0f : 0.0f,
-            -1.0f,
+            shadowSlot,
             0.0f,
             0.0f,
         };
+        ++count;
     }
+    SetShaderValue(shader, bindings.lightCountLoc, &count, SHADER_UNIFORM_INT);
 
     SetShaderValueV(
         shader,
@@ -430,6 +379,46 @@ void uploadDynamicLightsToShader(
     if (bindings.lightMetaLoc >= 0) {
         SetShaderValueV(shader, bindings.lightMetaLoc, meta, SHADER_UNIFORM_VEC4, kMaxDynamicLights);
     }
+
+    if (bindings.shadowBiasLoc >= 0) {
+        const float bias = kDynamicShadowBias;
+        SetShaderValue(shader, bindings.shadowBiasLoc, &bias, SHADER_UNIFORM_FLOAT);
+    }
+
+    if (shadowState == nullptr || !shadowState->ready) {
+        return;
+    }
+
+    for (int slotIndex = 0; slotIndex < kMaxShadowedDynamicLights; ++slotIndex) {
+        const DynamicLightShadowSlot& slot = shadowState->slots[slotIndex];
+        const int faceCount = slot.active ? slot.faceCount : 0;
+        for (int face = 0; face < kDynamicShadowFacesPerSlot; ++face) {
+            const int mapIndex = slotIndex * kDynamicShadowFacesPerSlot + face;
+            if (bindings.shadowVpLoc[mapIndex] >= 0) {
+                const Matrix vp =
+                    (face < faceCount) ? slot.viewProj[face] : MatrixIdentity();
+                SetShaderValueMatrix(shader, bindings.shadowVpLoc[mapIndex], vp);
+            }
+        }
+    }
+}
+
+void bindDynamicLightShadowMaps(
+    Shader shader,
+    const DynamicLightShaderBindings& bindings,
+    const DynamicLightShadowState& shadowState) {
+    if (shader.id == 0 || !shadowState.ready || bindings.shadowMapsLoc < 0 ||
+        shadowState.depthArrayId == 0) {
+        return;
+    }
+
+    rlDrawRenderBatchActive();
+    rlEnableShader(shader.id);
+    const int unit = kDynamicShadowTextureUnit;
+    rlActiveTextureSlot(unit);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, shadowState.depthArrayId);
+    rlSetUniform(bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT, 1);
+    rlActiveTextureSlot(0);
 }
 
 }

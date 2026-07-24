@@ -213,6 +213,7 @@ Vector3 evaluateDynamicLightAtPoint(
     const RankedDynamicLight& light,
     Vector3 point,
     Vector3 normal) {
+    (void)normal;
     Vector3 delta = Vector3Subtract(light.position, point);
     const float dist2Raw = Vector3DotProduct(delta, delta);
     if (dist2Raw < 1e-6f) {
@@ -225,11 +226,6 @@ Vector3 evaluateDynamicLightAtPoint(
     }
 
     const Vector3 toLight = Vector3Scale(delta, 1.0f / dist);
-    const float dist2 = std::max(dist2Raw, 0.0025f);
-    const float nDotL = std::max(0.0f, Vector3DotProduct(Vector3Normalize(normal), toLight));
-    if (nDotL <= 0.0f) {
-        return {};
-    }
 
     const float t = dist / range;
     float atten = std::max(0.0f, 1.0f - t * t);
@@ -240,14 +236,14 @@ Vector3 evaluateDynamicLightAtPoint(
         const Vector3 forward = Vector3Normalize(light.direction);
         const float cosTheta = Vector3DotProduct(Vector3Scale(toLight, -1.0f), forward);
         const float cosOuter = std::cos(light.light.coneAngle);
-        const float cosInner = std::cos(light.light.coneAngle * 0.8f);
+        const float cosInner = std::cos(light.light.coneAngle * 0.7f);
         spot = smoothstep(cosOuter, cosInner, cosTheta);
         if (spot <= 0.0f) {
             return {};
         }
     }
 
-    const float scale = nDotL * atten * spot / dist2 * light.light.intensity;
+    const float scale = atten * spot * light.light.intensity;
     return {
         light.linearRgb.x * scale,
         light.linearRgb.y * scale,

@@ -30,6 +30,46 @@
 
 namespace slopengine {
 
+namespace {
+
+const MapLightmapState* mapLightmapState(flecs::world& world) {
+    flecs::entity mapEntity = world.lookup("MapStatic");
+    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>()) {
+        return nullptr;
+    }
+    const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
+    if (!lightmaps.available || lightmaps.lightmapShader.id == 0) {
+        return nullptr;
+    }
+    return &lightmaps;
+}
+
+void prepareLightmapShaderDraw(
+    Shader shader,
+    int useLightmapLoc,
+    int useLightmap,
+    const Matrix& modelMatrix,
+    flecs::world& world) {
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
+        shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    }
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
+        SetShaderValueMatrix(shader, shader.locs[SHADER_LOC_MATRIX_MODEL], modelMatrix);
+    }
+    if (useLightmapLoc >= 0) {
+        SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
+    }
+    if (world.has<DynamicLightFrameState>() && world.has<DynamicLightShadowState>()) {
+        const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
+        const DynamicLightShadowState& shadows = world.get<DynamicLightShadowState>();
+        if (frame.bindings.resolved && shadows.ready) {
+            bindDynamicLightShadowMaps(shader, frame.bindings, shadows);
+        }
+    }
+}
+
+} // namespace
+
 void renderWorldModel(
     flecs::entity entity,
     Model3D& model,
@@ -38,21 +78,39 @@ void renderWorldModel(
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
+    flecs::world world = entity.world();
+    std::vector<Shader> previousShaders;
+    bool swappedPropShader = false;
+    const MapLightmapState* mapLightmaps = nullptr;
+
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
         if (lightmaps.available && model.model.materialCount > 0) {
             Shader shader = model.model.materials[0].shader;
             if (shader.id != 0) {
-                if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
-                    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
-                }
-                if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
-                    SetShaderValueMatrix(
-                        shader,
-                        shader.locs[SHADER_LOC_MATRIX_MODEL],
-                        globalTransform.matrix);
-                }
+                prepareLightmapShaderDraw(
+                    shader,
+                    lightmaps.useLightmapLoc,
+                    1,
+                    globalTransform.matrix,
+                    world);
             }
+        }
+    } else if (model.model.materialCount > 0) {
+        mapLightmaps = mapLightmapState(world);
+        if (mapLightmaps != nullptr) {
+            previousShaders.reserve(static_cast<std::size_t>(model.model.materialCount));
+            for (int i = 0; i < model.model.materialCount; ++i) {
+                previousShaders.push_back(model.model.materials[i].shader);
+                model.model.materials[i].shader = mapLightmaps->lightmapShader;
+            }
+            swappedPropShader = true;
+            prepareLightmapShaderDraw(
+                mapLightmaps->lightmapShader,
+                mapLightmaps->useLightmapLoc,
+                0,
+                globalTransform.matrix,
+                world);
         }
     }
 
@@ -77,6 +135,21 @@ void renderWorldModel(
     }
 
     DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+
+    if (swappedPropShader) {
+        for (int i = 0; i < model.model.materialCount; ++i) {
+            model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
+        }
+        if (mapLightmaps != nullptr && mapLightmaps->useLightmapLoc >= 0) {
+            const int useLightmap = 1;
+            SetShaderValue(
+                mapLightmaps->lightmapShader,
+                mapLightmaps->useLightmapLoc,
+                &useLightmap,
+                SHADER_UNIFORM_INT);
+        }
+    }
+
     rlPopMatrix();
 }
 
@@ -314,9 +387,11 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     const Lens& lens,
     const Lens& presentLens,
     const Frustum& frustum,
-    bool unlit) {
+    bool unlit,
+    bool enableDynamicLights,
+    int maxShadowed) {
     std::vector<RankedDynamicLight> rankedLights;
-    if (unlit) {
+    if (unlit || !enableDynamicLights) {
         return rankedLights;
     }
     std::vector<RankedDynamicLight> candidates;
@@ -348,7 +423,11 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         ranked.linearRgb = dynamicLightLinearRgb(light);
         candidates.push_back(ranked);
     });
-    rankedLights = rankDynamicLights(candidates, lens.camera.position);
+    rankedLights = rankDynamicLights(
+        candidates,
+        lens.camera.position,
+        kMaxDynamicLights,
+        maxShadowed);
     static int sLastDynCount = -1;
     if (static_cast<int>(rankedLights.size()) != sLastDynCount) {
         sLastDynCount = static_cast<int>(rankedLights.size());
@@ -381,7 +460,8 @@ void storeDynamicLightFrameState(
 void uploadMapDynamicLights(
     flecs::world& world,
     const std::vector<RankedDynamicLight>& rankedLights,
-    bool unlit) {
+    bool unlit,
+    const DynamicLightShadowState* shadowState) {
     flecs::entity mapEntity = world.lookup("MapStatic");
     if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>() || !mapEntity.has<Model3D>()) {
         return;
@@ -397,10 +477,10 @@ void uploadMapDynamicLights(
     }
     if (world.has<DynamicLightFrameState>()) {
         DynamicLightFrameState& frameState = world.get_mut<DynamicLightFrameState>();
-        if (!frameState.bindings.resolved) {
+        if (!frameState.bindings.resolved || frameState.bindings.shadowMapsLoc < 0) {
             resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
         }
-        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, nullptr);
+        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, shadowState);
     }
     if (lightmaps.useLightmapLoc >= 0) {
         const int useLightmap = (!unlit) ? 1 : 0;
@@ -433,12 +513,13 @@ void drawWorldModels(
             if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
                 return;
             }
-            const Vector3 origin{
-                global.matrix.m12,
-                global.matrix.m13 + 0.05f,
-                global.matrix.m14,
-            };
-            model.color = sampleReceiverTintColor(world, origin, unlit);
+            if (mapLightmapState(world) != nullptr) {
+                model.color =
+                    sampleBakeTintColorForModel(world, model.model, global.matrix, unlit);
+            } else {
+                model.color =
+                    sampleReceiverTintColorForModel(world, model.model, global.matrix, unlit);
+            }
         }
         renderWorldModel(modelEntity, model, global, lens);
     });
