@@ -4,6 +4,7 @@
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "assets/sprite_anim_loader.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
 #include "physics/components.hpp"
@@ -345,18 +346,22 @@ s7_pointer g_sprite_spawn(s7_scheme* sc, s7_pointer args) {
     local.scale = {1.0f, 1.0f, 1.0f};
     local.rotation = QuaternionIdentity();
 
-    entity.add<WorldSpace>().add<MapOwned>().set<LocalTransformation>(local);
-    entity.set<SpriteInstance>({
+    SpriteInstance sprite{
         .sprite = path,
         .frame = "A",
         .facingYaw = 0.0f,
-    });
-
+    };
     if (!clip.empty()) {
         SpriteAnimator animator{};
         animator.animPath = path;
-        animator.play(clip, false);
+        const SpriteAnimBank* bank = assets.getSpriteAnimBank(path);
+        playSpriteAnim(animator, sprite, bank, clip, false);
+        entity.add<WorldSpace>().add<MapOwned>().set<LocalTransformation>(local);
+        entity.set<SpriteInstance>(sprite);
         entity.set<SpriteAnimator>(animator);
+    } else {
+        entity.add<WorldSpace>().add<MapOwned>().set<LocalTransformation>(local);
+        entity.set<SpriteInstance>(sprite);
     }
 
     if (lifetime > 0.0f) {
@@ -609,12 +614,21 @@ s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
-    if (!entity.has<SpriteAnimator>()) {
-        SpriteAnimator animator{};
-        animator.animPath = entity.get<SpriteInstance>().sprite;
-        entity.set<SpriteAnimator>(animator);
+    SpriteInstance sprite = entity.get<SpriteInstance>();
+    SpriteAnimator animator{};
+    if (entity.has<SpriteAnimator>()) {
+        animator = entity.get<SpriteAnimator>();
+    } else {
+        animator.animPath = sprite.sprite;
     }
-    entity.get_mut<SpriteAnimator>().play(clip, loop);
+    const SpriteAnimBank* bank = nullptr;
+    if (g_thingWorld->has<AssetServices>() &&
+        g_thingWorld->get<AssetServices>().store != nullptr) {
+        bank = g_thingWorld->get_mut<AssetServices>().store->getSpriteAnimBank(animator.animPath);
+    }
+    playSpriteAnim(animator, sprite, bank, clip, loop);
+    entity.set<SpriteInstance>(sprite);
+    entity.set<SpriteAnimator>(animator);
     return s7_t(sc);
 }
 

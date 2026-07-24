@@ -1,6 +1,8 @@
 #include "map/things_spawn.hpp"
 
+#include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "assets/sprite_anim_loader.hpp"
 #include "audio/components.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
@@ -126,17 +128,22 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
             return false;
         }
 
-        entity.set<SpriteInstance>({
+        SpriteInstance sprite{
             .sprite = placement.sprite,
             .frame = placement.frame.empty() ? "A" : placement.frame,
             .facingYaw = facingYaw,
-        });
-
+        };
         if (placement.haveAnim) {
             SpriteAnimator animator{};
             animator.animPath = placement.sprite;
-            animator.play(placement.animClip, placement.animLoop);
+            const SpriteAnimBank* bank =
+                ctx.assets != nullptr ? ctx.assets->getSpriteAnimBank(placement.sprite)
+                                      : nullptr;
+            playSpriteAnim(animator, sprite, bank, placement.animClip, placement.animLoop);
+            entity.set<SpriteInstance>(sprite);
             entity.set<SpriteAnimator>(animator);
+        } else {
+            entity.set<SpriteInstance>(sprite);
         }
         return true;
     }

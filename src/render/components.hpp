@@ -50,11 +50,14 @@ struct HudCanvas {
 };
 
 /** Screen-space FP sprite: canvasX/Y place the normalized origin on the view canvas.
+ *  offsetX/Y are a package presentation layer (raise/lower/bob) on top of canvas.
  *  @ingroup render_components
  */
 struct ViewSprite {
     float canvasX = 160.0f;
     float canvasY = 200.0f;
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
     float scaleX = 1.0f;
     float scaleY = 1.0f;
     float rotationDeg = 0.0f;

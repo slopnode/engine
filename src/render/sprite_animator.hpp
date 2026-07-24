@@ -7,6 +7,9 @@
 
 namespace slopengine {
 
+struct SpriteAnimBank;
+struct SpriteInstance;
+
 /** Runtime state for playing a sprite clip from a .spanim bank.
  *  @ingroup render_components
  */
@@ -35,6 +38,15 @@ struct SpriteAnimator {
     /** Stops playback and clears transition flags. */
     void stop();
 };
+
+/** Starts @p clip and immediately applies its first hold to @p sprite when @p bank has it. */
+void playSpriteAnim(
+    SpriteAnimator& animator,
+    SpriteInstance& sprite,
+    const SpriteAnimBank* bank,
+    std::string_view clip,
+    bool shouldLoop = true,
+    float playbackSpeed = 1.0f);
 
 void registerSpriteAnimatorSystem(flecs::world& world);
 

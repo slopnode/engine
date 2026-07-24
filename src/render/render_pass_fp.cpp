@@ -357,9 +357,11 @@ void drawViewSpritesAndHud(flecs::world& world) {
         const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale *
                             viewSprite.scaleY * frameScaleY;
         const float screenX =
-            viewFit.offsetX + (viewSprite.canvasX + translateX) * viewFit.scale;
+            viewFit.offsetX +
+            (viewSprite.canvasX + viewSprite.offsetX + translateX) * viewFit.scale;
         const float screenY =
-            viewFit.offsetY + (viewSprite.canvasY + translateY) * viewFit.scale;
+            viewFit.offsetY +
+            (viewSprite.canvasY + viewSprite.offsetY + translateY) * viewFit.scale;
         const Rectangle dest{screenX, screenY, destW, destH};
         DrawTexturePro(
             *frame->texture,

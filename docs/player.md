@@ -71,10 +71,13 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 |---------|---------|
 | (fp-clear-socket name) | Destroy children of weapon or emission. |
 | (fp-attach-geo socket geo [x y z sx sy sz]) | Attach a geo viewmodel under a socket. |
-| (fp-attach-sprite socket sprite [canvas-x canvas-y]) | Attach a screen-space sprite under a socket. Optional canvas position places the sprite origin (default bottom-center) on the view canvas. Formats and pose/tween: [Sprites](sprites.md). |
+| (fp-attach-sprite socket sprite [canvas-x canvas-y]) | Attach a screen-space sprite under a socket. When the `.spr` has `(view ...)`, its canvas/origin/scale/rotation are applied as the rest pin; presentation offset starts at `(0 0)`. Optional canvas-x/y override only the canvas pin (otherwise view canvas, or canvas center/bottom if no view). Seeds the instance to the first frame in the `.spr`. Returns `(x y)` canvas used, or `#f`. Formats and pose/tween: [Sprites](sprites.md). |
 | (fp-set-sprite-frame socket frame-id) | Set the current sprite frame id. |
-| (fp-play-sprite-anim socket clip [loop]) | Play a .spanim clip on the socket sprite (tween / frame sounds / logic hints apply; see [Sprites](sprites.md), [Audio](audio.md)). |
-| (fp-set-sprite-pos socket x y) | Move the view-sprite origin on the view canvas. |
+| (fp-play-sprite-anim socket clip [loop]) | Play a .spanim clip on the socket sprite; applies the clip's first hold immediately (tween / frame sounds / logic hints apply; see [Sprites](sprites.md), [Audio](audio.md)). |
+| (fp-set-sprite-pos socket x y) | Set the rest canvas pin (view-sprite origin on the view canvas). |
+| (fp-sprite-pos socket) | Return `(x y)` rest canvas position of the socket sprite, or `#f`. |
+| (fp-set-sprite-offset socket x y) | Set the presentation offset on top of the rest canvas (package raise/lower/bob, etc.). |
+| (fp-sprite-offset socket) | Return `(x y)` presentation offset of the socket sprite, or `#f`. |
 | (fp-set-sprite-scale socket sx sy) | Independent X/Y scale multipliers (default 1 1). |
 | (fp-set-sprite-rotation socket degrees) | Rotation in degrees around the sprite origin. |
 | (fp-set-sprite-origin socket ox oy) | Normalized pivot in sprite space (default 0.5 1.0 = bottom-center). Canvas position places this pivot. |
@@ -89,7 +92,7 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 | (fp-set-rad-tint enabled) | Tint viewmodels from a baked rad probe at the feet (plus dynamic lights). Off by default. |
 | (fp-set-shading enabled) | Use package default/viewmodel_* faux lighting (Lambert + rim) with the probe. Off by default. |
 
-Raise/lower, bob, kick, and similar presentation policies stay in package Scheme. The engine only exposes pose/eye mutators, motion sensors, and an optional (tick dt) heartbeat.
+Raise/lower, bob, kick, and similar presentation policies stay in package Scheme (typically via `fp-set-sprite-offset` so they do not overwrite the rest canvas from `(view ...)` / attach). The engine only exposes pose/eye mutators, motion sensors, and an optional (tick dt) heartbeat.
 
 ### Package hooks
 

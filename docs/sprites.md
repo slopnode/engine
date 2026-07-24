@@ -55,9 +55,17 @@ Effective pose per channel:
 
 .spanim tween interpolates only the anim-* channels toward the next hold's values. Base rotation / scale / translate stay on the current hold's frame for the whole hold.
 
+For first-person view sprites, draw stacks three layers:
+
+- Rest: `ViewSprite` canvas / scale / rotation (from `(view ...)` or `fp-set-sprite-pos` / scale / rotation)
+- Presentation offset: `ViewSprite` offsetX/Y (`fp-set-sprite-offset`) for package policy such as raise/lower/bob
+- Art: frame base + `anim-*` from the current `.spr` hold / `.spanim` tween
+
+Screen position uses `canvas + offset + (translate + anim-translate)`.
+
 ### View defaults ((view ...))
 
-Optional block for first-person authoring defaults (used by slopsprite). Parsed into the asset; runtime first-person attach still sets canvas pose via Scheme (fp-attach-sprite, fp-set-sprite-*) unless the package copies these values itself.
+Optional block for first-person defaults (used by slopsprite and by runtime attach). Parsed into the asset; `(fp-attach-sprite socket sprite)` copies canvas, scale, rotation, and origin into `ViewSprite` when present and leaves presentation offset at zero. Optional canvas-x/y args override only the canvas pin. Scheme may drive raise/lower/bob with `fp-set-sprite-offset` without overwriting the rest pin.
 
 ```text
 (sprite
@@ -200,11 +208,11 @@ animator.animPath = "characters/guard";
 animator.play("walk", true);
 ```
 
-play(clip, shouldLoop = true, playbackSpeed = 1) resets time and starts the clip. stop() clears playing. The AdvanceSpriteAnimator system loads the bank, picks the clip, advances time by delta * speed, writes the frame id into SpriteInstance.frame, updates tween blend, and on hold enter plays frame sounds and calls (on-sprite-hint ...) for any (hint ...) markers. Non-looping clips clamp on the last frame, set playing = false, and pulse justFinished.
+play(clip, shouldLoop = true, playbackSpeed = 1) resets time and starts the clip. playSpriteAnim also writes the clip's first hold into SpriteInstance.frame immediately when the bank is available. stop() clears playing. The AdvanceSpriteAnimator system loads the bank, picks the clip, advances time by delta * speed, writes the frame id into SpriteInstance.frame, updates tween blend, and on hold enter plays frame sounds and calls (on-sprite-hint ...) for any (hint ...) markers. Non-looping clips clamp on the last frame, set playing = false, and pulse justFinished.
 
 ### ViewSprite
 
-Screen-space presentation for first-person / HUD-like weapon sprites. Canvas position, scale, rotation, and origin are set by Scheme or by copying authored (view ...) defaults. Drawn after the world in the FP pass.
+Screen-space presentation for first-person / HUD-like weapon sprites. On `(fp-attach-sprite)` without canvas args, authored `(view ...)` defaults fill canvas, scale, rotation, and origin; offset starts at zero. Rest canvas stays on canvasX/Y; package presentation (raise/lower/bob) uses offsetX/Y via `fp-set-sprite-offset`. Drawn after the world in the FP pass.
 
 ## slopsprite
 
