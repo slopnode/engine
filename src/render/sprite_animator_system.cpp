@@ -259,9 +259,15 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 if (useLoop && currentIndex < previousIndex) {
                     for (int i = previousIndex + 1; i < frameCount; ++i) {
                         fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
+                        if (animator.justStarted) {
+                            return;
+                        }
                     }
                     for (int i = 0; i <= currentIndex; ++i) {
                         fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
+                        if (animator.justStarted) {
+                            return;
+                        }
                     }
                     return;
                 }
@@ -269,6 +275,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 const int end = std::min(currentIndex, frameCount - 1);
                 for (int i = begin; i <= end; ++i) {
                     fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
+                    if (animator.justStarted) {
+                        return;
+                    }
                 }
             };
 
@@ -281,6 +290,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             } else if (localTime >= clipDuration) {
                 const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
                 fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+                if (animator.justStarted) {
+                    return;
+                }
                 animator.lastEnteredHoldIndex = lastIndex;
                 animator.playing = false;
                 animator.justFinished = true;
@@ -295,6 +307,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 if (localTime < frame.duration) {
                     const int currentIndex = static_cast<int>(frameIndex);
                     fireEnteredHolds(animator.lastEnteredHoldIndex, currentIndex);
+                    if (animator.justStarted) {
+                        return;
+                    }
                     animator.lastEnteredHoldIndex = currentIndex;
                     sprite.frame = frame.id;
                     applyTween(frameIndex, localTime, frame.duration);
@@ -305,6 +320,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
 
             const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
             fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+            if (animator.justStarted) {
+                return;
+            }
             animator.lastEnteredHoldIndex = lastIndex;
             sprite.frame = clip.frames.back().id;
             clearTween();
