@@ -83,11 +83,11 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
 
             float originX = originFromFrame(*frame).x;
             float originY = originFromFrame(*frame).y;
-            float animRotationDeg = frame->animRotationDeg;
-            float animScaleX = frame->animScaleX;
-            float animScaleY = frame->animScaleY;
-            float animTranslateX = frame->animTranslateX;
-            float animTranslateY = frame->animTranslateY;
+            float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+            float scaleX = frame->scaleX * frame->animScaleX;
+            float scaleY = frame->scaleY * frame->animScaleY;
+            float translateX = frame->translateX + frame->animTranslateX;
+            float translateY = frame->translateY + frame->animTranslateY;
 
             if (!editor.doc.animNextFrame.empty() &&
                 (editor.doc.animTweenRotation || editor.doc.animTweenScale ||
@@ -96,35 +96,32 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
                     editor.doc.asset, editor.doc.atlas, editor.doc.animNextFrame, 0);
                 if (nextFrame) {
                     const float blend = editor.doc.animTransformBlend;
+                    const float nextRotation =
+                        nextFrame->rotationDeg + nextFrame->animRotationDeg;
+                    const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
+                    const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
+                    const float nextTranslateX =
+                        nextFrame->translateX + nextFrame->animTranslateX;
+                    const float nextTranslateY =
+                        nextFrame->translateY + nextFrame->animTranslateY;
                     if (editor.doc.animTweenRotation) {
-                        animRotationDeg = frame->animRotationDeg +
-                            (nextFrame->animRotationDeg - frame->animRotationDeg) * blend;
+                        rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
                     }
                     if (editor.doc.animTweenScale) {
-                        animScaleX = frame->animScaleX +
-                            (nextFrame->animScaleX - frame->animScaleX) * blend;
-                        animScaleY = frame->animScaleY +
-                            (nextFrame->animScaleY - frame->animScaleY) * blend;
+                        scaleX = scaleX + (nextScaleX - scaleX) * blend;
+                        scaleY = scaleY + (nextScaleY - scaleY) * blend;
                     }
                     if (editor.doc.animTweenTranslate) {
-                        animTranslateX = frame->animTranslateX +
-                            (nextFrame->animTranslateX - frame->animTranslateX) * blend;
-                        animTranslateY = frame->animTranslateY +
-                            (nextFrame->animTranslateY - frame->animTranslateY) * blend;
+                        translateX = translateX + (nextTranslateX - translateX) * blend;
+                        translateY = translateY + (nextTranslateY - translateY) * blend;
                     }
                 }
             }
 
-            const float frameRotationDeg = frame->rotationDeg + animRotationDeg;
-            const float frameScaleX = frame->scaleX * animScaleX;
-            const float frameScaleY = frame->scaleY * animScaleY;
-            const float translateX = frame->translateX + animTranslateX;
-            const float translateY = frame->translateY + animTranslateY;
-
             const float destW =
-                static_cast<float>(frame->pixelWidth) * fit.scale * view.scaleX * frameScaleX;
+                static_cast<float>(frame->pixelWidth) * fit.scale * view.scaleX * scaleX;
             const float destH =
-                static_cast<float>(frame->pixelHeight) * fit.scale * view.scaleY * frameScaleY;
+                static_cast<float>(frame->pixelHeight) * fit.scale * view.scaleY * scaleY;
             const float screenX = fit.offsetX + (view.canvasX + translateX) * fit.scale;
             const float screenY = fit.offsetY + (view.canvasY + translateY) * fit.scale;
             const Rectangle dest{screenX, screenY, destW, destH};
@@ -133,7 +130,7 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
                 frame->source,
                 dest,
                 Vector2{destW * originX, destH * originY},
-                view.rotationDeg + frameRotationDeg,
+                view.rotationDeg + rotationDeg,
                 WHITE);
             DrawCircleV({screenX, screenY}, 4.0f, Color{255, 180, 60, 255});
         }

@@ -71,6 +71,7 @@ enum class SpriteBillboardMode {
     Face,
     Fixed,
     View,
+    Screen,
 };
 
 /** Parsed .spr sprite asset. */

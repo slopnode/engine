@@ -364,6 +364,8 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
                 asset.billboardMode = SpriteBillboardMode::Face;
             } else if (rest == "view") {
                 asset.billboardMode = SpriteBillboardMode::View;
+            } else if (rest == "screen") {
+                asset.billboardMode = SpriteBillboardMode::Screen;
             } else {
                 return false;
             }
@@ -476,6 +478,8 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
         out << "  (billboard fixed)\n";
     } else if (asset.billboardMode == SpriteBillboardMode::View) {
         out << "  (billboard view)\n";
+    } else if (asset.billboardMode == SpriteBillboardMode::Screen) {
+        out << "  (billboard screen)\n";
     }
     if (asset.view.present) {
         out << "  (view\n";

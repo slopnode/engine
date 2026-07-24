@@ -507,9 +507,17 @@ bool Editor::loadSprite(slopengine::AssetStore& assets, const std::string& virtu
         if (slopengine::parseSpriteAnimBank(assets.getSpriteAnimSource(virtualPath), doc.animBank)) {
             doc.hasAnim = true;
             if (!doc.animBank.clips.empty()) {
-                doc.animClip = doc.animBank.clips.front().name;
-                doc.animLoop = doc.animBank.clips.front().loop;
-                doc.animDuration = computeClipDuration(doc.animBank.clips.front());
+                std::size_t clipIndex = 0;
+                const auto idleIt = doc.animBank.clipIndexByName.find("idle");
+                if (idleIt != doc.animBank.clipIndexByName.end() &&
+                    idleIt->second < doc.animBank.clips.size()) {
+                    clipIndex = idleIt->second;
+                }
+                const slopengine::SpriteAnimClip& clip = doc.animBank.clips[clipIndex];
+                doc.animClip = clip.name;
+                doc.animLoop = clip.loop;
+                doc.animDuration = computeClipDuration(clip);
+                applyAnimTime(doc, clip, 0.0f, doc.animLoop);
             }
         }
     }

@@ -302,22 +302,29 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
     GlobalTransformation global{};
     global.matrix = MatrixIdentity();
 
+    SpriteInstance sprite{
+        .sprite = spritePath,
+        .frame = frameId,
+        .facingYaw = 0.0f,
+    };
     flecs::entity entity = g_fpWorld->entity()
                                .child_of(socket)
                                .add<ViewSpace>()
                                .set<LocalTransformation>(local)
                                .set<GlobalTransformation>(global)
-                               .set<SpriteInstance>(SpriteInstance{
-                                   .sprite = spritePath,
-                                   .frame = frameId,
-                                   .facingYaw = 0.0f,
-                               })
                                .set<ViewSprite>(viewSprite);
 
     if (assets.hasSpriteAnim(spritePath)) {
         SpriteAnimator animator{};
         animator.animPath = spritePath;
+        const SpriteAnimBank* bank = assets.getSpriteAnimBank(spritePath);
+        if (bank != nullptr && bank->clipIndexByName.find("idle") != bank->clipIndexByName.end()) {
+            playSpriteAnim(animator, sprite, bank, "idle", true);
+        }
+        entity.set<SpriteInstance>(sprite);
         entity.set<SpriteAnimator>(animator);
+    } else {
+        entity.set<SpriteInstance>(sprite);
     }
 
     return s7_list(
@@ -349,11 +356,13 @@ s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
     }
     flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
     flecs::entity entity = findSpriteUnderSocket(socket);
-    if (!entity.is_valid()) {
+    if (!entity.is_valid() || !entity.has<SpriteInstance>()) {
         return s7_f(sc);
     }
 
-    entity.get_mut<SpriteInstance>().frame = s7_string(s7_car(rest));
+    SpriteInstance sprite = entity.get<SpriteInstance>();
+    sprite.frame = s7_string(s7_car(rest));
+    entity.set<SpriteInstance>(sprite);
     return s7_t(sc);
 }
 
@@ -394,7 +403,7 @@ s7_pointer g_fp_play_sprite_anim(s7_scheme* sc, s7_pointer args) {
     SpriteAnimator animator = entity.get<SpriteAnimator>();
     const SpriteAnimBank* bank = nullptr;
     if (g_fpWorld->has<AssetServices>() && g_fpWorld->get<AssetServices>().store != nullptr) {
-        bank = g_fpWorld->get_mut<AssetServices>().store->getSpriteAnimBank(animator.animPath);
+        bank = g_fpWorld->get<AssetServices>().store->getSpriteAnimBank(animator.animPath);
     }
     playSpriteAnim(animator, sprite, bank, clipName, loop);
     entity.set<SpriteInstance>(sprite);

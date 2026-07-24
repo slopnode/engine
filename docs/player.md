@@ -71,7 +71,7 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 |---------|---------|
 | (fp-clear-socket name) | Destroy children of weapon or emission. |
 | (fp-attach-geo socket geo [x y z sx sy sz]) | Attach a geo viewmodel under a socket. |
-| (fp-attach-sprite socket sprite [canvas-x canvas-y]) | Attach a screen-space sprite under a socket. When the `.spr` has `(view ...)`, its canvas/origin/scale/rotation are applied as the rest pin; presentation offset starts at `(0 0)`. Optional canvas-x/y override only the canvas pin (otherwise view canvas, or canvas center/bottom if no view). Seeds the instance to the first frame in the `.spr`. Returns `(x y)` canvas used, or `#f`. Formats and pose/tween: [Sprites](sprites.md). |
+| (fp-attach-sprite socket sprite [canvas-x canvas-y]) | Attach a screen-space sprite under a socket. When the `.spr` has `(view ...)`, its canvas/origin/scale/rotation are applied as the rest pin; presentation offset starts at `(0 0)`. Optional canvas-x/y override only the canvas pin (otherwise view canvas, or canvas center/bottom if no view). If a sibling `.spanim` has an `idle` clip, that clip starts and its first hold becomes the frame; otherwise the first `.spr` frame is used. Returns `(x y)` canvas used, or `#f`. Formats and pose/tween: [Sprites](sprites.md). |
 | (fp-set-sprite-frame socket frame-id) | Set the current sprite frame id. |
 | (fp-play-sprite-anim socket clip [loop]) | Play a .spanim clip on the socket sprite; applies the clip's first hold immediately (tween / frame sounds / logic hints apply; see [Sprites](sprites.md), [Audio](audio.md)). |
 | (fp-set-sprite-pos socket x y) | Set the rest canvas pin (view-sprite origin on the view canvas). |

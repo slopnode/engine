@@ -309,11 +309,11 @@ void drawViewSpritesAndHud(flecs::world& world) {
 
         float originX = originFromFrame(*frame).x;
         float originY = originFromFrame(*frame).y;
-        float animRotationDeg = frame->animRotationDeg;
-        float animScaleX = frame->animScaleX;
-        float animScaleY = frame->animScaleY;
-        float animTranslateX = frame->animTranslateX;
-        float animTranslateY = frame->animTranslateY;
+        float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+        float scaleX = frame->scaleX * frame->animScaleX;
+        float scaleY = frame->scaleY * frame->animScaleY;
+        float translateX = frame->translateX + frame->animTranslateX;
+        float translateY = frame->translateY + frame->animTranslateY;
 
         if (entity.has<SpriteAnimator>()) {
             const SpriteAnimator& animator = entity.get<SpriteAnimator>();
@@ -323,39 +323,33 @@ void drawViewSpritesAndHud(flecs::world& world) {
                 const auto nextFrame = resolveViewSpriteFrame(nextSprite, viewAssets);
                 if (nextFrame) {
                     const float blend = animator.transformBlend;
+                    const float nextRotation =
+                        nextFrame->rotationDeg + nextFrame->animRotationDeg;
+                    const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
+                    const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
+                    const float nextTranslateX =
+                        nextFrame->translateX + nextFrame->animTranslateX;
+                    const float nextTranslateY =
+                        nextFrame->translateY + nextFrame->animTranslateY;
                     if (animator.tweenRotation) {
-                        animRotationDeg = frame->animRotationDeg +
-                            (nextFrame->animRotationDeg - frame->animRotationDeg) *
-                                blend;
+                        rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
                     }
                     if (animator.tweenScale) {
-                        animScaleX = frame->animScaleX +
-                            (nextFrame->animScaleX - frame->animScaleX) * blend;
-                        animScaleY = frame->animScaleY +
-                            (nextFrame->animScaleY - frame->animScaleY) * blend;
+                        scaleX = scaleX + (nextScaleX - scaleX) * blend;
+                        scaleY = scaleY + (nextScaleY - scaleY) * blend;
                     }
                     if (animator.tweenTranslate) {
-                        animTranslateX = frame->animTranslateX +
-                            (nextFrame->animTranslateX - frame->animTranslateX) *
-                                blend;
-                        animTranslateY = frame->animTranslateY +
-                            (nextFrame->animTranslateY - frame->animTranslateY) *
-                                blend;
+                        translateX = translateX + (nextTranslateX - translateX) * blend;
+                        translateY = translateY + (nextTranslateY - translateY) * blend;
                     }
                 }
             }
         }
 
-        const float frameRotationDeg = frame->rotationDeg + animRotationDeg;
-        const float frameScaleX = frame->scaleX * animScaleX;
-        const float frameScaleY = frame->scaleY * animScaleY;
-        const float translateX = frame->translateX + animTranslateX;
-        const float translateY = frame->translateY + animTranslateY;
-
         const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale *
-                            viewSprite.scaleX * frameScaleX;
+                            viewSprite.scaleX * scaleX;
         const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale *
-                            viewSprite.scaleY * frameScaleY;
+                            viewSprite.scaleY * scaleY;
         const float screenX =
             viewFit.offsetX +
             (viewSprite.canvasX + viewSprite.offsetX + translateX) * viewFit.scale;
@@ -368,7 +362,7 @@ void drawViewSpritesAndHud(flecs::world& world) {
             frame->source,
             dest,
             Vector2{destW * originX, destH * originY},
-            viewSprite.rotationDeg + frameRotationDeg,
+            viewSprite.rotationDeg + rotationDeg,
             WHITE);
     });
     EndBlendMode();

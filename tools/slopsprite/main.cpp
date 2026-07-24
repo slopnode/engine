@@ -829,6 +829,8 @@ void drawInspector(
             modeLabel = "Fixed";
         } else if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::View) {
             modeLabel = "View";
+        } else if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Screen) {
+            modeLabel = "Screen";
         }
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::BeginCombo("Billboard", modeLabel)) {
@@ -842,6 +844,12 @@ void drawInspector(
                     "View",
                     editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::View)) {
                 editor.doc.asset.billboardMode = slopengine::SpriteBillboardMode::View;
+                editor.markDirty();
+            }
+            if (ImGui::Selectable(
+                    "Screen",
+                    editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Screen)) {
+                editor.doc.asset.billboardMode = slopengine::SpriteBillboardMode::Screen;
                 editor.markDirty();
             }
             if (ImGui::Selectable(

@@ -53,7 +53,7 @@ Effective pose per channel:
 - scale = scale x anim-scale
 - translate = translate + anim-translate
 
-.spanim tween interpolates only the anim-* channels toward the next hold's values. Base rotation / scale / translate stay on the current hold's frame for the whole hold.
+.spanim tween interpolates the **effective** pose for the listed channels toward the next hold (base and anim-* combined). Without tween, base and anim-* stay on the current hold for the whole hold.
 
 For first-person view sprites, draw stacks three layers:
 
@@ -99,6 +99,19 @@ Rotation index is Doom-style. Indices 1 through 8 are yaw sectors around the spr
 Opposite angles often share one texture with mirror on the line (for example rot 2 and rot 8). Mirrored UVs and hit samples flip at runtime; do not duplicate flipped PNGs unless you want to.
 
 If a requested rotation is missing, the loader falls back to rot 0, then nearby angles, then any available rotation.
+
+### Billboard mode ((billboard ...))
+
+Optional world-draw orientation (default `face`):
+
+| Mode | Texture rotation | Quad |
+|------|------------------|------|
+| face | Doom yaw vs `facingYaw` (1..8), with rot-0 fallback | Upright (yaw-only) toward the camera |
+| view | Always rot 0 (viewer-oriented art) | Upright, yaw-aligned to the camera |
+| screen | Always rot 0 (viewer-oriented art) | Screen-aligned: full camera facing, including pitch |
+| fixed | Doom yaw vs `facingYaw` | Locked to `facingYaw` (wall / decal style) |
+
+Use `(billboard screen)` for projectiles and explosions that should stay flat to the screen when looking up or down. Pickups typically use `(billboard view)` so they stay upright. Actors usually use the default `face` mode.
 
 ### Atlasing
 
@@ -148,7 +161,7 @@ Sibling of the .spr at the same virtual path:
 | (clip "name") | Clip id used by SpriteAnimator::play / (fp-play-sprite-anim ...) |
 | (loop 0\|1) | Default loop flag in the file (runtime play can override) |
 | (frame "id" seconds ...) | Ordered hold: .spr frame id and duration in seconds |
-| (tween all\|rot\|scale\|translate ...) | Per-hold: interpolate anim-* toward the next hold for the listed channels (all = rot + scale + translate) |
+| (tween all\|rot\|scale\|translate ...) | Per-hold: interpolate effective pose (base + anim-*) toward the next hold for the listed channels (all = rot + scale + translate) |
 | (sound "path" [volume]) | On hold enter, play a raw clip from sound/ (see [Audio](audio.md)). Optional volume defaults to 1.0. |
 | (hint "name") | On hold enter, call Scheme (on-sprite-hint source name) if defined. Repeatable on one hold. |
 
