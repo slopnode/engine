@@ -127,6 +127,12 @@ FxLocalLight is for many short-lived point lights that should affect dynamic rec
 
 Each frame the engine gathers FxLocalLight entities with intensity > 0, frustum-culls by range, and builds FxLightFrameState (dense list + uniform grid). Receivers query nearby cells and evaluate up to 16 nearest lights with the same attenuation math as DynamicLight points. Unlit debug clears FX contribution with the other overlays.
 
+### Receiver LOS occlusion
+
+CPU overlays (sprites, models/movers, FP rad tint) skip a DynamicLight or FxLocalLight when `bspSegmentOccluded` on `MapLighting.surfaceBvh` reports a wall between the light and the probe (endpoints nudged a few centimeters to avoid contact false positives). This is the same bake-time segment test radiosity uses.
+
+Map brushes lit by ranked DynamicLights in the lightmap shader are **not** occluded this way; that still needs the unfinished shadow-map path. FxLocalLight never hits map brushes.
+
 ### Component and spawn
 
 | Field | Meaning |

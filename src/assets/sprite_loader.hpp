@@ -28,6 +28,7 @@ struct SpriteHitPartDef {
 struct SpriteRotation {
     std::string texturePath;
     std::optional<std::string> hitMaskPath;
+    std::optional<std::string> brightMapPath;
     bool mirror = false;
     bool hasOffset = false;
     int offsetX = 0; /**< Pixel origin X from top-left when hasOffset. */
@@ -78,6 +79,7 @@ enum class SpriteBillboardMode {
 struct SpriteAsset {
     float pixelsPerMeter = 64.0f;
     SpriteBillboardMode billboardMode = SpriteBillboardMode::Face;
+    bool fullbright = false;
     SpriteViewDefaults view{};
     std::vector<SpriteHitPartDef> hitParts;
     std::vector<SpriteFrame> frames;
@@ -102,6 +104,8 @@ struct SpriteAtlas {
     std::vector<Texture2D> textures;
     std::unordered_map<std::string, SpriteAtlasRect> rects;
     std::unordered_map<std::string, SpriteHitmask> hitmasks;
+    /** Grayscale brightmaps keyed by albedo texture path (standalone textures). */
+    std::unordered_map<std::string, Texture2D> brightTextures;
 };
 
 /** Parses .spr text into @p asset. */

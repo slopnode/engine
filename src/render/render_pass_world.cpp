@@ -108,13 +108,44 @@ bool pvsVisibleFromCamera(
         objectPos);
 }
 
+struct SpriteBillboardShader {
+    Shader shader{};
+    int albedoRectLoc = -1;
+    int atlasSizeLoc = -1;
+    int useBrightmapLoc = -1;
+    int brightMapLoc = -1;
+    bool ready = false;
+};
+
+SpriteBillboardShader& spriteBillboardShader(AssetStore& assets) {
+    static SpriteBillboardShader state{};
+    if (state.ready || state.shader.id != 0) {
+        return state;
+    }
+    const std::string vert = assets.getShaderSource("default/sprite_billboard_vert");
+    const std::string frag = assets.getShaderSource("default/sprite_billboard_frag");
+    if (vert.empty() || frag.empty()) {
+        return state;
+    }
+    state.shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (state.shader.id == 0) {
+        return state;
+    }
+    state.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(state.shader, "texture0");
+    state.brightMapLoc = GetShaderLocation(state.shader, "texture1");
+    state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
+    state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
+    state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.ready = true;
+    return state;
+}
+
 void drawWorldSprite(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     const Lens& lens,
     AssetStore& assets,
     const MapLighting* lighting,
-    const BspTree* bspTree,
     const std::vector<RankedDynamicLight>* dynamicLights,
     const FxLightFrameState* fxLights,
     bool unlit,
@@ -134,37 +165,48 @@ void drawWorldSprite(
         return;
     }
 
+    const bool useBrightmap = billboard->brightTexture != nullptr && billboard->brightTexture->id != 0;
+    const bool forceFullbright = billboard->fullbright && !useBrightmap;
+
     Color colorFeet = WHITE;
     Color colorHead = WHITE;
-    if (!unlit && lighting != nullptr && lighting->available && bspTree != nullptr) {
-        const Vector3 feetOrigin{billboard->position.x, billboard->position.y + 0.05f, billboard->position.z};
-        if (auto feet = sampleMapLight(*lighting, *bspTree, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
-            colorFeet = *feet;
-        }
+    if (!unlit && !forceFullbright && lighting != nullptr) {
+        colorFeet = lighting->ambient;
+        colorHead = lighting->ambient;
+        if (lighting->available) {
+            const Vector3 feetOrigin{
+                billboard->position.x,
+                billboard->position.y + 0.05f,
+                billboard->position.z};
+            if (auto feet =
+                    sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                colorFeet = *feet;
+            }
 
-        const Vector3 headPos{
-            billboard->position.x,
-            billboard->position.y + billboard->size.y,
-            billboard->position.z};
-        Vector3 headDir{
-            lens.camera.position.x - headPos.x,
-            0.0f,
-            lens.camera.position.z - headPos.z,
-        };
-        const float headLenSq = Vector3LengthSqr(headDir);
-        if (headLenSq > 1e-8f) {
-            headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
-            if (auto head = sampleMapLight(*lighting, *bspTree, headPos, headDir, 4.0f)) {
-                colorHead = *head;
+            const Vector3 headPos{
+                billboard->position.x,
+                billboard->position.y + billboard->size.y,
+                billboard->position.z};
+            Vector3 headDir{
+                lens.camera.position.x - headPos.x,
+                0.0f,
+                lens.camera.position.z - headPos.z,
+            };
+            const float headLenSq = Vector3LengthSqr(headDir);
+            if (headLenSq > 1e-8f) {
+                headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
+                if (auto head = sampleMapLight(*lighting, headPos, headDir, 4.0f)) {
+                    colorHead = *head;
+                } else {
+                    colorHead = colorFeet;
+                }
             } else {
                 colorHead = colorFeet;
             }
-        } else {
-            colorHead = colorFeet;
         }
     }
 
-    if (!unlit) {
+    if (!unlit && !forceFullbright) {
         const Vector3 feetPoint{
             billboard->position.x,
             billboard->position.y + 0.05f,
@@ -174,12 +216,22 @@ void drawWorldSprite(
             billboard->position.y + billboard->size.y,
             billboard->position.z};
         const Vector3 normal{0.0f, 1.0f, 0.0f};
+        const QuadBvh* occlusionBvh =
+            (lighting != nullptr && lighting->available && !lighting->surfaceBvh.empty())
+                ? &lighting->surfaceBvh
+                : nullptr;
         colorFeet = addLinearRgbToColor(
             colorFeet,
-            evaluateOverlayLightsAtPoint(dynamicLights, fxLights, feetPoint, normal));
+            evaluateOverlayLightsAtPoint(
+                dynamicLights, fxLights, feetPoint, normal, occlusionBvh));
         colorHead = addLinearRgbToColor(
             colorHead,
-            evaluateOverlayLightsAtPoint(dynamicLights, fxLights, headPoint, normal));
+            evaluateOverlayLightsAtPoint(
+                dynamicLights, fxLights, headPoint, normal, occlusionBvh));
+    }
+    if (billboard->fullbright && useBrightmap) {
+        colorFeet = WHITE;
+        colorHead = WHITE;
     }
 
     const Texture2D& texture = *billboard->texture;
@@ -194,6 +246,53 @@ void drawWorldSprite(
     };
     const Color colors[4] = {colorFeet, colorFeet, colorHead, colorHead};
 
+    SpriteBillboardShader* brightShader = nullptr;
+    if (useBrightmap) {
+        brightShader = &spriteBillboardShader(assets);
+        if (!brightShader->ready) {
+            brightShader = nullptr;
+        }
+    }
+
+    if (brightShader != nullptr) {
+        const Vector4 albedoRect{
+            source.x,
+            source.y,
+            source.width,
+            source.height,
+        };
+        const Vector2 atlasSize{texW, texH};
+        const int useBright = 1;
+        BeginShaderMode(brightShader->shader);
+        if (brightShader->albedoRectLoc >= 0) {
+            SetShaderValue(
+                brightShader->shader,
+                brightShader->albedoRectLoc,
+                &albedoRect,
+                SHADER_UNIFORM_VEC4);
+        }
+        if (brightShader->atlasSizeLoc >= 0) {
+            SetShaderValue(
+                brightShader->shader,
+                brightShader->atlasSizeLoc,
+                &atlasSize,
+                SHADER_UNIFORM_VEC2);
+        }
+        if (brightShader->useBrightmapLoc >= 0) {
+            SetShaderValue(
+                brightShader->shader,
+                brightShader->useBrightmapLoc,
+                &useBright,
+                SHADER_UNIFORM_INT);
+        }
+        if (brightShader->brightMapLoc >= 0) {
+            SetShaderValueTexture(
+                brightShader->shader,
+                brightShader->brightMapLoc,
+                *billboard->brightTexture);
+        }
+    }
+
     rlSetTexture(texture.id);
     rlBegin(RL_QUADS);
     for (int i = 0; i < 4; ++i) {
@@ -203,6 +302,9 @@ void drawWorldSprite(
     }
     rlEnd();
     rlSetTexture(0);
+    if (brightShader != nullptr) {
+        EndShaderMode();
+    }
 }
 
 } // namespace
@@ -377,8 +479,6 @@ std::string drawWorldSprites(
     AssetStore& assets = *world.get_mut<AssetServices>().store;
     const MapLighting* lighting =
         world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
-    const BspTree* bspTree =
-        world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
     const std::vector<RankedDynamicLight>* dynamicLights =
         (!unlit && world.has<DynamicLightFrameState>())
             ? &world.get<DynamicLightFrameState>().lights
@@ -439,7 +539,6 @@ std::string drawWorldSprites(
             lens,
             assets,
             lighting,
-            bspTree,
             dynamicLights,
             fxLights,
             unlit,

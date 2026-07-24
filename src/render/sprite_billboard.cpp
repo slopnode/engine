@@ -248,10 +248,15 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     billboard.pixelHeight = static_cast<int>(pixelH);
     billboard.texture = &texture;
     billboard.source = source;
+    billboard.fullbright = asset.fullbright;
 
     const auto maskIt = atlas.hitmasks.find(selected.texturePath);
     if (maskIt != atlas.hitmasks.end()) {
         billboard.hitmask = &maskIt->second;
+    }
+    const auto brightIt = atlas.brightTextures.find(selected.texturePath);
+    if (brightIt != atlas.brightTextures.end() && brightIt->second.id != 0) {
+        billboard.brightTexture = &brightIt->second;
     }
 
     Vector3 points[4] = {

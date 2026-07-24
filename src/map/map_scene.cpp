@@ -216,8 +216,10 @@ bool registerMapScene(
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.z * 255.0f, 0.0f, 255.0f)),
         255,
     };
+    const FacFile* facForLighting = mapFac.fac.faces.empty() ? nullptr : &mapFac.fac;
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
+        facForLighting,
         std::move(loaded->rad),
         std::move(loaded->lightmapAtlasImages),
         ambientColor));

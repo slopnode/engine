@@ -1,6 +1,7 @@
 #include "render/fx_local_light.hpp"
 
 #include "map/bsp.hpp"
+#include "map/bsp_ray.hpp"
 #include "map/light_sample.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light_shadows.hpp"
@@ -15,8 +16,17 @@ namespace slopengine {
 
 namespace {
 
+constexpr float kLightLosNudge = 0.04f;
+
 Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
+}
+
+const QuadBvh* occlusionBvhFromLighting(const MapLighting* lighting) {
+    if (lighting == nullptr || !lighting->available || lighting->surfaceBvh.empty()) {
+        return nullptr;
+    }
+    return &lighting->surfaceBvh;
 }
 
 FxLightGridCell cellCoords(Vector3 point, float cellSize) {
@@ -122,20 +132,44 @@ void buildFxLightFrameState(
     });
 }
 
+bool lightSegmentOccluded(const QuadBvh* bvh, Vector3 lightPos, Vector3 point) {
+    if (bvh == nullptr || bvh->empty()) {
+        return false;
+    }
+    Vector3 delta = Vector3Subtract(point, lightPos);
+    const float distSq = Vector3DotProduct(delta, delta);
+    if (distSq < 1e-8f) {
+        return false;
+    }
+    const float dist = std::sqrt(distSq);
+    const Vector3 dir = Vector3Scale(delta, 1.0f / dist);
+    const float nudge = std::min(kLightLosNudge, dist * 0.45f);
+    const Vector3 from = Vector3Add(lightPos, Vector3Scale(dir, nudge));
+    const Vector3 to = Vector3Subtract(point, Vector3Scale(dir, nudge));
+    return bspSegmentOccluded(*bvh, from, to);
+}
+
 Vector3 evaluateOverlayLightsAtPoint(
     const std::vector<RankedDynamicLight>* dynLights,
     const FxLightFrameState* fxLights,
     Vector3 point,
-    Vector3 normal) {
+    Vector3 normal,
+    const QuadBvh* occlusionBvh) {
     Vector3 total{};
     if (dynLights != nullptr && !dynLights->empty()) {
-        const Vector3 dyn = evaluateDynamicLightsAtPoint(*dynLights, point, normal);
-        total.x += dyn.x;
-        total.y += dyn.y;
-        total.z += dyn.z;
+        for (const RankedDynamicLight& light : *dynLights) {
+            if (lightSegmentOccluded(occlusionBvh, light.position, point)) {
+                continue;
+            }
+            const Vector3 dyn = evaluateDynamicLightAtPoint(light, point, normal);
+            total.x += dyn.x;
+            total.y += dyn.y;
+            total.z += dyn.z;
+        }
     }
     if (fxLights != nullptr && !fxLights->lights.empty()) {
-        const Vector3 fx = evaluateFxLightsAtPoint(*fxLights, point, normal);
+        const Vector3 fx =
+            evaluateFxLightsAtPoint(*fxLights, point, normal, occlusionBvh);
         total.x += fx.x;
         total.y += fx.y;
         total.z += fx.z;
@@ -176,13 +210,9 @@ Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
     if (world.has<MapLighting>()) {
         const MapLighting& lighting = world.get<MapLighting>();
         tint = lighting.ambient;
-        if (lighting.available && world.has<MapBsp>()) {
-            if (auto sample = sampleMapLight(
-                    lighting,
-                    world.get<MapBsp>().tree,
-                    origin,
-                    {0.0f, -1.0f, 0.0f},
-                    2.0f)) {
+        if (lighting.available) {
+            if (auto sample =
+                    sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
                 tint = *sample;
             }
         }
@@ -193,8 +223,14 @@ Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
                                             : nullptr;
     const FxLightFrameState* fxLights =
         world.has<FxLightFrameState>() ? &world.get<FxLightFrameState>() : nullptr;
-    const Vector3 overlay =
-        evaluateOverlayLightsAtPoint(dynLights, fxLights, origin, {0.0f, 1.0f, 0.0f});
+    const MapLighting* lighting =
+        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+    const Vector3 overlay = evaluateOverlayLightsAtPoint(
+        dynLights,
+        fxLights,
+        origin,
+        {0.0f, 1.0f, 0.0f},
+        occlusionBvhFromLighting(lighting));
     return addLinearRgbToColor(tint, overlay);
 }
 
@@ -202,6 +238,7 @@ Vector3 evaluateFxLightsAtPoint(
     const FxLightFrameState& state,
     Vector3 point,
     Vector3 normal,
+    const QuadBvh* occlusionBvh,
     int maxLights) {
     if (state.lights.empty() || maxLights <= 0) {
         return {};
@@ -227,6 +264,9 @@ Vector3 evaluateFxLightsAtPoint(
         const float distSq = Vector3DotProduct(delta, delta);
         const float range = std::max(light.range, 1e-4f);
         if (distSq > range * range) {
+            continue;
+        }
+        if (lightSegmentOccluded(occlusionBvh, light.position, point)) {
             continue;
         }
         candidates.push_back({index, distSq});

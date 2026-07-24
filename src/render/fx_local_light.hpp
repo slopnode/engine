@@ -1,5 +1,6 @@
 #pragma once
 
+#include "map/quad_bvh.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/render_frustum.hpp"
 
@@ -75,10 +76,14 @@ void buildFxLightFrameState(
     bool unlit,
     FxLightFrameState& out);
 
+/** True if world geo blocks the segment from light to receiver (nudged endpoints). */
+bool lightSegmentOccluded(const QuadBvh* bvh, Vector3 lightPos, Vector3 point);
+
 Vector3 evaluateFxLightsAtPoint(
     const FxLightFrameState& state,
     Vector3 point,
     Vector3 normal,
+    const QuadBvh* occlusionBvh = nullptr,
     int maxLights = kMaxFxLightsPerReceiver);
 
 /** Sums ranked DynamicLights and FX local lights at @p point. */
@@ -86,7 +91,8 @@ Vector3 evaluateOverlayLightsAtPoint(
     const std::vector<RankedDynamicLight>* dynLights,
     const FxLightFrameState* fxLights,
     Vector3 point,
-    Vector3 normal);
+    Vector3 normal,
+    const QuadBvh* occlusionBvh = nullptr);
 
 /** Adds linear RGB light contribution into an 8-bit color (clamped). */
 Color addLinearRgbToColor(Color base, Vector3 linearRgb);
