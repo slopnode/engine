@@ -11,6 +11,7 @@
 #include "render/animation_systems.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/render_context.hpp"
 #include "render/render_pass_fp.hpp"
@@ -58,6 +59,7 @@ void registerComponents(flecs::world& world) {
     world.component<AreaLight>();
     world.component<SunLight>();
     world.component<DynamicLight>();
+    world.component<FxLocalLight>();
     world.component<MapOwned>();
     world.component<CurrentMap>();
     world.component<PlayerEntity>();
@@ -129,6 +131,10 @@ void registerRenderSystems(flecs::world& world) {
                 gatherDynamicLights(world, lens, presentLens, frustum, unlit);
             storeDynamicLightFrameState(world, rankedLights);
             uploadMapDynamicLights(world, rankedLights, unlit);
+
+            FxLightFrameState fxLights{};
+            buildFxLightFrameState(world, &frustum, unlit, fxLights);
+            storeFxLightFrameState(world, std::move(fxLights));
 
             BeginMode3D(presentCam);
             drawWorldModels(world, context, lens, frustum, unlit);

@@ -11,6 +11,7 @@
 #include "render/animation_player.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/render_debug.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -115,6 +116,7 @@ void drawWorldSprite(
     const MapLighting* lighting,
     const BspTree* bspTree,
     const std::vector<RankedDynamicLight>* dynamicLights,
+    const FxLightFrameState* fxLights,
     bool unlit,
     const SpriteAnimator* animator) {
     SpriteAnimTween tween{};
@@ -162,25 +164,7 @@ void drawWorldSprite(
         }
     }
 
-    if (!unlit && dynamicLights != nullptr && !dynamicLights->empty()) {
-        const auto addDynamic = [&](Color base, Vector3 point) {
-            const Vector3 dyn = evaluateDynamicLightsAtPoint(*dynamicLights, point, {0.0f, 1.0f, 0.0f});
-            return Color{
-                static_cast<unsigned char>(std::clamp(
-                    static_cast<int>(base.r) + static_cast<int>(dyn.x * 255.0f),
-                    0,
-                    255)),
-                static_cast<unsigned char>(std::clamp(
-                    static_cast<int>(base.g) + static_cast<int>(dyn.y * 255.0f),
-                    0,
-                    255)),
-                static_cast<unsigned char>(std::clamp(
-                    static_cast<int>(base.b) + static_cast<int>(dyn.z * 255.0f),
-                    0,
-                    255)),
-                base.a,
-            };
-        };
+    if (!unlit) {
         const Vector3 feetPoint{
             billboard->position.x,
             billboard->position.y + 0.05f,
@@ -189,8 +173,13 @@ void drawWorldSprite(
             billboard->position.x,
             billboard->position.y + billboard->size.y,
             billboard->position.z};
-        colorFeet = addDynamic(colorFeet, feetPoint);
-        colorHead = addDynamic(colorHead, headPoint);
+        const Vector3 normal{0.0f, 1.0f, 0.0f};
+        colorFeet = addLinearRgbToColor(
+            colorFeet,
+            evaluateOverlayLightsAtPoint(dynamicLights, fxLights, feetPoint, normal));
+        colorHead = addLinearRgbToColor(
+            colorHead,
+            evaluateOverlayLightsAtPoint(dynamicLights, fxLights, headPoint, normal));
     }
 
     const Texture2D& texture = *billboard->texture;
@@ -327,8 +316,6 @@ void drawWorldModels(
     const Lens& lens,
     const Frustum& frustum,
     bool unlit) {
-    (void)world;
-    (void)unlit;
     context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
         if (!modelEntity.has<MapLightmapState>()) {
             const BoundingBox localBounds = GetModelBoundingBox(model.model);
@@ -344,6 +331,12 @@ void drawWorldModels(
             if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
                 return;
             }
+            const Vector3 origin{
+                global.matrix.m12,
+                global.matrix.m13 + 0.05f,
+                global.matrix.m14,
+            };
+            model.color = sampleReceiverTintColor(world, origin, unlit);
         }
         renderWorldModel(modelEntity, model, global, lens);
     });
@@ -390,6 +383,8 @@ std::string drawWorldSprites(
         (!unlit && world.has<DynamicLightFrameState>())
             ? &world.get<DynamicLightFrameState>().lights
             : nullptr;
+    const FxLightFrameState* fxLights =
+        (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
 
     struct SpriteDrawItem {
         const SpriteInstance* sprite = nullptr;
@@ -446,6 +441,7 @@ std::string drawWorldSprites(
             lighting,
             bspTree,
             dynamicLights,
+            fxLights,
             unlit,
             item.animator);
     }

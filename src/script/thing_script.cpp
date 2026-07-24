@@ -13,6 +13,8 @@
 #include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
+#include "render/dynamic_light.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 
@@ -285,6 +287,228 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     body.onImpact = std::move(onImpact);
     entity.set<MotoredBody>(body);
 
+    return s7_t(sc);
+}
+
+FxLocalLight makeFxLocalLight(float r, float g, float b, float intensity, float range) {
+    FxLocalLight light{};
+    light.color.space = DynamicLightColorSpace::Rgb;
+    light.color.value = {r, g, b};
+    light.intensity = intensity;
+    light.range = range;
+    return light;
+}
+
+DynamicLight makePointDynamicLight(float r, float g, float b, float intensity, float range) {
+    DynamicLight light{};
+    light.kind = DynamicLightKind::Point;
+    setDynamicLightRgb(light, {r, g, b});
+    light.intensity = intensity;
+    light.range = range;
+    light.castShadows = false;
+    return light;
+}
+
+s7_pointer g_fx_light_attach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fx-light-attach", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float r = 1;
+    float g = 1;
+    float b = 1;
+    float intensity = 1;
+    float range = 3;
+    if (!readNumberArg(sc, args, r, "fx-light-attach", 2) ||
+        !readNumberArg(sc, args, g, "fx-light-attach", 3) ||
+        !readNumberArg(sc, args, b, "fx-light-attach", 4) ||
+        !readNumberArg(sc, args, intensity, "fx-light-attach", 5) ||
+        !readNumberArg(sc, args, range, "fx-light-attach", 6)) {
+        return s7_wrong_type_arg_error(
+            sc,
+            "fx-light-attach",
+            2,
+            args,
+            "r g b intensity range numbers");
+    }
+
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    entity.set<FxLocalLight>(makeFxLocalLight(r, g, b, intensity, range));
+    return s7_t(sc);
+}
+
+s7_pointer g_dyn_light_attach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-attach", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float r = 1;
+    float g = 1;
+    float b = 1;
+    float intensity = 1;
+    float range = 3;
+    if (!readNumberArg(sc, args, r, "dyn-light-attach", 2) ||
+        !readNumberArg(sc, args, g, "dyn-light-attach", 3) ||
+        !readNumberArg(sc, args, b, "dyn-light-attach", 4) ||
+        !readNumberArg(sc, args, intensity, "dyn-light-attach", 5) ||
+        !readNumberArg(sc, args, range, "dyn-light-attach", 6)) {
+        return s7_wrong_type_arg_error(
+            sc,
+            "dyn-light-attach",
+            2,
+            args,
+            "r g b intensity range numbers");
+    }
+
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    entity.set<DynamicLight>(makePointDynamicLight(r, g, b, intensity, range));
+    return s7_t(sc);
+}
+
+s7_pointer g_dyn_light_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-spawn", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    float r = 1;
+    float g = 1;
+    float b = 1;
+    float intensity = 1;
+    float range = 3;
+    if (!readNumberArg(sc, args, x, "dyn-light-spawn", 2) ||
+        !readNumberArg(sc, args, y, "dyn-light-spawn", 3) ||
+        !readNumberArg(sc, args, z, "dyn-light-spawn", 4) ||
+        !readNumberArg(sc, args, r, "dyn-light-spawn", 5) ||
+        !readNumberArg(sc, args, g, "dyn-light-spawn", 6) ||
+        !readNumberArg(sc, args, b, "dyn-light-spawn", 7) ||
+        !readNumberArg(sc, args, intensity, "dyn-light-spawn", 8) ||
+        !readNumberArg(sc, args, range, "dyn-light-spawn", 9)) {
+        return s7_wrong_type_arg_error(
+            sc,
+            "dyn-light-spawn",
+            2,
+            args,
+            "x y z r g b intensity range numbers");
+    }
+
+    float lifetime = 0.0f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        lifetime = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnDynamicLight(
+        *g_thingWorld,
+        id.c_str(),
+        {x, y, z},
+        QuaternionIdentity(),
+        makePointDynamicLight(r, g, b, intensity, range));
+    entity.add<MapOwned>();
+    if (lifetime > 0.0f) {
+        entity.set<TimedDespawn>({.age = 0.0f, .lifetime = lifetime});
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_fx_light_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fx-light-spawn", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    float r = 1;
+    float g = 1;
+    float b = 1;
+    float intensity = 1;
+    float range = 3;
+    if (!readNumberArg(sc, args, x, "fx-light-spawn", 2) ||
+        !readNumberArg(sc, args, y, "fx-light-spawn", 3) ||
+        !readNumberArg(sc, args, z, "fx-light-spawn", 4) ||
+        !readNumberArg(sc, args, r, "fx-light-spawn", 5) ||
+        !readNumberArg(sc, args, g, "fx-light-spawn", 6) ||
+        !readNumberArg(sc, args, b, "fx-light-spawn", 7) ||
+        !readNumberArg(sc, args, intensity, "fx-light-spawn", 8) ||
+        !readNumberArg(sc, args, range, "fx-light-spawn", 9)) {
+        return s7_wrong_type_arg_error(
+            sc,
+            "fx-light-spawn",
+            2,
+            args,
+            "x y z r g b intensity range numbers");
+    }
+
+    float lifetime = 0.0f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        lifetime = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnFxLocalLight(
+        *g_thingWorld,
+        id.c_str(),
+        {x, y, z},
+        makeFxLocalLight(r, g, b, intensity, range));
+    entity.add<MapOwned>();
+    if (lifetime > 0.0f) {
+        entity.set<TimedDespawn>({.age = 0.0f, .lifetime = lifetime});
+    }
     return s7_t(sc);
 }
 
@@ -1101,6 +1325,38 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         2,
         false,
         "(sprite-spawn id x y z path [clip] [lifetime])");
+    s7_define_function(
+        scheme,
+        "fx-light-spawn",
+        g_fx_light_spawn,
+        9,
+        1,
+        false,
+        "(fx-light-spawn id x y z r g b intensity range [lifetime])");
+    s7_define_function(
+        scheme,
+        "fx-light-attach",
+        g_fx_light_attach,
+        6,
+        0,
+        false,
+        "(fx-light-attach id r g b intensity range)");
+    s7_define_function(
+        scheme,
+        "dyn-light-spawn",
+        g_dyn_light_spawn,
+        9,
+        1,
+        false,
+        "(dyn-light-spawn id x y z r g b intensity range [lifetime])");
+    s7_define_function(
+        scheme,
+        "dyn-light-attach",
+        g_dyn_light_attach,
+        6,
+        0,
+        false,
+        "(dyn-light-attach id r g b intensity range)");
     s7_define_function(
         scheme,
         "actor-spawn",

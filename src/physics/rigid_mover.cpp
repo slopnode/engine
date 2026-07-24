@@ -1,11 +1,11 @@
 #include "physics/rigid_mover.hpp"
 
 #include "map/bsp.hpp"
-#include "map/light_sample.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
+#include "render/fx_local_light.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
@@ -387,28 +387,29 @@ void registerRigidMoverSystem(flecs::world& world) {
     world.system<RigidMover, Model3D, LocalTransformation>("RigidMoverRadTint")
         .kind(flecs::PreUpdate)
         .each([](flecs::entity entity, RigidMover&, Model3D& model, const LocalTransformation& local) {
-            (void)entity;
             flecs::world world = entity.world();
-            if (!world.has<MapLighting>() || !world.has<MapBsp>()) {
-                return;
-            }
-            const MapLighting& lighting = world.get<MapLighting>();
-            const MapBsp& mapBsp = world.get<MapBsp>();
-            if (!lighting.available) {
-                model.color = lighting.ambient;
-                return;
-            }
             const Vector3 origin = {
                 local.position.x,
                 local.position.y + 0.05f,
                 local.position.z,
             };
-            if (auto sample =
-                    sampleMapLight(lighting, mapBsp.tree, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
-                model.color = *sample;
-            } else {
-                model.color = lighting.ambient;
-            }
+            model.color = sampleReceiverTintColor(world, origin, false);
+        });
+
+    world.system<Model3D, LocalTransformation>("WorldModelLightTint")
+        .with<WorldSpace>()
+        .without<RigidMover>()
+        .without<MapLightmapState>()
+        .without<ViewSpace>()
+        .kind(flecs::PreUpdate)
+        .each([](flecs::entity entity, Model3D& model, const LocalTransformation& local) {
+            flecs::world world = entity.world();
+            const Vector3 origin = {
+                local.position.x,
+                local.position.y + 0.05f,
+                local.position.z,
+            };
+            model.color = sampleReceiverTintColor(world, origin, false);
         });
 }
 

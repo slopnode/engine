@@ -10,6 +10,7 @@
 #include "physics/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -37,6 +38,7 @@ Color sampleFirstPersonRadTint(
     const MapLighting* lighting,
     const BspTree* bspTree,
     const std::vector<RankedDynamicLight>* dynamicLights,
+    const FxLightFrameState* fxLights,
     bool unlit) {
     if (unlit) {
         return WHITE;
@@ -76,25 +78,9 @@ Color sampleFirstPersonRadTint(
         }
     }
 
-    if (dynamicLights != nullptr && !dynamicLights->empty()) {
-        const Vector3 dyn =
-            evaluateDynamicLightsAtPoint(*dynamicLights, feetOrigin, {0.0f, 1.0f, 0.0f});
-        tint = Color{
-            static_cast<unsigned char>(std::clamp(
-                static_cast<int>(tint.r) + static_cast<int>(dyn.x * 255.0f),
-                0,
-                255)),
-            static_cast<unsigned char>(std::clamp(
-                static_cast<int>(tint.g) + static_cast<int>(dyn.y * 255.0f),
-                0,
-                255)),
-            static_cast<unsigned char>(std::clamp(
-                static_cast<int>(tint.b) + static_cast<int>(dyn.z * 255.0f),
-                0,
-                255)),
-            tint.a,
-        };
-    }
+    tint = addLinearRgbToColor(
+        tint,
+        evaluateOverlayLightsAtPoint(dynamicLights, fxLights, feetOrigin, {0.0f, 1.0f, 0.0f}));
     return tint;
 }
 
@@ -171,8 +157,10 @@ void drawFirstPersonPass(
             (!unlit && world.has<DynamicLightFrameState>())
                 ? &world.get<DynamicLightFrameState>().lights
                 : nullptr;
+        const FxLightFrameState* fpFx =
+            (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
         const Color targetTint =
-            sampleFirstPersonRadTint(feetOrigin, fpLighting, fpBsp, fpDyn, unlit);
+            sampleFirstPersonRadTint(feetOrigin, fpLighting, fpBsp, fpDyn, fpFx, unlit);
         fpTint = smoothFirstPersonRadTint(
             playerEntity.get_mut<FirstPersonScene>(),
             targetTint,

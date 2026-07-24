@@ -1,16 +1,16 @@
 # Lights
 
-Lighting is a bake-first pipeline with a small runtime dynamic overlay. Map surfaces get offline lightmaps; moving or toggled lights are DynamicLight entities ranked each frame and added on top. Thing light forms in things.s7 feed the bake (point / spot) and editor gizmos; they are not the same as the runtime dynamic light path.
+Lighting is a bake-first pipeline with two runtime overlays. Map surfaces get offline lightmaps; a small ranked DynamicLight list can splash the map and dynamic receivers; a separate high-count FxLocalLight channel tints only sprites, models, and movers. Thing light forms in things.s7 feed the bake (point / spot) and editor gizmos; they are not the same as either runtime path.
 
 Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Things](things.md), [Player](player.md), [slopmap](slopmap.md), [View frustum culling](frustum.md).
 
 ## Layers
 
-Lighting is three layers that look related in the editor but do different jobs.
+Lighting is four layers that look related in the editor but do different jobs.
 
-Baked lightmaps are the main look for map brushes. Material emission plus point/spot things go through sloprad offline into rad/ atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (point-light, spot-light, area-light, sun) always spawn flecs components and gizmos when the map loads; only point and spot feed the bake today -- they are not gathered as the runtime dynamic overlay. Dynamic lights are a separate DynamicLight component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling.
+Baked lightmaps are the main look for map brushes. Material emission plus point/spot things go through sloprad offline into rad/ atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (point-light, spot-light, area-light, sun) always spawn flecs components and gizmos when the map loads; only point and spot feed the bake today -- they are not gathered as runtime lights. Dynamic lights are a separate DynamicLight component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling. FX local lights (FxLocalLight) are a high-count point-light channel for missiles, muzzle flashes, and similar effects: they tint sprites, 3D models, and movers only, and never upload to the map lightmap shader.
 
-There is no runtime PBR stack. Props and characters are not lightmapped; sprites can sample map light at their feet when lightmaps exist. Viewmodels use optional rad tint and faux shading; see [Player](player.md).
+There is no runtime PBR stack. Props and characters are not lightmapped; they receive bake probes plus DynamicLight / FxLocalLight overlays via CPU tint. Sprites sample map light at their feet when lightmaps exist, then add the same overlays. Viewmodels use optional rad tint and faux shading; see [Player](player.md).
 
 ## Baked light
 
@@ -112,8 +112,42 @@ In default/lightmap_frag, each ranked light applies range-squared attenuation; s
 
 Packages may attach a spot under the emission socket and toggle it from Scheme. That entity is a normal DynamicLight in ViewSpace: when enabled it lights both the world (via gather -> lightmap shader) and the viewmodel probe when rad tint is on. The FP stage itself does not own flashlight rules; package scripts do. See [Player: First-person scene](player.md#first-person-scene).
 
+## FX local lights
+
+FxLocalLight is for many short-lived point lights that should affect dynamic receivers without re-shading the baked map.
+
+| | DynamicLight | FxLocalLight |
+|--|--|--|
+| Typical use | Flashlight, key scripted spots | Missiles, muzzle flashes, explosions |
+| Count | Ranked top 8 | High count (spatial grid; per-receiver nearest 16) |
+| Lights map brushes | Yes (lightmap shader uniforms) | No |
+| Lights sprites / models / movers / FP tint | Yes | Yes |
+| Shadows | Shadow slots exist (map path unfinished) | None |
+| Kind | Point or spot | Point only |
+
+Each frame the engine gathers FxLocalLight entities with intensity > 0, frustum-culls by range, and builds FxLightFrameState (dense list + uniform grid). Receivers query nearby cells and evaluate up to 16 nearest lights with the same attenuation math as DynamicLight points. Unlit debug clears FX contribution with the other overlays.
+
+### Component and spawn
+
+| Field | Meaning |
+|-------|---------|
+| color | DynamicLightColor (RGB / HSV / HSL); linear RGB at gather |
+| intensity | Scale; <= 0 skips the light |
+| range | Falloff distance (meters) |
+
+C++: spawnFxLocalLight in src/render/fx_local_light.hpp. Scheme:
+
+```text
+(fx-light-spawn id x y z r g b intensity range [lifetime])
+(fx-light-attach id r g b intensity range)
+(dyn-light-spawn id x y z r g b intensity range [lifetime])
+(dyn-light-attach id r g b intensity range)
+```
+
+`fx-light-spawn` / `dyn-light-spawn` create a new MapOwned entity (optional TimedDespawn). `*-attach` adds the component to an existing entity so the light rides its transform (e.g. a motored plasma bolt).
+
 ## What belongs where
 
-For static room lighting, prefer emission materials and/or point/spot things, then re-run sloprad. Thing forms are also the right place for editor-visible light markers: they always spawn components and gizmos even when a kind is not a bake emitter. Lights that must toggle, move, or ride with the player belong on DynamicLight (Scheme FP API or C++ spawnDynamicLight). Viewmodel look -- rad tint and faux shade -- is presentation only via (fp-set-rad-tint) / (fp-set-shading).
+For static room lighting, prefer emission materials and/or point/spot things, then re-run sloprad. Thing forms are also the right place for editor-visible light markers: they always spawn components and gizmos even when a kind is not a bake emitter. Lights that must toggle, move, or ride with the player and splash the world belong on DynamicLight (Scheme FP API or C++ spawnDynamicLight). Ephemeral glows that only need to tint sprites and movers belong on FxLocalLight (fx-light-spawn). Viewmodel look -- rad tint and faux shade -- is presentation only via (fp-set-rad-tint) / (fp-set-shading).
 
-Do not treat thing PointLight / SpotLight components as the runtime overlay: only DynamicLight is gathered for the map shader and FP probe.
+Do not treat thing PointLight / SpotLight components as runtime lights: only DynamicLight feeds the map shader, and only DynamicLight / FxLocalLight feed receiver probes.
