@@ -191,6 +191,14 @@ void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
     }
 
     ImGui::Checkbox("VSync", &draft.vsync);
+    ImGui::Checkbox("Dynamic Lights", &draft.dynamicLights);
+    if (!draft.dynamicLights) {
+        ImGui::BeginDisabled();
+    }
+    ImGui::Checkbox("Dynamic Light Shadows", &draft.dynamicLightShadows);
+    if (!draft.dynamicLights) {
+        ImGui::EndDisabled();
+    }
 
     ImGui::Separator();
     if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {

@@ -26,7 +26,7 @@ Color sampleAtlasNearest(const Image& image, float u, float v) {
 
 std::optional<Color> sampleChartAtPoint(
     const MapLighting& lighting,
-    const BspSurfaceFace& face,
+    const LightmapFace& face,
     const LightmapChart& chart,
     Vector3 point) {
     if (face.vertices.size() < 3) {
@@ -76,10 +76,29 @@ std::optional<Color> sampleChartAtPoint(
     return color;
 }
 
+std::vector<LightmapFace> probeFacesFromBsp(const BspTree& bsp) {
+    std::vector<LightmapFace> faces;
+    faces.reserve(bsp.surfaceFaces.size());
+    for (const BspSurfaceFace& surface : bsp.surfaceFaces) {
+        if (surface.vertices.size() < 3) {
+            continue;
+        }
+        LightmapFace face;
+        face.id = surface.id;
+        face.material = surface.material;
+        face.normal = surface.normal;
+        face.vertices = surface.vertices;
+        face.uvShiftPixels = surface.uvShiftPixels;
+        faces.push_back(std::move(face));
+    }
+    return faces;
+}
+
 } // namespace
 
 MapLighting buildMapLighting(
     const BspTree& bsp,
+    const FacFile* fac,
     RadFile rad,
     std::vector<Image> atlasImages,
     Color ambient) {
@@ -87,7 +106,13 @@ MapLighting buildMapLighting(
     lighting.rad = std::move(rad);
     lighting.atlasImages = std::move(atlasImages);
     lighting.ambient = ambient;
-    lighting.surfaceBvh = buildBspSurfaceBvh(bsp);
+
+    if (fac != nullptr && !fac->faces.empty()) {
+        lighting.probeFaces = collectLightmapFaces(*fac);
+    } else {
+        lighting.probeFaces = probeFacesFromBsp(bsp);
+    }
+    lighting.surfaceBvh = buildLightmapFaceBvh(lighting.probeFaces);
 
     for (std::size_t index = 0; index < lighting.rad.charts.size(); ++index) {
         const LightmapChart& chart = lighting.rad.charts[index];
@@ -97,13 +122,12 @@ MapLighting buildMapLighting(
     }
 
     lighting.available = !lighting.rad.charts.empty() && !lighting.atlasImages.empty()
-        && !lighting.surfaceBvh.empty();
+        && !lighting.surfaceBvh.empty() && !lighting.probeFaces.empty();
     return lighting;
 }
 
 std::optional<Color> sampleMapLight(
     const MapLighting& lighting,
-    const BspTree& tree,
     Vector3 origin,
     Vector3 direction,
     float maxDistance) {
@@ -121,11 +145,11 @@ std::optional<Color> sampleMapLight(
         return std::nullopt;
     }
     if (hit->faceIndex < 0 ||
-        hit->faceIndex >= static_cast<std::int32_t>(tree.surfaceFaces.size())) {
+        hit->faceIndex >= static_cast<std::int32_t>(lighting.probeFaces.size())) {
         return std::nullopt;
     }
 
-    const BspSurfaceFace& face = tree.surfaceFaces[static_cast<std::size_t>(hit->faceIndex)];
+    const LightmapFace& face = lighting.probeFaces[static_cast<std::size_t>(hit->faceIndex)];
     const auto chartIt = lighting.chartIndexByFaceId.find(face.id);
     if (chartIt == lighting.chartIndexByFaceId.end()) {
         return std::nullopt;

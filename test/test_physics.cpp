@@ -2,6 +2,7 @@
 
 #include "map/brush.hpp"
 #include "physics/components.hpp"
+#include "physics/motored_body.hpp"
 #include "physics/motored_sweep.hpp"
 #include "physics/physics_world.hpp"
 #include "physics/rigid_mover.hpp"
@@ -255,7 +256,12 @@ void runCastScanTests() {
         CHECK(hit.has_value());
         CHECK(hit->fraction > 0.0f);
         CHECK(hit->fraction < 1.0f);
-        CHECK(hit->point.z < 2.0f);
+        CHECK(std::fabs(hit->point.z - 2.0f) < 0.05f);
+        CHECK(hit->normal.z < -0.5f);
+
+        const Vector3 effect = impactEffectPosition(hit->point, hit->normal);
+        CHECK(effect.z < hit->point.z - 0.05f);
+        CHECK(std::fabs(effect.z - (hit->point.z - kMotoredImpactClearance)) < 0.02f);
     }
 
     {

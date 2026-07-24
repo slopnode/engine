@@ -11,6 +11,7 @@
 #include "render/animation_player.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/render_debug.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -29,6 +30,46 @@
 
 namespace slopengine {
 
+namespace {
+
+const MapLightmapState* mapLightmapState(flecs::world& world) {
+    flecs::entity mapEntity = world.lookup("MapStatic");
+    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>()) {
+        return nullptr;
+    }
+    const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
+    if (!lightmaps.available || lightmaps.lightmapShader.id == 0) {
+        return nullptr;
+    }
+    return &lightmaps;
+}
+
+void prepareLightmapShaderDraw(
+    Shader shader,
+    int useLightmapLoc,
+    int useLightmap,
+    const Matrix& modelMatrix,
+    flecs::world& world) {
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
+        shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    }
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
+        SetShaderValueMatrix(shader, shader.locs[SHADER_LOC_MATRIX_MODEL], modelMatrix);
+    }
+    if (useLightmapLoc >= 0) {
+        SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
+    }
+    if (world.has<DynamicLightFrameState>() && world.has<DynamicLightShadowState>()) {
+        const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
+        const DynamicLightShadowState& shadows = world.get<DynamicLightShadowState>();
+        if (frame.bindings.resolved && shadows.ready) {
+            bindDynamicLightShadowMaps(shader, frame.bindings, shadows);
+        }
+    }
+}
+
+} // namespace
+
 void renderWorldModel(
     flecs::entity entity,
     Model3D& model,
@@ -37,21 +78,39 @@ void renderWorldModel(
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
+    flecs::world world = entity.world();
+    std::vector<Shader> previousShaders;
+    bool swappedPropShader = false;
+    const MapLightmapState* mapLightmaps = nullptr;
+
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
         if (lightmaps.available && model.model.materialCount > 0) {
             Shader shader = model.model.materials[0].shader;
             if (shader.id != 0) {
-                if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
-                    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
-                }
-                if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
-                    SetShaderValueMatrix(
-                        shader,
-                        shader.locs[SHADER_LOC_MATRIX_MODEL],
-                        globalTransform.matrix);
-                }
+                prepareLightmapShaderDraw(
+                    shader,
+                    lightmaps.useLightmapLoc,
+                    1,
+                    globalTransform.matrix,
+                    world);
             }
+        }
+    } else if (model.model.materialCount > 0) {
+        mapLightmaps = mapLightmapState(world);
+        if (mapLightmaps != nullptr) {
+            previousShaders.reserve(static_cast<std::size_t>(model.model.materialCount));
+            for (int i = 0; i < model.model.materialCount; ++i) {
+                previousShaders.push_back(model.model.materials[i].shader);
+                model.model.materials[i].shader = mapLightmaps->lightmapShader;
+            }
+            swappedPropShader = true;
+            prepareLightmapShaderDraw(
+                mapLightmaps->lightmapShader,
+                mapLightmaps->useLightmapLoc,
+                0,
+                globalTransform.matrix,
+                world);
         }
     }
 
@@ -76,6 +135,21 @@ void renderWorldModel(
     }
 
     DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+
+    if (swappedPropShader) {
+        for (int i = 0; i < model.model.materialCount; ++i) {
+            model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
+        }
+        if (mapLightmaps != nullptr && mapLightmaps->useLightmapLoc >= 0) {
+            const int useLightmap = 1;
+            SetShaderValue(
+                mapLightmaps->lightmapShader,
+                mapLightmaps->useLightmapLoc,
+                &useLightmap,
+                SHADER_UNIFORM_INT);
+        }
+    }
+
     rlPopMatrix();
 }
 
@@ -107,14 +181,46 @@ bool pvsVisibleFromCamera(
         objectPos);
 }
 
+struct SpriteBillboardShader {
+    Shader shader{};
+    int albedoRectLoc = -1;
+    int atlasSizeLoc = -1;
+    int useBrightmapLoc = -1;
+    int brightMapLoc = -1;
+    bool ready = false;
+};
+
+SpriteBillboardShader& spriteBillboardShader(AssetStore& assets) {
+    static SpriteBillboardShader state{};
+    if (state.ready || state.shader.id != 0) {
+        return state;
+    }
+    const std::string vert = assets.getShaderSource("default/sprite_billboard_vert");
+    const std::string frag = assets.getShaderSource("default/sprite_billboard_frag");
+    if (vert.empty() || frag.empty()) {
+        return state;
+    }
+    state.shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (state.shader.id == 0) {
+        return state;
+    }
+    state.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(state.shader, "texture0");
+    state.brightMapLoc = GetShaderLocation(state.shader, "texture1");
+    state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
+    state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
+    state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.ready = true;
+    return state;
+}
+
 void drawWorldSprite(
     const SpriteInstance& sprite,
     const GlobalTransformation& global,
     const Lens& lens,
     AssetStore& assets,
     const MapLighting* lighting,
-    const BspTree* bspTree,
     const std::vector<RankedDynamicLight>* dynamicLights,
+    const FxLightFrameState* fxLights,
     bool unlit,
     const SpriteAnimator* animator) {
     SpriteAnimTween tween{};
@@ -132,55 +238,48 @@ void drawWorldSprite(
         return;
     }
 
+    const bool useBrightmap = billboard->brightTexture != nullptr && billboard->brightTexture->id != 0;
+    const bool forceFullbright = billboard->fullbright && !useBrightmap;
+
     Color colorFeet = WHITE;
     Color colorHead = WHITE;
-    if (!unlit && lighting != nullptr && lighting->available && bspTree != nullptr) {
-        const Vector3 feetOrigin{billboard->position.x, billboard->position.y + 0.05f, billboard->position.z};
-        if (auto feet = sampleMapLight(*lighting, *bspTree, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
-            colorFeet = *feet;
-        }
+    if (!unlit && !forceFullbright && lighting != nullptr) {
+        colorFeet = lighting->ambient;
+        colorHead = lighting->ambient;
+        if (lighting->available) {
+            const Vector3 feetOrigin{
+                billboard->position.x,
+                billboard->position.y + 0.05f,
+                billboard->position.z};
+            if (auto feet =
+                    sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                colorFeet = *feet;
+            }
 
-        const Vector3 headPos{
-            billboard->position.x,
-            billboard->position.y + billboard->size.y,
-            billboard->position.z};
-        Vector3 headDir{
-            lens.camera.position.x - headPos.x,
-            0.0f,
-            lens.camera.position.z - headPos.z,
-        };
-        const float headLenSq = Vector3LengthSqr(headDir);
-        if (headLenSq > 1e-8f) {
-            headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
-            if (auto head = sampleMapLight(*lighting, *bspTree, headPos, headDir, 4.0f)) {
-                colorHead = *head;
+            const Vector3 headPos{
+                billboard->position.x,
+                billboard->position.y + billboard->size.y,
+                billboard->position.z};
+            Vector3 headDir{
+                lens.camera.position.x - headPos.x,
+                0.0f,
+                lens.camera.position.z - headPos.z,
+            };
+            const float headLenSq = Vector3LengthSqr(headDir);
+            if (headLenSq > 1e-8f) {
+                headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
+                if (auto head = sampleMapLight(*lighting, headPos, headDir, 4.0f)) {
+                    colorHead = *head;
+                } else {
+                    colorHead = colorFeet;
+                }
             } else {
                 colorHead = colorFeet;
             }
-        } else {
-            colorHead = colorFeet;
         }
     }
 
-    if (!unlit && dynamicLights != nullptr && !dynamicLights->empty()) {
-        const auto addDynamic = [&](Color base, Vector3 point) {
-            const Vector3 dyn = evaluateDynamicLightsAtPoint(*dynamicLights, point, {0.0f, 1.0f, 0.0f});
-            return Color{
-                static_cast<unsigned char>(std::clamp(
-                    static_cast<int>(base.r) + static_cast<int>(dyn.x * 255.0f),
-                    0,
-                    255)),
-                static_cast<unsigned char>(std::clamp(
-                    static_cast<int>(base.g) + static_cast<int>(dyn.y * 255.0f),
-                    0,
-                    255)),
-                static_cast<unsigned char>(std::clamp(
-                    static_cast<int>(base.b) + static_cast<int>(dyn.z * 255.0f),
-                    0,
-                    255)),
-                base.a,
-            };
-        };
+    if (!unlit && !forceFullbright) {
         const Vector3 feetPoint{
             billboard->position.x,
             billboard->position.y + 0.05f,
@@ -189,8 +288,23 @@ void drawWorldSprite(
             billboard->position.x,
             billboard->position.y + billboard->size.y,
             billboard->position.z};
-        colorFeet = addDynamic(colorFeet, feetPoint);
-        colorHead = addDynamic(colorHead, headPoint);
+        const Vector3 normal{0.0f, 1.0f, 0.0f};
+        const QuadBvh* occlusionBvh =
+            (lighting != nullptr && lighting->available && !lighting->surfaceBvh.empty())
+                ? &lighting->surfaceBvh
+                : nullptr;
+        colorFeet = addLinearRgbToColor(
+            colorFeet,
+            evaluateOverlayLightsAtPoint(
+                dynamicLights, fxLights, feetPoint, normal, occlusionBvh));
+        colorHead = addLinearRgbToColor(
+            colorHead,
+            evaluateOverlayLightsAtPoint(
+                dynamicLights, fxLights, headPoint, normal, occlusionBvh));
+    }
+    if (billboard->fullbright && useBrightmap) {
+        colorFeet = WHITE;
+        colorHead = WHITE;
     }
 
     const Texture2D& texture = *billboard->texture;
@@ -205,6 +319,53 @@ void drawWorldSprite(
     };
     const Color colors[4] = {colorFeet, colorFeet, colorHead, colorHead};
 
+    SpriteBillboardShader* brightShader = nullptr;
+    if (useBrightmap) {
+        brightShader = &spriteBillboardShader(assets);
+        if (!brightShader->ready) {
+            brightShader = nullptr;
+        }
+    }
+
+    if (brightShader != nullptr) {
+        const Vector4 albedoRect{
+            source.x,
+            source.y,
+            source.width,
+            source.height,
+        };
+        const Vector2 atlasSize{texW, texH};
+        const int useBright = 1;
+        BeginShaderMode(brightShader->shader);
+        if (brightShader->albedoRectLoc >= 0) {
+            SetShaderValue(
+                brightShader->shader,
+                brightShader->albedoRectLoc,
+                &albedoRect,
+                SHADER_UNIFORM_VEC4);
+        }
+        if (brightShader->atlasSizeLoc >= 0) {
+            SetShaderValue(
+                brightShader->shader,
+                brightShader->atlasSizeLoc,
+                &atlasSize,
+                SHADER_UNIFORM_VEC2);
+        }
+        if (brightShader->useBrightmapLoc >= 0) {
+            SetShaderValue(
+                brightShader->shader,
+                brightShader->useBrightmapLoc,
+                &useBright,
+                SHADER_UNIFORM_INT);
+        }
+        if (brightShader->brightMapLoc >= 0) {
+            SetShaderValueTexture(
+                brightShader->shader,
+                brightShader->brightMapLoc,
+                *billboard->brightTexture);
+        }
+    }
+
     rlSetTexture(texture.id);
     rlBegin(RL_QUADS);
     for (int i = 0; i < 4; ++i) {
@@ -214,6 +375,9 @@ void drawWorldSprite(
     }
     rlEnd();
     rlSetTexture(0);
+    if (brightShader != nullptr) {
+        EndShaderMode();
+    }
 }
 
 } // namespace
@@ -223,9 +387,11 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     const Lens& lens,
     const Lens& presentLens,
     const Frustum& frustum,
-    bool unlit) {
+    bool unlit,
+    bool enableDynamicLights,
+    int maxShadowed) {
     std::vector<RankedDynamicLight> rankedLights;
-    if (unlit) {
+    if (unlit || !enableDynamicLights) {
         return rankedLights;
     }
     std::vector<RankedDynamicLight> candidates;
@@ -257,7 +423,11 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         ranked.linearRgb = dynamicLightLinearRgb(light);
         candidates.push_back(ranked);
     });
-    rankedLights = rankDynamicLights(candidates, lens.camera.position);
+    rankedLights = rankDynamicLights(
+        candidates,
+        lens.camera.position,
+        kMaxDynamicLights,
+        maxShadowed);
     static int sLastDynCount = -1;
     if (static_cast<int>(rankedLights.size()) != sLastDynCount) {
         sLastDynCount = static_cast<int>(rankedLights.size());
@@ -290,7 +460,8 @@ void storeDynamicLightFrameState(
 void uploadMapDynamicLights(
     flecs::world& world,
     const std::vector<RankedDynamicLight>& rankedLights,
-    bool unlit) {
+    bool unlit,
+    const DynamicLightShadowState* shadowState) {
     flecs::entity mapEntity = world.lookup("MapStatic");
     if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>() || !mapEntity.has<Model3D>()) {
         return;
@@ -306,10 +477,10 @@ void uploadMapDynamicLights(
     }
     if (world.has<DynamicLightFrameState>()) {
         DynamicLightFrameState& frameState = world.get_mut<DynamicLightFrameState>();
-        if (!frameState.bindings.resolved) {
+        if (!frameState.bindings.resolved || frameState.bindings.shadowMapsLoc < 0) {
             resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
         }
-        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, nullptr);
+        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, shadowState);
     }
     if (lightmaps.useLightmapLoc >= 0) {
         const int useLightmap = (!unlit) ? 1 : 0;
@@ -327,8 +498,6 @@ void drawWorldModels(
     const Lens& lens,
     const Frustum& frustum,
     bool unlit) {
-    (void)world;
-    (void)unlit;
     context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
         if (!modelEntity.has<MapLightmapState>()) {
             const BoundingBox localBounds = GetModelBoundingBox(model.model);
@@ -343,6 +512,13 @@ void drawWorldModels(
             };
             if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
                 return;
+            }
+            if (mapLightmapState(world) != nullptr) {
+                model.color =
+                    sampleBakeTintColorForModel(world, model.model, global.matrix, unlit);
+            } else {
+                model.color =
+                    sampleReceiverTintColorForModel(world, model.model, global.matrix, unlit);
             }
         }
         renderWorldModel(modelEntity, model, global, lens);
@@ -384,12 +560,12 @@ std::string drawWorldSprites(
     AssetStore& assets = *world.get_mut<AssetServices>().store;
     const MapLighting* lighting =
         world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
-    const BspTree* bspTree =
-        world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
     const std::vector<RankedDynamicLight>* dynamicLights =
         (!unlit && world.has<DynamicLightFrameState>())
             ? &world.get<DynamicLightFrameState>().lights
             : nullptr;
+    const FxLightFrameState* fxLights =
+        (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
 
     struct SpriteDrawItem {
         const SpriteInstance* sprite = nullptr;
@@ -444,8 +620,8 @@ std::string drawWorldSprites(
             lens,
             assets,
             lighting,
-            bspTree,
             dynamicLights,
+            fxLights,
             unlit,
             item.animator);
     }

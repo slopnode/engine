@@ -171,6 +171,14 @@ std::optional<std::string> readHitMaskPath(std::string_view line) {
     return readQuotedField(line.substr(hitPos), "hit ");
 }
 
+std::optional<std::string> readBrightMapPath(std::string_view line) {
+    const std::size_t brightPos = line.find("bright ");
+    if (brightPos == std::string_view::npos) {
+        return std::nullopt;
+    }
+    return readQuotedField(line.substr(brightPos), "bright ");
+}
+
 bool readOffsetTokens(std::string_view line, int& offsetX, int& offsetY) {
     const std::size_t offsetPos = line.find("offset ");
     if (offsetPos == std::string_view::npos) {
@@ -344,6 +352,9 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             asset.view.eyeOffsetZ = values[2];
         } else if (inView && (line == ")" || line.rfind(")", 0) == 0)) {
             inView = false;
+        } else if (line == "(fullbright)" || line.rfind("(fullbright", 0) == 0) {
+            inView = false;
+            asset.fullbright = true;
         } else if (line.rfind("(texel-size ", 0) == 0) {
             inView = false;
             float texelSize = 64.0f;
@@ -419,6 +430,7 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             entry.texturePath = std::string{rest.substr(quoteStart + 1, quoteEnd - quoteStart - 1)};
             entry.mirror = lineContainsMirror(line);
             entry.hitMaskPath = readHitMaskPath(line);
+            entry.brightMapPath = readBrightMapPath(line);
             int offsetX = 0;
             int offsetY = 0;
             if (readOffsetTokens(line, offsetX, offsetY)) {
@@ -474,6 +486,9 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
     std::ostringstream out;
     out << "(sprite\n";
     out << "  (texel-size " << asset.pixelsPerMeter << ")\n";
+    if (asset.fullbright) {
+        out << "  (fullbright)\n";
+    }
     if (asset.billboardMode == SpriteBillboardMode::Fixed) {
         out << "  (billboard fixed)\n";
     } else if (asset.billboardMode == SpriteBillboardMode::View) {
@@ -530,6 +545,9 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
             if (entry.hitMaskPath.has_value()) {
                 out << " hit \"" << *entry.hitMaskPath << '"';
             }
+            if (entry.brightMapPath.has_value()) {
+                out << " bright \"" << *entry.brightMapPath << '"';
+            }
             out << ")\n";
         }
         out << "  )\n";
@@ -546,6 +564,7 @@ SpriteAtlas buildSpriteAtlas(
     std::vector<std::string> uniquePaths;
     std::unordered_set<std::string> seen;
     std::unordered_map<std::string, std::string> textureHitPaths;
+    std::unordered_map<std::string, std::string> textureBrightPaths;
     for (const SpriteFrame& frame : asset.frames) {
         for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
             if (!frame.rotations[rotation].has_value()) {
@@ -557,6 +576,9 @@ SpriteAtlas buildSpriteAtlas(
             }
             if (entry.hitMaskPath.has_value()) {
                 textureHitPaths.emplace(entry.texturePath, *entry.hitMaskPath);
+            }
+            if (entry.brightMapPath.has_value()) {
+                textureBrightPaths.emplace(entry.texturePath, *entry.brightMapPath);
             }
         }
     }
@@ -709,6 +731,42 @@ SpriteAtlas buildSpriteAtlas(
         }
         atlas.hitmasks.emplace(image.path, std::move(hitmask));
 
+        const auto brightPathIt = textureBrightPaths.find(image.path);
+        if (brightPathIt != textureBrightPaths.end()) {
+            const auto resolvedBright = resolveTexturePath(brightPathIt->second);
+            if (resolvedBright) {
+                Image brightImage = LoadImage(resolvedBright->string().c_str());
+                if (brightImage.data != nullptr) {
+                    ImageFormat(&brightImage, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                    if (brightImage.width == image.width && brightImage.height == image.height) {
+                        Texture2D brightTex = LoadTextureFromImage(brightImage);
+                        if (brightTex.id != 0) {
+                            SetTextureWrap(brightTex, TEXTURE_WRAP_CLAMP);
+                            SetTextureFilter(brightTex, TEXTURE_FILTER_POINT);
+                            atlas.brightTextures.emplace(image.path, brightTex);
+                        }
+                    } else {
+                        TraceLog(
+                            LOG_WARNING,
+                            "Sprite bright map size mismatch for %s (%dx%d vs %dx%d)",
+                            brightPathIt->second.c_str(),
+                            brightImage.width,
+                            brightImage.height,
+                            image.width,
+                            image.height);
+                    }
+                    UnloadImage(brightImage);
+                } else {
+                    TraceLog(
+                        LOG_WARNING,
+                        "Failed to load sprite bright map: %s",
+                        brightPathIt->second.c_str());
+                }
+            } else {
+                TraceLog(LOG_WARNING, "Sprite bright map not found: %s", brightPathIt->second.c_str());
+            }
+        }
+
         shelf->cursorX += image.packWidth;
         shelf->rowHeight = std::max(shelf->rowHeight, image.packHeight);
 
@@ -741,6 +799,14 @@ void unloadSpriteAtlas(SpriteAtlas& atlas) {
     atlas.textures.clear();
     atlas.rects.clear();
     atlas.hitmasks.clear();
+    for (auto& [path, texture] : atlas.brightTextures) {
+        (void)path;
+        if (texture.id != 0) {
+            UnloadTexture(texture);
+            texture = {};
+        }
+    }
+    atlas.brightTextures.clear();
 }
 
 std::uint8_t hitmaskPartAt(const SpriteHitmask& mask, int x, int y) {

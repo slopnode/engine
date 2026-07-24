@@ -1047,20 +1047,21 @@ std::optional<SphereCastHit> PhysicsWorld::castSphere(
     }
 
     const JPH::ShapeCastResult& hit = collector.mHit;
-    const JPH::RVec3 centerOnHit = shapeCast.GetPointOnRay(hit.mFraction);
-    JPH::Vec3 normal = hit.mPenetrationAxis;
+    const JPH::RVec3 baseOffset = shapeCast.mCenterOfMassStart.GetTranslation();
+    const JPH::RVec3 surfaceOnHit = baseOffset + hit.mContactPointOn2;
+    JPH::Vec3 normal = -hit.mPenetrationAxis;
     if (normal.LengthSq() > 1.0e-12f) {
         normal = normal.Normalized();
     } else {
-        normal = JPH::Vec3(0, 1, 0);
+        normal = JPH::Vec3(-unitDir.x, -unitDir.y, -unitDir.z);
     }
 
     SphereCastHit result{};
     result.fraction = hit.mFraction;
     result.point = {
-        static_cast<float>(centerOnHit.GetX()),
-        static_cast<float>(centerOnHit.GetY()),
-        static_cast<float>(centerOnHit.GetZ()),
+        static_cast<float>(surfaceOnHit.GetX()),
+        static_cast<float>(surfaceOnHit.GetY()),
+        static_cast<float>(surfaceOnHit.GetZ()),
     };
     result.normal = {normal.GetX(), normal.GetY(), normal.GetZ()};
     return result;

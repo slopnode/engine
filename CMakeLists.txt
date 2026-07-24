@@ -127,7 +127,9 @@ add_executable(slopengine
     src/render/sprite_animator_system.cpp
     src/render/animation_systems.cpp
     src/render/dynamic_light.cpp
+    src/render/dynamic_light_shadow_math.cpp
     src/render/dynamic_light_shadows.cpp
+    src/render/fx_local_light.cpp
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
     src/render/render_pass_fp.cpp

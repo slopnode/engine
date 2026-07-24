@@ -11,11 +11,14 @@ add_executable(sloptests
     test_physics.cpp
     test_frustum.cpp
     test_transform.cpp
+    test_dynamic_light.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
 )
 
 target_include_directories(sloptests PRIVATE
@@ -42,3 +45,4 @@ add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
 add_test(NAME sloptests.physics COMMAND sloptests physics)
 add_test(NAME sloptests.frustum COMMAND sloptests frustum)
 add_test(NAME sloptests.transform COMMAND sloptests transform)
+add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)

@@ -20,6 +20,8 @@ struct GraphicsSettings {
     int height = 720;
     WindowMode mode = WindowMode::Windowed;
     bool vsync = true;
+    bool dynamicLights = true;
+    bool dynamicLightShadows = true;
 };
 
 /** Key / mouse bindings for each registered action. */

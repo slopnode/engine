@@ -1,6 +1,7 @@
 #pragma once
 
 #include "map/bsp.hpp"
+#include "map/fac.hpp"
 #include "map/lightmap.hpp"
 #include "map/quad_bvh.hpp"
 
@@ -18,6 +19,7 @@ namespace slopengine {
 struct MapLighting {
     bool available = false;
     RadFile rad{};
+    std::vector<LightmapFace> probeFaces{};
     QuadBvh surfaceBvh{};
     std::unordered_map<std::string, std::size_t> chartIndexByFaceId;
     std::vector<Image> atlasImages;
@@ -30,6 +32,7 @@ struct MapLighting {
     MapLighting(MapLighting&& other) noexcept
         : available(other.available)
         , rad(std::move(other.rad))
+        , probeFaces(std::move(other.probeFaces))
         , surfaceBvh(std::move(other.surfaceBvh))
         , chartIndexByFaceId(std::move(other.chartIndexByFaceId))
         , atlasImages(std::move(other.atlasImages))
@@ -45,6 +48,7 @@ struct MapLighting {
         unload();
         available = other.available;
         rad = std::move(other.rad);
+        probeFaces = std::move(other.probeFaces);
         surfaceBvh = std::move(other.surfaceBvh);
         chartIndexByFaceId = std::move(other.chartIndexByFaceId);
         atlasImages = std::move(other.atlasImages);
@@ -66,13 +70,15 @@ struct MapLighting {
             }
         }
         atlasImages.clear();
+        probeFaces.clear();
         available = false;
     }
 };
 
-/** Builds MapLighting from BSP surfaces, rad data, and atlas images. */
+/** Builds MapLighting from FAC (preferred) or BSP surfaces, rad data, and atlases. */
 MapLighting buildMapLighting(
     const BspTree& bsp,
+    const FacFile* fac,
     RadFile rad,
     std::vector<Image> atlasImages,
     Color ambient);
@@ -80,7 +86,6 @@ MapLighting buildMapLighting(
 /** Samples baked light along a ray (used for sprites / FP rad tint). */
 std::optional<Color> sampleMapLight(
     const MapLighting& lighting,
-    const BspTree& tree,
     Vector3 origin,
     Vector3 direction,
     float maxDistance);

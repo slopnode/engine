@@ -85,4 +85,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data);
 
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc);
 
+/** Binds a dummy sampler2DArray so lit preview/map draw does not conflict with albedo. */
+void bindLightmapDummyShadowMaps(Shader shader);
+
 }

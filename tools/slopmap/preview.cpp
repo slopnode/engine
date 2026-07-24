@@ -4,6 +4,7 @@
 #include "assets/material_loader.hpp"
 #include "map/csg_compile.hpp"
 #include "map/fac_io.hpp"
+#include "map/lightmap.hpp"
 
 #include <raymath.h>
 #include <rlgl.h>
@@ -538,6 +539,7 @@ void MapPreview::draw(
                 const int solidLit = fill == PreviewFill::SolidLit ? 1 : 0;
                 SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
             }
+            slopengine::bindLightmapDummyShadowMaps(lightmapShader);
             DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             break;
         }

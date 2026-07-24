@@ -34,12 +34,14 @@ The .spr and .spanim for one sprite usually share the same virtual path. Texture
 | Field | Meaning |
 |-------|---------|
 | (texel-size N) | Pixels per world meter (default 64). World size is pixelSize / texel-size times entity scale. |
+| (fullbright) | Whole sprite ignores scene tint (map / dynamic / FX lights) and draws at full brightness. Does not emit light into the world. |
 | (hit-part "name" R G B) | Named hit region keyed by exact RGB in a hit-mask texture. Optional. |
 | (frame "id" ...) | Named pose. Clip lists and SpriteInstance.frame refer to these ids. |
 | (rot R "texture" ...) | View rotation R for that frame. Texture is a virtual path under textures/. |
 | offset X Y | Optional SLADE-style pixel origin from the top-left of that texture. Omit -> bottom-center (width/2, height). |
 | mirror | Flip UVs / hit samples horizontally for this rotation. |
 | hit "..." | Optional hit-mask texture path (same size as the frame texture). |
+| bright "..." | Optional grayscale brightmap (same size as the frame). White texels stay fullbright; black texels use scene lighting. |
 | rotation DEG | Base in-plane rotation in degrees (default 0). |
 | scale SX SY | Base scale multipliers (default 1 1). |
 | translate TX TY | Base canvas-space shift; not rotated with the sprite (default 0 0). |
@@ -54,6 +56,15 @@ Effective pose per channel:
 - translate = translate + anim-translate
 
 .spanim tween interpolates the **effective** pose for the listed channels toward the next hold (base and anim-* combined). Without tween, base and anim-* stay on the current hold for the whole hold.
+
+### Fullbright and brightmaps
+
+Sprites can look bright without emitting light into the map (use FxLocalLight / DynamicLight separately if the sprite should light others).
+
+- `(fullbright)` on the sprite: the whole billboard skips baked and overlay tint and draws with white vertex lighting.
+- `bright "..."` on a `(rot ...)`: a same-size grayscale mask. White texels force fullbright; black texels keep scene lighting (`albedo * mix(lit, 1, bright)`).
+
+Typical projectiles and torch props use `(fullbright)`. Use a brightmap when only part of a lit sprite should glow.
 
 For first-person view sprites, draw stacks three layers:
 

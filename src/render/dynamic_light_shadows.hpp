@@ -11,9 +11,11 @@
 
 namespace slopengine {
 
-/** One shadow-map slot for a ranked shadowed dynamic light. */
+/** Texture unit reserved for the dyn-light depth array (above MAX_MATERIAL_MAPS). */
+constexpr int kDynamicShadowTextureUnit = 12;
+
+/** Per-slot metadata for a ranked shadowed dynamic light. */
 struct DynamicLightShadowSlot {
-    RenderTexture2D faces[kDynamicShadowFacesPerSlot]{};
     Matrix viewProj[kDynamicShadowFacesPerSlot]{};
     int faceCount = 0;
     DynamicLightKind kind = DynamicLightKind::Point;
@@ -25,6 +27,9 @@ struct DynamicLightShadowSlot {
 /** GPU shadow resources for up to kMaxShadowedDynamicLights lights. */
 struct DynamicLightShadowState {
     DynamicLightShadowSlot slots[kMaxShadowedDynamicLights]{};
+    unsigned int depthArrayId = 0;
+    unsigned int fboId = 0;
+    RenderTexture2D scratch{};
     Shader depthShader{};
     int useAlphaClipLoc = -1;
     bool ready = false;
@@ -47,8 +52,8 @@ struct DynamicLightShaderBindings {
     int lightColorIntensityLoc = -1;
     int lightDirConeLoc = -1;
     int lightMetaLoc = -1;
-    int shadowVpLoc = -1;
-    int shadowMapLoc[kMaxShadowedDynamicLights * kDynamicShadowFacesPerSlot]{};
+    int shadowVpLoc[kDynamicShadowMapCount]{};
+    int shadowMapsLoc = -1;
     int shadowBiasLoc = -1;
     bool resolved = false;
 };
@@ -72,11 +77,17 @@ void renderDynamicLightShadows(
 /** Resolves dynamic-light uniform locations on @p shader. */
 void resolveDynamicLightShaderBindings(Shader shader, DynamicLightShaderBindings& bindings);
 
-/** Uploads ranked lights (and optional shadows) to @p shader. */
+/** Uploads ranked lights (and shadow VPs/bias) to @p shader. */
 void uploadDynamicLightsToShader(
     Shader shader,
     const DynamicLightShaderBindings& bindings,
     const std::vector<RankedDynamicLight>& lights,
     const DynamicLightShadowState* shadowState = nullptr);
+
+/** Binds the depth array on a reserved texture unit for map shading. */
+void bindDynamicLightShadowMaps(
+    Shader shader,
+    const DynamicLightShaderBindings& bindings,
+    const DynamicLightShadowState& shadowState);
 
 }

@@ -10,6 +10,7 @@
 #include "physics/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -35,15 +36,15 @@ namespace {
 Color sampleFirstPersonRadTint(
     Vector3 feetOrigin,
     const MapLighting* lighting,
-    const BspTree* bspTree,
     const std::vector<RankedDynamicLight>* dynamicLights,
+    const FxLightFrameState* fxLights,
     bool unlit) {
     if (unlit) {
         return WHITE;
     }
 
     Color tint = lighting != nullptr ? lighting->ambient : WHITE;
-    if (lighting != nullptr && lighting->available && bspTree != nullptr) {
+    if (lighting != nullptr && lighting->available) {
         constexpr Vector3 kDown{0.0f, -1.0f, 0.0f};
         constexpr float kMaxDist = 2.5f;
         const Vector3 offsets[] = {
@@ -59,7 +60,7 @@ Color sampleFirstPersonRadTint(
         int sumB = 0;
         for (const Vector3& offset : offsets) {
             const Vector3 origin = Vector3Add(feetOrigin, offset);
-            if (auto sampled = sampleMapLight(*lighting, *bspTree, origin, kDown, kMaxDist)) {
+            if (auto sampled = sampleMapLight(*lighting, origin, kDown, kMaxDist)) {
                 sumR += sampled->r;
                 sumG += sampled->g;
                 sumB += sampled->b;
@@ -76,25 +77,14 @@ Color sampleFirstPersonRadTint(
         }
     }
 
-    if (dynamicLights != nullptr && !dynamicLights->empty()) {
-        const Vector3 dyn =
-            evaluateDynamicLightsAtPoint(*dynamicLights, feetOrigin, {0.0f, 1.0f, 0.0f});
-        tint = Color{
-            static_cast<unsigned char>(std::clamp(
-                static_cast<int>(tint.r) + static_cast<int>(dyn.x * 255.0f),
-                0,
-                255)),
-            static_cast<unsigned char>(std::clamp(
-                static_cast<int>(tint.g) + static_cast<int>(dyn.y * 255.0f),
-                0,
-                255)),
-            static_cast<unsigned char>(std::clamp(
-                static_cast<int>(tint.b) + static_cast<int>(dyn.z * 255.0f),
-                0,
-                255)),
-            tint.a,
-        };
-    }
+    const QuadBvh* occlusionBvh =
+        (lighting != nullptr && lighting->available && !lighting->surfaceBvh.empty())
+            ? &lighting->surfaceBvh
+            : nullptr;
+    tint = addLinearRgbToColor(
+        tint,
+        evaluateOverlayLightsAtPoint(
+            dynamicLights, fxLights, feetOrigin, {0.0f, 1.0f, 0.0f}, occlusionBvh));
     return tint;
 }
 
@@ -165,14 +155,14 @@ void drawFirstPersonPass(
         };
         const MapLighting* fpLighting =
             world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
-        const BspTree* fpBsp =
-            world.has<MapBsp>() ? &world.get<MapBsp>().tree : nullptr;
         const std::vector<RankedDynamicLight>* fpDyn =
             (!unlit && world.has<DynamicLightFrameState>())
                 ? &world.get<DynamicLightFrameState>().lights
                 : nullptr;
+        const FxLightFrameState* fpFx =
+            (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
         const Color targetTint =
-            sampleFirstPersonRadTint(feetOrigin, fpLighting, fpBsp, fpDyn, unlit);
+            sampleFirstPersonRadTint(feetOrigin, fpLighting, fpDyn, fpFx, unlit);
         fpTint = smoothFirstPersonRadTint(
             playerEntity.get_mut<FirstPersonScene>(),
             targetTint,

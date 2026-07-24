@@ -100,7 +100,7 @@ void registerMotoredBodySystem(flecs::world& world) {
 
             if (const auto wall = physics->castSphere(local.position, dir, distance, radius)) {
                 bestFraction = wall->fraction;
-                bestPoint = wall->point;
+                bestPoint = impactEffectPosition(wall->point, wall->normal);
                 bestHitTarget.clear();
             }
 

@@ -823,6 +823,10 @@ void drawInspector(
         editor.markDirty();
     }
 
+    if (ImGui::Checkbox("Fullbright", &editor.doc.asset.fullbright)) {
+        editor.markDirty();
+    }
+
     {
         const char* modeLabel = "Face";
         if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Fixed) {

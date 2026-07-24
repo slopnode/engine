@@ -22,6 +22,7 @@
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/render_context.hpp"
 #include "script/first_person_script.hpp"
 #include "script/save_script.hpp"
@@ -147,6 +148,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<DynamicLightFrameState>()) {
         world.remove<DynamicLightFrameState>();
     }
+    if (world.has<FxLightFrameState>()) {
+        world.remove<FxLightFrameState>();
+    }
     if (world.has<CurrentMap>()) {
         world.remove<CurrentMap>();
     }
@@ -199,6 +203,10 @@ bool registerMapScene(
         }
         world.set<DynamicLightFrameState>(std::move(frameState));
     }
+    {
+        FxLightFrameState fxState{};
+        world.set<FxLightFrameState>(std::move(fxState));
+    }
 
     MapBsp mapBsp{std::move(loaded->bsp)};
     MapFac mapFac{std::move(loaded->fac)};
@@ -208,8 +216,10 @@ bool registerMapScene(
         static_cast<unsigned char>(std::clamp(loaded->meta.ambient.z * 255.0f, 0.0f, 255.0f)),
         255,
     };
+    const FacFile* facForLighting = mapFac.fac.faces.empty() ? nullptr : &mapFac.fac;
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
+        facForLighting,
         std::move(loaded->rad),
         std::move(loaded->lightmapAtlasImages),
         ambientColor));

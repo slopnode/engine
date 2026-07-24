@@ -20,10 +20,12 @@ struct SpriteBillboard {
     Vector3 position{};
     const SpriteHitmask* hitmask = nullptr;
     bool mirror = false;
+    bool fullbright = false;
     int pixelWidth = 0;
     int pixelHeight = 0;
     const Texture2D* texture = nullptr;
     Rectangle source{};
+    const Texture2D* brightTexture = nullptr;
 };
 
 /** Ray hit against a sprite billboard, including hit-part. */

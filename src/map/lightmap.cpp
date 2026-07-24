@@ -2,6 +2,9 @@
 
 #include "map/uv_math.hpp"
 
+#include <rlgl.h>
+#include "external/glad.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -391,7 +394,49 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
         const int zero = 0;
         SetShaderValue(shader, lightCountLoc, &zero, SHADER_UNIFORM_INT);
     }
+    bindLightmapDummyShadowMaps(shader);
     return shader;
+}
+
+void bindLightmapDummyShadowMaps(Shader shader) {
+    if (shader.id == 0) {
+        return;
+    }
+    const int loc = GetShaderLocation(shader, "dynShadowMaps");
+    if (loc < 0) {
+        return;
+    }
+
+    static unsigned int dummyArrayId = 0;
+    if (dummyArrayId == 0) {
+        const unsigned char pixel = 255;
+        glGenTextures(1, &dummyArrayId);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArrayId);
+        glTexImage3D(
+            GL_TEXTURE_2D_ARRAY,
+            0,
+            GL_R8,
+            1,
+            1,
+            1,
+            0,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            &pixel);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    }
+
+    const int unit = 12;
+    rlDrawRenderBatchActive();
+    rlEnableShader(shader.id);
+    rlActiveTextureSlot(unit);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArrayId);
+    rlSetUniform(loc, &unit, SHADER_UNIFORM_INT, 1);
+    rlActiveTextureSlot(0);
 }
 
 }

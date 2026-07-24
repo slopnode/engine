@@ -14,6 +14,9 @@ constexpr int kMaxDynamicLights = 8;
 constexpr int kMaxShadowedDynamicLights = 2;
 constexpr int kDynamicShadowMapResolution = 512;
 constexpr int kDynamicShadowFacesPerSlot = 6;
+constexpr float kDynamicShadowBias = 0.002f;
+constexpr int kDynamicShadowMapCount =
+    kMaxShadowedDynamicLights * kDynamicShadowFacesPerSlot;
 
 /** Runtime dynamic light shape. */
 enum class DynamicLightKind {
@@ -75,7 +78,7 @@ flecs::entity spawnDynamicLight(
     Quaternion rotation,
     const DynamicLight& light);
 
-/** Evaluates one ranked light at @p point with surface @p normal. */
+/** Evaluates one ranked light at @p point (range-squared atten; @p normal unused). */
 Vector3 evaluateDynamicLightAtPoint(
     const RankedDynamicLight& light,
     Vector3 point,
