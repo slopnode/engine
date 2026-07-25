@@ -44,6 +44,7 @@ bool writeTextFile(const std::filesystem::path& path, const std::string& body) {
 }
 
 Image makeThumbImage(slopengine::AssetStore& assets, const std::string& materialPath) {
+    constexpr int cell = MaterialThumbAtlas::kThumbSize;
     const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialPath);
     Color fill = WHITE;
     if (asset != nullptr) {
@@ -54,13 +55,33 @@ Image makeThumbImage(slopengine::AssetStore& assets, const std::string& material
                 Image image = LoadImage(disk->string().c_str());
                 if (image.data != nullptr) {
                     ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-                    ImageResize(&image, MaterialThumbAtlas::kThumbSize, MaterialThumbAtlas::kThumbSize);
-                    return image;
+                    int dstW = cell;
+                    int dstH = cell;
+                    if (image.width > 0 && image.height > 0) {
+                        if (image.width >= image.height) {
+                            dstW = cell;
+                            dstH = std::max(1, (cell * image.height) / image.width);
+                        } else {
+                            dstH = cell;
+                            dstW = std::max(1, (cell * image.width) / image.height);
+                        }
+                    }
+                    ImageResizeNN(&image, dstW, dstH);
+                    Image canvas = GenImageColor(cell, cell, BLANK);
+                    ImageFormat(&canvas, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+                    ImageDrawImage(
+                        &canvas,
+                        image,
+                        (cell - dstW) / 2,
+                        (cell - dstH) / 2,
+                        WHITE);
+                    UnloadImage(image);
+                    return canvas;
                 }
             }
         }
     }
-    Image swatch = GenImageColor(MaterialThumbAtlas::kThumbSize, MaterialThumbAtlas::kThumbSize, fill);
+    Image swatch = GenImageColor(cell, cell, fill);
     ImageFormat(&swatch, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
     return swatch;
 }
@@ -101,8 +122,9 @@ std::string MaterialThumbAtlas::buildFingerprint(
     slopengine::AssetStore& assets,
     const std::vector<std::string>& materials) const {
     std::ostringstream out;
-    out << "v1\n";
+    out << "v2\n";
     out << "thumb=" << kThumbSize << '\n';
+    out << "fit=letterbox_nn\n";
     for (const std::string& path : materials) {
         out << path;
         const auto matDisk = assets.resolvePath(slopengine::AssetKind::Material, path);
@@ -185,6 +207,7 @@ bool MaterialThumbAtlas::loadFromDisk(
             clear();
             return false;
         }
+        SetTextureFilter(pages_[static_cast<std::size_t>(i)], TEXTURE_FILTER_POINT);
     }
 
     loadedFingerprint_ = fingerprint;

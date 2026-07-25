@@ -421,24 +421,42 @@ void drawMaterialPreview(
     slopengine::AssetStore& assets,
     const std::string& materialLabel,
     float size) {
+    const ImVec2 boxPos = ImGui::GetCursorScreenPos();
+    drawMaterialPreviewBox(size);
+
     if (materialLabel == "mixed" || materialLabel == "none" || materialLabel == "(empty)") {
-        drawMaterialPreviewBox(size);
         return;
     }
 
     const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialLabel);
     if (asset == nullptr || asset->albedoTexture.empty()) {
-        drawMaterialPreviewBox(size);
         return;
     }
-    const Texture2D texture = assets.getTexture(asset->albedoTexture);
+    Texture2D texture = assets.getTexture(asset->albedoTexture);
     if (texture.id == 0 || texture.width <= 0 || texture.height <= 0) {
-        drawMaterialPreviewBox(size);
         return;
     }
-    ImGui::Image(
+
+    const float texW = static_cast<float>(texture.width);
+    const float texH = static_cast<float>(texture.height);
+    const float scale = std::min(size / texW, size / texH);
+    const float drawW = texW * scale;
+    const float drawH = texH * scale;
+    const ImVec2 min{
+        boxPos.x + (size - drawW) * 0.5f,
+        boxPos.y + (size - drawH) * 0.5f,
+    };
+    const ImVec2 max{min.x + drawW, min.y + drawH};
+
+    SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+    ImGui::GetWindowDrawList()->AddImage(
         ImTextureID(static_cast<intptr_t>(texture.id)),
-        ImVec2(size, size));
+        min,
+        max,
+        ImVec2(0.0f, 0.0f),
+        ImVec2(1.0f, 1.0f),
+        IM_COL32_WHITE);
+    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
 }
 
 } // namespace
