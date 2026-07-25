@@ -66,7 +66,9 @@ The canonical solid is a convex polyhedron of polygonal faces. Each face is an o
       (verts (v 1.5 0.0 1.2) (v 1.5 0.7 0.7) (v 1.0 0.0 0.5)))))
 ```
 
-brush-convex requires id and at least four planar faces that form a closed convex. Optional (role ...) (default hull). Optional brush-level (material ...) fills in faces that omit their own. Per-face clauses may set id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ux uy uz vx vy vz), (nodraw), and (verts (v x y z)...).
+brush-convex requires id and at least four planar faces that form a closed convex. Optional (role ...) (default hull). Optional brush-level (material ...) fills in faces that omit their own. Per-face clauses may set id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ux uy uz vx vy vz), (nodraw), (on-use "handler"), and (verts (v x y z)...).
+
+Face `(on-use …)` stores a Scheme handler **name** only (same string wiring as usable things). The engine does not define door/light actions. At map load, each face with a non-empty handler spawns a `face:{faceId}` entity with `Interactable` + polygon `FaceUseSurface`; Interact raycasts the face and calls `(handler face-id)`. Prefer thing `(usable …)` when you need a mesh/sprite prompt target.
 
 | Role | Splits | Seals | VIS faces | Default physics | Notes |
 |------|--------|-------|-----------|-----------------|-------|

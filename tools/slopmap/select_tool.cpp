@@ -397,7 +397,7 @@ slopengine::Brush makeBoxAt(
                 if (face.nodraw || face.uvLock || face.uvShiftPixels.x != 0.0f ||
                     face.uvShiftPixels.y != 0.0f || face.uvScale.x != 1.0f ||
                     face.uvScale.y != 1.0f || face.material != material ||
-                    face.id != src.id + suffix) {
+                    face.id != src.id + suffix || !face.onUse.empty()) {
                     slopengine::BrushFace overrideFace;
                     overrideFace.id = face.id;
                     overrideFace.material = face.material;
@@ -407,6 +407,7 @@ slopengine::Brush makeBoxAt(
                     overrideFace.uvLock = face.uvLock;
                     overrideFace.uvUAxis = face.uvUAxis;
                     overrideFace.uvVAxis = face.uvVAxis;
+                    overrideFace.onUse = face.onUse;
                     overrides.emplace_back(side, overrideFace);
                 }
                 break;

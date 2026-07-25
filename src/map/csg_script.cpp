@@ -161,6 +161,8 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
             face.uvLock = true;
         } else if (std::strcmp(tag, "uv-axes") == 0) {
             readUvAxes(sc, rest, face);
+        } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), face.onUse);
         }
     }
 
@@ -225,6 +227,13 @@ s7_pointer g_uv_scale(s7_scheme* sc, s7_pointer args) {
 s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
     (void)args;
     return makeTaggedList(sc, "nodraw", s7_nil(sc));
+}
+
+s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-use", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-use", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
 s7_pointer g_uv_lock(s7_scheme* sc, s7_pointer args) {
@@ -570,6 +579,8 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
             face.uvLock = true;
         } else if (std::strcmp(tag, "uv-axes") == 0) {
             readUvAxes(sc, rest, face);
+        } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), face.onUse);
         } else if (std::strcmp(tag, "verts") == 0) {
             for (s7_pointer vertCursor = rest; s7_is_pair(vertCursor); vertCursor = s7_cdr(vertCursor)) {
                 s7_pointer vert = s7_car(vertCursor);
@@ -670,6 +681,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "uv-scale", g_uv_scale, 2, 0, false, "(uv-scale sx sy)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
+    s7_define_function(sc, "on-use", g_on_use, 1, 0, false, "(on-use handler)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
     s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");

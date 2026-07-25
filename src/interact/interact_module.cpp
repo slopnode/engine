@@ -61,8 +61,34 @@ bool tryCallUseHandler(s7_scheme* scheme, const std::string& handlerName, const 
     return tryCallSchemeProc1String(scheme, handlerName, entityId, ScriptScope::World);
 }
 
+bool rayHitsFaceUseSurface(
+    const Ray& ray,
+    const FaceUseSurface& surface,
+    float maxDistance,
+    float& hitDistance) {
+    if (surface.vertices.size() < 3) {
+        return false;
+    }
+    bool hit = false;
+    float closest = maxDistance;
+    const Vector3& v0 = surface.vertices[0];
+    for (std::size_t i = 1; i + 1 < surface.vertices.size(); ++i) {
+        const RayCollision collision =
+            GetRayCollisionTriangle(ray, v0, surface.vertices[i], surface.vertices[i + 1]);
+        if (collision.hit && collision.distance >= 0.0f && collision.distance < closest) {
+            closest = collision.distance;
+            hit = true;
+        }
+    }
+    if (hit) {
+        hitDistance = closest;
+    }
+    return hit;
+}
+
 void registerComponents(flecs::world& world) {
     world.component<Interactable>();
+    world.component<FaceUseSurface>();
     world.component<InteractionTarget>();
 }
 
@@ -143,6 +169,26 @@ void registerSystems(flecs::world& world) {
                         });
                 }
             }
+
+            it.world()
+                .query<Interactable, FaceUseSurface>()
+                .each([&](flecs::entity entity, Interactable& interactable, FaceUseSurface& surface) {
+                    if (!entity.has<WorldSpace>()) {
+                        return;
+                    }
+
+                    float hitDistance = 0.0f;
+                    if (!rayHitsFaceUseSurface(ray, surface, interactable.maxDistance, hitDistance)) {
+                        return;
+                    }
+
+                    if (hitDistance < bestDistance) {
+                        bestDistance = hitDistance;
+                        bestEntity = entity;
+                        bestPrompt = interactable.prompt;
+                        bestEventName = interactable.eventName;
+                    }
+                });
 
             if (bestEntity.is_valid()) {
                 target.entity = bestEntity;

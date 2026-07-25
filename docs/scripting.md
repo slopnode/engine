@@ -124,7 +124,8 @@ These stay name-lookup only (no hook-add list):
 |-----------|------|
 | (on-action-{id}) | When package action {id} is pressed (mods define these in contrib.s7) |
 | (on-use-{name} thing-id) / named handlers | From map (on-use "..."); see [Things](things.md) |
-| Trigger enter/exit handlers | From map (on-enter ...) / (on-exit ...) by handler name |
+| Trigger enter/exit handlers | From map thing `(on-enter …)` / `(on-exit …)` by handler name |
+| Use handlers | From map usable/mover `(on-use …)` or CSG face `(on-use …)` by handler name; faces are interact ray targets (see [Maps](maps.md)) |
 
 Handlers receive string ids (flecs entity names). There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
 

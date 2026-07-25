@@ -99,6 +99,9 @@ bool faceNeedsOverride(const BrushFace& face, const std::string& brushId, BrushB
     if (face.uvScale.x != 1.0f || face.uvScale.y != 1.0f) {
         return true;
     }
+    if (!face.onUse.empty()) {
+        return true;
+    }
     return false;
 }
 
@@ -133,6 +136,9 @@ void writeFaceOverride(
     if (faceHasCustomUvAxes(face)) {
         out << "\n      ";
         writeUvAxesClause(out, face);
+    }
+    if (!face.onUse.empty()) {
+        out << "\n      (on-use " << escapeSchemeString(face.onUse) << ")";
     }
     out << ")\n";
 }
@@ -233,6 +239,9 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
             out << "      ";
             writeUvAxesClause(out, face);
             out << "\n";
+        }
+        if (!face.onUse.empty()) {
+            out << "      (on-use " << escapeSchemeString(face.onUse) << ")\n";
         }
         out << "      (verts";
         for (const Vector3& v : face.vertices) {

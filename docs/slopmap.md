@@ -37,7 +37,7 @@ Brush role is the important authoring choice: hull and window participate in the
 
 Clip (Shift+X / Edit -> Clip) draws a 2-point cut on the construction grid. F cycles keep Front / Back / Both, Shift+F flips the plane, Enter commits, Esc cancels. Punch-out subtracts from brushes using selected faces when you need openings without rebuilding the solid by hand.
 
-In Level scene, pick a prefab in the Prefabs panel and use Place to drop instances; Select moves them with G and rotates yaw by 90 deg with R. Things work the same way through the Things outliner and Library -> Things palette (props, usables, lights). Prefab scene can load and save optional prefabs/{path}.s7 sidecars for attached entities. Material browser, texture panel, and brush panel edit face appearance and UV fields on the open document.
+In Level scene, pick a prefab in the Prefabs panel and use Place to drop instances; Select moves them with G and rotates yaw by 90 deg with R. Things work the same way through the Things outliner and Library -> Things palette (props, usables, lights). Prefab scene can load and save optional prefabs/{path}.s7 sidecars for attached entities. Material browser, texture panel, and brush panel edit face appearance and UV fields on the open document. In face selection scope, the brush panel also edits the face `on-use` handler name; the package defines that Scheme procedure — the editor only stores the name.
 
 ## View
 

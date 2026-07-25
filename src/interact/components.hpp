@@ -1,7 +1,9 @@
 #pragma once
 
 #include <flecs.h>
+#include <raylib.h>
 #include <string>
+#include <vector>
 
 namespace slopengine {
 
@@ -12,6 +14,14 @@ struct Interactable {
     std::string prompt = "Interact";
     std::string eventName;   /**< Scheme procedure name for on-use. */
     float maxDistance = 5.0f;
+};
+
+/** Polygon surface for CSG face on-use (raycast by interact; no mesh required).
+ *  @ingroup interact_components
+ */
+struct FaceUseSurface {
+    std::vector<Vector3> vertices;
+    Vector3 normal{};
 };
 
 /** Current best interact aim result for the player this frame.

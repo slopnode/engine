@@ -525,6 +525,7 @@ Brush makeBrushBox(
             face.uvLock = overrideFace.uvLock;
             face.uvUAxis = overrideFace.uvUAxis;
             face.uvVAxis = overrideFace.uvVAxis;
+            face.onUse = overrideFace.onUse;
             break;
         }
         ensureFaceUvAxes(face);

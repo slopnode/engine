@@ -121,6 +121,7 @@ add_executable(slopengine
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
+    src/map/face_triggers.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp

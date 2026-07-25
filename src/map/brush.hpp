@@ -44,6 +44,7 @@ struct BrushFace {
     Vector3 uvVAxis{};
     bool nodraw = false; /**< Omit from mesh and lightmaps. */
     bool uvLock = false; /**< Keep texture glued under transforms. */
+    std::string onUse; /**< Package Scheme on-use handler name; empty = none. */
 };
 
 /** Convex solid used for CSG maps and prefabs. */

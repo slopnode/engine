@@ -14,6 +14,7 @@
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
+#include "map/face_triggers.hpp"
 #include "map/things_spawn.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
@@ -246,6 +247,7 @@ bool registerMapScene(
     }
 
     const PlayerStart playerStart = spawnMapThings(scheme, world, assets, mapName);
+    spawnFaceUseSurfaces(world, loaded->brushes);
 
     {
         MapGraphs mapGraphs{};
