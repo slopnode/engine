@@ -106,6 +106,12 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     } else if (p.kind == ThingKind::Mover) {
         writeIndentClause(out, "(block-mode \"shove\")");
     }
+    if (!p.moverPush.empty() && p.moverPush != "full") {
+        writeIndentClause(out, "(push " + escapeSchemeString(p.moverPush) + ")");
+    }
+    if (p.haveMoverSlide && !p.moverSlide) {
+        writeIndentClause(out, "(carry #f)");
+    }
     if (!p.onCrush.empty()) {
         writeIndentClause(out, "(on-crush " + escapeSchemeString(p.onCrush) + ")");
     }

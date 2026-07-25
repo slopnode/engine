@@ -787,6 +787,51 @@ bool drawMoverSection(Editor& editor, const std::vector<int>& targets) {
     }
 
     ImGui::Separator();
+    const auto pushCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) {
+            return t.moverPush.empty() ? std::string("full") : t.moverPush;
+        });
+    const bool mixedPush = !pushCommon.has_value();
+    const std::string pushValue = pushCommon.value_or(std::string{"full"});
+    if (mixedPush) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    if (ImGui::BeginCombo("Push", mixedPush ? "(mixed)" : pushValue.c_str())) {
+        const char* pushOptions[] = {"full", "horizontal", "off"};
+        for (const char* option : pushOptions) {
+            const bool selected = !mixedPush && pushValue == option;
+            if (ImGui::Selectable(option, selected)) {
+                if (forEachMover(editor, targets, [option](slopengine::Thing& thing) {
+                        thing.moverPush = option;
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set mover push";
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (mixedPush) {
+        ImGui::PopStyleVar();
+    }
+
+    const auto slideCommon = commonValue<bool>(
+        doc, targets, [](const slopengine::Thing& t) { return t.moverSlide; });
+    bool slide = slideCommon.value_or(true);
+    if (checkboxMixed("Carry (ride)", &slide, !slideCommon.has_value())) {
+        if (forEachMover(editor, targets, [slide](slopengine::Thing& thing) {
+                thing.moverSlide = slide;
+                thing.haveMoverSlide = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set mover carry";
+        }
+    }
+
+    ImGui::Separator();
     const auto onUseCommon = commonValue<slopengine::HandlerBinding>(
         doc, targets, [](const slopengine::Thing& t) { return t.onUse; });
     if (drawHandlerBindingEditor(

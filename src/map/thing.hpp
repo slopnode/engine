@@ -64,6 +64,9 @@ struct Thing {
     Vector3 moverCollideCenter{0.0f, 1.0f, 0.0f};
     bool haveMoverCollideCenter = false;
     std::string moverBlockMode = "shove";
+    std::string moverPush = "full";
+    bool moverSlide = true;
+    bool haveMoverSlide = false;
     std::string onCrush;
     std::string moverGroup;
 

@@ -120,7 +120,7 @@ void ensureKinematic(PhysicsWorld* physics, flecs::entity entity, RigidMover& mo
     computeMoverPose(mover, mover.progress, pos, rot);
     const Vector3 center = moverCollideWorldCenter(pos, rot, mover);
     if (!physics->hasKinematic(id)) {
-        physics->createKinematicBox(id, center, mover.collideHalfExtents, rot);
+        physics->createKinematicBox(id, center, mover.collideHalfExtents, rot, mover.slide);
         mover.kinematicReady = true;
     }
 }
@@ -138,8 +138,10 @@ void syncKinematic(PhysicsWorld* physics, flecs::entity entity, RigidMover& move
         local.position = pos;
         local.rotation = rot;
     }
+    const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+    physics->setKinematicSlide(id, mover.slide);
     physics->setKinematicPose(
-        static_cast<std::uint64_t>(entity.id()),
+        id,
         moverCollideWorldCenter(pos, rot, mover),
         rot,
         dt);
@@ -358,14 +360,16 @@ void registerRigidMoverSystem(flecs::world& world) {
                         continue;
                     }
 
-                    const float push = pen + kShoveSkin;
-                    victim.feet.x += normal.x * push;
-                    victim.feet.y += normal.y * push;
-                    victim.feet.z += normal.z * push;
-                    physics->setCharacterPosition(
-                        victim.id, victim.feet.x, victim.feet.y, victim.feet.z);
-                    charBounds = capsuleAabb(victim.feet, *victim.motor);
-                    pen = aabbPenetration(charBounds, moverBounds, normal);
+                    Vector3 shoveDelta{};
+                    if (moverComputeShove(mover.pushMode, normal, pen, shoveDelta)) {
+                        victim.feet.x += shoveDelta.x;
+                        victim.feet.y += shoveDelta.y;
+                        victim.feet.z += shoveDelta.z;
+                        physics->setCharacterPosition(
+                            victim.id, victim.feet.x, victim.feet.y, victim.feet.z);
+                        charBounds = capsuleAabb(victim.feet, *victim.motor);
+                        pen = aabbPenetration(charBounds, moverBounds, normal);
+                    }
 
                     if (mover.blockMode == MoverBlockMode::Crush && pen >= kCrushPen) {
                         stillCrushing.insert(victim.id);

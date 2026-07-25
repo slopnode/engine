@@ -242,6 +242,20 @@ s7_pointer g_block_mode(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "block-mode", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_push(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "push", 1, args, "full|horizontal|off");
+    }
+    return makeTaggedList(sc, "push", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_carry(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "carry", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "carry", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_on_crush(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-crush", 1, args, "handler");
@@ -554,6 +568,10 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                 readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.moverCollideCenter);
         } else if (std::strcmp(tag, "block-mode") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.moverBlockMode);
+        } else if (std::strcmp(tag, "push") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.moverPush);
+        } else if (std::strcmp(tag, "carry") == 0 && s7_is_pair(rest)) {
+            out.haveMoverSlide = readBool(sc, s7_car(rest), out.moverSlide);
         } else if (std::strcmp(tag, "on-crush") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.onCrush);
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(rest)) {
@@ -948,6 +966,8 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "collide-size", g_collide_size, 3, 0, false, "(collide-size w h d)");
     s7_define_function(sc, "collide-center", g_collide_center, 3, 0, false, "(collide-center x y z)");
     s7_define_function(sc, "block-mode", g_block_mode, 1, 0, false, "(block-mode shove|crush)");
+    s7_define_function(sc, "push", g_push, 1, 0, false, "(push full|horizontal|off)");
+    s7_define_function(sc, "carry", g_carry, 1, 0, false, "(carry bool)");
     s7_define_function(sc, "on-crush", g_on_crush, 1, 0, false, "(on-crush handler)");
     s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
     s7_define_function(sc, "on-enter", g_on_enter, 1, 0, true, "(on-enter handler arg-clause...)");

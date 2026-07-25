@@ -122,6 +122,8 @@ Presentation is exactly one of `(brush …)`, `(geo …)`, or `(sprite …)`. **
   (open-offset 0.0 2.3 0.0)
   (duration 0.6)
   (block-mode "shove")
+  (push "horizontal")
+  (carry #f)
   (prompt "Open")
   (on-use "on-use-mover-toggle"))
 ```
@@ -140,6 +142,8 @@ Geo form (still supported):
   (collide-size 2.5 2.2 0.12)
   (collide-center 0.0 0.0 0.0)
   (block-mode "shove")
+  (push "full")
+  (carry #t)
   (group "armory-doors")
   (prompt "Open")
   (on-use "on-use-mover-toggle"))
@@ -155,11 +159,13 @@ Geo form (still supported):
 | collide-center | no | Box center in local space (default 0, half-height, 0 for geo/sprite; origin for brush). |
 | duration | no | Seconds closed↔open (default 0.8). |
 | block-mode | no | `"shove"` (default) or `"crush"`. |
+| push | no | `"full"` (default), `"horizontal"`, or `"off"`. Depenetration shove axes. |
+| carry | no | `#t` (default) or `#f`. When `#t`, characters inherit ground velocity while standing on the mover. Named `carry` (not `slide`) so it does not clash with motor `(move slide)`. |
 | on-crush | no | Scheme proc `(on-crush mover-id victim-id)` when crush traps a character. |
 | group | no | Shared id for double doors / multi-leaf. |
 | prompt / on-use | no | If either is set, adds Interactable like usable. |
 
-**block-mode shove** pushes CharacterVirtuals out of the moving box. **crush** still shoves, then calls `on-crush` when penetration remains (package owns damage/death). Geo/brush movers tint `Model3D.color` from a downward lightmap probe.
+**block-mode shove** pushes CharacterVirtuals out of the moving box. **crush** still shoves, then calls `on-crush` when penetration remains (package owns damage/death). **push** controls that shove: `full` uses the least-penetration axis (including Y), `horizontal` nudges on XZ only, `off` skips position correction (crush can still fire). **carry** controls riding: rising doors usually want `(push "horizontal") (carry #f)`; elevators want `(carry #t)`. Geo/brush movers tint `Model3D.color` from a downward lightmap probe.
 
 Runtime control: `(mover-open id)`, `(mover-close id)`, `(mover-toggle id)`, group variants, `(mover-set-locked id bool)`, `(mover-state id)` / `(mover-set-state …)` for save restore — see [Scripting](scripting.md#thing-runtime).
 

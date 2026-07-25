@@ -523,6 +523,14 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             } else {
                 mover.blockMode = MoverBlockMode::Shove;
             }
+            if (placement.moverPush == "horizontal") {
+                mover.pushMode = MoverPushMode::Horizontal;
+            } else if (placement.moverPush == "off") {
+                mover.pushMode = MoverPushMode::Off;
+            } else {
+                mover.pushMode = MoverPushMode::Full;
+            }
+            mover.slide = placement.haveMoverSlide ? placement.moverSlide : true;
             mover.onCrush = placement.onCrush;
             mover.groupId = placement.moverGroup;
             entity.set<RigidMover>(mover);
@@ -541,7 +549,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                         static_cast<std::uint64_t>(entity.id()),
                         moverCollideWorldCenter(pos, rot, mover),
                         mover.collideHalfExtents,
-                        rot);
+                        rot,
+                        mover.slide);
                     entity.get_mut<RigidMover>().kinematicReady = true;
                 }
             }
