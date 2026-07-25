@@ -34,8 +34,14 @@ Vector3 normalizeOrZero(Vector3 v) {
 
 } // namespace
 
-void spawnFaceUseSurfaces(flecs::world& world, const std::vector<Brush>& brushes) {
+void spawnFaceUseSurfaces(
+    flecs::world& world,
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* skipBrushIds) {
     for (const Brush& brush : brushes) {
+        if (skipBrushIds != nullptr && skipBrushIds->count(brush.id) > 0) {
+            continue;
+        }
         for (std::size_t i = 0; i < brush.faces.size(); ++i) {
             const BrushFace& face = brush.faces[i];
             if ((face.onUse.empty() && face.onTouch.empty()) || face.vertices.size() < 3) {

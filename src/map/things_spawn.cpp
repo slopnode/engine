@@ -1,11 +1,15 @@
 #include "map/things_spawn.hpp"
 
 #include "assets/asset_store.hpp"
+#include "assets/geo_loader.hpp"
+#include "assets/material_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
 #include "audio/components.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
+#include "map/csg_compile.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
@@ -34,6 +38,7 @@ struct SpawnContext {
     flecs::world* world = nullptr;
     AssetStore* assets = nullptr;
     s7_scheme* scheme = nullptr;
+    const std::vector<Brush>* brushes = nullptr;
     PlayerStart playerStart{};
     std::unordered_set<std::string> usedIds;
     std::string idPrefix;
@@ -42,6 +47,82 @@ struct SpawnContext {
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
 };
+
+MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view materialPath) {
+    MaterialUvInfo info{};
+    const MaterialAsset* asset = assets.getMaterialAsset(materialPath);
+    if (asset != nullptr) {
+        info.pixelsPerMeter = asset->pixelsPerMeter;
+        if (!asset->albedoTexture.empty()) {
+            const Texture2D texture = assets.getTexture(asset->albedoTexture);
+            if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
+                info.textureWidth = static_cast<float>(texture.width);
+                info.textureHeight = static_cast<float>(texture.height);
+            }
+        }
+    }
+    return info;
+}
+
+bool applyMoverBrushDefaults(Thing& placement, SpawnContext& ctx) {
+    if (placement.brush.empty()) {
+        return true;
+    }
+    if (ctx.brushes == nullptr) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: mover '%s' brush '%s' but no map brushes available",
+            placement.id.c_str(),
+            placement.brush.c_str());
+        return false;
+    }
+    const Brush* brush = findBrushById(*ctx.brushes, placement.brush);
+    if (brush == nullptr) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: mover '%s' missing brush '%s'",
+            placement.id.c_str(),
+            placement.brush.c_str());
+        return false;
+    }
+    if (brush->role != BrushRole::Detail) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: mover '%s' brush '%s' must be detail (got %s)",
+            placement.id.c_str(),
+            placement.brush.c_str(),
+            brushRoleName(brush->role));
+        return false;
+    }
+
+    const Vector3 center{
+        0.5f * (brush->mins.x + brush->maxs.x),
+        0.5f * (brush->mins.y + brush->maxs.y),
+        0.5f * (brush->mins.z + brush->maxs.z),
+    };
+    if (!placement.haveAt) {
+        placement.at = center;
+        placement.haveAt = true;
+    }
+    if (!placement.haveMoverCollideSize) {
+        placement.moverCollideSize = {
+            brush->maxs.x - brush->mins.x,
+            brush->maxs.y - brush->mins.y,
+            brush->maxs.z - brush->mins.z,
+        };
+        if (placement.moverCollideSize.x < 1e-4f) {
+            placement.moverCollideSize.x = 0.1f;
+        }
+        if (placement.moverCollideSize.y < 1e-4f) {
+            placement.moverCollideSize.y = 0.1f;
+        }
+        if (placement.moverCollideSize.z < 1e-4f) {
+            placement.moverCollideSize.z = 0.1f;
+        }
+        placement.haveMoverCollideSize = true;
+    }
+    return true;
+}
 
 bool claimId(SpawnContext& ctx, const std::string& id) {
     if (id.empty()) {
@@ -60,6 +141,9 @@ Thing transformThing(const SpawnContext& ctx, Thing placement) {
     }
     if (!ctx.idPrefix.empty()) {
         placement.id = ctx.idPrefix + "/" + placement.id;
+        if (!placement.brush.empty()) {
+            placement.brush = ctx.idPrefix + "/" + placement.brush;
+        }
     }
     if (placement.haveAt) {
         const Matrix rotation = MatrixRotateXYZ(ctx.prefabAngles);
@@ -100,15 +184,58 @@ LocalTransformation makeLocalTransform(const Thing& placement, const SpawnContex
     return local;
 }
 
+bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
+    if (ctx.brushes == nullptr || ctx.assets == nullptr) {
+        return false;
+    }
+    const Brush* source = findBrushById(*ctx.brushes, placement.brush);
+    if (source == nullptr) {
+        return false;
+    }
+
+    const Vector3 origin = placement.haveAt ? placement.at : Vector3{};
+
+    const auto resolveUv = [assets = ctx.assets](std::string_view materialPath) {
+        return resolveThingMaterialUv(*assets, materialPath);
+    };
+    CsgCompileResult compiled = compileBrushesToGeo({*source}, resolveUv, nullptr);
+    for (Vector3& pos : compiled.buffer.positions) {
+        pos = Vector3Subtract(pos, origin);
+    }
+    Model model = buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [assets = ctx.assets](std::string_view path) { return assets->resolveMaterial(path); });
+    if (model.meshCount <= 0) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: failed to compile brush '%s' for mover '%s'",
+            placement.brush.c_str(),
+            placement.id.c_str());
+        return false;
+    }
+
+    entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+    entity.set<Model3D>({model, WHITE, true});
+    return true;
+}
+
 bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     const bool hasSprite = !placement.sprite.empty();
     const bool hasGeo = !placement.geo.empty();
-    if (hasSprite == hasGeo) {
+    const bool hasBrush = !placement.brush.empty();
+    const int presentationCount =
+        (hasSprite ? 1 : 0) + (hasGeo ? 1 : 0) + (hasBrush ? 1 : 0);
+    if (presentationCount != 1) {
         TraceLog(
             LOG_WARNING,
-            "THING: '%s' requires exactly one of sprite or geo",
+            "THING: '%s' requires exactly one of sprite, geo, or brush",
             placement.id.c_str());
         return false;
+    }
+
+    if (hasBrush) {
+        return applyBrushPresentation(entity, placement, ctx);
     }
 
     float facingYaw = placement.yaw;
@@ -320,6 +447,10 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         return;
     }
 
+    if (placement.kind == ThingKind::Mover && !applyMoverBrushDefaults(placement, ctx)) {
+        return;
+    }
+
     flecs::entity entity = ctx.world->entity(placement.id.c_str());
     entity.add<MapOwned>();
 
@@ -378,6 +509,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             }
             if (placement.haveMoverCollideCenter) {
                 mover.collideCenterLocal = placement.moverCollideCenter;
+            } else if (!placement.brush.empty()) {
+                mover.collideCenterLocal = {0.0f, 0.0f, 0.0f};
             } else {
                 mover.collideCenterLocal = {
                     0.0f,
@@ -492,11 +625,13 @@ void spawnThings(
     flecs::world& world,
     AssetStore& assets,
     s7_scheme* scheme,
-    const ThingDocument& doc) {
+    const ThingDocument& doc,
+    const std::vector<Brush>* brushes) {
     SpawnContext ctx{};
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
+    ctx.brushes = brushes;
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
@@ -506,7 +641,8 @@ PlayerStart spawnMapThings(
     s7_scheme* scheme,
     flecs::world& world,
     AssetStore& assets,
-    std::string_view mapName) {
+    std::string_view mapName,
+    const std::vector<Brush>& brushes) {
     PlayerStart defaults{};
     if (scheme == nullptr) {
         return defaults;
@@ -531,6 +667,7 @@ PlayerStart spawnMapThings(
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
+    ctx.brushes = &brushes;
     for (const Thing& placement : doc->things) {
         spawnOne(ctx, placement);
     }

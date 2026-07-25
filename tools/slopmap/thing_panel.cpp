@@ -7,6 +7,7 @@
 
 #include "imgui.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -714,6 +715,99 @@ bool drawUseHandlerSection(Editor& editor, const std::vector<int>& targets, cons
     return changed;
 }
 
+bool forEachMover(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& t) { return t.kind == slopengine::ThingKind::Mover; },
+        fn);
+}
+
+bool drawMoverSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+    ImGui::TextUnformatted("Kind: mover");
+    ImGui::Text("%d mover(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto brushCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) { return t.brush; });
+    std::vector<std::string> brushIds;
+    brushIds.reserve(doc.brushes.size());
+    for (const slopengine::Brush& brush : doc.brushes) {
+        if (!brush.id.empty() && brush.role == slopengine::BrushRole::Detail) {
+            brushIds.push_back(brush.id);
+        }
+    }
+    std::sort(brushIds.begin(), brushIds.end());
+    brushIds.erase(std::unique(brushIds.begin(), brushIds.end()), brushIds.end());
+
+    const bool mixedBrush = !brushCommon.has_value();
+    const std::string brushValue = brushCommon.value_or(std::string{});
+    const char* preview = mixedBrush              ? "(mixed)"
+        : brushValue.empty()                      ? "(none — use geo/sprite)"
+                                                  : brushValue.c_str();
+    if (mixedBrush) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    if (ImGui::BeginCombo("Brush leaf", preview)) {
+        if (ImGui::Selectable("(none)", !mixedBrush && brushValue.empty())) {
+            if (forEachMover(editor, targets, [](slopengine::Thing& thing) {
+                    thing.brush.clear();
+                })) {
+                changed = true;
+                editor.markFacDirty();
+                editor.statusMessage = "Cleared mover brush";
+            }
+        }
+        for (const std::string& id : brushIds) {
+            const bool selected = !mixedBrush && brushValue == id;
+            if (ImGui::Selectable(id.c_str(), selected)) {
+                if (forEachMover(editor, targets, [&id](slopengine::Thing& thing) {
+                        thing.brush = id;
+                        thing.geo.clear();
+                        thing.sprite.clear();
+                    })) {
+                    changed = true;
+                    editor.markFacDirty();
+                    editor.statusMessage = "Set mover brush";
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (mixedBrush) {
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::Separator();
+    const auto onUseCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onUse; });
+    if (drawHandlerBindingEditor(
+            editor,
+            "On use",
+            "onuse",
+            slopengine::MapHandlerKind::Use,
+            onUseCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachMover(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onUse = next;
+                    if (!next.empty()) {
+                        thing.havePrompt = true;
+                    }
+                });
+            })) {
+        changed = true;
+    }
+    return changed;
+}
+
 bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
     bool changed = false;
     const EditorDocument& doc = editor.doc();
@@ -822,7 +916,7 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
     } else if (editKind == ThingEditKind::Usable) {
         result.changed = drawUseHandlerSection(editor, targets, "usable");
     } else if (editKind == ThingEditKind::Mover) {
-        result.changed = drawUseHandlerSection(editor, targets, "mover");
+        result.changed = drawMoverSection(editor, targets);
     }
 
     ImGui::EndChild();

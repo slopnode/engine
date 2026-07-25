@@ -38,6 +38,7 @@ struct Thing {
 
     std::string sprite;
     std::string geo;
+    std::string brush;
     std::string frame = "A";
     std::string animClip;
     bool animLoop = true;

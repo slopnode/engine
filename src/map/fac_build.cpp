@@ -811,12 +811,16 @@ void occludeFragmentsByBrushes(
     std::vector<ClippedFragment>& fragments,
     std::size_t sourceBrushIndex,
     const std::vector<Brush>& brushes,
-    Vector3 faceNormal) {
+    Vector3 faceNormal,
+    const std::unordered_set<std::string>* skipBrushIds) {
     for (std::size_t bi = 0; bi < brushes.size(); ++bi) {
         if (bi == sourceBrushIndex) {
             continue;
         }
         const Brush& occluder = brushes[bi];
+        if (skipBrushIds != nullptr && skipBrushIds->count(occluder.id) > 0) {
+            continue;
+        }
         if (!brushRoleEmitsVisFaces(occluder.role)) {
             continue;
         }
@@ -1188,7 +1192,8 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
 FacBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,
-    const std::vector<Brush>& brushes) {
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* skipBrushIds) {
     FacBuildResult result;
 
     std::vector<std::int32_t> interiorLeaves;
@@ -1204,6 +1209,9 @@ FacBuildResult buildVisibleFaces(
 
     for (std::size_t brushIndex = 0; brushIndex < brushes.size(); ++brushIndex) {
         const Brush& brush = brushes[brushIndex];
+        if (skipBrushIds != nullptr && skipBrushIds->count(brush.id) > 0) {
+            continue;
+        }
         if (!brushRoleEmitsVisFaces(brush.role)) {
             continue;
         }
@@ -1226,7 +1234,7 @@ FacBuildResult buildVisibleFaces(
             }
 
             fragments = microMergeFragments(std::move(fragments));
-            occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal);
+            occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal, skipBrushIds);
 
             if (fragments.empty()) {
                 result.inferredNodrawFaceIds.push_back(face.id);

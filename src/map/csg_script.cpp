@@ -10,10 +10,12 @@
 #include "map/csg_compile.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/prefab.hpp"
 #include "map/fac.hpp"
 #include "map/fac_io.hpp"
 #include "map/pvs_io.hpp"
+#include "map/things_script.hpp"
 
 #include <algorithm>
 #include <raylib.h>
@@ -983,6 +985,13 @@ std::optional<LoadedMap> loadAndCompileMap(
         return std::nullopt;
     }
 
+    std::unordered_set<std::string> moverBrushIds;
+    if (auto things = loadMapThings(scheme, assets, mapName)) {
+        moverBrushIds = collectMoverBrushIds(*things);
+    } else {
+        TraceLog(LOG_WARNING, "MAP: failed to load things.s7; mover brushes not omitted");
+    }
+
     const auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);
     if (!bspPath) {
         TraceLog(LOG_WARNING, "MAP: failed to resolve bsp path");
@@ -1019,7 +1028,11 @@ std::optional<LoadedMap> loadAndCompileMap(
             "MAP: missing maps/%s.fac; building visible faces in-memory (run slopfac)",
             virtualPath.c_str());
         if (analysis.sealed) {
-            FacBuildResult built = buildVisibleFaces(*bsp, analysis, *brushes);
+            FacBuildResult built = buildVisibleFaces(
+                *bsp,
+                analysis,
+                *brushes,
+                moverBrushIds.empty() ? nullptr : &moverBrushIds);
             MapHullAnalysis nodrawAnalysis = analysis;
             nodrawAnalysis.inferredNodrawFaceIds = std::move(built.inferredNodrawFaceIds);
             applyInferredNodraw(*brushes, nodrawAnalysis);
@@ -1036,6 +1049,7 @@ std::optional<LoadedMap> loadAndCompileMap(
                 "MAP: hull is not sealed; falling back to authored brush faces");
         }
     } else {
+        eraseFacFacesForMoverBrushes(fac, moverBrushIds);
         std::unordered_set<std::string> visibleSources;
         for (const VisibleFace& face : fac.faces) {
             std::string remaining = face.sourceFaceId;
@@ -1192,9 +1206,21 @@ std::optional<LoadedMap> loadAndCompileMap(
     const RadFile* lightmaps = result.hasLightmaps ? &rad : nullptr;
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    std::vector<Brush> staticBrushes;
+    if (!haveFac && !moverBrushIds.empty()) {
+        staticBrushes.reserve(brushes->size());
+        for (const Brush& brush : *brushes) {
+            if (moverBrushIds.count(brush.id) == 0) {
+                staticBrushes.push_back(brush);
+            }
+        }
+    }
     const CsgCompileResult compiled = haveFac
         ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
-        : compileBrushesToGeo(*brushes, resolveUv, lightmaps);
+        : compileBrushesToGeo(
+              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+              resolveUv,
+              lightmaps);
     result.fac = std::move(fac);
     result.pvs = std::move(pvs);
 
@@ -1250,6 +1276,7 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     result.model = model;
     result.brushes = std::move(*brushes);
+    result.moverBrushIds = std::move(moverBrushIds);
     result.bsp = std::move(*bsp);
     result.rad = std::move(rad);
     result.meta = std::move(*mapMeta);

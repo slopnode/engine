@@ -12,7 +12,9 @@
 #include <raylib.h>
 
 #include <optional>
+#include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 struct s7_scheme;
@@ -23,6 +25,7 @@ namespace slopengine {
 struct LoadedMap {
     Model model{};
     std::vector<Brush> brushes;
+    std::unordered_set<std::string> moverBrushIds;
     BspTree bsp{};
     FacFile fac{};
     PvsFile pvs{};

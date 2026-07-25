@@ -122,6 +122,13 @@ s7_pointer g_geo(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "geo", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_brush(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "brush", 1, args, "brush-id");
+    }
+    return makeTaggedList(sc, "brush", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_frame(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "frame", 1, args, "frame-id");
@@ -475,6 +482,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             readString(sc, s7_car(rest), out.sprite);
         } else if (std::strcmp(tag, "geo") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.geo);
+        } else if (std::strcmp(tag, "brush") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.brush);
         } else if (std::strcmp(tag, "frame") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.frame);
         } else if (std::strcmp(tag, "anim") == 0 && s7_is_pair(rest)) {
@@ -769,11 +778,18 @@ s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "mover has invalid clauses")));
     }
-    if (!placement.haveMoverCollideSize) {
+    const bool hasBrush = !placement.brush.empty();
+    if (hasBrush && (!placement.geo.empty() || !placement.sprite.empty())) {
         return s7_error(
             sc,
             s7_make_symbol(sc, "thing-error"),
-            s7_list(sc, 1, s7_make_string(sc, "mover requires collide-size")));
+            s7_list(sc, 1, s7_make_string(sc, "mover brush cannot combine with geo or sprite")));
+    }
+    if (!hasBrush && !placement.haveMoverCollideSize) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "mover requires collide-size or brush")));
     }
     if (!placement.haveMoverOpenOffset && !placement.haveMoverOpenAngle) {
         return s7_error(
@@ -781,7 +797,11 @@ s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "mover requires open-offset or open-pitch/yaw/roll")));
     }
-    return appendThing(sc, std::move(placement), "mover requires id and at", true);
+    return appendThing(
+        sc,
+        std::move(placement),
+        "mover requires id and at (or brush)",
+        !hasBrush);
 }
 
 s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
@@ -913,6 +933,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
     s7_define_function(sc, "sprite", g_sprite, 1, 0, false, "(sprite path)");
     s7_define_function(sc, "geo", g_geo, 1, 0, false, "(geo path)");
+    s7_define_function(sc, "brush", g_brush, 1, 0, false, "(brush brush-id)");
     s7_define_function(sc, "frame", g_frame, 1, 0, false, "(frame id)");
     s7_define_function(sc, "anim", g_anim, 1, 1, false, "(anim clip [loop])");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt text)");

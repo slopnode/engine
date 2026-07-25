@@ -959,6 +959,18 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
+                        "door",
+                        "Convert to Mover",
+                        nullptr,
+                        false,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                            !editor.doc().selectedBrushes.empty())) {
+                    editor.convertSelectedBrushesToMovers();
+                    previewNeedsRebuild = true;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
                         "lock",
                         "Toggle UV Lock",
                         "L",

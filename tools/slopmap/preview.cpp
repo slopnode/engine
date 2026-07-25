@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace slopmap {
 
@@ -42,6 +43,48 @@ std::uint32_t hashString(const std::string& value) {
         hash *= 16777619u;
     }
     return hash;
+}
+
+void clearMoverOverlay(Model& model, bool& valid) {
+    if (valid && model.meshCount > 0) {
+        UnloadModel(model);
+    }
+    model = {};
+    valid = false;
+}
+
+void rebuildMoverOverlay(
+    slopengine::AssetStore& assets,
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds,
+    Model& model,
+    bool& valid) {
+    clearMoverOverlay(model, valid);
+    if (moverBrushIds.empty()) {
+        return;
+    }
+    std::vector<slopengine::Brush> movers;
+    movers.reserve(moverBrushIds.size());
+    for (const slopengine::Brush& brush : brushes) {
+        if (moverBrushIds.count(brush.id) > 0) {
+            movers.push_back(brush);
+        }
+    }
+    if (movers.empty()) {
+        return;
+    }
+    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+        movers,
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); },
+        nullptr);
+    model = slopengine::buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+    valid = model.meshCount > 0;
+    if (!valid) {
+        clearMoverOverlay(model, valid);
+    }
 }
 
 unsigned char mixChannel(unsigned char base, std::uint32_t hash, int shift, int spread) {
@@ -209,6 +252,7 @@ void MapPreview::clear() {
     editFaceIds.clear();
     clearVis();
     clearLit();
+    clearMoverOverlay(moverOverlayModel, moverOverlayValid);
 }
 
 void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slopengine::Brush>& brushes) {
@@ -242,8 +286,8 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
 bool MapPreview::reloadVisPreview(
     slopengine::AssetStore& assets,
     const std::string& mapName,
-    const std::vector<slopengine::Brush>& brushes) {
-    (void)brushes;
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds) {
     clearVis();
     if (mapName.empty() || mapName == "untitled") {
         return false;
@@ -274,14 +318,17 @@ bool MapPreview::reloadVisPreview(
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
+        return false;
     }
-    return visValid;
+    rebuildMoverOverlay(assets, brushes, moverBrushIds, moverOverlayModel, moverOverlayValid);
+    return true;
 }
 
 bool MapPreview::reloadBake(
     slopengine::AssetStore& assets,
     const std::string& mapName,
-    const std::vector<slopengine::Brush>& brushes) {
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds) {
     clearLit();
     if (mapName.empty() || mapName == "untitled") {
         return false;
@@ -391,6 +438,7 @@ bool MapPreview::reloadBake(
         const int useLightmap = 1;
         SetShaderValue(lightmapShader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
     }
+    rebuildMoverOverlay(assets, brushes, moverBrushIds, moverOverlayModel, moverOverlayValid);
     return litValid;
 }
 
@@ -541,12 +589,18 @@ void MapPreview::draw(
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
             DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            if (moverOverlayValid) {
+                DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            }
             break;
         }
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
             DrawModel(visModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            if (moverOverlayValid) {
+                DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            }
             break;
         }
         [[fallthrough]];

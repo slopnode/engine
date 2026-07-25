@@ -157,6 +157,9 @@ void writePresentation(std::ostringstream& out, const Thing& p) {
     if (!p.geo.empty()) {
         writeIndentClause(out, "(geo " + escapeSchemeString(p.geo) + ")");
     }
+    if (!p.brush.empty()) {
+        writeIndentClause(out, "(brush " + escapeSchemeString(p.brush) + ")");
+    }
     if (!p.sprite.empty() && p.frame != "A") {
         writeIndentClause(out, "(frame " + escapeSchemeString(p.frame) + ")");
     } else if (!p.sprite.empty() && p.kind == ThingKind::Usable) {

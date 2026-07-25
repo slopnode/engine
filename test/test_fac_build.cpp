@@ -5,10 +5,14 @@
 #include "map/bsp_analyze.hpp"
 #include "map/brush.hpp"
 #include "map/fac.hpp"
+#include "map/mover_brushes.hpp"
+#include "map/thing.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace slopengine {
@@ -49,6 +53,39 @@ bool faceHasVertex(const VisibleFace& face, Vector3 p, float eps = 1e-3f) {
         }
     }
     return false;
+}
+
+float polygonArea3(const std::vector<Vector3>& verts) {
+    if (verts.size() < 3) {
+        return 0.0f;
+    }
+    Vector3 accum{};
+    for (std::size_t i = 1; i + 1 < verts.size(); ++i) {
+        const Vector3 ab{
+            verts[i].x - verts[0].x,
+            verts[i].y - verts[0].y,
+            verts[i].z - verts[0].z,
+        };
+        const Vector3 ac{
+            verts[i + 1].x - verts[0].x,
+            verts[i + 1].y - verts[0].y,
+            verts[i + 1].z - verts[0].z,
+        };
+        accum.x += ab.y * ac.z - ab.z * ac.y;
+        accum.y += ab.z * ac.x - ab.x * ac.z;
+        accum.z += ab.x * ac.y - ab.y * ac.x;
+    }
+    return 0.5f * std::sqrt(accum.x * accum.x + accum.y * accum.y + accum.z * accum.z);
+}
+
+float sourceFaceArea(const FacFile& fac, std::string_view sourceId) {
+    float area = 0.0f;
+    for (const VisibleFace& face : fac.faces) {
+        if (face.sourceFaceId == sourceId) {
+            area += polygonArea3(face.vertices);
+        }
+    }
+    return area;
 }
 
 bool pointInPolygon3(
@@ -311,6 +348,70 @@ void runFacBuildTests() {
             CHECK_FALSE(face.id.empty());
             CHECK_FALSE(face.sourceFaceId.empty());
         }
+    }
+
+    {
+        std::vector<Brush> brushes =
+            mapfixtures::sealedRoomWithInteriorDoorway(BrushRole::Detail);
+        brushes.push_back(makeBrushBox(
+            "door-1-leaf",
+            {-1.0f, 0.0f, -0.06f},
+            {1.0f, 2.2f, 0.06f},
+            "mat/a",
+            {},
+            BrushRole::Detail));
+
+        ThingDocument doc{};
+        Thing mover{};
+        mover.kind = ThingKind::Mover;
+        mover.id = "door-1";
+        mover.brush = "door-1-leaf";
+        mover.haveMoverOpenOffset = true;
+        mover.moverOpenOffset = {0.0f, 2.3f, 0.0f};
+        doc.things.push_back(mover);
+
+        const std::unordered_set<std::string> claimed = collectMoverBrushIds(doc);
+        CHECK(claimed.count("door-1-leaf") == 1);
+
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const FacBuildResult withDoor = buildVisibleFaces(tree, analysis, brushes);
+        bool doorVisible = false;
+        for (const VisibleFace& face : withDoor.fac.faces) {
+            if (faceIdBelongsToBrush(face.sourceFaceId, "door-1-leaf") ||
+                faceIdBelongsToBrush(face.id, "door-1-leaf")) {
+                doorVisible = true;
+                break;
+            }
+        }
+        CHECK(doorVisible);
+
+        const FacBuildResult omitted = buildVisibleFaces(tree, analysis, brushes, &claimed);
+        for (const VisibleFace& face : omitted.fac.faces) {
+            CHECK_FALSE(faceIdBelongsToBrush(face.sourceFaceId, "door-1-leaf"));
+            CHECK_FALSE(faceIdBelongsToBrush(face.id, "door-1-leaf"));
+        }
+
+        const float jambEastWith = sourceFaceArea(withDoor.fac, "partition-w/east");
+        const float jambWestWith = sourceFaceArea(withDoor.fac, "partition-e/west");
+        const float jambEastOmit = sourceFaceArea(omitted.fac, "partition-w/east");
+        const float jambWestOmit = sourceFaceArea(omitted.fac, "partition-e/west");
+        CHECK(jambEastOmit > jambEastWith + 0.05f);
+        CHECK(jambWestOmit > jambWestWith + 0.05f);
+
+        FacFile stale = withDoor.fac;
+        eraseFacFacesForMoverBrushes(stale, claimed);
+        for (const VisibleFace& face : stale.faces) {
+            CHECK_FALSE(faceIdBelongsToBrush(face.sourceFaceId, "door-1-leaf"));
+            CHECK_FALSE(faceIdBelongsToBrush(face.id, "door-1-leaf"));
+        }
+
+        CHECK(findBrushById(brushes, "door-1-leaf") != nullptr);
+        CHECK(faceIdBelongsToBrush("door-1-leaf/north#0", "door-1-leaf"));
+        CHECK(faceIdBelongsToBrush("merge/0/door-1-leaf/north+partition-w/east", "door-1-leaf"));
+        CHECK_FALSE(faceIdBelongsToBrush("partition-w/east", "door-1-leaf"));
     }
 }
 

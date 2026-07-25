@@ -5,11 +5,14 @@
 #include "map/csg_script.hpp"
 #include "map/fac.hpp"
 #include "map/fac_io.hpp"
+#include "map/mover_brushes.hpp"
+#include "map/things_script.hpp"
 
 #include <raylib.h>
 #include <s7.h>
 
 #include <iostream>
+#include <unordered_set>
 
 int main(int argc, char* argv[]) {
     using namespace slopengine;
@@ -51,6 +54,19 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    std::unordered_set<std::string> moverBrushIds;
+    if (auto things = loadMapThings(scheme, assets, *config->map)) {
+        moverBrushIds = collectMoverBrushIds(*things);
+        if (!moverBrushIds.empty()) {
+            TraceLog(
+                LOG_INFO,
+                "slopfac: omitting %d mover brush(es) from FAC",
+                static_cast<int>(moverBrushIds.size()));
+        }
+    } else {
+        TraceLog(LOG_WARNING, "slopfac: failed to load things.s7; mover brushes not omitted");
+    }
+
     const MapHullAnalysis analysis = analyzeMapHull(*tree, *brushes);
     if (!analysis.sealed) {
         TraceLog(LOG_ERROR, "slopfac: LEAK — refuse to build faces for an unsealed hull");
@@ -61,7 +77,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const FacBuildResult built = buildVisibleFaces(*tree, analysis, *brushes);
+    const FacBuildResult built = buildVisibleFaces(
+        *tree,
+        analysis,
+        *brushes,
+        moverBrushIds.empty() ? nullptr : &moverBrushIds);
     const auto facPath = bspPath->parent_path() / "static.fac";
     if (!writeFacFile(facPath, built.fac)) {
         std::cerr << "slopfac: failed to write " << facPath << "\n";

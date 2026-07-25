@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace slopengine {
@@ -45,7 +46,8 @@ struct FacBuildResult {
 FacBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,
-    const std::vector<Brush>& brushes);
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* skipBrushIds = nullptr);
 
 /** Inserts T-junction vertices on shared edges. */
 void weldVisibleFaceTJunctions(std::vector<VisibleFace>& faces);

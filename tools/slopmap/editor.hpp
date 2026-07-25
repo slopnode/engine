@@ -202,6 +202,7 @@ struct Editor {
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();
     void convertSelectedBrushesToTriggers();
+    void convertSelectedBrushesToMovers();
 };
 
 float snapToGrid(float value, float grid);

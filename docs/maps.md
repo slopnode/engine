@@ -149,7 +149,7 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
 | player-start | id, at | First wins; sets player spawn pose. Optional yaw (radians). See [Player](player.md). |
 | prop | id, at, exactly one of sprite / geo | Optional yaw, frame, (anim clip [loop]). See [Things](things.md). |
 | usable | same as prop | Adds interact prompt; (on-use "handler" arg-clauses...) — see [Map handlers](scripting.md#map-handlers) and [Things](things.md). |
-| mover | same as prop + collide-size and open motion | Kinematic door/platform leaf; optional interact, group, shove/crush. See [Things](things.md#movers-mover). |
+| mover | brush **or** geo/sprite + open motion; collide-size unless brush | Kinematic door/platform leaf. Prefer `(brush "detail-id")` for CSG door leaves (omitted from FAC/static collision). See [Things](things.md#movers-mover). |
 | trigger | id, at, on-enter and/or on-exit | AABB volume (`trigger-size`); Scheme enter/exit handlers. Not brush role `trigger`. |
 | actor | same as prop | Adds character motor + tags; optional (motor ...) / (tags ...). See [Things](things.md#actors). |
 | point-light | id, at | Optional color, intensity, range. Baked by sloprad; see [Lights](lights.md). |

@@ -65,6 +65,12 @@ void drawSpriteOrGeo(
     const slopengine::Thing& thing,
     Color tint) {
     const Vector3 pos = thingPosition(thing);
+    if (!thing.brush.empty()) {
+        const Vector3 size = thing.haveMoverCollideSize ? thing.moverCollideSize
+                                                       : Vector3{0.4f, 0.4f, 0.4f};
+        DrawCubeWires(pos, size.x, size.y, size.z, tint);
+        return;
+    }
     if (!thing.geo.empty() && assets.hasGeo(thing.geo)) {
         Model model = assets.getGeoModel(thing.geo);
         if (model.meshCount > 0) {

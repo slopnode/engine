@@ -102,7 +102,31 @@ Usables are the content-facing wrapper around the engine Interactable primitive.
 
 ## Movers (mover)
 
-A mover is a presented entity (sprite or geo) with a kinematic collision box and an A/B transform animation. Progress 0 is closed (spawn pose); 1 is open. Motion lerps a local **open-offset** and/or a single-axis rotation (**open-pitch** / **open-yaw** / **open-roll**) about a local **pivot**. The engine drives `LocalTransformation` and a Jolt kinematic box each frame.
+A mover is a presented entity with a kinematic collision box and an A/B transform animation. Progress 0 is closed (spawn pose); 1 is open. Motion lerps a local **open-offset** and/or a single-axis rotation (**open-pitch** / **open-yaw** / **open-roll**) about a local **pivot**. The engine drives `LocalTransformation` and a Jolt kinematic box each frame.
+
+Presentation is exactly one of `(brush …)`, `(geo …)`, or `(sprite …)`. **Brush leaves are the usual door path:** author a detail brush in CSG, claim it from the mover. The engine omits that brush from static FAC / collision and builds the mover mesh from it. Use geo only for characters or rare complex leaves.
+
+```text
+;; static.csg — detail leaf in an already-sealed doorway opening
+(brush-box
+  (id "door-1-leaf")
+  (role "detail")
+  (mins -1 0 -0.06)
+  (maxs 1 2.2 0.06)
+  (material "surfaces/door"))
+
+;; things.s7
+(mover
+  (id "door-1")
+  (brush "door-1-leaf")
+  (open-offset 0.0 2.3 0.0)
+  (duration 0.6)
+  (block-mode "shove")
+  (prompt "Open")
+  (on-use "on-use-mover-toggle"))
+```
+
+Geo form (still supported):
 
 ```text
 (mover
@@ -123,18 +147,19 @@ A mover is a presented entity (sprite or geo) with a kinematic collision box and
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| (all prop presentation fields) | same rules | Geo recommended for solid doors. |
-| collide-size | yes | Full width/height/depth of the kinematic box. |
+| brush, geo, or sprite | exactly one | Brush must be a **detail** brush id in the same map. |
+| at | yes unless brush | Defaults to brush AABB center when `(brush …)` is set. |
+| collide-size | yes unless brush | Full width/height/depth of the kinematic box; defaults to brush AABB extents. |
 | open-offset and/or open-pitch\|yaw\|roll | at least one | Local-space slide and/or radians about the chosen axis. |
 | pivot | no | Local hinge/reference (default origin). |
-| collide-center | no | Box center in local space (default 0, half-height, 0). |
+| collide-center | no | Box center in local space (default 0, half-height, 0 for geo/sprite; origin for brush). |
 | duration | no | Seconds closed↔open (default 0.8). |
 | block-mode | no | `"shove"` (default) or `"crush"`. |
 | on-crush | no | Scheme proc `(on-crush mover-id victim-id)` when crush traps a character. |
 | group | no | Shared id for double doors / multi-leaf. |
 | prompt / on-use | no | If either is set, adds Interactable like usable. |
 
-**block-mode shove** pushes CharacterVirtuals out of the moving box. **crush** still shoves, then calls `on-crush` when penetration remains (package owns damage/death). Geo movers tint `Model3D.color` from a downward lightmap probe.
+**block-mode shove** pushes CharacterVirtuals out of the moving box. **crush** still shoves, then calls `on-crush` when penetration remains (package owns damage/death). Geo/brush movers tint `Model3D.color` from a downward lightmap probe.
 
 Runtime control: `(mover-open id)`, `(mover-close id)`, `(mover-toggle id)`, group variants, `(mover-set-locked id bool)`, `(mover-state id)` / `(mover-set-state …)` for save restore — see [Scripting](scripting.md#thing-runtime).
 

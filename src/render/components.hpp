@@ -84,6 +84,7 @@ struct Lens {
 struct Model3D {
     Model model = {};
     Color color = WHITE;
+    bool ownsGpu = false;
 };
 
 /** Optional cavity / AO style shader binding on an entity.

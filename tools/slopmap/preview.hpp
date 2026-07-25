@@ -7,6 +7,7 @@
 #include <raylib.h>
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace slopmap {
@@ -40,6 +41,9 @@ struct MapPreview {
     Model visModel{};
     bool visValid = false;
 
+    Model moverOverlayModel{};
+    bool moverOverlayValid = false;
+
     Model litModel{};
     bool litValid = false;
     slopengine::RadFile rad{};
@@ -55,11 +59,13 @@ struct MapPreview {
     bool reloadVisPreview(
         slopengine::AssetStore& assets,
         const std::string& mapName,
-        const std::vector<slopengine::Brush>& brushes);
+        const std::vector<slopengine::Brush>& brushes,
+        const std::unordered_set<std::string>& moverBrushIds = {});
     bool reloadBake(
         slopengine::AssetStore& assets,
         const std::string& mapName,
-        const std::vector<slopengine::Brush>& brushes);
+        const std::vector<slopengine::Brush>& brushes,
+        const std::unordered_set<std::string>& moverBrushIds = {});
     void draw(
         PreviewFill fill,
         WireframeOverlay wireframe,

@@ -3,6 +3,7 @@
 #include "core/vfs.hpp"
 #include "map/csg_script.hpp"
 #include "map/csg_write.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
 
@@ -11,6 +12,7 @@
 #include <fstream>
 #include <limits>
 #include <system_error>
+#include <unordered_set>
 
 namespace slopmap {
 
@@ -961,7 +963,11 @@ bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
     std::vector<slopengine::Brush> combined = levelDoc.brushes;
     combined.insert(
         combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
-    return preview.reloadVisPreview(assets, levelDoc.assetPath, combined);
+    slopengine::ThingDocument thingsDoc{};
+    thingsDoc.things = levelDoc.things;
+    const std::unordered_set<std::string> moverBrushIds =
+        slopengine::collectMoverBrushIds(thingsDoc);
+    return preview.reloadVisPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
 bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
@@ -971,7 +977,11 @@ bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
     std::vector<slopengine::Brush> combined = levelDoc.brushes;
     combined.insert(
         combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
-    return preview.reloadBake(assets, levelDoc.assetPath, combined);
+    slopengine::ThingDocument thingsDoc{};
+    thingsDoc.things = levelDoc.things;
+    const std::unordered_set<std::string> moverBrushIds =
+        slopengine::collectMoverBrushIds(thingsDoc);
+    return preview.reloadBake(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
 namespace {
@@ -1268,6 +1278,88 @@ void Editor::convertSelectedBrushesToTriggers() {
         ? "Converted brush to trigger — set on-enter in Properties"
         : "Converted " + std::to_string(created.size()) +
             " brushes to triggers — set on-enter in Properties";
+}
+
+void Editor::convertSelectedBrushesToMovers() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        return;
+    }
+
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    std::vector<EntityRef> created;
+    int skipped = 0;
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+        if (brush.role != slopengine::BrushRole::Detail) {
+            ++skipped;
+            continue;
+        }
+        if (brush.id.empty()) {
+            ++skipped;
+            continue;
+        }
+
+        bool alreadyClaimed = false;
+        for (const slopengine::Thing& existing : d.things) {
+            if (existing.kind == slopengine::ThingKind::Mover && existing.brush == brush.id) {
+                alreadyClaimed = true;
+                break;
+            }
+        }
+        if (alreadyClaimed) {
+            ++skipped;
+            continue;
+        }
+
+        const float height = brush.maxs.y - brush.mins.y;
+        slopengine::Thing thing{};
+        thing.kind = slopengine::ThingKind::Mover;
+        thing.id = allocateThingId("door");
+        thing.brush = brush.id;
+        thing.at = {
+            0.5f * (brush.mins.x + brush.maxs.x),
+            0.5f * (brush.mins.y + brush.maxs.y),
+            0.5f * (brush.mins.z + brush.maxs.z),
+        };
+        thing.haveAt = true;
+        thing.haveMoverOpenOffset = true;
+        thing.moverOpenOffset = {0.0f, height > 0.1f ? height + 0.1f : 2.2f, 0.0f};
+        thing.haveMoverDuration = true;
+        thing.moverDuration = 0.6f;
+        thing.moverBlockMode = "shove";
+        thing.havePrompt = true;
+        thing.prompt = "Open";
+        thing.onUse = slopengine::HandlerBinding{"on-use-mover-toggle", {}};
+
+        d.things.push_back(std::move(thing));
+        created.push_back({EntityRef::Kind::Thing, static_cast<int>(d.things.size()) - 1});
+    }
+
+    if (created.empty()) {
+        statusMessage = skipped > 0
+            ? "Convert to Mover needs unclaimed detail brushes with ids"
+            : "No brushes selected";
+        return;
+    }
+
+    clearSelection();
+    for (std::size_t i = 0; i < created.size(); ++i) {
+        selectEntity(created[i], i > 0);
+    }
+    markDirty();
+    markFacDirty();
+    markThingCompileDirty(slopengine::ThingKind::Mover);
+    statusMessage = created.size() == 1
+        ? "Created mover claiming brush leaf — brush stays in CSG"
+        : "Created " + std::to_string(created.size()) +
+            " movers claiming brush leaves — brushes stay in CSG";
 }
 
 void Editor::toggleSelectedBrushRole() {

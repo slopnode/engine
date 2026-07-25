@@ -71,6 +71,7 @@ void unloadMapGpuResources(flecs::entity entity) {
             UnloadModel(model3d.model);
         }
         model3d.model = {};
+        model3d.ownsGpu = false;
         for (unsigned int atlasId : atlasIds) {
             Texture2D atlas{};
             atlas.id = atlasId;
@@ -82,6 +83,15 @@ void unloadMapGpuResources(flecs::entity entity) {
         }
         lightmaps.available = false;
         lightmaps.useLightmapLoc = -1;
+        return;
+    }
+
+    if (model3d.ownsGpu) {
+        if (model3d.model.meshCount > 0) {
+            UnloadModel(model3d.model);
+        }
+        model3d.model = {};
+        model3d.ownsGpu = false;
         return;
     }
 
@@ -242,12 +252,19 @@ bool registerMapScene(
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
-            addStaticBrushes(*physics, loaded->brushes);
+            addStaticBrushes(
+                *physics,
+                loaded->brushes,
+                loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
         }
     }
 
-    const PlayerStart playerStart = spawnMapThings(scheme, world, assets, mapName);
-    spawnFaceUseSurfaces(world, loaded->brushes);
+    const PlayerStart playerStart =
+        spawnMapThings(scheme, world, assets, mapName, loaded->brushes);
+    spawnFaceUseSurfaces(
+        world,
+        loaded->brushes,
+        loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
 
     {
         MapGraphs mapGraphs{};
