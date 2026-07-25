@@ -15,6 +15,7 @@
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "script/first_person_script.hpp"
+#include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
@@ -366,8 +367,7 @@ void drawViewSpritesAndHud(flecs::world& world) {
     HudDrawList& hud = world.get_mut<HudDrawList>();
     hud.clear();
     if (world.has<ScriptContext>() && world.get<ScriptContext>().scheme != nullptr) {
-        tryCallSchemeProc(
-            world.get<ScriptContext>().scheme, "draw-hud", ScriptScope::Hud);
+        callHook(world.get<ScriptContext>().scheme, "draw-hud", ScriptScope::Hud);
     }
     flushHudDrawList(hud, viewAssets, world.get_mut<HudFontCache>(), hudFit);
 }

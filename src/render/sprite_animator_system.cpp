@@ -7,6 +7,7 @@
 #include "camera/components.hpp"
 #include "render/components.hpp"
 #include "script/first_person_script.hpp"
+#include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
@@ -234,8 +235,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
                 s7_scheme* scheme = world.get<ScriptContext>().scheme;
                 for (const std::string& hint : frame.hints) {
-                    tryCallSchemeProc2String(
-                        scheme, "on-sprite-hint", source, hint, ScriptScope::World);
+                    callHook2String(scheme, "on-sprite-hint", source, hint, ScriptScope::World);
                 }
             };
 

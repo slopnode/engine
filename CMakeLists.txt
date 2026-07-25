@@ -42,6 +42,8 @@ set(SLOPLIB_SOURCES
     src/core/sexpr.cpp
     src/core/vfs.cpp
     src/script/script_scope.cpp
+    src/script/package_load_context.cpp
+    src/script/proc_role.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
@@ -121,6 +123,7 @@ add_executable(slopengine
     src/map/things_spawn.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
+    src/game/menu_background.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
@@ -137,6 +140,7 @@ add_executable(slopengine
     src/render/hud.cpp
     src/script/scheme_call.cpp
     src/script/scheme_harden.cpp
+    src/script/hook_registry.cpp
     src/script/first_person_script.cpp
     src/script/hud_script.cpp
     src/script/input_script.cpp

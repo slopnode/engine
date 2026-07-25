@@ -61,7 +61,7 @@ View axes: +X screen-right, +Y up, +Z forward. Author viewmodels and offsets in 
 
 Raw vs presentation eye: Physics and look write the authoritative Lens (feet + eyeHeight + yaw/pitch). Aim and interact always use that raw Lens. Packages may set a view-space ViewEyeOffset via (fp-set-eye-offset x y z); world draw and ViewSpace light lifts use a presentation camera (raw eye + offset). The offset is never written back into Lens. Bob / punch / settle formulas stay package Scheme.
 
-After Player spawns, the engine calls (prepare-first-person "Player") if that procedure exists (loaded from scripts/player.s7). That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under ViewSpace are converted to world space at light-gather time via the presentation camera (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
+After Player spawns, the engine calls the owner `(prepare-first-person "Player")` from the base package's scripts/player.s7 (if defined), then any mod contribs registered with `(hook-add 'prepare-first-person proc)`. That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under ViewSpace are converted to world space at light-gather time via the presentation camera (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
 
 ### Scheme API (engine primitives)
 
@@ -105,7 +105,7 @@ Raise/lower, bob, kick, and similar presentation policies stay in package Scheme
 | (action-down? id) | #t while the bound action is held (gameplay context only). Works for package and core action ids. |
 | (action-pressed? id) | #t on the press edge this frame (gameplay context only). Works for package and core action ids. |
 
-Packages override virtual path player (scripts/player.s7) for presentation: attach geo or view sprites, spawn socket lights, enable rad tint / shading, and react to (on-action-*). Inventory and loadouts stay package-only and optional. See [Scripting](scripting.md).
+The base package owns scripts/player.s7 for presentation: attach geo or view sprites, spawn socket lights, enable rad tint / shading, and react to (on-action-*). Mods extend prepare-first-person / tick / draw-hud via `(hook-add ...)` in scripts/contrib.s7 rather than replacing player.s7. Inventory and loadouts stay package-only and optional. See [Scripting](scripting.md).
 
 ### Package actions
 

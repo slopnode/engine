@@ -79,6 +79,15 @@ public:
     /** Resolves @p virtualPath and the package that owns the hit. */
     std::optional<ResolvedAsset> resolveOwned(AssetKind kind, std::string_view virtualPath) const;
 
+    /** Resolves @p virtualPath only inside the mounted package with @p packageId. */
+    std::optional<ResolvedAsset> resolveInPackage(
+        AssetKind kind,
+        std::string_view packageId,
+        std::string_view virtualPath) const;
+
+    /** Finds a mounted package by id. */
+    const Package* findPackage(std::string_view packageId) const;
+
     /** Reads a text asset; empty string if missing. */
     std::string readText(AssetKind kind, std::string_view virtualPath) const;
 
@@ -91,6 +100,11 @@ private:
     static const char* implicitExtension(AssetKind kind);
     static std::filesystem::path normalizeVirtualPath(std::string_view virtualPath);
     static std::filesystem::path followSymlinks(const std::filesystem::path& path);
+    static bool buildAssetRelative(
+        AssetKind kind,
+        std::string_view virtualPath,
+        std::filesystem::path& outDirectory,
+        std::string& outFilename);
 
     std::vector<Package> packages_;
 };

@@ -3,6 +3,7 @@
 
 #include "game/game_state.hpp"
 #include "input/input_context.hpp"
+#include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
@@ -300,7 +301,7 @@ void callNamedHook(flecs::world& world, const char* name) {
     if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    tryCallSchemeProc(world.get<ScriptContext>().scheme, name, ScriptScope::Ui);
+    callHook(world.get<ScriptContext>().scheme, name, ScriptScope::Ui);
 }
 
 } // namespace

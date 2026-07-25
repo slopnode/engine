@@ -34,6 +34,7 @@ inline bool isMenu(const flecs::world& world) {
 }
 
 void requestMapLoad(std::string_view mapName, std::string_view reason = "fresh");
+bool hasPendingMapLoad();
 std::optional<PendingMapLoad> takeRequestedMapLoad();
 
 }

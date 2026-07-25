@@ -10,6 +10,8 @@
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
+#include "script/hook_registry.hpp"
+#include "script/package_load_context.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
@@ -445,7 +447,13 @@ s7_pointer g_package_load_data(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "package-load-data", 1, s7_car(args), "string");
     }
-    return g_saveAssets->loadData(sc, s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+    if (!s7_is_string(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "package-load-data", 2, s7_cadr(args), "string");
+    }
+    return g_saveAssets->loadDataFromPackage(
+               sc, s7_string(s7_car(args)), s7_string(s7_cadr(args)))
+        ? s7_t(sc)
+        : s7_f(sc);
 }
 
 s7_pointer g_package_load_script(s7_scheme* sc, s7_pointer args) {
@@ -458,7 +466,37 @@ s7_pointer g_package_load_script(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "package-load-script", 1, s7_car(args), "string");
     }
-    return g_saveAssets->loadScript(sc, s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+    if (!s7_is_string(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "package-load-script", 2, s7_cadr(args), "string");
+    }
+    return g_saveAssets->loadScriptFromPackage(
+               sc, s7_string(s7_car(args)), s7_string(s7_cadr(args)))
+        ? s7_t(sc)
+        : s7_f(sc);
+}
+
+s7_pointer g_current_package_id(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::PackageLoad)) {
+        return s7_f(sc);
+    }
+    const std::string_view id = currentPackageLoadId();
+    if (id.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, std::string(id).c_str());
+}
+
+s7_pointer g_package_mounted_p(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::PackageLoad)) {
+        return s7_f(sc);
+    }
+    if (g_saveAssets == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "package-mounted?", 1, s7_car(args), "string");
+    }
+    return g_saveAssets->hasPackageId(s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_startup_arg(s7_scheme* sc, s7_pointer args) {
@@ -512,15 +550,25 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         scheme, "save-timestamp", g_save_timestamp, 0, 0, false, "(save-timestamp)");
     s7_define_function(scheme, "save-list", g_save_list, 2, 0, false, "(save-list dir suffix)");
     s7_define_function(
-        scheme, "package-load-data", g_package_load_data, 1, 0, false, "(package-load-data path)");
+        scheme,
+        "package-load-data",
+        g_package_load_data,
+        2,
+        0,
+        false,
+        "(package-load-data package-id path)");
     s7_define_function(
         scheme,
         "package-load-script",
         g_package_load_script,
-        1,
+        2,
         0,
         false,
-        "(package-load-script path)");
+        "(package-load-script package-id path)");
+    s7_define_function(
+        scheme, "current-package-id", g_current_package_id, 0, 0, false, "(current-package-id)");
+    s7_define_function(
+        scheme, "package-mounted?", g_package_mounted_p, 1, 0, false, "(package-mounted? package-id)");
     s7_define_function(
         scheme,
         "request-map-load",
@@ -550,7 +598,7 @@ void callOnMapReady(flecs::world& world, std::string_view mapId, std::string_vie
     }
     const std::string mapStr(mapId);
     const std::string reasonStr = reason.empty() ? std::string("fresh") : std::string(reason);
-    tryCallSchemeProc2String(
+    callHook2String(
         world.get<ScriptContext>().scheme,
         "on-map-ready",
         mapStr,
@@ -562,7 +610,7 @@ void callOnStartup(flecs::world& world) {
     if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    tryCallSchemeProc(world.get<ScriptContext>().scheme, "on-startup", ScriptScope::Startup);
+    callHook(world.get<ScriptContext>().scheme, "on-startup", ScriptScope::Startup);
 }
 
 }

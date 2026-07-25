@@ -30,6 +30,8 @@ struct Thing {
     Vector3 at{0.0f, 0.0f, 0.0f};
     bool haveAt = false;
     float yaw = 0.0f;
+    float pitch = 0.0f;
+    bool havePitch = false;
     Vector3 angles{0.0f, 0.0f, 0.0f};
     bool haveAngles = false;
 

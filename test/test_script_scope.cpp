@@ -1,11 +1,13 @@
 #include "test_assert.hpp"
 
+#include "core/package.hpp"
 #include "script/script_scope.hpp"
 
 namespace slopengine {
 
 void runScriptScopeTests() {
     CHECK_EQ(static_cast<int>(currentScriptScope()), static_cast<int>(ScriptScope::None));
+    CHECK_EQ(static_cast<int>(currentScriptRole()), static_cast<int>(PackageRole::Base));
 
     {
         ScriptScopeGuard hud(ScriptScope::Hud);
@@ -40,6 +42,32 @@ void runScriptScopeTests() {
         CHECK_EQ(static_cast<int>(currentScriptScope()), static_cast<int>(ScriptScope::Ui));
     }
     CHECK_EQ(static_cast<int>(currentScriptScope()), static_cast<int>(ScriptScope::None));
+
+    CHECK(scriptAllows(ScriptScope::World, PackageRole::Base, ScriptCap::WorldMutate));
+    CHECK(scriptAllows(ScriptScope::World, PackageRole::Base, ScriptCap::SaveIo));
+    CHECK(scriptAllows(ScriptScope::World, PackageRole::Base, ScriptCap::MapControl));
+    CHECK(scriptAllows(ScriptScope::World, PackageRole::Mod, ScriptCap::WorldMutate));
+    CHECK_FALSE(scriptAllows(ScriptScope::World, PackageRole::Mod, ScriptCap::SaveIo));
+    CHECK_FALSE(scriptAllows(ScriptScope::World, PackageRole::Mod, ScriptCap::MapControl));
+    CHECK(scriptAllows(ScriptScope::World, PackageRole::Engine, ScriptCap::SaveIo));
+    CHECK_FALSE(scriptAllows(ScriptScope::Hud, PackageRole::Base, ScriptCap::SaveIo));
+
+    {
+        ScriptScopeGuard world(ScriptScope::World);
+        ScriptRoleGuard mod(PackageRole::Mod);
+        CHECK_EQ(static_cast<int>(currentScriptRole()), static_cast<int>(PackageRole::Mod));
+        CHECK(requireCap(nullptr, ScriptCap::WorldMutate));
+        CHECK_FALSE(requireCap(nullptr, ScriptCap::SaveIo));
+        CHECK_FALSE(requireCap(nullptr, ScriptCap::MapControl));
+    }
+    CHECK_EQ(static_cast<int>(currentScriptRole()), static_cast<int>(PackageRole::Base));
+
+    {
+        ScriptScopeGuard world(ScriptScope::World);
+        ScriptRoleGuard base(PackageRole::Base);
+        CHECK(requireCap(nullptr, ScriptCap::SaveIo));
+        CHECK(requireCap(nullptr, ScriptCap::MapControl));
+    }
 }
 
 }

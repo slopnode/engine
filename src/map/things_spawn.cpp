@@ -299,6 +299,11 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         }
         ctx.playerStart.position = placement.haveAt ? placement.at : ctx.playerStart.position;
         ctx.playerStart.yaw = placement.yaw;
+        if (placement.havePitch) {
+            ctx.playerStart.pitch = placement.pitch;
+        } else if (placement.haveAngles) {
+            ctx.playerStart.pitch = placement.angles.x;
+        }
         ctx.playerStart.found = true;
         return;
     }

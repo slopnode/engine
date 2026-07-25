@@ -7,6 +7,7 @@
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/transform.hpp"
+#include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
@@ -41,7 +42,7 @@ void registerSchemeTickSystem(flecs::world& world) {
             if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
                 return;
             }
-            tryCallSchemeProc1Real(
+            callHook1Real(
                 world.get<ScriptContext>().scheme,
                 "tick",
                 static_cast<double>(GetFrameTime()),

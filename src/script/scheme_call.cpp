@@ -1,5 +1,7 @@
 #include "script/scheme_call.hpp"
 
+#include "script/proc_role.hpp"
+
 #include <s7.h>
 
 namespace slopengine {
@@ -46,6 +48,7 @@ bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name, ScriptScope sco
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(scheme, func, s7_nil(scheme));
     return true;
 }
@@ -65,6 +68,7 @@ bool tryCallSchemeProc1String(
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_string(scheme, arg.c_str())));
     return true;
 }
@@ -84,6 +88,7 @@ bool tryCallSchemeProc1Integer(
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_integer(scheme, arg)));
     return true;
 }
@@ -103,6 +108,7 @@ bool tryCallSchemeProc1Real(
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_real(scheme, arg)));
     return true;
 }
@@ -123,6 +129,7 @@ bool tryCallSchemeProc2String(
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(
         scheme,
         func,
@@ -152,6 +159,7 @@ bool tryCallSchemeProc1String3Reals(
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(
         scheme,
         func,
@@ -184,6 +192,7 @@ bool tryCallSchemeProc1String3Reals1OptString(
     }
 
     ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
     const s7_pointer hitArg =
         hitTarget.empty() ? s7_f(scheme) : s7_make_string(scheme, std::string(hitTarget).c_str());
     s7_call(

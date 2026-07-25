@@ -15,6 +15,7 @@ namespace slopengine {
 struct PlayerStart {
     Vector3 position{0.0f, 0.1f, 0.0f};
     float yaw = 3.14159265358979323846f;
+    float pitch = -0.05f;
     bool found = false;
 };
 
