@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -199,6 +200,7 @@ struct Editor {
     std::string allocateBrushId();
     std::string allocatePrefabId();
     std::string allocateThingId(const char* prefix);
+    bool renameBrush(int index, std::string_view newId);
     void clearSelection();
     void setSelectionMode(SelectionMode mode);
     void selectBrush(int index, bool additive);

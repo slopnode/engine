@@ -238,6 +238,122 @@ void resetFaceUv(slopengine::BrushFace& face) {
     face.uvVAxis = {};
 }
 
+enum class AlignComponent {
+    X,
+    Y,
+    XY,
+};
+
+float axisScale(float scale) {
+    return scale > 1e-8f ? scale : 1.0f;
+}
+
+bool nearlyEqual3(Vector3 a, Vector3 b, float eps = 1e-4f) {
+    return nearlyEqual(a.x, b.x, eps) && nearlyEqual(a.y, b.y, eps) && nearlyEqual(a.z, b.z, eps);
+}
+
+std::optional<Vector3> findSharedVertex(
+    const slopengine::BrushFace& a,
+    const slopengine::BrushFace& b) {
+    for (const Vector3& va : a.vertices) {
+        for (const Vector3& vb : b.vertices) {
+            if (nearlyEqual3(va, vb)) {
+                return va;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+Vector3 alignSamplePoint(const slopengine::BrushFace& reference, const slopengine::BrushFace& target) {
+    if (const std::optional<Vector3> shared = findSharedVertex(reference, target)) {
+        return *shared;
+    }
+    if (!reference.vertices.empty()) {
+        return reference.vertices[0];
+    }
+    if (!target.vertices.empty()) {
+        return target.vertices[0];
+    }
+    return {};
+}
+
+void alignFaceUvToReference(
+    slopengine::BrushFace& target,
+    const slopengine::BrushFace& reference,
+    AlignComponent component,
+    slopengine::AssetStore& assets) {
+    if (reference.vertices.empty() && target.vertices.empty()) {
+        return;
+    }
+    const Vector3 sample = alignSamplePoint(reference, target);
+
+    Vector3 refU{};
+    Vector3 refV{};
+    slopengine::faceUvAxes(reference, refU, refV);
+    const slopengine::MaterialUvInfo refUvInfo = resolveMaterialUv(assets, reference.material);
+    const Vector2 refUv = slopengine::worldPlanarUv(
+        sample,
+        refU,
+        refV,
+        reference.uvShiftPixels,
+        reference.uvScale,
+        refUvInfo);
+
+    Vector3 tgtU{};
+    Vector3 tgtV{};
+    slopengine::faceUvAxes(target, tgtU, tgtV);
+    const slopengine::MaterialUvInfo tgtUvInfo = resolveMaterialUv(assets, target.material);
+    const float ppm = tgtUvInfo.pixelsPerMeter > 0.0f ? tgtUvInfo.pixelsPerMeter : 64.0f;
+    const float texW = tgtUvInfo.textureWidth > 0.0f ? tgtUvInfo.textureWidth : 64.0f;
+    const float texH = tgtUvInfo.textureHeight > 0.0f ? tgtUvInfo.textureHeight : 64.0f;
+    const float metersU = sample.x * tgtU.x + sample.y * tgtU.y + sample.z * tgtU.z;
+    const float metersV = sample.x * tgtV.x + sample.y * tgtV.y + sample.z * tgtV.z;
+
+    if (component == AlignComponent::X || component == AlignComponent::XY) {
+        target.uvShiftPixels.x =
+            refUv.x * texW - metersU * ppm * axisScale(target.uvScale.x);
+    }
+    if (component == AlignComponent::Y || component == AlignComponent::XY) {
+        target.uvShiftPixels.y =
+            refUv.y * texH - metersV * ppm * axisScale(target.uvScale.y);
+    }
+}
+
+bool alignTargetsToActive(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    AlignComponent component) {
+    EditorDocument& doc = editor.doc();
+    if (doc.selectionMode != SelectionMode::Face || !doc.activeFace.valid()) {
+        return false;
+    }
+    const FaceTarget activeTarget{doc.activeFace.brush, doc.activeFace.face};
+    const slopengine::BrushFace* reference = faceAt(doc, activeTarget);
+    if (reference == nullptr) {
+        return false;
+    }
+
+    int count = 0;
+    for (const FaceRef& ref : doc.selectedFaces) {
+        if (!ref.valid() || ref == doc.activeFace) {
+            continue;
+        }
+        slopengine::BrushFace* face = faceAt(doc, FaceTarget{ref.brush, ref.face});
+        if (face == nullptr) {
+            continue;
+        }
+        alignFaceUvToReference(*face, *reference, component, assets);
+        ++count;
+    }
+    if (count == 0) {
+        return false;
+    }
+    editor.markDirty();
+    editor.markFacDirty();
+    return true;
+}
+
 bool forEachTarget(
     Editor& editor,
     const std::vector<FaceTarget>& targets,
@@ -287,6 +403,44 @@ bool checkboxMixed(const char* label, bool* value, bool mixed) {
     return changed;
 }
 
+void drawMaterialPreviewBox(float size) {
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(size, size));
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(
+        pos,
+        ImVec2(pos.x + size, pos.y + size),
+        ImGui::GetColorU32(ImGuiCol_FrameBg));
+    draw->AddRect(
+        pos,
+        ImVec2(pos.x + size, pos.y + size),
+        ImGui::GetColorU32(ImGuiCol_Border));
+}
+
+void drawMaterialPreview(
+    slopengine::AssetStore& assets,
+    const std::string& materialLabel,
+    float size) {
+    if (materialLabel == "mixed" || materialLabel == "none" || materialLabel == "(empty)") {
+        drawMaterialPreviewBox(size);
+        return;
+    }
+
+    const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialLabel);
+    if (asset == nullptr || asset->albedoTexture.empty()) {
+        drawMaterialPreviewBox(size);
+        return;
+    }
+    const Texture2D texture = assets.getTexture(asset->albedoTexture);
+    if (texture.id == 0 || texture.width <= 0 || texture.height <= 0) {
+        drawMaterialPreviewBox(size);
+        return;
+    }
+    ImGui::Image(
+        ImTextureID(static_cast<intptr_t>(texture.id)),
+        ImVec2(size, size));
+}
+
 } // namespace
 
 TexturePanelResult TexturePanel::drawSection(
@@ -307,7 +461,10 @@ TexturePanelResult TexturePanel::drawSection(
         return result;
     }
 
-    ImGui::Text("Material: %s", selectionMaterialLabel(doc).c_str());
+    constexpr float kMaterialPreviewSize = 128.0f;
+    const std::string materialLabel = selectionMaterialLabel(doc);
+    drawMaterialPreview(assets, materialLabel, kMaterialPreviewSize);
+    ImGui::Text("Material: %s", materialLabel.c_str());
     ImGui::Text("%d face(s)", static_cast<int>(targets.size()));
     ImGui::Separator();
 
@@ -462,6 +619,44 @@ TexturePanelResult TexturePanel::drawSection(
             result.changed = true;
             editor.statusMessage = "Reset face UVs";
         }
+    }
+
+    const bool canAlign = doc.selectionMode == SelectionMode::Face && doc.activeFace.valid() &&
+        doc.selectedFaces.size() >= 2;
+    auto alignTooltip = [canAlign]() {
+        if (!canAlign && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Select multiple faces; active face is the align source");
+        }
+    };
+    if (!canAlign) {
+        ImGui::BeginDisabled();
+    }
+    if (slopengine::buttonWithIcon(assets, slopengine::kDefaultIconSet, "shape_align_left", "Align X")) {
+        if (alignTargetsToActive(editor, assets, AlignComponent::X)) {
+            result.changed = true;
+            editor.statusMessage = "Aligned X to active face";
+        }
+    }
+    alignTooltip();
+    ImGui::SameLine();
+    if (slopengine::buttonWithIcon(assets, slopengine::kDefaultIconSet, "shape_align_top", "Align Y")) {
+        if (alignTargetsToActive(editor, assets, AlignComponent::Y)) {
+            result.changed = true;
+            editor.statusMessage = "Aligned Y to active face";
+        }
+    }
+    alignTooltip();
+    ImGui::SameLine();
+    if (slopengine::buttonWithIcon(
+            assets, slopengine::kDefaultIconSet, "shape_align_center", "Align X&Y")) {
+        if (alignTargetsToActive(editor, assets, AlignComponent::XY)) {
+            result.changed = true;
+            editor.statusMessage = "Aligned X&Y to active face";
+        }
+    }
+    alignTooltip();
+    if (!canAlign) {
+        ImGui::EndDisabled();
     }
 
     ImGui::EndChild();

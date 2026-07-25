@@ -3,6 +3,7 @@
 #include "create_tool.hpp"
 #include "editor.hpp"
 #include "layout.hpp"
+#include "editor_settings.hpp"
 #include "material_browser.hpp"
 #include "texture_panel.hpp"
 #include "brush_panel.hpp"
@@ -20,6 +21,7 @@
 #include "assets/asset_store.hpp"
 #include "core/package.hpp"
 #include "core/package_meta.hpp"
+#include "core/user_paths.hpp"
 #include "game/app_config.hpp"
 #include "map/csg_script.hpp"
 #include "map/map_handler_registry.hpp"
@@ -481,7 +483,23 @@ const char* brushRoleToolbarLabel(slopengine::BrushRole role) {
 }
 
 const char* brushRoleToolbarIcon(slopengine::BrushRole role) {
-    return slopengine::brushRoleContributesSplits(role) ? "cut" : "brick";
+    switch (role) {
+    case slopengine::BrushRole::Hull:
+        return "cut";
+    case slopengine::BrushRole::Detail:
+        return "brick";
+    case slopengine::BrushRole::Door:
+        return "door";
+    case slopengine::BrushRole::Hint:
+        return "lightning";
+    case slopengine::BrushRole::Trigger:
+        return "flag_green";
+    case slopengine::BrushRole::Water:
+        return "weather_rain";
+    case slopengine::BrushRole::Window:
+        return "contrast";
+    }
+    return "brick";
 }
 
 void applyHollow(slopmap::Editor& editor) {
@@ -634,13 +652,16 @@ int main(int argc, char* argv[]) {
     slopmap::BrushPanel brushPanel;
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
+    slopmap::EditorSettings editorSettings = slopmap::EditorSettings::loadOrDefault();
     materialBrowser.rescan(assets);
     prefabBrowser.rescan(assets);
     bool previewNeedsRebuild = false;
     bool compileWasRunning = false;
     bool compileRunIncludesRad = false;
+    bool showPreferencesModal = false;
     char mapNameBuf[128] = {};
     char prefabPathBuf[256] = {};
+    char thumbCachePathBuf[512] = {};
     RenderTexture2D contentTarget{};
 
     auto syncCompileStatus = [&]() {
@@ -993,6 +1014,16 @@ int main(int argc, char* argv[]) {
                         false,
                         !editor.doc().brushes.empty() || !editor.doc().instances.empty())) {
                     editor.frameSelection();
+                }
+                ImGui::Separator();
+                if (menuItemWithIcon(assets, kIcons, "wrench", "Preferences…")) {
+                    const std::string path = editorSettings.resolvedThumbnailCachePath().string();
+                    std::snprintf(
+                        thumbCachePathBuf,
+                        sizeof(thumbCachePathBuf),
+                        "%s",
+                        path.c_str());
+                    showPreferencesModal = true;
                 }
                 ImGui::EndMenu();
             }
@@ -2039,13 +2070,11 @@ int main(int argc, char* argv[]) {
                             for (std::size_t i = 0; i < d.brushes.size(); ++i) {
                                 ImGui::PushID(static_cast<int>(i));
                                 const bool selected = d.isBrushSelected(static_cast<int>(i));
-                                const std::string label = d.brushes[i].id + " [" +
-                                    slopengine::brushRoleName(d.brushes[i].role) + "]";
                                 if (selectableWithIcon(
                                         assets,
                                         kIconSet,
                                         brushRoleToolbarIcon(d.brushes[i].role),
-                                        label.c_str(),
+                                        d.brushes[i].id.c_str(),
                                         selected)) {
                                     editor.selectBrush(static_cast<int>(i), ImGui::GetIO().KeyShift);
                                 }
@@ -2148,7 +2177,7 @@ int main(int argc, char* argv[]) {
                 if (ImGui::BeginTabBar("##libraryTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
                     if (ImGui::BeginTabItem("Materials")) {
                         const slopmap::MaterialBrowserResult matResult =
-                            materialBrowser.drawSection(editor, assets, bodyH);
+                            materialBrowser.drawSection(editor, assets, editorSettings, bodyH);
                         if (matResult.requestRescan) {
                             materialBrowser.rescan(assets);
                         }
@@ -2760,6 +2789,44 @@ int main(int argc, char* argv[]) {
             ImGui::TextUnformatted("There are unsaved changes. Quit anyway?");
             if (buttonWithIcon(assets, kIcons, "door", "Quit", ImVec2(120, 0))) {
                 editor.quitConfirmed = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (buttonWithIcon(assets, kIcons, "cancel", "Cancel", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        if (showPreferencesModal) {
+            ImGui::OpenPopup("Preferences");
+            showPreferencesModal = false;
+        }
+        if (ImGui::BeginPopupModal("Preferences", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            constexpr const char* kIcons = kDefaultIconSet;
+            ImGui::TextUnformatted("Material thumbnail cache");
+            ImGui::SetNextItemWidth(420.0f);
+            ImGui::InputText("##thumbcache", thumbCachePathBuf, sizeof(thumbCachePathBuf));
+            ImGui::TextDisabled(
+                "Default: %s",
+                slopengine::defaultSlopmapThumbnailCacheDirectory().string().c_str());
+            if (buttonWithIcon(assets, kIcons, "arrow_undo", "Reset default")) {
+                const std::string path =
+                    slopengine::defaultSlopmapThumbnailCacheDirectory().string();
+                std::snprintf(thumbCachePathBuf, sizeof(thumbCachePathBuf), "%s", path.c_str());
+            }
+            ImGui::Separator();
+            if (buttonWithIcon(assets, kIcons, "accept", "Save", ImVec2(120, 0))) {
+                const std::string defaultPath =
+                    slopengine::defaultSlopmapThumbnailCacheDirectory().string();
+                if (std::strcmp(thumbCachePathBuf, defaultPath.c_str()) == 0) {
+                    editorSettings.thumbnailCachePath.clear();
+                } else {
+                    editorSettings.thumbnailCachePath = thumbCachePathBuf;
+                }
+                editorSettings.save();
+                materialBrowser.thumbs.clear();
+                materialBrowser.thumbsDirty = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();

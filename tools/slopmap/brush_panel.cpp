@@ -309,9 +309,17 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
 
     const int count = static_cast<int>(targets.size());
     if (count == 1) {
-        const slopengine::Brush* brush = brushAt(doc, targets.front());
+        const int brushIndex = targets.front();
+        const slopengine::Brush* brush = brushAt(doc, brushIndex);
         if (brush != nullptr) {
-            ImGui::Text("Brush: %s", brush->id.c_str());
+            char idBuf[128]{};
+            std::snprintf(idBuf, sizeof(idBuf), "%s", brush->id.c_str());
+            ImGui::InputText("Id", idBuf, sizeof(idBuf));
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (editor.renameBrush(brushIndex, idBuf)) {
+                    result.changed = true;
+                }
+            }
         }
     } else {
         ImGui::Text("%d brushes selected", count);

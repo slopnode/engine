@@ -40,6 +40,7 @@ set(SLOPLIB_SOURCES
     src/core/package.cpp
     src/core/package_meta.cpp
     src/core/sexpr.cpp
+    src/core/user_paths.cpp
     src/core/vfs.cpp
     src/script/script_scope.cpp
     src/script/package_load_context.cpp
@@ -100,7 +101,6 @@ endif()
 
 add_executable(slopengine
     src/main.cpp
-    src/core/user_paths.cpp
     src/core/screenshot.cpp
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
@@ -227,6 +227,8 @@ add_executable(slopmap
     tools/slopmap/punch_tool.cpp
     tools/slopmap/clip_tool.cpp
     tools/slopmap/material_browser.cpp
+    tools/slopmap/material_thumb_atlas.cpp
+    tools/slopmap/editor_settings.cpp
     tools/slopmap/texture_panel.cpp
     tools/slopmap/thing_panel.cpp
     tools/slopmap/brush_panel.cpp

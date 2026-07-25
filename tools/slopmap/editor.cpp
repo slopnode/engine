@@ -8,6 +8,7 @@
 #include "map/things_write.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <limits>
@@ -1112,6 +1113,66 @@ std::string Editor::allocatePrefabId() {
 
 std::string Editor::allocateThingId(const char* prefix) {
     return std::string(prefix) + "-" + std::to_string(doc().nextThingSerial++);
+}
+
+bool Editor::renameBrush(int index, std::string_view newId) {
+    EditorDocument& d = doc();
+    if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+        return false;
+    }
+
+    std::string id(newId);
+    while (!id.empty() && std::isspace(static_cast<unsigned char>(id.front()))) {
+        id.erase(id.begin());
+    }
+    while (!id.empty() && std::isspace(static_cast<unsigned char>(id.back()))) {
+        id.pop_back();
+    }
+    if (id.empty() || id.find('/') != std::string::npos) {
+        statusMessage = "Brush id must be non-empty and cannot contain '/'";
+        return false;
+    }
+
+    slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+    if (id == brush.id) {
+        return false;
+    }
+    for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+        if (static_cast<int>(i) != index && d.brushes[i].id == id) {
+            statusMessage = "Brush id already in use: " + id;
+            return false;
+        }
+    }
+
+    const std::string oldId = brush.id;
+    const std::string oldPrefix = oldId + "/";
+    const std::string newPrefix = id + "/";
+    brush.id = id;
+    for (slopengine::BrushFace& face : brush.faces) {
+        if (face.id.rfind(oldPrefix, 0) == 0) {
+            face.id = newPrefix + face.id.substr(oldPrefix.size());
+        } else if (face.id == oldId) {
+            face.id = id;
+        }
+    }
+    for (slopengine::Thing& thing : d.things) {
+        if (thing.brush == oldId) {
+            thing.brush = id;
+        }
+    }
+    if (id.rfind("brush-", 0) == 0) {
+        try {
+            const int serial = std::stoi(id.substr(6));
+            d.nextBrushSerial = std::max(d.nextBrushSerial, serial + 1);
+        } catch (...) {
+        }
+    }
+
+    markDirty();
+    markFacDirty();
+    markBrushCompileDirty(brush.role);
+    statusMessage = "Renamed brush " + oldId + " -> " + id;
+    return true;
 }
 
 void Editor::frameSelection() {
