@@ -468,6 +468,13 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                 .maxDistance = 5.0f,
             });
         }
+        if (placement.kind == ThingKind::Pickup && !placement.onUse.empty()) {
+            entity.set<Interactable>({
+                .prompt = {},
+                .onUse = placement.onUse,
+                .maxDistance = 5.0f,
+            });
+        }
         if (placement.kind == ThingKind::Mover) {
             RigidMover mover{};
             if (entity.has<LocalTransformation>()) {

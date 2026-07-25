@@ -44,7 +44,6 @@
 #include <optional>
 #include <string>
 #include <system_error>
-#include <unordered_map>
 #include <unordered_set>
 
 namespace {
@@ -415,85 +414,31 @@ void drawScene(
     EndMode3D();
 }
 
-std::vector<std::string> scanPackageAssets(
-    const slopengine::AssetStore& assets,
-    const char* folder,
-    const char* extension) {
-    std::unordered_map<std::string, bool> seen;
-    for (const slopengine::Package& package : assets.packages()) {
-        const std::filesystem::path root = package.root() / folder;
-        if (!std::filesystem::exists(root)) {
-            continue;
-        }
-        std::error_code ec;
-        for (std::filesystem::recursive_directory_iterator it(root, ec), end; it != end && !ec;
-             it.increment(ec)) {
-            if (ec || !it->is_regular_file()) {
-                continue;
-            }
-            if (it->path().extension() != extension) {
-                continue;
-            }
-            std::error_code relEc;
-            std::filesystem::path relative = std::filesystem::relative(it->path(), root, relEc);
-            if (relEc) {
-                continue;
-            }
-            relative.replace_extension();
-            seen[relative.generic_string()] = true;
-        }
-    }
-    std::vector<std::string> paths;
-    paths.reserve(seen.size());
-    for (const auto& [path, _] : seen) {
-        paths.push_back(path);
-    }
-    std::sort(paths.begin(), paths.end());
-    return paths;
-}
-
 void beginThingKind(
     slopmap::Editor& editor,
     slopengine::ThingKind kind,
-    slopmap::CreateTool& createTool) {
+    slopmap::CreateTool& createTool,
+    slopmap::PlacePresentation presentation = slopmap::PlacePresentation::None) {
     editor.placeTarget = slopmap::PlaceTarget::Thing;
     editor.placeThingKind = kind;
+    editor.placePresentation = presentation;
     editor.placePrefabPath.clear();
     editor.mode = slopmap::EditorMode::Place;
     createTool.reset();
-    if (slopengine::thingKindNeedsPresentation(kind) && editor.placeSpritePath.empty() &&
-        editor.placeGeoPath.empty()) {
-        editor.statusMessage = std::string("Place ") + slopengine::thingKindName(kind) +
-            ": select a sprite or geo below, then click the viewport";
-    } else {
+    const char* label = slopengine::thingKindName(kind);
+    if (kind == slopengine::ThingKind::Prop) {
+        if (presentation == slopmap::PlacePresentation::Sprite) {
+            label = "sprite";
+        } else if (presentation == slopmap::PlacePresentation::Geo) {
+            label = "geo";
+        }
+    }
+    if (slopengine::thingKindNeedsPresentation(kind)) {
         editor.statusMessage =
-            std::string("Place ") + slopengine::thingKindName(kind) + ": click the viewport";
-    }
-}
-
-void armPresentationAsset(
-    slopmap::Editor& editor,
-    slopmap::CreateTool& createTool,
-    bool sprite,
-    const std::string& path) {
-    if (sprite) {
-        editor.placeSpritePath = path;
-        editor.placeGeoPath.clear();
+            std::string("Place ") + label + ": click viewport, then set asset in Properties";
     } else {
-        editor.placeGeoPath = path;
-        editor.placeSpritePath.clear();
+        editor.statusMessage = std::string("Place ") + label + ": click the viewport";
     }
-    if (!editor.placeThingKind.has_value() ||
-        !slopengine::thingKindNeedsPresentation(*editor.placeThingKind)) {
-        editor.placeThingKind = slopengine::ThingKind::Prop;
-    }
-    editor.placeTarget = slopmap::PlaceTarget::Thing;
-    editor.placePrefabPath.clear();
-    editor.mode = slopmap::EditorMode::Place;
-    createTool.reset();
-    editor.statusMessage = std::string("Place ") +
-        slopengine::thingKindName(*editor.placeThingKind) + ": click the viewport (" + path +
-        ")";
 }
 
 void cancelTools(
@@ -2075,112 +2020,112 @@ int main(int argc, char* argv[]) {
             if (ImGui::Begin("Scene", nullptr, panelFlags)) {
                 slopmap::EditorDocument& d = editor.doc();
                 constexpr const char* kIconSet = kDefaultIconSet;
-                static bool sectionOpen[4] = {true, true, true, true};
 
                 const ImGuiStyle& style = ImGui::GetStyle();
-                constexpr int kSectionCount = 4;
-                const int openCount = (sectionOpen[0] ? 1 : 0) + (sectionOpen[1] ? 1 : 0) +
-                    (sectionOpen[2] ? 1 : 0) + (sectionOpen[3] ? 1 : 0);
                 const float avail = ImGui::GetContentRegionAvail().y;
                 const float frameH = ImGui::GetFrameHeight();
                 const float spacing = style.ItemSpacing.y;
-                const float bodyBudget = std::max(
-                    0.0f,
-                    avail - static_cast<float>(kSectionCount) * frameH -
-                        static_cast<float>(kSectionCount + openCount - 1) * spacing);
-                const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
+                const float listH = std::max(
+                    frameH * 4.0f,
+                    (avail - frameH * 2.0f - spacing * 3.0f) * 0.55f);
 
-                sectionOpen[0] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "bricks", "Brushes", ImGuiTreeNodeFlags_DefaultOpen);
-                if (sectionOpen[0]) {
-                    if (ImGui::BeginChild("##brushes", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                        for (std::size_t i = 0; i < d.brushes.size(); ++i) {
-                            ImGui::PushID(static_cast<int>(i));
-                            const bool selected = d.isBrushSelected(static_cast<int>(i));
-                            const std::string label =
-                                d.brushes[i].id + " [" + slopengine::brushRoleName(d.brushes[i].role) + "]";
-                            if (selectableWithIcon(
-                                    assets,
-                                    kIconSet,
-                                    brushRoleToolbarIcon(d.brushes[i].role),
-                                    label.c_str(),
-                                    selected)) {
-                                const bool additive =
-                                    ImGui::GetIO().KeyShift;
-                                editor.selectBrush(static_cast<int>(i), additive);
+                if (ImGui::BeginTabBar("##sceneTabs", ImGuiTabBarFlags_None)) {
+                    if (ImGui::BeginTabItem("Brushes")) {
+                        if (ImGui::BeginChild(
+                                "##brushes", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
+                            if (d.brushes.empty()) {
+                                ImGui::TextDisabled("No brushes");
                             }
-                            ImGui::PopID();
+                            for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                                ImGui::PushID(static_cast<int>(i));
+                                const bool selected = d.isBrushSelected(static_cast<int>(i));
+                                const std::string label = d.brushes[i].id + " [" +
+                                    slopengine::brushRoleName(d.brushes[i].role) + "]";
+                                if (selectableWithIcon(
+                                        assets,
+                                        kIconSet,
+                                        brushRoleToolbarIcon(d.brushes[i].role),
+                                        label.c_str(),
+                                        selected)) {
+                                    editor.selectBrush(static_cast<int>(i), ImGui::GetIO().KeyShift);
+                                }
+                                ImGui::PopID();
+                            }
                         }
+                        ImGui::EndChild();
+                        ImGui::EndTabItem();
                     }
-                    ImGui::EndChild();
+                    if (ImGui::BeginTabItem("Prefabs")) {
+                        if (ImGui::BeginChild(
+                                "##instances", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
+                            if (d.instances.empty()) {
+                                ImGui::TextDisabled("No prefab instances");
+                            }
+                            for (std::size_t i = 0; i < d.instances.size(); ++i) {
+                                ImGui::PushID(static_cast<int>(i) + 100000);
+                                const bool selected = d.isEntitySelected(
+                                    {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)});
+                                const std::string label =
+                                    d.instances[i].id + " (" + d.instances[i].path + ")";
+                                if (selectableWithIcon(
+                                        assets, kIconSet, "package", label.c_str(), selected)) {
+                                    editor.selectEntity(
+                                        {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)},
+                                        ImGui::GetIO().KeyShift);
+                                }
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::EndChild();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Things")) {
+                        if (ImGui::BeginChild(
+                                "##things", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
+                            if (d.things.empty()) {
+                                ImGui::TextDisabled("No things");
+                            }
+                            for (std::size_t i = 0; i < d.things.size(); ++i) {
+                                ImGui::PushID(static_cast<int>(i) + 200000);
+                                const bool selected = d.isEntitySelected(
+                                    {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)});
+                                const std::string label = d.things[i].id + " (" +
+                                    slopengine::thingKindName(d.things[i].kind) + ")";
+                                const char* icon = slopengine::thingKindIsLight(d.things[i].kind)
+                                    ? "lightbulb"
+                                    : (d.things[i].kind == slopengine::ThingKind::SoundSource
+                                           ? "sound"
+                                           : (d.things[i].kind == slopengine::ThingKind::PlayerStart
+                                                  ? "user"
+                                                  : (d.things[i].kind ==
+                                                             slopengine::ThingKind::Marker
+                                                         ? "cross"
+                                                         : (d.things[i].kind ==
+                                                                    slopengine::ThingKind::Pickup
+                                                                ? "basket"
+                                                                : "transmit"))));
+                                if (selectableWithIcon(
+                                        assets, kIconSet, icon, label.c_str(), selected)) {
+                                    editor.selectEntity(
+                                        {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)},
+                                        ImGui::GetIO().KeyShift);
+                                }
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::EndChild();
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
 
-                sectionOpen[1] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "package", "Prefab instances", ImGuiTreeNodeFlags_DefaultOpen);
-                if (sectionOpen[1]) {
-                    if (ImGui::BeginChild("##instances", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                        for (std::size_t i = 0; i < d.instances.size(); ++i) {
-                            ImGui::PushID(static_cast<int>(i) + 100000);
-                            const bool selected = d.isEntitySelected(
-                                {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)});
-                            const std::string label = d.instances[i].id + " (" + d.instances[i].path + ")";
-                            if (selectableWithIcon(assets, kIconSet, "package", label.c_str(), selected)) {
-                                editor.selectEntity(
-                                    {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)},
-                                    ImGui::GetIO().KeyShift);
-                            }
-                            ImGui::PopID();
-                        }
-                    }
-                    ImGui::EndChild();
-                }
-
-                sectionOpen[2] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
-                if (sectionOpen[2]) {
-                    if (ImGui::BeginChild("##things", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                        if (d.things.empty()) {
-                            ImGui::TextDisabled("No things");
-                        }
-                        for (std::size_t i = 0; i < d.things.size(); ++i) {
-                            ImGui::PushID(static_cast<int>(i) + 200000);
-                            const bool selected = d.isEntitySelected(
-                                {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)});
-                            const std::string label =
-                                d.things[i].id + " (" +
-                                slopengine::thingKindName(d.things[i].kind) + ")";
-                            const char* icon = slopengine::thingKindIsLight(d.things[i].kind)
-                                ? "lightbulb"
-                                : (d.things[i].kind == slopengine::ThingKind::SoundSource
-                                       ? "sound"
-                                       : (d.things[i].kind == slopengine::ThingKind::PlayerStart
-                                              ? "user"
-                                              : (d.things[i].kind == slopengine::ThingKind::Marker
-                                                     ? "cross"
-                                                     : "transmit")));
-                            if (selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
-                                editor.selectEntity(
-                                    {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)},
-                                    ImGui::GetIO().KeyShift);
-                            }
-                            ImGui::PopID();
-                        }
-                    }
-                    ImGui::EndChild();
-                }
-
-                sectionOpen[3] = collapsingHeaderWithIcon(
-                    assets,
-                    kIconSet,
-                    d.selectionMode == slopmap::SelectionMode::Entity ? "lightbulb" : "brick",
-                    "Properties",
-                    ImGuiTreeNodeFlags_DefaultOpen);
-                if (sectionOpen[3]) {
-                    if (d.selectionMode == slopmap::SelectionMode::Entity) {
-                        thingPanel.drawSection(editor, bodyH);
-                    } else {
-                        brushPanel.drawSection(editor, bodyH);
-                    }
+                ImGui::Separator();
+                ImGui::TextUnformatted("Properties");
+                const float propsH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
+                if (d.selectionMode == slopmap::SelectionMode::Entity) {
+                    thingPanel.drawSection(editor, assets, propsH);
+                } else {
+                    brushPanel.drawSection(editor, propsH);
                 }
             }
             ImGui::End();
@@ -2197,196 +2142,265 @@ int main(int argc, char* argv[]) {
                 ImGuiCond_Always);
             if (ImGui::Begin("Library", nullptr, panelFlags)) {
                 constexpr const char* kIconSet = kDefaultIconSet;
-                static bool libraryOpen[4] = {true, true, true, true};
-                static std::vector<std::string> spritePaths;
-                static std::vector<std::string> geoPaths;
-                static bool assetListsReady = false;
-                if (!assetListsReady) {
-                    spritePaths = scanPackageAssets(assets, "sprites", ".spr");
-                    geoPaths = scanPackageAssets(assets, "geometry", ".geo");
-                    assetListsReady = true;
-                }
+                const float bodyH = std::max(0.0f, ImGui::GetContentRegionAvail().y -
+                    ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.y);
 
-                const ImGuiStyle& style = ImGui::GetStyle();
-                constexpr int kSectionCount = 4;
-                const int openCount = (libraryOpen[0] ? 1 : 0) + (libraryOpen[1] ? 1 : 0) +
-                    (libraryOpen[2] ? 1 : 0) + (libraryOpen[3] ? 1 : 0);
-                const float avail = ImGui::GetContentRegionAvail().y;
-                const float frameH = ImGui::GetFrameHeight();
-                const float spacing = style.ItemSpacing.y;
-                const float bodyBudget = std::max(
-                    0.0f,
-                    avail - static_cast<float>(kSectionCount) * frameH -
-                        static_cast<float>(kSectionCount + openCount - 1) * spacing);
-                const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
+                if (ImGui::BeginTabBar("##libraryTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+                    if (ImGui::BeginTabItem("Materials")) {
+                        const slopmap::MaterialBrowserResult matResult =
+                            materialBrowser.drawSection(editor, assets, bodyH);
+                        if (matResult.requestRescan) {
+                            materialBrowser.rescan(assets);
+                        }
+                        if (matResult.applied) {
+                            editor.rebuildPreview(assets);
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Texture")) {
+                        const slopmap::TexturePanelResult texResult =
+                            texturePanel.drawSection(editor, assets, bodyH);
+                        if (texResult.changed) {
+                            editor.rebuildPreview(assets);
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Things")) {
+                        if (ImGui::BeginChild(
+                                "##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+                            const float btnW = ImGui::GetContentRegionAvail().x;
+                            const float iconSz = 16.0f;
+                            const float rowH = ImGui::GetFrameHeight();
+                            auto placeKindButton =
+                                [&](const char* icon,
+                                    const char* label,
+                                    bool active,
+                                    const std::function<void()>& onClick) {
+                                    ImGui::PushID(label);
+                                    if (active) {
+                                        ImGui::PushStyleColor(
+                                            ImGuiCol_Button,
+                                            ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                                    }
+                                    const bool pressed = ImGui::Button("##", ImVec2(btnW, rowH));
+                                    if (active) {
+                                        ImGui::PopStyleColor();
+                                    }
+                                    const ImVec2 min = ImGui::GetItemRectMin();
+                                    const ImVec2 max = ImGui::GetItemRectMax();
+                                    const float pad = ImGui::GetStyle().FramePadding.x;
+                                    const float iconY = min.y + (max.y - min.y - iconSz) * 0.5f;
+                                    const IconAtlas* atlas = assets.getIconAtlas(kIconSet);
+                                    float textX = min.x + pad;
+                                    if (atlas != nullptr && atlas->texture.id != 0) {
+                                        if (const auto rect = findIconRect(*atlas, icon)) {
+                                            const float tw =
+                                                static_cast<float>(atlas->texture.width);
+                                            const float th =
+                                                static_cast<float>(atlas->texture.height);
+                                            ImGui::GetWindowDrawList()->AddImage(
+                                                (ImTextureID)(intptr_t)atlas->texture.id,
+                                                ImVec2(min.x + pad, iconY),
+                                                ImVec2(min.x + pad + iconSz, iconY + iconSz),
+                                                ImVec2(rect->x / tw, rect->y / th),
+                                                ImVec2(
+                                                    (rect->x + rect->width) / tw,
+                                                    (rect->y + rect->height) / th),
+                                                ImGui::GetColorU32(ImGuiCol_Text));
+                                            textX = min.x + pad + iconSz +
+                                                ImGui::GetStyle().ItemInnerSpacing.x;
+                                        }
+                                    }
+                                    const float textY = min.y +
+                                        (max.y - min.y - ImGui::GetTextLineHeight()) * 0.5f;
+                                    ImGui::GetWindowDrawList()->AddText(
+                                        ImVec2(textX, textY),
+                                        ImGui::GetColorU32(ImGuiCol_Text),
+                                        label);
+                                    ImGui::PopID();
+                                    if (pressed) {
+                                        onClick();
+                                    }
+                                };
 
-                libraryOpen[0] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "palette", "Materials", ImGuiTreeNodeFlags_DefaultOpen);
-                if (libraryOpen[0]) {
-                    const slopmap::MaterialBrowserResult matResult =
-                        materialBrowser.drawSection(editor, assets, bodyH);
-                    if (matResult.requestRescan) {
-                        materialBrowser.rescan(assets);
-                    }
-                    if (matResult.applied) {
-                        editor.rebuildPreview(assets);
-                    }
-                }
-
-                libraryOpen[1] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "picture_edit", "Texture", ImGuiTreeNodeFlags_DefaultOpen);
-                if (libraryOpen[1]) {
-                    const slopmap::TexturePanelResult texResult =
-                        texturePanel.drawSection(editor, assets, bodyH);
-                    if (texResult.changed) {
-                        editor.rebuildPreview(assets);
-                    }
-                }
-
-                libraryOpen[2] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "package", "Prefabs", ImGuiTreeNodeFlags_DefaultOpen);
-                if (libraryOpen[2]) {
-                    const slopmap::PrefabBrowserResult prefabResult =
-                        prefabBrowser.drawSection(editor, assets, bodyH);
-                    if (prefabResult.requestRescan) {
-                        prefabBrowser.rescan(assets);
-                    }
-                    if (prefabResult.selected && editor.scene == slopmap::EditorScene::Level) {
-                        editor.placeTarget = slopmap::PlaceTarget::PrefabInstance;
-                        editor.placeThingKind.reset();
-                        editor.mode = slopmap::EditorMode::Place;
-                        createTool.reset();
-                    }
-                    if (prefabResult.openRequested) {
-                        if (editor.scene == slopmap::EditorScene::Prefab && editor.prefabDoc.dirty) {
-                            editor.showOpenPrefabModal = true;
-                            std::snprintf(
-                                prefabPathBuf,
-                                sizeof(prefabPathBuf),
-                                "%s",
-                                editor.placePrefabPath.c_str());
-                        } else if (
-                            editor.scene == slopmap::EditorScene::Level && editor.levelDoc.dirty) {
-                            editor.pendingScene = slopmap::EditorScene::Prefab;
-                            editor.showSwitchSceneModal = true;
-                            editor.modalPrefabPath = editor.placePrefabPath;
-                        } else {
-                            cancelTools(createTool, selectTool, punchTool, clipTool, editor);
-                            if (editor.loadPrefab(assets, scheme, editor.placePrefabPath)) {
-                                previewNeedsRebuild = false;
-                            }
-                        }
-                    }
-                }
-
-                libraryOpen[3] = collapsingHeaderWithIcon(
-                    assets, kIconSet, "transmit", "Things", ImGuiTreeNodeFlags_DefaultOpen);
-                if (libraryOpen[3]) {
-                    if (ImGui::BeginChild("##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                        if (ImGui::Button("player-start")) {
-                            beginThingKind(
-                                editor, slopengine::ThingKind::PlayerStart, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("prop")) {
-                            beginThingKind(editor, slopengine::ThingKind::Prop, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("usable")) {
-                            beginThingKind(editor, slopengine::ThingKind::Usable, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("actor")) {
-                            beginThingKind(editor, slopengine::ThingKind::Actor, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("mover")) {
-                            beginThingKind(editor, slopengine::ThingKind::Mover, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("trigger")) {
-                            beginThingKind(editor, slopengine::ThingKind::Trigger, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("marker")) {
-                            beginThingKind(editor, slopengine::ThingKind::Marker, createTool);
-                        }
-                        if (ImGui::Button("point-light")) {
-                            beginThingKind(
-                                editor, slopengine::ThingKind::PointLight, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("spot-light")) {
-                            beginThingKind(
-                                editor, slopengine::ThingKind::SpotLight, createTool);
-                        }
-                        if (ImGui::Button("area-light")) {
-                            beginThingKind(
-                                editor, slopengine::ThingKind::AreaLight, createTool);
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::Button("sun")) {
-                            beginThingKind(editor, slopengine::ThingKind::Sun, createTool);
-                        }
-
-                        ImGui::Separator();
-                        ImGui::TextDisabled("Presentation (required for prop/usable/actor)");
-                        if (editor.mode == slopmap::EditorMode::Place &&
-                            editor.placeTarget == slopmap::PlaceTarget::Thing &&
-                            editor.placeThingKind.has_value()) {
-                            ImGui::Text(
-                                "Placing: %s",
-                                slopengine::thingKindName(*editor.placeThingKind));
-                            if (slopengine::thingKindNeedsPresentation(
-                                    *editor.placeThingKind)) {
-                                const bool ready = (!editor.placeSpritePath.empty()) !=
-                                    (!editor.placeGeoPath.empty());
-                                if (!ready) {
-                                    ImGui::TextColored(
-                                        ImVec4(1.0f, 0.55f, 0.2f, 1.0f),
-                                        "Select a sprite or geo, then click the viewport");
-                                } else {
-                                    ImGui::TextColored(
-                                        ImVec4(0.4f, 0.9f, 0.45f, 1.0f),
-                                        "Click the viewport to place");
+                            const bool placingThing = editor.mode == slopmap::EditorMode::Place &&
+                                editor.placeTarget == slopmap::PlaceTarget::Thing &&
+                                editor.placeThingKind.has_value();
+                            const auto isKind = [&](slopengine::ThingKind kind,
+                                                   slopmap::PlacePresentation presentation =
+                                                       slopmap::PlacePresentation::None) {
+                                if (!placingThing || *editor.placeThingKind != kind) {
+                                    return false;
                                 }
-                            } else {
+                                if (kind == slopengine::ThingKind::Prop) {
+                                    return editor.placePresentation == presentation;
+                                }
+                                return true;
+                            };
+
+                            placeKindButton(
+                                "user",
+                                "player-start",
+                                isKind(slopengine::ThingKind::PlayerStart),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::PlayerStart, createTool);
+                                });
+                            placeKindButton(
+                                "picture",
+                                "sprite",
+                                isKind(
+                                    slopengine::ThingKind::Prop,
+                                    slopmap::PlacePresentation::Sprite),
+                                [&] {
+                                    beginThingKind(
+                                        editor,
+                                        slopengine::ThingKind::Prop,
+                                        createTool,
+                                        slopmap::PlacePresentation::Sprite);
+                                });
+                            placeKindButton(
+                                "shape_square",
+                                "geo",
+                                isKind(
+                                    slopengine::ThingKind::Prop, slopmap::PlacePresentation::Geo),
+                                [&] {
+                                    beginThingKind(
+                                        editor,
+                                        slopengine::ThingKind::Prop,
+                                        createTool,
+                                        slopmap::PlacePresentation::Geo);
+                                });
+                            placeKindButton(
+                                "cursor", "usable", isKind(slopengine::ThingKind::Usable), [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Usable, createTool);
+                                });
+                            placeKindButton(
+                                "basket", "pickup", isKind(slopengine::ThingKind::Pickup), [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Pickup, createTool);
+                                });
+                            placeKindButton(
+                                "group", "actor", isKind(slopengine::ThingKind::Actor), [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Actor, createTool);
+                                });
+                            placeKindButton(
+                                "arrow_switch",
+                                "mover",
+                                isKind(slopengine::ThingKind::Mover),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Mover, createTool);
+                                });
+                            placeKindButton(
+                                "lightning",
+                                "trigger",
+                                isKind(slopengine::ThingKind::Trigger),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Trigger, createTool);
+                                });
+                            placeKindButton(
+                                "flag_blue",
+                                "marker",
+                                isKind(slopengine::ThingKind::Marker),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Marker, createTool);
+                                });
+                            placeKindButton(
+                                "lightbulb",
+                                "point-light",
+                                isKind(slopengine::ThingKind::PointLight),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::PointLight, createTool);
+                                });
+                            placeKindButton(
+                                "lightbulb_off",
+                                "spot-light",
+                                isKind(slopengine::ThingKind::SpotLight),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::SpotLight, createTool);
+                                });
+                            placeKindButton(
+                                "lightbulb_add",
+                                "area-light",
+                                isKind(slopengine::ThingKind::AreaLight),
+                                [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::AreaLight, createTool);
+                                });
+                            placeKindButton(
+                                "weather_sun", "sun", isKind(slopengine::ThingKind::Sun), [&] {
+                                    beginThingKind(
+                                        editor, slopengine::ThingKind::Sun, createTool);
+                                });
+
+                            if (placingThing) {
+                                ImGui::Separator();
+                                const char* placing =
+                                    slopengine::thingKindName(*editor.placeThingKind);
+                                if (*editor.placeThingKind == slopengine::ThingKind::Prop) {
+                                    if (editor.placePresentation ==
+                                        slopmap::PlacePresentation::Sprite) {
+                                        placing = "sprite";
+                                    } else if (
+                                        editor.placePresentation ==
+                                        slopmap::PlacePresentation::Geo) {
+                                        placing = "geo";
+                                    }
+                                }
+                                ImGui::Text("Placing: %s", placing);
                                 ImGui::TextColored(
                                     ImVec4(0.4f, 0.9f, 0.45f, 1.0f),
                                     "Click the viewport to place");
                             }
                         }
-                        if (ImGui::Button("Refresh assets")) {
-                            spritePaths = scanPackageAssets(assets, "sprites", ".spr");
-                            geoPaths = scanPackageAssets(assets, "geometry", ".geo");
-                        }
-                        ImGui::Text(
-                            "Sprite: %s",
-                            editor.placeSpritePath.empty() ? "(none)"
-                                                          : editor.placeSpritePath.c_str());
-                        if (ImGui::BeginListBox("##sprites", ImVec2(-1.0f, 80.0f))) {
-                            for (const std::string& path : spritePaths) {
-                                const bool selected = editor.placeSpritePath == path;
-                                if (ImGui::Selectable(path.c_str(), selected)) {
-                                    armPresentationAsset(editor, createTool, true, path);
-                                }
-                            }
-                            ImGui::EndListBox();
-                        }
-                        ImGui::Text(
-                            "Geo: %s",
-                            editor.placeGeoPath.empty() ? "(none)" : editor.placeGeoPath.c_str());
-                        if (ImGui::BeginListBox("##geos", ImVec2(-1.0f, 80.0f))) {
-                            for (const std::string& path : geoPaths) {
-                                const bool selected = editor.placeGeoPath == path;
-                                if (ImGui::Selectable(path.c_str(), selected)) {
-                                    armPresentationAsset(editor, createTool, false, path);
-                                }
-                            }
-                            ImGui::EndListBox();
-                        }
+                        ImGui::EndChild();
+                        ImGui::EndTabItem();
                     }
-                    ImGui::EndChild();
+                    if (ImGui::BeginTabItem("Prefabs")) {
+                        const slopmap::PrefabBrowserResult prefabResult =
+                            prefabBrowser.drawSection(editor, assets, bodyH);
+                        if (prefabResult.requestRescan) {
+                            prefabBrowser.rescan(assets);
+                        }
+                        if (prefabResult.selected && editor.scene == slopmap::EditorScene::Level) {
+                            editor.placeTarget = slopmap::PlaceTarget::PrefabInstance;
+                            editor.placeThingKind.reset();
+                            editor.placePresentation = slopmap::PlacePresentation::None;
+                            editor.mode = slopmap::EditorMode::Place;
+                            createTool.reset();
+                        }
+                        if (prefabResult.openRequested) {
+                            if (editor.scene == slopmap::EditorScene::Prefab &&
+                                editor.prefabDoc.dirty) {
+                                editor.showOpenPrefabModal = true;
+                                std::snprintf(
+                                    prefabPathBuf,
+                                    sizeof(prefabPathBuf),
+                                    "%s",
+                                    editor.placePrefabPath.c_str());
+                            } else if (
+                                editor.scene == slopmap::EditorScene::Level &&
+                                editor.levelDoc.dirty) {
+                                editor.pendingScene = slopmap::EditorScene::Prefab;
+                                editor.showSwitchSceneModal = true;
+                                editor.modalPrefabPath = editor.placePrefabPath;
+                            } else {
+                                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                                if (editor.loadPrefab(assets, scheme, editor.placePrefabPath)) {
+                                    previewNeedsRebuild = false;
+                                }
+                            }
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
             }
             ImGui::End();

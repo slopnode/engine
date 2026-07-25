@@ -775,6 +775,32 @@ s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "usable requires id and at", true);
 }
 
+s7_pointer g_pickup(s7_scheme* sc, s7_pointer args) {
+    Thing placement{};
+    placement.kind = ThingKind::Pickup;
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "pickup has invalid clauses")));
+    }
+    const bool hasSprite = !placement.sprite.empty();
+    const bool hasGeo = !placement.geo.empty();
+    if (hasSprite == hasGeo) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "pickup requires exactly one of sprite or geo")));
+    }
+    if (placement.onEnter.empty() && placement.onUse.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "pickup requires on-enter or on-use")));
+    }
+    return appendThing(sc, std::move(placement), "pickup requires id and at", true);
+}
+
 s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Actor;
@@ -1013,6 +1039,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
+    s7_define_function(sc, "pickup", g_pickup, 0, 0, true, "(pickup clauses...)");
     s7_define_function(sc, "actor", g_actor, 0, 0, true, "(actor clauses...)");
     s7_define_function(sc, "mover", g_mover, 0, 0, true, "(mover clauses...)");
     s7_define_function(sc, "trigger", g_trigger, 0, 0, true, "(trigger clauses...)");

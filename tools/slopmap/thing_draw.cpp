@@ -28,6 +28,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{160, 180, 220, 255};
     case slopengine::ThingKind::Usable:
         return Color{220, 160, 80, 255};
+    case slopengine::ThingKind::Pickup:
+        return Color{180, 220, 100, 255};
     case slopengine::ThingKind::Actor:
         return Color{220, 100, 100, 255};
     case slopengine::ThingKind::Mover:
@@ -252,6 +254,17 @@ void drawThings(
         case slopengine::ThingKind::Actor:
         case slopengine::ThingKind::Mover:
             drawSpriteOrGeo(assets, camera, thing, color);
+            if (selected) {
+                DrawSphereWires(pos, 0.35f, 6, 6, color);
+            }
+            break;
+        case slopengine::ThingKind::Pickup:
+            drawSpriteOrGeo(assets, camera, thing, color);
+            if (!thing.onEnter.empty() || thing.haveTriggerSize) {
+                const Vector3 size =
+                    thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
+                DrawCubeWires(pos, size.x, size.y, size.z, color);
+            }
             if (selected) {
                 DrawSphereWires(pos, 0.35f, 6, 6, color);
             }

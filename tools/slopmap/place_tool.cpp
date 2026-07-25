@@ -14,6 +14,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "prop";
     case slopengine::ThingKind::Usable:
         return "usable";
+    case slopengine::ThingKind::Pickup:
+        return "pickup";
     case slopengine::ThingKind::Actor:
         return "actor";
     case slopengine::ThingKind::Mover:
@@ -38,22 +40,16 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
     return "thing";
 }
 
-bool presentationReady(const Editor& editor, slopengine::AssetStore& assets, std::string& error) {
-    const bool haveSprite = !editor.placeSpritePath.empty();
-    const bool haveGeo = !editor.placeGeoPath.empty();
-    if (haveSprite == haveGeo) {
-        error = "Place: pick a sprite or geo in Library → Things, then click the viewport";
-        return false;
+const char* placeKindLabel(const Editor& editor, slopengine::ThingKind kind) {
+    if (kind == slopengine::ThingKind::Prop) {
+        if (editor.placePresentation == PlacePresentation::Sprite) {
+            return "sprite";
+        }
+        if (editor.placePresentation == PlacePresentation::Geo) {
+            return "geo";
+        }
     }
-    if (haveSprite && !assets.hasSprite(editor.placeSpritePath)) {
-        error = "Place: missing sprite " + editor.placeSpritePath;
-        return false;
-    }
-    if (haveGeo && !assets.hasGeo(editor.placeGeoPath)) {
-        error = "Place: missing geo " + editor.placeGeoPath;
-        return false;
-    }
-    return true;
+    return slopengine::thingKindName(kind);
 }
 
 } // namespace
@@ -124,26 +120,14 @@ void PlaceTool::update(
     }
 
     const slopengine::ThingKind kind = *editor.placeThingKind;
-    if (slopengine::thingKindNeedsPresentation(kind)) {
-        std::string error;
-        if (!presentationReady(editor, assets, error)) {
-            editor.statusMessage = error;
-            if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                return;
-            }
-            return;
-        }
-    }
+    const char* label = placeKindLabel(editor, kind);
 
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         if (slopengine::thingKindNeedsPresentation(kind)) {
-            editor.statusMessage = std::string("Place ") + slopengine::thingKindName(kind) +
-                ": click viewport (" +
-                (!editor.placeSpritePath.empty() ? editor.placeSpritePath : editor.placeGeoPath) +
-                ")";
-        } else {
             editor.statusMessage =
-                std::string("Place ") + slopengine::thingKindName(kind) + ": click viewport";
+                std::string("Place ") + label + ": click viewport, then set asset in Properties";
+        } else {
+            editor.statusMessage = std::string("Place ") + label + ": click viewport";
         }
         return;
     }
@@ -175,8 +159,8 @@ void PlaceTool::update(
         thing.yaw = 3.141592653589793f;
     }
     if (slopengine::thingKindNeedsPresentation(kind)) {
-        thing.sprite = editor.placeSpritePath;
-        thing.geo = editor.placeGeoPath;
+        thing.sprite.clear();
+        thing.geo.clear();
         thing.frame = "A";
     }
     if (kind == slopengine::ThingKind::Actor) {
@@ -201,15 +185,38 @@ void PlaceTool::update(
         thing.haveTriggerSize = true;
         thing.triggerSize = {1.0f, 1.0f, 1.0f};
     }
+    if (kind == slopengine::ThingKind::Pickup) {
+        thing.haveTriggerSize = true;
+        thing.triggerSize = {1.0f, 1.0f, 1.0f};
+    }
 
+    if (kind == slopengine::ThingKind::Prop &&
+        (editor.placePresentation == PlacePresentation::Sprite ||
+         editor.placePresentation == PlacePresentation::Geo)) {
+        editor.propChannelLock[thing.id] = editor.placePresentation;
+    }
     editor.doc().things.push_back(std::move(thing));
     const int index = static_cast<int>(editor.doc().things.size()) - 1;
     editor.selectEntity({EntityRef::Kind::Thing, index}, false);
     editor.markDirty();
     editor.markThingCompileDirty(kind);
     editor.mode = EditorMode::Select;
-    editor.statusMessage =
-        "Placed " + editor.doc().things.back().id + " — G move, R rotate";
+    if (kind == slopengine::ThingKind::Prop &&
+        editor.placePresentation == PlacePresentation::Sprite) {
+        editor.statusMessage =
+            "Placed " + editor.doc().things.back().id + " — set sprite in Properties";
+    } else if (
+        kind == slopengine::ThingKind::Prop &&
+        editor.placePresentation == PlacePresentation::Geo) {
+        editor.statusMessage =
+            "Placed " + editor.doc().things.back().id + " — set geo in Properties";
+    } else if (slopengine::thingKindNeedsPresentation(kind)) {
+        editor.statusMessage =
+            "Placed " + editor.doc().things.back().id + " — set sprite/geo in Properties";
+    } else {
+        editor.statusMessage =
+            "Placed " + editor.doc().things.back().id + " — G move, R rotate";
+    }
 }
 
 }

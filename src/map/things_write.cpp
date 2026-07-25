@@ -51,9 +51,9 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                 formatFloat(p.angles.z) + ")");
     } else if (p.yaw != 0.0f || p.kind == ThingKind::PlayerStart ||
                p.kind == ThingKind::Prop || p.kind == ThingKind::Usable ||
-               p.kind == ThingKind::Actor || p.kind == ThingKind::Mover ||
-               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight ||
-               p.kind == ThingKind::Marker) {
+               p.kind == ThingKind::Pickup || p.kind == ThingKind::Actor ||
+               p.kind == ThingKind::Mover || p.kind == ThingKind::Trigger ||
+               p.kind == ThingKind::SpotLight || p.kind == ThingKind::Marker) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
     if (!p.haveAngles && p.havePitch) {
@@ -260,6 +260,9 @@ void writeThing(std::ostringstream& out, const Thing& p) {
         if (!p.onUse.empty()) {
             writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
         }
+    }
+    if (p.kind == ThingKind::Pickup && !p.onUse.empty()) {
+        writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
     }
     if (p.kind == ThingKind::Mover) {
         writeMoverFields(out, p);

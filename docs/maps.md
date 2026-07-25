@@ -152,6 +152,7 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
 | player-start | id, at | First wins; sets player spawn pose. Optional yaw (radians). See [Player](player.md). |
 | prop | id, at, exactly one of sprite / geo | Optional yaw, frame, (anim clip [loop]). See [Things](things.md). |
 | usable | same as prop | Adds interact prompt; (on-use "handler" arg-clauses...) — see [Map handlers](scripting.md#map-handlers) and [Things](things.md). |
+| pickup | same as prop; on-enter and/or on-use | Presented collectible; touch volume and/or use. See [Things](things.md#pickups-pickup). |
 | mover | brush **or** geo/sprite + open motion; collide-size unless brush | Kinematic door/platform leaf. Prefer `(brush "detail-id")` for CSG door leaves (omitted from FAC/static collision). See [Things](things.md#movers-mover). |
 | trigger | id, at, on-enter and/or on-exit | AABB volume (`trigger-size`); Scheme enter/exit handlers. Not brush role `trigger`. |
 | marker | id, at | Pose-only named point; optional yaw. See [Things](things.md#markers-marker). |
@@ -162,7 +163,7 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
 | sun | id | Optional at (gizmo), angles/yaw, color, intensity. Authoring / gizmo. |
 | prefab | path, id | Loads optional prefabs/{path}.s7 with the same at / angles as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
-on-use handlers live in package scripts (for example scripts/things.s7). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Things](things.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
+on-use handlers live in package scripts (for example scripts/things.s7). If the handler is missing, Interact falls back to the inspect UI. Props, usables, pickups, lights, actors, and scripting are covered in [Things](things.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
 
 (nodraw) marks a face as out of bounds for rendering: it is omitted from the compiled mesh and from radiosity charts, so it does not consume lightmap atlas space. The brush stays solid for physics and BSP occlusion. You can still set it explicitly on any face when you want nodraw true:
 

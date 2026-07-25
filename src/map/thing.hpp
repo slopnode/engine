@@ -14,6 +14,7 @@ enum class ThingKind {
     PlayerStart,
     Prop,
     Usable,
+    Pickup,
     Actor,
     Mover,
     Trigger,
@@ -144,6 +145,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "prop";
     case ThingKind::Usable:
         return "usable";
+    case ThingKind::Pickup:
+        return "pickup";
     case ThingKind::Actor:
         return "actor";
     case ThingKind::Mover:
@@ -174,8 +177,8 @@ inline bool thingKindIsLight(ThingKind kind) {
 }
 
 inline bool thingKindNeedsPresentation(ThingKind kind) {
-    return kind == ThingKind::Prop || kind == ThingKind::Usable || kind == ThingKind::Actor ||
-        kind == ThingKind::Mover;
+    return kind == ThingKind::Prop || kind == ThingKind::Usable || kind == ThingKind::Pickup ||
+        kind == ThingKind::Actor || kind == ThingKind::Mover;
 }
 
 }

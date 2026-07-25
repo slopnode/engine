@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct s7_scheme;
@@ -55,6 +56,12 @@ enum class CreatePrimitive {
 enum class PlaceTarget {
     PrefabInstance,
     Thing,
+};
+
+enum class PlacePresentation {
+    None,
+    Sprite,
+    Geo,
 };
 
 struct FaceRef {
@@ -148,8 +155,8 @@ struct Editor {
     PlaceTarget placeTarget = PlaceTarget::PrefabInstance;
     std::string placePrefabPath;
     std::optional<slopengine::ThingKind> placeThingKind;
-    std::string placeSpritePath;
-    std::string placeGeoPath;
+    PlacePresentation placePresentation = PlacePresentation::None;
+    std::unordered_map<std::string, PlacePresentation> propChannelLock;
     std::filesystem::path writePackageRoot;
     std::string writePackageId = "slopengine.base";
     s7_scheme* scheme = nullptr;

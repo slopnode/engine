@@ -1,12 +1,12 @@
 # Things
 
-Placed content in a level (static props, usables, actors, lights) is authored in maps/{name}/things.s7. A thing is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs entity from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under scripts/. The player is separate; see [Player](player.md).
+Placed content in a level (static props, usables, pickups, actors, lights) is authored in maps/{name}/things.s7. A thing is the authored record (id, pose, kind, presentation or light params). At load, the engine spawns a flecs entity from each thing. The map file is composition: ids, poses, and which presentation or handler to use. Behavior and shared helpers live in package Scheme under scripts/. The player is separate; see [Player](player.md).
 
 World solids stay in CSG / BSP ([Maps](maps.md)). Thing presentation uses sprites ([Sprites](sprites.md)) or .geo ([Geometry](geometry.md)).
 
 ## Kinds
 
-A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable ((usable ...)) uses the same presentation, then adds an interact prompt and optional Scheme on-use handler. A mover ((mover ...)) is a presented rigid leaf with kinematic collision and A/B open/close motion (doors, hatches). An actor ((actor ...)) uses the same presentation plus a character capsule motor and opaque tags; packages own brains, health, and factions. Light things cover bake and editor work: (point-light ...) and (spot-light ...) feed radiosity and gizmos; (area-light ...) and (sun ...) are authoring / gizmo forms today (sun may omit a meaningful world at and still use one for the editor handle). See [Lights](lights.md).
+A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no interact and no AI. A usable ((usable ...)) uses the same presentation, then adds an interact prompt and optional Scheme on-use handler. A pickup ((pickup ...)) is presented item content that reacts on touch (`on-enter`) and/or use (`on-use`); packages own collect once / inventory / ammo. A mover ((mover ...)) is a presented rigid leaf with kinematic collision and A/B open/close motion (doors, hatches). An actor ((actor ...)) uses the same presentation plus a character capsule motor and opaque tags; packages own brains, health, and factions. Light things cover bake and editor work: (point-light ...) and (spot-light ...) feed radiosity and gizmos; (area-light ...) and (sun ...) are authoring / gizmo forms today (sun may omit a meaningful world at and still use one for the editor handle). See [Lights](lights.md).
 
 (player-start ...) is spawn pose only -- it does not create a prop entity; the engine builds Player from that pose after map load.
 
@@ -14,7 +14,7 @@ A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no i
 
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
-Debug entity list labels match this split: prop, usable, mover, actor, point-light, spot-light, area-light, sun, player (plus map for MapStatic).
+Debug entity list labels match this split: prop, usable, mover, actor, point-light, spot-light, area-light, sun, player (plus map for MapStatic). Presented pickups may still show as prop/usable in the debug list depending on components.
 
 [slopmap](slopmap.md) edits things in the Things outliner and Library palette (load/save of things.s7). Viewport shows sprite/geo previews and light gizmos.
 
@@ -44,6 +44,14 @@ maps/{name}/things.s7 is optional Scheme evaluated after map geometry. Engine bi
   (frame "A")
   (prompt "Test use")
   (on-use "on-use-test"))
+
+(pickup
+  (id "clip-1")
+  (at -2.0 0.0 6.0)
+  (yaw 0.0)
+  (sprite "items/clip")
+  (on-enter "on-enter-ammo" (ammo "clip"))
+  (trigger-size 1.0 1.5 1.0))
 
 (point-light
   (id "lamp-a")
@@ -101,6 +109,40 @@ Interact casts a ray from the player Lens. Closest hit among usables with Model3
 2. Otherwise open the inspect Interact UI.
 
 Usables are the content-facing wrapper around the engine Interactable primitive. Panels and terminals stay as usables. Ordinary doors use [brush doors](#doors-brush-door); elevators / platforms / custom A/B leaves use [Movers](#movers-mover).
+
+## Pickups (pickup)
+
+A pickup is presented item content (sprite or geo) that the player collects by walking into a volume and/or pressing Interact. Prefer pickup over a bare prop with `on-enter`, or a usable that only exists to be taken once. Collect-once, inventory, ammo, and keys stay in package Scheme.
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| (all prop fields) | same rules | Exactly one of sprite / geo. |
+| on-enter and/or on-use | at least one | Touch volume and/or use interact. Both may be set. |
+| trigger-size | no | AABB for touch (`on-enter`); default 1 1 1 when size is authored. |
+| on-use | no | Handler id (+ optional typed args). See [Map handlers](scripting.md#map-handlers). |
+
+Spawn:
+
+- Always applies presentation.
+- Non-empty `on-enter` (or exit) adds `TriggerVolume` like other presented things.
+- Non-empty `on-use` adds `Interactable` (no authored prompt).
+
+```text
+(pickup
+  (id "key-blue")
+  (at 3.0 0.0 1.0)
+  (sprite "items/key-blue")
+  (on-enter "on-enter-key" (key "blue"))
+  (trigger-size 1 1.5 1))
+
+(pickup
+  (id "medkit-use")
+  (at 0.0 0.0 2.0)
+  (sprite "items/medkit")
+  (on-use "on-use-medkit"))
+```
+
+Pure volume enter/exit without a mesh stays `(trigger …)`. Fixed world interactables that are not collectibles stay `(usable …)`.
 
 ## Doors (brush door)
 

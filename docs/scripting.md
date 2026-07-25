@@ -128,7 +128,7 @@ These stay name-lookup only (no hook-add list):
 | (on-action-{id}) | When package action {id} is pressed (mods define these in contrib.s7) |
 | (on-use-{name} thing-id) / named handlers | From map (on-use "..."); see [Things](things.md) |
 | Trigger enter/exit handlers | From map thing `(on-enter …)` / `(on-exit …)` by handler id |
-| Use handlers | From map usable/mover `(on-use …)` or CSG face `(on-use …)` by handler id; faces are interact ray targets (see [Maps](maps.md)) |
+| Use handlers | From map usable/pickup/mover `(on-use …)` or CSG face `(on-use …)` by handler id; faces are interact ray targets (see [Maps](maps.md)) |
 | Touch handlers | From CSG face `(on-touch …)` by handler id; fires once when a tagged character (default player) enters the face touch slab |
 
 Handlers receive string ids (flecs entity names). Catalog handlers also receive an instance-args alist. There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
@@ -161,7 +161,7 @@ Map syntax uses trailing clauses:
 
 ```text
 (on-enter "toggle-light" (color 1.0 0.4 0.2) (intensity 2.5) (target "ceiling-lamp-3"))
-(on-enter "on-enter-ammo-clip")  ; legacy: not in catalog
+(on-enter "on-enter-ammo" (ammo "clip"))
 (can-use "door-requires-key" (key "red"))  ; brush door predicate
 ```
 
@@ -292,7 +292,7 @@ Player aim helpers for spawn recipes: (player-eye) and (player-look-dir) — see
 
 Bound only while the matching map file loads, not for general gameplay scripts:
 
-- Things: prop, usable, actor, mover, trigger, marker, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
+- Things: prop, usable, pickup, actor, mover, trigger, marker, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
 - CSG brushes -> [Maps](maps.md)
 - Nav graphs -> maps/{name}/graphs.s7 (graph, node, edge, ...)
 
