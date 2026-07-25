@@ -101,9 +101,9 @@ Save context layout is in [Persistence](persistence.md). Listing files for a Loa
 
 ## Engine hooks
 
-The base package defines **owner** procedures with these exact names. Mods extend them with `(hook-add 'name proc)` from scripts/contrib.s7. After base player/menus load, the engine **captures** those owner procedures. At call time it runs the captured owner (if any), then each contrib in registration order with the same arguments. Missing owner and empty contrib list → skip. Redefining an owner global from a mod does not change what the engine calls; use `(hook-add ...)`.
+The base package defines owner procedures with these exact names. Mods extend them with `(hook-add 'name proc)` from scripts/contrib.s7. After base player/menus load, the engine captures those owner procedures. At call time it runs the captured owner (if any), then each contrib in registration order with the same arguments. Missing owner and empty contrib list → skip. Redefining an owner global from a mod does not change what the engine calls; use `(hook-add ...)`.
 
-Capability checks are **scope ∩ package role**. Scope is when the call runs (Boot, World, Hud, Ui, …). Role is who is running: Base/Engine for captured owners and base-loaded procedures; Mod for contribs and procedures defined while a mod package file evaluated. Mods keep WorldMutate and presentation caps; **SaveIo** and **MapControl** are base-only.
+A call is allowed only when both the current scope and the package role permit the capability. Scope is when the call runs (Boot, World, Hud, Ui, …). Role is who is running: Base/Engine for captured owners and base-loaded procedures; Mod for contribs and procedures defined while a mod package file evaluated. Mods may mutate the world and use presentation APIs; save I/O and map control stay base-only.
 
 | Procedure | When |
 |-----------|------|
