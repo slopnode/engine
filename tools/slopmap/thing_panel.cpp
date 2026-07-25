@@ -1,5 +1,8 @@
 #include "thing_panel.hpp"
 
+#include "handler_ui.hpp"
+#include "map/handler_binding.hpp"
+#include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
 
 #include "imgui.h"
@@ -36,6 +39,9 @@ enum class ThingEditKind {
     Light,
     Sound,
     Actor,
+    Trigger,
+    Usable,
+    Mover,
     Mixed,
 };
 
@@ -62,6 +68,12 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
             entryKind = ThingEditKind::Sound;
         } else if (thingKind == slopengine::ThingKind::Actor) {
             entryKind = ThingEditKind::Actor;
+        } else if (thingKind == slopengine::ThingKind::Trigger) {
+            entryKind = ThingEditKind::Trigger;
+        } else if (thingKind == slopengine::ThingKind::Usable) {
+            entryKind = ThingEditKind::Usable;
+        } else if (thingKind == slopengine::ThingKind::Mover) {
+            entryKind = ThingEditKind::Mover;
         } else {
             continue;
         }
@@ -177,6 +189,17 @@ bool forEachActor(
         editor,
         targets,
         [](const slopengine::Thing& thing) { return thing.kind == slopengine::ThingKind::Actor; },
+        fn);
+}
+
+bool forEachTrigger(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) { return thing.kind == slopengine::ThingKind::Trigger; },
         fn);
 }
 
@@ -650,6 +673,121 @@ bool drawActorSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
+bool forEachUsableOrMover(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& t) {
+            return t.kind == slopengine::ThingKind::Usable || t.kind == slopengine::ThingKind::Mover;
+        },
+        fn);
+}
+
+bool drawUseHandlerSection(Editor& editor, const std::vector<int>& targets, const char* kindLabel) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+    ImGui::Text("Kind: %s", kindLabel);
+    ImGui::Text("%d selected", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto onUseCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onUse; });
+    if (drawHandlerBindingEditor(
+            editor,
+            "On use",
+            "onuse",
+            slopengine::MapHandlerKind::Use,
+            onUseCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachUsableOrMover(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onUse = next;
+                    if (!next.empty()) {
+                        thing.havePrompt = true;
+                    }
+                });
+            })) {
+        changed = true;
+    }
+    return changed;
+}
+
+bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::TextUnformatted("Kind: trigger");
+    ImGui::Text("%d trigger(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto onEnterCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onEnter; });
+    const auto onExitCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onExit; });
+    const auto sizeCommon = commonValue<Vector3>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.triggerSize; },
+        [](Vector3 a, Vector3 b) {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        });
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On enter",
+            "onenter",
+            slopengine::MapHandlerKind::Enter,
+            onEnterCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachTrigger(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onEnter = next;
+                });
+            })) {
+        changed = true;
+    }
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On exit",
+            "onexit",
+            slopengine::MapHandlerKind::Exit,
+            onExitCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachTrigger(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onExit = next;
+                });
+            })) {
+        changed = true;
+    }
+
+    Vector3 size = sizeCommon.value_or(Vector3{1.0f, 1.0f, 1.0f});
+    float sizeArr[3] = {size.x, size.y, size.z};
+    if (!sizeCommon.has_value()) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    const bool sizeChanged = ImGui::DragFloat3("Size", sizeArr, 0.05f, 0.01f, 1000.0f);
+    if (!sizeCommon.has_value()) {
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+    }
+    if (sizeChanged) {
+        const Vector3 next{sizeArr[0], sizeArr[1], sizeArr[2]};
+        if (forEachTrigger(editor, targets, [next](slopengine::Thing& thing) {
+                thing.triggerSize = next;
+                thing.haveTriggerSize = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set trigger size";
+        }
+    }
+
+    return changed;
+}
+
 } // namespace
 
 ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
@@ -662,7 +800,8 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
     ThingEditKind editKind = ThingEditKind::None;
     const std::vector<int> targets = collectEditableTargets(editor.doc(), &editKind);
     if (targets.empty() || editKind == ThingEditKind::None) {
-        ImGui::TextDisabled("Select light, sound, or actor thing(s) to edit");
+        ImGui::TextDisabled(
+            "Select light, sound, actor, trigger, usable, or mover thing(s) to edit");
         ImGui::EndChild();
         return result;
     }
@@ -678,6 +817,12 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
         result.changed = drawSoundSection(editor, targets);
     } else if (editKind == ThingEditKind::Actor) {
         result.changed = drawActorSection(editor, targets);
+    } else if (editKind == ThingEditKind::Trigger) {
+        result.changed = drawTriggerSection(editor, targets);
+    } else if (editKind == ThingEditKind::Usable) {
+        result.changed = drawUseHandlerSection(editor, targets, "usable");
+    } else if (editKind == ThingEditKind::Mover) {
+        result.changed = drawUseHandlerSection(editor, targets, "mover");
     }
 
     ImGui::EndChild();

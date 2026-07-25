@@ -1,5 +1,6 @@
 #pragma once
 
+#include "map/handler_binding.hpp"
 #include "physics/components.hpp"
 
 #include <raylib.h>
@@ -43,7 +44,7 @@ struct Thing {
     bool haveAnim = false;
 
     std::string prompt = "Interact";
-    std::string onUse;
+    HandlerBinding onUse;
     bool havePrompt = false;
 
     Vector3 moverPivot{0.0f, 0.0f, 0.0f};
@@ -65,8 +66,8 @@ struct Thing {
     std::string onCrush;
     std::string moverGroup;
 
-    std::string onEnter;
-    std::string onExit;
+    HandlerBinding onEnter;
+    HandlerBinding onExit;
     Vector3 triggerSize{1.0f, 1.0f, 1.0f};
     bool haveTriggerSize = false;
     std::vector<std::string> collideTags;

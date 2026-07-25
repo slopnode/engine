@@ -38,7 +38,7 @@ void spawnFaceUseSurfaces(flecs::world& world, const std::vector<Brush>& brushes
     for (const Brush& brush : brushes) {
         for (std::size_t i = 0; i < brush.faces.size(); ++i) {
             const BrushFace& face = brush.faces[i];
-            if (face.onUse.empty() || face.vertices.size() < 3) {
+            if ((face.onUse.empty() && face.onTouch.empty()) || face.vertices.size() < 3) {
                 continue;
             }
 
@@ -64,12 +64,21 @@ void spawnFaceUseSurfaces(flecs::world& world, const std::vector<Brush>& brushes
                     .scale = {1.0f, 1.0f, 1.0f},
                     .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
                 })
-                .set<Interactable>({
-                    .prompt = "Interact",
-                    .eventName = face.onUse,
-                    .maxDistance = 5.0f,
-                })
                 .set<FaceUseSurface>(std::move(surface));
+
+            if (!face.onUse.empty()) {
+                entity.set<Interactable>({
+                    .prompt = "Interact",
+                    .onUse = face.onUse,
+                    .maxDistance = 5.0f,
+                });
+            }
+            if (!face.onTouch.empty()) {
+                entity.set<FaceTouch>({
+                    .onTouch = face.onTouch,
+                    .depth = 0.2f,
+                });
+            }
         }
     }
 }

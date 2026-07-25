@@ -526,6 +526,7 @@ Brush makeBrushBox(
             face.uvUAxis = overrideFace.uvUAxis;
             face.uvVAxis = overrideFace.uvVAxis;
             face.onUse = overrideFace.onUse;
+            face.onTouch = overrideFace.onTouch;
             break;
         }
         ensureFaceUvAxes(face);

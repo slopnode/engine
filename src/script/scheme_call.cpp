@@ -1,5 +1,6 @@
 #include "script/scheme_call.hpp"
 
+#include "map/map_handler_registry.hpp"
 #include "script/proc_role.hpp"
 
 #include <s7.h>
@@ -141,6 +142,64 @@ bool tryCallSchemeProc2String(
     return true;
 }
 
+bool tryCallSchemeProc1String1Alist(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::vector<HandlerArg>& args,
+    ScriptScope scope) {
+    if (scheme == nullptr || name.empty()) {
+        return false;
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+
+    ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
+    s7_call(
+        scheme,
+        func,
+        s7_list(
+            scheme,
+            2,
+            s7_make_string(scheme, arg0.c_str()),
+            handlerArgsToAlist(scheme, args)));
+    return true;
+}
+
+bool tryCallSchemeProc2String1Alist(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    const std::vector<HandlerArg>& args,
+    ScriptScope scope) {
+    if (scheme == nullptr || name.empty()) {
+        return false;
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+
+    ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
+    s7_call(
+        scheme,
+        func,
+        s7_list(
+            scheme,
+            3,
+            s7_make_string(scheme, arg0.c_str()),
+            s7_make_string(scheme, arg1.c_str()),
+            handlerArgsToAlist(scheme, args)));
+    return true;
+}
+
 bool tryCallSchemeProc1String3Reals(
     s7_scheme* scheme,
     std::string_view name,
@@ -207,6 +266,43 @@ bool tryCallSchemeProc1String3Reals1OptString(
             s7_make_real(scheme, z),
             hitArg));
     return true;
+}
+
+bool tryCallMapHandlerUse(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& entityId,
+    ScriptScope scope) {
+    if (binding.empty()) {
+        return false;
+    }
+    if (mapHandlerRegistry().find(binding.id) != nullptr) {
+        if (!mapHandlerRegistry().mergeDefaults(binding)) {
+            return false;
+        }
+        return tryCallSchemeProc1String1Alist(
+            scheme, binding.id, entityId, binding.args, scope);
+    }
+    return tryCallSchemeProc1String(scheme, binding.id, entityId, scope);
+}
+
+bool tryCallMapHandlerEnterExit(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& thingId,
+    const std::string& otherId,
+    ScriptScope scope) {
+    if (binding.empty()) {
+        return false;
+    }
+    if (mapHandlerRegistry().find(binding.id) != nullptr) {
+        if (!mapHandlerRegistry().mergeDefaults(binding)) {
+            return false;
+        }
+        return tryCallSchemeProc2String1Alist(
+            scheme, binding.id, thingId, otherId, binding.args, scope);
+    }
+    return tryCallSchemeProc2String(scheme, binding.id, thingId, otherId, scope);
 }
 
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme) {

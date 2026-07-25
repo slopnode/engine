@@ -18,8 +18,11 @@
 #include "map/thing.hpp"
 
 #include "assets/asset_store.hpp"
+#include "core/package.hpp"
 #include "core/package_meta.hpp"
 #include "game/app_config.hpp"
+#include "map/csg_script.hpp"
+#include "map/map_handler_registry.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/imgui_fonts.hpp"
 
@@ -504,9 +507,8 @@ void cancelTools(
     clipTool.reset();
     editor.showPrimitiveParamsModal = false;
     editor.showHollowModal = false;
-    if (selectTool.translating) {
-        selectTool.cancelTranslate(editor);
-    }
+    selectTool.cancelTranslate(editor);
+    selectTool.cancelRotate(editor);
 }
 
 slopengine::BrushRole nextBrushRole(slopengine::BrushRole role) {
@@ -652,6 +654,8 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
+
+    slopengine::loadPackageMapHandlers(scheme, assets);
 
     slopmap::Editor editor;
     editor.writePackageRoot = config->target;
@@ -871,9 +875,8 @@ int main(int argc, char* argv[]) {
                         "Create Mode",
                         nullptr,
                         editor.mode == slopmap::EditorMode::Create)) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     punchTool.reset();
                     clipTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
@@ -887,9 +890,8 @@ int main(int argc, char* argv[]) {
                         nullptr,
                         editor.mode == slopmap::EditorMode::Place,
                         editor.scene == slopmap::EditorScene::Level)) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
@@ -945,6 +947,18 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
+                        "flag_green",
+                        "Convert to Trigger",
+                        nullptr,
+                        false,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                            !editor.doc().selectedBrushes.empty())) {
+                    editor.convertSelectedBrushesToTriggers();
+                    previewNeedsRebuild = true;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
                         "lock",
                         "Toggle UV Lock",
                         "L",
@@ -977,9 +991,8 @@ int main(int argc, char* argv[]) {
                         false,
                         editor.doc().selectionMode == slopmap::SelectionMode::Face &&
                             !editor.doc().selectedFaces.empty())) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     createTool.reset();
                     clipTool.reset();
                     punchTool.beginFromSelection(editor);
@@ -993,9 +1006,8 @@ int main(int argc, char* argv[]) {
                         false,
                         editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
                             !editor.doc().selectedBrushes.empty())) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     createTool.reset();
                     punchTool.reset();
                     clipTool.beginFromSelection(editor);
@@ -1150,6 +1162,27 @@ int main(int argc, char* argv[]) {
                             editor.translateSnapMode == slopmap::TranslateSnapMode::Absolute)) {
                         editor.translateSnapMode = slopmap::TranslateSnapMode::Absolute;
                         editor.statusMessage = "Translate snap: Absolute";
+                    }
+                    ImGui::EndMenu();
+                }
+                if (beginMenuWithIcon(assets, kIcons, "arrow_rotate_clockwise", "Rotate Snap")) {
+                    constexpr float kRotateSnaps[] = {0.0f, 1.0f, 5.0f, 15.0f, 45.0f, 90.0f};
+                    constexpr const char* kRotateSnapLabels[] = {
+                        "Off", "1 deg", "5 deg", "15 deg", "45 deg", "90 deg"};
+                    for (std::size_t i = 0; i < sizeof(kRotateSnaps) / sizeof(kRotateSnaps[0]); ++i) {
+                        const float snap = kRotateSnaps[i];
+                        if (menuItemWithIcon(
+                                assets,
+                                kIcons,
+                                "arrow_rotate_clockwise",
+                                kRotateSnapLabels[i],
+                                nullptr,
+                                editor.rotateSnapDegrees == snap)) {
+                            editor.rotateSnapDegrees = snap;
+                            editor.statusMessage = snap <= 0.0f
+                                ? "Rotate snap: off"
+                                : std::string("Rotate snap: ") + kRotateSnapLabels[i];
+                        }
                     }
                     ImGui::EndMenu();
                 }
@@ -1483,7 +1516,7 @@ int main(int argc, char* argv[]) {
                 previewNeedsRebuild = true;
             }
             if ((IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) &&
-                IsKeyPressed(KEY_X) && !selectTool.translating &&
+                IsKeyPressed(KEY_X) && !selectTool.active() &&
                 editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
                 !editor.doc().selectedBrushes.empty()) {
                 createTool.reset();
@@ -1506,7 +1539,7 @@ int main(int argc, char* argv[]) {
             if (IsKeyPressed(KEY_HOME)) {
                 editor.frameSelection();
             }
-            if (IsKeyPressed(KEY_Z) && !selectTool.translating) {
+            if (IsKeyPressed(KEY_Z) && !selectTool.active()) {
                 if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
                     switch (editor.wireframe) {
                     case slopmap::WireframeOverlay::Off:
@@ -1561,7 +1594,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        const bool wasTranslating = selectTool.translating;
+        const bool wasSelectTransform = selectTool.active();
         const bool createWasActive = createTool.active();
         const bool punchWasActive = punchTool.active();
         const bool clipWasActive = clipTool.active();
@@ -1569,7 +1602,7 @@ int main(int argc, char* argv[]) {
         const std::size_t instanceCountBefore = editor.doc().instances.size();
         const bool dirtyBefore = editor.doc().dirty;
 
-        const bool toolActive = selectTool.translating || createTool.active() ||
+        const bool toolActive = selectTool.active() || createTool.active() ||
             punchTool.active() || clipTool.active();
         const bool blockTools = rmbFly || uiWantsMouse || (!mouseInContent && !toolActive);
         if (clipTool.active()) {
@@ -1586,16 +1619,16 @@ int main(int argc, char* argv[]) {
 
         if (editor.doc().brushes.size() != brushCountBefore ||
             editor.doc().instances.size() != instanceCountBefore ||
-            editor.doc().dirty != dirtyBefore || selectTool.translating || wasTranslating ||
+            editor.doc().dirty != dirtyBefore || selectTool.active() || wasSelectTransform ||
             createTool.active() != createWasActive || punchTool.active() != punchWasActive ||
             clipTool.active() != clipWasActive) {
             previewNeedsRebuild = true;
         }
         if (previewNeedsRebuild &&
             ((!createTool.active() && !punchTool.active() && !clipTool.active()) ||
-                selectTool.translating)) {
+                selectTool.active())) {
             editor.rebuildPreview(assets);
-            previewNeedsRebuild = selectTool.translating;
+            previewNeedsRebuild = selectTool.active();
         }
 
         BeginDrawing();
@@ -1707,9 +1740,8 @@ int main(int argc, char* argv[]) {
                         "cursor",
                         "Select",
                         editor.mode == slopmap::EditorMode::Select)) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
@@ -1721,9 +1753,8 @@ int main(int argc, char* argv[]) {
                         "shape_square",
                         "Create",
                         editor.mode == slopmap::EditorMode::Create)) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     punchTool.reset();
                     clipTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
@@ -1736,9 +1767,8 @@ int main(int argc, char* argv[]) {
                         "Place",
                         editor.mode == slopmap::EditorMode::Place,
                         editor.scene == slopmap::EditorScene::Level)) {
-                    if (selectTool.translating) {
-                        selectTool.cancelTranslate(editor);
-                    }
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
@@ -1948,18 +1978,16 @@ int main(int argc, char* argv[]) {
                     }
                     ImGui::SameLine();
                     if (toolBtn("op-punch", "cut", "Punch-out", punchTool.active())) {
-                        if (selectTool.translating) {
-                            selectTool.cancelTranslate(editor);
-                        }
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
                         createTool.reset();
                         clipTool.reset();
                         punchTool.beginFromSelection(editor);
                     }
                     ImGui::SameLine();
                     if (toolBtn("op-clip", "arrow_divide", "Clip", clipTool.active())) {
-                        if (selectTool.translating) {
-                            selectTool.cancelTranslate(editor);
-                        }
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
                         createTool.reset();
                         punchTool.reset();
                         clipTool.beginFromSelection(editor);
@@ -2116,14 +2144,14 @@ int main(int argc, char* argv[]) {
                 sectionOpen[3] = collapsingHeaderWithIcon(
                     assets,
                     kIconSet,
-                    d.selectionMode == slopmap::SelectionMode::Brush ? "brick" : "lightbulb",
+                    d.selectionMode == slopmap::SelectionMode::Entity ? "lightbulb" : "brick",
                     "Properties",
                     ImGuiTreeNodeFlags_DefaultOpen);
                 if (sectionOpen[3]) {
-                    if (d.selectionMode == slopmap::SelectionMode::Brush) {
-                        brushPanel.drawSection(editor, bodyH);
-                    } else {
+                    if (d.selectionMode == slopmap::SelectionMode::Entity) {
                         thingPanel.drawSection(editor, bodyH);
+                    } else {
+                        brushPanel.drawSection(editor, bodyH);
                     }
                 }
             }
@@ -2246,6 +2274,10 @@ int main(int argc, char* argv[]) {
                         ImGui::SameLine();
                         if (ImGui::Button("mover")) {
                             beginThingKind(editor, slopengine::ThingKind::Mover, createTool);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("trigger")) {
+                            beginThingKind(editor, slopengine::ThingKind::Trigger, createTool);
                         }
                         if (ImGui::Button("point-light")) {
                             beginThingKind(

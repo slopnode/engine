@@ -1,5 +1,6 @@
 #include "map/things_script.hpp"
 
+#include "map/map_handler_registry.hpp"
 #include "script/script_scope.hpp"
 
 #include <raylib.h>
@@ -149,7 +150,7 @@ s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-use", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-use", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-use", args);
 }
 
 s7_pointer g_pivot(s7_scheme* sc, s7_pointer args) {
@@ -252,14 +253,14 @@ s7_pointer g_on_enter(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-enter", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-enter", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-enter", args);
 }
 
 s7_pointer g_on_exit(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-exit", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-exit", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-exit", args);
 }
 
 s7_pointer g_trigger_size(s7_scheme* sc, s7_pointer args) {
@@ -492,7 +493,9 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(rest)) {
             out.havePrompt = readString(sc, s7_car(rest), out.prompt);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.onUse);
+            if (parseHandlerBinding(sc, rest, out.onUse)) {
+                mapHandlerRegistry().refineBinding(out.onUse, MapHandlerKind::Use);
+            }
         } else if (std::strcmp(tag, "pivot") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -547,9 +550,13 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.moverGroup);
         } else if (std::strcmp(tag, "on-enter") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.onEnter);
+            if (parseHandlerBinding(sc, rest, out.onEnter)) {
+                mapHandlerRegistry().refineBinding(out.onEnter, MapHandlerKind::Enter);
+            }
         } else if (std::strcmp(tag, "on-exit") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.onExit);
+            if (parseHandlerBinding(sc, rest, out.onExit)) {
+                mapHandlerRegistry().refineBinding(out.onExit, MapHandlerKind::Exit);
+            }
         } else if (std::strcmp(tag, "trigger-size") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -909,7 +916,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "frame", g_frame, 1, 0, false, "(frame id)");
     s7_define_function(sc, "anim", g_anim, 1, 1, false, "(anim clip [loop])");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt text)");
-    s7_define_function(sc, "on-use", g_on_use, 1, 0, false, "(on-use handler)");
+    s7_define_function(sc, "on-use", g_on_use, 1, 0, true, "(on-use handler arg-clause...)");
     s7_define_function(sc, "pivot", g_pivot, 3, 0, false, "(pivot x y z)");
     s7_define_function(sc, "open-offset", g_open_offset, 3, 0, false, "(open-offset dx dy dz)");
     s7_define_function(sc, "open-pitch", g_open_pitch, 1, 0, false, "(open-pitch radians)");
@@ -922,8 +929,8 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "block-mode", g_block_mode, 1, 0, false, "(block-mode shove|crush)");
     s7_define_function(sc, "on-crush", g_on_crush, 1, 0, false, "(on-crush handler)");
     s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
-    s7_define_function(sc, "on-enter", g_on_enter, 1, 0, false, "(on-enter handler)");
-    s7_define_function(sc, "on-exit", g_on_exit, 1, 0, false, "(on-exit handler)");
+    s7_define_function(sc, "on-enter", g_on_enter, 1, 0, true, "(on-enter handler arg-clause...)");
+    s7_define_function(sc, "on-exit", g_on_exit, 1, 0, true, "(on-exit handler arg-clause...)");
     s7_define_function(sc, "trigger-size", g_trigger_size, 3, 0, false, "(trigger-size w h d)");
     s7_define_function(sc, "collide-tags", g_collide_tags, 0, 0, true, "(collide-tags values...)");
     s7_define_function(sc, "tags", g_tags, 0, 0, true, "(tags values...)");
@@ -963,6 +970,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
     s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
+    bindMapHandlerArgClauses(sc);
 }
 
 std::optional<ThingDocument> evaluateThings(

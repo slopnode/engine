@@ -3,6 +3,7 @@
 #include "script/script_scope.hpp"
 
 #include "map/brush.hpp"
+#include "map/map_handler_registry.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
@@ -162,7 +163,13 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
         } else if (std::strcmp(tag, "uv-axes") == 0) {
             readUvAxes(sc, rest, face);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), face.onUse);
+            if (parseHandlerBinding(sc, rest, face.onUse)) {
+                mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
+            }
+        } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
+            if (parseHandlerBinding(sc, rest, face.onTouch)) {
+                mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
+            }
         }
     }
 
@@ -233,7 +240,14 @@ s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-use", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-use", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-use", args);
+}
+
+s7_pointer g_on_touch(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-touch", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-touch", args);
 }
 
 s7_pointer g_uv_lock(s7_scheme* sc, s7_pointer args) {
@@ -580,7 +594,13 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
         } else if (std::strcmp(tag, "uv-axes") == 0) {
             readUvAxes(sc, rest, face);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), face.onUse);
+            if (parseHandlerBinding(sc, rest, face.onUse)) {
+                mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
+            }
+        } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
+            if (parseHandlerBinding(sc, rest, face.onTouch)) {
+                mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
+            }
         } else if (std::strcmp(tag, "verts") == 0) {
             for (s7_pointer vertCursor = rest; s7_is_pair(vertCursor); vertCursor = s7_cdr(vertCursor)) {
                 s7_pointer vert = s7_car(vertCursor);
@@ -681,7 +701,8 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "uv-scale", g_uv_scale, 2, 0, false, "(uv-scale sx sy)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
-    s7_define_function(sc, "on-use", g_on_use, 1, 0, false, "(on-use handler)");
+    s7_define_function(sc, "on-use", g_on_use, 1, 0, true, "(on-use handler arg-clause...)");
+    s7_define_function(sc, "on-touch", g_on_touch, 1, 0, true, "(on-touch handler arg-clause...)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
     s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
@@ -700,6 +721,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
     s7_define_function(sc, "brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
+    bindMapHandlerArgClauses(sc);
 }
 
 MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -719,6 +741,25 @@ MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPa
 }
 
 } // namespace
+
+void loadPackageMapHandlers(s7_scheme* scheme, AssetStore& assets) {
+    if (scheme == nullptr) {
+        return;
+    }
+    mapHandlerRegistry().clear();
+    const std::string baseId{assets.basePackageId()};
+    if (!baseId.empty() && assets.loadDataFromPackage(scheme, baseId, "map-handlers")) {
+        registerPackageMapHandlersFromScheme(scheme);
+    }
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "map-handlers")) {
+            registerPackageMapHandlersFromScheme(scheme);
+        }
+    }
+}
 
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName) {
     const std::string metaPath = std::string(mapName) + "/map";

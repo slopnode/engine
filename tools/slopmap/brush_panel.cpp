@@ -1,6 +1,9 @@
 #include "brush_panel.hpp"
 
+#include "handler_ui.hpp"
 #include "map/brush.hpp"
+#include "map/handler_binding.hpp"
+#include "map/map_handler_registry.hpp"
 
 #include "imgui.h"
 
@@ -221,43 +224,6 @@ bool checkboxMixed(const char* label, bool* value, bool mixed) {
     return changed;
 }
 
-bool drawHandlerField(
-    Editor& editor,
-    const std::vector<FaceTarget>& targets,
-    const char* label,
-    const char* id,
-    const std::optional<std::string>& common,
-    const std::function<std::string&(slopengine::BrushFace&)>& field) {
-    char buffer[256];
-    if (common.has_value()) {
-        std::snprintf(buffer, sizeof(buffer), "%s", common->c_str());
-    } else {
-        buffer[0] = '\0';
-    }
-    ImGui::PushID(id);
-    if (!common.has_value()) {
-        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
-    }
-    const bool changed = ImGui::InputText(label, buffer, sizeof(buffer));
-    if (!common.has_value()) {
-        ImGui::PopStyleVar();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-            ImGui::SetTooltip("mixed values");
-        }
-    }
-    ImGui::PopID();
-    if (!changed) {
-        return false;
-    }
-    const std::string next(buffer);
-    if (forEachFace(editor, targets, [&](slopengine::BrushFace& face) { field(face) = next; })) {
-        editor.statusMessage = next.empty() ? std::string("Cleared ") + label
-                                            : std::string("Set ") + label + ": " + next;
-        return true;
-    }
-    return false;
-}
-
 BrushPanelResult drawFaceSection(Editor& editor, float bodyHeight) {
     BrushPanelResult result{};
     if (!ImGui::BeginChild("##brushsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
@@ -285,19 +251,37 @@ BrushPanelResult drawFaceSection(Editor& editor, float bodyHeight) {
         ImGui::Text("%d faces selected", count);
     }
     ImGui::Separator();
-    ImGui::TextUnformatted("Use (package handler name)");
-    ImGui::TextDisabled("Interact calls Scheme (handler face-id)");
 
-    const auto onUseCommon = commonFaceValue<std::string>(
+    const auto onUseCommon = commonFaceValue<slopengine::HandlerBinding>(
         doc, targets, [](const slopengine::BrushFace& f) { return f.onUse; });
+    const auto onTouchCommon = commonFaceValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::BrushFace& f) { return f.onTouch; });
 
-    if (drawHandlerField(
+    if (drawHandlerBindingEditor(
             editor,
-            targets,
             "On use",
             "onuse",
+            slopengine::MapHandlerKind::Use,
             onUseCommon,
-            [](slopengine::BrushFace& f) -> std::string& { return f.onUse; })) {
+            [&](slopengine::HandlerBinding& next) {
+                forEachFace(editor, targets, [&](slopengine::BrushFace& face) {
+                    face.onUse = next;
+                });
+            })) {
+        result.changed = true;
+    }
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On touch",
+            "ontouch",
+            slopengine::MapHandlerKind::Touch,
+            onTouchCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachFace(editor, targets, [&](slopengine::BrushFace& face) {
+                    face.onTouch = next;
+                });
+            })) {
         result.changed = true;
     }
 

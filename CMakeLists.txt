@@ -64,6 +64,8 @@ set(SLOPLIB_SOURCES
     src/map/csg_write.cpp
     src/map/things_script.cpp
     src/map/things_write.cpp
+    src/map/handler_binding.cpp
+    src/map/map_handler_registry.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
@@ -226,6 +228,7 @@ add_executable(slopmap
     tools/slopmap/texture_panel.cpp
     tools/slopmap/thing_panel.cpp
     tools/slopmap/brush_panel.cpp
+    tools/slopmap/handler_ui.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
     tools/slopmap/compile.cpp

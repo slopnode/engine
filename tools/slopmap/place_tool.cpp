@@ -112,7 +112,7 @@ void PlaceTool::update(
         editor.rebuildPreview(assets);
         editor.mode = EditorMode::Select;
         editor.statusMessage = "Placed " + editor.doc().instances.back().id + " (" +
-            editor.placePrefabPath + ") — G move, R rotate yaw";
+            editor.placePrefabPath + ") — G move, R rotate";
         return;
     }
 
@@ -191,7 +191,11 @@ void PlaceTool::update(
         thing.moverBlockMode = "shove";
         thing.havePrompt = true;
         thing.prompt = "Open";
-        thing.onUse = "on-use-mover-toggle";
+        thing.onUse = slopengine::HandlerBinding{"on-use-mover-toggle", {}};
+    }
+    if (kind == slopengine::ThingKind::Trigger) {
+        thing.haveTriggerSize = true;
+        thing.triggerSize = {1.0f, 1.0f, 1.0f};
     }
 
     editor.doc().things.push_back(std::move(thing));
@@ -201,7 +205,7 @@ void PlaceTool::update(
     editor.markThingCompileDirty(kind);
     editor.mode = EditorMode::Select;
     editor.statusMessage =
-        "Placed " + editor.doc().things.back().id + " — G move, R rotate yaw";
+        "Placed " + editor.doc().things.back().id + " — G move, R rotate";
 }
 
 }

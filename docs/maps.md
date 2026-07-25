@@ -66,16 +66,18 @@ The canonical solid is a convex polyhedron of polygonal faces. Each face is an o
       (verts (v 1.5 0.0 1.2) (v 1.5 0.7 0.7) (v 1.0 0.0 0.5)))))
 ```
 
-brush-convex requires id and at least four planar faces that form a closed convex. Optional (role ...) (default hull). Optional brush-level (material ...) fills in faces that omit their own. Per-face clauses may set id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ux uy uz vx vy vz), (nodraw), (on-use "handler"), and (verts (v x y z)...).
+brush-convex requires id and at least four planar faces that form a closed convex. Optional (role ...) (default hull). Optional brush-level (material ...) fills in faces that omit their own. Per-face clauses may set id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ux uy uz vx vy vz), (nodraw), (on-use "handler"), (on-touch "handler"), and (verts (v x y z)...).
 
-Face `(on-use …)` stores a Scheme handler **name** only (same string wiring as usable things). The engine does not define door/light actions. At map load, each face with a non-empty handler spawns a `face:{faceId}` entity with `Interactable` + polygon `FaceUseSurface`; Interact raycasts the face and calls `(handler face-id)`. Prefer thing `(usable …)` when you need a mesh/sprite prompt target.
+Face `(on-use …)` / `(on-touch …)` store a handler id and optional typed arg clauses (same wiring as usable / trigger things; see [Map handlers](scripting.md#map-handlers)). They do **not** change brush role: a hull face that seals the shell can carry either. The engine does not define door/light actions. At map load, each face with a non-empty handler spawns a `face:{faceId}` entity with polygon `FaceUseSurface`. `on-use` adds `Interactable`. `on-touch` adds `FaceTouch` (player capsule near the face fires once on enter, like volume on-enter). Prefer thing `(usable …)` when you need a mesh/sprite prompt target; prefer thing `(trigger …)` for thick volumes.
+
+Volume enter/exit gameplay uses thing `(trigger …)` in things.s7 (AABB + on-enter / on-exit), not brush role `trigger`. In [slopmap](slopmap.md), Convert to Trigger turns selected brushes into those things and removes them from CSG.
 
 | Role | Splits | Seals | VIS faces | Default physics | Notes |
 |------|--------|-------|-----------|-----------------|-------|
 | hull | yes | yes (Solid) | yes | collide | Structural shell |
 | detail | no | no | yes | collide | Must sit in sealed interior open space |
 | hint | yes | no | no | no collide | Split-only; schema stub |
-| trigger | no | no | no | no collide | Marks open leaves Trigger; brush callbacks later |
+| trigger | no | no | no | no collide | Marks open leaves Trigger (BSP soft contents); not runtime Scheme volumes — use thing `(trigger …)` |
 | water | yes | no | yes | no collide | Marks open leaves Water; gameplay later |
 | window | yes | yes (Glass) | yes | collide | Fills openings; later fake-glass rad + breakable prop |
 
@@ -93,7 +95,7 @@ For convenience, brush-box expands an axis-aligned box into a six-face convex (s
   (material "surfaces/stone"))
 ```
 
-id, mins, and maxs are required on brush-box. Optional (faces ...) overrides individual sides (top, bottom, north, south, east, west) with their own id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ...), or (nodraw). Future sugar such as brush-circle may expand other primitives the same way; the compiler always sees convexes.
+id, mins, and maxs are required on brush-box. Optional (faces ...) overrides individual sides (top, bottom, north, south, east, west) with their own id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ...), (nodraw), (on-use "handler"), or (on-touch "handler"). Future sugar such as brush-circle may expand other primitives the same way; the compiler always sees convexes.
 
 (prefab ...) instances a brush assembly from prefabs/{path}.csg. Required: path string argument and (id ...). Optional (at x y z) (default origin) and (angles pitch yaw roll) in radians (default zero). No scale. At load/compile the prefab expands into ordinary brushes: local brush/face ids become {instance-id}/{local-id}, vertices are rotated then translated, and rotated boxes are no longer treated as axis-aligned. Faces marked (uv-lock) in the prefab keep their local texture thing under that transform. Brush role / nocollide come from the prefab author (hull modular rooms and detail furniture both work). Prefabs may nest; cycles error. Map files keep (prefab ...) references (they are not baked on save).
 
@@ -146,8 +148,9 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
 |------|----------|-------|
 | player-start | id, at | First wins; sets player spawn pose. Optional yaw (radians). See [Player](player.md). |
 | prop | id, at, exactly one of sprite / geo | Optional yaw, frame, (anim clip [loop]). See [Things](things.md). |
-| usable | same as prop | Adds interact prompt; (on-use "handler") names a Scheme procedure called with the entity id on Interact. See [Things](things.md). |
+| usable | same as prop | Adds interact prompt; (on-use "handler" arg-clauses...) — see [Map handlers](scripting.md#map-handlers) and [Things](things.md). |
 | mover | same as prop + collide-size and open motion | Kinematic door/platform leaf; optional interact, group, shove/crush. See [Things](things.md#movers-mover). |
+| trigger | id, at, on-enter and/or on-exit | AABB volume (`trigger-size`); Scheme enter/exit handlers. Not brush role `trigger`. |
 | actor | same as prop | Adds character motor + tags; optional (motor ...) / (tags ...). See [Things](things.md#actors). |
 | point-light | id, at | Optional color, intensity, range. Baked by sloprad; see [Lights](lights.md). |
 | spot-light | id, at | Optional yaw/angles, color, intensity, range, cone. Baked by sloprad. |

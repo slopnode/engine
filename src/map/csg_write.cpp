@@ -1,5 +1,6 @@
 #include "map/csg_write.hpp"
 
+#include "map/handler_binding.hpp"
 #include "map/uv_math.hpp"
 
 #include <cmath>
@@ -102,6 +103,9 @@ bool faceNeedsOverride(const BrushFace& face, const std::string& brushId, BrushB
     if (!face.onUse.empty()) {
         return true;
     }
+    if (!face.onTouch.empty()) {
+        return true;
+    }
     return false;
 }
 
@@ -138,7 +142,10 @@ void writeFaceOverride(
         writeUvAxesClause(out, face);
     }
     if (!face.onUse.empty()) {
-        out << "\n      (on-use " << escapeSchemeString(face.onUse) << ")";
+        out << "\n      " << formatHandlerBindingClause("on-use", face.onUse);
+    }
+    if (!face.onTouch.empty()) {
+        out << "\n      " << formatHandlerBindingClause("on-touch", face.onTouch);
     }
     out << ")\n";
 }
@@ -241,7 +248,10 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
             out << "\n";
         }
         if (!face.onUse.empty()) {
-            out << "      (on-use " << escapeSchemeString(face.onUse) << ")\n";
+            out << "      " << formatHandlerBindingClause("on-use", face.onUse) << "\n";
+        }
+        if (!face.onTouch.empty()) {
+            out << "      " << formatHandlerBindingClause("on-touch", face.onTouch) << "\n";
         }
         out << "      (verts";
         for (const Vector3& v : face.vertices) {

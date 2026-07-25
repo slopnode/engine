@@ -1199,6 +1199,77 @@ Vector3 Editor::selectionCenter() const {
     return {0.0f, 1.0f, 0.0f};
 }
 
+void Editor::convertSelectedBrushesToTriggers() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        return;
+    }
+
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    std::vector<EntityRef> created;
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+
+        slopengine::Thing thing{};
+        thing.kind = slopengine::ThingKind::Trigger;
+        thing.id = allocateThingId("trigger");
+        thing.at = {
+            0.5f * (brush.mins.x + brush.maxs.x),
+            0.5f * (brush.mins.y + brush.maxs.y),
+            0.5f * (brush.mins.z + brush.maxs.z),
+        };
+        thing.haveAt = true;
+        thing.triggerSize = {
+            brush.maxs.x - brush.mins.x,
+            brush.maxs.y - brush.mins.y,
+            brush.maxs.z - brush.mins.z,
+        };
+        if (thing.triggerSize.x < 1e-4f) {
+            thing.triggerSize.x = 1.0f;
+        }
+        if (thing.triggerSize.y < 1e-4f) {
+            thing.triggerSize.y = 1.0f;
+        }
+        if (thing.triggerSize.z < 1e-4f) {
+            thing.triggerSize.z = 1.0f;
+        }
+        thing.haveTriggerSize = true;
+
+        d.things.push_back(std::move(thing));
+        created.push_back({EntityRef::Kind::Thing, static_cast<int>(d.things.size()) - 1});
+    }
+
+    if (created.empty()) {
+        return;
+    }
+
+    std::sort(indices.begin(), indices.end(), std::greater<int>());
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        d.brushes.erase(d.brushes.begin() + index);
+    }
+
+    clearSelection();
+    for (std::size_t i = 0; i < created.size(); ++i) {
+        selectEntity(created[i], i > 0);
+    }
+    markDirty();
+    markBspDirty();
+    markThingCompileDirty(slopengine::ThingKind::Trigger);
+    statusMessage = created.size() == 1
+        ? "Converted brush to trigger — set on-enter in Properties"
+        : "Converted " + std::to_string(created.size()) +
+            " brushes to triggers — set on-enter in Properties";
+}
+
 void Editor::toggleSelectedBrushRole() {
     EditorDocument& d = doc();
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {

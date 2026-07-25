@@ -331,7 +331,7 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         if (placement.kind == ThingKind::Usable) {
             entity.set<Interactable>({
                 .prompt = placement.prompt,
-                .eventName = placement.onUse,
+                .onUse = placement.onUse,
                 .maxDistance = 5.0f,
             });
         }
@@ -416,7 +416,7 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             if (placement.havePrompt || !placement.onUse.empty()) {
                 entity.set<Interactable>({
                     .prompt = placement.prompt,
-                    .eventName = placement.onUse,
+                    .onUse = placement.onUse,
                     .maxDistance = 5.0f,
                 });
             }

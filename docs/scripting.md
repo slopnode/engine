@@ -40,20 +40,22 @@ Boot scripts and data are loaded from the **base package only** (by package id /
 | 1 | Base | scripts/init.s7 | App start |
 | 2 | Base | data/actions.s7 | App start -> registers *package-actions* |
 | 3 | Each mod | data/actions.s7 | App start -> append actions (duplicate ids ignored) |
-| 4 | Base | data/items.s7 | App start -> *item-catalog* (if present) |
-| 5 | Base | data/view.s7 | App start -> *view-canvas* / *hud-canvas* |
-| 6 | Base | data/cli.s7 | App start -> *package-cli* parsed for extra argv flags |
-| 7 | Base | scripts/things.s7 | App start |
-| 8 | | Module API binds | Render / audio / input / thing-runtime / save / hook / UI |
-| 9 | Base | scripts/player.s7 | After those binds |
-| 10 | Base | scripts/menus.s7 | After player (optional) |
-| 11 | Each mod | scripts/contrib.s7 | After menus (optional; (hook-add …)) |
-| 12 | Base | data/title.s7 | After contribs -> title layers; see [Title screen](titlescreen.md) |
-| 13 | | (on-startup) owner then contribs | Once after title config |
+| 4 | Base | data/map-handlers.s7 | App start -> registers *package-map-handlers* |
+| 5 | Each mod | data/map-handlers.s7 | App start -> append map handlers (duplicate ids ignored) |
+| 6 | Base | data/items.s7 | App start -> *item-catalog* (if present) |
+| 7 | Base | data/view.s7 | App start -> *view-canvas* / *hud-canvas* |
+| 8 | Base | data/cli.s7 | App start -> *package-cli* parsed for extra argv flags |
+| 9 | Base | scripts/things.s7 | App start |
+| 10 | | Module API binds | Render / audio / input / thing-runtime / save / hook / UI |
+| 11 | Base | scripts/player.s7 | After those binds |
+| 12 | Base | scripts/menus.s7 | After player (optional) |
+| 13 | Each mod | scripts/contrib.s7 | After menus (optional; (hook-add …)) |
+| 14 | Base | data/title.s7 | After contribs -> title layers; see [Title screen](titlescreen.md) |
+| 15 | | (on-startup) owner then contribs | Once after title config |
 
-| 14 | Map owner | maps/{name}/static.csg | Map load |
-| 15 | Map owner | maps/{name}/things.s7 | Map load |
-| 16 | Map owner | maps/{name}/graphs.s7 | Map load if present |
+| 16 | Map owner | maps/{name}/static.csg | Map load |
+| 17 | Map owner | maps/{name}/things.s7 | Map load |
+| 18 | Map owner | maps/{name}/graphs.s7 | Map load if present |
 
 Map thing / CSG / graph bindings are active only while that file evaluates.
 
@@ -62,6 +64,7 @@ Map thing / CSG / graph bindings are active only while that file evaluates.
 | Symbol / file | Role |
 |---------------|------|
 | *package-actions* | Extra gameplay actions (data/actions.s7); see [Player](player.md) |
+| *package-map-handlers* | Map event handler inventory (data/map-handlers.s7); see [Map handlers](#map-handlers) |
 | *item-catalog* | Item definitions (data/items.s7) when used by the package |
 | *view-canvas* | View resolution pair, e.g. (320 200) |
 | *hud-canvas* | HUD resolution pair |
@@ -124,10 +127,51 @@ These stay name-lookup only (no hook-add list):
 |-----------|------|
 | (on-action-{id}) | When package action {id} is pressed (mods define these in contrib.s7) |
 | (on-use-{name} thing-id) / named handlers | From map (on-use "..."); see [Things](things.md) |
-| Trigger enter/exit handlers | From map thing `(on-enter …)` / `(on-exit …)` by handler name |
-| Use handlers | From map usable/mover `(on-use …)` or CSG face `(on-use …)` by handler name; faces are interact ray targets (see [Maps](maps.md)) |
+| Trigger enter/exit handlers | From map thing `(on-enter …)` / `(on-exit …)` by handler id |
+| Use handlers | From map usable/mover `(on-use …)` or CSG face `(on-use …)` by handler id; faces are interact ray targets (see [Maps](maps.md)) |
+| Touch handlers | From CSG face `(on-touch …)` by handler id; fires once when a tagged character (default player) enters the face touch slab |
 
-Handlers receive string ids (flecs entity names). There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
+Handlers receive string ids (flecs entity names). Catalog handlers also receive an instance-args alist. There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
+
+### Map handlers
+
+`data/map-handlers.s7` declares `*package-map-handlers*`: a package inventory of map-facing procedures with typed instance parameters. Base loads first; each mod appends (duplicate ids ignored). Catalog **id** is the Scheme procedure name.
+
+```text
+(define *package-map-handlers*
+  (list
+    (cons "toggle-light"
+          '((label . "Toggle light")
+            (kinds . (enter exit))
+            (params .
+              ((color color)
+               (intensity float 1.0)
+               (target thing)))))))
+```
+
+| Field | Meaning |
+|-------|---------|
+| label | Editor display name |
+| kinds | Subset of `use`, `enter`, `exit`, `touch` |
+| params | `(name type)` required, or `(name type default…)` optional |
+
+Param types: `int`, `float`, `bool`, `string`, `color` (3 floats), `vec3` (3 floats), `thing`, `brush`, `face`. Parameters are required unless a default is present. Content refs are string ids; slopmap pickers write resolved runtime ids (expanded prefab paths; face id matches spawn `resolveFaceId` before the `face:` entity prefix).
+
+Map syntax uses trailing clauses:
+
+```text
+(on-enter "toggle-light" (color 1.0 0.4 0.2) (intensity 2.5) (target "ceiling-lamp-3"))
+(on-enter "on-enter-ammo-clip")  ; legacy: not in catalog
+```
+
+Runtime call shape:
+
+| Kind | Catalog handler | Legacy (id not in catalog) |
+|------|-----------------|----------------------------|
+| use | `(handler thing-id args)` | `(handler thing-id)` |
+| enter / exit / touch | `(handler thing-id other-id args)` | `(handler thing-id other-id)` |
+
+`args` is an alist of `(name . value)`; color/vec3 values are 3-element lists. Omitted optional params are filled from catalog defaults at call time. Define catalog procs in package scripts (for example `scripts/things.s7`).
 
 ## Runtime APIs
 

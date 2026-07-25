@@ -85,17 +85,17 @@ Same clauses as prop, plus interact fields. The entity is still a static thing w
 |-------|----------|-------|
 | (all prop fields) | same rules | Presentation identical to prop. |
 | prompt | no | HUD / UI prompt text (default "Interact"). |
-| on-use | no | Name of a Scheme procedure in the package script environment. |
+| on-use | no | Handler id (and optional typed arg clauses). See [Map handlers](scripting.md#map-handlers). |
 
 Adds:
 
 ```text
-Interactable { prompt, eventName = on-use name, maxDistance = 5 }
+Interactable { prompt, onUse binding, maxDistance = 5 }
 ```
 
 Interact casts a ray from the player Lens. Closest hit among usables with Model3D (mesh) or SpriteInstance (billboard / hit mask) within maxDistance becomes the current target. On Interact:
 
-1. If on-use names a procedure, call it with one argument: the entity id string.
+1. If on-use names a procedure, call it (catalog handlers get `(handler thing-id args)`; legacy get `(handler thing-id)`).
 2. Otherwise open the inspect Interact UI.
 
 Usables are the content-facing wrapper around the engine Interactable primitive. Panels and terminals stay as usables; sliding/swinging doors use [Movers](#movers-mover).
@@ -198,22 +198,25 @@ Spawn adds Actor, CharacterMotor, and CollisionTags, then creates a Jolt Charact
 
 ## Scripting
 
-Package Scheme and map things.s7 share one s7 heap. Load order, hooks, and runtime APIs are covered in [Scripting](scripting.md). Map files stay thin: poses, presentation paths, and handler name strings. Behavior lives under scripts/.
+Package Scheme and map things.s7 share one s7 heap. Load order, hooks, and runtime APIs are covered in [Scripting](scripting.md). Map files stay thin: poses, presentation paths, and handler bindings. Behavior lives under scripts/.
 
 ### on-use handlers
 
-Define a procedure in scripts/things.s7 (or anything loaded into the same environment). The name in (on-use "...") must match.
+Define a procedure in scripts/things.s7 (or anything loaded into the same environment). Prefer registering it in `*package-map-handlers*` so maps can pass typed args from the editor. See [Map handlers](scripting.md#map-handlers).
 
 ```text
 (define (on-use-test thing-id)
   (format #t "used ~a~%" thing-id))
+
+(define (toggle-light thing-id other-id args)
+  ...)
 ```
 
-The engine looks up the name with s7_name_to_value, checks it is a procedure, and calls it with the thing id string (the flecs entity name). There is no entity object API in Scheme yet, only that id, so handlers today are side-effect stubs (log, set game state you keep in Scheme, etc.). Missing or non-procedure names fall back to the inspect UI.
+Legacy (id not in the catalog): s7_name_to_value + `(handler thing-id)`. Catalog handlers receive an args alist last. Missing or non-procedure names fall back to the inspect UI.
 
 ### What belongs where
 
-- Map things.s7: instance data (where things are, which sprite/geo, which handler name, prompts, light params).
+- Map things.s7: instance data (poses, presentation paths, handler binding + args, prompts, light params).
 - Package scripts/: reusable behavior and constructors that wrap engine forms (usable, mover, lights, actor) so levels stay thin.
 - Engine: spawn bindings, presentation, interact ray, player pawn, rigid movers, light thing forms. Not content catalogs.
 

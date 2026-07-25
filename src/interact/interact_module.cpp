@@ -57,8 +57,11 @@ bool rayHitsModel(const Ray& ray, const Model& model, const Matrix& transform, f
     return hit;
 }
 
-bool tryCallUseHandler(s7_scheme* scheme, const std::string& handlerName, const std::string& entityId) {
-    return tryCallSchemeProc1String(scheme, handlerName, entityId, ScriptScope::World);
+bool tryCallUseHandler(
+    s7_scheme* scheme,
+    const HandlerBinding& binding,
+    const std::string& entityId) {
+    return tryCallMapHandlerUse(scheme, binding, entityId, ScriptScope::World);
 }
 
 bool rayHitsFaceUseSurface(
@@ -89,6 +92,7 @@ bool rayHitsFaceUseSurface(
 void registerComponents(flecs::world& world) {
     world.component<Interactable>();
     world.component<FaceUseSurface>();
+    world.component<FaceTouch>();
     world.component<InteractionTarget>();
 }
 
@@ -102,7 +106,7 @@ void registerSystems(flecs::world& world) {
             target.entity = {};
             target.distance = 0.0f;
             target.prompt.clear();
-            target.eventName.clear();
+            target.onUse.clear();
 
             if (!contexts.allowsGameplay()) {
                 return;
@@ -117,7 +121,7 @@ void registerSystems(flecs::world& world) {
             float bestDistance = std::numeric_limits<float>::max();
             flecs::entity bestEntity{};
             std::string bestPrompt;
-            std::string bestEventName;
+            HandlerBinding bestOnUse;
 
             it.world()
                 .query<Interactable, Model3D, GlobalTransformation>()
@@ -135,7 +139,7 @@ void registerSystems(flecs::world& world) {
                         bestDistance = hitDistance;
                         bestEntity = entity;
                         bestPrompt = interactable.prompt;
-                        bestEventName = interactable.eventName;
+                        bestOnUse = interactable.onUse;
                     }
                 });
 
@@ -165,7 +169,7 @@ void registerSystems(flecs::world& world) {
                             bestDistance = hit->distance;
                             bestEntity = entity;
                             bestPrompt = interactable.prompt;
-                            bestEventName = interactable.eventName;
+                            bestOnUse = interactable.onUse;
                         });
                 }
             }
@@ -186,7 +190,7 @@ void registerSystems(flecs::world& world) {
                         bestDistance = hitDistance;
                         bestEntity = entity;
                         bestPrompt = interactable.prompt;
-                        bestEventName = interactable.eventName;
+                        bestOnUse = interactable.onUse;
                     }
                 });
 
@@ -194,7 +198,7 @@ void registerSystems(flecs::world& world) {
                 target.entity = bestEntity;
                 target.distance = bestDistance;
                 target.prompt = std::move(bestPrompt);
-                target.eventName = std::move(bestEventName);
+                target.onUse = std::move(bestOnUse);
             }
         });
 
@@ -219,7 +223,7 @@ void registerSystems(flecs::world& world) {
                 entityId = target.entity.name();
             }
 
-            if (tryCallUseHandler(scheme, target.eventName, entityId)) {
+            if (tryCallUseHandler(scheme, target.onUse, entityId)) {
                 return;
             }
 

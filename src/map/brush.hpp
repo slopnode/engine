@@ -1,5 +1,7 @@
 #pragma once
 
+#include "map/handler_binding.hpp"
+
 #include <raylib.h>
 
 #include <array>
@@ -44,7 +46,8 @@ struct BrushFace {
     Vector3 uvVAxis{};
     bool nodraw = false; /**< Omit from mesh and lightmaps. */
     bool uvLock = false; /**< Keep texture glued under transforms. */
-    std::string onUse; /**< Package Scheme on-use handler name; empty = none. */
+    HandlerBinding onUse; /**< Package Scheme on-use binding; empty id = none. */
+    HandlerBinding onTouch; /**< Package Scheme on-touch binding; empty id = none. */
 };
 
 /** Convex solid used for CSG maps and prefabs. */

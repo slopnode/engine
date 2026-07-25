@@ -1,5 +1,7 @@
 #include "map/things_write.hpp"
 
+#include "map/handler_binding.hpp"
+
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -113,7 +115,7 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     if (p.havePrompt || !p.onUse.empty()) {
         writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
         if (!p.onUse.empty()) {
-            writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
+            writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
         }
     }
 }
@@ -207,10 +209,10 @@ void writeSoundSourceFields(std::ostringstream& out, const Thing& p) {
 
 void writeTriggerFields(std::ostringstream& out, const Thing& p) {
     if (!p.onEnter.empty()) {
-        writeIndentClause(out, "(on-enter " + escapeSchemeString(p.onEnter) + ")");
+        writeIndentClause(out, formatHandlerBindingClause("on-enter", p.onEnter));
     }
     if (!p.onExit.empty()) {
-        writeIndentClause(out, "(on-exit " + escapeSchemeString(p.onExit) + ")");
+        writeIndentClause(out, formatHandlerBindingClause("on-exit", p.onExit));
     }
     if (p.haveTriggerSize || p.kind == ThingKind::Trigger || !p.onEnter.empty() ||
         !p.onExit.empty()) {
@@ -246,7 +248,7 @@ void writeThing(std::ostringstream& out, const Thing& p) {
     if (p.kind == ThingKind::Usable) {
         writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
         if (!p.onUse.empty()) {
-            writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
+            writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
         }
     }
     if (p.kind == ThingKind::Mover) {

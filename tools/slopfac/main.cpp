@@ -27,6 +27,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "slopfac: failed to init scheme\n";
         return 1;
     }
+    loadPackageMapHandlers(scheme, assets);
 
     const std::string virtualPath = *config->map + "/static";
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);

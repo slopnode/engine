@@ -214,6 +214,7 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
+    loadPackageMapHandlers(scheme, assets);
     auto brushes = loadMapBrushes(scheme, assets, *cli->config.map);
     if (!brushes) {
         s7_quit(scheme);

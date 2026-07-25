@@ -123,6 +123,7 @@ struct Editor {
     bool showGrid = true;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
+    float rotateSnapDegrees = 15.0f;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     CreatePrimitive createPrimitive = CreatePrimitive::Box;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};
@@ -200,6 +201,7 @@ struct Editor {
     void frameSelection();
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();
+    void convertSelectedBrushesToTriggers();
 };
 
 float snapToGrid(float value, float grid);
