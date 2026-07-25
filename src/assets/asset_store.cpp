@@ -4,6 +4,8 @@
 #include "assets/saudio_loader.hpp"
 #include "core/engine_package.hpp"
 #include "map/map_meta.hpp"
+#include "script/package_load_context.hpp"
+#include "script/proc_role.hpp"
 
 #include <s7.h>
 
@@ -137,6 +139,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
     if (!engine.hasMeta()) {
         throw std::runtime_error("engine package missing package.meta: " + enginePath->string());
     }
+    engine.setRole(PackageRole::Engine);
 
     Package base{config.base_game};
     if (!base.valid()) {
@@ -145,6 +148,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
     if (!base.hasMeta()) {
         throw std::runtime_error("base game missing package.meta: " + config.base_game.string());
     }
+    base.setRole(PackageRole::Base);
 
     vfs_.setBasePackage(std::move(engine));
     vfs_.addPackage(std::move(base));
@@ -157,6 +161,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
         if (!mod.hasMeta()) {
             throw std::runtime_error("mod missing package.meta: " + modPath.string());
         }
+        mod.setRole(PackageRole::Mod);
         vfs_.addPackage(std::move(mod));
     }
 
@@ -873,12 +878,20 @@ const std::vector<Package>& AssetStore::packages() const {
 }
 
 bool AssetStore::hasPackageId(std::string_view packageId) const {
+    return findPackage(packageId) != nullptr;
+}
+
+const Package* AssetStore::findPackage(std::string_view packageId) const {
+    return vfs_.findPackage(packageId);
+}
+
+std::string_view AssetStore::basePackageId() const {
     for (const Package& package : vfs_.packages()) {
-        if (package.meta().id == packageId) {
-            return true;
+        if (package.role() == PackageRole::Base) {
+            return package.meta().id;
         }
     }
-    return false;
+    return {};
 }
 
 std::string AssetStore::getSkeletonSource(std::string_view path) {
@@ -938,12 +951,36 @@ std::vector<std::byte> AssetStore::readAnimTracksForClip(std::string_view animPa
 }
 
 bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
-    const auto resolved = vfs_.resolve(AssetKind::Script, path);
-    if (!resolved) {
+    const auto owned = vfs_.resolveOwned(AssetKind::Script, path);
+    if (!owned) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    const std::string_view packageId = owned->package != nullptr ? owned->package->meta().id : "";
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
+    return true;
+}
+
+bool AssetStore::loadScriptFromPackage(
+    s7_scheme* scheme,
+    std::string_view packageId,
+    std::string_view path) {
+    const auto owned = vfs_.resolveInPackage(AssetKind::Script, packageId, path);
+    if (!owned) {
+        return false;
+    }
+
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
     return true;
 }
 
@@ -990,12 +1027,36 @@ bool AssetStore::loadMapGraphs(s7_scheme* scheme, std::string_view path, s7_cell
 }
 
 bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
-    const auto resolved = vfs_.resolve(AssetKind::Data, path);
-    if (!resolved) {
+    const auto owned = vfs_.resolveOwned(AssetKind::Data, path);
+    if (!owned) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    const std::string_view packageId = owned->package != nullptr ? owned->package->meta().id : "";
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
+    return true;
+}
+
+bool AssetStore::loadDataFromPackage(
+    s7_scheme* scheme,
+    std::string_view packageId,
+    std::string_view path) {
+    const auto owned = vfs_.resolveInPackage(AssetKind::Data, packageId, path);
+    if (!owned) {
+        return false;
+    }
+
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
     return true;
 }
 

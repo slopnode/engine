@@ -2,9 +2,12 @@
 
 #include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
+#include "core/package.hpp"
 #include "game/game_state.hpp"
 #include "game/package_cli.hpp"
 #include "game/script_boot.hpp"
+#include "script/hook_registry.hpp"
+#include "script/proc_role.hpp"
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
@@ -90,18 +93,36 @@ void App::init_script() {
     scheme_ = s7_init();
     hardenSchemeRuntime(scheme_);
     ScriptScopeGuard bootScope(ScriptScope::Boot);
-    if (!assetStore_.loadScript(scheme_, "init")) {
+    const std::string baseId{assetStore_.basePackageId()};
+    if (baseId.empty()) {
+        throw std::runtime_error("SCRIPT: base package id missing");
+    }
+
+    if (!assetStore_.loadScriptFromPackage(scheme_, baseId, "init")) {
         TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
     }
-    if (!assetStore_.loadData(scheme_, "actions")) {
+    if (!assetStore_.loadDataFromPackage(scheme_, baseId, "actions")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/actions.s7 not loaded");
     } else if (!registerPackageActionsFromScheme(scheme_)) {
         TraceLog(LOG_WARNING, "SCRIPT: failed to register package actions");
     }
-    if (!assetStore_.loadData(scheme_, "items")) {
+    for (const Package& package : assetStore_.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assetStore_.loadDataFromPackage(scheme_, package.meta().id, "actions")) {
+            if (!registerPackageActionsFromScheme(scheme_)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "SCRIPT: failed to register actions from mod '%s'",
+                    package.meta().id.c_str());
+            }
+        }
+    }
+    if (!assetStore_.loadDataFromPackage(scheme_, baseId, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }
-    if (!assetStore_.loadData(scheme_, "view")) {
+    if (!assetStore_.loadDataFromPackage(scheme_, baseId, "view")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/view.s7 not loaded");
     }
     world_.component<ViewCanvas>();
@@ -110,7 +131,7 @@ void App::init_script() {
     world_.set<HudCanvas>(parseHudCanvasFromScheme(scheme_));
 
     std::vector<PackageCliFlag> cliSchema;
-    if (assetStore_.loadData(scheme_, "cli")) {
+    if (assetStore_.loadDataFromPackage(scheme_, baseId, "cli")) {
         cliSchema = parsePackageCliFromScheme(scheme_);
     } else {
         TraceLog(LOG_INFO, "SCRIPT: data/cli.s7 not loaded (no package CLI flags)");
@@ -123,7 +144,7 @@ void App::init_script() {
     }
     bindStartupApi(scheme_, config_.packageArgs);
 
-    if (!assetStore_.loadScript(scheme_, "things")) {
+    if (!assetStore_.loadScriptFromPackage(scheme_, baseId, "things")) {
         TraceLog(LOG_WARNING, "SCRIPT: things.s7 not loaded");
     }
 }
@@ -138,6 +159,8 @@ void App::shutdown() {
     physicsWorld_.reset();
 
     if (scheme_) {
+        clearHookRegistry(scheme_);
+        clearProcRoles();
         s7_quit(scheme_);
         scheme_ = nullptr;
     }

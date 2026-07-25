@@ -8,6 +8,7 @@
 #include "interact/components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_billboard.hpp"
+#include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
 
@@ -16,7 +17,6 @@
 
 #include <raylib.h>
 #include <raymath.h>
-#include <s7.h>
 
 namespace slopengine {
 
@@ -58,18 +58,7 @@ bool rayHitsModel(const Ray& ray, const Model& model, const Matrix& transform, f
 }
 
 bool tryCallUseHandler(s7_scheme* scheme, const std::string& handlerName, const std::string& entityId) {
-    if (scheme == nullptr || handlerName.empty()) {
-        return false;
-    }
-
-    const s7_pointer func = s7_name_to_value(scheme, handlerName.c_str());
-    if (!s7_is_procedure(func)) {
-        return false;
-    }
-
-    ScriptScopeGuard guard(ScriptScope::World);
-    s7_call(scheme, func, s7_list(scheme, 1, s7_make_string(scheme, entityId.c_str())));
-    return true;
+    return tryCallSchemeProc1String(scheme, handlerName, entityId, ScriptScope::World);
 }
 
 void registerComponents(flecs::world& world) {

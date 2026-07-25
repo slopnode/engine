@@ -53,6 +53,9 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
+    if (!p.haveAngles && p.havePitch) {
+        writeIndentClause(out, "(pitch " + formatFloat(p.pitch) + ")");
+    }
 }
 
 void writeMoverFields(std::ostringstream& out, const Thing& p) {

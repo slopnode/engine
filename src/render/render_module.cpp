@@ -5,6 +5,7 @@
 #include "core/frame_perf.hpp"
 #include "core/screenshot.hpp"
 #include "game/game_state.hpp"
+#include "game/menu_background.hpp"
 #include "game/user_settings.hpp"
 #include "map/bsp.hpp"
 #include "map/light_components.hpp"
@@ -46,6 +47,7 @@ void registerComponents(flecs::world& world) {
     world.component<ViewSpace>();
     world.component<ViewCanvas>();
     world.component<HudCanvas>();
+    world.component<TitleCanvas>();
     world.component<ViewSprite>();
     world.component<HudDrawList>();
     world.component<HudFontCache>();
@@ -103,7 +105,7 @@ void registerRenderSystems(flecs::world& world) {
         .kind(flecs::PostUpdate)
         .each([](flecs::iter& it, size_t index, const Lens& lens) {
             flecs::world world = it.world();
-            if (!isPlaying(world)) {
+            if (!shouldDrawWorld(world)) {
                 return;
             }
             flecs::entity eyeEntity = it.entity(index);
@@ -179,13 +181,26 @@ void registerRenderSystems(flecs::world& world) {
             drawWorldDebugOverlays(world);
             EndMode3D();
 
-            drawFirstPersonPass(world, context, lens, unlit);
-            drawViewSpritesAndHud(world);
-            drawSpriteAimHudText(spriteAimStatus);
+            if (isPlaying(world)) {
+                drawFirstPersonPass(world, context, lens, unlit);
+                drawViewSpritesAndHud(world);
+                drawSpriteAimHudText(spriteAimStatus);
+            }
 
             if (world.has<FramePerfStats>()) {
                 world.get_mut<FramePerfStats>().renderMs += perfElapsedMs(renderStart);
             }
+        });
+
+    world.system("MenuTitleOverlay")
+        .kind(flecs::PostUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!isMenu(world)) {
+                return;
+            }
+            drawMenuBackgroundImage(world);
+            drawMenuTitleCanvas(world);
         });
 
     world.system("ImGuiOverlay")

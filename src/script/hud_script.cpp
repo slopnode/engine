@@ -15,6 +15,8 @@ namespace slopengine {
 namespace {
 
 flecs::world* g_hudWorld = nullptr;
+thread_local bool g_hudCanvasOverrideActive = false;
+thread_local HudCanvas g_hudCanvasOverride{};
 
 HudDrawList* hudList() {
     if (g_hudWorld == nullptr || !g_hudWorld->has<HudDrawList>()) {
@@ -24,6 +26,9 @@ HudDrawList* hudList() {
 }
 
 HudCanvas hudCanvas() {
+    if (g_hudCanvasOverrideActive) {
+        return g_hudCanvasOverride;
+    }
     HudCanvas canvas{};
     if (g_hudWorld != nullptr && g_hudWorld->has<HudCanvas>()) {
         canvas = g_hudWorld->get<HudCanvas>();
@@ -272,6 +277,17 @@ s7_pointer g_hud_text(s7_scheme* sc, s7_pointer args) {
 }
 
 } // namespace
+
+void setHudCanvasOverride(int width, int height) {
+    g_hudCanvasOverrideActive = true;
+    g_hudCanvasOverride.width = std::max(width, 1);
+    g_hudCanvasOverride.height = std::max(height, 1);
+}
+
+void clearHudCanvasOverride() {
+    g_hudCanvasOverrideActive = false;
+    g_hudCanvasOverride = {};
+}
 
 void bindHudApi(flecs::world& world, s7_scheme* scheme) {
     g_hudWorld = &world;

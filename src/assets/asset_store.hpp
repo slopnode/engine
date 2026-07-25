@@ -211,6 +211,12 @@ public:
     /** Returns true when a mounted package with @p packageId exists. */
     bool hasPackageId(std::string_view packageId) const;
 
+    /** Finds a mounted package by id. */
+    const Package* findPackage(std::string_view packageId) const;
+
+    /** Returns the base-game package id, or empty when missing. */
+    std::string_view basePackageId() const;
+
     /** Returns the text source of the skeleton at @p path. */
     std::string getSkeletonSource(std::string_view path);
 
@@ -244,8 +250,11 @@ public:
     /** Reads track data for a specific @p clip within the animation at @p animPath. */
     std::vector<std::byte> readAnimTracksForClip(std::string_view animPath, const AnimClip& clip) const;
 
-    /** Loads and evaluates the Scheme script at @p path in @p scheme. */
+    /** Loads and evaluates the Scheme script at @p path via layered VFS resolve. */
     bool loadScript(s7_scheme* scheme, std::string_view path);
+
+    /** Loads scripts/{path}.s7 only from the mounted package @p packageId. */
+    bool loadScriptFromPackage(s7_scheme* scheme, std::string_view packageId, std::string_view path);
 
     /** Loads and evaluates the map CSG script at @p path in @p scheme. */
     bool loadMapCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
@@ -256,8 +265,11 @@ public:
     /** Loads and evaluates the map graphs script at @p path in @p scheme. */
     bool loadMapGraphs(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
-    /** Loads and evaluates the data script at @p path in @p scheme. */
+    /** Loads and evaluates the data script at @p path via layered VFS resolve. */
     bool loadData(s7_scheme* scheme, std::string_view path);
+
+    /** Loads data/{path}.s7 only from the mounted package @p packageId. */
+    bool loadDataFromPackage(s7_scheme* scheme, std::string_view packageId, std::string_view path);
 
     /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
     bool loadPrefabCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);

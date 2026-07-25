@@ -15,7 +15,7 @@ Packages are mounted from the command line. The engine owns only mount flags; ot
 
 Compile tools (slopbsp, slopfac, sloprad) and editors still take --map as a tool flag. The game runtime treats --map as a package flag when the base game declares it in data/cli.s7.
 
-Later packages override earlier ones when the same virtual asset path exists in more than one package. Package ids must be unique across the mount set, and every depends entry in package.meta must resolve to a mounted package.
+Later packages override earlier ones when the same **media** virtual path exists in more than one package (textures, sprites, sound, maps, geometry, …). Boot **scripts/** and **data/** catalogs are not flatten-overridable: the engine always loads base-game entrypoints by package role, then each mod's `scripts/contrib.s7`. Loading another package's script or data from Scheme always requires that package's id. Package ids must be unique across the mount set, and every depends entry in package.meta must resolve to a mounted package.
 
 ## package.meta
 
@@ -50,7 +50,7 @@ my-package/
   maps/           # map folders
   materials/      # .mat
   prefabs/        # brush assemblies (+ optional entity sidecars)
-  scripts/        # .s7
+  scripts/        # .s7 (base: init, things, player, menus; mods: contrib.s7)
   shaders/        # .glsl
   skeletons/      # .skel, .bind
   sound/          # .ogg
@@ -103,7 +103,7 @@ GLSL sources under shaders/. Vertex and fragment programs are separate virtual p
 
 ### Scripts
 
-Scheme (s7) sources under scripts/ and package data under data/. Startup loads init, then data/actions, data/items, data/view, data/cli, then things; after API binds, player and optional menus. Map things are a separate maps/{name}/things.s7. See [Scripting](scripting.md) and [Things](things.md).
+Scheme (s7) sources under scripts/ and package data under data/. The base game owns boot entrypoints (init, actions, items, view, cli, things, player, menus). Mods expand via scripts/contrib.s7 and `(hook-add ...)`, and may append data/actions.s7. Cross-package loads use `(package-load-script package-id path)` / `(package-load-data package-id path)`. Map things are a separate maps/{name}/things.s7. See [Scripting](scripting.md) and [Things](things.md).
 
 ### Sound and audio
 

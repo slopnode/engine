@@ -8,4 +8,8 @@ namespace slopengine {
 
 void bindHudApi(flecs::world& world, s7_scheme* scheme);
 
+void setHudCanvasOverride(int width, int height);
+
+void clearHudCanvasOverride();
+
 }

@@ -6,6 +6,8 @@
 #include "audio/components.hpp"
 #include "camera/components.hpp"
 #include "game/game_state.hpp"
+#include "game/menu_background.hpp"
+#include "input/input_context.hpp"
 #include "map/bsp.hpp"
 #include "map/csg_script.hpp"
 #include "map/graph.hpp"
@@ -259,12 +261,11 @@ bool registerMapScene(
         world.set<MapGraphs>(std::move(mapGraphs));
     }
 
-    CharacterMotor motor{};
+    const bool titleCamera = reason == "title";
+
     FirstPersonController controller{};
     controller.yaw = playerStart.yaw;
-    controller.pitch = -0.05f;
-    controller.eyeHeight = motor.eyeHeight;
-    controller.moveSpeed = motor.moveSpeed;
+    controller.pitch = playerStart.pitch;
 
     const float cosPitch = std::cos(controller.pitch);
     const Vector3 forward = {
@@ -274,12 +275,6 @@ bool registerMapScene(
     };
 
     Lens lens{};
-    lens.camera.position = {
-        playerStart.position.x,
-        playerStart.position.y + motor.eyeHeight,
-        playerStart.position.z,
-    };
-    lens.camera.target = Vector3Add(lens.camera.position, forward);
     lens.camera.up = {0.0f, 1.0f, 0.0f};
     lens.camera.fovy = 75.0f;
     lens.camera.projection = CAMERA_PERSPECTIVE;
@@ -288,11 +283,33 @@ bool registerMapScene(
         .add<MapOwned>()
         .add<PlayerCamera>()
         .add<WorldSpace>()
-        .set<Lens>(lens)
         .set<FirstPersonController>(controller)
-        .set<CharacterMotor>(motor)
         .set<ViewEyeOffset>(ViewEyeOffset{})
-        .set<AudioListener>(AudioListener{})
+        .set<AudioListener>(AudioListener{});
+
+    if (titleCamera) {
+        lens.camera.position = playerStart.position;
+        lens.camera.target = Vector3Add(lens.camera.position, forward);
+        player.set<Lens>(lens);
+        world.set<PlayerEntity>(PlayerEntity{player});
+        callOnMapReady(world, mapName, reason);
+        world.set<CurrentMap>(CurrentMap{std::string(mapName)});
+        return true;
+    }
+
+    CharacterMotor motor{};
+    controller.eyeHeight = motor.eyeHeight;
+    controller.moveSpeed = motor.moveSpeed;
+    player.set<FirstPersonController>(controller);
+
+    lens.camera.position = {
+        playerStart.position.x,
+        playerStart.position.y + motor.eyeHeight,
+        playerStart.position.z,
+    };
+    lens.camera.target = Vector3Add(lens.camera.position, forward);
+    player.set<Lens>(lens)
+        .set<CharacterMotor>(motor)
         .set<CollisionTags>(CollisionTags{{"player"}});
     world.set<PlayerEntity>(PlayerEntity{player});
 
@@ -328,8 +345,27 @@ void changeMap(
     std::string_view mapName,
     std::string_view reason) {
     unloadMapScene(world);
+    markTitleMapActive(world, false);
     if (registerMapScene(world, assets, scheme, mapName, reason)) {
-        enterPlaying(world);
+        if (reason == "title") {
+            markTitleMapActive(world, true);
+            world.set<GameState>(GameState{GameStateKind::Menu});
+            if (world.has<InputContextStack>()) {
+                world.get_mut<InputContextStack>().stack = {InputContext::MainMenu};
+            } else {
+                world.set<InputContextStack>(InputContextStack{{InputContext::MainMenu}});
+            }
+        } else {
+            clearMenuBackgroundImage(world);
+            enterPlaying(world);
+        }
+    } else if (reason == "title") {
+        world.set<GameState>(GameState{GameStateKind::Menu});
+        if (world.has<InputContextStack>()) {
+            world.get_mut<InputContextStack>().stack = {InputContext::MainMenu};
+        } else {
+            world.set<InputContextStack>(InputContextStack{{InputContext::MainMenu}});
+        }
     } else {
         enterMenu(world);
     }

@@ -1,5 +1,7 @@
 #include "game/game_state.hpp"
 
+#include "assets/asset_services.hpp"
+#include "game/menu_background.hpp"
 #include "input/input_context.hpp"
 
 namespace slopengine {
@@ -17,6 +19,9 @@ void enterMenu(flecs::world& world) {
     } else {
         world.set<InputContextStack>(InputContextStack{{InputContext::MainMenu}});
     }
+    if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+        applyMenuBackground(world, *world.get<AssetServices>().store);
+    }
 }
 
 void enterPlaying(flecs::world& world) {
@@ -33,6 +38,10 @@ void requestMapLoad(std::string_view mapName, std::string_view reason) {
     pending.mapName = std::string(mapName);
     pending.reason = reason.empty() ? std::string("fresh") : std::string(reason);
     g_pendingMapLoad = std::move(pending);
+}
+
+bool hasPendingMapLoad() {
+    return g_pendingMapLoad.has_value();
 }
 
 std::optional<PendingMapLoad> takeRequestedMapLoad() {

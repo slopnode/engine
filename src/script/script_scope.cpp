@@ -9,8 +9,9 @@ namespace slopengine {
 namespace {
 
 thread_local ScriptScope g_currentScope = ScriptScope::None;
+thread_local PackageRole g_currentRole = PackageRole::Base;
 
-uint32_t capsFor(ScriptScope scope) {
+uint32_t capsForScope(ScriptScope scope) {
     switch (scope) {
     case ScriptScope::Boot:
         return static_cast<uint32_t>(ScriptCap::PackageLoad);
@@ -45,6 +46,27 @@ uint32_t capsFor(ScriptScope scope) {
         return 0;
     }
     return 0;
+}
+
+uint32_t capsForRole(PackageRole role) {
+    const uint32_t common = static_cast<uint32_t>(ScriptCap::HudDraw) |
+                            static_cast<uint32_t>(ScriptCap::UiDraw) |
+                            static_cast<uint32_t>(ScriptCap::WorldMutate) |
+                            static_cast<uint32_t>(ScriptCap::FpPresent) |
+                            static_cast<uint32_t>(ScriptCap::Audio) |
+                            static_cast<uint32_t>(ScriptCap::InputQuery) |
+                            static_cast<uint32_t>(ScriptCap::PackageLoad) |
+                            static_cast<uint32_t>(ScriptCap::StartupQuery) |
+                            static_cast<uint32_t>(ScriptCap::ReadWorld);
+    switch (role) {
+    case PackageRole::Engine:
+    case PackageRole::Base:
+        return common | static_cast<uint32_t>(ScriptCap::SaveIo) |
+               static_cast<uint32_t>(ScriptCap::MapControl);
+    case PackageRole::Mod:
+        return common;
+    }
+    return common;
 }
 
 const char* capName(ScriptCap cap) {
@@ -86,16 +108,37 @@ ScriptScopeGuard::~ScriptScopeGuard() {
     g_currentScope = previous_;
 }
 
+ScriptRoleGuard::ScriptRoleGuard(PackageRole role)
+    : previous_(g_currentRole) {
+    g_currentRole = role;
+}
+
+ScriptRoleGuard::~ScriptRoleGuard() {
+    g_currentRole = previous_;
+}
+
 ScriptScope currentScriptScope() {
     return g_currentScope;
 }
 
+PackageRole currentScriptRole() {
+    return g_currentRole;
+}
+
 bool scriptScopeAllows(ScriptScope scope, ScriptCap cap) {
-    return (capsFor(scope) & static_cast<uint32_t>(cap)) != 0;
+    return (capsForScope(scope) & static_cast<uint32_t>(cap)) != 0;
+}
+
+bool scriptRoleAllows(PackageRole role, ScriptCap cap) {
+    return (capsForRole(role) & static_cast<uint32_t>(cap)) != 0;
+}
+
+bool scriptAllows(ScriptScope scope, PackageRole role, ScriptCap cap) {
+    return scriptScopeAllows(scope, cap) && scriptRoleAllows(role, cap);
 }
 
 bool requireCap(s7_scheme* sc, ScriptCap cap) {
-    if (scriptScopeAllows(g_currentScope, cap)) {
+    if (scriptAllows(g_currentScope, g_currentRole, cap)) {
         return true;
     }
     if (sc != nullptr) {

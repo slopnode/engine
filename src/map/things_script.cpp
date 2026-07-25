@@ -90,6 +90,13 @@ s7_pointer g_yaw(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "yaw", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_pitch(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "pitch", 1, args, "radians");
+    }
+    return makeTaggedList(sc, "pitch", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_angles(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "angles", 0, args, "pitch yaw roll");
@@ -445,6 +452,12 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             if (!out.haveAngles) {
                 out.angles.y = out.yaw;
             }
+        } else if (std::strcmp(tag, "pitch") == 0 && s7_is_pair(rest) && s7_is_number(s7_car(rest))) {
+            out.pitch = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            out.havePitch = true;
+            if (!out.haveAngles) {
+                out.angles.x = out.pitch;
+            }
         } else if (std::strcmp(tag, "angles") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -452,6 +465,10 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             out.haveAngles = readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.angles);
             if (out.haveAngles) {
                 out.yaw = out.angles.y;
+                if (!out.havePitch) {
+                    out.pitch = out.angles.x;
+                    out.havePitch = true;
+                }
             }
         } else if (std::strcmp(tag, "sprite") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.sprite);
@@ -885,6 +902,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
     s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
     s7_define_function(sc, "yaw", g_yaw, 1, 0, false, "(yaw radians)");
+    s7_define_function(sc, "pitch", g_pitch, 1, 0, false, "(pitch radians)");
     s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
     s7_define_function(sc, "sprite", g_sprite, 1, 0, false, "(sprite path)");
     s7_define_function(sc, "geo", g_geo, 1, 0, false, "(geo path)");

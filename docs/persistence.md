@@ -18,7 +18,7 @@ If none of those resolve, the engine falls back to ./slopengine-config next to t
 
 ## Mount stack and save context
 
-At runtime the VFS mounts packages in a fixed order: the engine package first, then the base game from --base-game, then each --mod in the order given on the command line. Later packages override earlier ones at the same virtual asset path; ids must be unique and every (depends ...) entry in package.meta must resolve to something mounted. See [Package structure](package-structure.md#mounting).
+At runtime the VFS mounts packages in a fixed order: the engine package first, then the base game from --base-game, then each --mod in the order given on the command line. Later packages override earlier ones for media assets at the same virtual path; boot scripts/data are base-owned (see [Scripting](scripting.md#load-order)). Ids must be unique and every (depends ...) entry in package.meta must resolve to something mounted. See [Package structure](package-structure.md#mounting).
 
 The same stack builds the save context directory. Paths look like:
 
