@@ -107,13 +107,15 @@ Color sampleReceiverTintColorForModel(
     flecs::world& world,
     const Model& model,
     const Matrix& globalMatrix,
-    bool unlit);
+    bool unlit,
+    const Matrix* secondaryMatrix = nullptr);
 
 /** Bake/ambient probe only for GPU-lit world models (no dyn/FX overlay). */
 Color sampleBakeTintColorForModel(
     flecs::world& world,
     const Model& model,
     const Matrix& globalMatrix,
-    bool unlit);
+    bool unlit,
+    const Matrix* secondaryMatrix = nullptr);
 
 }

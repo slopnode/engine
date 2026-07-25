@@ -11,6 +11,7 @@
 #include "render/animation_player.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "physics/rigid_mover.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/render_debug.hpp"
 #include "render/sprite_animator.hpp"
@@ -513,12 +514,23 @@ void drawWorldModels(
             if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
                 return;
             }
+            const Matrix* closedMatrix = nullptr;
+            Matrix closedMatrixStorage{};
+            if (modelEntity.has<RigidMover>()) {
+                Vector3 scale{1.0f, 1.0f, 1.0f};
+                if (modelEntity.has<LocalTransformation>()) {
+                    scale = modelEntity.get<LocalTransformation>().scale;
+                }
+                closedMatrixStorage =
+                    moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
+                closedMatrix = &closedMatrixStorage;
+            }
             if (mapLightmapState(world) != nullptr) {
-                model.color =
-                    sampleBakeTintColorForModel(world, model.model, global.matrix, unlit);
+                model.color = sampleBakeTintColorForModel(
+                    world, model.model, global.matrix, unlit, closedMatrix);
             } else {
-                model.color =
-                    sampleReceiverTintColorForModel(world, model.model, global.matrix, unlit);
+                model.color = sampleReceiverTintColorForModel(
+                    world, model.model, global.matrix, unlit, closedMatrix);
             }
         }
         renderWorldModel(modelEntity, model, global, lens);

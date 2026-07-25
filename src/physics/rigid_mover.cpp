@@ -183,6 +183,16 @@ void computeMoverPose(
         slide);
 }
 
+Matrix moverClosedMatrix(const RigidMover& mover, Vector3 scale) {
+    Matrix matrix = MatrixIdentity();
+    matrix = MatrixMultiply(matrix, MatrixScale(scale.x, scale.y, scale.z));
+    matrix = MatrixMultiply(matrix, QuaternionToMatrix(mover.closedRot));
+    matrix = MatrixMultiply(
+        matrix,
+        MatrixTranslate(mover.closedPos.x, mover.closedPos.y, mover.closedPos.z));
+    return matrix;
+}
+
 Vector3 moverCollideWorldCenter(const Vector3& pos, const Quaternion& rot, const RigidMover& mover) {
     return Vector3Add(pos, rotateVec(rot, mover.collideCenterLocal));
 }
@@ -390,10 +400,15 @@ void registerRigidMoverSystem(flecs::world& world) {
 
     world.system<RigidMover, Model3D, GlobalTransformation>("RigidMoverRadTint")
         .kind(flecs::PreUpdate)
-        .each([](flecs::entity entity, RigidMover&, Model3D& model, const GlobalTransformation& global) {
+        .each([](flecs::entity entity, RigidMover& mover, Model3D& model, const GlobalTransformation& global) {
             flecs::world world = entity.world();
-            model.color =
-                sampleBakeTintColorForModel(world, model.model, global.matrix, false);
+            Vector3 scale{1.0f, 1.0f, 1.0f};
+            if (entity.has<LocalTransformation>()) {
+                scale = entity.get<LocalTransformation>().scale;
+            }
+            const Matrix closedMatrix = moverClosedMatrix(mover, scale);
+            model.color = sampleBakeTintColorForModel(
+                world, model.model, global.matrix, false, &closedMatrix);
         });
 
     world.system<Model3D, GlobalTransformation>("WorldModelLightTint")

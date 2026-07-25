@@ -59,6 +59,8 @@ void computeMoverPose(
     Vector3& outPos,
     Quaternion& outRot);
 
+Matrix moverClosedMatrix(const RigidMover& mover, Vector3 scale);
+
 Vector3 moverCollideWorldCenter(const Vector3& pos, const Quaternion& rot, const RigidMover& mover);
 
 bool moverComputeShove(
