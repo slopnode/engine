@@ -9,6 +9,7 @@
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
 #include "map/csg_compile.hpp"
+#include "map/brush_door.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
@@ -25,6 +26,7 @@
 #include <raymath.h>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -625,7 +627,94 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         return;
     }
 
+    if (placement.kind == ThingKind::Marker) {
+        entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+        return;
+    }
+
     entity.destruct();
+}
+
+void spawnDoorBrush(
+    SpawnContext& ctx,
+    const Brush& brush,
+    const std::unordered_set<std::string>& moverClaims,
+    const ThingDocument* things) {
+    if (brush.role != BrushRole::Door || brush.id.empty()) {
+        return;
+    }
+    if (moverClaims.count(brush.id) != 0) {
+        TraceLog(
+            LOG_ERROR,
+            "DOOR: skip brush '%s' — claimed by a mover",
+            brush.id.c_str());
+        return;
+    }
+    if (!claimId(ctx, brush.id)) {
+        return;
+    }
+
+    Thing placement{};
+    placement.kind = ThingKind::Mover;
+    placement.id = brush.id;
+    placement.brush = brush.id;
+    placement.at = {
+        0.5f * (brush.mins.x + brush.maxs.x),
+        0.5f * (brush.mins.y + brush.maxs.y),
+        0.5f * (brush.mins.z + brush.maxs.z),
+    };
+    placement.haveAt = true;
+
+    flecs::entity entity = ctx.world->entity(placement.id.c_str());
+    entity.add<MapOwned>();
+    if (!applyBrushPresentation(entity, placement, ctx)) {
+        entity.destruct();
+        return;
+    }
+
+    RigidMover mover{};
+    if (entity.has<LocalTransformation>()) {
+        const LocalTransformation& local = entity.get<LocalTransformation>();
+        mover.closedPos = local.position;
+        mover.closedRot = local.rotation;
+    }
+    configureBrushDoorMover(mover, brush, brush.door, placement.at, things);
+    entity.set<RigidMover>(mover);
+
+    if (ctx.world->has<PhysicsContext>()) {
+        PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
+        if (physics != nullptr) {
+            Vector3 pos{};
+            Quaternion rot{};
+            computeMoverPose(mover, 0.0f, pos, rot);
+            physics->createKinematicBox(
+                static_cast<std::uint64_t>(entity.id()),
+                moverCollideWorldCenter(pos, rot, mover),
+                mover.collideHalfExtents,
+                rot,
+                mover.slide);
+            entity.get_mut<RigidMover>().kinematicReady = true;
+        }
+    }
+
+    entity.set<Interactable>({
+        .prompt = brush.door.havePrompt ? brush.door.prompt : std::string("Open"),
+        .onUse = {},
+        .canUse = brush.door.canUse,
+        .engineToggle = true,
+        .maxDistance = 5.0f,
+    });
+}
+
+void spawnDoorBrushes(
+    SpawnContext& ctx,
+    const std::vector<Brush>& brushes,
+    const ThingDocument* things) {
+    const std::unordered_set<std::string> moverClaims =
+        things != nullptr ? collectMoverBrushIds(*things) : std::unordered_set<std::string>{};
+    for (const Brush& brush : brushes) {
+        spawnDoorBrush(ctx, brush, moverClaims, things);
+    }
 }
 
 } // namespace
@@ -644,6 +733,9 @@ void spawnThings(
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
+    if (brushes != nullptr) {
+        spawnDoorBrushes(ctx, *brushes, &doc);
+    }
 }
 
 PlayerStart spawnMapThings(
@@ -657,29 +749,30 @@ PlayerStart spawnMapThings(
         return defaults;
     }
 
-    const std::string virtualPath = std::string(mapName) + "/things";
-    if (!assets.hasMapThings(virtualPath)) {
-        TraceLog(
-            LOG_INFO,
-            "THING: no things.s7 for map '%.*s'",
-            static_cast<int>(mapName.size()),
-            mapName.data());
-        return defaults;
-    }
-
-    auto doc = loadMapThings(scheme, assets, mapName);
-    if (!doc) {
-        return defaults;
-    }
-
     SpawnContext ctx{};
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = &brushes;
-    for (const Thing& placement : doc->things) {
-        spawnOne(ctx, placement);
+
+    std::optional<ThingDocument> doc;
+    const std::string virtualPath = std::string(mapName) + "/things";
+    if (assets.hasMapThings(virtualPath)) {
+        doc = loadMapThings(scheme, assets, mapName);
+        if (doc) {
+            for (const Thing& placement : doc->things) {
+                spawnOne(ctx, placement);
+            }
+        }
+    } else {
+        TraceLog(
+            LOG_INFO,
+            "THING: no things.s7 for map '%.*s'",
+            static_cast<int>(mapName.size()),
+            mapName.data());
     }
+
+    spawnDoorBrushes(ctx, brushes, doc ? &*doc : nullptr);
 
     if (!ctx.playerStart.found) {
         TraceLog(LOG_WARNING, "THING: no player-start in things.s7; using default spawn");

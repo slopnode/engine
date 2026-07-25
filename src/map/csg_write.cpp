@@ -150,6 +150,36 @@ void writeFaceOverride(
     out << ")\n";
 }
 
+void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
+    out << "  (door\n";
+    out << "    (motion \"" << doorMotionName(door.motion) << "\")\n";
+    if (door.haveDuration) {
+        out << "    (duration " << formatFloat(door.duration) << ")\n";
+    }
+    if (door.haveAutoClose) {
+        out << "    (auto-close " << formatFloat(door.autoClose) << ")\n";
+    }
+    if (door.haveAngle) {
+        out << "    (angle " << formatFloat(door.angle) << ")\n";
+    }
+    if (door.haveTravel) {
+        out << "    (travel " << formatFloat(door.travel) << ")\n";
+    }
+    if (!door.hingeThingId.empty()) {
+        out << "    (hinge " << escapeSchemeString(door.hingeThingId) << ")\n";
+    }
+    if (!door.group.empty()) {
+        out << "    (group " << escapeSchemeString(door.group) << ")\n";
+    }
+    if (door.havePrompt) {
+        out << "    (prompt " << escapeSchemeString(door.prompt) << ")\n";
+    }
+    if (!door.canUse.empty()) {
+        out << "    " << formatHandlerBindingClause("can-use", door.canUse) << "\n";
+    }
+    out << "  )\n";
+}
+
 void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     const std::string material = defaultMaterialForBrush(brush);
     out << "(brush-box\n";
@@ -162,6 +192,9 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     }
     if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
+    }
+    if (brush.role == BrushRole::Door) {
+        writeBrushDoor(out, brush.door);
     }
 
     constexpr BrushBoxSide kSides[] = {
@@ -205,6 +238,9 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     }
     if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
+    }
+    if (brush.role == BrushRole::Door) {
+        writeBrushDoor(out, brush.door);
     }
 
     const std::string material = defaultMaterialForBrush(brush);

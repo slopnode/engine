@@ -15,6 +15,7 @@ enum class MapHandlerKind {
     Enter,
     Exit,
     Touch,
+    CanUse,
 };
 
 struct MapHandlerParam {

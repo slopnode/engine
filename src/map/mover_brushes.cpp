@@ -59,6 +59,38 @@ std::unordered_set<std::string> collectMoverBrushIds(const ThingDocument& doc) {
     return ids;
 }
 
+std::unordered_set<std::string> collectDoorBrushIds(const std::vector<Brush>& brushes) {
+    std::unordered_set<std::string> ids;
+    for (const Brush& brush : brushes) {
+        if (brush.role != BrushRole::Door || brush.id.empty()) {
+            continue;
+        }
+        ids.insert(brush.id);
+    }
+    return ids;
+}
+
+std::unordered_set<std::string> collectClaimedBrushIds(
+    const ThingDocument* doc,
+    const std::vector<Brush>& brushes) {
+    std::unordered_set<std::string> ids;
+    if (doc != nullptr) {
+        ids = collectMoverBrushIds(*doc);
+    }
+    for (const Brush& brush : brushes) {
+        if (brush.role != BrushRole::Door || brush.id.empty()) {
+            continue;
+        }
+        if (!ids.insert(brush.id).second) {
+            TraceLog(
+                LOG_ERROR,
+                "MAP: door brush '%s' is also claimed by a mover",
+                brush.id.c_str());
+        }
+    }
+    return ids;
+}
+
 bool faceIdBelongsToBrush(std::string_view faceId, std::string_view brushId) {
     if (brushId.empty() || faceId.empty()) {
         return false;

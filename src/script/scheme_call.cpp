@@ -286,6 +286,62 @@ bool tryCallMapHandlerUse(
     return tryCallSchemeProc1String(scheme, binding.id, entityId, scope);
 }
 
+bool schemeResultIsTruthy(s7_scheme* scheme, s7_pointer result) {
+    if (scheme == nullptr || result == nullptr) {
+        return false;
+    }
+    if (s7_is_boolean(result)) {
+        return s7_boolean(scheme, result);
+    }
+    return !s7_is_null(scheme, result) && result != s7_f(scheme);
+}
+
+bool tryCallMapHandlerCanUse(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& entityId,
+    ScriptScope scope) {
+    if (binding.empty()) {
+        return true;
+    }
+    if (scheme == nullptr || binding.id.empty()) {
+        return false;
+    }
+
+    if (mapHandlerRegistry().find(binding.id) != nullptr) {
+        if (!mapHandlerRegistry().mergeDefaults(binding)) {
+            return false;
+        }
+        const s7_pointer func = s7_name_to_value(scheme, binding.id.c_str());
+        if (!s7_is_procedure(func)) {
+            return false;
+        }
+        ScriptScopeGuard guard(scope);
+        ScriptRoleGuard roleGuard(roleForProc(binding.id));
+        const s7_pointer result = s7_call(
+            scheme,
+            func,
+            s7_list(
+                scheme,
+                2,
+                s7_make_string(scheme, entityId.c_str()),
+                handlerArgsToAlist(scheme, binding.args)));
+        return schemeResultIsTruthy(scheme, result);
+    }
+
+    const s7_pointer func = s7_name_to_value(scheme, binding.id.c_str());
+    if (!s7_is_procedure(func)) {
+        return false;
+    }
+    ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(binding.id));
+    const s7_pointer result = s7_call(
+        scheme,
+        func,
+        s7_list(scheme, 1, s7_make_string(scheme, entityId.c_str())));
+    return schemeResultIsTruthy(scheme, result);
+}
+
 bool tryCallMapHandlerEnterExit(
     s7_scheme* scheme,
     HandlerBinding binding,

@@ -8,6 +8,7 @@
 #include "interact/components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_billboard.hpp"
+#include "physics/rigid_mover.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
@@ -107,6 +108,8 @@ void registerSystems(flecs::world& world) {
             target.distance = 0.0f;
             target.prompt.clear();
             target.onUse.clear();
+            target.canUse.clear();
+            target.engineToggle = false;
 
             if (!contexts.allowsGameplay()) {
                 return;
@@ -122,6 +125,8 @@ void registerSystems(flecs::world& world) {
             flecs::entity bestEntity{};
             std::string bestPrompt;
             HandlerBinding bestOnUse;
+            HandlerBinding bestCanUse;
+            bool bestEngineToggle = false;
 
             it.world()
                 .query<Interactable, Model3D, GlobalTransformation>()
@@ -140,6 +145,8 @@ void registerSystems(flecs::world& world) {
                         bestEntity = entity;
                         bestPrompt = interactable.prompt;
                         bestOnUse = interactable.onUse;
+                        bestCanUse = interactable.canUse;
+                        bestEngineToggle = interactable.engineToggle;
                     }
                 });
 
@@ -170,6 +177,8 @@ void registerSystems(flecs::world& world) {
                             bestEntity = entity;
                             bestPrompt = interactable.prompt;
                             bestOnUse = interactable.onUse;
+                            bestCanUse = interactable.canUse;
+                            bestEngineToggle = interactable.engineToggle;
                         });
                 }
             }
@@ -191,6 +200,8 @@ void registerSystems(flecs::world& world) {
                         bestEntity = entity;
                         bestPrompt = interactable.prompt;
                         bestOnUse = interactable.onUse;
+                        bestCanUse = interactable.canUse;
+                        bestEngineToggle = interactable.engineToggle;
                     }
                 });
 
@@ -199,6 +210,8 @@ void registerSystems(flecs::world& world) {
                 target.distance = bestDistance;
                 target.prompt = std::move(bestPrompt);
                 target.onUse = std::move(bestOnUse);
+                target.canUse = std::move(bestCanUse);
+                target.engineToggle = bestEngineToggle;
             }
         });
 
@@ -221,6 +234,15 @@ void registerSystems(flecs::world& world) {
             std::string entityId;
             if (target.entity.name()) {
                 entityId = target.entity.name();
+            }
+
+            if (target.engineToggle) {
+                if (!tryCallMapHandlerCanUse(
+                        scheme, target.canUse, entityId, ScriptScope::World)) {
+                    return;
+                }
+                moverRequestToggle(target.entity);
+                return;
             }
 
             if (tryCallUseHandler(scheme, target.onUse, entityId)) {

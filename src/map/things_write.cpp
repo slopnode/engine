@@ -52,7 +52,8 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
     } else if (p.yaw != 0.0f || p.kind == ThingKind::PlayerStart ||
                p.kind == ThingKind::Prop || p.kind == ThingKind::Usable ||
                p.kind == ThingKind::Actor || p.kind == ThingKind::Mover ||
-               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight) {
+               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight ||
+               p.kind == ThingKind::Marker) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
     if (!p.haveAngles && p.havePitch) {

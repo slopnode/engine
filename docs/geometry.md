@@ -68,7 +68,7 @@ There is no package .geo / .vert for the level itself. At load time, VIS faces (
 
 There is no converter either direction. The Blender exporter never writes .csg, and CSG never emits package .geo / .vert files -- level faces become the same in-memory geometry types at load time only.
 
-Use CSG for rooms and structural solids so they participate in BSP, VIS, and radiosity. Door leaves and other simple movers should be detail brushes claimed by a `(mover (brush …) …)` thing. Use Blender .geo for characters, skinned meshes, and rare complex props. World shells, floors, and fixed detail boxes belong in CSG; placeable character/prop models belong as .geo assets.
+Use CSG for rooms and structural solids so they participate in BSP, VIS, and radiosity. Door leaves use brush role **door**; platforms and other A/B leaves use `(mover (brush …) …)`. Use Blender .geo for characters, skinned meshes, and rare complex props. World shells, floors, and fixed detail boxes belong in CSG; placeable character/prop models belong as .geo assets.
 
 ## Blender exporter
 

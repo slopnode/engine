@@ -766,6 +766,47 @@ s7_pointer g_actor_yaw(s7_scheme* sc, s7_pointer args) {
     return s7_f(sc);
 }
 
+s7_pointer g_thing_pos(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-pos", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<LocalTransformation>()) {
+        return s7_f(sc);
+    }
+    const Vector3 pos = entity.get<LocalTransformation>().position;
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, pos.x),
+        s7_make_real(sc, pos.y),
+        s7_make_real(sc, pos.z));
+}
+
+s7_pointer g_thing_yaw(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-yaw", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<SpriteInstance>()) {
+        return s7_make_real(sc, entity.get<SpriteInstance>().facingYaw);
+    }
+    if (entity.has<LocalTransformation>()) {
+        const Vector3 euler = QuaternionToEuler(entity.get<LocalTransformation>().rotation);
+        return s7_make_real(sc, euler.y);
+    }
+    return s7_f(sc);
+}
+
 s7_pointer g_actor_set_wish(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -1367,6 +1408,8 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(actor-spawn id x y z yaw kind path [radius height speed gravity tags-list])");
     s7_define_function(scheme, "actor-pos", g_actor_pos, 1, 0, false, "(actor-pos id)");
     s7_define_function(scheme, "actor-yaw", g_actor_yaw, 1, 0, false, "(actor-yaw id)");
+    s7_define_function(scheme, "thing-pos", g_thing_pos, 1, 0, false, "(thing-pos id)");
+    s7_define_function(scheme, "thing-yaw", g_thing_yaw, 1, 0, false, "(thing-yaw id)");
     s7_define_function(
         scheme,
         "actor-set-wish",

@@ -23,6 +23,7 @@ enum class ThingKind {
     Sun,
     Prefab,
     SoundSource,
+    Marker,
 };
 
 struct Thing {
@@ -129,6 +130,12 @@ inline Thing makeDefaultSoundSourceThing() {
     return t;
 }
 
+inline Thing makeDefaultMarkerThing() {
+    Thing t{};
+    t.kind = ThingKind::Marker;
+    return t;
+}
+
 inline const char* thingKindName(ThingKind kind) {
     switch (kind) {
     case ThingKind::PlayerStart:
@@ -155,6 +162,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "prefab";
     case ThingKind::SoundSource:
         return "sound-source";
+    case ThingKind::Marker:
+        return "marker";
     }
     return "thing";
 }

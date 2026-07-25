@@ -18,6 +18,8 @@ namespace slopengine {
 struct Interactable {
     std::string prompt = "Interact";
     HandlerBinding onUse; /**< Scheme on-use binding. */
+    HandlerBinding canUse; /**< Optional predicate; empty = allow. Used with engineToggle. */
+    bool engineToggle = false; /**< When true, engine toggles RigidMover after can-use. */
     float maxDistance = 5.0f;
 };
 
@@ -46,6 +48,8 @@ struct InteractionTarget {
     float distance = 0.0f;
     std::string prompt;
     HandlerBinding onUse;
+    HandlerBinding canUse;
+    bool engineToggle = false;
 };
 
 }

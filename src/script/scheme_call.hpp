@@ -54,6 +54,12 @@ bool tryCallMapHandlerUse(
     HandlerBinding binding,
     const std::string& entityId,
     ScriptScope scope);
+/** Call can-use predicate; returns whether activation is allowed. Empty binding => true. */
+bool tryCallMapHandlerCanUse(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& entityId,
+    ScriptScope scope);
 bool tryCallMapHandlerEnterExit(
     s7_scheme* scheme,
     HandlerBinding binding,

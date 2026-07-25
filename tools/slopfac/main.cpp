@@ -56,15 +56,16 @@ int main(int argc, char* argv[]) {
 
     std::unordered_set<std::string> moverBrushIds;
     if (auto things = loadMapThings(scheme, assets, *config->map)) {
-        moverBrushIds = collectMoverBrushIds(*things);
-        if (!moverBrushIds.empty()) {
-            TraceLog(
-                LOG_INFO,
-                "slopfac: omitting %d mover brush(es) from FAC",
-                static_cast<int>(moverBrushIds.size()));
-        }
+        moverBrushIds = collectClaimedBrushIds(&*things, *brushes);
     } else {
-        TraceLog(LOG_WARNING, "slopfac: failed to load things.s7; mover brushes not omitted");
+        TraceLog(LOG_WARNING, "slopfac: failed to load things.s7; mover brush claims not applied");
+        moverBrushIds = collectClaimedBrushIds(nullptr, *brushes);
+    }
+    if (!moverBrushIds.empty()) {
+        TraceLog(
+            LOG_INFO,
+            "slopfac: omitting %d claimed brush(es) from FAC",
+            static_cast<int>(moverBrushIds.size()));
     }
 
     const MapHullAnalysis analysis = analyzeMapHull(*tree, *brushes);

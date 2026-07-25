@@ -147,6 +147,10 @@ bool parseMapHandlerKindName(std::string_view name, MapHandlerKind& out) {
         out = MapHandlerKind::Touch;
         return true;
     }
+    if (name == "can-use") {
+        out = MapHandlerKind::CanUse;
+        return true;
+    }
     return false;
 }
 
@@ -160,6 +164,8 @@ const char* mapHandlerKindName(MapHandlerKind kind) {
         return "exit";
     case MapHandlerKind::Touch:
         return "touch";
+    case MapHandlerKind::CanUse:
+        return "can-use";
     }
     return "use";
 }

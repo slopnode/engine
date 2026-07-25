@@ -10,6 +10,8 @@ A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no i
 
 (player-start ...) is spawn pose only -- it does not create a prop entity; the engine builds Player from that pose after map load.
 
+(marker ...) is a named pose-only point (door centers, script hints). It spawns a flecs entity with a transform and no presentation, physics, or handlers. Scripts read it with (thing-pos id) / (thing-yaw id).
+
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
 Debug entity list labels match this split: prop, usable, mover, actor, point-light, spot-light, area-light, sun, player (plus map for MapStatic).
@@ -98,37 +100,48 @@ Interact casts a ray from the player Lens. Closest hit among usables with Model3
 1. If on-use names a procedure, call it (catalog handlers get `(handler thing-id args)`; legacy get `(handler thing-id)`).
 2. Otherwise open the inspect Interact UI.
 
-Usables are the content-facing wrapper around the engine Interactable primitive. Panels and terminals stay as usables; sliding/swinging doors use [Movers](#movers-mover).
+Usables are the content-facing wrapper around the engine Interactable primitive. Panels and terminals stay as usables. Ordinary doors use [brush doors](#doors-brush-door); elevators / platforms / custom A/B leaves use [Movers](#movers-mover).
+
+## Doors (brush door)
+
+Set brush role to **`door`** (Edit → Set as Door, role combo, or `H`) for raise / slide / swing doors. Nested `(door …)` holds motion params. No mover thing is required. The engine omits the leaf from static FAC / collision, spawns a `RigidMover` whose entity id is the brush id, and toggles on use. Optional `(can-use …)` is a package predicate that must return true before the toggle (keys, etc.).
+
+```text
+;; static.csg — door leaf in an already-sealed doorway opening
+(brush-box
+  (id "door-1")
+  (role "door")
+  (mins -1 0 -0.06)
+  (maxs 1 2.2 0.06)
+  (material "surfaces/door")
+  (door
+    (motion "raise")
+    (duration 0.6)
+    (auto-close 4)
+    (prompt "Open")))
+```
+
+| Field | Notes |
+|-------|-------|
+| motion | `"raise"`, `"slide"`, or `"swing"` (default raise). |
+| duration | Seconds closed↔open (default 0.6). |
+| auto-close | Seconds fully open before closing (default 0). |
+| travel | Distance for raise/slide; `0` / omit infers from AABB. |
+| angle | Swing yaw radians (default π/2). |
+| hinge | Thing id whose world `at` is the hinge; omit = brush center. |
+| group | Shared id for double doors (same as mover group). |
+| prompt | Interact prompt (default `"Open"`). |
+| can-use | Optional map-handler predicate `(handler door-id args) -> bool`. |
+
+A door-role brush must not also be claimed by a `(mover (brush …))`. Runtime control uses the same `(mover-open id)` / `(mover-toggle id)` APIs with the brush id. Remote switches keep face `(on-use …)` calling those APIs.
 
 ## Movers (mover)
 
 A mover is a presented entity with a kinematic collision box and an A/B transform animation. Progress 0 is closed (spawn pose); 1 is open. Motion lerps a local **open-offset** and/or a single-axis rotation (**open-pitch** / **open-yaw** / **open-roll**) about a local **pivot**. The engine drives `LocalTransformation` and a Jolt kinematic box each frame.
 
-Presentation is exactly one of `(brush …)`, `(geo …)`, or `(sprite …)`. **Brush leaves are the usual door path:** author a detail brush in CSG, claim it from the mover. The engine omits that brush from static FAC / collision and builds the mover mesh from it. Use geo only for characters or rare complex leaves.
+Presentation is exactly one of `(brush …)`, `(geo …)`, or `(sprite …)`. Use movers for platforms, elevators, and other non-door A/B leaves. For ordinary doors prefer [brush doors](#doors-brush-door).
 
-```text
-;; static.csg — detail leaf in an already-sealed doorway opening
-(brush-box
-  (id "door-1-leaf")
-  (role "detail")
-  (mins -1 0 -0.06)
-  (maxs 1 2.2 0.06)
-  (material "surfaces/door"))
-
-;; things.s7
-(mover
-  (id "door-1")
-  (brush "door-1-leaf")
-  (open-offset 0.0 2.3 0.0)
-  (duration 0.6)
-  (block-mode "shove")
-  (push "horizontal")
-  (carry #f)
-  (prompt "Open")
-  (on-use "on-use-mover-toggle"))
-```
-
-Geo form (still supported):
+Geo form:
 
 ```text
 (mover
@@ -181,6 +194,25 @@ Shared optional fields: (color r g b) (default 1 1 1), (intensity N) (default 1)
 | (spot-light ...) | id, at | (yaw ...) or (angles ...), (range N), (cone radians) default 0.7 |
 | (area-light ...) | id, at | (angles ...), (size width height) default 1 1 |
 | (sun ...) | id | Direction from (angles ...) or (yaw ...); optional (at ...) for editor gizmo only |
+
+## Markers (marker)
+
+A marker is a named world point with no mesh, interact, light, or collision. Use it for hinge/center references, camera aims, or any package hint that only needs a pose looked up by id.
+
+```text
+(marker
+  (id "door-center")
+  (at 0.0 1.0 0.0)
+  (yaw 0.0))
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| id | yes | Flecs entity name; must be unique in the file. |
+| at | yes | World position (x y z). |
+| yaw | no | Radians around Y (default 0). |
+
+Spawn adds `WorldSpace` and `LocalTransformation` only. Runtime pose: `(thing-pos id)` / `(thing-yaw id)` in [Scripting](scripting.md#thing-runtime).
 
 ## Motored bodies
 

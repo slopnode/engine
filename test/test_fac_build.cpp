@@ -413,6 +413,33 @@ void runFacBuildTests() {
         CHECK(faceIdBelongsToBrush("merge/0/door-1-leaf/north+partition-w/east", "door-1-leaf"));
         CHECK_FALSE(faceIdBelongsToBrush("partition-w/east", "door-1-leaf"));
     }
+
+    {
+        std::vector<Brush> brushes =
+            mapfixtures::sealedRoomWithInteriorDoorway(BrushRole::Detail);
+        Brush door = makeBrushBox(
+            "door-1",
+            {-1.0f, 0.0f, -0.06f},
+            {1.0f, 2.2f, 0.06f},
+            "mat/a",
+            {},
+            BrushRole::Door);
+        door.door.motion = DoorMotion::Raise;
+        brushes.push_back(door);
+
+        const std::unordered_set<std::string> claimed = collectClaimedBrushIds(nullptr, brushes);
+        CHECK(claimed.count("door-1") == 1);
+
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const FacBuildResult omitted = buildVisibleFaces(tree, analysis, brushes, &claimed);
+        for (const VisibleFace& face : omitted.fac.faces) {
+            CHECK_FALSE(faceIdBelongsToBrush(face.sourceFaceId, "door-1"));
+            CHECK_FALSE(faceIdBelongsToBrush(face.id, "door-1"));
+        }
+    }
 }
 
 }

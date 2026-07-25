@@ -966,7 +966,7 @@ bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
     slopengine::ThingDocument thingsDoc{};
     thingsDoc.things = levelDoc.things;
     const std::unordered_set<std::string> moverBrushIds =
-        slopengine::collectMoverBrushIds(thingsDoc);
+        slopengine::collectClaimedBrushIds(&thingsDoc, combined);
     return preview.reloadVisPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
@@ -980,7 +980,7 @@ bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
     slopengine::ThingDocument thingsDoc{};
     thingsDoc.things = levelDoc.things;
     const std::unordered_set<std::string> moverBrushIds =
-        slopengine::collectMoverBrushIds(thingsDoc);
+        slopengine::collectClaimedBrushIds(&thingsDoc, combined);
     return preview.reloadBake(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
@@ -1321,7 +1321,7 @@ void Editor::convertSelectedBrushesToMovers() {
         const float height = brush.maxs.y - brush.mins.y;
         slopengine::Thing thing{};
         thing.kind = slopengine::ThingKind::Mover;
-        thing.id = allocateThingId("door");
+        thing.id = allocateThingId("plat");
         thing.brush = brush.id;
         thing.at = {
             0.5f * (brush.mins.x + brush.maxs.x),
@@ -1362,6 +1362,70 @@ void Editor::convertSelectedBrushesToMovers() {
             " movers claiming brush leaves — brushes stay in CSG";
 }
 
+void Editor::setSelectedBrushesAsDoors() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        return;
+    }
+
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    int updated = 0;
+    int skipped = 0;
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+        if (brush.id.empty()) {
+            ++skipped;
+            continue;
+        }
+        bool claimedByMover = false;
+        for (const slopengine::Thing& existing : d.things) {
+            if (existing.kind == slopengine::ThingKind::Mover && existing.brush == brush.id) {
+                claimedByMover = true;
+                break;
+            }
+        }
+        if (claimedByMover) {
+            ++skipped;
+            continue;
+        }
+
+        const slopengine::BrushRole previous = brush.role;
+        const bool wasDoor = brush.role == slopengine::BrushRole::Door;
+        brush.role = slopengine::BrushRole::Door;
+        brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
+        if (!wasDoor) {
+            brush.door = slopengine::BrushDoor{};
+            brush.door.motion = slopengine::DoorMotion::Raise;
+            brush.door.haveDuration = true;
+            brush.door.duration = 0.6f;
+            brush.door.havePrompt = true;
+            brush.door.prompt = "Open";
+        }
+        markBrushCompileDirty(previous);
+        markBrushCompileDirty(brush.role);
+        ++updated;
+    }
+
+    if (updated == 0) {
+        statusMessage = skipped > 0
+            ? "Set as Door needs brushes with ids (not mover-claimed)"
+            : "No brushes selected";
+        return;
+    }
+
+    markDirty();
+    markFacDirty();
+    statusMessage = updated == 1
+        ? "Set 1 brush as door"
+        : "Set " + std::to_string(updated) + " brushes as doors";
+}
+
 void Editor::toggleSelectedBrushRole() {
     EditorDocument& d = doc();
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
@@ -1381,6 +1445,9 @@ void Editor::toggleSelectedBrushRole() {
             brush.role = slopengine::BrushRole::Detail;
             break;
         case slopengine::BrushRole::Detail:
+            brush.role = slopengine::BrushRole::Door;
+            break;
+        case slopengine::BrushRole::Door:
             brush.role = slopengine::BrushRole::Hint;
             break;
         case slopengine::BrushRole::Hint:

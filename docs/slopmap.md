@@ -41,7 +41,7 @@ In Level scene, pick a prefab in the Prefabs panel and use Place to drop instanc
 
 For volume enter/exit triggers, draw a brush then Edit -> Convert to Trigger: the AABB becomes a `(trigger …)` thing in things.s7 and the brush is removed from CSG. Or Place a trigger from Library -> Things and set on-enter / on-exit / size in Properties.
 
-For CSG door leaves, author a detail brush in the doorway, then Edit -> Convert to Mover (or set Brush leaf on a mover in Properties). The brush stays in CSG; the mover claims it with `(brush …)`, and compile/load omit it from static FAC/collision. See [Things: Movers](things.md#movers-mover).
+For CSG doors, author a brush in the doorway and set role **door** (Edit -> Set as Door, role combo, or `H`). Door properties (raise / slide / swing, hinge, `can-use`) appear only for that role. Compile/load omit the leaf from static FAC/collision. Elevators and other platforms still use Edit -> Convert to Mover on detail brushes. See [Things: Doors](things.md#doors-brush-door) and [Movers](things.md#movers-mover).
 
 ## View
 

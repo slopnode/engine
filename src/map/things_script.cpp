@@ -901,6 +901,17 @@ s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "sound-source requires id and at", true);
 }
 
+s7_pointer g_marker(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultMarkerThing();
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "marker has invalid clauses")));
+    }
+    return appendThing(sc, std::move(placement), "marker requires id and at", true);
+}
+
 s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
     if (g_context == nullptr || g_context->doc == nullptr) {
         return s7_error(
@@ -1010,6 +1021,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
     s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
+    s7_define_function(sc, "marker", g_marker, 0, 0, true, "(marker clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
     bindMapHandlerArgClauses(sc);
 }

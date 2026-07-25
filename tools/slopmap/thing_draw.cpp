@@ -46,6 +46,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{140, 140, 200, 255};
     case slopengine::ThingKind::SoundSource:
         return Color{120, 220, 255, 255};
+    case slopengine::ThingKind::Marker:
+        return Color{200, 120, 255, 255};
     }
     return WHITE;
 }
@@ -277,6 +279,23 @@ void drawThings(
             if (thing.minDistance > 0.01f && thing.minDistance < radius) {
                 DrawSphereWires(pos, thing.minDistance, 6, 6, Fade(color, 0.45f));
             }
+            break;
+        }
+        case slopengine::ThingKind::Marker: {
+            DrawSphere(pos, 0.12f, color);
+            DrawLine3D(
+                Vector3{pos.x - 0.25f, pos.y, pos.z},
+                Vector3{pos.x + 0.25f, pos.y, pos.z},
+                color);
+            DrawLine3D(
+                Vector3{pos.x, pos.y - 0.25f, pos.z},
+                Vector3{pos.x, pos.y + 0.25f, pos.z},
+                color);
+            DrawLine3D(
+                Vector3{pos.x, pos.y, pos.z - 0.25f},
+                Vector3{pos.x, pos.y, pos.z + 0.25f},
+                color);
+            drawYawArrow(pos, thing.yaw, color);
             break;
         }
         }

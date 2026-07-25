@@ -152,7 +152,7 @@ Handlers receive string ids (flecs entity names). Catalog handlers also receive 
 | Field | Meaning |
 |-------|---------|
 | label | Editor display name |
-| kinds | Subset of `use`, `enter`, `exit`, `touch` |
+| kinds | Subset of `use`, `enter`, `exit`, `touch`, `can-use` |
 | params | `(name type)` required, or `(name type default…)` optional |
 
 Param types: `int`, `float`, `bool`, `string`, `color` (3 floats), `vec3` (3 floats), `thing`, `brush`, `face`. Parameters are required unless a default is present. Content refs are string ids; slopmap pickers write resolved runtime ids (expanded prefab paths; face id matches spawn `resolveFaceId` before the `face:` entity prefix).
@@ -162,6 +162,7 @@ Map syntax uses trailing clauses:
 ```text
 (on-enter "toggle-light" (color 1.0 0.4 0.2) (intensity 2.5) (target "ceiling-lamp-3"))
 (on-enter "on-enter-ammo-clip")  ; legacy: not in catalog
+(can-use "door-requires-key" (key "red"))  ; brush door predicate
 ```
 
 Runtime call shape:
@@ -169,7 +170,10 @@ Runtime call shape:
 | Kind | Catalog handler | Legacy (id not in catalog) |
 |------|-----------------|----------------------------|
 | use | `(handler thing-id args)` | `(handler thing-id)` |
+| can-use | `(handler door-id args) -> bool` | `(handler door-id) -> bool` |
 | enter / exit / touch | `(handler thing-id other-id args)` | `(handler thing-id other-id)` |
+
+`can-use` gates engine door toggle: truthy allows open/close; false refuses (handler may play deny feedback).
 
 `args` is an alist of `(name . value)`; color/vec3 values are 3-element lists. Omitted optional params are filled from catalog defaults at call time. Define catalog procs in package scripts (for example `scripts/things.s7`).
 
@@ -260,6 +264,8 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | Binding | Meaning |
 |---------|---------|
 | (thing-despawn id) | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule / mover kinematic) |
+| (thing-pos id) | World position (x y z) for any named entity with a transform, or #f |
+| (thing-yaw id) | Yaw radians (sprite facingYaw when present, else transform Euler Y), or #f |
 | (mover-open id) / (mover-close id) / (mover-toggle id) | Request mover target open/closed/flip; no-op if locked. See [Movers](things.md#movers-mover). |
 | (mover-open-group g) / (mover-close-group g) / (mover-toggle-group g) | Same for all movers with that group id (double doors). |
 | (mover-set-locked id bool) / (mover-locked? id) | Latch; open requests fail while locked. |
@@ -286,7 +292,7 @@ Player aim helpers for spawn recipes: (player-eye) and (player-look-dir) — see
 
 Bound only while the matching map file loads, not for general gameplay scripts:
 
-- Things: prop, usable, actor, mover, trigger, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
+- Things: prop, usable, actor, mover, trigger, marker, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
 - CSG brushes -> [Maps](maps.md)
 - Nav graphs -> maps/{name}/graphs.s7 (graph, node, edge, ...)
 

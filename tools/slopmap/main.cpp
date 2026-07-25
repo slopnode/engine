@@ -516,6 +516,8 @@ slopengine::BrushRole nextBrushRole(slopengine::BrushRole role) {
     case slopengine::BrushRole::Hull:
         return slopengine::BrushRole::Detail;
     case slopengine::BrushRole::Detail:
+        return slopengine::BrushRole::Door;
+    case slopengine::BrushRole::Door:
         return slopengine::BrushRole::Hint;
     case slopengine::BrushRole::Hint:
         return slopengine::BrushRole::Trigger;
@@ -960,6 +962,18 @@ int main(int argc, char* argv[]) {
                         assets,
                         kIcons,
                         "door",
+                        "Set as Door",
+                        nullptr,
+                        false,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                            !editor.doc().selectedBrushes.empty())) {
+                    editor.setSelectedBrushesAsDoors();
+                    previewNeedsRebuild = true;
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "brick",
                         "Convert to Mover",
                         nullptr,
                         false,
@@ -2141,7 +2155,9 @@ int main(int argc, char* argv[]) {
                                        ? "sound"
                                        : (d.things[i].kind == slopengine::ThingKind::PlayerStart
                                               ? "user"
-                                              : "transmit"));
+                                              : (d.things[i].kind == slopengine::ThingKind::Marker
+                                                     ? "cross"
+                                                     : "transmit")));
                             if (selectableWithIcon(assets, kIconSet, icon, label.c_str(), selected)) {
                                 editor.selectEntity(
                                     {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)},
@@ -2290,6 +2306,10 @@ int main(int argc, char* argv[]) {
                         ImGui::SameLine();
                         if (ImGui::Button("trigger")) {
                             beginThingKind(editor, slopengine::ThingKind::Trigger, createTool);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("marker")) {
+                            beginThingKind(editor, slopengine::ThingKind::Marker, createTool);
                         }
                         if (ImGui::Button("point-light")) {
                             beginThingKind(

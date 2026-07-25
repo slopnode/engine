@@ -203,6 +203,7 @@ struct Editor {
     void toggleSelectedBrushRole();
     void convertSelectedBrushesToTriggers();
     void convertSelectedBrushesToMovers();
+    void setSelectedBrushesAsDoors();
 };
 
 float snapToGrid(float value, float grid);
