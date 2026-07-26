@@ -43,6 +43,8 @@ bool ensureMapFiles(
         meta << "(map\n";
         meta << "  (id \"" << mapName << "\")\n";
         meta << "  (name \"" << mapName << "\")\n";
+        meta << "  (author \"\")\n";
+        meta << "  (description \"\")\n";
         meta << "  (depends)\n";
         meta << "  (ambient 0.03 0.03 0.04))\n";
     }

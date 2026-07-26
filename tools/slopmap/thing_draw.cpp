@@ -2,6 +2,7 @@
 
 #include "assets/icon_atlas.hpp"
 #include "assets/sprite_loader.hpp"
+#include "physics/components.hpp"
 #include "ui/icon_ui.hpp"
 
 #include <algorithm>
@@ -15,6 +16,53 @@ namespace {
 
 Vector3 thingPosition(const slopengine::Thing& thing) {
     return thing.haveAt ? thing.at : Vector3{0.0f, 1.0f, 0.0f};
+}
+
+slopengine::CharacterMotor motorFromThing(const slopengine::Thing& thing) {
+    slopengine::CharacterMotor motor{};
+    if (thing.haveMotor || thing.kind == slopengine::ThingKind::Actor) {
+        motor.radius = thing.motorRadius;
+        motor.height = thing.motorHeight;
+        motor.hull = thing.motorHull;
+    }
+    if (motor.radius <= 0.0f) {
+        motor.radius = 0.3f;
+    }
+    if (motor.height <= 0.0f) {
+        motor.height = 1.1f;
+    }
+    return motor;
+}
+
+float motorTotalHeight(const slopengine::CharacterMotor& motor) {
+    return motor.height + 2.0f * motor.radius;
+}
+
+Vector3 motorColliderCenter(Vector3 feet, const slopengine::CharacterMotor& motor) {
+    return {feet.x, feet.y + motorTotalHeight(motor) * 0.5f, feet.z};
+}
+
+BoundingBox motorColliderBounds(Vector3 feet, const slopengine::CharacterMotor& motor) {
+    const float radius = motor.radius;
+    const float totalHeight = motorTotalHeight(motor);
+    return {
+        {feet.x - radius, feet.y, feet.z - radius},
+        {feet.x + radius, feet.y + totalHeight, feet.z + radius},
+    };
+}
+
+void drawMotorCollider(Vector3 feet, const slopengine::CharacterMotor& motor, Color color) {
+    const float radius = motor.radius;
+    const float height = motor.height;
+    if (motor.hull == slopengine::CharacterHull::Box) {
+        const float totalHeight = motorTotalHeight(motor);
+        const Vector3 center = motorColliderCenter(feet, motor);
+        DrawCubeWires(center, radius * 2.0f, totalHeight, radius * 2.0f, color);
+        return;
+    }
+    const Vector3 start{feet.x, feet.y + radius, feet.z};
+    const Vector3 end{feet.x, feet.y + radius + height, feet.z};
+    DrawCapsuleWires(start, end, radius, 8, 12, color);
 }
 
 Color kindColor(slopengine::ThingKind kind, bool selected) {
@@ -248,17 +296,29 @@ void drawThings(
         const Vector3 pos = thingPosition(thing);
 
         switch (thing.kind) {
-        case slopengine::ThingKind::PlayerStart:
-            if (!drawThingIcon(assets, camera, pos, "user", color)) {
-                DrawCube(pos, 0.25f, 0.5f, 0.25f, color);
+        case slopengine::ThingKind::PlayerStart: {
+            const slopengine::CharacterMotor motor{};
+            drawMotorCollider(pos, motor, color);
+            const Vector3 iconPos = motorColliderCenter(pos, motor);
+            if (!drawThingIcon(assets, camera, iconPos, "user", color)) {
+                DrawCube(iconPos, 0.25f, 0.5f, 0.25f, color);
             }
             if (showGizmos) {
                 drawYawArrow(pos, thing.yaw, color);
             }
             break;
+        }
+        case slopengine::ThingKind::Actor:
+            drawSpriteOrGeo(assets, camera, thing, WHITE);
+            if (thing.haveMotor) {
+                drawMotorCollider(pos, motorFromThing(thing), color);
+            }
+            if (showGizmos && selected) {
+                DrawSphereWires(pos, 0.35f, 6, 6, color);
+            }
+            break;
         case slopengine::ThingKind::Prop:
         case slopengine::ThingKind::Usable:
-        case slopengine::ThingKind::Actor:
         case slopengine::ThingKind::Mover:
             drawSpriteOrGeo(assets, camera, thing, WHITE);
             if (showGizmos && selected) {
@@ -339,10 +399,15 @@ std::optional<int> pickThing(
     int best = -1;
     for (std::size_t i = 0; i < things.size(); ++i) {
         const Vector3 pos = thingPosition(things[i]);
-        const BoundingBox box = {
+        BoundingBox box = {
             {pos.x - 0.35f, pos.y - 0.1f, pos.z - 0.35f},
             {pos.x + 0.35f, pos.y + 1.0f, pos.z + 0.35f},
         };
+        if (things[i].kind == slopengine::ThingKind::PlayerStart) {
+            box = motorColliderBounds(pos, {});
+        } else if (things[i].kind == slopengine::ThingKind::Actor && things[i].haveMotor) {
+            box = motorColliderBounds(pos, motorFromThing(things[i]));
+        }
         const RayCollision hit = GetRayCollisionBox(ray, box);
         if (hit.hit && hit.distance < bestT) {
             bestT = hit.distance;

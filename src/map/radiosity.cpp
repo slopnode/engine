@@ -590,6 +590,32 @@ void accumulateEntityLight(
     if (!reach.canSee(luxel.interiorLeaf, lightLeaf)) {
         return;
     }
+
+    const Color3 intensity{
+        light.color.x * light.intensity,
+        light.color.y * light.intensity,
+        light.color.z * light.intensity,
+    };
+
+    if (light.kind == RadiosityLightKind::Sun) {
+        const float forwardLen = std::sqrt(dot3(light.direction, light.direction));
+        if (forwardLen < 1e-6f) {
+            return;
+        }
+        const Vector3 toLight = scale3(light.direction, -1.0f / forwardLen);
+        const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
+        if (nDotL <= 0.0f) {
+            return;
+        }
+        constexpr float kSunRayDistance = 1000.0f;
+        const Vector3 farPoint = add3(luxel.position, scale3(toLight, kSunRayDistance));
+        if (bspSegmentOccluded(occlusionBvh, luxel.position, farPoint, luxel.faceIndex, -1)) {
+            return;
+        }
+        luxel.irradiance += intensity * nDotL;
+        return;
+    }
+
     Vector3 delta = sub3(light.position, luxel.position);
     const float dist2Raw = dot3(delta, delta);
     if (dist2Raw < 1e-6f) {
@@ -631,11 +657,6 @@ void accumulateEntityLight(
     float atten = std::max(0.0f, 1.0f - t * t);
     atten *= atten;
 
-    const Color3 intensity{
-        light.color.x * light.intensity,
-        light.color.y * light.intensity,
-        light.color.z * light.intensity,
-    };
     luxel.irradiance += intensity * (nDotL * atten * spot / dist2);
 }
 
@@ -789,7 +810,13 @@ bool accumulateDirectLighting(
             dst.intensity = src.intensity;
             dst.range = src.range;
             dst.coneAngle = src.coneAngle;
-            dst.kind = src.kind == RadiosityLightKind::Spot ? 1 : 0;
+            if (src.kind == RadiosityLightKind::Spot) {
+                dst.kind = 1;
+            } else if (src.kind == RadiosityLightKind::Sun) {
+                dst.kind = 2;
+            } else {
+                dst.kind = 0;
+            }
             dst.interiorLeaf =
                 i < lightLeaves.size() ? lightLeaves[i] : static_cast<std::int32_t>(-1);
         }
@@ -1046,16 +1073,19 @@ RadiosityBakeResult bakeRadiosity(
     bool hullSealed) {
     int pointCount = 0;
     int spotCount = 0;
+    int sunCount = 0;
     for (const RadiosityLight& light : lights) {
         if (light.kind == RadiosityLightKind::Spot) {
             ++spotCount;
+        } else if (light.kind == RadiosityLightKind::Sun) {
+            ++sunCount;
         } else {
             ++pointCount;
         }
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d)",
+        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d sun=%d)",
         static_cast<int>(faces.size()),
         settings.luxelsPerMeter,
         settings.bounces,
@@ -1066,7 +1096,8 @@ RadiosityBakeResult bakeRadiosity(
         meta.ambient.z,
         static_cast<int>(lights.size()),
         pointCount,
-        spotCount);
+        spotCount,
+        sunCount);
     std::fflush(stdout);
 
     LeafReachability reach;
@@ -1190,6 +1221,9 @@ RadiosityBakeResult bakeRadiosity(
     std::vector<std::int32_t> lightLeaves(lights.size(), -1);
     if (tree != nullptr) {
         for (std::size_t i = 0; i < lights.size(); ++i) {
+            if (lights[i].kind == RadiosityLightKind::Sun) {
+                continue;
+            }
             lightLeaves[i] = pointLeaf(*tree, lights[i].position);
         }
     }

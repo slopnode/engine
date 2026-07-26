@@ -11,6 +11,7 @@
 #include "map/fac_io.hpp"
 
 #include <raylib.h>
+#include <raymath.h>
 
 #include <s7.h>
 
@@ -177,11 +178,12 @@ int main(int argc, char* argv[]) {
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: meta id='%s' ambient=(%.3f %.3f %.3f)",
+        "sloprad: meta id='%s' ambient=(%.3f %.3f %.3f) sun=%s",
         mapMeta->id.c_str(),
         mapMeta->ambient.x,
         mapMeta->ambient.y,
-        mapMeta->ambient.z);
+        mapMeta->ambient.z,
+        mapMeta->sun.enabled ? "yes" : "no");
     std::fflush(stdout);
 
     const std::string bspVirtualPath = *cli->config.map + "/static";
@@ -222,24 +224,40 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
-    const std::vector<slopengine::RadiosityLight> lights =
+    std::vector<slopengine::RadiosityLight> lights =
         slopengine::collectRadiosityLights(scheme, assets, *cli->config.map);
     s7_quit(scheme);
+    if (mapMeta->sun.enabled) {
+        slopengine::RadiosityLight sun{};
+        sun.kind = slopengine::RadiosityLightKind::Sun;
+        const Quaternion rotation = QuaternionFromEuler(
+            mapMeta->sun.angles.x,
+            mapMeta->sun.angles.y,
+            mapMeta->sun.angles.z);
+        sun.direction = Vector3Normalize(Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, rotation));
+        sun.color = mapMeta->sun.color;
+        sun.intensity = mapMeta->sun.intensity;
+        lights.push_back(sun);
+    }
     int pointCount = 0;
     int spotCount = 0;
+    int sunCount = 0;
     for (const slopengine::RadiosityLight& light : lights) {
         if (light.kind == slopengine::RadiosityLightKind::Spot) {
             ++spotCount;
+        } else if (light.kind == slopengine::RadiosityLightKind::Sun) {
+            ++sunCount;
         } else {
             ++pointCount;
         }
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: bake lights=%d (point=%d spot=%d)",
+        "sloprad: bake lights=%d (point=%d spot=%d sun=%d)",
         static_cast<int>(lights.size()),
         pointCount,
-        spotCount);
+        spotCount,
+        sunCount);
     std::fflush(stdout);
 
     auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath);

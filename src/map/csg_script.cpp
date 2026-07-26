@@ -1146,14 +1146,16 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     TraceLog(
         LOG_INFO,
-        "MAP: meta id='%s' name='%s' package='%s' depends=%d ambient=(%.3f %.3f %.3f)",
+        "MAP: meta id='%s' name='%s' author='%s' package='%s' depends=%d ambient=(%.3f %.3f %.3f) sun=%s",
         mapMeta->id.c_str(),
         mapMeta->name.c_str(),
+        mapMeta->author.c_str(),
         mapMeta->package.c_str(),
         static_cast<int>(mapMeta->depends.size()),
         mapMeta->ambient.x,
         mapMeta->ambient.y,
-        mapMeta->ambient.z);
+        mapMeta->ambient.z,
+        mapMeta->sun.enabled ? "yes" : "no");
 
     auto brushes = loadMapBrushes(scheme, assets, mapName);
     if (!brushes) {

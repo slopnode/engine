@@ -5,6 +5,8 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 const float kPi = 3.14159265358979323846;
 const int kLightKindPoint = 0;
 const int kLightKindSpot = 1;
+const int kLightKindSun = 2;
+const float kSunRayDistance = 1000.0;
 
 struct Luxel {
     float px;
@@ -371,6 +373,32 @@ void main() {
         if (!leavesReachable(luxel.leafIndex, light.leafIndex)) {
             continue;
         }
+
+        vec3 intensity = vec3(light.cr, light.cg, light.cb) * light.intensity;
+
+        if (light.kind == kLightKindSun) {
+            vec3 forward = vec3(light.dx, light.dy, light.dz);
+            float forwardLen = length(forward);
+            if (forwardLen < 1e-6) {
+                continue;
+            }
+            vec3 toLight = -forward / forwardLen;
+            float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+            if (nDotL <= 0.0) {
+                continue;
+            }
+            vec3 farPoint = luxelPos + toLight * kSunRayDistance;
+            if (segmentOccluded(luxelPos, farPoint, luxel.faceIndex, -1)) {
+                continue;
+            }
+            vec3 contrib = intensity * nDotL;
+            if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
+                && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
+                irradiance += contrib;
+            }
+            continue;
+        }
+
         vec3 lightPos = vec3(light.px, light.py, light.pz);
         vec3 delta = lightPos - luxelPos;
         float dist2Raw = dot(delta, delta);
@@ -414,7 +442,6 @@ void main() {
         float atten = max(0.0, 1.0 - t * t);
         atten *= atten;
 
-        vec3 intensity = vec3(light.cr, light.cg, light.cb) * light.intensity;
         vec3 contrib = intensity * (nDotL * atten * spot / dist2);
         if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
             && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {

@@ -8,7 +8,7 @@ Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Thing
 
 Lighting is four layers that look related in the editor but do different jobs.
 
-Baked lightmaps are the main look for map brushes. Material emission plus point/spot things go through sloprad offline into rad/ atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (point-light, spot-light, area-light, sun) always spawn flecs components and gizmos when the map loads; only point and spot feed the bake today -- they are not gathered as runtime lights. Dynamic lights are a separate DynamicLight component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling. FX local lights (FxLocalLight) are a high-count point-light channel for missiles, muzzle flashes, and similar effects: they tint sprites, 3D models, and movers only, and never upload to the map lightmap shader.
+Baked lightmaps are the main look for map brushes. Material emission, map.meta ambient, optional map.meta sun, and point/spot things go through sloprad offline into rad/ atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (point-light, spot-light, area-light, sun) always spawn flecs components and gizmos when the map loads; only point and spot things feed the bake -- they are not gathered as runtime lights. Scene sun for the bake lives in map.meta `(sun ...)`, not the sun thing. Dynamic lights are a separate DynamicLight component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling. FX local lights (FxLocalLight) are a high-count point-light channel for missiles, muzzle flashes, and similar effects: they tint sprites, 3D models, and movers only, and never upload to the map lightmap shader.
 
 There is no runtime PBR stack. Props and characters are not lightmapped; they receive bake probes plus DynamicLight / FxLocalLight overlays via CPU tint. Sprites sample map light at their feet when lightmaps exist, then add the same overlays. Viewmodels use optional rad tint and faux shading; see [Player](player.md).
 
@@ -16,8 +16,10 @@ There is no runtime PBR stack. Props and characters are not lightmapped; they re
 
 sloprad builds lightmap atlases from:
 
-1. Surface emission: brush materials with emission-color / emission-power (and emission textures at bake time). See [Materials](materials.md).
-2. Placed point and spot lights: collected from maps/{name}/things.s7 (and prefab sidecars) by collectRadiosityLights. Area and sun things are not bake emitters today.
+1. Soft ambient fill from map.meta `(ambient r g b)` (bake seed only; not added again in the lightmap shader).
+2. Optional directional sun from map.meta `(sun ...)` when present (color, intensity, angles/yaw). Omit for maps with no sky light.
+3. Surface emission: brush materials with emission-color / emission-power (and emission textures at bake time). See [Materials](materials.md).
+4. Placed point and spot lights: collected from maps/{name}/things.s7 (and prefab sidecars) by collectRadiosityLights. Area and sun things are not bake emitters.
 
 Direct + bounce irradiance lands in rad/atlasN.png and rad/static.rad. At runtime the lightmap fragment path is:
 
@@ -38,7 +40,7 @@ Engine forms in things.s7 (also editable in [slopmap](slopmap.md)):
 | (point-light ...) | PointLight | Yes | No (not gathered as DynamicLight) |
 | (spot-light ...) | SpotLight | Yes | No |
 | (area-light ...) | AreaLight | No | No |
-| (sun ...) | SunLight | No | No |
+| (sun ...) | SunLight | No (use map.meta sun) | No |
 
 Shared optional fields: (color r g b) (default 1 1 1), (intensity N) (default 1).
 
