@@ -56,41 +56,45 @@ void registerSystems(flecs::world& world) {
             const float dt = GetFrameTime();
 
             if (!physicsDriven) {
-                const Vector3 forwardFlat =
-                    Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
-                const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-                Vector3 movement{};
+                if (controller.allowMove) {
+                    const Vector3 forwardFlat =
+                        Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
+                    const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
+                    Vector3 movement{};
 
-                if (input.down(Action::MoveForward)) {
-                    movement = Vector3Add(movement, forwardFlat);
-                }
-                if (input.down(Action::MoveBackward)) {
-                    movement = Vector3Subtract(movement, forwardFlat);
-                }
-                if (input.down(Action::MoveLeft)) {
-                    movement = Vector3Subtract(movement, right);
-                }
-                if (input.down(Action::MoveRight)) {
-                    movement = Vector3Add(movement, right);
-                }
+                    if (input.down(Action::MoveForward)) {
+                        movement = Vector3Add(movement, forwardFlat);
+                    }
+                    if (input.down(Action::MoveBackward)) {
+                        movement = Vector3Subtract(movement, forwardFlat);
+                    }
+                    if (input.down(Action::MoveLeft)) {
+                        movement = Vector3Subtract(movement, right);
+                    }
+                    if (input.down(Action::MoveRight)) {
+                        movement = Vector3Add(movement, right);
+                    }
 
-                if (Vector3LengthSqr(movement) > 0.0f) {
-                    movement = Vector3Scale(Vector3Normalize(movement), controller.moveSpeed * dt);
-                    lens.camera.position = Vector3Add(lens.camera.position, movement);
+                    if (Vector3LengthSqr(movement) > 0.0f) {
+                        movement = Vector3Scale(Vector3Normalize(movement), controller.moveSpeed * dt);
+                        lens.camera.position = Vector3Add(lens.camera.position, movement);
+                    }
                 }
 
                 lens.camera.position.y = controller.eyeHeight;
             }
 
-            controller.yaw -= input.mouseDelta.x * controller.lookSensitivity;
-            controller.pitch -= input.mouseDelta.y * controller.lookSensitivity;
+            if (controller.allowLook) {
+                controller.yaw -= input.mouseDelta.x * controller.lookSensitivity;
+                controller.pitch -= input.mouseDelta.y * controller.lookSensitivity;
 
-            constexpr float kMaxPitch = 1.4f;
-            if (controller.pitch > kMaxPitch) {
-                controller.pitch = kMaxPitch;
-            }
-            if (controller.pitch < -kMaxPitch) {
-                controller.pitch = -kMaxPitch;
+                constexpr float kMaxPitch = 1.4f;
+                if (controller.pitch > kMaxPitch) {
+                    controller.pitch = kMaxPitch;
+                }
+                if (controller.pitch < -kMaxPitch) {
+                    controller.pitch = -kMaxPitch;
+                }
             }
 
             if (!physicsDriven) {

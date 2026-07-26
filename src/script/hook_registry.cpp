@@ -46,14 +46,20 @@ const char* kEngineHooks[] = {
 };
 
 void callOwnerThenContribs(s7_scheme* scheme, std::string_view name, s7_pointer args) {
-    const auto it = g_hooks.find(std::string(name));
+    const std::string nameStr(name);
+    const auto it = g_hooks.find(nameStr);
     if (it == g_hooks.end()) {
         return;
     }
     HookEntry& entry = it->second;
-    if (entry.owner != nullptr && s7_is_procedure(entry.owner)) {
+    s7_pointer owner = entry.owner;
+    const s7_pointer live = s7_name_to_value(scheme, nameStr.c_str());
+    if (s7_is_procedure(live)) {
+        owner = live;
+    }
+    if (owner != nullptr && s7_is_procedure(owner)) {
         ScriptRoleGuard roleGuard(PackageRole::Base);
-        s7_call(scheme, entry.owner, args);
+        s7_call(scheme, owner, args);
     }
     for (const HookContrib& contrib : entry.contribs) {
         if (contrib.proc != nullptr && s7_is_procedure(contrib.proc)) {

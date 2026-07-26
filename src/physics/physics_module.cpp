@@ -183,6 +183,12 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
             CharacterMotor& motor = camera.get_mut<CharacterMotor>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
+            if (!controller.allowMove) {
+                motor.wishX = 0.0f;
+                motor.wishZ = 0.0f;
+                return;
+            }
+
             InputState& input = it.world().get_mut<InputState>();
 
             const Vector3 forwardFlat =

@@ -297,7 +297,18 @@ An actor is a presented world body with a character motor and opaque CollisionTa
 | (all prop presentation fields) | same rules | Sprite or geo, pose, optional anim. |
 | (motor ...) | no | Nested (radius), (height), (speed), (gravity), (step-height), (hull ...), (move ...). Numeric defaults match the player (0.3, 1.1, 6, 9.81, step 0.4). (hull capsule\|box) default capsule. (move slide\|try-move) default slide. |
 | (tags ...) | no | Opaque strings copied to CollisionTags. Empty → ("actor"). |
+| (health . N) / (idle-anim . "clip") / (behavior . "name") | no | Catalog fields for packages (`thing-def-health` / `thing-def-idle-anim` / `thing-def-behavior`). |
+| (melee ...) | no | Optional package melee channel. Nested clauses below. Missing → melee getters return `#f`. |
 | (sight ...) | no | Optional AI sight sensor. Nested clauses below. Missing → no `ActorSight` until `(actor-sight-set! …)`. |
+
+Melee clauses (thing defs under `*package-things*`):
+
+| Clause | Notes |
+|--------|-------|
+| (damage N) | Hit damage amount (default 0). |
+| (range N) | Max horizontal distance to apply (default 1.2). |
+| (cooldown N) | Seconds between swings (default 1.0). |
+| (anim "clip") | Optional attack clip name for `(actor-play-anim …)`. |
 
 Sight clauses (thing defs under `*package-things*` or map `(actor …)` / `(thing …)`):
 

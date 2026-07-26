@@ -204,6 +204,9 @@ Player progress is written under the user config directory (not inside packages)
 | (current-map) | Current map folder id string, or #f |
 | (player-pose) | (x y z yaw pitch) feet position and look, or #f |
 | (player-set-pose x y z yaw pitch) | Teleport player and set look |
+| (player-eye-height) | Current eye height above feet (or absolute Y when not physics-driven), or #f |
+| (player-set-eye-height h) | Set CharacterMotor / FirstPersonController eye height and refresh Lens |
+| (player-set-control move? look?) | Enable/disable move wish and mouse look (defaults true/true on spawn) |
 
 Relative save paths must stay under the context root (.. and absolute paths are rejected). Suggested envelope for package blobs: (save (version N) (package "id") ...). Body fields are package-defined.
 
@@ -266,6 +269,14 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | Binding | Meaning |
 |---------|---------|
 | (thing-despawn id) | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule / mover kinematic) |
+| (thing-type id) | Catalog type id string for a spawned thing, or #f |
+| (thing-def-health type) | Catalog health integer, or #f |
+| (thing-def-idle-anim type) | Catalog idle anim clip string, or #f |
+| (thing-def-behavior type) | Catalog behavior string, or #f |
+| (thing-def-melee-damage type) | Catalog melee damage, or #f if no `(melee …)` |
+| (thing-def-melee-range type) | Catalog melee range (meters), or #f |
+| (thing-def-melee-cooldown type) | Catalog melee cooldown (seconds), or #f |
+| (thing-def-melee-anim type) | Catalog melee anim clip, or #f |
 | (thing-pos id) | World position (x y z) for any named entity with a transform, or #f |
 | (thing-yaw id) | Yaw radians (sprite facingYaw when present, else transform Euler Y), or #f |
 | (mover-open id) / (mover-close id) / (mover-toggle id) | Request mover target open/closed/flip; no-op if locked. See [Movers](things.md#movers-mover). |

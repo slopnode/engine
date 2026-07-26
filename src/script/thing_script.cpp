@@ -1599,6 +1599,62 @@ s7_pointer g_thing_def_behavior(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->behavior.c_str());
 }
 
+s7_pointer g_thing_def_melee_damage(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-damage", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->meleeDamage));
+}
+
+s7_pointer g_thing_def_melee_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->meleeRange));
+}
+
+s7_pointer g_thing_def_melee_cooldown(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-cooldown", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->meleeCooldown));
+}
+
+s7_pointer g_thing_def_melee_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-anim", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee || def->meleeAnim.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, def->meleeAnim.c_str());
+}
+
 void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     g_thingWorld = &world;
     if (!world.has<ThingDespawnQueue>()) {
@@ -1638,6 +1694,38 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(thing-def-behavior type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-damage",
+        g_thing_def_melee_damage,
+        1,
+        0,
+        false,
+        "(thing-def-melee-damage type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-range",
+        g_thing_def_melee_range,
+        1,
+        0,
+        false,
+        "(thing-def-melee-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-cooldown",
+        g_thing_def_melee_cooldown,
+        1,
+        0,
+        false,
+        "(thing-def-melee-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-anim",
+        g_thing_def_melee_anim,
+        1,
+        0,
+        false,
+        "(thing-def-melee-anim type)");
     s7_define_function(
         scheme,
         "motored-spawn",

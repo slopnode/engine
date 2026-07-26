@@ -403,11 +403,17 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                     return;
                 }
                 const int frameCount = static_cast<int>(clip.frames.size());
-                if (previousIndex < 0) {
-                    fireHoldEnter(clip.frames[static_cast<std::size_t>(currentIndex)]);
+                if (previousIndex == currentIndex) {
                     return;
                 }
-                if (previousIndex == currentIndex) {
+                if (previousIndex < 0) {
+                    const int end = std::min(currentIndex, frameCount - 1);
+                    for (int i = 0; i <= end; ++i) {
+                        fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
+                        if (animator.justStarted) {
+                            return;
+                        }
+                    }
                     return;
                 }
                 if (useLoop && currentIndex < previousIndex) {
@@ -423,6 +429,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                             return;
                         }
                     }
+                    return;
+                }
+                if (currentIndex < previousIndex) {
                     return;
                 }
                 const int begin = previousIndex + 1;
@@ -443,11 +452,12 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
             } else if (localTime >= clipDuration) {
                 const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
-                fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+                const int previousIndex = animator.lastEnteredHoldIndex;
+                animator.lastEnteredHoldIndex = lastIndex;
+                fireEnteredHolds(previousIndex, lastIndex);
                 if (animator.justStarted) {
                     return;
                 }
-                animator.lastEnteredHoldIndex = lastIndex;
                 animator.playing = false;
                 animator.justFinished = true;
                 animator.time = clipDuration;
@@ -460,11 +470,12 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 const SpriteAnimFrame& frame = clip.frames[frameIndex];
                 if (localTime < frame.duration) {
                     const int currentIndex = static_cast<int>(frameIndex);
-                    fireEnteredHolds(animator.lastEnteredHoldIndex, currentIndex);
+                    const int previousIndex = animator.lastEnteredHoldIndex;
+                    animator.lastEnteredHoldIndex = currentIndex;
+                    fireEnteredHolds(previousIndex, currentIndex);
                     if (animator.justStarted) {
                         return;
                     }
-                    animator.lastEnteredHoldIndex = currentIndex;
                     sprite.frame = frame.id;
                     applyTween(frameIndex, localTime, frame.duration);
                     return;
@@ -473,11 +484,15 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             }
 
             const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
-            fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+            const int previousIndex = animator.lastEnteredHoldIndex;
+            animator.lastEnteredHoldIndex = lastIndex;
+            fireEnteredHolds(previousIndex, lastIndex);
             if (animator.justStarted) {
                 return;
             }
-            animator.lastEnteredHoldIndex = lastIndex;
+            animator.playing = false;
+            animator.justFinished = true;
+            animator.time = clipDuration;
             sprite.frame = clip.frames.back().id;
             clearTween();
         });
