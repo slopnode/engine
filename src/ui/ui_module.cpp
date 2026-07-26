@@ -124,7 +124,7 @@ void drawPauseMenu(flecs::world world, AssetStore& assets, InputContextStack& co
         {0.5f, 0.5f});
 
     if (ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
-        ImGui::TextUnformatted("Simulation continues while paused.");
+        ImGui::TextUnformatted("Simulation is paused.");
         if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
             contexts.pop(InputContext::PauseMenu);
         }
@@ -355,6 +355,7 @@ void drawMainMenuBar(
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
         menuItemWithIcon(
             assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
+        callDrawDebugMenu(world);
         ImGui::EndMenu();
     }
 

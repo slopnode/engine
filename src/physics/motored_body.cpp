@@ -1,5 +1,6 @@
 #include "physics/motored_body.hpp"
 
+#include "game/game_state.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_sweep.hpp"
 #include "physics/physics_module.hpp"
@@ -67,6 +68,9 @@ void registerMotoredBodySystem(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .each([](flecs::entity entity, MotoredBody& body, LocalTransformation& local) {
             flecs::world world = entity.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<PhysicsContext>() || world.get<PhysicsContext>().world == nullptr) {
                 return;
             }

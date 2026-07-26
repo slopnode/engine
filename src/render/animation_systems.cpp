@@ -23,7 +23,10 @@ namespace slopengine {
 void registerSpinSystem(flecs::world& world) {
     world.system<LocalTransformation, Spin>("ApplySpin")
         .kind(flecs::OnUpdate)
-        .each([](LocalTransformation& local, Spin& spin) {
+        .each([](flecs::iter& it, size_t, LocalTransformation& local, Spin& spin) {
+            if (isSimulationPaused(it.world())) {
+                return;
+            }
             const Vector3 axis = Vector3Normalize(spin.axis);
             const float angle = spin.speed * GetFrameTime();
             const Quaternion delta = QuaternionFromAxisAngle(axis, angle);
@@ -36,7 +39,7 @@ void registerSchemeTickSystem(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            if (!isPlaying(world)) {
+            if (!isPlaying(world) || isSimulationPaused(world)) {
                 return;
             }
             if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
@@ -54,6 +57,10 @@ void registerAnimationSystems(flecs::world& world) {
     world.system<Model3D, AnimationPlayer>("AdvanceAnimationPlayer")
         .kind(flecs::OnUpdate)
         .each([](flecs::iter& it, size_t, Model3D& model3d, AnimationPlayer& player) {
+            if (isSimulationPaused(it.world())) {
+                return;
+            }
+
             const bool startedThisFrame = player.justStarted;
             player.justStarted = false;
             player.justFinished = false;

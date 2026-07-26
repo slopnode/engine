@@ -1,5 +1,6 @@
 #include "physics/rigid_mover.hpp"
 
+#include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
@@ -293,6 +294,9 @@ void registerRigidMoverSystem(flecs::world& world) {
         .kind(flecs::PreUpdate)
         .each([](flecs::entity entity, RigidMover& mover, LocalTransformation& local) {
             flecs::world world = entity.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             PhysicsWorld* physics = nullptr;
             if (world.has<PhysicsContext>()) {
                 physics = world.get_mut<PhysicsContext>().world;
@@ -314,6 +318,9 @@ void registerRigidMoverSystem(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<PhysicsContext>() || world.get<PhysicsContext>().world == nullptr) {
                 return;
             }

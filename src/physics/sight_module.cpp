@@ -1,6 +1,7 @@
 #include "physics/sight_module.hpp"
 
 #include "camera/components.hpp"
+#include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
 #include "physics/components.hpp"
@@ -229,6 +230,9 @@ void registerSightModule(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<SightScanState>() || !world.has<PhysicsContext>()) {
                 return;
             }

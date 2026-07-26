@@ -38,6 +38,7 @@ const char* kEngineHooks[] = {
     "draw-title",
     "draw-file-menu",
     "draw-pause-menu",
+    "draw-debug-menu",
     "draw-modals",
     "on-sprite-hint",
     "on-sight",

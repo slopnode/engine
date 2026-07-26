@@ -5,6 +5,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
+#include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
 #include "map/thing.hpp"
@@ -152,13 +153,16 @@ void registerTimedDespawnSystem(flecs::world& world) {
     world.system<TimedDespawn>("TimedDespawnAdvance")
         .kind(flecs::OnUpdate)
         .each([](flecs::entity entity, TimedDespawn& timed) {
+            flecs::world world = entity.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             const float dt = GetFrameTime();
             if (dt <= 0.0f) {
                 return;
             }
             timed.age += dt;
             if (timed.lifetime > 0.0f && timed.age >= timed.lifetime) {
-                flecs::world world = entity.world();
                 queueThingDespawn(world, entityIdString(entity));
             }
         });

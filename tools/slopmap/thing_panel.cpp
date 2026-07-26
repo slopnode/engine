@@ -1129,6 +1129,27 @@ bool drawActorSection(
     ImGui::Text("Kind: actor");
     drawTypeInfo(doc, targets);
     ImGui::Text("%d actor(s)", static_cast<int>(targets.size()));
+    {
+        const auto typeCommon = commonValue<std::string>(
+            doc,
+            targets,
+            [](const slopengine::Thing& t) { return t.type; });
+        if (!typeCommon.has_value()) {
+            ImGui::TextDisabled("Behavior: mixed");
+        } else if (!typeCommon->empty()) {
+            if (const slopengine::ThingDef* def =
+                    slopengine::thingDefRegistry().find(*typeCommon)) {
+                if (!def->behavior.empty()) {
+                    ImGui::TextDisabled("Behavior: %s", def->behavior.c_str());
+                } else {
+                    ImGui::TextDisabled("Behavior: (none)");
+                }
+                if (!def->idleAnim.empty()) {
+                    ImGui::TextDisabled("Idle anim: %s", def->idleAnim.c_str());
+                }
+            }
+        }
+    }
     ImGui::Separator();
 
     if (drawPresentationSection(editor, assets, targets, false)) {

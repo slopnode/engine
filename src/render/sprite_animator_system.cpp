@@ -5,6 +5,7 @@
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
 #include "camera/components.hpp"
+#include "game/game_state.hpp"
 #include "render/components.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hook_registry.hpp"
@@ -26,6 +27,11 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
     world.system<SpriteAnimator, SpriteInstance>("AdvanceSpriteAnimator")
         .kind(flecs::OnUpdate)
         .each([](flecs::entity entity, SpriteAnimator& animator, SpriteInstance& sprite) {
+            flecs::world world = entity.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
+
             animator.justFinished = false;
             const bool startedThisFrame = animator.justStarted;
             animator.justStarted = false;
@@ -34,7 +40,6 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 return;
             }
 
-            flecs::world world = entity.world();
             AssetServices& services = world.get_mut<AssetServices>();
             if (services.store == nullptr) {
                 return;

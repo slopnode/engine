@@ -2,6 +2,7 @@
 
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "game/game_state.hpp"
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
@@ -215,6 +216,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 perf->physicsMs = 0.0f;
             }
 
+            if (isSimulationPaused(it.world())) {
+                return;
+            }
+
             if (!it.world().has<PhysicsContext>()) {
                 return;
             }
@@ -294,6 +299,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<ScriptContext>()) {
                 return;
             }
@@ -358,6 +366,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<ScriptContext>()) {
                 return;
             }
