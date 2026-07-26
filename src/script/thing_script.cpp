@@ -446,12 +446,16 @@ s7_pointer g_dyn_light_spawn(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
+    DynamicLight light = makePointDynamicLight(r, g, b, intensity, range);
+    if (lifetime > 0.0f) {
+        light.castShadows = false;
+    }
     flecs::entity entity = spawnDynamicLight(
         *g_thingWorld,
         id.c_str(),
         {x, y, z},
         QuaternionIdentity(),
-        makePointDynamicLight(r, g, b, intensity, range));
+        light);
     entity.add<MapOwned>();
     if (lifetime > 0.0f) {
         entity.set<TimedDespawn>({.age = 0.0f, .lifetime = lifetime});

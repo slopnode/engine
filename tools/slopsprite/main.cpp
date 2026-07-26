@@ -353,6 +353,83 @@ void drawClipFramesSection(
             editor.doc.animDirty = true;
         }
 
+        ImGui::TextDisabled("Overlays (layer sprite clip x y)");
+        for (int oi = 0; oi < static_cast<int>(animFrame.overlays.size()); ++oi) {
+            slopengine::SpriteAnimOverlay& overlay =
+                animFrame.overlays[static_cast<std::size_t>(oi)];
+            ImGui::PushID(oi + 1000);
+            const bool selected = editor.doc.selectedOverlayHoldIndex == i &&
+                                  editor.doc.selectedOverlayIndex == oi;
+            if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
+                editor.doc.selectedOverlayHoldIndex = i;
+                editor.doc.selectedOverlayIndex = oi;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(48.0f);
+            if (ImGui::DragInt("##layer", &overlay.layer, 0.2f)) {
+                if (overlay.layer == 0) {
+                    overlay.layer = 1;
+                }
+                editor.doc.animDirty = true;
+                editor.doc.selectedOverlayHoldIndex = i;
+                editor.doc.selectedOverlayIndex = oi;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+            char spriteBuf[128] = {};
+            std::snprintf(spriteBuf, sizeof(spriteBuf), "%s", overlay.sprite.c_str());
+            if (ImGui::InputTextWithHint("##osprite", "sprite", spriteBuf, sizeof(spriteBuf))) {
+                overlay.sprite = spriteBuf;
+                editor.doc.animDirty = true;
+                editor.doc.selectedOverlayHoldIndex = i;
+                editor.doc.selectedOverlayIndex = oi;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+            char clipBuf[64] = {};
+            std::snprintf(clipBuf, sizeof(clipBuf), "%s", overlay.clip.c_str());
+            if (ImGui::InputTextWithHint("##oclip", "clip", clipBuf, sizeof(clipBuf))) {
+                overlay.clip = clipBuf;
+                editor.doc.animDirty = true;
+                editor.doc.selectedOverlayHoldIndex = i;
+                editor.doc.selectedOverlayIndex = oi;
+            }
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+            if (ImGui::DragFloat("##ox", &overlay.x, 0.5f, 0.0f, 0.0f, "x %.1f")) {
+                editor.doc.animDirty = true;
+                editor.doc.selectedOverlayHoldIndex = i;
+                editor.doc.selectedOverlayIndex = oi;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.7f);
+            if (ImGui::DragFloat("##oy", &overlay.y, 0.5f, 0.0f, 0.0f, "y %.1f")) {
+                editor.doc.animDirty = true;
+                editor.doc.selectedOverlayHoldIndex = i;
+                editor.doc.selectedOverlayIndex = oi;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X")) {
+                if (editor.doc.selectedOverlayHoldIndex == i &&
+                    editor.doc.selectedOverlayIndex == oi) {
+                    editor.doc.selectedOverlayHoldIndex = -1;
+                    editor.doc.selectedOverlayIndex = -1;
+                }
+                animFrame.overlays.erase(animFrame.overlays.begin() + oi);
+                editor.doc.animDirty = true;
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+        if (ImGui::SmallButton("Add overlay")) {
+            slopengine::SpriteAnimOverlay overlay{};
+            overlay.layer = 1;
+            animFrame.overlays.push_back(std::move(overlay));
+            editor.doc.selectedOverlayHoldIndex = i;
+            editor.doc.selectedOverlayIndex = static_cast<int>(animFrame.overlays.size()) - 1;
+            editor.doc.animDirty = true;
+        }
+
         ImGui::Separator();
         ImGui::PopID();
     }
@@ -1139,30 +1216,27 @@ int main(int argc, char* argv[]) {
         ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
         ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
         ImGui::Begin("Inspector", nullptr, panelFlags);
-        {
-            constexpr const char* kIcons = kDefaultIconSet;
-            drawIconImGui(assets, kIcons, "world");
-            ImGui::SameLine();
-            if (ImGui::RadioButton(
-                    "World", editor.mode == slopsprite::PreviewMode::World)) {
-                setPreviewMode(slopsprite::PreviewMode::World);
-            }
-            ImGui::SameLine();
-            drawIconImGui(assets, kIcons, "user");
-            ImGui::SameLine();
-            if (ImGui::RadioButton(
-                    "FP", editor.mode == slopsprite::PreviewMode::FirstPerson)) {
-                setPreviewMode(slopsprite::PreviewMode::FirstPerson);
-            }
-            ImGui::SameLine();
-            drawIconImGui(assets, kIcons, "shape_square");
-            ImGui::SameLine();
-            if (ImGui::RadioButton(
-                    "Align", editor.mode == slopsprite::PreviewMode::Align)) {
-                setPreviewMode(slopsprite::PreviewMode::Align);
-            }
+        if (ImGui::BeginTabBar("##previewTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+            auto previewTabButton = [&](const char* label, slopsprite::PreviewMode mode) {
+                const bool selected = editor.mode == mode;
+                if (selected) {
+                    ImGui::PushStyleColor(
+                        ImGuiCol_Tab, ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
+                    ImGui::PushStyleColor(
+                        ImGuiCol_TabHovered, ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
+                }
+                if (ImGui::TabItemButton(label)) {
+                    setPreviewMode(mode);
+                }
+                if (selected) {
+                    ImGui::PopStyleColor(2);
+                }
+            };
+            previewTabButton("World", slopsprite::PreviewMode::World);
+            previewTabButton("FP", slopsprite::PreviewMode::FirstPerson);
+            previewTabButton("Align", slopsprite::PreviewMode::Align);
+            ImGui::EndTabBar();
         }
-        ImGui::Separator();
         drawInspector(editor, assets, textureBrowser, soundBrowser);
         ImGui::End();
 
@@ -1251,7 +1325,7 @@ int main(int argc, char* argv[]) {
             }
             ImGui::End();
 
-            worldPreview.draw(editor, contentTarget, allowPreviewInput);
+            worldPreview.draw(editor, assets, contentTarget, allowPreviewInput);
         } else if (editor.mode == slopsprite::PreviewMode::FirstPerson) {
             ImGui::SetNextWindowPos(
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);
@@ -1277,7 +1351,7 @@ int main(int argc, char* argv[]) {
             }
             ImGui::End();
 
-            fpPreview.draw(editor, contentTarget, layout.content, allowPreviewInput);
+            fpPreview.draw(editor, assets, contentTarget, layout.content, allowPreviewInput);
         } else {
             ImGui::SetNextWindowPos(
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);

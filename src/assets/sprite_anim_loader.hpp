@@ -7,6 +7,18 @@
 
 namespace slopengine {
 
+/** Declarative layered sprite spawned on hold enter.
+ *  layer != 0 (host is 0); negative draws behind, positive in front.
+ *  x/y are canvas-space offsets relative to the host.
+ */
+struct SpriteAnimOverlay {
+    int layer = 1;
+    std::string sprite;
+    std::string clip;
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
 /** One timed frame inside a sprite clip. */
 struct SpriteAnimFrame {
     std::string id; /**< Frame id from the paired .spr. */
@@ -17,6 +29,7 @@ struct SpriteAnimFrame {
     std::string sound;
     float soundVolume = 1.0f;
     std::vector<std::string> hints;
+    std::vector<SpriteAnimOverlay> overlays;
 
     bool hasTween() const {
         return tweenRotation || tweenScale || tweenTranslate;
@@ -28,6 +41,10 @@ struct SpriteAnimFrame {
 
     bool hasHints() const {
         return !hints.empty();
+    }
+
+    bool hasOverlays() const {
+        return !overlays.empty();
     }
 };
 

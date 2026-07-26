@@ -55,6 +55,7 @@ void registerComponents(flecs::world& world) {
     world.component<Spin>();
     world.component<Model3D>();
     world.component<SpriteInstance>();
+    world.component<SpriteOverlay>();
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
     world.component<AnimationClipFlipTest>();
