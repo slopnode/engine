@@ -77,7 +77,13 @@ struct MapPreview {
 };
 
 Color brushOutlineColor(const slopengine::Brush& brush, bool selected);
-void drawThickLine3D(Vector3 a, Vector3 b, Color color, float width, Vector3 eye);
+void drawThickLine3D(
+    Vector3 a,
+    Vector3 b,
+    Color color,
+    float width,
+    Vector3 eye,
+    Vector3 viewDir = {});
 void drawBrushFaceOutlines(
     const slopengine::Brush& brush,
     Color color,
@@ -92,6 +98,8 @@ void drawGrid(
     float step,
     Color color,
     Vector3 eye,
-    float lineWidth);
+    float lineWidth,
+    Vector3 viewDir = {},
+    Vector3 origin = {});
 
 }

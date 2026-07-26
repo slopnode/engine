@@ -474,7 +474,13 @@ Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
     };
 }
 
-void drawThickLine3D(Vector3 a, Vector3 b, Color color, float width, Vector3 eye) {
+void drawThickLine3D(
+    Vector3 a,
+    Vector3 b,
+    Color color,
+    float width,
+    Vector3 eye,
+    Vector3 viewDir) {
     const Vector3 delta{b.x - a.x, b.y - a.y, b.z - a.z};
     const float lenSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
     if (lenSq < 1e-12f || width <= 0.0f) {
@@ -487,13 +493,20 @@ void drawThickLine3D(Vector3 a, Vector3 b, Color color, float width, Vector3 eye
         0.5f * (a.y + b.y),
         0.5f * (a.z + b.z),
     };
-    Vector3 toEye{eye.x - mid.x, eye.y - mid.y, eye.z - mid.z};
-    float toEyeLen = std::sqrt(toEye.x * toEye.x + toEye.y * toEye.y + toEye.z * toEye.z);
-    if (toEyeLen < 1e-6f) {
-        toEye = {0.0f, 1.0f, 0.0f};
-        toEyeLen = 1.0f;
+    const float viewLenSq =
+        viewDir.x * viewDir.x + viewDir.y * viewDir.y + viewDir.z * viewDir.z;
+    Vector3 toEye{};
+    if (viewLenSq > 1e-12f) {
+        const float viewLen = std::sqrt(viewLenSq);
+        toEye = {-viewDir.x / viewLen, -viewDir.y / viewLen, -viewDir.z / viewLen};
     } else {
-        toEye = {toEye.x / toEyeLen, toEye.y / toEyeLen, toEye.z / toEyeLen};
+        toEye = {eye.x - mid.x, eye.y - mid.y, eye.z - mid.z};
+        float toEyeLen = std::sqrt(toEye.x * toEye.x + toEye.y * toEye.y + toEye.z * toEye.z);
+        if (toEyeLen < 1e-6f) {
+            toEye = {0.0f, 1.0f, 0.0f};
+        } else {
+            toEye = {toEye.x / toEyeLen, toEye.y / toEyeLen, toEye.z / toEyeLen};
+        }
     }
 
     Vector3 side{
@@ -692,31 +705,72 @@ void drawGrid(
     float step,
     Color color,
     Vector3 eye,
-    float lineWidth) {
+    float lineWidth,
+    Vector3 viewDir,
+    Vector3 origin) {
+    const float ox = origin.x;
+    const float oy = origin.y;
+    const float oz = origin.z;
     switch (plane) {
     case GridPlane::XY:
         for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-            drawThickLine3D({x, -halfExtent, 0.0f}, {x, halfExtent, 0.0f}, color, lineWidth, eye);
+            drawThickLine3D(
+                {ox + x, oy - halfExtent, oz},
+                {ox + x, oy + halfExtent, oz},
+                color,
+                lineWidth,
+                eye,
+                viewDir);
         }
         for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
-            drawThickLine3D({-halfExtent, y, 0.0f}, {halfExtent, y, 0.0f}, color, lineWidth, eye);
+            drawThickLine3D(
+                {ox - halfExtent, oy + y, oz},
+                {ox + halfExtent, oy + y, oz},
+                color,
+                lineWidth,
+                eye,
+                viewDir);
         }
         break;
     case GridPlane::YZ:
         for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
-            drawThickLine3D({0.0f, y, -halfExtent}, {0.0f, y, halfExtent}, color, lineWidth, eye);
+            drawThickLine3D(
+                {ox, oy + y, oz - halfExtent},
+                {ox, oy + y, oz + halfExtent},
+                color,
+                lineWidth,
+                eye,
+                viewDir);
         }
         for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-            drawThickLine3D({0.0f, -halfExtent, z}, {0.0f, halfExtent, z}, color, lineWidth, eye);
+            drawThickLine3D(
+                {ox, oy - halfExtent, oz + z},
+                {ox, oy + halfExtent, oz + z},
+                color,
+                lineWidth,
+                eye,
+                viewDir);
         }
         break;
     case GridPlane::XZ:
     default:
         for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-            drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
+            drawThickLine3D(
+                {ox + x, oy, oz - halfExtent},
+                {ox + x, oy, oz + halfExtent},
+                color,
+                lineWidth,
+                eye,
+                viewDir);
         }
         for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-            drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
+            drawThickLine3D(
+                {ox - halfExtent, oy, oz + z},
+                {ox + halfExtent, oy, oz + z},
+                color,
+                lineWidth,
+                eye,
+                viewDir);
         }
         break;
     }

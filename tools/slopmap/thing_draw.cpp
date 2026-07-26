@@ -178,11 +178,15 @@ void drawLightGizmo(
     slopengine::AssetStore& assets,
     const Camera3D& camera,
     const slopengine::Thing& thing,
-    bool selected) {
+    bool selected,
+    bool showGizmos) {
     const Vector3 pos = thingPosition(thing);
     const Color color = lightColor(thing, selected);
     if (!drawThingIcon(assets, camera, pos, "lightbulb", color)) {
         DrawSphere(pos, 0.12f, color);
+    }
+    if (!showGizmos) {
+        return;
     }
     switch (thing.kind) {
     case slopengine::ThingKind::PointLight: {
@@ -233,7 +237,8 @@ void drawThings(
     slopengine::AssetStore& assets,
     const std::vector<slopengine::Thing>& things,
     const std::vector<int>& selectedThings,
-    const Camera3D& camera) {
+    const Camera3D& camera,
+    bool showGizmos) {
     for (std::size_t i = 0; i < things.size(); ++i) {
         const slopengine::Thing& thing = things[i];
         const bool selected =
@@ -247,38 +252,45 @@ void drawThings(
             if (!drawThingIcon(assets, camera, pos, "user", color)) {
                 DrawCube(pos, 0.25f, 0.5f, 0.25f, color);
             }
-            drawYawArrow(pos, thing.yaw, color);
+            if (showGizmos) {
+                drawYawArrow(pos, thing.yaw, color);
+            }
             break;
         case slopengine::ThingKind::Prop:
         case slopengine::ThingKind::Usable:
         case slopengine::ThingKind::Actor:
         case slopengine::ThingKind::Mover:
             drawSpriteOrGeo(assets, camera, thing, color);
-            if (selected) {
+            if (showGizmos && selected) {
                 DrawSphereWires(pos, 0.35f, 6, 6, color);
             }
             break;
         case slopengine::ThingKind::Pickup:
             drawSpriteOrGeo(assets, camera, thing, color);
-            if (!thing.onEnter.empty() || thing.haveTriggerSize) {
+            if (showGizmos && (!thing.onEnter.empty() || thing.haveTriggerSize)) {
                 const Vector3 size =
                     thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
                 DrawCubeWires(pos, size.x, size.y, size.z, color);
             }
-            if (selected) {
+            if (showGizmos && selected) {
                 DrawSphereWires(pos, 0.35f, 6, 6, color);
             }
             break;
         case slopengine::ThingKind::Trigger: {
-            const Vector3 size = thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
-            DrawCubeWires(pos, size.x, size.y, size.z, color);
+            if (showGizmos) {
+                const Vector3 size =
+                    thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
+                DrawCubeWires(pos, size.x, size.y, size.z, color);
+            } else if (!drawThingIcon(assets, camera, pos, "shape_square", color)) {
+                DrawSphere(pos, 0.12f, color);
+            }
             break;
         }
         case slopengine::ThingKind::PointLight:
         case slopengine::ThingKind::SpotLight:
         case slopengine::ThingKind::AreaLight:
         case slopengine::ThingKind::Sun:
-            drawLightGizmo(assets, camera, thing, selected);
+            drawLightGizmo(assets, camera, thing, selected, showGizmos);
             break;
         case slopengine::ThingKind::Prefab:
             DrawCubeWires(pos, 0.4f, 0.4f, 0.4f, color);
@@ -287,28 +299,32 @@ void drawThings(
             if (!drawThingIcon(assets, camera, pos, "sound", color)) {
                 DrawSphere(pos, 0.18f, color);
             }
-            const float radius = std::max(thing.maxDistance, 0.01f);
-            DrawSphereWires(pos, radius, 8, 8, color);
-            if (thing.minDistance > 0.01f && thing.minDistance < radius) {
-                DrawSphereWires(pos, thing.minDistance, 6, 6, Fade(color, 0.45f));
+            if (showGizmos) {
+                const float radius = std::max(thing.maxDistance, 0.01f);
+                DrawSphereWires(pos, radius, 8, 8, color);
+                if (thing.minDistance > 0.01f && thing.minDistance < radius) {
+                    DrawSphereWires(pos, thing.minDistance, 6, 6, Fade(color, 0.45f));
+                }
             }
             break;
         }
         case slopengine::ThingKind::Marker: {
             DrawSphere(pos, 0.12f, color);
-            DrawLine3D(
-                Vector3{pos.x - 0.25f, pos.y, pos.z},
-                Vector3{pos.x + 0.25f, pos.y, pos.z},
-                color);
-            DrawLine3D(
-                Vector3{pos.x, pos.y - 0.25f, pos.z},
-                Vector3{pos.x, pos.y + 0.25f, pos.z},
-                color);
-            DrawLine3D(
-                Vector3{pos.x, pos.y, pos.z - 0.25f},
-                Vector3{pos.x, pos.y, pos.z + 0.25f},
-                color);
-            drawYawArrow(pos, thing.yaw, color);
+            if (showGizmos) {
+                DrawLine3D(
+                    Vector3{pos.x - 0.25f, pos.y, pos.z},
+                    Vector3{pos.x + 0.25f, pos.y, pos.z},
+                    color);
+                DrawLine3D(
+                    Vector3{pos.x, pos.y - 0.25f, pos.z},
+                    Vector3{pos.x, pos.y + 0.25f, pos.z},
+                    color);
+                DrawLine3D(
+                    Vector3{pos.x, pos.y, pos.z - 0.25f},
+                    Vector3{pos.x, pos.y, pos.z + 0.25f},
+                    color);
+                drawYawArrow(pos, thing.yaw, color);
+            }
             break;
         }
         }

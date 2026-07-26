@@ -121,7 +121,55 @@ void resetCamera(Editor& editor) {
     editor.camera.yaw = 3.14159265f;
     editor.camera.pitch = -0.35f;
     editor.camera.orthographic = false;
+    editor.camera.viewPlane = ViewPlane::PerspectiveY0;
     editor.viewPlane = ViewPlane::PerspectiveY0;
+    editor.orthoFocus = {0.0f, 1.0f, 0.0f};
+    editor.savedPerspectiveValid = false;
+}
+
+constexpr float kOrthoPullback = 512.0f;
+
+
+void applyOrthoCameraPose(Editor& editor, ViewPlane plane) {
+    switch (plane) {
+    case ViewPlane::Top:
+        editor.camera.orthographic = true;
+        editor.camera.yaw = 0.0f;
+        editor.camera.pitch = -1.57079632679f;
+        editor.camera.position = {
+            editor.orthoFocus.x,
+            editor.orthoFocus.y + kOrthoPullback,
+            editor.orthoFocus.z,
+        };
+        editor.gridPlane = GridPlane::XZ;
+        break;
+    case ViewPlane::Front:
+        editor.camera.orthographic = true;
+        editor.camera.yaw = 3.14159265f;
+        editor.camera.pitch = 0.0f;
+        editor.camera.position = {
+            editor.orthoFocus.x,
+            editor.orthoFocus.y,
+            editor.orthoFocus.z + kOrthoPullback,
+        };
+        editor.gridPlane = GridPlane::XY;
+        break;
+    case ViewPlane::Side:
+        editor.camera.orthographic = true;
+        editor.camera.yaw = -1.57079632679f;
+        editor.camera.pitch = 0.0f;
+        editor.camera.position = {
+            editor.orthoFocus.x + kOrthoPullback,
+            editor.orthoFocus.y,
+            editor.orthoFocus.z,
+        };
+        editor.gridPlane = GridPlane::YZ;
+        break;
+    case ViewPlane::PerspectiveY0:
+    default:
+        editor.camera.orthographic = false;
+        break;
+    }
 }
 
 } // namespace
@@ -265,18 +313,22 @@ ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane) {
     return plane;
 }
 
-ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane) {
+GridPlane gridPlaneForView(ViewPlane view, GridPlane gridPlane) {
     switch (view) {
     case ViewPlane::Front:
-        return constructionPlaneForGrid(GridPlane::XY);
+        return GridPlane::XY;
     case ViewPlane::Side:
-        return constructionPlaneForGrid(GridPlane::YZ);
+        return GridPlane::YZ;
     case ViewPlane::Top:
-        return constructionPlaneForGrid(GridPlane::XZ);
+        return GridPlane::XZ;
     case ViewPlane::PerspectiveY0:
     default:
-        return constructionPlaneForGrid(gridPlane);
+        return gridPlane;
     }
+}
+
+ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane) {
+    return constructionPlaneForGrid(gridPlaneForView(view, gridPlane));
 }
 
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin) {
@@ -1070,29 +1122,62 @@ const char* Editor::gridPlaneLabel() const {
     }
 }
 
-void Editor::setViewPlane(ViewPlane plane) {
-    viewPlane = plane;
-    switch (plane) {
+void Editor::syncOrthoFocus() {
+    if (!camera.orthographic) {
+        return;
+    }
+    const Vector3& p = camera.position;
+    switch (viewPlane) {
     case ViewPlane::Top:
-        camera.orthographic = true;
-        camera.yaw = 0.0f;
-        camera.pitch = -1.45f;
+        orthoFocus.x = p.x;
+        orthoFocus.z = p.z;
         break;
     case ViewPlane::Front:
-        camera.orthographic = true;
-        camera.yaw = 0.0f;
-        camera.pitch = 0.0f;
+        orthoFocus.x = p.x;
+        orthoFocus.y = p.y;
         break;
     case ViewPlane::Side:
-        camera.orthographic = true;
-        camera.yaw = 1.5708f;
-        camera.pitch = 0.0f;
+        orthoFocus.y = p.y;
+        orthoFocus.z = p.z;
         break;
     case ViewPlane::PerspectiveY0:
     default:
-        camera.orthographic = false;
         break;
     }
+}
+
+void Editor::setViewPlane(ViewPlane plane) {
+    const bool wasOrtho = camera.orthographic;
+    if (!wasOrtho && plane != ViewPlane::PerspectiveY0) {
+        savedPerspectivePosition = camera.position;
+        savedPerspectiveYaw = camera.yaw;
+        savedPerspectivePitch = camera.pitch;
+        savedPerspectiveValid = true;
+        const Vector3 fwd = camera.forward();
+        orthoFocus = {
+            camera.position.x + fwd.x * 8.0f,
+            camera.position.y + fwd.y * 8.0f,
+            camera.position.z + fwd.z * 8.0f,
+        };
+    } else if (wasOrtho && plane != viewPlane) {
+        syncOrthoFocus();
+    }
+
+    viewPlane = plane;
+    camera.viewPlane = plane;
+
+    if (plane == ViewPlane::PerspectiveY0) {
+        camera.orthographic = false;
+        if (savedPerspectiveValid) {
+            camera.position = savedPerspectivePosition;
+            camera.yaw = savedPerspectiveYaw;
+            camera.pitch = savedPerspectivePitch;
+            savedPerspectiveValid = false;
+        }
+        return;
+    }
+
+    applyOrthoCameraPose(*this, plane);
 }
 
 void Editor::toggleOrthoTop() {
@@ -1177,6 +1262,11 @@ bool Editor::renameBrush(int index, std::string_view newId) {
 
 void Editor::frameSelection() {
     const Vector3 center = selectionCenter();
+    if (camera.orthographic) {
+        orthoFocus = center;
+        applyOrthoCameraPose(*this, viewPlane);
+        return;
+    }
     camera.position = {center.x, center.y + 2.5f, center.z + 8.0f};
     camera.lookAt(center);
 }

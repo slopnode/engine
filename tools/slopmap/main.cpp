@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -278,17 +279,67 @@ void drawScene(
     const slopmap::PunchTool& punchTool,
     const slopmap::ClipTool& clipTool) {
     ClearBackground(Color{32, 34, 38, 255});
+    const bool ortho = camera.projection == CAMERA_ORTHOGRAPHIC;
+    const double prevNear = rlGetCullDistanceNear();
+    const double prevFar = rlGetCullDistanceFar();
+    if (ortho) {
+        rlSetClipPlanes(-4000.0, 4000.0);
+    }
     BeginMode3D(camera);
+    if (ortho) {
+        rlDisableBackfaceCulling();
+    }
     const Vector3 eye = camera.position;
+    const Vector3 viewDir{
+        camera.target.x - camera.position.x,
+        camera.target.y - camera.position.y,
+        camera.target.z - camera.position.z,
+    };
+    const Vector3 lineViewDir = ortho ? viewDir : Vector3{0.0f, 0.0f, 0.0f};
     const float lineWidth = std::max(0.015f, editor.gridSize * 0.02f);
     const float axisWidth = lineWidth * 1.5f;
     if (editor.showGrid) {
+        const slopmap::GridPlane drawPlane =
+            slopmap::gridPlaneForView(editor.viewPlane, editor.gridPlane);
+        const float aspect = editor.contentViewport.height > 0.0f
+            ? editor.contentViewport.width / editor.contentViewport.height
+            : 1.0f;
+        const float halfExtent = ortho
+            ? std::max(16.0f, editor.camera.orthoHalfHeight * aspect * 1.5f)
+            : 32.0f;
+        const float step = std::max(editor.gridSize, 0.001f);
+        auto snapCoord = [step](float value) {
+            return std::round(value / step) * step;
+        };
+        Vector3 gridOrigin{};
+        switch (drawPlane) {
+        case slopmap::GridPlane::XY:
+            gridOrigin = Vector3{snapCoord(eye.x), snapCoord(eye.y), 0.0f};
+            break;
+        case slopmap::GridPlane::YZ:
+            gridOrigin = Vector3{0.0f, snapCoord(eye.y), snapCoord(eye.z)};
+            break;
+        case slopmap::GridPlane::XZ:
+        default:
+            gridOrigin = Vector3{snapCoord(eye.x), 0.0f, snapCoord(eye.z)};
+            break;
+        }
         slopmap::drawGrid(
-            editor.gridPlane, 32.0f, editor.gridSize, Color{70, 74, 80, 255}, eye, lineWidth);
+            drawPlane,
+            halfExtent,
+            editor.gridSize,
+            Color{70, 74, 80, 255},
+            eye,
+            lineWidth,
+            lineViewDir,
+            gridOrigin);
     }
-    slopmap::drawThickLine3D({-100, 0, 0}, {100, 0, 0}, Color{180, 60, 60, 255}, axisWidth, eye);
-    slopmap::drawThickLine3D({0, -100, 0}, {0, 100, 0}, Color{60, 180, 60, 255}, axisWidth, eye);
-    slopmap::drawThickLine3D({0, 0, -100}, {0, 0, 100}, Color{60, 60, 180, 255}, axisWidth, eye);
+    slopmap::drawThickLine3D(
+        {-100, 0, 0}, {100, 0, 0}, Color{180, 60, 60, 255}, axisWidth, eye, lineViewDir);
+    slopmap::drawThickLine3D(
+        {0, -100, 0}, {0, 100, 0}, Color{60, 180, 60, 255}, axisWidth, eye, lineViewDir);
+    slopmap::drawThickLine3D(
+        {0, 0, -100}, {0, 0, 100}, Color{60, 60, 180, 255}, axisWidth, eye, lineViewDir);
 
     const slopmap::EditorDocument& d = editor.doc();
     const std::vector<int> selectedBrushes =
@@ -407,13 +458,19 @@ void drawScene(
             }
         }
     }
-    slopmap::drawThings(assets, d.things, selectedThings, camera);
+    slopmap::drawThings(assets, d.things, selectedThings, camera, editor.showGizmos);
 
     createTool.drawPreview();
     punchTool.drawPreview();
     const float clipLineWidth = std::max(0.015f, editor.gridSize * 0.02f);
     clipTool.drawPreview(editor, eye, clipLineWidth);
+    if (ortho) {
+        rlEnableBackfaceCulling();
+    }
     EndMode3D();
+    if (ortho) {
+        rlSetClipPlanes(prevNear, prevFar);
+    }
 }
 
 void beginThingKind(
@@ -766,6 +823,7 @@ int main(int argc, char* argv[]) {
         const bool allowFly =
             !uiWantsKeyboard && !uiWantsMouse && (mouseInContent || IsCursorHidden());
         editor.camera.update(allowFly);
+        editor.syncOrthoFocus();
         const Camera3D camera = editor.camera.toRaylib();
 
         if (ImGui::BeginMainMenuBar()) {
@@ -1144,6 +1202,16 @@ int main(int argc, char* argv[]) {
                     editor.showGrid = !editor.showGrid;
                     editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
                 }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "shape_handles",
+                        "Show Gizmos",
+                        nullptr,
+                        editor.showGizmos)) {
+                    editor.showGizmos = !editor.showGizmos;
+                    editor.statusMessage = editor.showGizmos ? "Gizmos: on" : "Gizmos: off";
+                }
                 if (beginMenuWithIcon(assets, kIcons, "arrow_refresh", "Translate Snap")) {
                     if (menuItemWithIcon(
                             assets,
@@ -1222,74 +1290,80 @@ int main(int argc, char* argv[]) {
                     ImGui::EndMenu();
                 }
                 ImGui::Separator();
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "shape_square",
-                        "Wireframe",
-                        "Z",
-                        editor.fill == slopmap::PreviewFill::Wireframe)) {
-                    editor.fill = slopmap::PreviewFill::Wireframe;
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "box",
-                        "Solid",
-                        nullptr,
-                        editor.fill == slopmap::PreviewFill::Solid)) {
-                    editor.fill = slopmap::PreviewFill::Solid;
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "picture",
-                        "Textures",
-                        nullptr,
-                        editor.fill == slopmap::PreviewFill::Textures)) {
-                    editor.fill = slopmap::PreviewFill::Textures;
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "world",
-                        "Unlit",
-                        nullptr,
-                        editor.fill == slopmap::PreviewFill::Unlit)) {
-                    if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
-                        editor.fill = slopmap::PreviewFill::Unlit;
-                    } else {
-                        editor.statusMessage = "No VIS; run VIS (falling back to Textures)";
+                if (beginMenuWithIcon(assets, kIcons, "picture", "Preview")) {
+                    ImGui::TextDisabled("CSG");
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "shape_square",
+                            "Wireframe",
+                            "Z",
+                            editor.fill == slopmap::PreviewFill::Wireframe)) {
+                        editor.fill = slopmap::PreviewFill::Wireframe;
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "box",
+                            "Solid",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::Solid)) {
+                        editor.fill = slopmap::PreviewFill::Solid;
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "picture",
+                            "Textures",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::Textures)) {
                         editor.fill = slopmap::PreviewFill::Textures;
                     }
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "lightbulb",
-                        "Lit",
-                        nullptr,
-                        editor.fill == slopmap::PreviewFill::Lit)) {
-                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
-                        editor.fill = slopmap::PreviewFill::Lit;
-                    } else {
-                        editor.statusMessage = "No lightmap bake; run RAD";
+                    ImGui::Separator();
+                    ImGui::TextDisabled("VIS / RAD");
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "world",
+                            "Unlit",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::Unlit)) {
+                        if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
+                            editor.fill = slopmap::PreviewFill::Unlit;
+                        } else {
+                            editor.statusMessage = "No VIS; run VIS (falling back to Textures)";
+                            editor.fill = slopmap::PreviewFill::Textures;
+                        }
                     }
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "contrast",
-                        "Solid Lit",
-                        nullptr,
-                        editor.fill == slopmap::PreviewFill::SolidLit)) {
-                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
-                        editor.fill = slopmap::PreviewFill::SolidLit;
-                    } else {
-                        editor.statusMessage = "No lightmap bake; run RAD";
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "lightbulb",
+                            "Lit",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::Lit)) {
+                        if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                            editor.fill = slopmap::PreviewFill::Lit;
+                        } else {
+                            editor.statusMessage = "No lightmap bake; run RAD";
+                        }
                     }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "contrast",
+                            "Solid Lit",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::SolidLit)) {
+                        if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                            editor.fill = slopmap::PreviewFill::SolidLit;
+                        } else {
+                            editor.statusMessage = "No lightmap bake; run RAD";
+                        }
+                    }
+                    ImGui::EndMenu();
                 }
-                if (beginMenuWithIcon(assets, kIcons, "eye", "X-Ray Overlay")) {
+                if (beginMenuWithIcon(assets, kIcons, "eye", "Wires")) {
                     if (menuItemWithIcon(
                             assets,
                             kIcons,
@@ -1303,7 +1377,7 @@ int main(int argc, char* argv[]) {
                             assets,
                             kIcons,
                             "shape_square",
-                            "Visible",
+                            "Vis",
                             nullptr,
                             editor.wireframe == slopmap::WireframeOverlay::Visible)) {
                         editor.wireframe = slopmap::WireframeOverlay::Visible;
@@ -1546,15 +1620,15 @@ int main(int argc, char* argv[]) {
                     switch (editor.wireframe) {
                     case slopmap::WireframeOverlay::Off:
                         editor.wireframe = slopmap::WireframeOverlay::Visible;
-                        editor.statusMessage = "X-Ray: Visible";
+                        editor.statusMessage = "Wires: Vis";
                         break;
                     case slopmap::WireframeOverlay::Visible:
                         editor.wireframe = slopmap::WireframeOverlay::All;
-                        editor.statusMessage = "X-Ray: All";
+                        editor.statusMessage = "Wires: All";
                         break;
                     case slopmap::WireframeOverlay::All:
                         editor.wireframe = slopmap::WireframeOverlay::Off;
-                        editor.statusMessage = "X-Ray: Off";
+                        editor.statusMessage = "Wires: Off";
                         break;
                     }
                 } else {
@@ -1778,102 +1852,182 @@ int main(int argc, char* argv[]) {
                 }
 
                 toolSep();
-                if (toolBtn(
-                        "fill-wire",
-                        "shape_square",
-                        "Wire",
-                        editor.fill == slopmap::PreviewFill::Wireframe)) {
-                    editor.fill = slopmap::PreviewFill::Wireframe;
-                }
-                ImGui::SameLine();
-                if (toolBtn(
-                        "fill-solid",
-                        "box",
-                        "Solid",
-                        editor.fill == slopmap::PreviewFill::Solid)) {
-                    editor.fill = slopmap::PreviewFill::Solid;
-                }
-                ImGui::SameLine();
-                if (toolBtn(
-                        "fill-tex",
-                        "picture",
-                        "Textures",
-                        editor.fill == slopmap::PreviewFill::Textures)) {
-                    editor.fill = slopmap::PreviewFill::Textures;
-                }
-                ImGui::SameLine();
-                if (toolBtn(
-                        "fill-unlit",
-                        "world",
-                        "Unlit",
-                        editor.fill == slopmap::PreviewFill::Unlit)) {
-                    if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
-                        editor.fill = slopmap::PreviewFill::Unlit;
-                    } else {
-                        editor.statusMessage = "No VIS; run VIS (falling back to Textures)";
-                        editor.fill = slopmap::PreviewFill::Textures;
+                {
+                    const char* fillIcon = "picture";
+                    const char* fillLabel = "Textures";
+                    switch (editor.fill) {
+                    case slopmap::PreviewFill::Wireframe:
+                        fillIcon = "shape_square";
+                        fillLabel = "Wire";
+                        break;
+                    case slopmap::PreviewFill::Solid:
+                        fillIcon = "box";
+                        fillLabel = "Solid";
+                        break;
+                    case slopmap::PreviewFill::Textures:
+                        fillIcon = "picture";
+                        fillLabel = "Textures";
+                        break;
+                    case slopmap::PreviewFill::Unlit:
+                        fillIcon = "world";
+                        fillLabel = "Unlit";
+                        break;
+                    case slopmap::PreviewFill::Lit:
+                        fillIcon = "lightbulb";
+                        fillLabel = "Lit";
+                        break;
+                    case slopmap::PreviewFill::SolidLit:
+                        fillIcon = "contrast";
+                        fillLabel = "Solid Lit";
+                        break;
                     }
-                }
-                ImGui::SameLine();
-                if (toolBtn(
-                        "fill-lit",
-                        "lightbulb",
-                        "Lit",
-                        editor.fill == slopmap::PreviewFill::Lit)) {
-                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
-                        editor.fill = slopmap::PreviewFill::Lit;
-                    } else {
-                        editor.statusMessage = "No lightmap bake; run RAD";
+                    char fillBtnLabel[64];
+                    std::snprintf(fillBtnLabel, sizeof(fillBtnLabel), "Render: %s", fillLabel);
+                    if (toolBtn("fill-mode", fillIcon, fillBtnLabel, true)) {
+                        ImGui::OpenPopup("##fillModePopup");
                     }
-                }
-                ImGui::SameLine();
-                if (toolBtn(
-                        "fill-solid-lit",
-                        "contrast",
-                        "Solid Lit",
-                        editor.fill == slopmap::PreviewFill::SolidLit)) {
-                    if (editor.preview.litValid || editor.reloadLitBake(assets)) {
-                        editor.fill = slopmap::PreviewFill::SolidLit;
-                    } else {
-                        editor.statusMessage = "No lightmap bake; run RAD";
+                    if (ImGui::BeginPopup("##fillModePopup")) {
+                        ImGui::TextDisabled("CSG");
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "shape_square",
+                                "Wire",
+                                "Z",
+                                editor.fill == slopmap::PreviewFill::Wireframe)) {
+                            editor.fill = slopmap::PreviewFill::Wireframe;
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "box",
+                                "Solid",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::Solid)) {
+                            editor.fill = slopmap::PreviewFill::Solid;
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "picture",
+                                "Textures",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::Textures)) {
+                            editor.fill = slopmap::PreviewFill::Textures;
+                        }
+                        ImGui::Separator();
+                        ImGui::TextDisabled("VIS / RAD");
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "world",
+                                "Unlit",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::Unlit)) {
+                            if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
+                                editor.fill = slopmap::PreviewFill::Unlit;
+                            } else {
+                                editor.statusMessage =
+                                    "No VIS; run VIS (falling back to Textures)";
+                                editor.fill = slopmap::PreviewFill::Textures;
+                            }
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "lightbulb",
+                                "Lit",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::Lit)) {
+                            if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                                editor.fill = slopmap::PreviewFill::Lit;
+                            } else {
+                                editor.statusMessage = "No lightmap bake; run RAD";
+                            }
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "contrast",
+                                "Solid Lit",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::SolidLit)) {
+                            if (editor.preview.litValid || editor.reloadLitBake(assets)) {
+                                editor.fill = slopmap::PreviewFill::SolidLit;
+                            } else {
+                                editor.statusMessage = "No lightmap bake; run RAD";
+                            }
+                        }
+                        ImGui::EndPopup();
                     }
                 }
                 ImGui::SameLine();
                 {
-                    const char* xrayLabel = "XRay Off";
+                    const char* wiresLabel = "Off";
                     if (editor.wireframe == slopmap::WireframeOverlay::Visible) {
-                        xrayLabel = "XRay Vis";
+                        wiresLabel = "Vis";
                     } else if (editor.wireframe == slopmap::WireframeOverlay::All) {
-                        xrayLabel = "XRay All";
+                        wiresLabel = "All";
                     }
+                    char wiresBtnLabel[48];
+                    std::snprintf(wiresBtnLabel, sizeof(wiresBtnLabel), "Wires: %s", wiresLabel);
                     if (toolBtn(
-                            "xray-overlay",
+                            "wires-overlay",
                             "eye",
-                            xrayLabel,
+                            wiresBtnLabel,
                             editor.wireframe != slopmap::WireframeOverlay::Off)) {
-                        switch (editor.wireframe) {
-                        case slopmap::WireframeOverlay::Off:
-                            editor.wireframe = slopmap::WireframeOverlay::Visible;
-                            break;
-                        case slopmap::WireframeOverlay::Visible:
-                            editor.wireframe = slopmap::WireframeOverlay::All;
-                            break;
-                        case slopmap::WireframeOverlay::All:
+                        ImGui::OpenPopup("##wiresModePopup");
+                    }
+                    if (ImGui::BeginPopup("##wiresModePopup")) {
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "delete",
+                                "Off",
+                                "Shift+Z",
+                                editor.wireframe == slopmap::WireframeOverlay::Off)) {
                             editor.wireframe = slopmap::WireframeOverlay::Off;
-                            break;
                         }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "shape_square",
+                                "Vis",
+                                nullptr,
+                                editor.wireframe == slopmap::WireframeOverlay::Visible)) {
+                            editor.wireframe = slopmap::WireframeOverlay::Visible;
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "world",
+                                "All",
+                                nullptr,
+                                editor.wireframe == slopmap::WireframeOverlay::All)) {
+                            editor.wireframe = slopmap::WireframeOverlay::All;
+                        }
+                        ImGui::EndPopup();
                     }
                 }
                 ImGui::SameLine();
                 if (toolBtn(
                         "ignore-backfaces",
                         "shape_flip_vertical",
-                        editor.ignoreBackfaces ? "No Backfaces" : "Backfaces",
+                        "Backfaces",
                         editor.ignoreBackfaces)) {
                     editor.ignoreBackfaces = !editor.ignoreBackfaces;
                     editor.statusMessage = editor.ignoreBackfaces
                         ? "Ignore backfaces: On"
                         : "Ignore backfaces: Off";
+                }
+                ImGui::SameLine();
+                if (toolBtn(
+                        "show-gizmos",
+                        "shape_handles",
+                        "Gizmos",
+                        editor.showGizmos)) {
+                    editor.showGizmos = !editor.showGizmos;
+                    editor.statusMessage = editor.showGizmos ? "Gizmos: on" : "Gizmos: off";
                 }
 
                 toolSep();

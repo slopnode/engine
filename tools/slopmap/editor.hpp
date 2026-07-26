@@ -30,13 +30,6 @@ enum class EditorScene {
     Prefab,
 };
 
-enum class ViewPlane {
-    PerspectiveY0,
-    Top,
-    Front,
-    Side,
-};
-
 enum class SelectionMode {
     Brush,
     Face,
@@ -123,12 +116,18 @@ struct Editor {
     EditorMode mode = EditorMode::Select;
     ViewPlane viewPlane = ViewPlane::PerspectiveY0;
     FlyCamera camera;
+    Vector3 orthoFocus{0.0f, 1.0f, 0.0f};
+    Vector3 savedPerspectivePosition{0.0f, 2.5f, 8.0f};
+    float savedPerspectiveYaw = 3.14159265f;
+    float savedPerspectivePitch = -0.35f;
+    bool savedPerspectiveValid = false;
     MapPreview preview;
     PreviewFill fill = PreviewFill::Textures;
     WireframeOverlay wireframe = WireframeOverlay::Off;
     bool ignoreBackfaces = true;
     float gridSize = 0.1f;
     bool showGrid = true;
+    bool showGizmos = true;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
     float rotateSnapDegrees = 15.0f;
@@ -196,6 +195,7 @@ struct Editor {
     void cycleGridPlane();
     const char* gridPlaneLabel() const;
     void setViewPlane(ViewPlane plane);
+    void syncOrthoFocus();
     void toggleOrthoTop();
     std::string allocateBrushId();
     std::string allocatePrefabId();
@@ -241,6 +241,7 @@ struct ConstructionPlane {
 
 ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane = GridPlane::XZ);
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane);
+GridPlane gridPlaneForView(ViewPlane view, GridPlane gridPlane);
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin);
 
 }

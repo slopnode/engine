@@ -860,13 +860,13 @@ std::optional<Brush> makeBrushCylinder(
     bottom.id = id + "/bottom";
     bottom.material = material;
     bottom.vertices = ringBottom;
-    std::reverse(bottom.vertices.begin(), bottom.vertices.end());
     faces.push_back(std::move(bottom));
 
     BrushFace top;
     top.id = id + "/top";
     top.material = material;
     top.vertices = ringTop;
+    std::reverse(top.vertices.begin(), top.vertices.end());
     faces.push_back(std::move(top));
 
     for (int i = 0; i < sides; ++i) {
@@ -875,10 +875,10 @@ std::optional<Brush> makeBrushCylinder(
         side.id = id + "/side-" + std::to_string(i);
         side.material = material;
         side.vertices = {
-            ringBottom[static_cast<std::size_t>(i)],
             ringBottom[static_cast<std::size_t>(next)],
-            ringTop[static_cast<std::size_t>(next)],
+            ringBottom[static_cast<std::size_t>(i)],
             ringTop[static_cast<std::size_t>(i)],
+            ringTop[static_cast<std::size_t>(next)],
         };
         faces.push_back(std::move(side));
     }
