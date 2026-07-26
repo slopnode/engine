@@ -4,6 +4,7 @@
 
 #include "map/brush.hpp"
 #include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
@@ -907,6 +908,33 @@ void loadPackageMapHandlers(s7_scheme* scheme, AssetStore& assets) {
         }
         if (assets.loadDataFromPackage(scheme, package.meta().id, "map-handlers")) {
             registerPackageMapHandlersFromScheme(scheme);
+        }
+    }
+}
+
+void loadPackageThings(s7_scheme* scheme, AssetStore& assets) {
+    if (scheme == nullptr) {
+        return;
+    }
+    thingDefRegistry().clear();
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Engine) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "things")) {
+            registerPackageThingsFromScheme(scheme);
+        }
+    }
+    const std::string baseId{assets.basePackageId()};
+    if (!baseId.empty() && assets.loadDataFromPackage(scheme, baseId, "things")) {
+        registerPackageThingsFromScheme(scheme);
+    }
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "things")) {
+            registerPackageThingsFromScheme(scheme);
         }
     }
 }

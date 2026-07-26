@@ -455,6 +455,9 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
 
     flecs::entity entity = ctx.world->entity(placement.id.c_str());
     entity.add<MapOwned>();
+    if (!placement.type.empty()) {
+        entity.set<ThingTypeRef>(ThingTypeRef{placement.type});
+    }
 
     if (thingKindNeedsPresentation(placement.kind)) {
         if (!applyPresentation(entity, placement, ctx)) {

@@ -4,6 +4,12 @@
 
 namespace slopmap {
 
+namespace {
+
+constexpr float kViewportGap = 1.0f;
+
+} // namespace
+
 UiLayout computeUiLayout(float menuHeight, float statusHeight, float leftWidth, float rightWidth) {
     UiLayout layout;
     layout.menuHeight = menuHeight;
@@ -58,6 +64,58 @@ void drawContentTarget(const RenderTexture2D& target, Rectangle content) {
         -static_cast<float>(target.texture.height),
     };
     DrawTexturePro(target.texture, source, content, {0.0f, 0.0f}, 0.0f, WHITE);
+}
+
+ContentViewports splitContentViewports(Rectangle content, ViewportLayout layout, int activeViewport) {
+    ContentViewports result{};
+    if (layout == ViewportLayout::Single) {
+        result.count = 1;
+        const int index = std::clamp(activeViewport, 0, kViewportCount - 1);
+        result.rects[static_cast<std::size_t>(index)] = content;
+        return result;
+    }
+
+    result.count = kViewportCount;
+    const float halfW = (content.width - kViewportGap) * 0.5f;
+    const float halfH = (content.height - kViewportGap) * 0.5f;
+    const float rightX = content.x + halfW + kViewportGap;
+    const float bottomY = content.y + halfH + kViewportGap;
+    result.rects[0] = {content.x, content.y, halfW, halfH};
+    result.rects[1] = {rightX, content.y, halfW, halfH};
+    result.rects[2] = {content.x, bottomY, halfW, halfH};
+    result.rects[3] = {rightX, bottomY, halfW, halfH};
+    return result;
+}
+
+int hitTestContentViewport(Vector2 point, const ContentViewports& viewports) {
+    if (viewports.count == 1) {
+        for (int i = 0; i < kViewportCount; ++i) {
+            const Rectangle& rect = viewports.rects[static_cast<std::size_t>(i)];
+            if (rect.width > 0.0f && rect.height > 0.0f && pointInRect(point, rect)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    for (int i = 0; i < viewports.count; ++i) {
+        if (pointInRect(point, viewports.rects[static_cast<std::size_t>(i)])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void drawViewportChrome(const ContentViewports& viewports, int activeViewport) {
+    if (viewports.count <= 1) {
+        return;
+    }
+    for (int i = 0; i < viewports.count; ++i) {
+        const Rectangle& rect = viewports.rects[static_cast<std::size_t>(i)];
+        const bool active = i == activeViewport;
+        const Color color = active ? Color{220, 180, 70, 255} : Color{18, 20, 24, 255};
+        const float thickness = active ? 2.0f : 1.0f;
+        DrawRectangleLinesEx(rect, thickness, color);
+    }
 }
 
 }

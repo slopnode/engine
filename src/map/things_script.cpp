@@ -1,6 +1,7 @@
 #include "map/things_script.hpp"
 
 #include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
 #include "script/script_scope.hpp"
 
 #include <raylib.h>
@@ -75,6 +76,13 @@ s7_pointer g_id(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "id", 1, args, "value");
     }
     return makeTaggedList(sc, "id", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_type(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "type", 1, args, "catalog-id");
+    }
+    return makeTaggedList(sc, "type", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
 s7_pointer g_at(s7_scheme* sc, s7_pointer args) {
@@ -464,6 +472,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
 
         if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.id);
+        } else if (std::strcmp(tag, "type") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.type);
         } else if (std::strcmp(tag, "at") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -813,6 +823,40 @@ s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "actor requires id and at", true);
 }
 
+s7_pointer g_thing(s7_scheme* sc, s7_pointer args) {
+    Thing probe{};
+    if (!parseThingClauses(sc, args, probe)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing has invalid clauses")));
+    }
+    if (probe.type.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing requires type")));
+    }
+    const ThingDef* def = thingDefRegistry().find(probe.type);
+    if (def == nullptr) {
+        const std::string msg = "thing unknown type '" + probe.type + "'";
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, msg.c_str())));
+    }
+    Thing placement{};
+    applyThingDef(*def, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing has invalid clauses")));
+    }
+    placement.kind = def->kind;
+    return appendThing(sc, std::move(placement), "thing requires id and at", true);
+}
+
 s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Mover;
@@ -982,6 +1026,7 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
 
 void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
+    s7_define_function(sc, "type", g_type, 1, 0, false, "(type catalog-id)");
     s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
     s7_define_function(sc, "yaw", g_yaw, 1, 0, false, "(yaw radians)");
     s7_define_function(sc, "pitch", g_pitch, 1, 0, false, "(pitch radians)");
@@ -1041,6 +1086,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
     s7_define_function(sc, "pickup", g_pickup, 0, 0, true, "(pickup clauses...)");
     s7_define_function(sc, "actor", g_actor, 0, 0, true, "(actor clauses...)");
+    s7_define_function(sc, "thing", g_thing, 0, 0, true, "(thing clauses...)");
     s7_define_function(sc, "mover", g_mover, 0, 0, true, "(mover clauses...)");
     s7_define_function(sc, "trigger", g_trigger, 0, 0, true, "(trigger clauses...)");
     s7_define_function(sc, "point-light", g_point_light, 0, 0, true, "(point-light clauses...)");

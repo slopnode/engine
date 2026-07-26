@@ -7,6 +7,8 @@
 #include "assets/sprite_anim_loader.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
+#include "map/thing.hpp"
+#include "map/thing_def_registry.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
@@ -1330,6 +1332,66 @@ s7_pointer g_mover_set_state(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_thing_type(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-type", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<ThingTypeRef>()) {
+        return s7_f(sc);
+    }
+    const std::string& type = entity.get<ThingTypeRef>().type;
+    if (type.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, type.c_str());
+}
+
+s7_pointer g_thing_def_health(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-health", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->health.has_value()) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, *def->health);
+}
+
+s7_pointer g_thing_def_idle_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-idle-anim", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || def->idleAnim.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, def->idleAnim.c_str());
+}
+
+s7_pointer g_thing_def_behavior(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || def->behavior.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, def->behavior.c_str());
+}
+
 void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     g_thingWorld = &world;
     if (!world.has<ThingDespawnQueue>()) {
@@ -1350,6 +1412,25 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(thing-despawn id)");
+    s7_define_function(scheme, "thing-type", g_thing_type, 1, 0, false, "(thing-type id)");
+    s7_define_function(
+        scheme, "thing-def-health", g_thing_def_health, 1, 0, false, "(thing-def-health type)");
+    s7_define_function(
+        scheme,
+        "thing-def-idle-anim",
+        g_thing_def_idle_anim,
+        1,
+        0,
+        false,
+        "(thing-def-idle-anim type)");
+    s7_define_function(
+        scheme,
+        "thing-def-behavior",
+        g_thing_def_behavior,
+        1,
+        0,
+        false,
+        "(thing-def-behavior type)");
     s7_define_function(
         scheme,
         "motored-spawn",

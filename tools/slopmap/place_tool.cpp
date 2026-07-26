@@ -1,6 +1,7 @@
 #include "place_tool.hpp"
 
 #include "map/prefab.hpp"
+#include "map/thing_def_registry.hpp"
 
 namespace slopmap {
 
@@ -144,6 +145,26 @@ void PlaceTool::update(
     }
 
     slopengine::Thing thing{};
+    const slopengine::ThingDef* catalogDef = nullptr;
+    if (!editor.placeThingType.empty()) {
+        catalogDef = slopengine::thingDefRegistry().find(editor.placeThingType);
+    }
+    if (catalogDef != nullptr) {
+        slopengine::applyThingDef(*catalogDef, thing);
+        thing.id = editor.allocateThingId(catalogDef->id.c_str());
+        thing.at = snapToGrid(hit, editor.gridSize);
+        thing.haveAt = true;
+        editor.doc().things.push_back(std::move(thing));
+        const int index = static_cast<int>(editor.doc().things.size()) - 1;
+        editor.selectEntity({EntityRef::Kind::Thing, index}, false);
+        editor.markDirty();
+        editor.markThingCompileDirty(catalogDef->kind);
+        editor.mode = EditorMode::Select;
+        editor.statusMessage =
+            "Placed " + editor.doc().things.back().id + " (" + catalogDef->id + ")";
+        return;
+    }
+
     if (slopengine::thingKindIsLight(kind)) {
         thing = slopengine::makeDefaultLightThing(kind);
     } else if (kind == slopengine::ThingKind::SoundSource) {

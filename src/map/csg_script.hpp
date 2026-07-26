@@ -47,6 +47,9 @@ struct MapCsgDocument {
 /** Load base+mod data/map-handlers.s7 into the registry (for CSG arg clauses). */
 void loadPackageMapHandlers(s7_scheme* scheme, AssetStore& assets);
 
+/** Load engine+base+mod data/things.s7 into the thing-def registry. */
+void loadPackageThings(s7_scheme* scheme, AssetStore& assets);
+
 /** Loads maps/<name>/map.meta. */
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName);
 

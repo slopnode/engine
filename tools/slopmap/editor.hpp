@@ -85,6 +85,11 @@ struct CompileDirty {
     bool rad = false;
 };
 
+struct ViewportCamera {
+    ViewPlane plane = ViewPlane::PerspectiveY0;
+    FlyCamera camera;
+};
+
 struct EditorDocument {
     std::string assetPath;
     std::vector<slopengine::Brush> brushes;
@@ -114,13 +119,12 @@ struct Editor {
     EditorDocument prefabDoc;
     EditorScene scene = EditorScene::Level;
     EditorMode mode = EditorMode::Select;
+    ViewportLayout viewportLayout = ViewportLayout::Single;
+    int activeViewport = 0;
+    ViewportCamera viewports[kViewportCount]{};
     ViewPlane viewPlane = ViewPlane::PerspectiveY0;
     FlyCamera camera;
     Vector3 orthoFocus{0.0f, 1.0f, 0.0f};
-    Vector3 savedPerspectivePosition{0.0f, 2.5f, 8.0f};
-    float savedPerspectiveYaw = 3.14159265f;
-    float savedPerspectivePitch = -0.35f;
-    bool savedPerspectiveValid = false;
     MapPreview preview;
     PreviewFill fill = PreviewFill::Textures;
     WireframeOverlay wireframe = WireframeOverlay::Off;
@@ -155,6 +159,7 @@ struct Editor {
     PlaceTarget placeTarget = PlaceTarget::PrefabInstance;
     std::string placePrefabPath;
     std::optional<slopengine::ThingKind> placeThingKind;
+    std::string placeThingType;
     PlacePresentation placePresentation = PlacePresentation::None;
     std::unordered_map<std::string, PlacePresentation> propChannelLock;
     std::filesystem::path writePackageRoot;
@@ -195,8 +200,16 @@ struct Editor {
     void cycleGridPlane();
     const char* gridPlaneLabel() const;
     void setViewPlane(ViewPlane plane);
+    void setActiveViewport(int index);
+    void toggleViewportLayout();
     void syncOrthoFocus();
+    void syncOrthoFocusFrom(const FlyCamera& cam, ViewPlane plane);
+    void applyOrthoPoses();
+    void syncActiveCameraFromBank();
+    void syncBankFromActiveCamera();
     void toggleOrthoTop();
+    static int viewportIndexForPlane(ViewPlane plane);
+    static ViewPlane planeForViewportIndex(int index);
     std::string allocateBrushId();
     std::string allocatePrefabId();
     std::string allocateThingId(const char* prefix);

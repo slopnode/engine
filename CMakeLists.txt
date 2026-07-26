@@ -68,6 +68,7 @@ set(SLOPLIB_SOURCES
     src/map/mover_brushes.cpp
     src/map/handler_binding.cpp
     src/map/map_handler_registry.cpp
+    src/map/thing_def_registry.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp

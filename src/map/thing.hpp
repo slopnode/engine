@@ -27,8 +27,14 @@ enum class ThingKind {
     Marker,
 };
 
+/** Runtime component: catalog type id for a spawned map thing (empty if legacy). */
+struct ThingTypeRef {
+    std::string type;
+};
+
 struct Thing {
     ThingKind kind = ThingKind::Prop;
+    std::string type;
     std::string id;
     Vector3 at{0.0f, 0.0f, 0.0f};
     bool haveAt = false;

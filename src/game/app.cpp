@@ -12,6 +12,8 @@
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
 #include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
+#include "map/csg_script.hpp"
 #include "map/map_scene.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
@@ -139,6 +141,7 @@ void App::init_script() {
             }
         }
     }
+    loadPackageThings(scheme_, assetStore_);
     if (!assetStore_.loadDataFromPackage(scheme_, baseId, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }

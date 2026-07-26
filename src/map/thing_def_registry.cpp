@@ -1,0 +1,335 @@
+#include "map/thing_def_registry.hpp"
+
+#include "script/package_load_context.hpp"
+
+#include <raylib.h>
+#include <s7.h>
+
+#include <cstring>
+
+namespace slopengine {
+
+namespace {
+
+ThingDefRegistry g_thingDefRegistry;
+
+bool readStringValue(s7_scheme* scheme, s7_pointer value, std::string& out) {
+    (void)scheme;
+    if (s7_is_string(value)) {
+        out = s7_string(value);
+        return true;
+    }
+    if (s7_is_symbol(value)) {
+        out = s7_symbol_name(value);
+        return true;
+    }
+    return false;
+}
+
+bool readAssoc(s7_scheme* scheme, s7_pointer alist, const char* key, s7_pointer& out) {
+    if (!s7_is_pair(alist) && !s7_is_null(scheme, alist)) {
+        return false;
+    }
+    const s7_pointer pair = s7_assoc(scheme, s7_make_symbol(scheme, key), alist);
+    if (!s7_is_pair(pair)) {
+        return false;
+    }
+    out = s7_cdr(pair);
+    return true;
+}
+
+bool readAssocString(s7_scheme* scheme, s7_pointer alist, const char* key, std::string& out) {
+    s7_pointer value = nullptr;
+    if (!readAssoc(scheme, alist, key, value)) {
+        return false;
+    }
+    if (s7_is_pair(value)) {
+        return readStringValue(scheme, s7_car(value), out);
+    }
+    return readStringValue(scheme, value, out);
+}
+
+bool readAssocBool(s7_scheme* scheme, s7_pointer alist, const char* key, bool& out) {
+    s7_pointer value = nullptr;
+    if (!readAssoc(scheme, alist, key, value)) {
+        return false;
+    }
+    if (s7_is_pair(value)) {
+        value = s7_car(value);
+    }
+    if (s7_is_boolean(value)) {
+        out = s7_boolean(scheme, value);
+        return true;
+    }
+    if (s7_is_integer(value)) {
+        out = s7_integer(value) != 0;
+        return true;
+    }
+    return false;
+}
+
+bool readAssocInt(s7_scheme* scheme, s7_pointer alist, const char* key, int& out) {
+    s7_pointer value = nullptr;
+    if (!readAssoc(scheme, alist, key, value)) {
+        return false;
+    }
+    if (s7_is_pair(value)) {
+        value = s7_car(value);
+    }
+    if (!s7_is_integer(value)) {
+        return false;
+    }
+    out = static_cast<int>(s7_integer(value));
+    return true;
+}
+
+bool parseKindName(std::string_view name, ThingKind& out) {
+    if (name == "prop") {
+        out = ThingKind::Prop;
+        return true;
+    }
+    if (name == "actor") {
+        out = ThingKind::Actor;
+        return true;
+    }
+    return false;
+}
+
+bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
+    def.haveMotor = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (!s7_is_pair(values)) {
+            return false;
+        }
+        if (std::strcmp(tag, "hull") == 0) {
+            std::string hull;
+            if (!readStringValue(scheme, s7_car(values), hull) ||
+                (hull != "box" && hull != "capsule")) {
+                return false;
+            }
+            def.motorHull = (hull == "box") ? CharacterHull::Box : CharacterHull::Capsule;
+            continue;
+        }
+        if (std::strcmp(tag, "move") == 0) {
+            std::string move;
+            if (!readStringValue(scheme, s7_car(values), move) ||
+                (move != "try-move" && move != "slide")) {
+                return false;
+            }
+            def.motorMoveMode =
+                (move == "try-move") ? CharacterMoveMode::TryMove : CharacterMoveMode::Slide;
+            continue;
+        }
+        if (!s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "radius") == 0) {
+            def.motorRadius = value;
+        } else if (std::strcmp(tag, "height") == 0) {
+            def.motorHeight = value;
+        } else if (std::strcmp(tag, "speed") == 0) {
+            def.motorSpeed = value;
+        } else if (std::strcmp(tag, "gravity") == 0) {
+            def.motorGravity = value;
+        } else if (std::strcmp(tag, "step-height") == 0) {
+            def.motorStepHeight = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+ThingDefRegistry& thingDefRegistry() {
+    return g_thingDefRegistry;
+}
+
+void ThingDefRegistry::clear() {
+    defs_.clear();
+}
+
+bool ThingDefRegistry::registerDef(ThingDef def) {
+    if (def.id.empty()) {
+        return false;
+    }
+    if (find(def.id) != nullptr) {
+        TraceLog(LOG_WARNING, "THINGDEFS: duplicate id '%s' ignored", def.id.c_str());
+        return false;
+    }
+    if (def.kind != ThingKind::Prop && def.kind != ThingKind::Actor) {
+        TraceLog(
+            LOG_WARNING,
+            "THINGDEFS: '%s' kind must be prop or actor; ignored",
+            def.id.c_str());
+        return false;
+    }
+    if (def.label.empty()) {
+        def.label = def.id;
+    }
+    if (def.kind == ThingKind::Actor && !def.haveMotor) {
+        def.haveMotor = true;
+    }
+    if (def.kind == ThingKind::Actor && def.tags.empty()) {
+        def.tags.push_back("actor");
+    }
+    defs_.push_back(std::move(def));
+    return true;
+}
+
+const ThingDef* ThingDefRegistry::find(std::string_view id) const {
+    for (const ThingDef& def : defs_) {
+        if (def.id == id) {
+            return &def;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<const ThingDef*> ThingDefRegistry::defsForRole(PackageRole role) const {
+    std::vector<const ThingDef*> out;
+    for (const ThingDef& def : defs_) {
+        if (def.packageRole == role) {
+            out.push_back(&def);
+        }
+    }
+    return out;
+}
+
+void applyThingDef(const ThingDef& def, Thing& out) {
+    out.kind = def.kind;
+    out.type = def.id;
+    out.sprite = def.sprite;
+    out.geo = def.geo;
+    out.frame = def.frame;
+    out.haveAnim = def.haveAnim;
+    out.animClip = def.animClip;
+    out.animLoop = def.animLoop;
+    out.haveMotor = def.haveMotor;
+    out.motorRadius = def.motorRadius;
+    out.motorHeight = def.motorHeight;
+    out.motorSpeed = def.motorSpeed;
+    out.motorGravity = def.motorGravity;
+    out.motorStepHeight = def.motorStepHeight;
+    out.motorHull = def.motorHull;
+    out.motorMoveMode = def.motorMoveMode;
+    out.tags = def.tags;
+}
+
+bool registerPackageThingsFromScheme(s7_scheme* scheme) {
+    if (scheme == nullptr) {
+        return false;
+    }
+
+    const s7_pointer catalog = s7_name_to_value(scheme, "*package-things*");
+    if (catalog == s7_undefined(scheme) || s7_is_null(scheme, catalog)) {
+        return true;
+    }
+    if (!s7_is_pair(catalog)) {
+        return false;
+    }
+
+    const std::string packageId{currentPackageLoadId()};
+    const PackageRole packageRole = currentPackageRole();
+
+    for (s7_pointer cursor = catalog; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry)) {
+            continue;
+        }
+
+        ThingDef def{};
+        if (!readStringValue(scheme, s7_car(entry), def.id) || def.id.empty()) {
+            continue;
+        }
+
+        const s7_pointer props = s7_cdr(entry);
+        readAssocString(scheme, props, "label", def.label);
+        readAssocString(scheme, props, "icon", def.icon);
+
+        std::string kindName;
+        if (!readAssocString(scheme, props, "kind", kindName) ||
+            !parseKindName(kindName, def.kind)) {
+            TraceLog(
+                LOG_WARNING,
+                "THINGDEFS: '%s' missing or invalid kind; ignored",
+                def.id.c_str());
+            continue;
+        }
+
+        readAssocString(scheme, props, "sprite", def.sprite);
+        readAssocString(scheme, props, "geo", def.geo);
+        readAssocString(scheme, props, "frame", def.frame);
+
+        s7_pointer animVal = nullptr;
+        if (readAssoc(scheme, props, "anim", animVal)) {
+            if (s7_is_pair(animVal)) {
+                if (readStringValue(scheme, s7_car(animVal), def.animClip)) {
+                    def.haveAnim = true;
+                    def.animLoop = true;
+                    if (s7_is_pair(s7_cdr(animVal))) {
+                        s7_pointer loopVal = s7_cadr(animVal);
+                        if (s7_is_boolean(loopVal)) {
+                            def.animLoop = s7_boolean(scheme, loopVal);
+                        } else if (s7_is_integer(loopVal)) {
+                            def.animLoop = s7_integer(loopVal) != 0;
+                        }
+                    }
+                }
+            } else if (readStringValue(scheme, animVal, def.animClip)) {
+                def.haveAnim = true;
+                def.animLoop = true;
+            }
+        }
+        bool animLoop = true;
+        if (readAssocBool(scheme, props, "anim-loop", animLoop) && def.haveAnim) {
+            def.animLoop = animLoop;
+        }
+
+        s7_pointer motorVal = nullptr;
+        if (readAssoc(scheme, props, "motor", motorVal)) {
+            if (!parseMotorClauses(scheme, motorVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid motor; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+
+        s7_pointer tagsVal = nullptr;
+        if (readAssoc(scheme, props, "tags", tagsVal)) {
+            def.tags.clear();
+            for (s7_pointer tagCursor = tagsVal; s7_is_pair(tagCursor);
+                 tagCursor = s7_cdr(tagCursor)) {
+                std::string tag;
+                if (readStringValue(scheme, s7_car(tagCursor), tag) && !tag.empty()) {
+                    def.tags.push_back(std::move(tag));
+                }
+            }
+        }
+
+        int health = 0;
+        if (readAssocInt(scheme, props, "health", health)) {
+            def.health = health;
+        }
+        readAssocString(scheme, props, "idle-anim", def.idleAnim);
+        readAssocString(scheme, props, "behavior", def.behavior);
+
+        def.packageId = packageId;
+        def.packageRole = packageRole;
+        thingDefRegistry().registerDef(std::move(def));
+    }
+
+    return true;
+}
+
+}

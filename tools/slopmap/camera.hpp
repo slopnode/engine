@@ -11,6 +11,13 @@ enum class ViewPlane {
     Side,
 };
 
+enum class ViewportLayout {
+    Single,
+    Quad,
+};
+
+constexpr int kViewportCount = 4;
+
 struct FlyCamera {
     Vector3 position{0.0f, 2.5f, 8.0f};
     float yaw = 3.14159265f;

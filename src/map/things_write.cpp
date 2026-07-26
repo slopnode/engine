@@ -1,6 +1,7 @@
 #include "map/things_write.hpp"
 
 #include "map/handler_binding.hpp"
+#include "map/thing_def_registry.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -241,12 +242,94 @@ void writeTriggerFields(std::ostringstream& out, const Thing& p) {
     }
 }
 
+bool nearEq(float a, float b) {
+    return std::fabs(a - b) <= 0.0001f;
+}
+
+bool tagsEqual(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& def) {
+    out << "(thing\n";
+    writeIndentClause(out, "(type " + escapeSchemeString(p.type) + ")");
+    writeCommonPose(out, p);
+
+    Thing baseline{};
+    applyThingDef(def, baseline);
+
+    if (p.sprite != baseline.sprite && !p.sprite.empty()) {
+        writeIndentClause(out, "(sprite " + escapeSchemeString(p.sprite) + ")");
+    }
+    if (p.geo != baseline.geo && !p.geo.empty()) {
+        writeIndentClause(out, "(geo " + escapeSchemeString(p.geo) + ")");
+    }
+    if (p.frame != baseline.frame) {
+        writeIndentClause(out, "(frame " + escapeSchemeString(p.frame) + ")");
+    }
+    if (p.haveAnim != baseline.haveAnim || p.animClip != baseline.animClip ||
+        p.animLoop != baseline.animLoop) {
+        if (p.haveAnim) {
+            std::string clause = "(anim " + escapeSchemeString(p.animClip);
+            clause += p.animLoop ? " #t)" : " #f)";
+            writeIndentClause(out, clause);
+        }
+    }
+    if (p.kind == ThingKind::Actor) {
+        const bool motorDiffers = p.haveMotor != baseline.haveMotor ||
+            !nearEq(p.motorRadius, baseline.motorRadius) ||
+            !nearEq(p.motorHeight, baseline.motorHeight) ||
+            !nearEq(p.motorSpeed, baseline.motorSpeed) ||
+            !nearEq(p.motorGravity, baseline.motorGravity) ||
+            !nearEq(p.motorStepHeight, baseline.motorStepHeight) ||
+            p.motorHull != baseline.motorHull || p.motorMoveMode != baseline.motorMoveMode;
+        if (motorDiffers) {
+            std::string clause = "(motor (radius " + formatFloat(p.motorRadius) + ") (height " +
+                formatFloat(p.motorHeight) + ") (speed " + formatFloat(p.motorSpeed) +
+                ") (gravity " + formatFloat(p.motorGravity) + ") (step-height " +
+                formatFloat(p.motorStepHeight) + ")";
+            clause += (p.motorHull == CharacterHull::Box) ? " (hull box)" : " (hull capsule)";
+            clause +=
+                (p.motorMoveMode == CharacterMoveMode::TryMove) ? " (move try-move)"
+                                                                : " (move slide)";
+            clause += ")";
+            writeIndentClause(out, clause);
+        }
+        if (!tagsEqual(p.tags, baseline.tags) && !p.tags.empty()) {
+            std::string clause = "(tags";
+            for (const std::string& tag : p.tags) {
+                clause += " " + escapeSchemeString(tag);
+            }
+            clause += ")";
+            writeIndentClause(out, clause);
+        }
+    }
+
+    out << ")\n\n";
+}
+
 void writeThing(std::ostringstream& out, const Thing& p) {
     if (p.kind == ThingKind::Prefab) {
         out << "(prefab " << escapeSchemeString(p.prefabPath) << "\n";
         writeCommonPose(out, p);
         out << ")\n\n";
         return;
+    }
+
+    if (!p.type.empty()) {
+        const ThingDef* def = thingDefRegistry().find(p.type);
+        if (def != nullptr) {
+            writeTypedThing(out, p, *def);
+            return;
+        }
     }
 
     out << "(" << thingKindName(p.kind) << "\n";

@@ -25,6 +25,7 @@
 #include "game/app_config.hpp"
 #include "map/csg_script.hpp"
 #include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/imgui_fonts.hpp"
 
@@ -484,6 +485,7 @@ void beginThingKind(
     slopmap::PlacePresentation presentation = slopmap::PlacePresentation::None) {
     editor.placeTarget = slopmap::PlaceTarget::Thing;
     editor.placeThingKind = kind;
+    editor.placeThingType.clear();
     editor.placePresentation = presentation;
     editor.placePrefabPath.clear();
     editor.mode = slopmap::EditorMode::Place;
@@ -502,6 +504,28 @@ void beginThingKind(
     } else {
         editor.statusMessage = std::string("Place ") + label + ": click the viewport";
     }
+}
+
+void beginThingDef(
+    slopmap::Editor& editor,
+    const slopengine::ThingDef& def,
+    slopmap::CreateTool& createTool) {
+    editor.placeTarget = slopmap::PlaceTarget::Thing;
+    editor.placeThingKind = def.kind;
+    editor.placeThingType = def.id;
+    editor.placePresentation = slopmap::PlacePresentation::None;
+    if (def.kind == slopengine::ThingKind::Prop) {
+        if (!def.geo.empty()) {
+            editor.placePresentation = slopmap::PlacePresentation::Geo;
+        } else {
+            editor.placePresentation = slopmap::PlacePresentation::Sprite;
+        }
+    }
+    editor.placePrefabPath.clear();
+    editor.mode = slopmap::EditorMode::Place;
+    createTool.reset();
+    editor.statusMessage =
+        std::string("Place ") + def.label + " (" + def.id + "): click the viewport";
 }
 
 void cancelTools(
@@ -682,6 +706,7 @@ int main(int argc, char* argv[]) {
     }
 
     slopengine::loadPackageMapHandlers(scheme, assets);
+    slopengine::loadPackageThings(scheme, assets);
 
     slopmap::Editor editor;
     editor.writePackageRoot = config->target;
@@ -723,7 +748,7 @@ int main(int argc, char* argv[]) {
     char mapNameBuf[128] = {};
     char prefabPathBuf[256] = {};
     char thumbCachePathBuf[512] = {};
-    RenderTexture2D contentTarget{};
+    RenderTexture2D contentTargets[slopmap::kViewportCount]{};
 
     auto syncCompileStatus = [&]() {
         std::string status;
@@ -819,16 +844,37 @@ int main(int argc, char* argv[]) {
         Rectangle viewport = layout.content;
         viewport.y += toolbarHeight;
         viewport.height = std::max(1.0f, viewport.height - toolbarHeight);
-        editor.contentViewport = viewport;
-        slopmap::ensureContentTarget(contentTarget, viewport);
+        slopmap::ContentViewports panes = slopmap::splitContentViewports(
+            viewport, editor.viewportLayout, editor.activeViewport);
 
         const Vector2 mouse = GetMousePosition();
-        const bool mouseInContent = slopmap::pointInRect(mouse, viewport);
+        const int hoveredPane = slopmap::hitTestContentViewport(mouse, panes);
+        const bool mouseInContent = hoveredPane >= 0;
+        if (!uiWantsMouse && hoveredPane >= 0 &&
+            (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
+             IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))) {
+            editor.setActiveViewport(hoveredPane);
+        }
+
+        int flyPane = hoveredPane;
+        if (IsCursorHidden()) {
+            flyPane = editor.activeViewport;
+        }
         const bool allowFly =
             !uiWantsKeyboard && !uiWantsMouse && (mouseInContent || IsCursorHidden());
-        editor.camera.update(allowFly);
-        editor.syncOrthoFocus();
-        const Camera3D camera = editor.camera.toRaylib();
+        if (flyPane >= 0 && allowFly) {
+            slopmap::FlyCamera& flyCamera =
+                editor.viewports[static_cast<std::size_t>(flyPane)].camera;
+            flyCamera.update(true);
+            if (flyCamera.orthographic) {
+                editor.syncOrthoFocusFrom(
+                    flyCamera, editor.viewports[static_cast<std::size_t>(flyPane)].plane);
+                editor.applyOrthoPoses();
+            }
+        } else {
+            editor.viewports[static_cast<std::size_t>(editor.activeViewport)].camera.update(false);
+        }
+        editor.syncActiveCameraFromBank();
 
         if (ImGui::BeginMainMenuBar()) {
             constexpr const char* kIcons = kDefaultIconSet;
@@ -1194,6 +1240,15 @@ int main(int argc, char* argv[]) {
                         nullptr,
                         editor.viewPlane == slopmap::ViewPlane::Side)) {
                     editor.setViewPlane(slopmap::ViewPlane::Side);
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "application_view_tile",
+                        "Quad View",
+                        "Ctrl+Alt+Q",
+                        editor.viewportLayout == slopmap::ViewportLayout::Quad)) {
+                    editor.toggleViewportLayout();
                 }
                 ImGui::Separator();
                 if (menuItemWithIcon(
@@ -1606,6 +1661,11 @@ int main(int argc, char* argv[]) {
             if (IsKeyPressed(KEY_TAB)) {
                 editor.toggleOrthoTop();
             }
+            if (IsKeyPressed(KEY_Q) &&
+                (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) &&
+                (IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT))) {
+                editor.toggleViewportLayout();
+            }
             if (IsKeyPressed(KEY_LEFT_BRACKET)) {
                 editor.cycleGrid(1);
             }
@@ -1674,6 +1734,23 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        panes = slopmap::splitContentViewports(
+            viewport, editor.viewportLayout, editor.activeViewport);
+        for (int i = 0; i < slopmap::kViewportCount; ++i) {
+            const Rectangle& paneRect = panes.rects[static_cast<std::size_t>(i)];
+            if (paneRect.width >= 1.0f && paneRect.height >= 1.0f) {
+                slopmap::ensureContentTarget(contentTargets[i], paneRect);
+            }
+        }
+        editor.syncActiveCameraFromBank();
+        {
+            const Rectangle& activeRect =
+                panes.rects[static_cast<std::size_t>(editor.activeViewport)];
+            editor.contentViewport =
+                (activeRect.width >= 1.0f && activeRect.height >= 1.0f) ? activeRect : viewport;
+        }
+        const Camera3D camera = editor.camera.toRaylib();
+
         const bool wasSelectTransform = selectTool.active();
         const bool createWasActive = createTool.active();
         const bool punchWasActive = punchTool.active();
@@ -1714,11 +1791,29 @@ int main(int argc, char* argv[]) {
         BeginDrawing();
         ClearBackground(Color{28, 30, 34, 255});
 
-        if (contentTarget.id != 0) {
-            BeginTextureMode(contentTarget);
-            drawScene(editor, assets, camera, createTool, punchTool, clipTool);
-            EndTextureMode();
-            slopmap::drawContentTarget(contentTarget, viewport);
+        {
+            const slopmap::ViewPlane drawPlane = editor.viewPlane;
+            const slopmap::FlyCamera drawCamera = editor.camera;
+            const Rectangle drawViewport = editor.contentViewport;
+            for (int i = 0; i < slopmap::kViewportCount; ++i) {
+                const Rectangle& paneRect = panes.rects[static_cast<std::size_t>(i)];
+                if (paneRect.width < 1.0f || paneRect.height < 1.0f ||
+                    contentTargets[i].id == 0) {
+                    continue;
+                }
+                editor.viewPlane = editor.viewports[static_cast<std::size_t>(i)].plane;
+                editor.camera = editor.viewports[static_cast<std::size_t>(i)].camera;
+                editor.contentViewport = paneRect;
+                const Camera3D paneCamera = editor.camera.toRaylib();
+                BeginTextureMode(contentTargets[i]);
+                drawScene(editor, assets, paneCamera, createTool, punchTool, clipTool);
+                EndTextureMode();
+                slopmap::drawContentTarget(contentTargets[i], paneRect);
+            }
+            editor.viewPlane = drawPlane;
+            editor.camera = drawCamera;
+            editor.contentViewport = drawViewport;
+            slopmap::drawViewportChrome(panes, editor.activeViewport);
         }
 
         {
@@ -2063,8 +2158,9 @@ int main(int argc, char* argv[]) {
                     std::snprintf(
                         canvasLabel,
                         sizeof(canvasLabel),
-                        "%s  ·  Grid %s %s%s",
+                        "%s%s  ·  Grid %s %s%s",
                         viewLabel,
+                        editor.viewportLayout == slopmap::ViewportLayout::Quad ? "×4" : "",
                         editor.gridPlaneLabel(),
                         editor.gridSizeLabel(),
                         editor.showGrid ? "" : " (off)");
@@ -2344,7 +2440,7 @@ int main(int argc, char* argv[]) {
                         }
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Texture")) {
+                    if (ImGui::BeginTabItem("UV")) {
                         const slopmap::TexturePanelResult texResult =
                             texturePanel.drawSection(editor, assets, bodyH);
                         if (texResult.changed) {
@@ -2416,7 +2512,8 @@ int main(int argc, char* argv[]) {
                             const auto isKind = [&](slopengine::ThingKind kind,
                                                    slopmap::PlacePresentation presentation =
                                                        slopmap::PlacePresentation::None) {
-                                if (!placingThing || *editor.placeThingKind != kind) {
+                                if (!placingThing || !editor.placeThingType.empty() ||
+                                    *editor.placeThingKind != kind) {
                                     return false;
                                 }
                                 if (kind == slopengine::ThingKind::Prop) {
@@ -2424,7 +2521,27 @@ int main(int argc, char* argv[]) {
                                 }
                                 return true;
                             };
+                            const auto isDef = [&](std::string_view typeId) {
+                                return placingThing && editor.placeThingType == typeId;
+                            };
+                            const auto drawDefButtons =
+                                [&](slopengine::PackageRole role, const char* fallbackIcon) {
+                                    for (const slopengine::ThingDef* def :
+                                         slopengine::thingDefRegistry().defsForRole(role)) {
+                                        if (def == nullptr) {
+                                            continue;
+                                        }
+                                        const char* icon = def->icon.empty() ? fallbackIcon
+                                                                             : def->icon.c_str();
+                                        placeKindButton(
+                                            icon,
+                                            def->label.c_str(),
+                                            isDef(def->id),
+                                            [&, def] { beginThingDef(editor, *def, createTool); });
+                                    }
+                                };
 
+                            ImGui::TextDisabled("Engine Things");
                             placeKindButton(
                                 "user",
                                 "player-start",
@@ -2526,22 +2643,46 @@ int main(int argc, char* argv[]) {
                                     beginThingKind(
                                         editor, slopengine::ThingKind::Sun, createTool);
                                 });
+                            drawDefButtons(slopengine::PackageRole::Engine, "brick");
+
+                            ImGui::Separator();
+                            ImGui::TextDisabled("Base Game Things");
+                            drawDefButtons(slopengine::PackageRole::Base, "package");
+
+                            const auto modDefs =
+                                slopengine::thingDefRegistry().defsForRole(
+                                    slopengine::PackageRole::Mod);
+                            if (!modDefs.empty()) {
+                                ImGui::Separator();
+                                ImGui::TextDisabled("Mod Things");
+                                drawDefButtons(slopengine::PackageRole::Mod, "plugin");
+                            }
 
                             if (placingThing) {
                                 ImGui::Separator();
-                                const char* placing =
-                                    slopengine::thingKindName(*editor.placeThingKind);
-                                if (*editor.placeThingKind == slopengine::ThingKind::Prop) {
-                                    if (editor.placePresentation ==
-                                        slopmap::PlacePresentation::Sprite) {
-                                        placing = "sprite";
-                                    } else if (
-                                        editor.placePresentation ==
-                                        slopmap::PlacePresentation::Geo) {
-                                        placing = "geo";
+                                std::string placing;
+                                if (!editor.placeThingType.empty()) {
+                                    if (const slopengine::ThingDef* def =
+                                            slopengine::thingDefRegistry().find(
+                                                editor.placeThingType)) {
+                                        placing = def->label + " (" + def->id + ")";
+                                    } else {
+                                        placing = editor.placeThingType;
+                                    }
+                                } else {
+                                    placing = slopengine::thingKindName(*editor.placeThingKind);
+                                    if (*editor.placeThingKind == slopengine::ThingKind::Prop) {
+                                        if (editor.placePresentation ==
+                                            slopmap::PlacePresentation::Sprite) {
+                                            placing = "sprite";
+                                        } else if (
+                                            editor.placePresentation ==
+                                            slopmap::PlacePresentation::Geo) {
+                                            placing = "geo";
+                                        }
                                     }
                                 }
-                                ImGui::Text("Placing: %s", placing);
+                                ImGui::Text("Placing: %s", placing.c_str());
                                 ImGui::TextColored(
                                     ImVec4(0.4f, 0.9f, 0.45f, 1.0f),
                                     "Click the viewport to place");
@@ -2559,6 +2700,7 @@ int main(int argc, char* argv[]) {
                         if (prefabResult.selected && editor.scene == slopmap::EditorScene::Level) {
                             editor.placeTarget = slopmap::PlaceTarget::PrefabInstance;
                             editor.placeThingKind.reset();
+                            editor.placeThingType.clear();
                             editor.placePresentation = slopmap::PlacePresentation::None;
                             editor.mode = slopmap::EditorMode::Place;
                             createTool.reset();
@@ -3068,8 +3210,10 @@ int main(int argc, char* argv[]) {
     if (IsCursorHidden()) {
         EnableCursor();
     }
-    if (contentTarget.id != 0) {
-        UnloadRenderTexture(contentTarget);
+    for (int i = 0; i < slopmap::kViewportCount; ++i) {
+        if (contentTargets[i].id != 0) {
+            UnloadRenderTexture(contentTargets[i]);
+        }
     }
     editor.preview.clear();
     s7_quit(scheme);

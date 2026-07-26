@@ -4,6 +4,7 @@
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
+#include "map/thing_def_registry.hpp"
 
 #include "core/package.hpp"
 
@@ -897,6 +898,39 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
+void drawTypeInfo(const EditorDocument& doc, const std::vector<int>& targets) {
+    const auto typeCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.type; });
+    if (!typeCommon.has_value()) {
+        ImGui::TextDisabled("Type: mixed");
+        return;
+    }
+    if (typeCommon->empty()) {
+        return;
+    }
+    if (const slopengine::ThingDef* def = slopengine::thingDefRegistry().find(*typeCommon)) {
+        const char* role = "package";
+        switch (def->packageRole) {
+        case slopengine::PackageRole::Engine:
+            role = "engine";
+            break;
+        case slopengine::PackageRole::Base:
+            role = "base game";
+            break;
+        case slopengine::PackageRole::Mod:
+            role = "mod";
+            break;
+        }
+        ImGui::Text("Type: %s (%s)", def->label.c_str(), def->id.c_str());
+        ImGui::TextDisabled("From: %s — %s", role, def->packageId.c_str());
+    } else {
+        ImGui::Text("Type: %s", typeCommon->c_str());
+        ImGui::TextDisabled("From: unknown catalog");
+    }
+}
+
 bool drawPropSection(
     Editor& editor,
     slopengine::AssetStore& assets,
@@ -910,6 +944,7 @@ bool drawPropSection(
         kindLabel = "prop";
     }
     ImGui::Text("Kind: %s", kindLabel);
+    drawTypeInfo(editor.doc(), targets);
     ImGui::Text("%d selected", static_cast<int>(targets.size()));
     ImGui::Separator();
     if (drawPresentationSection(editor, assets, targets, true)) {
@@ -926,6 +961,7 @@ bool drawActorSection(
     const EditorDocument& doc = editor.doc();
 
     ImGui::Text("Kind: actor");
+    drawTypeInfo(doc, targets);
     ImGui::Text("%d actor(s)", static_cast<int>(targets.size()));
     ImGui::Separator();
 
