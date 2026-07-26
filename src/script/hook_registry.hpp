@@ -32,6 +32,14 @@ void callHook2String(
     const std::string& arg1,
     ScriptScope scope);
 
+/** Call owner then contribs; false if any returns falsey. Missing hooks => true. */
+bool callHook2StringAllTruthy(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    ScriptScope scope);
+
 void bindHookApi(s7_scheme* scheme);
 
 }

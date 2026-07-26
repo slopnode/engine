@@ -117,6 +117,7 @@ add_executable(slopengine
     src/ui/imgui_fonts.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/sight_module.cpp
     src/physics/motored_body.cpp
     src/physics/motored_sweep.cpp
     src/physics/rigid_mover.cpp

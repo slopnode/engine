@@ -16,6 +16,7 @@
 #include "map/csg_script.hpp"
 #include "map/map_scene.hpp"
 #include "physics/physics_module.hpp"
+#include "physics/sight_module.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
 #include "script/save_script.hpp"
@@ -58,6 +59,7 @@ App::App(AppConfig config)
     registerInputModule(world_);
     registerUiModule(world_);
     registerPhysicsModule(world_, physicsWorld_.get());
+    registerSightModule(world_);
     registerAudioModule(world_, audioWorld_.get(), assetStore_, scheme_);
     registerCameraModule(world_);
     registerInteractModule(world_);

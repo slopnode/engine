@@ -34,6 +34,13 @@ bool tryCallSchemeProc2String(
     const std::string& arg0,
     const std::string& arg1,
     ScriptScope scope);
+/** Call named proc with two strings; missing proc => true. Returns Scheme truthiness. */
+bool tryCallSchemeProc2StringTruthy(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    ScriptScope scope);
 bool tryCallSchemeProc1String1Alist(
     s7_scheme* scheme,
     std::string_view name,

@@ -120,6 +120,8 @@ A call is allowed only when both the current scope and the package role permit t
 | (draw-hud) | When the HUD pass runs, if defined |
 | (draw-title) | Each menu frame for title chrome; same hud-* APIs as draw-hud. See [Title screen](titlescreen.md) |
 | (on-sprite-hint source name) | When a .spanim hold with (hint "name") is entered; source is the entity name or FP socket (weapon / emission). See [Sprites](sprites.md#logic-hints). |
+| (on-sight observer-id target-id) | When an enabled `ActorSight` observer newly acquires LOS on a target (edge-triggered). |
+| (sight-filter observer-id target-id) | Optional veto during sight scans; return falsey to skip the pair. Missing hooks allow the pair. |
 
 These stay name-lookup only (no hook-add list):
 
@@ -285,6 +287,12 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (actors-in-radius x y z r [tag]) | Actor ids whose feet are within r (optional tag filter) |
 | (los? x0 y0 z0 x1 y1 z1) | #t if the segment is clear of static brush hulls |
 | (actor-los? from-id to-id) | LOS between approximate eye heights of two actors |
+| (actor-sight-set! id alist) | Create/update `ActorSight` from alist keys: `enabled`, `range`, `fov`, `eye-lift`, `see-tags`, `ignore-tags`, `filter` |
+| (actor-sight-get id) | Current sight alist, or #f |
+| (actor-can-see? from to) | Full sight pipeline one-shot (ignores per-frame LOS budget) |
+| (sight-budget) / (sight-budget-set! n) | Max LOS traces per frame for the engine sight scan (default 6) |
+
+Sight scan order per candidate: tag include/exclude → per-actor `filter` proc → global `sight-filter` hook → range → FOV → PVS → LOS. Empty `see-tags` means any tagged character; `ignore-tags` always wins. The player is a valid target (CollisionTags `"player"`) even though it is not an `Actor`.
 
 Player aim helpers for spawn recipes: (player-eye) and (player-look-dir) — see [Player](player.md#scheme-api-engine-primitives).
 

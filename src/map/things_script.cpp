@@ -314,6 +314,46 @@ s7_pointer g_motor(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "motor", args);
 }
 
+s7_pointer g_sight(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "sight", args);
+}
+
+s7_pointer g_sight_fov(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "fov", 1, args, "value");
+    }
+    return makeTaggedList(sc, "fov", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sight_eye_lift(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "eye-lift", 1, args, "value");
+    }
+    return makeTaggedList(sc, "eye-lift", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sight_see_tags(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "see-tags", args);
+}
+
+s7_pointer g_sight_ignore_tags(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "ignore-tags", args);
+}
+
+s7_pointer g_sight_filter(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "filter", 1, args, "proc-name");
+    }
+    return makeTaggedList(sc, "filter", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sight_enabled(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "enabled", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "enabled", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_motor_radius(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "radius", 1, args, "value");
@@ -669,6 +709,73 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorStepHeight = value;
                 } else {
                     TraceLog(LOG_WARNING, "THING: unknown motor clause '%s'", motorTag);
+                    return false;
+                }
+            }
+        } else if (std::strcmp(tag, "sight") == 0) {
+            out.haveSight = true;
+            for (s7_pointer sightCursor = rest; s7_is_pair(sightCursor);
+                 sightCursor = s7_cdr(sightCursor)) {
+                s7_pointer sightClause = s7_car(sightCursor);
+                if (!s7_is_pair(sightClause) || !s7_is_symbol(s7_car(sightClause))) {
+                    TraceLog(LOG_WARNING, "THING: sight expected clause list");
+                    return false;
+                }
+                const char* sightTag = s7_symbol_name(s7_car(sightClause));
+                s7_pointer sightRest = s7_cdr(sightClause);
+                if (std::strcmp(sightTag, "see-tags") == 0) {
+                    out.sightSeeTags.clear();
+                    for (s7_pointer tagCursor = sightRest; s7_is_pair(tagCursor);
+                         tagCursor = s7_cdr(tagCursor)) {
+                        std::string tagValue;
+                        if (readString(sc, s7_car(tagCursor), tagValue) && !tagValue.empty()) {
+                            out.sightSeeTags.push_back(std::move(tagValue));
+                        }
+                    }
+                    continue;
+                }
+                if (std::strcmp(sightTag, "ignore-tags") == 0) {
+                    out.sightIgnoreTags.clear();
+                    for (s7_pointer tagCursor = sightRest; s7_is_pair(tagCursor);
+                         tagCursor = s7_cdr(tagCursor)) {
+                        std::string tagValue;
+                        if (readString(sc, s7_car(tagCursor), tagValue) && !tagValue.empty()) {
+                            out.sightIgnoreTags.push_back(std::move(tagValue));
+                        }
+                    }
+                    continue;
+                }
+                if (!s7_is_pair(sightRest)) {
+                    TraceLog(LOG_WARNING, "THING: malformed sight clause '%s'", sightTag);
+                    return false;
+                }
+                if (std::strcmp(sightTag, "filter") == 0) {
+                    if (!readString(sc, s7_car(sightRest), out.sightFilterProc)) {
+                        TraceLog(LOG_WARNING, "THING: sight filter must be a string");
+                        return false;
+                    }
+                    continue;
+                }
+                if (std::strcmp(sightTag, "enabled") == 0) {
+                    if (!readBool(sc, s7_car(sightRest), out.sightEnabled)) {
+                        TraceLog(LOG_WARNING, "THING: sight enabled must be bool");
+                        return false;
+                    }
+                    continue;
+                }
+                if (!s7_is_number(s7_car(sightRest))) {
+                    TraceLog(LOG_WARNING, "THING: unknown or malformed sight clause '%s'", sightTag);
+                    return false;
+                }
+                const float value = static_cast<float>(s7_number_to_real(sc, s7_car(sightRest)));
+                if (std::strcmp(sightTag, "range") == 0) {
+                    out.sightRange = value;
+                } else if (std::strcmp(sightTag, "fov") == 0) {
+                    out.sightFovDegrees = value;
+                } else if (std::strcmp(sightTag, "eye-lift") == 0) {
+                    out.sightEyeLift = value;
+                } else {
+                    TraceLog(LOG_WARNING, "THING: unknown sight clause '%s'", sightTag);
                     return false;
                 }
             }
@@ -1100,6 +1207,14 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_variable(sc, "box", s7_make_symbol(sc, "box"));
     s7_define_variable(sc, "slide", s7_make_symbol(sc, "slide"));
     s7_define_variable(sc, "try-move", s7_make_symbol(sc, "try-move"));
+    s7_define_function(sc, "sight", g_sight, 0, 0, true, "(sight clauses...)");
+    s7_define_function(sc, "fov", g_sight_fov, 1, 0, false, "(fov degrees)");
+    s7_define_function(sc, "eye-lift", g_sight_eye_lift, 1, 0, false, "(eye-lift fraction)");
+    s7_define_function(sc, "see-tags", g_sight_see_tags, 0, 0, true, "(see-tags values...)");
+    s7_define_function(
+        sc, "ignore-tags", g_sight_ignore_tags, 0, 0, true, "(ignore-tags values...)");
+    s7_define_function(sc, "filter", g_sight_filter, 1, 0, false, "(filter proc-name)");
+    s7_define_function(sc, "enabled", g_sight_enabled, 1, 0, false, "(enabled bool)");
     s7_define_function(sc, "color", g_color, 3, 0, false, "(color r g b)");
     s7_define_function(sc, "intensity", g_intensity, 1, 0, false, "(intensity value)");
     s7_define_function(sc, "range", g_range, 1, 0, false, "(range value)");

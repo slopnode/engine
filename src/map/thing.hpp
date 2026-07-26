@@ -95,6 +95,15 @@ struct Thing {
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;
 
+    bool haveSight = false;
+    bool sightEnabled = true;
+    float sightRange = 32.0f;
+    float sightFovDegrees = 180.0f;
+    float sightEyeLift = 0.75f;
+    std::vector<std::string> sightSeeTags;
+    std::vector<std::string> sightIgnoreTags;
+    std::string sightFilterProc;
+
     Vector3 color{1.0f, 1.0f, 1.0f};
     float intensity = 1.0f;
     float range = 8.0f;

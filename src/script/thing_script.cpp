@@ -13,6 +13,8 @@
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
+#include "physics/sight_components.hpp"
+#include "physics/sight_module.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
@@ -22,6 +24,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -1332,6 +1335,202 @@ s7_pointer g_mover_set_state(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer stringListFromTags(s7_scheme* sc, const std::vector<std::string>& tags) {
+    s7_pointer list = s7_nil(sc);
+    for (auto it = tags.rbegin(); it != tags.rend(); ++it) {
+        list = s7_cons(sc, s7_make_string(sc, it->c_str()), list);
+    }
+    return list;
+}
+
+bool readSightTagList(s7_scheme* sc, s7_pointer value, std::vector<std::string>& out) {
+    (void)sc;
+    out.clear();
+    if (s7_is_string(value) || s7_is_symbol(value)) {
+        const char* tag = s7_is_string(value) ? s7_string(value) : s7_symbol_name(value);
+        if (tag != nullptr && tag[0] != '\0') {
+            out.emplace_back(tag);
+        }
+        return true;
+    }
+    for (s7_pointer cursor = value; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer cell = s7_car(cursor);
+        if (s7_is_string(cell)) {
+            out.emplace_back(s7_string(cell));
+        } else if (s7_is_symbol(cell)) {
+            out.emplace_back(s7_symbol_name(cell));
+        }
+    }
+    return true;
+}
+
+bool applySightAlist(s7_scheme* sc, s7_pointer alist, ActorSight& sight) {
+    if (!s7_is_pair(alist) && !s7_is_null(sc, alist)) {
+        return false;
+    }
+    for (s7_pointer cursor = alist; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            return false;
+        }
+        const char* key = s7_symbol_name(s7_car(entry));
+        s7_pointer value = s7_cdr(entry);
+        if (std::strcmp(key, "enabled") == 0) {
+            if (s7_is_boolean(value)) {
+                sight.enabled = s7_boolean(sc, value);
+            } else if (s7_is_integer(value)) {
+                sight.enabled = s7_integer(value) != 0;
+            } else {
+                return false;
+            }
+        } else if (std::strcmp(key, "range") == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            sight.range = static_cast<float>(s7_number_to_real(sc, value));
+        } else if (std::strcmp(key, "fov") == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            sight.fovDegrees = static_cast<float>(s7_number_to_real(sc, value));
+        } else if (std::strcmp(key, "eye-lift") == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            sight.eyeLift = static_cast<float>(s7_number_to_real(sc, value));
+        } else if (std::strcmp(key, "filter") == 0) {
+            if (value == s7_f(sc) || s7_is_null(sc, value)) {
+                sight.filterProc.clear();
+            } else if (s7_is_string(value)) {
+                sight.filterProc = s7_string(value);
+            } else if (s7_is_symbol(value)) {
+                sight.filterProc = s7_symbol_name(value);
+            } else {
+                return false;
+            }
+        } else if (std::strcmp(key, "see-tags") == 0) {
+            if (!readSightTagList(sc, value, sight.seeTags)) {
+                return false;
+            }
+        } else if (std::strcmp(key, "ignore-tags") == 0) {
+            if (!readSightTagList(sc, value, sight.ignoreTags)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+s7_pointer g_actor_sight_set(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-sight-set!", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest)) {
+        return s7_wrong_type_arg_error(sc, "actor-sight-set!", 2, rest, "alist");
+    }
+    flecs::entity entity = g_thingWorld->lookup(id);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    ActorSight sight = entity.has<ActorSight>() ? entity.get<ActorSight>() : ActorSight{};
+    if (!applySightAlist(sc, s7_car(rest), sight)) {
+        return s7_wrong_type_arg_error(
+            sc,
+            "actor-sight-set!",
+            2,
+            s7_car(rest),
+            "alist with enabled/range/fov/eye-lift/see-tags/ignore-tags/filter");
+    }
+    entity.set<ActorSight>(std::move(sight));
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_sight_get(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-sight-get", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<ActorSight>()) {
+        return s7_f(sc);
+    }
+    const ActorSight& sight = entity.get<ActorSight>();
+    s7_pointer enabledPair =
+        s7_cons(sc, s7_make_symbol(sc, "enabled"), sight.enabled ? s7_t(sc) : s7_f(sc));
+    s7_pointer rangePair =
+        s7_cons(sc, s7_make_symbol(sc, "range"), s7_make_real(sc, sight.range));
+    s7_pointer fovPair =
+        s7_cons(sc, s7_make_symbol(sc, "fov"), s7_make_real(sc, sight.fovDegrees));
+    s7_pointer eyePair =
+        s7_cons(sc, s7_make_symbol(sc, "eye-lift"), s7_make_real(sc, sight.eyeLift));
+    s7_pointer seePair =
+        s7_cons(sc, s7_make_symbol(sc, "see-tags"), stringListFromTags(sc, sight.seeTags));
+    s7_pointer ignorePair =
+        s7_cons(sc, s7_make_symbol(sc, "ignore-tags"), stringListFromTags(sc, sight.ignoreTags));
+    s7_pointer filterPair = s7_cons(
+        sc,
+        s7_make_symbol(sc, "filter"),
+        sight.filterProc.empty() ? s7_f(sc) : s7_make_string(sc, sight.filterProc.c_str()));
+    return s7_list(
+        sc, 7, enabledPair, rangePair, fovPair, eyePair, seePair, ignorePair, filterPair);
+}
+
+s7_pointer g_actor_can_see(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-can-see?", 1, args, "from-id string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "actor-can-see?", 2, rest, "to-id string");
+    }
+    return actorCanSee(*g_thingWorld, s7_string(s7_car(args)), s7_string(s7_car(rest)))
+        ? s7_t(sc)
+        : s7_f(sc);
+}
+
+s7_pointer g_sight_budget(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !g_thingWorld->has<SightScanState>()) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, g_thingWorld->get<SightScanState>().maxLosPerFrame);
+}
+
+s7_pointer g_sight_budget_set(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "sight-budget-set!", 1, args, "integer");
+    }
+    if (!g_thingWorld->has<SightScanState>()) {
+        g_thingWorld->set<SightScanState>(SightScanState{});
+    }
+    SightScanState& state = g_thingWorld->get_mut<SightScanState>();
+    state.maxLosPerFrame = static_cast<int>(s7_integer(s7_car(args)));
+    if (state.maxLosPerFrame < 0) {
+        state.maxLosPerFrame = 0;
+    }
+    return s7_t(sc);
+}
+
 s7_pointer g_thing_type(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1531,6 +1730,21 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(pvs-can-see x0 y0 z0 x1 y1 z1)");
     s7_define_function(
         scheme, "actor-los?", g_actor_los, 2, 0, false, "(actor-los? from-id to-id)");
+    s7_define_function(
+        scheme,
+        "actor-sight-set!",
+        g_actor_sight_set,
+        2,
+        0,
+        false,
+        "(actor-sight-set! id alist)");
+    s7_define_function(
+        scheme, "actor-sight-get", g_actor_sight_get, 1, 0, false, "(actor-sight-get id)");
+    s7_define_function(
+        scheme, "actor-can-see?", g_actor_can_see, 2, 0, false, "(actor-can-see? from-id to-id)");
+    s7_define_function(scheme, "sight-budget", g_sight_budget, 0, 0, false, "(sight-budget)");
+    s7_define_function(
+        scheme, "sight-budget-set!", g_sight_budget_set, 1, 0, false, "(sight-budget-set! n)");
     s7_define_function(
         scheme,
         "hitscan-actors",
