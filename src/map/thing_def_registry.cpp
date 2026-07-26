@@ -221,6 +221,41 @@ bool parseMeleeClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
     return true;
 }
 
+bool parseRangedClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
+    def.haveRanged = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (!s7_is_pair(values)) {
+            return false;
+        }
+        if (std::strcmp(tag, "anim") == 0) {
+            if (!readStringValue(scheme, s7_car(values), def.rangedAnim)) {
+                return false;
+            }
+            continue;
+        }
+        if (!s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "range") == 0) {
+            def.rangedRange = value;
+        } else if (std::strcmp(tag, "min-range") == 0) {
+            def.rangedMinRange = value;
+        } else if (std::strcmp(tag, "cooldown") == 0) {
+            def.rangedCooldown = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 template <typename SightOwner>
 bool parseSightClauses(s7_scheme* scheme, s7_pointer rest, SightOwner& out) {
     out.haveSight = true;
@@ -588,6 +623,17 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
                 TraceLog(
                     LOG_WARNING,
                     "THINGDEFS: '%s' has invalid melee; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+
+        s7_pointer rangedVal = nullptr;
+        if (readAssoc(scheme, props, "ranged", rangedVal)) {
+            if (!parseRangedClauses(scheme, rangedVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid ranged; ignored",
                     def.id.c_str());
                 continue;
             }

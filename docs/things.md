@@ -259,9 +259,9 @@ Spawn adds `WorldSpace` and `LocalTransformation` only. Runtime pose: `(thing-po
 
 ## Motored bodies
 
-A motored body is a runtime-spawned presented entity (sprite or geo) plus a MotoredBody motor: package-chosen velocity, gravity, sweep radius, and lifetime. The engine integrates motion each frame, sphere-casts against static brush hulls, and sweeps the same radius against actor character capsules. The nearer hit wins. The player capsule is a CharacterVirtual, not a rigid body, so world casts ignore the player; actor sweeps also skip the player (not an Actor).
+A motored body is a runtime-spawned presented entity (sprite or geo) plus a MotoredBody motor: package-chosen velocity, gravity, sweep radius, and lifetime. The engine integrates motion each frame, sphere-casts against static brush hulls, and sweeps the same radius against every `CharacterMotor` capsule (actors and the player). The nearer hit wins. World sphere casts still ignore CharacterVirtuals; character hits come only from the motor sweep.
 
-Packages define recipes (rockets, arcing throws, bolts) with (motored-spawn ...) from [Scripting](scripting.md). Aim helpers (player-eye) / (player-look-dir) supply spawn origin and direction. On hit, the engine calls an optional on-impact Scheme handler as `(handler id x y z hit)` with the hit point and `hit` = actor id when an actor capsule won the sweep, or `#f` for a brush/world hit, then despawns. Empty handler = silent despawn. Direct bolts can damage `hit`; splash recipes can ignore it and query a radius. This is motor-driven flight, not full dynamic rigid-body simulation.
+Packages define recipes (rockets, arcing throws, bolts) with (motored-spawn ...) from [Scripting](scripting.md). Aim helpers (player-eye) / (player-look-dir) supply spawn origin and direction. Pass the shooter id as the optional ignore argument so the projectile does not collide with its owner. On hit, the engine calls an optional on-impact Scheme handler as `(handler id x y z hit)` with the hit point and `hit` = entity id (`"Player"` or actor id) when a character capsule won the sweep, or `#f` for a brush/world hit, then despawns. Empty handler = silent despawn. Direct bolts can damage `hit`; splash recipes can ignore it and query a radius. This is motor-driven flight, not full dynamic rigid-body simulation.
 
 ## Actors
 
@@ -299,6 +299,7 @@ An actor is a presented world body with a character motor and opaque CollisionTa
 | (tags ...) | no | Opaque strings copied to CollisionTags. Empty → ("actor"). |
 | (health . N) / (idle-anim . "clip") / (behavior . "name") | no | Catalog fields for packages (`thing-def-health` / `thing-def-idle-anim` / `thing-def-behavior`). |
 | (melee ...) | no | Optional package melee channel. Nested clauses below. Missing → melee getters return `#f`. |
+| (ranged ...) | no | Optional package ranged channel (timing/AI only). Nested clauses below. Missing → ranged getters return `#f`. |
 | (sight ...) | no | Optional AI sight sensor. Nested clauses below. Missing → no `ActorSight` until `(actor-sight-set! …)`. |
 
 Melee clauses (thing defs under `*package-things*`):
@@ -309,6 +310,17 @@ Melee clauses (thing defs under `*package-things*`):
 | (range N) | Max horizontal distance to apply (default 1.2). |
 | (cooldown N) | Seconds between swings (default 1.0). |
 | (anim "clip") | Optional attack clip name for `(actor-play-anim …)`. |
+
+Ranged clauses (thing defs under `*package-things*`):
+
+| Clause | Notes |
+|--------|-------|
+| (range N) | Max horizontal distance to start a ranged attack (default 24). |
+| (min-range N) | Min horizontal distance (default 1.5). |
+| (cooldown N) | Seconds between ranged attacks (default 2.0). |
+| (anim "clip") | Optional attack clip name for `(actor-play-anim …)`. |
+
+Delivery (hitscan vs motored body) stays in package Scheme.
 
 Sight clauses (thing defs under `*package-things*` or map `(actor …)` / `(thing …)`):
 

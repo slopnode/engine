@@ -108,17 +108,20 @@ void registerMotoredBodySystem(flecs::world& world) {
                 bestHitTarget.clear();
             }
 
-            world.each([&](flecs::entity actorEntity, Actor, const CharacterMotor& motor,
-                           const LocalTransformation& actorLocal) {
-                if (actorEntity == entity) {
+            world.each([&](flecs::entity targetEntity, const CharacterMotor& motor,
+                           const LocalTransformation& targetLocal) {
+                if (targetEntity == entity) {
+                    return;
+                }
+                if (!body.ignoreId.empty() && entityIdString(targetEntity) == body.ignoreId) {
                     return;
                 }
                 if (const auto hit = sweepSphereActorCapsule(
-                        local.position, dir, distance, radius, actorLocal.position, motor)) {
+                        local.position, dir, distance, radius, targetLocal.position, motor)) {
                     if (*hit < bestFraction) {
                         bestFraction = *hit;
                         bestPoint = Vector3Add(local.position, Vector3Scale(dir, distance * (*hit)));
-                        bestHitTarget = entityIdString(actorEntity);
+                        bestHitTarget = entityIdString(targetEntity);
                     }
                 }
             });

@@ -277,6 +277,10 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (thing-def-melee-range type) | Catalog melee range (meters), or #f |
 | (thing-def-melee-cooldown type) | Catalog melee cooldown (seconds), or #f |
 | (thing-def-melee-anim type) | Catalog melee anim clip, or #f |
+| (thing-def-ranged-range type) | Catalog ranged max range (meters), or #f if no `(ranged …)` |
+| (thing-def-ranged-min-range type) | Catalog ranged min range (meters), or #f |
+| (thing-def-ranged-cooldown type) | Catalog ranged cooldown (seconds), or #f |
+| (thing-def-ranged-anim type) | Catalog ranged anim clip, or #f |
 | (thing-pos id) | World position (x y z) for any named entity with a transform, or #f |
 | (thing-yaw id) | Yaw radians (sprite facingYaw when present, else transform Euler Y), or #f |
 | (mover-open id) / (mover-close id) / (mover-toggle id) | Request mover target open/closed/flip; no-op if locked. See [Movers](things.md#movers-mover). |
@@ -285,7 +289,7 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (mover-progress id) | Current 0..1 progress, or #f. |
 | (mover-state id) | Alist `((open? . bool) (progress . n) (locked? . bool))` or #f — for save capture. |
 | (mover-set-state id open? progress [locked?]) | Restore after map load (snaps pose / kinematic). |
-| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "". Integrates velocity against static brush hulls and actor capsules; positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z hit)` with the hit point and `hit` = actor id string or `#f` for a world/brush hit, then despawns. See [Things](things.md#motored-bodies). |
+| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "", ignore "". Integrates velocity against static brush hulls and CharacterMotor capsules (actors and player); optional `ignore` entity id is skipped in character sweeps (shooter). Positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z hit)` with the hit point and `hit` = entity id string or `#f` for a world/brush hit, then despawns. See [Things](things.md#motored-bodies). |
 | (sprite-spawn id x y z path [clip] [lifetime]) | Spawn a world billboard at runtime. Optional non-looping `.spanim` clip; optional lifetime (default 0.5) queues despawn. |
 | (actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) | Runtime actor (kind "sprite" or "geo"). Defaults match player motor; empty tags → ("actor"). |
 | (actor-pos id) | Feet (x y z) or #f |

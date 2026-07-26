@@ -218,6 +218,7 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     float gravity = 0.0f;
     float lifetime = 8.0f;
     std::string onImpact;
+    std::string ignoreId;
     if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
         radius = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
         args = s7_cdr(args);
@@ -232,6 +233,10 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     }
     if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
         onImpact = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+        ignoreId = s7_string(s7_car(args));
         args = s7_cdr(args);
     }
 
@@ -294,6 +299,7 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     body.lifetime = lifetime;
     body.age = 0.0f;
     body.onImpact = std::move(onImpact);
+    body.ignoreId = std::move(ignoreId);
     entity.set<MotoredBody>(body);
 
     return s7_t(sc);
@@ -1655,6 +1661,62 @@ s7_pointer g_thing_def_melee_anim(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->meleeAnim.c_str());
 }
 
+s7_pointer g_thing_def_ranged_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedRange));
+}
+
+s7_pointer g_thing_def_ranged_min_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-min-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedMinRange));
+}
+
+s7_pointer g_thing_def_ranged_cooldown(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-cooldown", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedCooldown));
+}
+
+s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-anim", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged || def->rangedAnim.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, def->rangedAnim.c_str());
+}
+
 void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     g_thingWorld = &world;
     if (!world.has<ThingDespawnQueue>()) {
@@ -1728,12 +1790,44 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(thing-def-melee-anim type)");
     s7_define_function(
         scheme,
+        "thing-def-ranged-range",
+        g_thing_def_ranged_range,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-min-range",
+        g_thing_def_ranged_min_range,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-min-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-cooldown",
+        g_thing_def_ranged_cooldown,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-anim",
+        g_thing_def_ranged_anim,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-anim type)");
+    s7_define_function(
+        scheme,
         "motored-spawn",
         g_motored_spawn,
         9,
-        4,
+        5,
         false,
-        "(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact])");
+        "(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore])");
     s7_define_function(
         scheme,
         "sprite-spawn",
