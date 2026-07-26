@@ -854,6 +854,25 @@ s7_pointer g_thing(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "thing has invalid clauses")));
     }
     placement.kind = def->kind;
+    if (placement.kind == ThingKind::Pickup) {
+        const bool hasSprite = !placement.sprite.empty();
+        const bool hasGeo = !placement.geo.empty();
+        if (hasSprite == hasGeo) {
+            return s7_error(
+                sc,
+                s7_make_symbol(sc, "thing-error"),
+                s7_list(
+                    sc,
+                    1,
+                    s7_make_string(sc, "pickup thing requires exactly one of sprite or geo")));
+        }
+        if (placement.onEnter.empty() && placement.onUse.empty()) {
+            return s7_error(
+                sc,
+                s7_make_symbol(sc, "thing-error"),
+                s7_list(sc, 1, s7_make_string(sc, "pickup thing requires on-enter or on-use")));
+        }
+    }
     return appendThing(sc, std::move(placement), "thing requires id and at", true);
 }
 

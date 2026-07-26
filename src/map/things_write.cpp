@@ -313,6 +313,25 @@ void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& de
         }
     }
 
+    if (p.kind == ThingKind::Pickup) {
+        if (!(p.onEnter == baseline.onEnter) && !p.onEnter.empty()) {
+            writeIndentClause(out, formatHandlerBindingClause("on-enter", p.onEnter));
+        }
+        if (!(p.onUse == baseline.onUse) && !p.onUse.empty()) {
+            writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
+        }
+        const bool triggerDiffers = p.haveTriggerSize != baseline.haveTriggerSize ||
+            !nearEq(p.triggerSize.x, baseline.triggerSize.x) ||
+            !nearEq(p.triggerSize.y, baseline.triggerSize.y) ||
+            !nearEq(p.triggerSize.z, baseline.triggerSize.z);
+        if (triggerDiffers && p.haveTriggerSize) {
+            writeIndentClause(
+                out,
+                "(trigger-size " + formatFloat(p.triggerSize.x) + " " +
+                    formatFloat(p.triggerSize.y) + " " + formatFloat(p.triggerSize.z) + ")");
+        }
+    }
+
     out << ")\n\n";
 }
 

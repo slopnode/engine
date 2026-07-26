@@ -245,7 +245,7 @@ void drawFirstPersonPass(
             }
         }
 
-        renderWorldModel(modelEntity, model, global, lens);
+        renderWorldModel(modelEntity, model, global, lens, unlit);
 
         if (shadedDraw) {
             for (int i = 0; i < model.model.materialCount; ++i) {

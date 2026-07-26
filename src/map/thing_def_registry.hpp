@@ -13,10 +13,19 @@ struct s7_scheme;
 
 namespace slopengine {
 
+struct ThingFolderDef {
+    std::string path;
+    std::string label;
+    std::string icon;
+    std::string packageId;
+    PackageRole packageRole = PackageRole::Base;
+};
+
 struct ThingDef {
     std::string id;
     std::string label;
     std::string icon;
+    std::string path;
     ThingKind kind = ThingKind::Prop;
 
     std::string sprite;
@@ -37,6 +46,11 @@ struct ThingDef {
 
     std::vector<std::string> tags;
 
+    HandlerBinding onEnter;
+    HandlerBinding onUse;
+    Vector3 triggerSize{1.0f, 1.5f, 1.0f};
+    bool haveTriggerSize = false;
+
     std::optional<int> health;
     std::string idleAnim;
     std::string behavior;
@@ -49,12 +63,17 @@ class ThingDefRegistry {
 public:
     void clear();
     bool registerDef(ThingDef def);
+    bool registerFolder(ThingFolderDef folder);
 
     int size() const {
         return static_cast<int>(defs_.size());
     }
 
     const ThingDef* find(std::string_view id) const;
+    const ThingFolderDef* findFolder(
+        std::string_view path,
+        PackageRole role,
+        std::string_view packageId) const;
     const std::vector<ThingDef>& defs() const {
         return defs_;
     }
@@ -63,6 +82,7 @@ public:
 
 private:
     std::vector<ThingDef> defs_;
+    std::vector<ThingFolderDef> folders_;
 };
 
 ThingDefRegistry& thingDefRegistry();

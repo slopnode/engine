@@ -75,7 +75,8 @@ void renderWorldModel(
     flecs::entity entity,
     Model3D& model,
     GlobalTransformation& globalTransform,
-    const Lens& lens) {
+    const Lens& lens,
+    bool unlit) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
@@ -83,6 +84,7 @@ void renderWorldModel(
     std::vector<Shader> previousShaders;
     bool swappedPropShader = false;
     const MapLightmapState* mapLightmaps = nullptr;
+    const int mapUseLightmap = unlit ? 0 : 1;
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
@@ -92,7 +94,7 @@ void renderWorldModel(
                 prepareLightmapShaderDraw(
                     shader,
                     lightmaps.useLightmapLoc,
-                    1,
+                    mapUseLightmap,
                     globalTransform.matrix,
                     world);
             }
@@ -142,11 +144,10 @@ void renderWorldModel(
             model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
         }
         if (mapLightmaps != nullptr && mapLightmaps->useLightmapLoc >= 0) {
-            const int useLightmap = 1;
             SetShaderValue(
                 mapLightmaps->lightmapShader,
                 mapLightmaps->useLightmapLoc,
-                &useLightmap,
+                &mapUseLightmap,
                 SHADER_UNIFORM_INT);
         }
     }
@@ -533,8 +534,9 @@ void drawWorldModels(
                     world, model.model, global.matrix, unlit, closedMatrix);
             }
         }
-        renderWorldModel(modelEntity, model, global, lens);
+        renderWorldModel(modelEntity, model, global, lens, unlit);
     });
+    rlDisableShader();
     context.animOverlayQuery.each(
         [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
             if (!modelEntity.has<MapLightmapState>()) {
@@ -623,6 +625,7 @@ std::string drawWorldSprites(
             return a.distSq > b.distSq;
         });
 
+    rlDisableShader();
     BeginBlendMode(BLEND_ALPHA);
     rlDisableDepthMask();
     for (const SpriteDrawItem& item : spriteDrawList) {

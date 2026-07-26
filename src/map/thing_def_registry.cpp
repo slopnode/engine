@@ -1,5 +1,6 @@
 #include "map/thing_def_registry.hpp"
 
+#include "map/handler_binding.hpp"
 #include "script/package_load_context.hpp"
 
 #include <raylib.h>
@@ -92,7 +93,34 @@ bool parseKindName(std::string_view name, ThingKind& out) {
         out = ThingKind::Actor;
         return true;
     }
+    if (name == "pickup") {
+        out = ThingKind::Pickup;
+        return true;
+    }
     return false;
+}
+
+bool readAssocVec3(s7_scheme* scheme, s7_pointer alist, const char* key, Vector3& out) {
+    s7_pointer value = nullptr;
+    if (!readAssoc(scheme, alist, key, value) || !s7_is_pair(value)) {
+        return false;
+    }
+    s7_pointer x = s7_car(value);
+    if (!s7_is_pair(s7_cdr(value))) {
+        return false;
+    }
+    s7_pointer y = s7_cadr(value);
+    if (!s7_is_pair(s7_cddr(value))) {
+        return false;
+    }
+    s7_pointer z = s7_caddr(value);
+    if (!s7_is_number(x) || !s7_is_number(y) || !s7_is_number(z)) {
+        return false;
+    }
+    out.x = static_cast<float>(s7_number_to_real(scheme, x));
+    out.y = static_cast<float>(s7_number_to_real(scheme, y));
+    out.z = static_cast<float>(s7_number_to_real(scheme, z));
+    return true;
 }
 
 bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
@@ -155,6 +183,27 @@ ThingDefRegistry& thingDefRegistry() {
 
 void ThingDefRegistry::clear() {
     defs_.clear();
+    folders_.clear();
+}
+
+bool ThingDefRegistry::registerFolder(ThingFolderDef folder) {
+    if (folder.path.empty()) {
+        return false;
+    }
+    for (ThingFolderDef& existing : folders_) {
+        if (existing.path == folder.path && existing.packageId == folder.packageId &&
+            existing.packageRole == folder.packageRole) {
+            if (!folder.icon.empty()) {
+                existing.icon = std::move(folder.icon);
+            }
+            if (!folder.label.empty()) {
+                existing.label = std::move(folder.label);
+            }
+            return true;
+        }
+    }
+    folders_.push_back(std::move(folder));
+    return true;
 }
 
 bool ThingDefRegistry::registerDef(ThingDef def) {
@@ -165,10 +214,11 @@ bool ThingDefRegistry::registerDef(ThingDef def) {
         TraceLog(LOG_WARNING, "THINGDEFS: duplicate id '%s' ignored", def.id.c_str());
         return false;
     }
-    if (def.kind != ThingKind::Prop && def.kind != ThingKind::Actor) {
+    if (def.kind != ThingKind::Prop && def.kind != ThingKind::Actor &&
+        def.kind != ThingKind::Pickup) {
         TraceLog(
             LOG_WARNING,
-            "THINGDEFS: '%s' kind must be prop or actor; ignored",
+            "THINGDEFS: '%s' kind must be prop, actor, or pickup; ignored",
             def.id.c_str());
         return false;
     }
@@ -180,6 +230,28 @@ bool ThingDefRegistry::registerDef(ThingDef def) {
     }
     if (def.kind == ThingKind::Actor && def.tags.empty()) {
         def.tags.push_back("actor");
+    }
+    if (def.kind == ThingKind::Pickup) {
+        const bool hasSprite = !def.sprite.empty();
+        const bool hasGeo = !def.geo.empty();
+        if (hasSprite == hasGeo) {
+            TraceLog(
+                LOG_WARNING,
+                "THINGDEFS: pickup '%s' requires exactly one of sprite or geo; ignored",
+                def.id.c_str());
+            return false;
+        }
+        if (def.onEnter.empty() && def.onUse.empty()) {
+            TraceLog(
+                LOG_WARNING,
+                "THINGDEFS: pickup '%s' requires on-enter or on-use; ignored",
+                def.id.c_str());
+            return false;
+        }
+        if (!def.haveTriggerSize) {
+            def.triggerSize = {1.0f, 1.5f, 1.0f};
+            def.haveTriggerSize = true;
+        }
     }
     defs_.push_back(std::move(def));
     return true;
@@ -204,6 +276,22 @@ std::vector<const ThingDef*> ThingDefRegistry::defsForRole(PackageRole role) con
     return out;
 }
 
+const ThingFolderDef* ThingDefRegistry::findFolder(
+    std::string_view path,
+    PackageRole role,
+    std::string_view packageId) const {
+    for (const ThingFolderDef& folder : folders_) {
+        if (folder.path != path || folder.packageRole != role) {
+            continue;
+        }
+        if (!packageId.empty() && folder.packageId != packageId) {
+            continue;
+        }
+        return &folder;
+    }
+    return nullptr;
+}
+
 void applyThingDef(const ThingDef& def, Thing& out) {
     out.kind = def.kind;
     out.type = def.id;
@@ -222,11 +310,48 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.motorHull = def.motorHull;
     out.motorMoveMode = def.motorMoveMode;
     out.tags = def.tags;
+    out.onEnter = def.onEnter;
+    out.onUse = def.onUse;
+    out.haveTriggerSize = def.haveTriggerSize;
+    out.triggerSize = def.triggerSize;
 }
 
 bool registerPackageThingsFromScheme(s7_scheme* scheme) {
     if (scheme == nullptr) {
         return false;
+    }
+
+    const std::string packageId{currentPackageLoadId()};
+    const PackageRole packageRole = currentPackageRole();
+
+    const s7_pointer folders = s7_name_to_value(scheme, "*package-thing-folders*");
+    if (folders != s7_undefined(scheme) && !s7_is_null(scheme, folders)) {
+        if (!s7_is_pair(folders)) {
+            return false;
+        }
+        for (s7_pointer cursor = folders; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+            const s7_pointer entry = s7_car(cursor);
+            if (!s7_is_pair(entry)) {
+                continue;
+            }
+            ThingFolderDef folder{};
+            if (!readStringValue(scheme, s7_car(entry), folder.path) || folder.path.empty()) {
+                continue;
+            }
+            const s7_pointer value = s7_cdr(entry);
+            if (s7_is_string(value) || s7_is_symbol(value)) {
+                readStringValue(scheme, value, folder.icon);
+            } else if (s7_is_pair(value)) {
+                readAssocString(scheme, value, "icon", folder.icon);
+                readAssocString(scheme, value, "label", folder.label);
+                if (folder.icon.empty()) {
+                    readStringValue(scheme, s7_car(value), folder.icon);
+                }
+            }
+            folder.packageId = packageId;
+            folder.packageRole = packageRole;
+            thingDefRegistry().registerFolder(std::move(folder));
+        }
     }
 
     const s7_pointer catalog = s7_name_to_value(scheme, "*package-things*");
@@ -236,9 +361,6 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
     if (!s7_is_pair(catalog)) {
         return false;
     }
-
-    const std::string packageId{currentPackageLoadId()};
-    const PackageRole packageRole = currentPackageRole();
 
     for (s7_pointer cursor = catalog; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
         const s7_pointer entry = s7_car(cursor);
@@ -254,6 +376,7 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
         const s7_pointer props = s7_cdr(entry);
         readAssocString(scheme, props, "label", def.label);
         readAssocString(scheme, props, "icon", def.icon);
+        readAssocString(scheme, props, "path", def.path);
 
         std::string kindName;
         if (!readAssocString(scheme, props, "kind", kindName) ||
@@ -315,6 +438,32 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
                     def.tags.push_back(std::move(tag));
                 }
             }
+        }
+
+        s7_pointer onEnterVal = nullptr;
+        if (readAssoc(scheme, props, "on-enter", onEnterVal)) {
+            if (!parseHandlerBinding(scheme, onEnterVal, def.onEnter)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid on-enter; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+        s7_pointer onUseVal = nullptr;
+        if (readAssoc(scheme, props, "on-use", onUseVal)) {
+            if (!parseHandlerBinding(scheme, onUseVal, def.onUse)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid on-use; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+        Vector3 triggerSize{};
+        if (readAssocVec3(scheme, props, "trigger-size", triggerSize)) {
+            def.triggerSize = triggerSize;
+            def.haveTriggerSize = true;
         }
 
         int health = 0;

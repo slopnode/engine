@@ -45,10 +45,13 @@
 #include <functional>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 
@@ -56,6 +59,69 @@ struct ToolConfig {
     slopengine::AppConfig mount;
     std::filesystem::path target;
 };
+
+struct ThingCatalogFolder {
+    std::map<std::string, ThingCatalogFolder> folders;
+    std::vector<const slopengine::ThingDef*> leaves;
+};
+
+std::vector<std::string> splitThingCatalogPath(std::string_view path) {
+    std::vector<std::string> segments;
+    std::string current;
+    for (char c : path) {
+        if (c == '/') {
+            if (!current.empty()) {
+                segments.push_back(std::move(current));
+                current.clear();
+            }
+            continue;
+        }
+        current.push_back(c);
+    }
+    if (!current.empty()) {
+        segments.push_back(std::move(current));
+    }
+    return segments;
+}
+
+void insertThingCatalogDef(ThingCatalogFolder& root, const slopengine::ThingDef* def) {
+    if (def == nullptr) {
+        return;
+    }
+    ThingCatalogFolder* node = &root;
+    for (const std::string& segment : splitThingCatalogPath(def->path)) {
+        node = &node->folders[segment];
+    }
+    node->leaves.push_back(def);
+}
+
+void sortThingCatalogFolder(ThingCatalogFolder& node) {
+    std::sort(
+        node.leaves.begin(),
+        node.leaves.end(),
+        [](const slopengine::ThingDef* a, const slopengine::ThingDef* b) {
+            if (a == nullptr || b == nullptr) {
+                return a != nullptr;
+            }
+            if (a->label != b->label) {
+                return a->label < b->label;
+            }
+            return a->id < b->id;
+        });
+    for (auto& [name, child] : node.folders) {
+        (void)name;
+        sortThingCatalogFolder(child);
+    }
+}
+
+ThingCatalogFolder buildThingCatalogFolder(const std::vector<const slopengine::ThingDef*>& defs) {
+    ThingCatalogFolder root;
+    for (const slopengine::ThingDef* def : defs) {
+        insertThingCatalogDef(root, def);
+    }
+    sortThingCatalogFolder(root);
+    return root;
+}
 
 void printUsage() {
     std::cerr
@@ -2523,138 +2589,294 @@ int main(int argc, char* argv[]) {
                             const auto isDef = [&](std::string_view typeId) {
                                 return placingThing && editor.placeThingType == typeId;
                             };
-                            const auto drawDefButtons =
-                                [&](slopengine::PackageRole role, const char* fallbackIcon) {
-                                    for (const slopengine::ThingDef* def :
-                                         slopengine::thingDefRegistry().defsForRole(role)) {
-                                        if (def == nullptr) {
-                                            continue;
+                            const auto drawCatalogFolder =
+                                [&](auto&& self,
+                                    const ThingCatalogFolder& folder,
+                                    const char* fallbackIcon,
+                                    slopengine::PackageRole role,
+                                    std::string_view packageId,
+                                    const std::string& idPrefix,
+                                    const std::string& catalogPath) -> void {
+                                for (const auto& [name, child] : folder.folders) {
+                                    const std::string childPath =
+                                        catalogPath.empty() ? name : catalogPath + "/" + name;
+                                    const std::string folderId = idPrefix + "/" + name;
+                                    const slopengine::ThingFolderDef* folderDef =
+                                        slopengine::thingDefRegistry().findFolder(
+                                            childPath, role, packageId);
+                                    const char* folderIcon = "folder";
+                                    const char* folderLabel = name.c_str();
+                                    if (folderDef != nullptr) {
+                                        if (!folderDef->icon.empty()) {
+                                            folderIcon = folderDef->icon.c_str();
                                         }
-                                        const char* icon = def->icon.empty() ? fallbackIcon
-                                                                             : def->icon.c_str();
-                                        placeKindButton(
-                                            icon,
-                                            def->label.c_str(),
-                                            isDef(def->id),
-                                            [&, def] { beginThingDef(editor, *def, createTool); });
+                                        if (!folderDef->label.empty()) {
+                                            folderLabel = folderDef->label.c_str();
+                                        }
                                     }
+                                    ImGui::PushID(folderId.c_str());
+                                    const bool open = ImGui::TreeNodeEx(
+                                        "##folder",
+                                        ImGuiTreeNodeFlags_SpanAvailWidth |
+                                            ImGuiTreeNodeFlags_DefaultOpen |
+                                            ImGuiTreeNodeFlags_FramePadding |
+                                            ImGuiTreeNodeFlags_AllowOverlap);
+                                    {
+                                        const ImVec2 min = ImGui::GetItemRectMin();
+                                        const ImVec2 max = ImGui::GetItemRectMax();
+                                        const float pad = ImGui::GetStyle().FramePadding.x;
+                                        float textX = min.x + ImGui::GetTreeNodeToLabelSpacing();
+                                        const float iconY =
+                                            min.y + (max.y - min.y - iconSz) * 0.5f;
+                                        const IconAtlas* atlas = assets.getIconAtlas(kIconSet);
+                                        if (atlas != nullptr && atlas->texture.id != 0) {
+                                            if (const auto rect =
+                                                    findIconRect(*atlas, folderIcon)) {
+                                                const float tw =
+                                                    static_cast<float>(atlas->texture.width);
+                                                const float th =
+                                                    static_cast<float>(atlas->texture.height);
+                                                ImGui::GetWindowDrawList()->AddImage(
+                                                    (ImTextureID)(intptr_t)atlas->texture.id,
+                                                    ImVec2(textX, iconY),
+                                                    ImVec2(textX + iconSz, iconY + iconSz),
+                                                    ImVec2(rect->x / tw, rect->y / th),
+                                                    ImVec2(
+                                                        (rect->x + rect->width) / tw,
+                                                        (rect->y + rect->height) / th),
+                                                    ImGui::GetColorU32(ImGuiCol_Text));
+                                                textX += iconSz +
+                                                    ImGui::GetStyle().ItemInnerSpacing.x;
+                                            }
+                                        }
+                                        (void)pad;
+                                        const float textY = min.y +
+                                            (max.y - min.y - ImGui::GetTextLineHeight()) * 0.5f;
+                                        ImGui::GetWindowDrawList()->AddText(
+                                            ImVec2(textX, textY),
+                                            ImGui::GetColorU32(ImGuiCol_Text),
+                                            folderLabel);
+                                    }
+                                    if (open) {
+                                        self(
+                                            self,
+                                            child,
+                                            fallbackIcon,
+                                            role,
+                                            packageId,
+                                            folderId,
+                                            childPath);
+                                        ImGui::TreePop();
+                                    }
+                                    ImGui::PopID();
+                                }
+                                for (const slopengine::ThingDef* def : folder.leaves) {
+                                    if (def == nullptr) {
+                                        continue;
+                                    }
+                                    const char* icon = def->icon.empty() ? fallbackIcon
+                                                                         : def->icon.c_str();
+                                    placeKindButton(
+                                        icon,
+                                        def->label.c_str(),
+                                        isDef(def->id),
+                                        [&, def] { beginThingDef(editor, *def, createTool); });
+                                }
+                            };
+                            const auto drawCatalogDefs =
+                                [&](const std::vector<const slopengine::ThingDef*>& defs,
+                                    const char* fallbackIcon,
+                                    slopengine::PackageRole role,
+                                    std::string_view packageId,
+                                    const char* idPrefix) {
+                                    const ThingCatalogFolder tree = buildThingCatalogFolder(defs);
+                                    drawCatalogFolder(
+                                        drawCatalogFolder,
+                                        tree,
+                                        fallbackIcon,
+                                        role,
+                                        packageId,
+                                        idPrefix,
+                                        "");
                                 };
 
-                            ImGui::TextDisabled("Engine Things");
-                            placeKindButton(
-                                "user",
-                                "player-start",
-                                isKind(slopengine::ThingKind::PlayerStart),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::PlayerStart, createTool);
-                                });
-                            placeKindButton(
-                                "picture",
-                                "sprite",
-                                isKind(
-                                    slopengine::ThingKind::Prop,
-                                    slopmap::PlacePresentation::Sprite),
-                                [&] {
-                                    beginThingKind(
-                                        editor,
+                            if (ImGui::TreeNodeEx(
+                                    "Engine",
+                                    ImGuiTreeNodeFlags_SpanAvailWidth |
+                                        ImGuiTreeNodeFlags_DefaultOpen)) {
+                                placeKindButton(
+                                    "user",
+                                    "player-start",
+                                    isKind(slopengine::ThingKind::PlayerStart),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::PlayerStart,
+                                            createTool);
+                                    });
+                                placeKindButton(
+                                    "picture",
+                                    "sprite",
+                                    isKind(
                                         slopengine::ThingKind::Prop,
-                                        createTool,
-                                        slopmap::PlacePresentation::Sprite);
-                                });
-                            placeKindButton(
-                                "shape_square",
-                                "geo",
-                                isKind(
-                                    slopengine::ThingKind::Prop, slopmap::PlacePresentation::Geo),
-                                [&] {
-                                    beginThingKind(
-                                        editor,
+                                        slopmap::PlacePresentation::Sprite),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::Prop,
+                                            createTool,
+                                            slopmap::PlacePresentation::Sprite);
+                                    });
+                                placeKindButton(
+                                    "shape_square",
+                                    "geo",
+                                    isKind(
                                         slopengine::ThingKind::Prop,
-                                        createTool,
-                                        slopmap::PlacePresentation::Geo);
-                                });
-                            placeKindButton(
-                                "cursor", "usable", isKind(slopengine::ThingKind::Usable), [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Usable, createTool);
-                                });
-                            placeKindButton(
-                                "basket", "pickup", isKind(slopengine::ThingKind::Pickup), [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Pickup, createTool);
-                                });
-                            placeKindButton(
-                                "group", "actor", isKind(slopengine::ThingKind::Actor), [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Actor, createTool);
-                                });
-                            placeKindButton(
-                                "arrow_switch",
-                                "mover",
-                                isKind(slopengine::ThingKind::Mover),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Mover, createTool);
-                                });
-                            placeKindButton(
-                                "lightning",
-                                "trigger",
-                                isKind(slopengine::ThingKind::Trigger),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Trigger, createTool);
-                                });
-                            placeKindButton(
-                                "flag_blue",
-                                "marker",
-                                isKind(slopengine::ThingKind::Marker),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Marker, createTool);
-                                });
-                            placeKindButton(
-                                "lightbulb",
-                                "point-light",
-                                isKind(slopengine::ThingKind::PointLight),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::PointLight, createTool);
-                                });
-                            placeKindButton(
-                                "lightbulb_off",
-                                "spot-light",
-                                isKind(slopengine::ThingKind::SpotLight),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::SpotLight, createTool);
-                                });
-                            placeKindButton(
-                                "lightbulb_add",
-                                "area-light",
-                                isKind(slopengine::ThingKind::AreaLight),
-                                [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::AreaLight, createTool);
-                                });
-                            placeKindButton(
-                                "weather_sun", "sun", isKind(slopengine::ThingKind::Sun), [&] {
-                                    beginThingKind(
-                                        editor, slopengine::ThingKind::Sun, createTool);
-                                });
-                            drawDefButtons(slopengine::PackageRole::Engine, "brick");
+                                        slopmap::PlacePresentation::Geo),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::Prop,
+                                            createTool,
+                                            slopmap::PlacePresentation::Geo);
+                                    });
+                                placeKindButton(
+                                    "cursor",
+                                    "usable",
+                                    isKind(slopengine::ThingKind::Usable),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Usable, createTool);
+                                    });
+                                placeKindButton(
+                                    "basket",
+                                    "pickup",
+                                    isKind(slopengine::ThingKind::Pickup),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Pickup, createTool);
+                                    });
+                                placeKindButton(
+                                    "group",
+                                    "actor",
+                                    isKind(slopengine::ThingKind::Actor),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Actor, createTool);
+                                    });
+                                placeKindButton(
+                                    "arrow_switch",
+                                    "mover",
+                                    isKind(slopengine::ThingKind::Mover),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Mover, createTool);
+                                    });
+                                placeKindButton(
+                                    "lightning",
+                                    "trigger",
+                                    isKind(slopengine::ThingKind::Trigger),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Trigger, createTool);
+                                    });
+                                placeKindButton(
+                                    "flag_blue",
+                                    "marker",
+                                    isKind(slopengine::ThingKind::Marker),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Marker, createTool);
+                                    });
+                                placeKindButton(
+                                    "lightbulb",
+                                    "point-light",
+                                    isKind(slopengine::ThingKind::PointLight),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::PointLight,
+                                            createTool);
+                                    });
+                                placeKindButton(
+                                    "lightbulb_off",
+                                    "spot-light",
+                                    isKind(slopengine::ThingKind::SpotLight),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::SpotLight,
+                                            createTool);
+                                    });
+                                placeKindButton(
+                                    "lightbulb_add",
+                                    "area-light",
+                                    isKind(slopengine::ThingKind::AreaLight),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::AreaLight,
+                                            createTool);
+                                    });
+                                placeKindButton(
+                                    "weather_sun",
+                                    "sun",
+                                    isKind(slopengine::ThingKind::Sun),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Sun, createTool);
+                                    });
+                                drawCatalogDefs(
+                                    slopengine::thingDefRegistry().defsForRole(
+                                        slopengine::PackageRole::Engine),
+                                    "brick",
+                                    slopengine::PackageRole::Engine,
+                                    "",
+                                    "engine");
+                                ImGui::TreePop();
+                            }
 
-                            ImGui::Separator();
-                            ImGui::TextDisabled("Base Game Things");
-                            drawDefButtons(slopengine::PackageRole::Base, "package");
+                            if (ImGui::TreeNodeEx(
+                                    "Base Game",
+                                    ImGuiTreeNodeFlags_SpanAvailWidth |
+                                        ImGuiTreeNodeFlags_DefaultOpen)) {
+                                drawCatalogDefs(
+                                    slopengine::thingDefRegistry().defsForRole(
+                                        slopengine::PackageRole::Base),
+                                    "package",
+                                    slopengine::PackageRole::Base,
+                                    assets.basePackageId(),
+                                    "base");
+                                ImGui::TreePop();
+                            }
 
-                            const auto modDefs =
-                                slopengine::thingDefRegistry().defsForRole(
-                                    slopengine::PackageRole::Mod);
-                            if (!modDefs.empty()) {
-                                ImGui::Separator();
-                                ImGui::TextDisabled("Mod Things");
-                                drawDefButtons(slopengine::PackageRole::Mod, "plugin");
+                            std::map<std::string, std::vector<const slopengine::ThingDef*>>
+                                modDefsByPackage;
+                            for (const slopengine::ThingDef* def :
+                                 slopengine::thingDefRegistry().defsForRole(
+                                     slopengine::PackageRole::Mod)) {
+                                if (def == nullptr) {
+                                    continue;
+                                }
+                                const std::string& packageId =
+                                    def->packageId.empty() ? std::string("mod") : def->packageId;
+                                modDefsByPackage[packageId].push_back(def);
+                            }
+                            for (const auto& [packageId, defs] : modDefsByPackage) {
+                                ImGui::PushID(packageId.c_str());
+                                if (ImGui::TreeNodeEx(
+                                        packageId.c_str(),
+                                        ImGuiTreeNodeFlags_SpanAvailWidth |
+                                            ImGuiTreeNodeFlags_DefaultOpen)) {
+                                    drawCatalogDefs(
+                                        defs,
+                                        "plugin",
+                                        slopengine::PackageRole::Mod,
+                                        packageId,
+                                        packageId.c_str());
+                                    ImGui::TreePop();
+                                }
+                                ImGui::PopID();
                             }
 
                             if (placingThing) {

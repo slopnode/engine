@@ -208,7 +208,7 @@ void PlaceTool::update(
     }
     if (kind == slopengine::ThingKind::Pickup) {
         thing.haveTriggerSize = true;
-        thing.triggerSize = {1.0f, 1.0f, 1.0f};
+        thing.triggerSize = {1.0f, 1.5f, 1.0f};
     }
 
     if (kind == slopengine::ThingKind::Prop &&

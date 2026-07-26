@@ -437,6 +437,7 @@ void bindLightmapDummyShadowMaps(Shader shader) {
     glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArrayId);
     rlSetUniform(loc, &unit, SHADER_UNIFORM_INT, 1);
     rlActiveTextureSlot(0);
+    rlDisableShader();
 }
 
 }

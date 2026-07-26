@@ -260,13 +260,13 @@ void drawThings(
         case slopengine::ThingKind::Usable:
         case slopengine::ThingKind::Actor:
         case slopengine::ThingKind::Mover:
-            drawSpriteOrGeo(assets, camera, thing, color);
+            drawSpriteOrGeo(assets, camera, thing, WHITE);
             if (showGizmos && selected) {
                 DrawSphereWires(pos, 0.35f, 6, 6, color);
             }
             break;
         case slopengine::ThingKind::Pickup:
-            drawSpriteOrGeo(assets, camera, thing, color);
+            drawSpriteOrGeo(assets, camera, thing, WHITE);
             if (showGizmos && (!thing.onEnter.empty() || thing.haveTriggerSize)) {
                 const Vector3 size =
                     thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
