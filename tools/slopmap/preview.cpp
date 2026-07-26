@@ -711,81 +711,179 @@ void drawBrushAabbWires(const slopengine::Brush& brush, Color color) {
     drawAabbWires(brush.mins, brush.maxs, color);
 }
 
-void drawGrid(
-    GridPlane plane,
-    float halfExtent,
-    float step,
-    Color color,
-    Vector3 eye,
-    float lineWidth,
-    Vector3 viewDir,
-    Vector3 origin) {
-    const float ox = origin.x;
-    const float oy = origin.y;
-    const float oz = origin.z;
+bool InfiniteGrid::load(slopengine::AssetStore& assets) {
+    unload();
+    const std::string vert = assets.getShaderSource("tools/grid_vert");
+    const std::string frag = assets.getShaderSource("tools/grid_frag");
+    if (vert.empty() || frag.empty()) {
+        TraceLog(LOG_WARNING, "slopmap: missing tools/grid shaders");
+        return false;
+    }
+    shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (shader.id == 0) {
+        TraceLog(LOG_WARNING, "slopmap: failed to compile tools/grid shaders");
+        return false;
+    }
+    shader.locs[SHADER_LOC_MATRIX_MVP] = GetShaderLocation(shader, "mvp");
+    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    shader.locs[SHADER_LOC_VERTEX_POSITION] = GetShaderLocationAttrib(shader, "vertexPosition");
+    cameraPosLoc = GetShaderLocation(shader, "cameraPos");
+    gridSizeLoc = GetShaderLocation(shader, "gridSize");
+    planeAxisLoc = GetShaderLocation(shader, "planeAxis");
+    fadeRadiusLoc = GetShaderLocation(shader, "fadeRadius");
+    minorColorLoc = GetShaderLocation(shader, "minorColor");
+    majorColorLoc = GetShaderLocation(shader, "majorColor");
+    return true;
+}
+
+void InfiniteGrid::unload() {
+    if (shader.id != 0) {
+        UnloadShader(shader);
+        shader = {};
+    }
+    cameraPosLoc = -1;
+    gridSizeLoc = -1;
+    planeAxisLoc = -1;
+    fadeRadiusLoc = -1;
+    minorColorLoc = -1;
+    majorColorLoc = -1;
+}
+
+bool InfiniteGrid::ready() const {
+    return shader.id != 0;
+}
+
+void InfiniteGrid::draw(GridPlane plane, Vector3 eye, float gridSize, float fadeRadius) const {
+    if (!ready() || fadeRadius <= 1e-4f || gridSize <= 0.0f) {
+        return;
+    }
+
+    Vector3 center{};
+    int axis = 0;
     switch (plane) {
     case GridPlane::XY:
-        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-            drawThickLine3D(
-                {ox + x, oy - halfExtent, oz},
-                {ox + x, oy + halfExtent, oz},
-                color,
-                lineWidth,
-                eye,
-                viewDir);
-        }
-        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
-            drawThickLine3D(
-                {ox - halfExtent, oy + y, oz},
-                {ox + halfExtent, oy + y, oz},
-                color,
-                lineWidth,
-                eye,
-                viewDir);
-        }
+        center = {eye.x, eye.y, 0.0f};
+        axis = 1;
         break;
     case GridPlane::YZ:
-        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
-            drawThickLine3D(
-                {ox, oy + y, oz - halfExtent},
-                {ox, oy + y, oz + halfExtent},
-                color,
-                lineWidth,
-                eye,
-                viewDir);
-        }
-        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-            drawThickLine3D(
-                {ox, oy - halfExtent, oz + z},
-                {ox, oy + halfExtent, oz + z},
-                color,
-                lineWidth,
-                eye,
-                viewDir);
-        }
+        center = {0.0f, eye.y, eye.z};
+        axis = 2;
         break;
     case GridPlane::XZ:
     default:
-        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-            drawThickLine3D(
-                {ox + x, oy, oz - halfExtent},
-                {ox + x, oy, oz + halfExtent},
-                color,
-                lineWidth,
-                eye,
-                viewDir);
-        }
-        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-            drawThickLine3D(
-                {ox - halfExtent, oy, oz + z},
-                {ox + halfExtent, oy, oz + z},
-                color,
-                lineWidth,
-                eye,
-                viewDir);
-        }
+        center = {eye.x, 0.0f, eye.z};
+        axis = 0;
         break;
     }
+
+    const float ext = fadeRadius;
+    Vector3 p0{};
+    Vector3 p1{};
+    Vector3 p2{};
+    Vector3 p3{};
+    switch (plane) {
+    case GridPlane::XY:
+        p0 = {center.x - ext, center.y - ext, center.z};
+        p1 = {center.x + ext, center.y - ext, center.z};
+        p2 = {center.x + ext, center.y + ext, center.z};
+        p3 = {center.x - ext, center.y + ext, center.z};
+        break;
+    case GridPlane::YZ:
+        p0 = {center.x, center.y - ext, center.z - ext};
+        p1 = {center.x, center.y - ext, center.z + ext};
+        p2 = {center.x, center.y + ext, center.z + ext};
+        p3 = {center.x, center.y + ext, center.z - ext};
+        break;
+    case GridPlane::XZ:
+    default:
+        p0 = {center.x - ext, center.y, center.z - ext};
+        p1 = {center.x + ext, center.y, center.z - ext};
+        p2 = {center.x + ext, center.y, center.z + ext};
+        p3 = {center.x - ext, center.y, center.z + ext};
+        break;
+    }
+
+    const float cam[3] = {eye.x, eye.y, eye.z};
+    const float size = std::max(gridSize, 0.001f);
+    const float fade = fadeRadius;
+    const float minor[4] = {70.0f / 255.0f, 74.0f / 255.0f, 80.0f / 255.0f, 0.45f};
+    const float major[4] = {96.0f / 255.0f, 102.0f / 255.0f, 112.0f / 255.0f, 0.75f};
+
+    rlDrawRenderBatchActive();
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+    BeginShaderMode(shader);
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
+        const Matrix identity = MatrixIdentity();
+        SetShaderValueMatrix(shader, shader.locs[SHADER_LOC_MATRIX_MODEL], identity);
+    }
+    if (cameraPosLoc >= 0) {
+        SetShaderValue(shader, cameraPosLoc, cam, SHADER_UNIFORM_VEC3);
+    }
+    if (gridSizeLoc >= 0) {
+        SetShaderValue(shader, gridSizeLoc, &size, SHADER_UNIFORM_FLOAT);
+    }
+    if (planeAxisLoc >= 0) {
+        SetShaderValue(shader, planeAxisLoc, &axis, SHADER_UNIFORM_INT);
+    }
+    if (fadeRadiusLoc >= 0) {
+        SetShaderValue(shader, fadeRadiusLoc, &fade, SHADER_UNIFORM_FLOAT);
+    }
+    if (minorColorLoc >= 0) {
+        SetShaderValue(shader, minorColorLoc, minor, SHADER_UNIFORM_VEC4);
+    }
+    if (majorColorLoc >= 0) {
+        SetShaderValue(shader, majorColorLoc, major, SHADER_UNIFORM_VEC4);
+    }
+
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+    rlVertex3f(p0.x, p0.y, p0.z);
+    rlVertex3f(p1.x, p1.y, p1.z);
+    rlVertex3f(p2.x, p2.y, p2.z);
+    rlVertex3f(p3.x, p3.y, p3.z);
+    rlVertex3f(p0.x, p0.y, p0.z);
+    rlVertex3f(p3.x, p3.y, p3.z);
+    rlVertex3f(p2.x, p2.y, p2.z);
+    rlVertex3f(p1.x, p1.y, p1.z);
+    rlEnd();
+
+    EndShaderMode();
+    rlDrawRenderBatchActive();
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+float gridMetersPerPixel(
+    bool orthographic,
+    float orthoHalfHeight,
+    float fovyDegrees,
+    float viewportHeight,
+    GridPlane plane,
+    Vector3 eye,
+    Vector3 viewDir) {
+    (void)viewDir;
+    const float height = std::max(viewportHeight, 1.0f);
+    if (orthographic) {
+        return (std::max(orthoHalfHeight, 1e-4f) * 2.0f) / height;
+    }
+    float planeDist = std::fabs(eye.y);
+    switch (plane) {
+    case GridPlane::XY:
+        planeDist = std::fabs(eye.z);
+        break;
+    case GridPlane::YZ:
+        planeDist = std::fabs(eye.x);
+        break;
+    case GridPlane::XZ:
+    default:
+        planeDist = std::fabs(eye.y);
+        break;
+    }
+    planeDist = std::clamp(planeDist, 0.25f, 128.0f);
+    const float fovy = std::max(fovyDegrees, 1.0f) * (3.14159265358979323846f / 180.0f);
+    const float halfHeight = planeDist * std::tan(fovy * 0.5f);
+    return (halfHeight * 2.0f) / height;
 }
 
 void drawOrientationWidget(const Camera3D& camera, float width, float height) {

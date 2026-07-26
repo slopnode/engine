@@ -78,6 +78,21 @@ struct MapPreview {
         float lineWidth) const;
 };
 
+struct InfiniteGrid {
+    Shader shader{};
+    int cameraPosLoc = -1;
+    int gridSizeLoc = -1;
+    int planeAxisLoc = -1;
+    int fadeRadiusLoc = -1;
+    int minorColorLoc = -1;
+    int majorColorLoc = -1;
+
+    bool load(slopengine::AssetStore& assets);
+    void unload();
+    bool ready() const;
+    void draw(GridPlane plane, Vector3 eye, float gridSize, float fadeRadius) const;
+};
+
 Color brushOutlineColor(const slopengine::Brush& brush, bool selected);
 void drawThickLine3D(
     Vector3 a,
@@ -94,15 +109,14 @@ void drawBrushFaceOutlines(
 void drawBrushAabbWires(const slopengine::Brush& brush, Color color);
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color);
 void drawAabbSolid(Vector3 mins, Vector3 maxs, Color color);
-void drawGrid(
+float gridMetersPerPixel(
+    bool orthographic,
+    float orthoHalfHeight,
+    float fovyDegrees,
+    float viewportHeight,
     GridPlane plane,
-    float halfExtent,
-    float step,
-    Color color,
     Vector3 eye,
-    float lineWidth,
-    Vector3 viewDir = {},
-    Vector3 origin = {});
+    Vector3 viewDir = {});
 void drawOrientationWidget(const Camera3D& camera, float width, float height);
 
 }

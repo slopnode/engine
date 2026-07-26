@@ -344,7 +344,8 @@ void drawScene(
     const Camera3D& camera,
     const slopmap::CreateTool& createTool,
     const slopmap::PunchTool& punchTool,
-    const slopmap::ClipTool& clipTool) {
+    const slopmap::ClipTool& clipTool,
+    const slopmap::InfiniteGrid& infiniteGrid) {
     ClearBackground(Color{32, 34, 38, 255});
     const bool ortho = camera.projection == CAMERA_ORTHOGRAPHIC;
     const double prevNear = rlGetCullDistanceNear();
@@ -363,43 +364,42 @@ void drawScene(
         camera.target.z - camera.position.z,
     };
     const Vector3 lineViewDir = ortho ? viewDir : Vector3{0.0f, 0.0f, 0.0f};
-    const float lineWidth = std::max(0.015f, editor.gridSize * 0.02f);
-    const float axisWidth = lineWidth * 1.5f;
-    if (editor.showGrid) {
-        const slopmap::GridPlane drawPlane =
-            slopmap::gridPlaneForView(editor.viewPlane, editor.gridPlane);
-        const float aspect = editor.contentViewport.height > 0.0f
-            ? editor.contentViewport.width / editor.contentViewport.height
-            : 1.0f;
-        const float halfExtent = ortho
-            ? std::max(16.0f, editor.camera.orthoHalfHeight * aspect * 1.5f)
-            : 32.0f;
-        const float step = std::max(editor.gridSize, 0.001f);
-        auto snapCoord = [step](float value) {
-            return std::round(value / step) * step;
-        };
-        Vector3 gridOrigin{};
-        switch (drawPlane) {
-        case slopmap::GridPlane::XY:
-            gridOrigin = Vector3{snapCoord(eye.x), snapCoord(eye.y), 0.0f};
-            break;
-        case slopmap::GridPlane::YZ:
-            gridOrigin = Vector3{0.0f, snapCoord(eye.y), snapCoord(eye.z)};
-            break;
-        case slopmap::GridPlane::XZ:
-        default:
-            gridOrigin = Vector3{snapCoord(eye.x), 0.0f, snapCoord(eye.z)};
-            break;
+    const slopmap::GridPlane drawPlane =
+        slopmap::gridPlaneForView(editor.viewPlane, editor.gridPlane);
+    const float aspect = editor.contentViewport.height > 0.0f
+        ? editor.contentViewport.width / editor.contentViewport.height
+        : 1.0f;
+    const float metersPerPixel = slopmap::gridMetersPerPixel(
+        ortho,
+        editor.camera.orthoHalfHeight,
+        camera.fovy,
+        editor.contentViewport.height,
+        drawPlane,
+        eye,
+        viewDir);
+    const float lineWidth = std::clamp(metersPerPixel * 1.25f, 0.002f, 0.08f);
+    const float axisWidth = lineWidth * 1.75f;
+    if (editor.showGrid && infiniteGrid.ready()) {
+        float fadeRadius = 64.0f;
+        if (ortho) {
+            fadeRadius = std::max(48.0f, editor.camera.orthoHalfHeight * aspect * 4.0f);
+        } else {
+            float planeDist = std::fabs(eye.y);
+            switch (drawPlane) {
+            case slopmap::GridPlane::XY:
+                planeDist = std::fabs(eye.z);
+                break;
+            case slopmap::GridPlane::YZ:
+                planeDist = std::fabs(eye.x);
+                break;
+            case slopmap::GridPlane::XZ:
+            default:
+                planeDist = std::fabs(eye.y);
+                break;
+            }
+            fadeRadius = std::clamp(std::max(planeDist * 40.0f, 80.0f), 80.0f, 2500.0f);
         }
-        slopmap::drawGrid(
-            drawPlane,
-            halfExtent,
-            editor.gridSize,
-            Color{70, 74, 80, 255},
-            eye,
-            lineWidth,
-            lineViewDir,
-            gridOrigin);
+        infiniteGrid.draw(drawPlane, eye, editor.gridSize, fadeRadius);
     }
     slopmap::drawThickLine3D(
         {-100, 0, 0}, {100, 0, 0}, Color{180, 60, 60, 255}, axisWidth, eye, lineViewDir);
@@ -529,8 +529,7 @@ void drawScene(
 
     createTool.drawPreview();
     punchTool.drawPreview();
-    const float clipLineWidth = std::max(0.015f, editor.gridSize * 0.02f);
-    clipTool.drawPreview(editor, eye, clipLineWidth);
+    clipTool.drawPreview(editor, eye, lineWidth);
     if (ortho) {
         rlEnableBackfaceCulling();
     }
@@ -798,6 +797,10 @@ int main(int argc, char* argv[]) {
     slopmap::PlaceTool placeTool;
     slopmap::PunchTool punchTool;
     slopmap::ClipTool clipTool;
+    slopmap::InfiniteGrid infiniteGrid;
+    if (!infiniteGrid.load(assets)) {
+        std::cerr << "slopmap: warning: infinite grid shader failed to load\n";
+    }
     slopmap::MaterialBrowser materialBrowser;
     slopmap::TexturePanel texturePanel;
     slopmap::ThingPanel thingPanel;
@@ -1864,7 +1867,8 @@ int main(int argc, char* argv[]) {
                 editor.contentViewport = paneRect;
                 const Camera3D paneCamera = editor.camera.toRaylib();
                 BeginTextureMode(contentTargets[i]);
-                drawScene(editor, assets, paneCamera, createTool, punchTool, clipTool);
+                drawScene(
+                    editor, assets, paneCamera, createTool, punchTool, clipTool, infiniteGrid);
                 EndTextureMode();
                 slopmap::drawContentTarget(contentTargets[i], paneRect);
             }
@@ -3440,6 +3444,7 @@ int main(int argc, char* argv[]) {
         }
     }
     editor.preview.clear();
+    infiniteGrid.unload();
     s7_quit(scheme);
     rlImGuiShutdown();
     CloseWindow();
