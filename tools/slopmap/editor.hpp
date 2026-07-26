@@ -11,6 +11,8 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 struct s7_scheme;
@@ -26,13 +28,6 @@ enum class EditorMode {
 enum class EditorScene {
     Level,
     Prefab,
-};
-
-enum class ViewPlane {
-    PerspectiveY0,
-    Top,
-    Front,
-    Side,
 };
 
 enum class SelectionMode {
@@ -55,6 +50,12 @@ enum class CreatePrimitive {
 enum class PlaceTarget {
     PrefabInstance,
     Thing,
+};
+
+enum class PlacePresentation {
+    None,
+    Sprite,
+    Geo,
 };
 
 struct FaceRef {
@@ -82,6 +83,11 @@ struct CompileDirty {
     bool fac = false;
     bool vis = false;
     bool rad = false;
+};
+
+struct ViewportCamera {
+    ViewPlane plane = ViewPlane::PerspectiveY0;
+    FlyCamera camera;
 };
 
 struct EditorDocument {
@@ -113,16 +119,22 @@ struct Editor {
     EditorDocument prefabDoc;
     EditorScene scene = EditorScene::Level;
     EditorMode mode = EditorMode::Select;
+    ViewportLayout viewportLayout = ViewportLayout::Single;
+    int activeViewport = 0;
+    ViewportCamera viewports[kViewportCount]{};
     ViewPlane viewPlane = ViewPlane::PerspectiveY0;
     FlyCamera camera;
+    Vector3 orthoFocus{0.0f, 1.0f, 0.0f};
     MapPreview preview;
     PreviewFill fill = PreviewFill::Textures;
     WireframeOverlay wireframe = WireframeOverlay::Off;
     bool ignoreBackfaces = true;
     float gridSize = 0.1f;
     bool showGrid = true;
+    bool showGizmos = true;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
+    float rotateSnapDegrees = 15.0f;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     CreatePrimitive createPrimitive = CreatePrimitive::Box;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};
@@ -147,8 +159,9 @@ struct Editor {
     PlaceTarget placeTarget = PlaceTarget::PrefabInstance;
     std::string placePrefabPath;
     std::optional<slopengine::ThingKind> placeThingKind;
-    std::string placeSpritePath;
-    std::string placeGeoPath;
+    std::string placeThingType;
+    PlacePresentation placePresentation = PlacePresentation::None;
+    std::unordered_map<std::string, PlacePresentation> propChannelLock;
     std::filesystem::path writePackageRoot;
     std::string writePackageId = "slopengine.base";
     s7_scheme* scheme = nullptr;
@@ -187,10 +200,19 @@ struct Editor {
     void cycleGridPlane();
     const char* gridPlaneLabel() const;
     void setViewPlane(ViewPlane plane);
+    void setActiveViewport(int index);
+    void toggleViewportLayout();
+    void applyOrthoPoseToViewport(int index, Vector3 focus);
+    void applyOrthoPoses();
+    void syncActiveCameraFromBank();
+    void syncBankFromActiveCamera();
     void toggleOrthoTop();
+    static int viewportIndexForPlane(ViewPlane plane);
+    static ViewPlane planeForViewportIndex(int index);
     std::string allocateBrushId();
     std::string allocatePrefabId();
     std::string allocateThingId(const char* prefix);
+    bool renameBrush(int index, std::string_view newId);
     void clearSelection();
     void setSelectionMode(SelectionMode mode);
     void selectBrush(int index, bool additive);
@@ -200,6 +222,9 @@ struct Editor {
     void frameSelection();
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();
+    void convertSelectedBrushesToTriggers();
+    void convertSelectedBrushesToMovers();
+    void setSelectedBrushesAsDoors();
 };
 
 float snapToGrid(float value, float grid);
@@ -228,6 +253,7 @@ struct ConstructionPlane {
 
 ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane = GridPlane::XZ);
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane);
+GridPlane gridPlaneForView(ViewPlane view, GridPlane gridPlane);
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin);
 
 }

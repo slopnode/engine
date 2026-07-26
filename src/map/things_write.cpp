@@ -1,5 +1,8 @@
 #include "map/things_write.hpp"
 
+#include "map/handler_binding.hpp"
+#include "map/thing_def_registry.hpp"
+
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -49,8 +52,10 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                 formatFloat(p.angles.z) + ")");
     } else if (p.yaw != 0.0f || p.kind == ThingKind::PlayerStart ||
                p.kind == ThingKind::Prop || p.kind == ThingKind::Usable ||
-               p.kind == ThingKind::Actor || p.kind == ThingKind::Mover ||
-               p.kind == ThingKind::Trigger || p.kind == ThingKind::SpotLight) {
+               p.kind == ThingKind::Pickup || p.kind == ThingKind::Actor ||
+               p.kind == ThingKind::Mover || p.kind == ThingKind::Trigger ||
+               p.kind == ThingKind::SpotLight || p.kind == ThingKind::Sun ||
+               p.kind == ThingKind::Marker) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
     if (!p.haveAngles && p.havePitch) {
@@ -104,6 +109,12 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     } else if (p.kind == ThingKind::Mover) {
         writeIndentClause(out, "(block-mode \"shove\")");
     }
+    if (!p.moverPush.empty() && p.moverPush != "full") {
+        writeIndentClause(out, "(push " + escapeSchemeString(p.moverPush) + ")");
+    }
+    if (p.haveMoverSlide && !p.moverSlide) {
+        writeIndentClause(out, "(carry #f)");
+    }
     if (!p.onCrush.empty()) {
         writeIndentClause(out, "(on-crush " + escapeSchemeString(p.onCrush) + ")");
     }
@@ -113,7 +124,7 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     if (p.havePrompt || !p.onUse.empty()) {
         writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
         if (!p.onUse.empty()) {
-            writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
+            writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
         }
     }
 }
@@ -154,6 +165,9 @@ void writePresentation(std::ostringstream& out, const Thing& p) {
     }
     if (!p.geo.empty()) {
         writeIndentClause(out, "(geo " + escapeSchemeString(p.geo) + ")");
+    }
+    if (!p.brush.empty()) {
+        writeIndentClause(out, "(brush " + escapeSchemeString(p.brush) + ")");
     }
     if (!p.sprite.empty() && p.frame != "A") {
         writeIndentClause(out, "(frame " + escapeSchemeString(p.frame) + ")");
@@ -207,10 +221,10 @@ void writeSoundSourceFields(std::ostringstream& out, const Thing& p) {
 
 void writeTriggerFields(std::ostringstream& out, const Thing& p) {
     if (!p.onEnter.empty()) {
-        writeIndentClause(out, "(on-enter " + escapeSchemeString(p.onEnter) + ")");
+        writeIndentClause(out, formatHandlerBindingClause("on-enter", p.onEnter));
     }
     if (!p.onExit.empty()) {
-        writeIndentClause(out, "(on-exit " + escapeSchemeString(p.onExit) + ")");
+        writeIndentClause(out, formatHandlerBindingClause("on-exit", p.onExit));
     }
     if (p.haveTriggerSize || p.kind == ThingKind::Trigger || !p.onEnter.empty() ||
         !p.onExit.empty()) {
@@ -229,12 +243,113 @@ void writeTriggerFields(std::ostringstream& out, const Thing& p) {
     }
 }
 
+bool nearEq(float a, float b) {
+    return std::fabs(a - b) <= 0.0001f;
+}
+
+bool tagsEqual(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& def) {
+    out << "(thing\n";
+    writeIndentClause(out, "(type " + escapeSchemeString(p.type) + ")");
+    writeCommonPose(out, p);
+
+    Thing baseline{};
+    applyThingDef(def, baseline);
+
+    if (p.sprite != baseline.sprite && !p.sprite.empty()) {
+        writeIndentClause(out, "(sprite " + escapeSchemeString(p.sprite) + ")");
+    }
+    if (p.geo != baseline.geo && !p.geo.empty()) {
+        writeIndentClause(out, "(geo " + escapeSchemeString(p.geo) + ")");
+    }
+    if (p.frame != baseline.frame) {
+        writeIndentClause(out, "(frame " + escapeSchemeString(p.frame) + ")");
+    }
+    if (p.haveAnim != baseline.haveAnim || p.animClip != baseline.animClip ||
+        p.animLoop != baseline.animLoop) {
+        if (p.haveAnim) {
+            std::string clause = "(anim " + escapeSchemeString(p.animClip);
+            clause += p.animLoop ? " #t)" : " #f)";
+            writeIndentClause(out, clause);
+        }
+    }
+    if (p.kind == ThingKind::Actor) {
+        const bool motorDiffers = p.haveMotor != baseline.haveMotor ||
+            !nearEq(p.motorRadius, baseline.motorRadius) ||
+            !nearEq(p.motorHeight, baseline.motorHeight) ||
+            !nearEq(p.motorSpeed, baseline.motorSpeed) ||
+            !nearEq(p.motorGravity, baseline.motorGravity) ||
+            !nearEq(p.motorStepHeight, baseline.motorStepHeight) ||
+            p.motorHull != baseline.motorHull || p.motorMoveMode != baseline.motorMoveMode;
+        if (motorDiffers) {
+            std::string clause = "(motor (radius " + formatFloat(p.motorRadius) + ") (height " +
+                formatFloat(p.motorHeight) + ") (speed " + formatFloat(p.motorSpeed) +
+                ") (gravity " + formatFloat(p.motorGravity) + ") (step-height " +
+                formatFloat(p.motorStepHeight) + ")";
+            clause += (p.motorHull == CharacterHull::Box) ? " (hull box)" : " (hull capsule)";
+            clause +=
+                (p.motorMoveMode == CharacterMoveMode::TryMove) ? " (move try-move)"
+                                                                : " (move slide)";
+            clause += ")";
+            writeIndentClause(out, clause);
+        }
+        if (!tagsEqual(p.tags, baseline.tags) && !p.tags.empty()) {
+            std::string clause = "(tags";
+            for (const std::string& tag : p.tags) {
+                clause += " " + escapeSchemeString(tag);
+            }
+            clause += ")";
+            writeIndentClause(out, clause);
+        }
+    }
+
+    if (p.kind == ThingKind::Pickup) {
+        if (!(p.onEnter == baseline.onEnter) && !p.onEnter.empty()) {
+            writeIndentClause(out, formatHandlerBindingClause("on-enter", p.onEnter));
+        }
+        if (!(p.onUse == baseline.onUse) && !p.onUse.empty()) {
+            writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
+        }
+        const bool triggerDiffers = p.haveTriggerSize != baseline.haveTriggerSize ||
+            !nearEq(p.triggerSize.x, baseline.triggerSize.x) ||
+            !nearEq(p.triggerSize.y, baseline.triggerSize.y) ||
+            !nearEq(p.triggerSize.z, baseline.triggerSize.z);
+        if (triggerDiffers && p.haveTriggerSize) {
+            writeIndentClause(
+                out,
+                "(trigger-size " + formatFloat(p.triggerSize.x) + " " +
+                    formatFloat(p.triggerSize.y) + " " + formatFloat(p.triggerSize.z) + ")");
+        }
+    }
+
+    out << ")\n\n";
+}
+
 void writeThing(std::ostringstream& out, const Thing& p) {
     if (p.kind == ThingKind::Prefab) {
         out << "(prefab " << escapeSchemeString(p.prefabPath) << "\n";
         writeCommonPose(out, p);
         out << ")\n\n";
         return;
+    }
+
+    if (!p.type.empty()) {
+        const ThingDef* def = thingDefRegistry().find(p.type);
+        if (def != nullptr) {
+            writeTypedThing(out, p, *def);
+            return;
+        }
     }
 
     out << "(" << thingKindName(p.kind) << "\n";
@@ -246,8 +361,11 @@ void writeThing(std::ostringstream& out, const Thing& p) {
     if (p.kind == ThingKind::Usable) {
         writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
         if (!p.onUse.empty()) {
-            writeIndentClause(out, "(on-use " + escapeSchemeString(p.onUse) + ")");
+            writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
         }
+    }
+    if (p.kind == ThingKind::Pickup && !p.onUse.empty()) {
+        writeIndentClause(out, formatHandlerBindingClause("on-use", p.onUse));
     }
     if (p.kind == ThingKind::Mover) {
         writeMoverFields(out, p);

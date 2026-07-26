@@ -1,11 +1,16 @@
 #include "map/things_spawn.hpp"
 
 #include "assets/asset_store.hpp"
+#include "assets/geo_loader.hpp"
+#include "assets/material_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
 #include "audio/components.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
+#include "map/csg_compile.hpp"
+#include "map/brush_door.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "physics/components.hpp"
@@ -21,6 +26,7 @@
 #include <raymath.h>
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -34,6 +40,7 @@ struct SpawnContext {
     flecs::world* world = nullptr;
     AssetStore* assets = nullptr;
     s7_scheme* scheme = nullptr;
+    const std::vector<Brush>* brushes = nullptr;
     PlayerStart playerStart{};
     std::unordered_set<std::string> usedIds;
     std::string idPrefix;
@@ -42,6 +49,82 @@ struct SpawnContext {
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
 };
+
+MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view materialPath) {
+    MaterialUvInfo info{};
+    const MaterialAsset* asset = assets.getMaterialAsset(materialPath);
+    if (asset != nullptr) {
+        info.pixelsPerMeter = asset->pixelsPerMeter;
+        if (!asset->albedoTexture.empty()) {
+            const Texture2D texture = assets.getTexture(asset->albedoTexture);
+            if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
+                info.textureWidth = static_cast<float>(texture.width);
+                info.textureHeight = static_cast<float>(texture.height);
+            }
+        }
+    }
+    return info;
+}
+
+bool applyMoverBrushDefaults(Thing& placement, SpawnContext& ctx) {
+    if (placement.brush.empty()) {
+        return true;
+    }
+    if (ctx.brushes == nullptr) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: mover '%s' brush '%s' but no map brushes available",
+            placement.id.c_str(),
+            placement.brush.c_str());
+        return false;
+    }
+    const Brush* brush = findBrushById(*ctx.brushes, placement.brush);
+    if (brush == nullptr) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: mover '%s' missing brush '%s'",
+            placement.id.c_str(),
+            placement.brush.c_str());
+        return false;
+    }
+    if (brush->role != BrushRole::Detail) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: mover '%s' brush '%s' must be detail (got %s)",
+            placement.id.c_str(),
+            placement.brush.c_str(),
+            brushRoleName(brush->role));
+        return false;
+    }
+
+    const Vector3 center{
+        0.5f * (brush->mins.x + brush->maxs.x),
+        0.5f * (brush->mins.y + brush->maxs.y),
+        0.5f * (brush->mins.z + brush->maxs.z),
+    };
+    if (!placement.haveAt) {
+        placement.at = center;
+        placement.haveAt = true;
+    }
+    if (!placement.haveMoverCollideSize) {
+        placement.moverCollideSize = {
+            brush->maxs.x - brush->mins.x,
+            brush->maxs.y - brush->mins.y,
+            brush->maxs.z - brush->mins.z,
+        };
+        if (placement.moverCollideSize.x < 1e-4f) {
+            placement.moverCollideSize.x = 0.1f;
+        }
+        if (placement.moverCollideSize.y < 1e-4f) {
+            placement.moverCollideSize.y = 0.1f;
+        }
+        if (placement.moverCollideSize.z < 1e-4f) {
+            placement.moverCollideSize.z = 0.1f;
+        }
+        placement.haveMoverCollideSize = true;
+    }
+    return true;
+}
 
 bool claimId(SpawnContext& ctx, const std::string& id) {
     if (id.empty()) {
@@ -60,6 +143,9 @@ Thing transformThing(const SpawnContext& ctx, Thing placement) {
     }
     if (!ctx.idPrefix.empty()) {
         placement.id = ctx.idPrefix + "/" + placement.id;
+        if (!placement.brush.empty()) {
+            placement.brush = ctx.idPrefix + "/" + placement.brush;
+        }
     }
     if (placement.haveAt) {
         const Matrix rotation = MatrixRotateXYZ(ctx.prefabAngles);
@@ -100,15 +186,58 @@ LocalTransformation makeLocalTransform(const Thing& placement, const SpawnContex
     return local;
 }
 
+bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
+    if (ctx.brushes == nullptr || ctx.assets == nullptr) {
+        return false;
+    }
+    const Brush* source = findBrushById(*ctx.brushes, placement.brush);
+    if (source == nullptr) {
+        return false;
+    }
+
+    const Vector3 origin = placement.haveAt ? placement.at : Vector3{};
+
+    const auto resolveUv = [assets = ctx.assets](std::string_view materialPath) {
+        return resolveThingMaterialUv(*assets, materialPath);
+    };
+    CsgCompileResult compiled = compileBrushesToGeo({*source}, resolveUv, nullptr);
+    for (Vector3& pos : compiled.buffer.positions) {
+        pos = Vector3Subtract(pos, origin);
+    }
+    Model model = buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [assets = ctx.assets](std::string_view path) { return assets->resolveMaterial(path); });
+    if (model.meshCount <= 0) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: failed to compile brush '%s' for mover '%s'",
+            placement.brush.c_str(),
+            placement.id.c_str());
+        return false;
+    }
+
+    entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+    entity.set<Model3D>({model, WHITE, true});
+    return true;
+}
+
 bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     const bool hasSprite = !placement.sprite.empty();
     const bool hasGeo = !placement.geo.empty();
-    if (hasSprite == hasGeo) {
+    const bool hasBrush = !placement.brush.empty();
+    const int presentationCount =
+        (hasSprite ? 1 : 0) + (hasGeo ? 1 : 0) + (hasBrush ? 1 : 0);
+    if (presentationCount != 1) {
         TraceLog(
             LOG_WARNING,
-            "THING: '%s' requires exactly one of sprite or geo",
+            "THING: '%s' requires exactly one of sprite, geo, or brush",
             placement.id.c_str());
         return false;
+    }
+
+    if (hasBrush) {
+        return applyBrushPresentation(entity, placement, ctx);
     }
 
     float facingYaw = placement.yaw;
@@ -199,6 +328,12 @@ void spawnLight(flecs::entity entity, const Thing& placement, SpawnContext& ctx)
         break;
     case ThingKind::Sun:
         entity.set<SunLight>({
+            .color = placement.color,
+            .intensity = placement.intensity,
+        });
+        break;
+    case ThingKind::AmbientLight:
+        entity.set<AmbientLight>({
             .color = placement.color,
             .intensity = placement.intensity,
         });
@@ -320,8 +455,15 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         return;
     }
 
+    if (placement.kind == ThingKind::Mover && !applyMoverBrushDefaults(placement, ctx)) {
+        return;
+    }
+
     flecs::entity entity = ctx.world->entity(placement.id.c_str());
     entity.add<MapOwned>();
+    if (!placement.type.empty()) {
+        entity.set<ThingTypeRef>(ThingTypeRef{placement.type});
+    }
 
     if (thingKindNeedsPresentation(placement.kind)) {
         if (!applyPresentation(entity, placement, ctx)) {
@@ -331,7 +473,14 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         if (placement.kind == ThingKind::Usable) {
             entity.set<Interactable>({
                 .prompt = placement.prompt,
-                .eventName = placement.onUse,
+                .onUse = placement.onUse,
+                .maxDistance = 5.0f,
+            });
+        }
+        if (placement.kind == ThingKind::Pickup && !placement.onUse.empty()) {
+            entity.set<Interactable>({
+                .prompt = {},
+                .onUse = placement.onUse,
                 .maxDistance = 5.0f,
             });
         }
@@ -378,6 +527,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             }
             if (placement.haveMoverCollideCenter) {
                 mover.collideCenterLocal = placement.moverCollideCenter;
+            } else if (!placement.brush.empty()) {
+                mover.collideCenterLocal = {0.0f, 0.0f, 0.0f};
             } else {
                 mover.collideCenterLocal = {
                     0.0f,
@@ -390,6 +541,14 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             } else {
                 mover.blockMode = MoverBlockMode::Shove;
             }
+            if (placement.moverPush == "horizontal") {
+                mover.pushMode = MoverPushMode::Horizontal;
+            } else if (placement.moverPush == "off") {
+                mover.pushMode = MoverPushMode::Off;
+            } else {
+                mover.pushMode = MoverPushMode::Full;
+            }
+            mover.slide = placement.haveMoverSlide ? placement.moverSlide : true;
             mover.onCrush = placement.onCrush;
             mover.groupId = placement.moverGroup;
             entity.set<RigidMover>(mover);
@@ -408,7 +567,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                         static_cast<std::uint64_t>(entity.id()),
                         moverCollideWorldCenter(pos, rot, mover),
                         mover.collideHalfExtents,
-                        rot);
+                        rot,
+                        mover.slide);
                     entity.get_mut<RigidMover>().kinematicReady = true;
                 }
             }
@@ -416,7 +576,7 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             if (placement.havePrompt || !placement.onUse.empty()) {
                 entity.set<Interactable>({
                     .prompt = placement.prompt,
-                    .eventName = placement.onUse,
+                    .onUse = placement.onUse,
                     .maxDistance = 5.0f,
                 });
             }
@@ -483,7 +643,94 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         return;
     }
 
+    if (placement.kind == ThingKind::Marker) {
+        entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+        return;
+    }
+
     entity.destruct();
+}
+
+void spawnDoorBrush(
+    SpawnContext& ctx,
+    const Brush& brush,
+    const std::unordered_set<std::string>& moverClaims,
+    const ThingDocument* things) {
+    if (brush.role != BrushRole::Door || brush.id.empty()) {
+        return;
+    }
+    if (moverClaims.count(brush.id) != 0) {
+        TraceLog(
+            LOG_ERROR,
+            "DOOR: skip brush '%s' — claimed by a mover",
+            brush.id.c_str());
+        return;
+    }
+    if (!claimId(ctx, brush.id)) {
+        return;
+    }
+
+    Thing placement{};
+    placement.kind = ThingKind::Mover;
+    placement.id = brush.id;
+    placement.brush = brush.id;
+    placement.at = {
+        0.5f * (brush.mins.x + brush.maxs.x),
+        0.5f * (brush.mins.y + brush.maxs.y),
+        0.5f * (brush.mins.z + brush.maxs.z),
+    };
+    placement.haveAt = true;
+
+    flecs::entity entity = ctx.world->entity(placement.id.c_str());
+    entity.add<MapOwned>();
+    if (!applyBrushPresentation(entity, placement, ctx)) {
+        entity.destruct();
+        return;
+    }
+
+    RigidMover mover{};
+    if (entity.has<LocalTransformation>()) {
+        const LocalTransformation& local = entity.get<LocalTransformation>();
+        mover.closedPos = local.position;
+        mover.closedRot = local.rotation;
+    }
+    configureBrushDoorMover(mover, brush, brush.door, placement.at, things);
+    entity.set<RigidMover>(mover);
+
+    if (ctx.world->has<PhysicsContext>()) {
+        PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
+        if (physics != nullptr) {
+            Vector3 pos{};
+            Quaternion rot{};
+            computeMoverPose(mover, 0.0f, pos, rot);
+            physics->createKinematicBox(
+                static_cast<std::uint64_t>(entity.id()),
+                moverCollideWorldCenter(pos, rot, mover),
+                mover.collideHalfExtents,
+                rot,
+                mover.slide);
+            entity.get_mut<RigidMover>().kinematicReady = true;
+        }
+    }
+
+    entity.set<Interactable>({
+        .prompt = brush.door.havePrompt ? brush.door.prompt : std::string("Open"),
+        .onUse = {},
+        .canUse = brush.door.canUse,
+        .engineToggle = true,
+        .maxDistance = 5.0f,
+    });
+}
+
+void spawnDoorBrushes(
+    SpawnContext& ctx,
+    const std::vector<Brush>& brushes,
+    const ThingDocument* things) {
+    const std::unordered_set<std::string> moverClaims =
+        things != nullptr ? collectMoverBrushIds(*things) : std::unordered_set<std::string>{};
+    for (const Brush& brush : brushes) {
+        spawnDoorBrush(ctx, brush, moverClaims, things);
+    }
 }
 
 } // namespace
@@ -492,13 +739,18 @@ void spawnThings(
     flecs::world& world,
     AssetStore& assets,
     s7_scheme* scheme,
-    const ThingDocument& doc) {
+    const ThingDocument& doc,
+    const std::vector<Brush>* brushes) {
     SpawnContext ctx{};
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
+    ctx.brushes = brushes;
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
+    }
+    if (brushes != nullptr) {
+        spawnDoorBrushes(ctx, *brushes, &doc);
     }
 }
 
@@ -506,24 +758,10 @@ PlayerStart spawnMapThings(
     s7_scheme* scheme,
     flecs::world& world,
     AssetStore& assets,
-    std::string_view mapName) {
+    std::string_view mapName,
+    const std::vector<Brush>& brushes) {
     PlayerStart defaults{};
     if (scheme == nullptr) {
-        return defaults;
-    }
-
-    const std::string virtualPath = std::string(mapName) + "/things";
-    if (!assets.hasMapThings(virtualPath)) {
-        TraceLog(
-            LOG_INFO,
-            "THING: no things.s7 for map '%.*s'",
-            static_cast<int>(mapName.size()),
-            mapName.data());
-        return defaults;
-    }
-
-    auto doc = loadMapThings(scheme, assets, mapName);
-    if (!doc) {
         return defaults;
     }
 
@@ -531,9 +769,26 @@ PlayerStart spawnMapThings(
     ctx.world = &world;
     ctx.assets = &assets;
     ctx.scheme = scheme;
-    for (const Thing& placement : doc->things) {
-        spawnOne(ctx, placement);
+    ctx.brushes = &brushes;
+
+    std::optional<ThingDocument> doc;
+    const std::string virtualPath = std::string(mapName) + "/things";
+    if (assets.hasMapThings(virtualPath)) {
+        doc = loadMapThings(scheme, assets, mapName);
+        if (doc) {
+            for (const Thing& placement : doc->things) {
+                spawnOne(ctx, placement);
+            }
+        }
+    } else {
+        TraceLog(
+            LOG_INFO,
+            "THING: no things.s7 for map '%.*s'",
+            static_cast<int>(mapName.size()),
+            mapName.data());
     }
+
+    spawnDoorBrushes(ctx, brushes, doc ? &*doc : nullptr);
 
     if (!ctx.playerStart.found) {
         TraceLog(LOG_WARNING, "THING: no player-start in things.s7; using default spawn");

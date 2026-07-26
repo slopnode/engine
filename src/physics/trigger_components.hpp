@@ -1,5 +1,7 @@
 #pragma once
 
+#include "map/handler_binding.hpp"
+
 #include <raylib.h>
 
 #include <cstdint>
@@ -21,8 +23,8 @@ struct CollisionTags {
  */
 struct TriggerVolume {
     Vector3 size{1.0f, 1.0f, 1.0f};
-    std::string onEnter;
-    std::string onExit;
+    HandlerBinding onEnter;
+    HandlerBinding onExit;
     std::vector<std::string> filterTags;
     std::unordered_set<std::uint64_t> inside;
 };

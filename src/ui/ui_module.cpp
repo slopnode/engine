@@ -395,6 +395,9 @@ const char* entityKindLabel(flecs::entity entity) {
     if (entity.has<SunLight>()) {
         return "sun";
     }
+    if (entity.has<AmbientLight>()) {
+        return "ambient-light";
+    }
     if (entity.has<RigidMover>()) {
         return "mover";
     }
@@ -529,7 +532,7 @@ void drawEntityComponentDetails(flecs::entity entity) {
         const Interactable& interactable = entity.get<Interactable>();
         if (ImGui::TreeNode("Interactable")) {
             ImGui::Text("Prompt: %s", interactable.prompt.c_str());
-            ImGui::Text("Event: %s", interactable.eventName.c_str());
+            ImGui::Text("Event: %s", interactable.onUse.id.c_str());
             ImGui::Text("Max Distance: %.2f", static_cast<double>(interactable.maxDistance));
             ImGui::TreePop();
         }
@@ -636,6 +639,18 @@ void drawEntityComponentDetails(flecs::entity entity) {
     if (entity.has<SunLight>()) {
         const SunLight& light = entity.get<SunLight>();
         if (ImGui::TreeNode("SunLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<AmbientLight>()) {
+        const AmbientLight& light = entity.get<AmbientLight>();
+        if (ImGui::TreeNode("AmbientLight")) {
             ImGui::Text(
                 "Color: %.3f, %.3f, %.3f",
                 static_cast<double>(light.color.x),
@@ -993,8 +1008,8 @@ void drawInteractPanel(InputContextStack& contexts, InteractionTarget& target) {
 
     const char* title = target.prompt.empty() ? "Interact" : target.prompt.c_str();
     if (ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoCollapse)) {
-        if (!target.eventName.empty()) {
-            ImGui::Text("Event: %s", target.eventName.c_str());
+        if (!target.onUse.empty()) {
+            ImGui::Text("Event: %s", target.onUse.id.c_str());
         }
         if (target.entity.is_valid()) {
             ImGui::Text("Entity: %llu", static_cast<unsigned long long>(target.entity.id()));

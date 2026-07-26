@@ -104,6 +104,19 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.emissionPower = power;
         return true;
     }
+    if (tag == "sky") {
+        if (form.list.size() == 1) {
+            asset.sky = true;
+            return true;
+        }
+        float flag = 1.0f;
+        if (!readNumberField(form, 1, &flag)) {
+            error = {"(sky) or (sky 0|1)", form.line, form.column};
+            return false;
+        }
+        asset.sky = flag != 0.0f;
+        return true;
+    }
 
     error = {"unknown material field '" + tag + "'", form.line, form.column};
     return false;

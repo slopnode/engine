@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace slopmap {
 
@@ -42,6 +43,48 @@ std::uint32_t hashString(const std::string& value) {
         hash *= 16777619u;
     }
     return hash;
+}
+
+void clearMoverOverlay(Model& model, bool& valid) {
+    if (valid && model.meshCount > 0) {
+        UnloadModel(model);
+    }
+    model = {};
+    valid = false;
+}
+
+void rebuildMoverOverlay(
+    slopengine::AssetStore& assets,
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds,
+    Model& model,
+    bool& valid) {
+    clearMoverOverlay(model, valid);
+    if (moverBrushIds.empty()) {
+        return;
+    }
+    std::vector<slopengine::Brush> movers;
+    movers.reserve(moverBrushIds.size());
+    for (const slopengine::Brush& brush : brushes) {
+        if (moverBrushIds.count(brush.id) > 0) {
+            movers.push_back(brush);
+        }
+    }
+    if (movers.empty()) {
+        return;
+    }
+    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+        movers,
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); },
+        nullptr);
+    model = slopengine::buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+    valid = model.meshCount > 0;
+    if (!valid) {
+        clearMoverOverlay(model, valid);
+    }
 }
 
 unsigned char mixChannel(unsigned char base, std::uint32_t hash, int shift, int spread) {
@@ -190,6 +233,9 @@ void MapPreview::clearLit() {
     useLightmapLoc = -1;
     solidLitLoc = -1;
     rad = {};
+    if (!visValid) {
+        pickFac = {};
+    }
 }
 
 void MapPreview::clearVis() {
@@ -198,6 +244,9 @@ void MapPreview::clearVis() {
     }
     visModel = {};
     visValid = false;
+    if (!litValid) {
+        pickFac = {};
+    }
 }
 
 void MapPreview::clear() {
@@ -209,6 +258,7 @@ void MapPreview::clear() {
     editFaceIds.clear();
     clearVis();
     clearLit();
+    clearMoverOverlay(moverOverlayModel, moverOverlayValid);
 }
 
 void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slopengine::Brush>& brushes) {
@@ -242,8 +292,8 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
 bool MapPreview::reloadVisPreview(
     slopengine::AssetStore& assets,
     const std::string& mapName,
-    const std::vector<slopengine::Brush>& brushes) {
-    (void)brushes;
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds) {
     clearVis();
     if (mapName.empty() || mapName == "untitled") {
         return false;
@@ -264,8 +314,9 @@ bool MapPreview::reloadVisPreview(
 
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    pickFac = std::move(*loadedFac);
     const slopengine::CsgCompileResult compiled =
-        slopengine::compileVisibleFacesToGeo(*loadedFac, resolveUv, nullptr);
+        slopengine::compileVisibleFacesToGeo(pickFac, resolveUv, nullptr);
 
     visModel = slopengine::buildModelFromGeo(
         compiled.asset,
@@ -274,14 +325,17 @@ bool MapPreview::reloadVisPreview(
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
+        return false;
     }
-    return visValid;
+    rebuildMoverOverlay(assets, brushes, moverBrushIds, moverOverlayModel, moverOverlayValid);
+    return true;
 }
 
 bool MapPreview::reloadBake(
     slopengine::AssetStore& assets,
     const std::string& mapName,
-    const std::vector<slopengine::Brush>& brushes) {
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds) {
     clearLit();
     if (mapName.empty() || mapName == "untitled") {
         return false;
@@ -342,6 +396,11 @@ bool MapPreview::reloadBake(
         }
     }
 
+    if (haveVis) {
+        pickFac = vis;
+    } else if (!visValid) {
+        pickFac = {};
+    }
     const slopengine::CsgCompileResult compiled = haveVis
         ? slopengine::compileVisibleFacesToGeo(vis, resolveUv, &rad)
         : slopengine::compileBrushesToGeo(brushes, resolveUv, &rad);
@@ -391,6 +450,7 @@ bool MapPreview::reloadBake(
         const int useLightmap = 1;
         SetShaderValue(lightmapShader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
     }
+    rebuildMoverOverlay(assets, brushes, moverBrushIds, moverOverlayModel, moverOverlayValid);
     return litValid;
 }
 
@@ -426,7 +486,13 @@ Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
     };
 }
 
-void drawThickLine3D(Vector3 a, Vector3 b, Color color, float width, Vector3 eye) {
+void drawThickLine3D(
+    Vector3 a,
+    Vector3 b,
+    Color color,
+    float width,
+    Vector3 eye,
+    Vector3 viewDir) {
     const Vector3 delta{b.x - a.x, b.y - a.y, b.z - a.z};
     const float lenSq = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
     if (lenSq < 1e-12f || width <= 0.0f) {
@@ -439,13 +505,20 @@ void drawThickLine3D(Vector3 a, Vector3 b, Color color, float width, Vector3 eye
         0.5f * (a.y + b.y),
         0.5f * (a.z + b.z),
     };
-    Vector3 toEye{eye.x - mid.x, eye.y - mid.y, eye.z - mid.z};
-    float toEyeLen = std::sqrt(toEye.x * toEye.x + toEye.y * toEye.y + toEye.z * toEye.z);
-    if (toEyeLen < 1e-6f) {
-        toEye = {0.0f, 1.0f, 0.0f};
-        toEyeLen = 1.0f;
+    const float viewLenSq =
+        viewDir.x * viewDir.x + viewDir.y * viewDir.y + viewDir.z * viewDir.z;
+    Vector3 toEye{};
+    if (viewLenSq > 1e-12f) {
+        const float viewLen = std::sqrt(viewLenSq);
+        toEye = {-viewDir.x / viewLen, -viewDir.y / viewLen, -viewDir.z / viewLen};
     } else {
-        toEye = {toEye.x / toEyeLen, toEye.y / toEyeLen, toEye.z / toEyeLen};
+        toEye = {eye.x - mid.x, eye.y - mid.y, eye.z - mid.z};
+        float toEyeLen = std::sqrt(toEye.x * toEye.x + toEye.y * toEye.y + toEye.z * toEye.z);
+        if (toEyeLen < 1e-6f) {
+            toEye = {0.0f, 1.0f, 0.0f};
+        } else {
+            toEye = {toEye.x / toEyeLen, toEye.y / toEyeLen, toEye.z / toEyeLen};
+        }
     }
 
     Vector3 side{
@@ -541,12 +614,18 @@ void MapPreview::draw(
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
             DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            if (moverOverlayValid) {
+                DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            }
             break;
         }
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
             DrawModel(visModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            if (moverOverlayValid) {
+                DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            }
             break;
         }
         [[fallthrough]];
@@ -632,39 +711,268 @@ void drawBrushAabbWires(const slopengine::Brush& brush, Color color) {
     drawAabbWires(brush.mins, brush.maxs, color);
 }
 
-void drawGrid(
-    GridPlane plane,
-    float halfExtent,
-    float step,
-    Color color,
-    Vector3 eye,
-    float lineWidth) {
+bool InfiniteGrid::load(slopengine::AssetStore& assets) {
+    unload();
+    const std::string vert = assets.getShaderSource("tools/grid_vert");
+    const std::string frag = assets.getShaderSource("tools/grid_frag");
+    if (vert.empty() || frag.empty()) {
+        TraceLog(LOG_WARNING, "slopmap: missing tools/grid shaders");
+        return false;
+    }
+    shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (shader.id == 0) {
+        TraceLog(LOG_WARNING, "slopmap: failed to compile tools/grid shaders");
+        return false;
+    }
+    shader.locs[SHADER_LOC_MATRIX_MVP] = GetShaderLocation(shader, "mvp");
+    shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
+    shader.locs[SHADER_LOC_VERTEX_POSITION] = GetShaderLocationAttrib(shader, "vertexPosition");
+    cameraPosLoc = GetShaderLocation(shader, "cameraPos");
+    gridSizeLoc = GetShaderLocation(shader, "gridSize");
+    planeAxisLoc = GetShaderLocation(shader, "planeAxis");
+    fadeRadiusLoc = GetShaderLocation(shader, "fadeRadius");
+    minorColorLoc = GetShaderLocation(shader, "minorColor");
+    majorColorLoc = GetShaderLocation(shader, "majorColor");
+    return true;
+}
+
+void InfiniteGrid::unload() {
+    if (shader.id != 0) {
+        UnloadShader(shader);
+        shader = {};
+    }
+    cameraPosLoc = -1;
+    gridSizeLoc = -1;
+    planeAxisLoc = -1;
+    fadeRadiusLoc = -1;
+    minorColorLoc = -1;
+    majorColorLoc = -1;
+}
+
+bool InfiniteGrid::ready() const {
+    return shader.id != 0;
+}
+
+void InfiniteGrid::draw(GridPlane plane, Vector3 eye, float gridSize, float fadeRadius) const {
+    if (!ready() || fadeRadius <= 1e-4f || gridSize <= 0.0f) {
+        return;
+    }
+
+    Vector3 center{};
+    int axis = 0;
     switch (plane) {
     case GridPlane::XY:
-        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-            drawThickLine3D({x, -halfExtent, 0.0f}, {x, halfExtent, 0.0f}, color, lineWidth, eye);
-        }
-        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
-            drawThickLine3D({-halfExtent, y, 0.0f}, {halfExtent, y, 0.0f}, color, lineWidth, eye);
-        }
+        center = {eye.x, eye.y, 0.0f};
+        axis = 1;
         break;
     case GridPlane::YZ:
-        for (float y = -halfExtent; y <= halfExtent + 0.001f; y += step) {
-            drawThickLine3D({0.0f, y, -halfExtent}, {0.0f, y, halfExtent}, color, lineWidth, eye);
-        }
-        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-            drawThickLine3D({0.0f, -halfExtent, z}, {0.0f, halfExtent, z}, color, lineWidth, eye);
-        }
+        center = {0.0f, eye.y, eye.z};
+        axis = 2;
         break;
     case GridPlane::XZ:
     default:
-        for (float x = -halfExtent; x <= halfExtent + 0.001f; x += step) {
-            drawThickLine3D({x, 0.0f, -halfExtent}, {x, 0.0f, halfExtent}, color, lineWidth, eye);
-        }
-        for (float z = -halfExtent; z <= halfExtent + 0.001f; z += step) {
-            drawThickLine3D({-halfExtent, 0.0f, z}, {halfExtent, 0.0f, z}, color, lineWidth, eye);
-        }
+        center = {eye.x, 0.0f, eye.z};
+        axis = 0;
         break;
+    }
+
+    const float ext = fadeRadius;
+    Vector3 p0{};
+    Vector3 p1{};
+    Vector3 p2{};
+    Vector3 p3{};
+    switch (plane) {
+    case GridPlane::XY:
+        p0 = {center.x - ext, center.y - ext, center.z};
+        p1 = {center.x + ext, center.y - ext, center.z};
+        p2 = {center.x + ext, center.y + ext, center.z};
+        p3 = {center.x - ext, center.y + ext, center.z};
+        break;
+    case GridPlane::YZ:
+        p0 = {center.x, center.y - ext, center.z - ext};
+        p1 = {center.x, center.y - ext, center.z + ext};
+        p2 = {center.x, center.y + ext, center.z + ext};
+        p3 = {center.x, center.y + ext, center.z - ext};
+        break;
+    case GridPlane::XZ:
+    default:
+        p0 = {center.x - ext, center.y, center.z - ext};
+        p1 = {center.x + ext, center.y, center.z - ext};
+        p2 = {center.x + ext, center.y, center.z + ext};
+        p3 = {center.x - ext, center.y, center.z + ext};
+        break;
+    }
+
+    const float cam[3] = {eye.x, eye.y, eye.z};
+    const float size = std::max(gridSize, 0.001f);
+    const float fade = fadeRadius;
+    const float minor[4] = {70.0f / 255.0f, 74.0f / 255.0f, 80.0f / 255.0f, 0.45f};
+    const float major[4] = {96.0f / 255.0f, 102.0f / 255.0f, 112.0f / 255.0f, 0.75f};
+
+    rlDrawRenderBatchActive();
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+    BeginShaderMode(shader);
+    if (shader.locs[SHADER_LOC_MATRIX_MODEL] >= 0) {
+        const Matrix identity = MatrixIdentity();
+        SetShaderValueMatrix(shader, shader.locs[SHADER_LOC_MATRIX_MODEL], identity);
+    }
+    if (cameraPosLoc >= 0) {
+        SetShaderValue(shader, cameraPosLoc, cam, SHADER_UNIFORM_VEC3);
+    }
+    if (gridSizeLoc >= 0) {
+        SetShaderValue(shader, gridSizeLoc, &size, SHADER_UNIFORM_FLOAT);
+    }
+    if (planeAxisLoc >= 0) {
+        SetShaderValue(shader, planeAxisLoc, &axis, SHADER_UNIFORM_INT);
+    }
+    if (fadeRadiusLoc >= 0) {
+        SetShaderValue(shader, fadeRadiusLoc, &fade, SHADER_UNIFORM_FLOAT);
+    }
+    if (minorColorLoc >= 0) {
+        SetShaderValue(shader, minorColorLoc, minor, SHADER_UNIFORM_VEC4);
+    }
+    if (majorColorLoc >= 0) {
+        SetShaderValue(shader, majorColorLoc, major, SHADER_UNIFORM_VEC4);
+    }
+
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+    rlVertex3f(p0.x, p0.y, p0.z);
+    rlVertex3f(p1.x, p1.y, p1.z);
+    rlVertex3f(p2.x, p2.y, p2.z);
+    rlVertex3f(p3.x, p3.y, p3.z);
+    rlVertex3f(p0.x, p0.y, p0.z);
+    rlVertex3f(p3.x, p3.y, p3.z);
+    rlVertex3f(p2.x, p2.y, p2.z);
+    rlVertex3f(p1.x, p1.y, p1.z);
+    rlEnd();
+
+    EndShaderMode();
+    rlDrawRenderBatchActive();
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+float gridMetersPerPixel(
+    bool orthographic,
+    float orthoHalfHeight,
+    float fovyDegrees,
+    float viewportHeight,
+    GridPlane plane,
+    Vector3 eye,
+    Vector3 viewDir) {
+    (void)viewDir;
+    const float height = std::max(viewportHeight, 1.0f);
+    if (orthographic) {
+        return (std::max(orthoHalfHeight, 1e-4f) * 2.0f) / height;
+    }
+    float planeDist = std::fabs(eye.y);
+    switch (plane) {
+    case GridPlane::XY:
+        planeDist = std::fabs(eye.z);
+        break;
+    case GridPlane::YZ:
+        planeDist = std::fabs(eye.x);
+        break;
+    case GridPlane::XZ:
+    default:
+        planeDist = std::fabs(eye.y);
+        break;
+    }
+    planeDist = std::clamp(planeDist, 0.25f, 128.0f);
+    const float fovy = std::max(fovyDegrees, 1.0f) * (3.14159265358979323846f / 180.0f);
+    const float halfHeight = planeDist * std::tan(fovy * 0.5f);
+    return (halfHeight * 2.0f) / height;
+}
+
+void drawOrientationWidget(const Camera3D& camera, float width, float height) {
+    if (width < 8.0f || height < 8.0f) {
+        return;
+    }
+
+    Vector3 forward{
+        camera.target.x - camera.position.x,
+        camera.target.y - camera.position.y,
+        camera.target.z - camera.position.z,
+    };
+    const float forwardLen =
+        std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
+    if (forwardLen <= 1e-8f) {
+        return;
+    }
+    forward = {forward.x / forwardLen, forward.y / forwardLen, forward.z / forwardLen};
+
+    Vector3 right{
+        forward.y * camera.up.z - forward.z * camera.up.y,
+        forward.z * camera.up.x - forward.x * camera.up.z,
+        forward.x * camera.up.y - forward.y * camera.up.x,
+    };
+    float rightLen = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+    if (rightLen <= 1e-6f) {
+        const Vector3 fallback =
+            std::fabs(forward.y) < 0.9f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
+        right = {
+            forward.y * fallback.z - forward.z * fallback.y,
+            forward.z * fallback.x - forward.x * fallback.z,
+            forward.x * fallback.y - forward.y * fallback.x,
+        };
+        rightLen = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+        if (rightLen <= 1e-6f) {
+            return;
+        }
+    }
+    right = {right.x / rightLen, right.y / rightLen, right.z / rightLen};
+    const Vector3 up{
+        right.y * forward.z - right.z * forward.y,
+        right.z * forward.x - right.x * forward.z,
+        right.x * forward.y - right.y * forward.x,
+    };
+
+    const float cx = width - 54.0f;
+    const float cy = 54.0f;
+    const float len = 34.0f;
+    const Vector2 origin{cx, cy};
+
+    struct AxisArm {
+        Vector3 dir{};
+        Color color{};
+        const char* label = nullptr;
+        float depth = 0.0f;
+    };
+
+    AxisArm arms[] = {
+        {{1.0f, 0.0f, 0.0f}, Color{220, 70, 70, 255}, "X", 0.0f},
+        {{-1.0f, 0.0f, 0.0f}, Color{70, 190, 190, 255}, nullptr, 0.0f},
+        {{0.0f, 1.0f, 0.0f}, Color{70, 200, 90, 255}, "Y", 0.0f},
+        {{0.0f, -1.0f, 0.0f}, Color{200, 70, 190, 255}, nullptr, 0.0f},
+        {{0.0f, 0.0f, 1.0f}, Color{70, 120, 230, 255}, "Z", 0.0f},
+        {{0.0f, 0.0f, -1.0f}, Color{230, 200, 70, 255}, nullptr, 0.0f},
+    };
+    for (AxisArm& arm : arms) {
+        arm.depth = -(arm.dir.x * forward.x + arm.dir.y * forward.y + arm.dir.z * forward.z);
+    }
+    std::sort(std::begin(arms), std::end(arms), [](const AxisArm& a, const AxisArm& b) {
+        return a.depth < b.depth;
+    });
+
+    DrawCircleV(origin, 3.0f, Color{200, 200, 205, 220});
+    for (const AxisArm& arm : arms) {
+        const Vector2 tip{
+            cx + (arm.dir.x * right.x + arm.dir.y * right.y + arm.dir.z * right.z) * len,
+            cy - (arm.dir.x * up.x + arm.dir.y * up.y + arm.dir.z * up.z) * len,
+        };
+        const float thickness = arm.label != nullptr ? 3.0f : 2.0f;
+        DrawLineEx(origin, tip, thickness, arm.color);
+        DrawCircleV(tip, arm.label != nullptr ? 4.0f : 3.0f, arm.color);
+        if (arm.label != nullptr) {
+            DrawText(
+                arm.label,
+                static_cast<int>(tip.x + 5.0f),
+                static_cast<int>(tip.y - 6.0f),
+                12,
+                arm.color);
+        }
     }
 }
 

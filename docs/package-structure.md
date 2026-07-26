@@ -43,7 +43,7 @@ my-package/
   package.meta
   animations/     # .anim, .tracks
   audio/          # .saudio, .s7 audio defs
-  data/           # .s7 (actions, items, view, cli, campaign, ...)
+  data/           # .s7 (actions, map-handlers, items, view, cli, campaign, ...)
   fonts/          # .ttf (ImGui / UI)
   geometry/       # .geo, .vert, .weights
   icons/          # .png atlas + .iconmap (+ source folders)
@@ -103,7 +103,7 @@ GLSL sources under shaders/. Vertex and fragment programs are separate virtual p
 
 ### Scripts
 
-Scheme (s7) sources under scripts/ and package data under data/. The base game owns boot entrypoints (init, actions, items, view, cli, things, player, menus). Mods expand via scripts/contrib.s7 and `(hook-add ...)`, and may append data/actions.s7. Cross-package loads use `(package-load-script package-id path)` / `(package-load-data package-id path)`. Map things are a separate maps/{name}/things.s7. See [Scripting](scripting.md) and [Things](things.md).
+Scheme (s7) sources under scripts/ and package data under data/. The base game owns boot entrypoints (init, actions, map-handlers, items, view, cli, things, player, menus). Mods expand via scripts/contrib.s7 and `(hook-add ...)`, and may append data/actions.s7 and data/map-handlers.s7. Cross-package loads use `(package-load-script package-id path)` / `(package-load-data package-id path)`. Map things are a separate maps/{name}/things.s7. See [Scripting](scripting.md) and [Things](things.md).
 
 ### Sound and audio
 

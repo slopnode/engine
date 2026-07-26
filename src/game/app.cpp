@@ -11,6 +11,9 @@
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
 #include "interact/interact_module.hpp"
+#include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
+#include "map/csg_script.hpp"
 #include "map/map_scene.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
@@ -119,6 +122,26 @@ void App::init_script() {
             }
         }
     }
+    mapHandlerRegistry().clear();
+    if (!assetStore_.loadDataFromPackage(scheme_, baseId, "map-handlers")) {
+        TraceLog(LOG_WARNING, "SCRIPT: data/map-handlers.s7 not loaded");
+    } else if (!registerPackageMapHandlersFromScheme(scheme_)) {
+        TraceLog(LOG_WARNING, "SCRIPT: failed to register package map handlers");
+    }
+    for (const Package& package : assetStore_.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assetStore_.loadDataFromPackage(scheme_, package.meta().id, "map-handlers")) {
+            if (!registerPackageMapHandlersFromScheme(scheme_)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "SCRIPT: failed to register map handlers from mod '%s'",
+                    package.meta().id.c_str());
+            }
+        }
+    }
+    loadPackageThings(scheme_, assetStore_);
     if (!assetStore_.loadDataFromPackage(scheme_, baseId, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }

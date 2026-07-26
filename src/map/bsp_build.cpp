@@ -1078,6 +1078,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             ++hintCount;
             break;
         case BrushRole::Detail:
+        case BrushRole::Door:
             ++detailCount;
             break;
         }

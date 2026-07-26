@@ -62,6 +62,7 @@ void registerComponents(flecs::world& world) {
     world.component<SpotLight>();
     world.component<AreaLight>();
     world.component<SunLight>();
+    world.component<AmbientLight>();
     world.component<DynamicLight>();
     world.component<FxLocalLight>();
     world.component<MapOwned>();

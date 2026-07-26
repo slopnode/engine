@@ -2,6 +2,8 @@
 
 #include "editor.hpp"
 
+#include "assets/asset_store.hpp"
+
 namespace slopmap {
 
 struct ThingPanelResult {
@@ -9,7 +11,8 @@ struct ThingPanelResult {
 };
 
 struct ThingPanel {
-    ThingPanelResult drawSection(Editor& editor, float bodyHeight);
+    ThingPanelResult drawSection(
+        Editor& editor, slopengine::AssetStore& assets, float bodyHeight);
 };
 
 }

@@ -43,10 +43,11 @@ struct RadiosityBakeResult {
     std::vector<Image> atlasImages;
 };
 
-/** Bake-time light kind (point and spot only today). */
+/** Bake-time light kind. */
 enum class RadiosityLightKind {
     Point,
     Spot,
+    Sun,
 };
 
 /** Thing light collected for the radiosity bake. */

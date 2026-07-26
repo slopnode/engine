@@ -37,11 +37,12 @@ Describes the map and which *other* packages it needs mounted. Owning package is
 (map
   (id "my-map")
   (name "My Map")
-  (depends)
-  (ambient 0.03 0.03 0.04))
+  (author "Mapper Name")
+  (description "Short blurb for menus or docs.")
+  (depends))
 ```
 
-id is required. (depends ...) lists other package ids that must be mounted when this map uses their assets; omit or leave empty when the map only uses its own package. A legacy (package ...) field is ignored. name is display-only. ambient is a soft fill color used when baking radiosity; if omitted, the tools use a small default gray-blue.
+id is required. name, author, and description are optional display/metadata strings. (depends ...) lists other package ids that must be mounted when this map uses their assets; omit or leave empty when the map only uses its own package. A legacy (package ...) field is ignored. Legacy `(ambient ...)` / `(sun ...)` in map.meta are ignored for lighting — place an `ambient-light` thing and/or `sun` thing in things.s7 (editable in slopmap). Without an ambient-light thing, bake/runtime ambient is black. Sun only reaches surfaces that can see a face with a `(sky)` material (stock `default/sky`); rotate the sun thing for direction, then re-run sloprad.
 
 ### static.csg
 
@@ -66,14 +67,21 @@ The canonical solid is a convex polyhedron of polygonal faces. Each face is an o
       (verts (v 1.5 0.0 1.2) (v 1.5 0.7 0.7) (v 1.0 0.0 0.5)))))
 ```
 
-brush-convex requires id and at least four planar faces that form a closed convex. Optional (role ...) (default hull). Optional brush-level (material ...) fills in faces that omit their own. Per-face clauses may set id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ux uy uz vx vy vz), (nodraw), and (verts (v x y z)...).
+brush-convex requires id and at least four planar faces that form a closed convex. Optional (role ...) (default hull). Optional brush-level (material ...) fills in faces that omit their own. Per-face clauses may set id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ux uy uz vx vy vz), (nodraw), (on-use "handler"), (on-touch "handler"), and (verts (v x y z)...).
+
+Face `(on-use …)` / `(on-touch …)` store a handler id and optional typed arg clauses (same wiring as usable / trigger things; see [Map handlers](scripting.md#map-handlers)). They do **not** change brush role: a hull face that seals the shell can carry either. At map load, each face with a non-empty handler spawns a `face:{faceId}` entity with polygon `FaceUseSurface`. `on-use` adds `Interactable`. `on-touch` adds `FaceTouch` (player capsule near the face fires once on enter, like volume on-enter). Prefer thing `(usable …)` when you need a mesh/sprite prompt target; prefer thing `(trigger …)` for thick volumes.
+
+Brush role **`door`** (with optional nested `(door …)` motion params) is an engine door leaf (raise / slide / swing). Same BSP placement rules as detail; omitted from static FAC / collision; at load the engine spawns a `RigidMover` named with the brush id and toggles it on use. See [Things: Doors](things.md#doors-brush-door).
+
+Volume enter/exit gameplay uses thing `(trigger …)` in things.s7 (AABB + on-enter / on-exit), not brush role `trigger`. In [slopmap](slopmap.md), Convert to Trigger turns selected brushes into those things and removes them from CSG.
 
 | Role | Splits | Seals | VIS faces | Default physics | Notes |
 |------|--------|-------|-----------|-----------------|-------|
 | hull | yes | yes (Solid) | yes | collide | Structural shell |
 | detail | no | no | yes | collide | Must sit in sealed interior open space |
+| door | no | no | yes | collide | Same BSP rules as detail; engine door leaf (raise/slide/swing). See [Doors](things.md#doors-brush-door) |
 | hint | yes | no | no | no collide | Split-only; schema stub |
-| trigger | no | no | no | no collide | Marks open leaves Trigger; brush callbacks later |
+| trigger | no | no | no | no collide | Marks open leaves Trigger (BSP soft contents); not runtime Scheme volumes — use thing `(trigger …)` |
 | water | yes | no | yes | no collide | Marks open leaves Water; gameplay later |
 | window | yes | yes (Glass) | yes | collide | Fills openings; later fake-glass rad + breakable prop |
 
@@ -91,7 +99,7 @@ For convenience, brush-box expands an axis-aligned box into a six-face convex (s
   (material "surfaces/stone"))
 ```
 
-id, mins, and maxs are required on brush-box. Optional (faces ...) overrides individual sides (top, bottom, north, south, east, west) with their own id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ...), or (nodraw). Future sugar such as brush-circle may expand other primitives the same way; the compiler always sees convexes.
+id, mins, and maxs are required on brush-box. Optional `(door …)` (see [Doors](things.md#doors-brush-door)). Optional (faces ...) overrides individual sides (top, bottom, north, south, east, west) with their own id, material, (uv-shift x y), (uv-scale sx sy), (uv-lock), (uv-axes ...), (nodraw), (on-use "handler"), or (on-touch "handler"). Future sugar such as brush-circle may expand other primitives the same way; the compiler always sees convexes.
 
 (prefab ...) instances a brush assembly from prefabs/{path}.csg. Required: path string argument and (id ...). Optional (at x y z) (default origin) and (angles pitch yaw roll) in radians (default zero). No scale. At load/compile the prefab expands into ordinary brushes: local brush/face ids become {instance-id}/{local-id}, vertices are rotated then translated, and rotated boxes are no longer treated as axis-aligned. Faces marked (uv-lock) in the prefab keep their local texture thing under that transform. Brush role / nocollide come from the prefab author (hull modular rooms and detail furniture both work). Prefabs may nest; cycles error. Map files keep (prefab ...) references (they are not baked on save).
 
@@ -144,16 +152,20 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
 |------|----------|-------|
 | player-start | id, at | First wins; sets player spawn pose. Optional yaw (radians). See [Player](player.md). |
 | prop | id, at, exactly one of sprite / geo | Optional yaw, frame, (anim clip [loop]). See [Things](things.md). |
-| usable | same as prop | Adds interact prompt; (on-use "handler") names a Scheme procedure called with the entity id on Interact. See [Things](things.md). |
-| mover | same as prop + collide-size and open motion | Kinematic door/platform leaf; optional interact, group, shove/crush. See [Things](things.md#movers-mover). |
+| usable | same as prop | Adds interact prompt; (on-use "handler" arg-clauses...) — see [Map handlers](scripting.md#map-handlers) and [Things](things.md). |
+| pickup | same as prop; on-enter and/or on-use | Presented collectible; touch volume and/or use. See [Things](things.md#pickups-pickup). |
+| mover | brush **or** geo/sprite + open motion; collide-size unless brush | Kinematic door/platform leaf. Prefer `(brush "detail-id")` for CSG door leaves (omitted from FAC/static collision). See [Things](things.md#movers-mover). |
+| trigger | id, at, on-enter and/or on-exit | AABB volume (`trigger-size`); Scheme enter/exit handlers. Not brush role `trigger`. |
+| marker | id, at | Pose-only named point; optional yaw. See [Things](things.md#markers-marker). |
 | actor | same as prop | Adds character motor + tags; optional (motor ...) / (tags ...). See [Things](things.md#actors). |
 | point-light | id, at | Optional color, intensity, range. Baked by sloprad; see [Lights](lights.md). |
 | spot-light | id, at | Optional yaw/angles, color, intensity, range, cone. Baked by sloprad. |
 | area-light | id, at | Optional angles, color, intensity, size. Authoring / gizmo; not a bake emitter. |
-| sun | id | Optional at (gizmo), angles/yaw, color, intensity. Authoring / gizmo. |
+| sun | id | Optional at (gizmo), angles/yaw, color, intensity. Bake directional sun (needs sky-material faces). |
+| ambient-light | id | Optional at (gizmo), color, intensity. Sets bake/runtime ambient; omit for black ambient. |
 | prefab | path, id | Loads optional prefabs/{path}.s7 with the same at / angles as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
-on-use handlers live in package scripts (for example scripts/things.s7). If the handler is missing, Interact falls back to the inspect UI. Props, usables, lights, actors, and scripting are covered in [Things](things.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
+on-use handlers live in package scripts (for example scripts/things.s7). If the handler is missing, Interact falls back to the inspect UI. Props, usables, pickups, lights, actors, and scripting are covered in [Things](things.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
 
 (nodraw) marks a face as out of bounds for rendering: it is omitted from the compiled mesh and from radiosity charts, so it does not consume lightmap atlas space. The brush stays solid for physics and BSP occlusion. You can still set it explicitly on any face when you want nodraw true:
 
@@ -177,7 +189,7 @@ You can edit .csg by hand, generate it from another program, or build a dedicate
 
 ### Materials on brushes
 
-Face materials drive diffuse appearance and bake sampling (albedo + emission only; no normal maps). texel-size on the material controls how densely the texture tiles in world space. Emission fields on the material feed radiosity (see the materials guide). After changing materials or emitters that affect a map, re-run sloprad if you rely on baked lighting.
+Face materials drive diffuse appearance and bake sampling (albedo + emission only; no normal maps). texel-size on the material controls how densely the texture tiles in world space. Emission fields on the material feed radiosity; `(sky)` marks sun apertures (see the materials guide). After changing materials or emitters that affect a map, re-run sloprad if you rely on baked lighting.
 
 ## Compile order
 
@@ -217,7 +229,7 @@ Typical sequence:
 | Hull brushes, sealing, or hull face layout | slopbsp, then slopfac, then slopvis, then sloprad if you use lightmaps |
 | Detail brushes only (no hull / face-id churn) | slopfac, then slopvis, then sloprad; run slopbsp if you care about detail-outside warnings or stale analysis |
 | Face ids | slopfac then sloprad (charts key off FAC ids); slopvis if portals/leaves changed; slopbsp if hull planes changed |
-| Materials, albedo, emission, ambient | sloprad |
+| Materials, albedo, emission, sky, ambient-light, sun thing | sloprad |
 | things.s7 light thing change | Re-bake sloprad if point/spot should change static light; runtime DynamicLight is separate ([Lights](lights.md)) |
 | Authored (nodraw) | slopfac, then slopvis, then sloprad |
 

@@ -1,5 +1,6 @@
 #include "map/csg_write.hpp"
 
+#include "map/handler_binding.hpp"
 #include "map/uv_math.hpp"
 
 #include <cmath>
@@ -99,6 +100,12 @@ bool faceNeedsOverride(const BrushFace& face, const std::string& brushId, BrushB
     if (face.uvScale.x != 1.0f || face.uvScale.y != 1.0f) {
         return true;
     }
+    if (!face.onUse.empty()) {
+        return true;
+    }
+    if (!face.onTouch.empty()) {
+        return true;
+    }
     return false;
 }
 
@@ -134,7 +141,43 @@ void writeFaceOverride(
         out << "\n      ";
         writeUvAxesClause(out, face);
     }
+    if (!face.onUse.empty()) {
+        out << "\n      " << formatHandlerBindingClause("on-use", face.onUse);
+    }
+    if (!face.onTouch.empty()) {
+        out << "\n      " << formatHandlerBindingClause("on-touch", face.onTouch);
+    }
     out << ")\n";
+}
+
+void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
+    out << "  (door\n";
+    out << "    (motion \"" << doorMotionName(door.motion) << "\")\n";
+    if (door.haveDuration) {
+        out << "    (duration " << formatFloat(door.duration) << ")\n";
+    }
+    if (door.haveAutoClose) {
+        out << "    (auto-close " << formatFloat(door.autoClose) << ")\n";
+    }
+    if (door.haveAngle) {
+        out << "    (angle " << formatFloat(door.angle) << ")\n";
+    }
+    if (door.haveTravel) {
+        out << "    (travel " << formatFloat(door.travel) << ")\n";
+    }
+    if (!door.hingeThingId.empty()) {
+        out << "    (hinge " << escapeSchemeString(door.hingeThingId) << ")\n";
+    }
+    if (!door.group.empty()) {
+        out << "    (group " << escapeSchemeString(door.group) << ")\n";
+    }
+    if (door.havePrompt) {
+        out << "    (prompt " << escapeSchemeString(door.prompt) << ")\n";
+    }
+    if (!door.canUse.empty()) {
+        out << "    " << formatHandlerBindingClause("can-use", door.canUse) << "\n";
+    }
+    out << "  )\n";
 }
 
 void writeBrushBox(std::ostringstream& out, const Brush& brush) {
@@ -149,6 +192,9 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     }
     if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
+    }
+    if (brush.role == BrushRole::Door) {
+        writeBrushDoor(out, brush.door);
     }
 
     constexpr BrushBoxSide kSides[] = {
@@ -193,6 +239,9 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
         out << "  (nocollide)\n";
     }
+    if (brush.role == BrushRole::Door) {
+        writeBrushDoor(out, brush.door);
+    }
 
     const std::string material = defaultMaterialForBrush(brush);
     bool allSameMaterial = true;
@@ -233,6 +282,12 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
             out << "      ";
             writeUvAxesClause(out, face);
             out << "\n";
+        }
+        if (!face.onUse.empty()) {
+            out << "      " << formatHandlerBindingClause("on-use", face.onUse) << "\n";
+        }
+        if (!face.onTouch.empty()) {
+            out << "      " << formatHandlerBindingClause("on-touch", face.onTouch) << "\n";
         }
         out << "      (verts";
         for (const Vector3& v : face.vertices) {

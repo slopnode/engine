@@ -1,10 +1,12 @@
 #pragma once
 
+#include "map/handler_binding.hpp"
 #include "render/components.hpp"
 #include "script/script_scope.hpp"
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct s7_scheme;
 
@@ -31,6 +33,38 @@ bool tryCallSchemeProc2String(
     std::string_view name,
     const std::string& arg0,
     const std::string& arg1,
+    ScriptScope scope);
+bool tryCallSchemeProc1String1Alist(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::vector<HandlerArg>& args,
+    ScriptScope scope);
+bool tryCallSchemeProc2String1Alist(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    const std::vector<HandlerArg>& args,
+    ScriptScope scope);
+
+/** Catalog handlers get an alist last arg; legacy names keep old arity. */
+bool tryCallMapHandlerUse(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& entityId,
+    ScriptScope scope);
+/** Call can-use predicate; returns whether activation is allowed. Empty binding => true. */
+bool tryCallMapHandlerCanUse(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& entityId,
+    ScriptScope scope);
+bool tryCallMapHandlerEnterExit(
+    s7_scheme* scheme,
+    HandlerBinding binding,
+    const std::string& thingId,
+    const std::string& otherId,
     ScriptScope scope);
 bool tryCallSchemeProc1String3Reals(
     s7_scheme* scheme,

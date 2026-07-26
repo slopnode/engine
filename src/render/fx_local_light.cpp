@@ -291,10 +291,15 @@ Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
 
 namespace {
 
-void modelTintSamplePoints(
+void appendModelTintSamplePoints(
     const Model& model,
     const Matrix& globalMatrix,
-    Vector3 outSamples[3]) {
+    Vector3* outSamples,
+    int maxSamples,
+    int& inoutCount) {
+    if (outSamples == nullptr || inoutCount >= maxSamples) {
+        return;
+    }
     const BoundingBox localBounds = GetModelBoundingBox(model);
     const BoundingBox worldBounds = transformAabb(localBounds, globalMatrix);
     const Vector3 center{
@@ -304,9 +309,30 @@ void modelTintSamplePoints(
     };
     const float extentY = std::max(0.0f, worldBounds.max.y - worldBounds.min.y);
     const float insetY = std::min(0.15f, extentY * 0.25f);
-    outSamples[0] = center;
-    outSamples[1] = {center.x, worldBounds.min.y + insetY, center.z};
-    outSamples[2] = {center.x, worldBounds.max.y - insetY, center.z};
+    const Vector3 points[3] = {
+        center,
+        {center.x, worldBounds.min.y + insetY, center.z},
+        {center.x, worldBounds.max.y - insetY, center.z},
+    };
+    for (const Vector3& point : points) {
+        if (inoutCount >= maxSamples) {
+            break;
+        }
+        outSamples[inoutCount++] = point;
+    }
+}
+
+void collectModelTintSamplePoints(
+    const Model& model,
+    const Matrix& globalMatrix,
+    const Matrix* secondaryMatrix,
+    Vector3 outSamples[6],
+    int& outCount) {
+    outCount = 0;
+    appendModelTintSamplePoints(model, globalMatrix, outSamples, 6, outCount);
+    if (secondaryMatrix != nullptr) {
+        appendModelTintSamplePoints(model, *secondaryMatrix, outSamples, 6, outCount);
+    }
 }
 
 Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
@@ -333,13 +359,18 @@ Color sampleReceiverTintColorForModel(
     flecs::world& world,
     const Model& model,
     const Matrix& globalMatrix,
-    bool unlit) {
+    bool unlit,
+    const Matrix* secondaryMatrix) {
     if (unlit) {
         return WHITE;
     }
 
-    Vector3 samples[3]{};
-    modelTintSamplePoints(model, globalMatrix, samples);
+    Vector3 samples[6]{};
+    int sampleCount = 0;
+    collectModelTintSamplePoints(model, globalMatrix, secondaryMatrix, samples, sampleCount);
+    if (sampleCount <= 0) {
+        return WHITE;
+    }
 
     const std::vector<RankedDynamicLight>* dynLights =
         world.has<DynamicLightFrameState>() ? &world.get<DynamicLightFrameState>().lights
@@ -355,7 +386,8 @@ Color sampleReceiverTintColorForModel(
         samples[0],
         {0.0f, 1.0f, 0.0f},
         occlusionBvh));
-    for (int i = 1; i < 3; ++i) {
+    float bestLum = linearLuminance(colorToLinear(best));
+    for (int i = 1; i < sampleCount; ++i) {
         const float strength = overlayStrength(evaluateOverlayLightsAtPoint(
             dynLights,
             nullptr,
@@ -363,9 +395,12 @@ Color sampleReceiverTintColorForModel(
             {0.0f, 1.0f, 0.0f},
             occlusionBvh));
         const Color candidate = sampleReceiverTintAtOrigin(world, samples[i], false, false);
-        if (strength > bestStrength) {
+        const float lum = linearLuminance(colorToLinear(candidate));
+        if (strength > bestStrength + 1e-6f ||
+            (std::fabs(strength - bestStrength) <= 1e-6f && lum > bestLum)) {
             best = candidate;
             bestStrength = strength;
+            bestLum = lum;
         }
     }
     return best;
@@ -375,17 +410,22 @@ Color sampleBakeTintColorForModel(
     flecs::world& world,
     const Model& model,
     const Matrix& globalMatrix,
-    bool unlit) {
+    bool unlit,
+    const Matrix* secondaryMatrix) {
     if (unlit) {
         return WHITE;
     }
 
-    Vector3 samples[3]{};
-    modelTintSamplePoints(model, globalMatrix, samples);
+    Vector3 samples[6]{};
+    int sampleCount = 0;
+    collectModelTintSamplePoints(model, globalMatrix, secondaryMatrix, samples, sampleCount);
+    if (sampleCount <= 0) {
+        return WHITE;
+    }
 
     Color best = sampleBakeTintAtOrigin(world, samples[0], false);
     float bestLum = linearLuminance(colorToLinear(best));
-    for (int i = 1; i < 3; ++i) {
+    for (int i = 1; i < sampleCount; ++i) {
         const Color candidate = sampleBakeTintAtOrigin(world, samples[i], false);
         const float lum = linearLuminance(colorToLinear(candidate));
         if (lum > bestLum) {

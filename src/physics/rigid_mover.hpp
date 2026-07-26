@@ -23,6 +23,12 @@ enum class MoverBlockMode {
     Crush,
 };
 
+enum class MoverPushMode {
+    Full,
+    Horizontal,
+    Off,
+};
+
 struct RigidMover {
     Vector3 closedPos = {0.0f, 0.0f, 0.0f};
     Quaternion closedRot = QuaternionIdentity();
@@ -36,6 +42,8 @@ struct RigidMover {
     float autoClose = 0.0f;
     float autoCloseTimer = 0.0f;
     MoverBlockMode blockMode = MoverBlockMode::Shove;
+    MoverPushMode pushMode = MoverPushMode::Full;
+    bool slide = true;
     std::string groupId;
     Vector3 collideHalfExtents = {0.5f, 1.0f, 0.05f};
     Vector3 collideCenterLocal = {0.0f, 1.0f, 0.0f};
@@ -51,7 +59,15 @@ void computeMoverPose(
     Vector3& outPos,
     Quaternion& outRot);
 
+Matrix moverClosedMatrix(const RigidMover& mover, Vector3 scale);
+
 Vector3 moverCollideWorldCenter(const Vector3& pos, const Quaternion& rot, const RigidMover& mover);
+
+bool moverComputeShove(
+    MoverPushMode mode,
+    Vector3 normal,
+    float pen,
+    Vector3& outDelta);
 
 void tickRigidMover(RigidMover& mover, float dt);
 

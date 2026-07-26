@@ -9,9 +9,12 @@
 namespace slopengine {
 
 std::filesystem::path userConfigDirectory();
+std::filesystem::path userCacheDirectory();
 std::filesystem::path userSettingsPath();
+std::filesystem::path userSlopmapSettingsPath();
 std::filesystem::path userScreenshotDirectory();
 std::filesystem::path userSavesDirectory();
+std::filesystem::path defaultSlopmapThumbnailCacheDirectory();
 
 /** Sanitizes a single path segment for use under the saves tree. */
 std::string sanitizeSaveSegment(std::string_view text);

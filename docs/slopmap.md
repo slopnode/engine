@@ -37,7 +37,11 @@ Brush role is the important authoring choice: hull and window participate in the
 
 Clip (Shift+X / Edit -> Clip) draws a 2-point cut on the construction grid. F cycles keep Front / Back / Both, Shift+F flips the plane, Enter commits, Esc cancels. Punch-out subtracts from brushes using selected faces when you need openings without rebuilding the solid by hand.
 
-In Level scene, pick a prefab in the Prefabs panel and use Place to drop instances; Select moves them with G and rotates yaw by 90 deg with R. Things work the same way through the Things outliner and Library -> Things palette (props, usables, lights). Prefab scene can load and save optional prefabs/{path}.s7 sidecars for attached entities. Material browser, texture panel, and brush panel edit face appearance and UV fields on the open document.
+In Level scene, pick a prefab in Library → Prefabs and use Place to drop instances; Select moves them with G and rotates yaw by 90 deg with R. Things work the same way through Library → Things and the Scene outliner. Scene tabs Brushes / Prefabs / Things (Properties below for the selection). Library tabs Materials / Texture / Things / Prefabs. Prefab scene can load and save optional prefabs/{path}.s7 sidecars for attached entities. Material browser, texture panel, and brush panel edit face appearance and UV fields on the open document. In face selection scope, Properties shows face `on-use` / `on-touch` from the package map-handler catalog (combo + typed params, or Custom for legacy names). Thing Properties edits trigger `on-enter` / `on-exit`, usable/mover `on-use`, and pickup touch/use (presentation, `on-enter` + size, `on-use`) the same way. Thing/brush/face param pickers write resolved runtime ids from the open Level document. Face handlers do not change brush role (a hull face can still seal).
+
+For volume enter/exit triggers, draw a brush then Edit -> Convert to Trigger: the AABB becomes a `(trigger …)` thing in things.s7 and the brush is removed from CSG. Or Place a trigger from Library -> Things and set on-enter / on-exit / size in Properties.
+
+For CSG doors, author a brush in the doorway and set role **door** (Edit -> Set as Door, role combo, or `H`). Door properties (raise / slide / swing, hinge, `can-use`) appear only for that role. Compile/load omit the leaf from static FAC/collision. Elevators and other platforms still use Edit -> Convert to Mover on detail brushes. See [Things: Doors](things.md#doors-brush-door) and [Movers](things.md#movers-mover).
 
 ## View
 

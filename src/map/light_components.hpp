@@ -32,10 +32,18 @@ struct AreaLight {
     Vector2 size{1.0f, 1.0f};
 };
 
-/** Directional sun for authoring / gizmos (not a bake emitter yet).
+/** Directional sun for bake + authoring gizmos.
  *  @ingroup map_components
  */
 struct SunLight {
+    Vector3 color{1.0f, 1.0f, 1.0f};
+    float intensity = 1.0f;
+};
+
+/** Map-wide ambient fill for bake + runtime probe fallback.
+ *  @ingroup map_components
+ */
+struct AmbientLight {
     Vector3 color{1.0f, 1.0f, 1.0f};
     float intensity = 1.0f;
 };

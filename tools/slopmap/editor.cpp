@@ -3,14 +3,17 @@
 #include "core/vfs.hpp"
 #include "map/csg_script.hpp"
 #include "map/csg_write.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <limits>
 #include <system_error>
+#include <unordered_set>
 
 namespace slopmap {
 
@@ -40,8 +43,9 @@ bool ensureMapFiles(
         meta << "(map\n";
         meta << "  (id \"" << mapName << "\")\n";
         meta << "  (name \"" << mapName << "\")\n";
-        meta << "  (depends)\n";
-        meta << "  (ambient 0.03 0.03 0.04))\n";
+        meta << "  (author \"\")\n";
+        meta << "  (description \"\")\n";
+        meta << "  (depends))\n";
     }
     return true;
 }
@@ -113,12 +117,94 @@ std::filesystem::path thingsPathForPrefab(
     return packageRoot / "prefabs" / (prefabPath + ".s7");
 }
 
+constexpr float kOrthoPullback = 512.0f;
+
+void applyOrthoCameraPose(FlyCamera& camera, ViewPlane plane, Vector3 orthoFocus) {
+    switch (plane) {
+    case ViewPlane::Top:
+        camera.orthographic = true;
+        camera.viewPlane = ViewPlane::Top;
+        camera.yaw = 0.0f;
+        camera.pitch = -1.57079632679f;
+        camera.position = {
+            orthoFocus.x,
+            orthoFocus.y + kOrthoPullback,
+            orthoFocus.z,
+        };
+        break;
+    case ViewPlane::Front:
+        camera.orthographic = true;
+        camera.viewPlane = ViewPlane::Front;
+        camera.yaw = 3.14159265f;
+        camera.pitch = 0.0f;
+        camera.position = {
+            orthoFocus.x,
+            orthoFocus.y,
+            orthoFocus.z + kOrthoPullback,
+        };
+        break;
+    case ViewPlane::Side:
+        camera.orthographic = true;
+        camera.viewPlane = ViewPlane::Side;
+        camera.yaw = -1.57079632679f;
+        camera.pitch = 0.0f;
+        camera.position = {
+            orthoFocus.x + kOrthoPullback,
+            orthoFocus.y,
+            orthoFocus.z,
+        };
+        break;
+    case ViewPlane::PerspectiveY0:
+    default:
+        camera.orthographic = false;
+        camera.viewPlane = ViewPlane::PerspectiveY0;
+        break;
+    }
+}
+
+void syncGridPlaneForView(Editor& editor, ViewPlane plane) {
+    switch (plane) {
+    case ViewPlane::Front:
+        editor.gridPlane = GridPlane::XY;
+        break;
+    case ViewPlane::Side:
+        editor.gridPlane = GridPlane::YZ;
+        break;
+    case ViewPlane::Top:
+    case ViewPlane::PerspectiveY0:
+    default:
+        editor.gridPlane = GridPlane::XZ;
+        break;
+    }
+}
+
 void resetCamera(Editor& editor) {
-    editor.camera.position = {0.0f, 2.5f, 8.0f};
-    editor.camera.yaw = 3.14159265f;
-    editor.camera.pitch = -0.35f;
-    editor.camera.orthographic = false;
-    editor.viewPlane = ViewPlane::PerspectiveY0;
+    editor.orthoFocus = {0.0f, 1.0f, 0.0f};
+    editor.activeViewport = 0;
+    editor.viewportLayout = ViewportLayout::Single;
+
+    editor.viewports[0].plane = ViewPlane::PerspectiveY0;
+    editor.viewports[0].camera = {};
+    editor.viewports[0].camera.position = {0.0f, 2.5f, 8.0f};
+    editor.viewports[0].camera.yaw = 3.14159265f;
+    editor.viewports[0].camera.pitch = -0.35f;
+    editor.viewports[0].camera.orthographic = false;
+    editor.viewports[0].camera.viewPlane = ViewPlane::PerspectiveY0;
+
+    editor.viewports[1].plane = ViewPlane::Top;
+    editor.viewports[1].camera = {};
+    editor.viewports[1].camera.orthoHalfHeight = 8.0f;
+
+    editor.viewports[2].plane = ViewPlane::Front;
+    editor.viewports[2].camera = {};
+    editor.viewports[2].camera.orthoHalfHeight = 8.0f;
+
+    editor.viewports[3].plane = ViewPlane::Side;
+    editor.viewports[3].camera = {};
+    editor.viewports[3].camera.orthoHalfHeight = 8.0f;
+
+    editor.applyOrthoPoses();
+    editor.syncActiveCameraFromBank();
 }
 
 } // namespace
@@ -262,18 +348,22 @@ ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane) {
     return plane;
 }
 
-ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane) {
+GridPlane gridPlaneForView(ViewPlane view, GridPlane gridPlane) {
     switch (view) {
     case ViewPlane::Front:
-        return constructionPlaneForGrid(GridPlane::XY);
+        return GridPlane::XY;
     case ViewPlane::Side:
-        return constructionPlaneForGrid(GridPlane::YZ);
+        return GridPlane::YZ;
     case ViewPlane::Top:
-        return constructionPlaneForGrid(GridPlane::XZ);
+        return GridPlane::XZ;
     case ViewPlane::PerspectiveY0:
     default:
-        return constructionPlaneForGrid(gridPlane);
+        return gridPlane;
     }
+}
+
+ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane) {
+    return constructionPlaneForGrid(gridPlaneForView(view, gridPlane));
 }
 
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin) {
@@ -566,6 +656,7 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     rebuildPreview(assets);
     reloadVisPreview(assets);
     fill = reloadLitBake(assets) ? PreviewFill::Lit : PreviewFill::Textures;
+    resetCamera(*this);
     frameSelection();
     createBrushRole = slopengine::BrushRole::Hull;
     statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
@@ -604,6 +695,7 @@ bool Editor::loadPrefab(
     }
     resetSelectionSerial(prefabDoc);
     rebuildPreview(assets);
+    resetCamera(*this);
     frameSelection();
     createBrushRole = slopengine::BrushRole::Detail;
     statusMessage =
@@ -789,7 +881,8 @@ void Editor::markBrushCompileDirty(slopengine::BrushRole role) {
 }
 
 void Editor::markThingCompileDirty(slopengine::ThingKind kind) {
-    if (kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight) {
+    if (kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight ||
+        kind == slopengine::ThingKind::Sun || kind == slopengine::ThingKind::AmbientLight) {
         markRadDirty();
     }
 }
@@ -961,7 +1054,11 @@ bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
     std::vector<slopengine::Brush> combined = levelDoc.brushes;
     combined.insert(
         combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
-    return preview.reloadVisPreview(assets, levelDoc.assetPath, combined);
+    slopengine::ThingDocument thingsDoc{};
+    thingsDoc.things = levelDoc.things;
+    const std::unordered_set<std::string> moverBrushIds =
+        slopengine::collectClaimedBrushIds(&thingsDoc, combined);
+    return preview.reloadVisPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
 bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
@@ -971,7 +1068,11 @@ bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
     std::vector<slopengine::Brush> combined = levelDoc.brushes;
     combined.insert(
         combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
-    return preview.reloadBake(assets, levelDoc.assetPath, combined);
+    slopengine::ThingDocument thingsDoc{};
+    thingsDoc.things = levelDoc.things;
+    const std::unordered_set<std::string> moverBrushIds =
+        slopengine::collectClaimedBrushIds(&thingsDoc, combined);
+    return preview.reloadBake(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
 namespace {
@@ -1059,29 +1160,109 @@ const char* Editor::gridPlaneLabel() const {
     }
 }
 
-void Editor::setViewPlane(ViewPlane plane) {
-    viewPlane = plane;
+int Editor::viewportIndexForPlane(ViewPlane plane) {
     switch (plane) {
     case ViewPlane::Top:
-        camera.orthographic = true;
-        camera.yaw = 0.0f;
-        camera.pitch = -1.45f;
-        break;
+        return 1;
     case ViewPlane::Front:
-        camera.orthographic = true;
-        camera.yaw = 0.0f;
-        camera.pitch = 0.0f;
-        break;
+        return 2;
     case ViewPlane::Side:
-        camera.orthographic = true;
-        camera.yaw = 1.5708f;
-        camera.pitch = 0.0f;
-        break;
+        return 3;
     case ViewPlane::PerspectiveY0:
     default:
-        camera.orthographic = false;
-        break;
+        return 0;
     }
+}
+
+ViewPlane Editor::planeForViewportIndex(int index) {
+    switch (index) {
+    case 1:
+        return ViewPlane::Top;
+    case 2:
+        return ViewPlane::Front;
+    case 3:
+        return ViewPlane::Side;
+    case 0:
+    default:
+        return ViewPlane::PerspectiveY0;
+    }
+}
+
+void Editor::applyOrthoPoseToViewport(int index, Vector3 focus) {
+    if (index < 0 || index >= kViewportCount) {
+        return;
+    }
+    ViewportCamera& slot = viewports[static_cast<std::size_t>(index)];
+    if (slot.plane == ViewPlane::PerspectiveY0) {
+        return;
+    }
+    const float zoom = slot.camera.orthoHalfHeight;
+    applyOrthoCameraPose(slot.camera, slot.plane, focus);
+    slot.camera.orthoHalfHeight = zoom;
+}
+
+void Editor::applyOrthoPoses() {
+    for (int i = 0; i < kViewportCount; ++i) {
+        applyOrthoPoseToViewport(i, orthoFocus);
+    }
+}
+
+void Editor::syncActiveCameraFromBank() {
+    if (activeViewport < 0 || activeViewport >= kViewportCount) {
+        activeViewport = 0;
+    }
+    viewPlane = viewports[activeViewport].plane;
+    camera = viewports[activeViewport].camera;
+    syncGridPlaneForView(*this, viewPlane);
+}
+
+void Editor::syncBankFromActiveCamera() {
+    if (activeViewport < 0 || activeViewport >= kViewportCount) {
+        activeViewport = 0;
+    }
+    viewports[activeViewport].camera = camera;
+    viewports[activeViewport].plane = viewPlane;
+}
+
+void Editor::setActiveViewport(int index) {
+    if (index < 0 || index >= kViewportCount) {
+        return;
+    }
+    if (index == activeViewport) {
+        syncActiveCameraFromBank();
+        return;
+    }
+    syncBankFromActiveCamera();
+    activeViewport = index;
+    syncActiveCameraFromBank();
+}
+
+void Editor::setViewPlane(ViewPlane plane) {
+    const int index = viewportIndexForPlane(plane);
+    syncBankFromActiveCamera();
+    if (viewPlane == ViewPlane::PerspectiveY0 && plane != ViewPlane::PerspectiveY0) {
+        const FlyCamera& persp = viewports[0].camera;
+        const Vector3 fwd = persp.forward();
+        const Vector3 focus{
+            persp.position.x + fwd.x * 8.0f,
+            persp.position.y + fwd.y * 8.0f,
+            persp.position.z + fwd.z * 8.0f,
+        };
+        orthoFocus = focus;
+        applyOrthoPoseToViewport(index, focus);
+    }
+    setActiveViewport(index);
+}
+
+void Editor::toggleViewportLayout() {
+    if (viewportLayout == ViewportLayout::Single) {
+        viewportLayout = ViewportLayout::Quad;
+        statusMessage = "Viewport: Quad";
+    } else {
+        viewportLayout = ViewportLayout::Single;
+        statusMessage = "Viewport: Single";
+    }
+    syncActiveCameraFromBank();
 }
 
 void Editor::toggleOrthoTop() {
@@ -1104,10 +1285,75 @@ std::string Editor::allocateThingId(const char* prefix) {
     return std::string(prefix) + "-" + std::to_string(doc().nextThingSerial++);
 }
 
+bool Editor::renameBrush(int index, std::string_view newId) {
+    EditorDocument& d = doc();
+    if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+        return false;
+    }
+
+    std::string id(newId);
+    while (!id.empty() && std::isspace(static_cast<unsigned char>(id.front()))) {
+        id.erase(id.begin());
+    }
+    while (!id.empty() && std::isspace(static_cast<unsigned char>(id.back()))) {
+        id.pop_back();
+    }
+    if (id.empty() || id.find('/') != std::string::npos) {
+        statusMessage = "Brush id must be non-empty and cannot contain '/'";
+        return false;
+    }
+
+    slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+    if (id == brush.id) {
+        return false;
+    }
+    for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+        if (static_cast<int>(i) != index && d.brushes[i].id == id) {
+            statusMessage = "Brush id already in use: " + id;
+            return false;
+        }
+    }
+
+    const std::string oldId = brush.id;
+    const std::string oldPrefix = oldId + "/";
+    const std::string newPrefix = id + "/";
+    brush.id = id;
+    for (slopengine::BrushFace& face : brush.faces) {
+        if (face.id.rfind(oldPrefix, 0) == 0) {
+            face.id = newPrefix + face.id.substr(oldPrefix.size());
+        } else if (face.id == oldId) {
+            face.id = id;
+        }
+    }
+    for (slopengine::Thing& thing : d.things) {
+        if (thing.brush == oldId) {
+            thing.brush = id;
+        }
+    }
+    if (id.rfind("brush-", 0) == 0) {
+        try {
+            const int serial = std::stoi(id.substr(6));
+            d.nextBrushSerial = std::max(d.nextBrushSerial, serial + 1);
+        } catch (...) {
+        }
+    }
+
+    markDirty();
+    markFacDirty();
+    markBrushCompileDirty(brush.role);
+    statusMessage = "Renamed brush " + oldId + " -> " + id;
+    return true;
+}
+
 void Editor::frameSelection() {
     const Vector3 center = selectionCenter();
-    camera.position = {center.x, center.y + 2.5f, center.z + 8.0f};
-    camera.lookAt(center);
+    syncBankFromActiveCamera();
+    orthoFocus = center;
+    applyOrthoPoses();
+    FlyCamera& persp = viewports[0].camera;
+    persp.position = {center.x, center.y + 2.5f, center.z + 8.0f};
+    persp.lookAt(center);
+    syncActiveCameraFromBank();
 }
 
 Vector3 Editor::selectionCenter() const {
@@ -1199,6 +1445,223 @@ Vector3 Editor::selectionCenter() const {
     return {0.0f, 1.0f, 0.0f};
 }
 
+void Editor::convertSelectedBrushesToTriggers() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        return;
+    }
+
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    std::vector<EntityRef> created;
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+
+        slopengine::Thing thing{};
+        thing.kind = slopengine::ThingKind::Trigger;
+        thing.id = allocateThingId("trigger");
+        thing.at = {
+            0.5f * (brush.mins.x + brush.maxs.x),
+            0.5f * (brush.mins.y + brush.maxs.y),
+            0.5f * (brush.mins.z + brush.maxs.z),
+        };
+        thing.haveAt = true;
+        thing.triggerSize = {
+            brush.maxs.x - brush.mins.x,
+            brush.maxs.y - brush.mins.y,
+            brush.maxs.z - brush.mins.z,
+        };
+        if (thing.triggerSize.x < 1e-4f) {
+            thing.triggerSize.x = 1.0f;
+        }
+        if (thing.triggerSize.y < 1e-4f) {
+            thing.triggerSize.y = 1.0f;
+        }
+        if (thing.triggerSize.z < 1e-4f) {
+            thing.triggerSize.z = 1.0f;
+        }
+        thing.haveTriggerSize = true;
+
+        d.things.push_back(std::move(thing));
+        created.push_back({EntityRef::Kind::Thing, static_cast<int>(d.things.size()) - 1});
+    }
+
+    if (created.empty()) {
+        return;
+    }
+
+    std::sort(indices.begin(), indices.end(), std::greater<int>());
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        d.brushes.erase(d.brushes.begin() + index);
+    }
+
+    clearSelection();
+    for (std::size_t i = 0; i < created.size(); ++i) {
+        selectEntity(created[i], i > 0);
+    }
+    markDirty();
+    markBspDirty();
+    markThingCompileDirty(slopengine::ThingKind::Trigger);
+    statusMessage = created.size() == 1
+        ? "Converted brush to trigger — set on-enter in Properties"
+        : "Converted " + std::to_string(created.size()) +
+            " brushes to triggers — set on-enter in Properties";
+}
+
+void Editor::convertSelectedBrushesToMovers() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        return;
+    }
+
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    std::vector<EntityRef> created;
+    int skipped = 0;
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+        if (brush.role != slopengine::BrushRole::Detail) {
+            ++skipped;
+            continue;
+        }
+        if (brush.id.empty()) {
+            ++skipped;
+            continue;
+        }
+
+        bool alreadyClaimed = false;
+        for (const slopengine::Thing& existing : d.things) {
+            if (existing.kind == slopengine::ThingKind::Mover && existing.brush == brush.id) {
+                alreadyClaimed = true;
+                break;
+            }
+        }
+        if (alreadyClaimed) {
+            ++skipped;
+            continue;
+        }
+
+        const float height = brush.maxs.y - brush.mins.y;
+        slopengine::Thing thing{};
+        thing.kind = slopengine::ThingKind::Mover;
+        thing.id = allocateThingId("plat");
+        thing.brush = brush.id;
+        thing.at = {
+            0.5f * (brush.mins.x + brush.maxs.x),
+            0.5f * (brush.mins.y + brush.maxs.y),
+            0.5f * (brush.mins.z + brush.maxs.z),
+        };
+        thing.haveAt = true;
+        thing.haveMoverOpenOffset = true;
+        thing.moverOpenOffset = {0.0f, height > 0.1f ? height + 0.1f : 2.2f, 0.0f};
+        thing.haveMoverDuration = true;
+        thing.moverDuration = 0.6f;
+        thing.moverBlockMode = "shove";
+        thing.havePrompt = true;
+        thing.prompt = "Open";
+        thing.onUse = slopengine::HandlerBinding{"on-use-mover-toggle", {}};
+
+        d.things.push_back(std::move(thing));
+        created.push_back({EntityRef::Kind::Thing, static_cast<int>(d.things.size()) - 1});
+    }
+
+    if (created.empty()) {
+        statusMessage = skipped > 0
+            ? "Convert to Mover needs unclaimed detail brushes with ids"
+            : "No brushes selected";
+        return;
+    }
+
+    clearSelection();
+    for (std::size_t i = 0; i < created.size(); ++i) {
+        selectEntity(created[i], i > 0);
+    }
+    markDirty();
+    markFacDirty();
+    markThingCompileDirty(slopengine::ThingKind::Mover);
+    statusMessage = created.size() == 1
+        ? "Created mover claiming brush leaf — brush stays in CSG"
+        : "Created " + std::to_string(created.size()) +
+            " movers claiming brush leaves — brushes stay in CSG";
+}
+
+void Editor::setSelectedBrushesAsDoors() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        return;
+    }
+
+    std::vector<int> indices = d.selectedBrushes;
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+
+    int updated = 0;
+    int skipped = 0;
+    for (int index : indices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+        if (brush.id.empty()) {
+            ++skipped;
+            continue;
+        }
+        bool claimedByMover = false;
+        for (const slopengine::Thing& existing : d.things) {
+            if (existing.kind == slopengine::ThingKind::Mover && existing.brush == brush.id) {
+                claimedByMover = true;
+                break;
+            }
+        }
+        if (claimedByMover) {
+            ++skipped;
+            continue;
+        }
+
+        const slopengine::BrushRole previous = brush.role;
+        const bool wasDoor = brush.role == slopengine::BrushRole::Door;
+        brush.role = slopengine::BrushRole::Door;
+        brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
+        if (!wasDoor) {
+            brush.door = slopengine::BrushDoor{};
+            brush.door.motion = slopengine::DoorMotion::Raise;
+            brush.door.haveDuration = true;
+            brush.door.duration = 0.6f;
+            brush.door.havePrompt = true;
+            brush.door.prompt = "Open";
+        }
+        markBrushCompileDirty(previous);
+        markBrushCompileDirty(brush.role);
+        ++updated;
+    }
+
+    if (updated == 0) {
+        statusMessage = skipped > 0
+            ? "Set as Door needs brushes with ids (not mover-claimed)"
+            : "No brushes selected";
+        return;
+    }
+
+    markDirty();
+    markFacDirty();
+    statusMessage = updated == 1
+        ? "Set 1 brush as door"
+        : "Set " + std::to_string(updated) + " brushes as doors";
+}
+
 void Editor::toggleSelectedBrushRole() {
     EditorDocument& d = doc();
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
@@ -1218,6 +1681,9 @@ void Editor::toggleSelectedBrushRole() {
             brush.role = slopengine::BrushRole::Detail;
             break;
         case slopengine::BrushRole::Detail:
+            brush.role = slopengine::BrushRole::Door;
+            break;
+        case slopengine::BrushRole::Door:
             brush.role = slopengine::BrushRole::Hint;
             break;
         case slopengine::BrushRole::Hint:

@@ -8,7 +8,7 @@ Related: [Maps](maps.md), [Radiosity](rad.md), [Materials](materials.md), [Thing
 
 Lighting is four layers that look related in the editor but do different jobs.
 
-Baked lightmaps are the main look for map brushes. Material emission plus point/spot things go through sloprad offline into rad/ atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (point-light, spot-light, area-light, sun) always spawn flecs components and gizmos when the map loads; only point and spot feed the bake today -- they are not gathered as runtime lights. Dynamic lights are a separate DynamicLight component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling. FX local lights (FxLocalLight) are a high-count point-light channel for missiles, muzzle flashes, and similar effects: they tint sprites, 3D models, and movers only, and never upload to the map lightmap shader.
+Baked lightmaps are the main look for map brushes. Material emission, optional ambient-light / sun things (sun through sky-material faces), and point/spot things go through sloprad offline into rad/ atlases, and the lightmap shader samples those atlases at runtime. Thing light entities (point-light, spot-light, area-light, sun, ambient-light) spawn flecs components and gizmos when the map loads; point, spot, sun, and ambient-light feed the bake — they are not gathered as runtime DynamicLights. Place and rotate a sun thing for directional bake sun; place an ambient-light thing for soft fill (absent ⇒ black). Sun still needs `(sky)` materials on open faces. Dynamic lights are a separate DynamicLight component (for example a first-person flashlight): each frame the engine ranks nearby ones and adds them on the map shader, and they also feed FP rad tint / probe sampling. FX local lights (FxLocalLight) are a high-count point-light channel for missiles, muzzle flashes, and similar effects: they tint sprites, 3D models, and movers only, and never upload to the map lightmap shader.
 
 There is no runtime PBR stack. Props and characters are not lightmapped; they receive bake probes plus DynamicLight / FxLocalLight overlays via CPU tint. Sprites sample map light at their feet when lightmaps exist, then add the same overlays. Viewmodels use optional rad tint and faux shading; see [Player](player.md).
 
@@ -16,8 +16,10 @@ There is no runtime PBR stack. Props and characters are not lightmapped; they re
 
 sloprad builds lightmap atlases from:
 
-1. Surface emission: brush materials with emission-color / emission-power (and emission textures at bake time). See [Materials](materials.md).
-2. Placed point and spot lights: collected from maps/{name}/things.s7 (and prefab sidecars) by collectRadiosityLights. Area and sun things are not bake emitters today.
+1. Soft ambient fill from an `ambient-light` thing (color × intensity). No ambient-light ⇒ black. Bake seed / runtime probe fallback only; not added again in the lightmap shader.
+2. Optional directional sun from a `sun` thing (color, intensity, angles/yaw), admitted only through faces whose material has `(sky)`. A luxel receives sun when its ray toward the sun first hits a sky face. Omit the sun thing and/or sky materials for indoor or underground maps.
+3. Surface emission: brush materials with emission-color / emission-power (and emission textures at bake time). See [Materials](materials.md). Sky materials are not emission emitters and are not lightmapped.
+4. Placed point and spot lights: collected from maps/{name}/things.s7 (and prefab sidecars) by collectRadiosityLights. Area lights are not bake emitters.
 
 Direct + bounce irradiance lands in rad/atlasN.png and rad/static.rad. At runtime the lightmap fragment path is:
 
@@ -38,7 +40,8 @@ Engine forms in things.s7 (also editable in [slopmap](slopmap.md)):
 | (point-light ...) | PointLight | Yes | No (not gathered as DynamicLight) |
 | (spot-light ...) | SpotLight | Yes | No |
 | (area-light ...) | AreaLight | No | No |
-| (sun ...) | SunLight | No | No |
+| (sun ...) | SunLight | Yes (directional; needs sky faces) | No |
+| (ambient-light ...) | AmbientLight | Yes (soft fill) | No |
 
 Shared optional fields: (color r g b) (default 1 1 1), (intensity N) (default 1).
 
@@ -47,7 +50,8 @@ Shared optional fields: (color r g b) (default 1 1 1), (intensity N) (default 1)
 | (point-light ...) | id, at | (range N) default 8 |
 | (spot-light ...) | id, at | (yaw ...) or (angles ...), (range N), (cone radians) default 0.7 |
 | (area-light ...) | id, at | (angles ...), (size width height) default 1 1 |
-| (sun ...) | id | Direction from (angles ...) or (yaw ...); optional (at ...) for editor gizmo only |
+| (sun ...) | id | Direction from (angles ...) or (yaw ...); optional (at ...) for gizmo; bake directional sun |
+| (ambient-light ...) | id | Optional at (gizmo), color, intensity; bake/runtime ambient (omit ⇒ black) |
 
 Example:
 

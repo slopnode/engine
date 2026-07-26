@@ -1,14 +1,24 @@
 #include "thing_panel.hpp"
 
+#include "handler_ui.hpp"
+#include "map/handler_binding.hpp"
+#include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
+#include "map/thing_def_registry.hpp"
+
+#include "core/package.hpp"
 
 #include "imgui.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
+#include <system_error>
+#include <unordered_map>
 #include <vector>
 
 namespace slopmap {
@@ -35,8 +45,18 @@ enum class ThingEditKind {
     None,
     Light,
     Sound,
+    Prop,
     Actor,
+    Trigger,
+    Usable,
+    Pickup,
+    Mover,
     Mixed,
+};
+
+enum class PresentationChannel {
+    Sprite,
+    Geo,
 };
 
 std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind* outKind) {
@@ -60,8 +80,18 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
             entryKind = ThingEditKind::Light;
         } else if (thingKind == slopengine::ThingKind::SoundSource) {
             entryKind = ThingEditKind::Sound;
+        } else if (thingKind == slopengine::ThingKind::Prop) {
+            entryKind = ThingEditKind::Prop;
         } else if (thingKind == slopengine::ThingKind::Actor) {
             entryKind = ThingEditKind::Actor;
+        } else if (thingKind == slopengine::ThingKind::Trigger) {
+            entryKind = ThingEditKind::Trigger;
+        } else if (thingKind == slopengine::ThingKind::Usable) {
+            entryKind = ThingEditKind::Usable;
+        } else if (thingKind == slopengine::ThingKind::Pickup) {
+            entryKind = ThingEditKind::Pickup;
+        } else if (thingKind == slopengine::ThingKind::Mover) {
+            entryKind = ThingEditKind::Mover;
         } else {
             continue;
         }
@@ -76,6 +106,43 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
         *outKind = targets.empty() ? ThingEditKind::None : kind;
     }
     return targets;
+}
+
+std::vector<std::string> scanPackageAssets(
+    const slopengine::AssetStore& assets,
+    const char* folder,
+    const char* extension) {
+    std::unordered_map<std::string, bool> seen;
+    for (const slopengine::Package& package : assets.packages()) {
+        const std::filesystem::path root = package.root() / folder;
+        if (!std::filesystem::exists(root)) {
+            continue;
+        }
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(root, ec), end; it != end && !ec;
+             it.increment(ec)) {
+            if (ec || !it->is_regular_file()) {
+                continue;
+            }
+            if (it->path().extension() != extension) {
+                continue;
+            }
+            std::error_code relEc;
+            std::filesystem::path relative = std::filesystem::relative(it->path(), root, relEc);
+            if (relEc) {
+                continue;
+            }
+            relative.replace_extension();
+            seen[relative.generic_string()] = true;
+        }
+    }
+    std::vector<std::string> paths;
+    paths.reserve(seen.size());
+    for (const auto& [path, _] : seen) {
+        paths.push_back(path);
+    }
+    std::sort(paths.begin(), paths.end());
+    return paths;
 }
 
 slopengine::Thing* thingAt(EditorDocument& doc, int index) {
@@ -180,6 +247,302 @@ bool forEachActor(
         fn);
 }
 
+bool forEachTrigger(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) { return thing.kind == slopengine::ThingKind::Trigger; },
+        fn);
+}
+
+bool forEachPickup(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) { return thing.kind == slopengine::ThingKind::Pickup; },
+        fn);
+}
+
+bool forEachPresentation(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) {
+            return slopengine::thingKindNeedsPresentation(thing.kind);
+        },
+        fn);
+}
+
+PresentationChannel channelForThing(const Editor& editor, const slopengine::Thing& thing) {
+    if (!thing.geo.empty()) {
+        return PresentationChannel::Geo;
+    }
+    if (!thing.sprite.empty()) {
+        return PresentationChannel::Sprite;
+    }
+    if (thing.kind == slopengine::ThingKind::Prop) {
+        const auto it = editor.propChannelLock.find(thing.id);
+        if (it != editor.propChannelLock.end() && it->second == PlacePresentation::Geo) {
+            return PresentationChannel::Geo;
+        }
+        if (it != editor.propChannelLock.end() && it->second == PlacePresentation::Sprite) {
+            return PresentationChannel::Sprite;
+        }
+    }
+    if (editor.placePresentation == PlacePresentation::Geo) {
+        return PresentationChannel::Geo;
+    }
+    return PresentationChannel::Sprite;
+}
+
+PresentationChannel inferPresentationChannel(
+    const Editor& editor,
+    const EditorDocument& doc,
+    const std::vector<int>& targets,
+    bool* mixedOut) {
+    std::optional<PresentationChannel> common;
+    for (int index : targets) {
+        const slopengine::Thing* thing = thingAt(doc, index);
+        if (thing == nullptr) {
+            continue;
+        }
+        const PresentationChannel channel = channelForThing(editor, *thing);
+        if (!common.has_value()) {
+            common = channel;
+        } else if (*common != channel) {
+            if (mixedOut != nullptr) {
+                *mixedOut = true;
+            }
+            return PresentationChannel::Sprite;
+        }
+    }
+    if (mixedOut != nullptr) {
+        *mixedOut = false;
+    }
+    return common.value_or(PresentationChannel::Sprite);
+}
+
+void lockPropChannel(Editor& editor, const std::vector<int>& targets, PlacePresentation channel) {
+    for (int index : targets) {
+        slopengine::Thing* thing = thingAt(editor.doc(), index);
+        if (thing == nullptr || thing->kind != slopengine::ThingKind::Prop) {
+            continue;
+        }
+        editor.propChannelLock[thing->id] = channel;
+    }
+}
+
+bool drawPresentationSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets,
+    bool lockChannel) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    bool mixedChannel = false;
+    PresentationChannel channel = inferPresentationChannel(editor, doc, targets, &mixedChannel);
+
+    if (lockChannel) {
+        ImGui::TextUnformatted(channel == PresentationChannel::Geo ? "Geo" : "Sprite");
+    } else {
+        ImGui::TextUnformatted("Presentation");
+        if (mixedChannel) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+        }
+        if (ImGui::RadioButton(
+                "Sprite##presChannel",
+                !mixedChannel && channel == PresentationChannel::Sprite)) {
+            if (forEachPresentation(editor, targets, [](slopengine::Thing& thing) {
+                    thing.geo.clear();
+                    thing.brush.clear();
+                    if (thing.frame.empty()) {
+                        thing.frame = "A";
+                    }
+                })) {
+                changed = true;
+                editor.placePresentation = PlacePresentation::Sprite;
+                editor.statusMessage = "Set presentation to sprite";
+            }
+            channel = PresentationChannel::Sprite;
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton(
+                "Geo##presChannel", !mixedChannel && channel == PresentationChannel::Geo)) {
+            if (forEachPresentation(editor, targets, [](slopengine::Thing& thing) {
+                    thing.sprite.clear();
+                    thing.brush.clear();
+                })) {
+                changed = true;
+                editor.placePresentation = PlacePresentation::Geo;
+                editor.statusMessage = "Set presentation to geo";
+            }
+            channel = PresentationChannel::Geo;
+        }
+        if (mixedChannel) {
+            ImGui::PopStyleVar();
+        }
+    }
+
+    static std::vector<std::string> spritePaths;
+    static std::vector<std::string> geoPaths;
+    static bool assetListsReady = false;
+    if (!assetListsReady) {
+        spritePaths = scanPackageAssets(assets, "sprites", ".spr");
+        geoPaths = scanPackageAssets(assets, "geometry", ".geo");
+        assetListsReady = true;
+    }
+    if (ImGui::Button("Refresh assets")) {
+        spritePaths = scanPackageAssets(assets, "sprites", ".spr");
+        geoPaths = scanPackageAssets(assets, "geometry", ".geo");
+    }
+
+    const auto spriteCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) { return t.sprite; });
+    const auto geoCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) { return t.geo; });
+
+    bool anyBrush = false;
+    bool allBrush = !targets.empty();
+    for (int index : targets) {
+        const slopengine::Thing* thing = thingAt(doc, index);
+        if (thing == nullptr) {
+            allBrush = false;
+            continue;
+        }
+        if (!thing->brush.empty()) {
+            anyBrush = true;
+        } else {
+            allBrush = false;
+        }
+    }
+
+    if (channel == PresentationChannel::Sprite) {
+        const bool mixedSprite = !spriteCommon.has_value();
+        const std::string spriteValue = spriteCommon.value_or(std::string{});
+        const char* preview = mixedSprite         ? "(mixed)"
+            : spriteValue.empty()                 ? "(none)"
+                                                  : spriteValue.c_str();
+        if (mixedSprite) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+        }
+        if (ImGui::BeginCombo("Sprite##asset", preview)) {
+            if (ImGui::Selectable("(none)", !mixedSprite && spriteValue.empty())) {
+                if (forEachPresentation(editor, targets, [](slopengine::Thing& thing) {
+                        thing.sprite.clear();
+                        thing.geo.clear();
+                        thing.brush.clear();
+                    })) {
+                    changed = true;
+                    editor.placePresentation = PlacePresentation::Sprite;
+                    lockPropChannel(editor, targets, PlacePresentation::Sprite);
+                    editor.statusMessage = "Cleared sprite";
+                }
+            }
+            for (const std::string& path : spritePaths) {
+                ImGui::PushID(path.c_str());
+                const bool selected = !mixedSprite && spriteValue == path;
+                if (ImGui::Selectable(path.c_str(), selected)) {
+                    if (forEachPresentation(editor, targets, [&path](slopengine::Thing& thing) {
+                            thing.sprite = path;
+                            thing.geo.clear();
+                            thing.brush.clear();
+                            if (thing.frame.empty()) {
+                                thing.frame = "A";
+                            }
+                        })) {
+                        changed = true;
+                        editor.placePresentation = PlacePresentation::Sprite;
+                        lockPropChannel(editor, targets, PlacePresentation::Sprite);
+                        editor.statusMessage = "Set sprite " + path;
+                    }
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        if (mixedSprite) {
+            ImGui::PopStyleVar();
+        }
+        if (allBrush) {
+            ImGui::TextDisabled("Using brush leaf (see below)");
+        } else if (!mixedSprite && spriteValue.empty() && !anyBrush) {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.55f, 0.2f, 1.0f),
+                "Pick a sprite (required to play)");
+        }
+    } else {
+        const bool mixedGeo = !geoCommon.has_value();
+        const std::string geoValue = geoCommon.value_or(std::string{});
+        const char* preview = mixedGeo         ? "(mixed)"
+            : geoValue.empty()                 ? "(none)"
+                                               : geoValue.c_str();
+        if (mixedGeo) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+        }
+        if (ImGui::BeginCombo("Geo##asset", preview)) {
+            if (ImGui::Selectable("(none)", !mixedGeo && geoValue.empty())) {
+                if (forEachPresentation(editor, targets, [](slopengine::Thing& thing) {
+                        thing.sprite.clear();
+                        thing.geo.clear();
+                        thing.brush.clear();
+                    })) {
+                    changed = true;
+                    editor.placePresentation = PlacePresentation::Geo;
+                    lockPropChannel(editor, targets, PlacePresentation::Geo);
+                    editor.statusMessage = "Cleared geo";
+                }
+            }
+            for (const std::string& path : geoPaths) {
+                ImGui::PushID(path.c_str());
+                const bool selected = !mixedGeo && geoValue == path;
+                if (ImGui::Selectable(path.c_str(), selected)) {
+                    if (forEachPresentation(editor, targets, [&path](slopengine::Thing& thing) {
+                            thing.geo = path;
+                            thing.sprite.clear();
+                            thing.brush.clear();
+                        })) {
+                        changed = true;
+                        editor.placePresentation = PlacePresentation::Geo;
+                        lockPropChannel(editor, targets, PlacePresentation::Geo);
+                        editor.statusMessage = "Set geo " + path;
+                    }
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        if (mixedGeo) {
+            ImGui::PopStyleVar();
+        }
+        if (allBrush) {
+            ImGui::TextDisabled("Using brush leaf (see below)");
+        } else if (!mixedGeo && geoValue.empty() && !anyBrush) {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.55f, 0.2f, 1.0f),
+                "Pick a geo (required to play)");
+        }
+    }
+
+    ImGui::Separator();
+    return changed;
+}
+
 bool dragFloatMixed(const char* label, float* value, bool mixed, float speed, float minV, float maxV) {
     if (mixed) {
         char overlay[32];
@@ -246,6 +609,106 @@ bool allKindsMatch(
         }
     }
     return !targets.empty();
+}
+
+Vector3 thingWorldAngles(const slopengine::Thing& thing) {
+    if (thing.haveAngles) {
+        return thing.angles;
+    }
+    return {
+        thing.havePitch ? thing.pitch : 0.0f,
+        thing.yaw,
+        0.0f,
+    };
+}
+
+void setThingWorldAngles(slopengine::Thing& thing, Vector3 anglesRadians) {
+    thing.haveAngles = true;
+    thing.angles = anglesRadians;
+    thing.yaw = anglesRadians.y;
+    thing.pitch = anglesRadians.x;
+    thing.havePitch = true;
+}
+
+bool drawWorldRotationSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::TextDisabled("Rotation (world)");
+    const auto anglesCommon = commonValue<Vector3>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return thingWorldAngles(t); },
+        [](Vector3 a, Vector3 b) {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        });
+    float degrees[3] = {
+        anglesCommon.value_or(Vector3{}).x * kRadToDeg,
+        anglesCommon.value_or(Vector3{}).y * kRadToDeg,
+        anglesCommon.value_or(Vector3{}).z * kRadToDeg,
+    };
+    if (dragFloatMixed("Pitch (deg)", &degrees[0], !anglesCommon.has_value(), 0.5f, -180.0f, 180.0f)) {
+        const float pitch = degrees[0] * kDegToRad;
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [pitch](slopengine::Thing& thing) {
+                    Vector3 next = thingWorldAngles(thing);
+                    next.x = pitch;
+                    setThingWorldAngles(thing, next);
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world pitch";
+        }
+    }
+    if (dragFloatMixed("Yaw (deg)", &degrees[1], !anglesCommon.has_value(), 0.5f, -180.0f, 180.0f)) {
+        const float yaw = degrees[1] * kDegToRad;
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [yaw](slopengine::Thing& thing) {
+                    Vector3 next = thingWorldAngles(thing);
+                    next.y = yaw;
+                    setThingWorldAngles(thing, next);
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world yaw";
+        }
+    }
+    if (dragFloatMixed("Roll (deg)", &degrees[2], !anglesCommon.has_value(), 0.5f, -180.0f, 180.0f)) {
+        const float roll = degrees[2] * kDegToRad;
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [roll](slopengine::Thing& thing) {
+                    Vector3 next = thingWorldAngles(thing);
+                    next.z = roll;
+                    setThingWorldAngles(thing, next);
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world roll";
+        }
+    }
+    if (ImGui::Button("Reset Rotation")) {
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [](slopengine::Thing& thing) {
+                    setThingWorldAngles(thing, {});
+                })) {
+            changed = true;
+            editor.statusMessage = "Reset thing rotation to world identity";
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+        ImGui::SetTooltip("Set pitch/yaw/roll to 0 in world space");
+    }
+    ImGui::Separator();
+    return changed;
 }
 
 void copyToBuf(char* buf, std::size_t bufSize, const std::string& value) {
@@ -535,13 +998,76 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
-bool drawActorSection(Editor& editor, const std::vector<int>& targets) {
+void drawTypeInfo(const EditorDocument& doc, const std::vector<int>& targets) {
+    const auto typeCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.type; });
+    if (!typeCommon.has_value()) {
+        ImGui::TextDisabled("Type: mixed");
+        return;
+    }
+    if (typeCommon->empty()) {
+        return;
+    }
+    if (const slopengine::ThingDef* def = slopengine::thingDefRegistry().find(*typeCommon)) {
+        const char* role = "package";
+        switch (def->packageRole) {
+        case slopengine::PackageRole::Engine:
+            role = "engine";
+            break;
+        case slopengine::PackageRole::Base:
+            role = "base game";
+            break;
+        case slopengine::PackageRole::Mod:
+            role = "mod";
+            break;
+        }
+        ImGui::Text("Type: %s (%s)", def->label.c_str(), def->id.c_str());
+        ImGui::TextDisabled("From: %s — %s", role, def->packageId.c_str());
+    } else {
+        ImGui::Text("Type: %s", typeCommon->c_str());
+        ImGui::TextDisabled("From: unknown catalog");
+    }
+}
+
+bool drawPropSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets) {
+    bool changed = false;
+    bool mixedChannel = false;
+    const PresentationChannel channel =
+        inferPresentationChannel(editor, editor.doc(), targets, &mixedChannel);
+    const char* kindLabel = channel == PresentationChannel::Geo ? "geo" : "sprite";
+    if (mixedChannel) {
+        kindLabel = "prop";
+    }
+    ImGui::Text("Kind: %s", kindLabel);
+    drawTypeInfo(editor.doc(), targets);
+    ImGui::Text("%d selected", static_cast<int>(targets.size()));
+    ImGui::Separator();
+    if (drawPresentationSection(editor, assets, targets, true)) {
+        changed = true;
+    }
+    return changed;
+}
+
+bool drawActorSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets) {
     bool changed = false;
     const EditorDocument& doc = editor.doc();
 
     ImGui::Text("Kind: actor");
+    drawTypeInfo(doc, targets);
     ImGui::Text("%d actor(s)", static_cast<int>(targets.size()));
     ImGui::Separator();
+
+    if (drawPresentationSection(editor, assets, targets, false)) {
+        changed = true;
+    }
 
     const auto radiusCommon = commonValue<float>(
         doc,
@@ -650,9 +1176,366 @@ bool drawActorSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
+bool forEachUsableOrMover(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& t) {
+            return t.kind == slopengine::ThingKind::Usable || t.kind == slopengine::ThingKind::Mover;
+        },
+        fn);
+}
+
+bool drawUseHandlerSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets,
+    const char* kindLabel) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+    ImGui::Text("Kind: %s", kindLabel);
+    ImGui::Text("%d selected", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    if (drawPresentationSection(editor, assets, targets, false)) {
+        changed = true;
+    }
+
+    const auto onUseCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onUse; });
+    if (drawHandlerBindingEditor(
+            editor,
+            "On use",
+            "onuse",
+            slopengine::MapHandlerKind::Use,
+            onUseCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachUsableOrMover(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onUse = next;
+                    if (!next.empty()) {
+                        thing.havePrompt = true;
+                    }
+                });
+            })) {
+        changed = true;
+    }
+    return changed;
+}
+
+bool forEachMover(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& t) { return t.kind == slopengine::ThingKind::Mover; },
+        fn);
+}
+
+bool drawMoverSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+    ImGui::TextUnformatted("Kind: mover");
+    ImGui::Text("%d mover(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    if (drawPresentationSection(editor, assets, targets, false)) {
+        changed = true;
+    }
+
+    const auto brushCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) { return t.brush; });
+    std::vector<std::string> brushIds;
+    brushIds.reserve(doc.brushes.size());
+    for (const slopengine::Brush& brush : doc.brushes) {
+        if (!brush.id.empty() && brush.role == slopengine::BrushRole::Detail) {
+            brushIds.push_back(brush.id);
+        }
+    }
+    std::sort(brushIds.begin(), brushIds.end());
+    brushIds.erase(std::unique(brushIds.begin(), brushIds.end()), brushIds.end());
+
+    const bool mixedBrush = !brushCommon.has_value();
+    const std::string brushValue = brushCommon.value_or(std::string{});
+    const char* preview = mixedBrush              ? "(mixed)"
+        : brushValue.empty()                      ? "(none — use geo/sprite)"
+                                                  : brushValue.c_str();
+    if (mixedBrush) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    if (ImGui::BeginCombo("Brush leaf", preview)) {
+        if (ImGui::Selectable("(none)", !mixedBrush && brushValue.empty())) {
+            if (forEachMover(editor, targets, [](slopengine::Thing& thing) {
+                    thing.brush.clear();
+                })) {
+                changed = true;
+                editor.markFacDirty();
+                editor.statusMessage = "Cleared mover brush";
+            }
+        }
+        for (const std::string& id : brushIds) {
+            const bool selected = !mixedBrush && brushValue == id;
+            if (ImGui::Selectable(id.c_str(), selected)) {
+                if (forEachMover(editor, targets, [&id](slopengine::Thing& thing) {
+                        thing.brush = id;
+                        thing.geo.clear();
+                        thing.sprite.clear();
+                    })) {
+                    changed = true;
+                    editor.markFacDirty();
+                    editor.statusMessage = "Set mover brush";
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (mixedBrush) {
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::Separator();
+    const auto pushCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) {
+            return t.moverPush.empty() ? std::string("full") : t.moverPush;
+        });
+    const bool mixedPush = !pushCommon.has_value();
+    const std::string pushValue = pushCommon.value_or(std::string{"full"});
+    if (mixedPush) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    if (ImGui::BeginCombo("Push", mixedPush ? "(mixed)" : pushValue.c_str())) {
+        const char* pushOptions[] = {"full", "horizontal", "off"};
+        for (const char* option : pushOptions) {
+            const bool selected = !mixedPush && pushValue == option;
+            if (ImGui::Selectable(option, selected)) {
+                if (forEachMover(editor, targets, [option](slopengine::Thing& thing) {
+                        thing.moverPush = option;
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set mover push";
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (mixedPush) {
+        ImGui::PopStyleVar();
+    }
+
+    const auto slideCommon = commonValue<bool>(
+        doc, targets, [](const slopengine::Thing& t) { return t.moverSlide; });
+    bool slide = slideCommon.value_or(true);
+    if (checkboxMixed("Carry (ride)", &slide, !slideCommon.has_value())) {
+        if (forEachMover(editor, targets, [slide](slopengine::Thing& thing) {
+                thing.moverSlide = slide;
+                thing.haveMoverSlide = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set mover carry";
+        }
+    }
+
+    ImGui::Separator();
+    const auto onUseCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onUse; });
+    if (drawHandlerBindingEditor(
+            editor,
+            "On use",
+            "onuse",
+            slopengine::MapHandlerKind::Use,
+            onUseCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachMover(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onUse = next;
+                    if (!next.empty()) {
+                        thing.havePrompt = true;
+                    }
+                });
+            })) {
+        changed = true;
+    }
+    return changed;
+}
+
+bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::TextUnformatted("Kind: trigger");
+    ImGui::Text("%d trigger(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto onEnterCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onEnter; });
+    const auto onExitCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onExit; });
+    const auto sizeCommon = commonValue<Vector3>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.triggerSize; },
+        [](Vector3 a, Vector3 b) {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        });
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On enter",
+            "onenter",
+            slopengine::MapHandlerKind::Enter,
+            onEnterCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachTrigger(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onEnter = next;
+                });
+            })) {
+        changed = true;
+    }
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On exit",
+            "onexit",
+            slopengine::MapHandlerKind::Exit,
+            onExitCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachTrigger(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onExit = next;
+                });
+            })) {
+        changed = true;
+    }
+
+    Vector3 size = sizeCommon.value_or(Vector3{1.0f, 1.0f, 1.0f});
+    float sizeArr[3] = {size.x, size.y, size.z};
+    if (!sizeCommon.has_value()) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    const bool sizeChanged = ImGui::DragFloat3("Size", sizeArr, 0.05f, 0.01f, 1000.0f);
+    if (!sizeCommon.has_value()) {
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+    }
+    if (sizeChanged) {
+        const Vector3 next{sizeArr[0], sizeArr[1], sizeArr[2]};
+        if (forEachTrigger(editor, targets, [next](slopengine::Thing& thing) {
+                thing.triggerSize = next;
+                thing.haveTriggerSize = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set trigger size";
+        }
+    }
+
+    return changed;
+}
+
+bool drawPickupSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::TextUnformatted("Kind: pickup");
+    ImGui::Text("%d pickup(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    if (drawPresentationSection(editor, assets, targets, false)) {
+        changed = true;
+    }
+
+    ImGui::Separator();
+    const auto onEnterCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onEnter; });
+    const auto sizeCommon = commonValue<Vector3>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.triggerSize; },
+        [](Vector3 a, Vector3 b) {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        });
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On enter",
+            "onenter",
+            slopengine::MapHandlerKind::Enter,
+            onEnterCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachPickup(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onEnter = next;
+                    if (!next.empty()) {
+                        thing.haveTriggerSize = true;
+                    }
+                });
+            })) {
+        changed = true;
+    }
+
+    Vector3 size = sizeCommon.value_or(Vector3{1.0f, 1.0f, 1.0f});
+    float sizeArr[3] = {size.x, size.y, size.z};
+    if (!sizeCommon.has_value()) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    const bool sizeChanged = ImGui::DragFloat3("Size", sizeArr, 0.05f, 0.01f, 1000.0f);
+    if (!sizeCommon.has_value()) {
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+    }
+    if (sizeChanged) {
+        const Vector3 next{sizeArr[0], sizeArr[1], sizeArr[2]};
+        if (forEachPickup(editor, targets, [next](slopengine::Thing& thing) {
+                thing.triggerSize = next;
+                thing.haveTriggerSize = true;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set pickup trigger size";
+        }
+    }
+
+    ImGui::Separator();
+    const auto onUseCommon = commonValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::Thing& t) { return t.onUse; });
+    if (drawHandlerBindingEditor(
+            editor,
+            "On use",
+            "onuse",
+            slopengine::MapHandlerKind::Use,
+            onUseCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachPickup(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.onUse = next;
+                });
+            })) {
+        changed = true;
+    }
+
+    return changed;
+}
+
 } // namespace
 
-ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
+ThingPanelResult ThingPanel::drawSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    float bodyHeight) {
     ThingPanelResult result{};
     if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
@@ -662,7 +1545,8 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
     ThingEditKind editKind = ThingEditKind::None;
     const std::vector<int> targets = collectEditableTargets(editor.doc(), &editKind);
     if (targets.empty() || editKind == ThingEditKind::None) {
-        ImGui::TextDisabled("Select light, sound, or actor thing(s) to edit");
+        ImGui::TextDisabled(
+            "Select prop, light, sound, actor, trigger, usable, pickup, or mover thing(s) to edit");
         ImGui::EndChild();
         return result;
     }
@@ -672,12 +1556,24 @@ ThingPanelResult ThingPanel::drawSection(Editor& editor, float bodyHeight) {
         return result;
     }
 
+    result.changed = drawWorldRotationSection(editor, targets);
+
     if (editKind == ThingEditKind::Light) {
-        result.changed = drawLightSection(editor, targets);
+        result.changed = drawLightSection(editor, targets) || result.changed;
     } else if (editKind == ThingEditKind::Sound) {
-        result.changed = drawSoundSection(editor, targets);
+        result.changed = drawSoundSection(editor, targets) || result.changed;
+    } else if (editKind == ThingEditKind::Prop) {
+        result.changed = drawPropSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Actor) {
-        result.changed = drawActorSection(editor, targets);
+        result.changed = drawActorSection(editor, assets, targets) || result.changed;
+    } else if (editKind == ThingEditKind::Trigger) {
+        result.changed = drawTriggerSection(editor, targets) || result.changed;
+    } else if (editKind == ThingEditKind::Usable) {
+        result.changed = drawUseHandlerSection(editor, assets, targets, "usable") || result.changed;
+    } else if (editKind == ThingEditKind::Pickup) {
+        result.changed = drawPickupSection(editor, assets, targets) || result.changed;
+    } else if (editKind == ThingEditKind::Mover) {
+        result.changed = drawMoverSection(editor, assets, targets) || result.changed;
     }
 
     ImGui::EndChild();

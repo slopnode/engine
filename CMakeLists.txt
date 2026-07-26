@@ -40,6 +40,7 @@ set(SLOPLIB_SOURCES
     src/core/package.cpp
     src/core/package_meta.cpp
     src/core/sexpr.cpp
+    src/core/user_paths.cpp
     src/core/vfs.cpp
     src/script/script_scope.cpp
     src/script/package_load_context.cpp
@@ -64,6 +65,10 @@ set(SLOPLIB_SOURCES
     src/map/csg_write.cpp
     src/map/things_script.cpp
     src/map/things_write.cpp
+    src/map/mover_brushes.cpp
+    src/map/handler_binding.cpp
+    src/map/map_handler_registry.cpp
+    src/map/thing_def_registry.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
@@ -97,7 +102,6 @@ endif()
 
 add_executable(slopengine
     src/main.cpp
-    src/core/user_paths.cpp
     src/core/screenshot.cpp
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
@@ -121,6 +125,8 @@ add_executable(slopengine
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
+    src/map/brush_door.cpp
+    src/map/face_triggers.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
@@ -222,9 +228,12 @@ add_executable(slopmap
     tools/slopmap/punch_tool.cpp
     tools/slopmap/clip_tool.cpp
     tools/slopmap/material_browser.cpp
+    tools/slopmap/material_thumb_atlas.cpp
+    tools/slopmap/editor_settings.cpp
     tools/slopmap/texture_panel.cpp
     tools/slopmap/thing_panel.cpp
     tools/slopmap/brush_panel.cpp
+    tools/slopmap/handler_ui.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
     tools/slopmap/compile.cpp

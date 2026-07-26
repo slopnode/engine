@@ -26,6 +26,38 @@ bool containsIgnoreCase(const std::string& haystack, const std::string& needle) 
     return h.find(n) != std::string::npos;
 }
 
+std::string basenameOf(const std::string& path) {
+    const std::size_t slash = path.find_last_of('/');
+    if (slash == std::string::npos) {
+        return path;
+    }
+    return path.substr(slash + 1);
+}
+
+bool drawThumbImage(const MaterialThumbLookup& thumb, float size) {
+    if (!thumb.valid()) {
+        return false;
+    }
+    ImGui::Image(
+        ImTextureID(static_cast<intptr_t>(thumb.texture->id)),
+        ImVec2(size, size),
+        ImVec2(thumb.u0, thumb.v0),
+        ImVec2(thumb.u1, thumb.v1));
+    return true;
+}
+
+bool drawThumbButton(const char* id, const MaterialThumbLookup& thumb, float size) {
+    if (!thumb.valid()) {
+        return false;
+    }
+    return ImGui::ImageButton(
+        id,
+        ImTextureID(static_cast<intptr_t>(thumb.texture->id)),
+        ImVec2(size, size),
+        ImVec2(thumb.u0, thumb.v0),
+        ImVec2(thumb.u1, thumb.v1));
+}
+
 } // namespace
 
 void MaterialBrowser::rescan(const slopengine::AssetStore& assets) {
@@ -62,6 +94,7 @@ void MaterialBrowser::rescan(const slopengine::AssetStore& assets) {
         materials.push_back(path);
     }
     std::sort(materials.begin(), materials.end());
+    thumbsDirty = true;
 }
 
 std::string selectionMaterialLabel(const EditorDocument& doc) {
@@ -176,6 +209,7 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
 MaterialBrowserResult MaterialBrowser::drawSection(
     Editor& editor,
     slopengine::AssetStore& assets,
+    EditorSettings& settings,
     float bodyHeight) {
     MaterialBrowserResult result{};
     if (!ImGui::BeginChild("##matsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
@@ -185,9 +219,46 @@ MaterialBrowserResult MaterialBrowser::drawSection(
 
     if (slopengine::buttonWithIcon(assets, slopengine::kDefaultIconSet, "arrow_refresh", "Refresh")) {
         result.requestRescan = true;
+        thumbsDirty = true;
     }
     ImGui::SameLine();
     ImGui::Text("%d materials", static_cast<int>(materials.size()));
+    ImGui::SameLine();
+    {
+        const float sz = ImGui::GetFrameHeight();
+        const float toggleW = sz * 2.0f + ImGui::GetStyle().ItemSpacing.x;
+        const float right = ImGui::GetContentRegionAvail().x;
+        if (right > toggleW) {
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + right - toggleW);
+        }
+        auto modeButton = [&](const char* iconId, MaterialViewMode mode) {
+            ImGui::PushID(iconId);
+            const bool active = settings.materialViewMode == mode;
+            if (active) {
+                ImGui::PushStyleColor(
+                    ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            }
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            if (ImGui::Button("##mode", ImVec2(sz, 0.0f))) {
+                if (settings.materialViewMode != mode) {
+                    settings.materialViewMode = mode;
+                    settings.save();
+                }
+            }
+            if (active) {
+                ImGui::PopStyleColor();
+            }
+            const ImVec2 restore = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos(
+                ImVec2(pos.x + (sz - 16.0f) * 0.5f, pos.y + (sz - 16.0f) * 0.5f));
+            slopengine::drawIconImGui(assets, slopengine::kDefaultIconSet, iconId, 16.0f);
+            ImGui::SetCursorScreenPos(restore);
+            ImGui::PopID();
+        };
+        modeButton("application_view_list", MaterialViewMode::List);
+        ImGui::SameLine();
+        modeButton("application_view_icons", MaterialViewMode::Icons);
+    }
 
     ImGui::InputTextWithHint("##matfilter", "Filter…", filter, sizeof(filter));
     ImGui::Text("Active: %s", editor.doc().defaultMaterial.c_str());
@@ -202,19 +273,94 @@ MaterialBrowserResult MaterialBrowser::drawSection(
         scopeLabel,
         selectionMaterialLabel(editor.doc()).c_str());
 
+    if (thumbsDirty) {
+        thumbs.ensure(assets, materials, settings.resolvedThumbnailCachePath());
+        thumbsDirty = false;
+    }
+
     ImGui::Separator();
     if (ImGui::BeginChild("##matlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         const std::string filterStr = filter;
-        for (const std::string& path : materials) {
-            if (!containsIgnoreCase(path, filterStr)) {
-                continue;
+        if (settings.materialViewMode == MaterialViewMode::List) {
+            constexpr float kListThumb = 20.0f;
+            for (const std::string& path : materials) {
+                if (!containsIgnoreCase(path, filterStr)) {
+                    continue;
+                }
+                ImGui::PushID(path.c_str());
+                const bool isActive = path == editor.doc().defaultMaterial;
+                const MaterialThumbLookup thumb = thumbs.lookup(path);
+                if (!drawThumbImage(thumb, kListThumb)) {
+                    slopengine::drawIconImGui(
+                        assets, slopengine::kDefaultIconSet, "palette", kListThumb);
+                }
+                ImGui::SameLine();
+                if (ImGui::Selectable(path.c_str(), isActive)) {
+                    result.applied = applyMaterialToSelection(editor, path);
+                }
+                ImGui::PopID();
             }
-            ImGui::PushID(path.c_str());
-            const bool isActive = path == editor.doc().defaultMaterial;
-            if (slopengine::selectableWithIcon(assets, slopengine::kDefaultIconSet, "palette", path.c_str(), isActive)) {
-                result.applied = applyMaterialToSelection(editor, path);
+        } else {
+            constexpr float kGridThumb = 56.0f;
+            constexpr float kCellPad = 6.0f;
+            const float cellW = kGridThumb + kCellPad * 2.0f;
+            const float avail = ImGui::GetContentRegionAvail().x;
+            int columns = static_cast<int>(avail / cellW);
+            if (columns < 1) {
+                columns = 1;
             }
-            ImGui::PopID();
+            int index = 0;
+            for (const std::string& path : materials) {
+                if (!containsIgnoreCase(path, filterStr)) {
+                    continue;
+                }
+                if (index > 0 && (index % columns) != 0) {
+                    ImGui::SameLine();
+                }
+                ImGui::PushID(path.c_str());
+                const bool isActive = path == editor.doc().defaultMaterial;
+                ImGui::BeginGroup();
+                const MaterialThumbLookup thumb = thumbs.lookup(path);
+                bool clicked = false;
+                if (thumb.valid()) {
+                    if (isActive) {
+                        ImGui::PushStyleColor(
+                            ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                    }
+                    clicked = drawThumbButton("##thumb", thumb, kGridThumb);
+                    if (isActive) {
+                        ImGui::PopStyleColor();
+                    }
+                } else {
+                    clicked = ImGui::Button("##thumb", ImVec2(kGridThumb, kGridThumb));
+                    const ImVec2 min = ImGui::GetItemRectMin();
+                    const ImVec2 restore = ImGui::GetCursorScreenPos();
+                    ImGui::SetCursorScreenPos(ImVec2(
+                        min.x + (kGridThumb - 16.0f) * 0.5f,
+                        min.y + (kGridThumb - 16.0f) * 0.5f));
+                    slopengine::drawIconImGui(
+                        assets, slopengine::kDefaultIconSet, "palette", 16.0f);
+                    ImGui::SetCursorScreenPos(restore);
+                }
+                const std::string label = basenameOf(path);
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kGridThumb);
+                if (isActive) {
+                    ImGui::TextColored(
+                        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive), "%s", label.c_str());
+                } else {
+                    ImGui::TextUnformatted(label.c_str());
+                }
+                ImGui::PopTextWrapPos();
+                ImGui::EndGroup();
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", path.c_str());
+                }
+                if (clicked || ImGui::IsItemClicked()) {
+                    result.applied = applyMaterialToSelection(editor, path);
+                }
+                ImGui::PopID();
+                ++index;
+            }
         }
     }
     ImGui::EndChild();

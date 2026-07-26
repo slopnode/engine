@@ -496,6 +496,9 @@ std::vector<EmitterVolume> buildEmitterVolumes(
             continue;
         }
         const MaterialBakeInfo& material = matIt->second;
+        if (material.asset.sky) {
+            continue;
+        }
         if (material.asset.emissionPower <= 0.0f
             && material.asset.emissionColor.r == 0 && material.asset.emissionColor.g == 0
             && material.asset.emissionColor.b == 0 && !material.hasEmissionImage) {
@@ -579,6 +582,13 @@ float smoothstep(float edge0, float edge1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
+bool faceIsSky(
+    const std::vector<char>& faceSky,
+    std::int32_t faceIndex) {
+    return faceIndex >= 0 && static_cast<std::size_t>(faceIndex) < faceSky.size()
+        && faceSky[static_cast<std::size_t>(faceIndex)] != 0;
+}
+
 void accumulateEntityLight(
     LuxelSample& luxel,
     const RadiosityLight& light,
@@ -586,10 +596,38 @@ void accumulateEntityLight(
     const QuadBvh& occlusionBvh,
     const LeafReachability& reach,
     float wrap,
-    float minDist2) {
+    float minDist2,
+    const std::vector<char>& faceSky) {
     if (!reach.canSee(luxel.interiorLeaf, lightLeaf)) {
         return;
     }
+
+    const Color3 intensity{
+        light.color.x * light.intensity,
+        light.color.y * light.intensity,
+        light.color.z * light.intensity,
+    };
+
+    if (light.kind == RadiosityLightKind::Sun) {
+        const float forwardLen = std::sqrt(dot3(light.direction, light.direction));
+        if (forwardLen < 1e-6f) {
+            return;
+        }
+        const Vector3 toLight = scale3(light.direction, -1.0f / forwardLen);
+        const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
+        if (nDotL <= 0.0f) {
+            return;
+        }
+        constexpr float kSunRayDistance = 1000.0f;
+        const auto hit = raycastQuadBvh(
+            occlusionBvh, luxel.position, toLight, kSunRayDistance, luxel.faceIndex);
+        if (!hit || !faceIsSky(faceSky, hit->faceIndex)) {
+            return;
+        }
+        luxel.irradiance += intensity * nDotL;
+        return;
+    }
+
     Vector3 delta = sub3(light.position, luxel.position);
     const float dist2Raw = dot3(delta, delta);
     if (dist2Raw < 1e-6f) {
@@ -631,11 +669,6 @@ void accumulateEntityLight(
     float atten = std::max(0.0f, 1.0f - t * t);
     atten *= atten;
 
-    const Color3 intensity{
-        light.color.x * light.intensity,
-        light.color.y * light.intensity,
-        light.color.z * light.intensity,
-    };
     luxel.irradiance += intensity * (nDotL * atten * spot / dist2);
 }
 
@@ -646,7 +679,8 @@ void accumulateDirectLightingCpu(
     const std::vector<std::int32_t>& lightLeaves,
     const QuadBvh& occlusionBvh,
     const LeafReachability& reach,
-    const RadiositySettings& settings) {
+    const RadiositySettings& settings,
+    const std::vector<char>& faceSky) {
     const std::size_t luxelTotal = luxels.size();
     std::atomic<std::size_t> directDone{0};
     const std::size_t directStep = std::max<std::size_t>(1, luxelTotal / 20);
@@ -720,7 +754,7 @@ void accumulateDirectLightingCpu(
                 const std::int32_t lightLeaf =
                     li < lightLeaves.size() ? lightLeaves[li] : static_cast<std::int32_t>(-1);
                 accumulateEntityLight(
-                    luxel, lights[li], lightLeaf, occlusionBvh, reach, wrap, minDist2);
+                    luxel, lights[li], lightLeaf, occlusionBvh, reach, wrap, minDist2, faceSky);
             }
             const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
             if (done % directStep == 0 || done == luxelTotal) {
@@ -737,7 +771,8 @@ bool accumulateDirectLighting(
     const std::vector<std::int32_t>& lightLeaves,
     const QuadBvh& occlusionBvh,
     const LeafReachability& reach,
-    const RadiositySettings& settings) {
+    const RadiositySettings& settings,
+    const std::vector<char>& faceSky) {
     RadGpuReachability gpuReach;
     if (reach.enabled) {
         gpuReach.leafCount = reach.leafCount;
@@ -789,7 +824,13 @@ bool accumulateDirectLighting(
             dst.intensity = src.intensity;
             dst.range = src.range;
             dst.coneAngle = src.coneAngle;
-            dst.kind = src.kind == RadiosityLightKind::Spot ? 1 : 0;
+            if (src.kind == RadiosityLightKind::Spot) {
+                dst.kind = 1;
+            } else if (src.kind == RadiosityLightKind::Sun) {
+                dst.kind = 2;
+            } else {
+                dst.kind = 0;
+            }
             dst.interiorLeaf =
                 i < lightLeaves.size() ? lightLeaves[i] : static_cast<std::int32_t>(-1);
         }
@@ -799,6 +840,10 @@ bool accumulateDirectLighting(
         gpuParams.coplanarSoft = 0.25f;
         const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
         gpuParams.minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
+        std::vector<std::int32_t> faceIsSky(faceSky.size(), 0);
+        for (std::size_t i = 0; i < faceSky.size(); ++i) {
+            faceIsSky[i] = faceSky[i] != 0 ? 1 : 0;
+        }
         if (accumulateDirectLightingGpu(
                 gpuLuxels,
                 gpuEmitters,
@@ -806,7 +851,8 @@ bool accumulateDirectLighting(
                 occlusionBvh,
                 settings.directComputeShaderSource,
                 gpuParams,
-                gpuReach)) {
+                gpuReach,
+                faceIsSky)) {
             for (std::size_t d = 0; d < gpuLuxels.size(); ++d) {
                 LuxelSample& dst = luxels[denseToSrc[d]];
                 dst.irradiance.r = gpuLuxels[d].irradianceR;
@@ -825,7 +871,7 @@ bool accumulateDirectLighting(
     TraceLog(LOG_INFO, "sloprad: CPU direct lighting");
     std::fflush(stdout);
     accumulateDirectLightingCpu(
-        luxels, emitters, lights, lightLeaves, occlusionBvh, reach, settings);
+        luxels, emitters, lights, lightLeaves, occlusionBvh, reach, settings, faceSky);
     return false;
 }
 
@@ -1046,16 +1092,19 @@ RadiosityBakeResult bakeRadiosity(
     bool hullSealed) {
     int pointCount = 0;
     int spotCount = 0;
+    int sunCount = 0;
     for (const RadiosityLight& light : lights) {
         if (light.kind == RadiosityLightKind::Spot) {
             ++spotCount;
+        } else if (light.kind == RadiosityLightKind::Sun) {
+            ++sunCount;
         } else {
             ++pointCount;
         }
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d)",
+        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d sun=%d)",
         static_cast<int>(faces.size()),
         settings.luxelsPerMeter,
         settings.bounces,
@@ -1066,7 +1115,8 @@ RadiosityBakeResult bakeRadiosity(
         meta.ambient.z,
         static_cast<int>(lights.size()),
         pointCount,
-        spotCount);
+        spotCount,
+        sunCount);
     std::fflush(stdout);
 
     LeafReachability reach;
@@ -1082,17 +1132,6 @@ RadiosityBakeResult bakeRadiosity(
         std::fflush(stdout);
     }
 
-    logStage("packing lightmap charts...");
-    LightmapPackResult packed = packLightmapCharts(faces, settings.luxelsPerMeter, settings.atlasSize);
-    RadiosityBakeResult result;
-    result.rad = packed.rad;
-    TraceLog(
-        LOG_INFO,
-        "sloprad: packed charts=%d atlases=%d",
-        static_cast<int>(packed.rad.charts.size()),
-        static_cast<int>(packed.rad.atlases.size()));
-    std::fflush(stdout);
-
     std::unordered_map<std::string, MaterialBakeInfo> materialCache;
     auto materialFor = [&](const std::string& path) -> const MaterialBakeInfo& {
         auto it = materialCache.find(path);
@@ -1101,18 +1140,48 @@ RadiosityBakeResult bakeRadiosity(
             const MaterialBakeInfo& info = it->second;
             TraceLog(
                 LOG_INFO,
-                "sloprad: material '%s' emissionPower=%.2f emissionMap=%s",
+                "sloprad: material '%s' emissionPower=%.2f emissionMap=%s sky=%s",
                 path.c_str(),
                 info.asset.emissionPower,
-                info.hasEmissionImage ? "yes" : "no");
+                info.hasEmissionImage ? "yes" : "no",
+                info.asset.sky ? "yes" : "no");
             std::fflush(stdout);
         }
         return it->second;
     };
 
-    for (const LightmapFace& face : faces) {
-        (void)materialFor(face.material);
+    std::vector<char> faceSky(faces.size(), 0);
+    int skyFaceCount = 0;
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        if (materialFor(faces[i].material).asset.sky) {
+            faceSky[i] = 1;
+            ++skyFaceCount;
+        }
     }
+    TraceLog(LOG_INFO, "sloprad: sky faces=%d", skyFaceCount);
+    std::fflush(stdout);
+    const bool hasSunLight = std::any_of(
+        lights.begin(),
+        lights.end(),
+        [](const RadiosityLight& light) { return light.kind == RadiosityLightKind::Sun; });
+    if (hasSunLight && skyFaceCount == 0) {
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: sun thing present but no sky-material faces; directional sun will not apply");
+        std::fflush(stdout);
+    }
+
+    logStage("packing lightmap charts...");
+    LightmapPackResult packed =
+        packLightmapCharts(faces, settings.luxelsPerMeter, settings.atlasSize, &faceSky);
+    RadiosityBakeResult result;
+    result.rad = packed.rad;
+    TraceLog(
+        LOG_INFO,
+        "sloprad: packed charts=%d atlases=%d",
+        static_cast<int>(packed.rad.charts.size()),
+        static_cast<int>(packed.rad.atlases.size()));
+    std::fflush(stdout);
 
     std::vector<FaceBasis> bases(faces.size());
     for (std::size_t i = 0; i < faces.size(); ++i) {
@@ -1148,6 +1217,9 @@ RadiosityBakeResult bakeRadiosity(
         }
         const LightmapFace& face = faces[static_cast<std::size_t>(chart.faceIndex)];
         const MaterialBakeInfo& material = materialFor(face.material);
+        if (material.asset.sky) {
+            continue;
+        }
         const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
         const float luxelArea =
             ((basis.uMax - basis.uMin) * (basis.vMax - basis.vMin))
@@ -1190,6 +1262,9 @@ RadiosityBakeResult bakeRadiosity(
     std::vector<std::int32_t> lightLeaves(lights.size(), -1);
     if (tree != nullptr) {
         for (std::size_t i = 0; i < lights.size(); ++i) {
+            if (lights[i].kind == RadiosityLightKind::Sun) {
+                continue;
+            }
             lightLeaves[i] = pointLeaf(*tree, lights[i].position);
         }
     }
@@ -1265,7 +1340,8 @@ RadiosityBakeResult bakeRadiosity(
         static_cast<int>(emitters.size()),
         static_cast<int>(lights.size()));
     std::fflush(stdout);
-    accumulateDirectLighting(luxels, emitters, lights, lightLeaves, sceneBvh, reach, settings);
+    accumulateDirectLighting(
+        luxels, emitters, lights, lightLeaves, sceneBvh, reach, settings, faceSky);
 
     logStage("inpainting covered luxels...");
     inpaintCoveredLuxels(luxels, faceGrids);

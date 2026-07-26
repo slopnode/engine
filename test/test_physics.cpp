@@ -337,6 +337,70 @@ void runMotoredSweepTests() {
     }
 }
 
+void runMoverPushSlideTests() {
+    {
+        Vector3 delta{};
+        CHECK(moverComputeShove(MoverPushMode::Full, {0.0f, 1.0f, 0.0f}, 0.1f, delta));
+        CHECK(std::fabs(delta.y) > 0.1f);
+        CHECK(std::fabs(delta.x) < 1.0e-5f);
+        CHECK(std::fabs(delta.z) < 1.0e-5f);
+
+        CHECK_FALSE(moverComputeShove(MoverPushMode::Horizontal, {0.0f, 1.0f, 0.0f}, 0.1f, delta));
+        CHECK_EQ(delta.x, 0.0f);
+        CHECK_EQ(delta.y, 0.0f);
+        CHECK_EQ(delta.z, 0.0f);
+
+        CHECK(moverComputeShove(MoverPushMode::Horizontal, {0.0f, 0.5f, 1.0f}, 0.2f, delta));
+        CHECK(std::fabs(delta.y) < 1.0e-5f);
+        CHECK(std::fabs(delta.z) > 0.2f);
+
+        CHECK_FALSE(moverComputeShove(MoverPushMode::Off, {1.0f, 0.0f, 0.0f}, 0.3f, delta));
+    }
+
+    {
+        const Quaternion identity = QuaternionIdentity();
+        constexpr std::uint64_t kPlatId = 99;
+        constexpr std::uint64_t kCharId = 11;
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-8.0f, -0.25f, -4.0f},
+            {8.0f, 0.0f, 4.0f},
+            "mat/a",
+            {});
+
+        auto settleAndSlideX = [&](bool slide) -> float {
+            PhysicsWorld world;
+            world.addStaticBrushes({floor});
+            Vector3 platCenter = {0.0f, 0.5f, 0.0f};
+            const Vector3 platHalf = {1.5f, 0.1f, 1.5f};
+            world.createKinematicBox(kPlatId, platCenter, platHalf, identity, slide);
+            CharacterMotor motor{};
+            motor.gravity = 20.0f;
+            motor.wishX = 0.0f;
+            motor.wishZ = 0.0f;
+            world.createCharacter(kCharId, 0.0f, 0.6f, 0.0f, motor);
+            for (int i = 0; i < 30; ++i) {
+                world.setKinematicPose(kPlatId, platCenter, identity, kFixedDt);
+                stepWithCharacter(world, kCharId, motor, kFixedDt);
+            }
+            CHECK(world.characterSupported(kCharId));
+            const float startX = static_cast<float>(world.characterPosition(kCharId).GetX());
+            for (int i = 0; i < 45; ++i) {
+                platCenter.x += 0.05f;
+                world.setKinematicPose(kPlatId, platCenter, identity, kFixedDt);
+                stepWithCharacter(world, kCharId, motor, kFixedDt);
+            }
+            const float endX = static_cast<float>(world.characterPosition(kCharId).GetX());
+            return endX - startX;
+        };
+
+        const float carryWithSlide = settleAndSlideX(true);
+        const float carryWithoutSlide = settleAndSlideX(false);
+        CHECK(carryWithSlide > 1.0f);
+        CHECK(carryWithoutSlide < carryWithSlide * 0.35f);
+    }
+}
+
 } // namespace
 
 void runPhysicsTests() {
@@ -344,6 +408,7 @@ void runPhysicsTests() {
     runKinematicTests();
     runCastScanTests();
     runMotoredSweepTests();
+    runMoverPushSlideTests();
 }
 
 }

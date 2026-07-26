@@ -36,8 +36,11 @@ Geometry primitives and CSG faces name materials by virtual path (no extension).
 | (emission "...") | emission texture path | none | Sampled during radiosity bake only |
 | (emission-color R G B A) | emit tint | black | Bake and runtime emit color |
 | (emission-power N) | emit strength | 0 | Scales emit; > 0 enables runtime emit color |
+| (sky) or (sky 0\|1) | sky aperture | false | Bake-time sun aperture; face is not lightmapped. Stock path: `default/sky` |
 
 Missing or unparsable materials fall back to defaults (white tint, no textures). An empty material path resolves to default/unassigned.
+
+Sky materials mark openings that admit the sun thing's directional light during sloprad (Half-Life-style): a receiving luxel gets sun only when its sun ray first hits a sky face. Do not mark those faces `(nodraw)` — FAC drops nodraw and the bake needs sky faces in the occlusion mesh. A visual skybox is separate and not required for the bake. See [Lights](lights.md) and [Maps](maps.md).
 
 ## Texture flow
 

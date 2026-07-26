@@ -17,6 +17,7 @@ struct MaterialAsset {
     std::string emissionTexture;
     Color emissionColor = {0, 0, 0, 255};
     float emissionPower = 0.0f;
+    bool sky = false; /**< Bake-time sun aperture; not a lightmap receiver. */
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;

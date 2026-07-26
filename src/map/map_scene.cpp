@@ -14,6 +14,7 @@
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
+#include "map/face_triggers.hpp"
 #include "map/things_spawn.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
@@ -70,6 +71,7 @@ void unloadMapGpuResources(flecs::entity entity) {
             UnloadModel(model3d.model);
         }
         model3d.model = {};
+        model3d.ownsGpu = false;
         for (unsigned int atlasId : atlasIds) {
             Texture2D atlas{};
             atlas.id = atlasId;
@@ -81,6 +83,15 @@ void unloadMapGpuResources(flecs::entity entity) {
         }
         lightmaps.available = false;
         lightmaps.useLightmapLoc = -1;
+        return;
+    }
+
+    if (model3d.ownsGpu) {
+        if (model3d.model.meshCount > 0) {
+            UnloadModel(model3d.model);
+        }
+        model3d.model = {};
+        model3d.ownsGpu = false;
         return;
     }
 
@@ -212,19 +223,13 @@ bool registerMapScene(
 
     MapBsp mapBsp{std::move(loaded->bsp)};
     MapFac mapFac{std::move(loaded->fac)};
-    Color ambientColor{
-        static_cast<unsigned char>(std::clamp(loaded->meta.ambient.x * 255.0f, 0.0f, 255.0f)),
-        static_cast<unsigned char>(std::clamp(loaded->meta.ambient.y * 255.0f, 0.0f, 255.0f)),
-        static_cast<unsigned char>(std::clamp(loaded->meta.ambient.z * 255.0f, 0.0f, 255.0f)),
-        255,
-    };
     const FacFile* facForLighting = mapFac.fac.faces.empty() ? nullptr : &mapFac.fac;
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
         facForLighting,
         std::move(loaded->rad),
         std::move(loaded->lightmapAtlasImages),
-        ambientColor));
+        BLACK));
 
     if (world.has<AudioContext>()) {
         AudioContext& audioCtx = world.get_mut<AudioContext>();
@@ -241,11 +246,38 @@ bool registerMapScene(
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
-            addStaticBrushes(*physics, loaded->brushes);
+            addStaticBrushes(
+                *physics,
+                loaded->brushes,
+                loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
         }
     }
 
-    const PlayerStart playerStart = spawnMapThings(scheme, world, assets, mapName);
+    const PlayerStart playerStart =
+        spawnMapThings(scheme, world, assets, mapName, loaded->brushes);
+    if (world.has<MapLighting>()) {
+        MapLighting& lighting = world.get_mut<MapLighting>();
+        bool foundAmbient = false;
+        world.each([&](const AmbientLight& ambient) {
+            if (foundAmbient) {
+                return;
+            }
+            foundAmbient = true;
+            const float r = std::clamp(ambient.color.x * ambient.intensity, 0.0f, 1.0f);
+            const float g = std::clamp(ambient.color.y * ambient.intensity, 0.0f, 1.0f);
+            const float b = std::clamp(ambient.color.z * ambient.intensity, 0.0f, 1.0f);
+            lighting.ambient = {
+                static_cast<unsigned char>(r * 255.0f),
+                static_cast<unsigned char>(g * 255.0f),
+                static_cast<unsigned char>(b * 255.0f),
+                255,
+            };
+        });
+    }
+    spawnFaceUseSurfaces(
+        world,
+        loaded->brushes,
+        loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
 
     {
         MapGraphs mapGraphs{};
