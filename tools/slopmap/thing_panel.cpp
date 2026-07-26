@@ -611,6 +611,106 @@ bool allKindsMatch(
     return !targets.empty();
 }
 
+Vector3 thingWorldAngles(const slopengine::Thing& thing) {
+    if (thing.haveAngles) {
+        return thing.angles;
+    }
+    return {
+        thing.havePitch ? thing.pitch : 0.0f,
+        thing.yaw,
+        0.0f,
+    };
+}
+
+void setThingWorldAngles(slopengine::Thing& thing, Vector3 anglesRadians) {
+    thing.haveAngles = true;
+    thing.angles = anglesRadians;
+    thing.yaw = anglesRadians.y;
+    thing.pitch = anglesRadians.x;
+    thing.havePitch = true;
+}
+
+bool drawWorldRotationSection(Editor& editor, const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::TextDisabled("Rotation (world)");
+    const auto anglesCommon = commonValue<Vector3>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return thingWorldAngles(t); },
+        [](Vector3 a, Vector3 b) {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        });
+    float degrees[3] = {
+        anglesCommon.value_or(Vector3{}).x * kRadToDeg,
+        anglesCommon.value_or(Vector3{}).y * kRadToDeg,
+        anglesCommon.value_or(Vector3{}).z * kRadToDeg,
+    };
+    if (dragFloatMixed("Pitch (deg)", &degrees[0], !anglesCommon.has_value(), 0.5f, -180.0f, 180.0f)) {
+        const float pitch = degrees[0] * kDegToRad;
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [pitch](slopengine::Thing& thing) {
+                    Vector3 next = thingWorldAngles(thing);
+                    next.x = pitch;
+                    setThingWorldAngles(thing, next);
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world pitch";
+        }
+    }
+    if (dragFloatMixed("Yaw (deg)", &degrees[1], !anglesCommon.has_value(), 0.5f, -180.0f, 180.0f)) {
+        const float yaw = degrees[1] * kDegToRad;
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [yaw](slopengine::Thing& thing) {
+                    Vector3 next = thingWorldAngles(thing);
+                    next.y = yaw;
+                    setThingWorldAngles(thing, next);
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world yaw";
+        }
+    }
+    if (dragFloatMixed("Roll (deg)", &degrees[2], !anglesCommon.has_value(), 0.5f, -180.0f, 180.0f)) {
+        const float roll = degrees[2] * kDegToRad;
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [roll](slopengine::Thing& thing) {
+                    Vector3 next = thingWorldAngles(thing);
+                    next.z = roll;
+                    setThingWorldAngles(thing, next);
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world roll";
+        }
+    }
+    if (ImGui::Button("Reset Rotation")) {
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [](slopengine::Thing& thing) {
+                    setThingWorldAngles(thing, {});
+                })) {
+            changed = true;
+            editor.statusMessage = "Reset thing rotation to world identity";
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+        ImGui::SetTooltip("Set pitch/yaw/roll to 0 in world space");
+    }
+    ImGui::Separator();
+    return changed;
+}
+
 void copyToBuf(char* buf, std::size_t bufSize, const std::string& value) {
     if (bufSize == 0) {
         return;
@@ -1456,22 +1556,24 @@ ThingPanelResult ThingPanel::drawSection(
         return result;
     }
 
+    result.changed = drawWorldRotationSection(editor, targets);
+
     if (editKind == ThingEditKind::Light) {
-        result.changed = drawLightSection(editor, targets);
+        result.changed = drawLightSection(editor, targets) || result.changed;
     } else if (editKind == ThingEditKind::Sound) {
-        result.changed = drawSoundSection(editor, targets);
+        result.changed = drawSoundSection(editor, targets) || result.changed;
     } else if (editKind == ThingEditKind::Prop) {
-        result.changed = drawPropSection(editor, assets, targets);
+        result.changed = drawPropSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Actor) {
-        result.changed = drawActorSection(editor, assets, targets);
+        result.changed = drawActorSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Trigger) {
-        result.changed = drawTriggerSection(editor, targets);
+        result.changed = drawTriggerSection(editor, targets) || result.changed;
     } else if (editKind == ThingEditKind::Usable) {
-        result.changed = drawUseHandlerSection(editor, assets, targets, "usable");
+        result.changed = drawUseHandlerSection(editor, assets, targets, "usable") || result.changed;
     } else if (editKind == ThingEditKind::Pickup) {
-        result.changed = drawPickupSection(editor, assets, targets);
+        result.changed = drawPickupSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Mover) {
-        result.changed = drawMoverSection(editor, assets, targets);
+        result.changed = drawMoverSection(editor, assets, targets) || result.changed;
     }
 
     ImGui::EndChild();

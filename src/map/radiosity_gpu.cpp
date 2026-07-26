@@ -263,6 +263,7 @@ void unloadDirectResources(
     unsigned int primSsbo,
     unsigned int paramsSsbo,
     unsigned int reachSsbo,
+    unsigned int faceSkySsbo,
     unsigned int program) {
     unloadSsbo(luxelSsbo);
     unloadSsbo(emitterSsbo);
@@ -271,6 +272,7 @@ void unloadDirectResources(
     unloadSsbo(primSsbo);
     unloadSsbo(paramsSsbo);
     unloadSsbo(reachSsbo);
+    unloadSsbo(faceSkySsbo);
     rlUnloadShaderProgram(program);
 }
 
@@ -344,7 +346,8 @@ bool accumulateDirectLightingGpu(
     const QuadBvh& occlusionBvh,
     std::string_view computeShaderSource,
     const RadGpuDirectParams& directParams,
-    const RadGpuReachability& reachability) {
+    const RadGpuReachability& reachability,
+    const std::vector<std::int32_t>& faceIsSky) {
     if (!radiosityGpuContextReady()) {
         TraceLog(LOG_WARNING, "sloprad: GPU direct lighting unavailable (no GL 4.3 context)");
         return false;
@@ -369,7 +372,7 @@ bool accumulateDirectLightingGpu(
         dst.px = src.position.x;
         dst.py = src.position.y;
         dst.pz = src.position.z;
-        dst.covered = 0;
+        dst.covered = src.covered;
         dst.nx = src.normal.x;
         dst.ny = src.normal.y;
         dst.nz = src.normal.z;
@@ -466,6 +469,10 @@ bool accumulateDirectLightingGpu(
     if (reachBits.empty()) {
         reachBits.push_back(0);
     }
+    std::vector<std::int32_t> faceSkyBits = faceIsSky;
+    if (faceSkyBits.empty()) {
+        faceSkyBits.push_back(0);
+    }
 
     const unsigned int luxelSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuLuxels.size() * sizeof(GpuLuxelSSBO)),
@@ -491,6 +498,10 @@ bool accumulateDirectLightingGpu(
         static_cast<unsigned int>(reachBits.size() * sizeof(std::uint32_t)),
         reachBits.data(),
         RL_DYNAMIC_COPY);
+    const unsigned int faceSkySsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(faceSkyBits.size() * sizeof(std::int32_t)),
+        faceSkyBits.data(),
+        RL_DYNAMIC_COPY);
     const int luxelCount = static_cast<int>(gpuLuxels.size());
     const int emitterCount = static_cast<int>(emitters.size());
     const int lightCount = static_cast<int>(lights.size());
@@ -510,15 +521,31 @@ bool accumulateDirectLightingGpu(
         rlLoadShaderBuffer(sizeof(GpuParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
 
     if (luxelSsbo == 0 || emitterSsbo == 0 || lightSsbo == 0 || nodeSsbo == 0 || primSsbo == 0
-        || paramsSsbo == 0 || reachSsbo == 0) {
+        || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0) {
         TraceLog(LOG_WARNING, "sloprad: failed to allocate GPU SSBOs for direct lighting");
         unloadDirectResources(
-            luxelSsbo, emitterSsbo, lightSsbo, nodeSsbo, primSsbo, paramsSsbo, reachSsbo, program);
+            luxelSsbo,
+            emitterSsbo,
+            lightSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            reachSsbo,
+            faceSkySsbo,
+            program);
         return false;
     }
     if (!checkGlError("ssbo allocate")) {
         unloadDirectResources(
-            luxelSsbo, emitterSsbo, lightSsbo, nodeSsbo, primSsbo, paramsSsbo, reachSsbo, program);
+            luxelSsbo,
+            emitterSsbo,
+            lightSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            reachSsbo,
+            faceSkySsbo,
+            program);
         return false;
     }
 
@@ -544,6 +571,7 @@ bool accumulateDirectLightingGpu(
     rlBindShaderBuffer(paramsSsbo, 4);
     rlBindShaderBuffer(lightSsbo, 5);
     rlBindShaderBuffer(reachSsbo, 6);
+    rlBindShaderBuffer(faceSkySsbo, 7);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -615,7 +643,15 @@ bool accumulateDirectLightingGpu(
     rlDisableShader();
     if (dispatchFailed) {
         unloadDirectResources(
-            luxelSsbo, emitterSsbo, lightSsbo, nodeSsbo, primSsbo, paramsSsbo, reachSsbo, program);
+            luxelSsbo,
+            emitterSsbo,
+            lightSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            reachSsbo,
+            faceSkySsbo,
+            program);
         return false;
     }
 
@@ -626,12 +662,28 @@ bool accumulateDirectLightingGpu(
         0);
     if (!checkGlError("ssbo readback")) {
         unloadDirectResources(
-            luxelSsbo, emitterSsbo, lightSsbo, nodeSsbo, primSsbo, paramsSsbo, reachSsbo, program);
+            luxelSsbo,
+            emitterSsbo,
+            lightSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            reachSsbo,
+            faceSkySsbo,
+            program);
         return false;
     }
 
     unloadDirectResources(
-        luxelSsbo, emitterSsbo, lightSsbo, nodeSsbo, primSsbo, paramsSsbo, reachSsbo, program);
+        luxelSsbo,
+        emitterSsbo,
+        lightSsbo,
+        nodeSsbo,
+        primSsbo,
+        paramsSsbo,
+        reachSsbo,
+        faceSkySsbo,
+        program);
 
     if (!validateGpuResults(gpuLuxelsBefore, gpuLuxels)) {
         return false;

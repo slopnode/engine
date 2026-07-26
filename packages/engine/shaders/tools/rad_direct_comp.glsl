@@ -138,6 +138,17 @@ layout(std430, binding = 6) readonly buffer ReachBuffer {
     uint reachBits[];
 };
 
+layout(std430, binding = 7) readonly buffer FaceSkyBuffer {
+    int faceSky[];
+};
+
+bool isSkyFace(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= faceSky.length()) {
+        return false;
+    }
+    return faceSky[faceIndex] != 0;
+}
+
 bool leavesReachable(int a, int b) {
     if (params.leafCount <= 0 || params.wordsPerRow <= 0) {
         return true;
@@ -387,8 +398,9 @@ void main() {
             if (nDotL <= 0.0) {
                 continue;
             }
-            vec3 farPoint = luxelPos + toLight * kSunRayDistance;
-            if (segmentOccluded(luxelPos, farPoint, luxel.faceIndex, -1)) {
+            int hitFace = -1;
+            if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxel.faceIndex, -1, hitFace)
+                || !isSkyFace(hitFace)) {
                 continue;
             }
             vec3 contrib = intensity * nDotL;

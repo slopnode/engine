@@ -31,6 +31,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "area-light";
     case slopengine::ThingKind::Sun:
         return "sun";
+    case slopengine::ThingKind::AmbientLight:
+        return "ambient-light";
     case slopengine::ThingKind::Prefab:
         return "prefab";
     case slopengine::ThingKind::SoundSource:
@@ -167,6 +169,13 @@ void PlaceTool::update(
 
     if (slopengine::thingKindIsLight(kind)) {
         thing = slopengine::makeDefaultLightThing(kind);
+        if (kind == slopengine::ThingKind::AmbientLight) {
+            thing.color = {0.08f, 0.08f, 0.09f};
+        } else if (kind == slopengine::ThingKind::Sun) {
+            thing.haveAngles = true;
+            thing.angles = {-0.7f, 0.4f, 0.0f};
+            thing.yaw = thing.angles.y;
+        }
     } else if (kind == slopengine::ThingKind::SoundSource) {
         thing = slopengine::makeDefaultSoundSourceThing();
     } else if (kind == slopengine::ThingKind::Marker) {

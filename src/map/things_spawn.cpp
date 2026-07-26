@@ -332,6 +332,12 @@ void spawnLight(flecs::entity entity, const Thing& placement, SpawnContext& ctx)
             .intensity = placement.intensity,
         });
         break;
+    case ThingKind::AmbientLight:
+        entity.set<AmbientLight>({
+            .color = placement.color,
+            .intensity = placement.intensity,
+        });
+        break;
     default:
         break;
     }

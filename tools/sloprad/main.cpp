@@ -217,6 +217,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     loadPackageMapHandlers(scheme, assets);
+    loadPackageThings(scheme, assets);
     auto brushes = loadMapBrushes(scheme, assets, *cli->config.map);
     if (!brushes) {
         s7_quit(scheme);
@@ -224,21 +225,25 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
-    std::vector<slopengine::RadiosityLight> lights =
+    slopengine::RadiosityThingLights thingLights =
         slopengine::collectRadiosityLights(scheme, assets, *cli->config.map);
     s7_quit(scheme);
     if (mapMeta->sun.enabled) {
-        slopengine::RadiosityLight sun{};
-        sun.kind = slopengine::RadiosityLightKind::Sun;
-        const Quaternion rotation = QuaternionFromEuler(
-            mapMeta->sun.angles.x,
-            mapMeta->sun.angles.y,
-            mapMeta->sun.angles.z);
-        sun.direction = Vector3Normalize(Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, rotation));
-        sun.color = mapMeta->sun.color;
-        sun.intensity = mapMeta->sun.intensity;
-        lights.push_back(sun);
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: map.meta (sun ...) is ignored; place a sun thing for directional bake light");
+        std::fflush(stdout);
     }
+    mapMeta->ambient = thingLights.hasAmbient ? thingLights.ambient : Vector3{0.0f, 0.0f, 0.0f};
+    TraceLog(
+        LOG_INFO,
+        "sloprad: ambient=(%.3f %.3f %.3f) from=%s",
+        mapMeta->ambient.x,
+        mapMeta->ambient.y,
+        mapMeta->ambient.z,
+        thingLights.hasAmbient ? "ambient-light" : "none(black)");
+    std::fflush(stdout);
+    const std::vector<slopengine::RadiosityLight>& lights = thingLights.lights;
     int pointCount = 0;
     int spotCount = 0;
     int sunCount = 0;

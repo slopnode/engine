@@ -395,6 +395,9 @@ const char* entityKindLabel(flecs::entity entity) {
     if (entity.has<SunLight>()) {
         return "sun";
     }
+    if (entity.has<AmbientLight>()) {
+        return "ambient-light";
+    }
     if (entity.has<RigidMover>()) {
         return "mover";
     }
@@ -636,6 +639,18 @@ void drawEntityComponentDetails(flecs::entity entity) {
     if (entity.has<SunLight>()) {
         const SunLight& light = entity.get<SunLight>();
         if (ImGui::TreeNode("SunLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<AmbientLight>()) {
+        const AmbientLight& light = entity.get<AmbientLight>();
+        if (ImGui::TreeNode("AmbientLight")) {
             ImGui::Text(
                 "Color: %.3f, %.3f, %.3f",
                 static_cast<double>(light.color.x),

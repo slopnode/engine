@@ -45,8 +45,7 @@ bool ensureMapFiles(
         meta << "  (name \"" << mapName << "\")\n";
         meta << "  (author \"\")\n";
         meta << "  (description \"\")\n";
-        meta << "  (depends)\n";
-        meta << "  (ambient 0.03 0.03 0.04))\n";
+        meta << "  (depends))\n";
     }
     return true;
 }
@@ -882,7 +881,8 @@ void Editor::markBrushCompileDirty(slopengine::BrushRole role) {
 }
 
 void Editor::markThingCompileDirty(slopengine::ThingKind kind) {
-    if (kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight) {
+    if (kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight ||
+        kind == slopengine::ThingKind::Sun || kind == slopengine::ThingKind::AmbientLight) {
         markRadDirty();
     }
 }
@@ -1188,42 +1188,22 @@ ViewPlane Editor::planeForViewportIndex(int index) {
     }
 }
 
-void Editor::syncOrthoFocusFrom(const FlyCamera& cam, ViewPlane plane) {
-    if (!cam.orthographic) {
+void Editor::applyOrthoPoseToViewport(int index, Vector3 focus) {
+    if (index < 0 || index >= kViewportCount) {
         return;
     }
-    const Vector3& p = cam.position;
-    switch (plane) {
-    case ViewPlane::Top:
-        orthoFocus.x = p.x;
-        orthoFocus.z = p.z;
-        break;
-    case ViewPlane::Front:
-        orthoFocus.x = p.x;
-        orthoFocus.y = p.y;
-        break;
-    case ViewPlane::Side:
-        orthoFocus.y = p.y;
-        orthoFocus.z = p.z;
-        break;
-    case ViewPlane::PerspectiveY0:
-    default:
-        break;
+    ViewportCamera& slot = viewports[static_cast<std::size_t>(index)];
+    if (slot.plane == ViewPlane::PerspectiveY0) {
+        return;
     }
-}
-
-void Editor::syncOrthoFocus() {
-    syncOrthoFocusFrom(camera, viewPlane);
+    const float zoom = slot.camera.orthoHalfHeight;
+    applyOrthoCameraPose(slot.camera, slot.plane, focus);
+    slot.camera.orthoHalfHeight = zoom;
 }
 
 void Editor::applyOrthoPoses() {
     for (int i = 0; i < kViewportCount; ++i) {
-        if (viewports[i].plane == ViewPlane::PerspectiveY0) {
-            continue;
-        }
-        const float zoom = viewports[i].camera.orthoHalfHeight;
-        applyOrthoCameraPose(viewports[i].camera, viewports[i].plane, orthoFocus);
-        viewports[i].camera.orthoHalfHeight = zoom;
+        applyOrthoPoseToViewport(i, orthoFocus);
     }
 }
 
@@ -1253,30 +1233,23 @@ void Editor::setActiveViewport(int index) {
         return;
     }
     syncBankFromActiveCamera();
-    if (camera.orthographic) {
-        syncOrthoFocus();
-        applyOrthoPoses();
-    }
     activeViewport = index;
     syncActiveCameraFromBank();
 }
 
 void Editor::setViewPlane(ViewPlane plane) {
     const int index = viewportIndexForPlane(plane);
+    syncBankFromActiveCamera();
     if (viewPlane == ViewPlane::PerspectiveY0 && plane != ViewPlane::PerspectiveY0) {
-        syncBankFromActiveCamera();
         const FlyCamera& persp = viewports[0].camera;
         const Vector3 fwd = persp.forward();
-        orthoFocus = {
+        const Vector3 focus{
             persp.position.x + fwd.x * 8.0f,
             persp.position.y + fwd.y * 8.0f,
             persp.position.z + fwd.z * 8.0f,
         };
-        applyOrthoPoses();
-    } else if (camera.orthographic && plane != viewPlane) {
-        syncBankFromActiveCamera();
-        syncOrthoFocus();
-        applyOrthoPoses();
+        orthoFocus = focus;
+        applyOrthoPoseToViewport(index, focus);
     }
     setActiveViewport(index);
 }

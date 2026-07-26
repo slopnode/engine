@@ -929,14 +929,7 @@ int main(int argc, char* argv[]) {
         const bool allowFly =
             !uiWantsKeyboard && !uiWantsMouse && (mouseInContent || IsCursorHidden());
         if (flyPane >= 0 && allowFly) {
-            slopmap::FlyCamera& flyCamera =
-                editor.viewports[static_cast<std::size_t>(flyPane)].camera;
-            flyCamera.update(true);
-            if (flyCamera.orthographic) {
-                editor.syncOrthoFocusFrom(
-                    flyCamera, editor.viewports[static_cast<std::size_t>(flyPane)].plane);
-                editor.applyOrthoPoses();
-            }
+            editor.viewports[static_cast<std::size_t>(flyPane)].camera.update(true);
         } else {
             editor.viewports[static_cast<std::size_t>(editor.activeViewport)].camera.update(false);
         }
@@ -2825,6 +2818,16 @@ int main(int argc, char* argv[]) {
                                     [&] {
                                         beginThingKind(
                                             editor, slopengine::ThingKind::Sun, createTool);
+                                    });
+                                placeKindButton(
+                                    "wb_sunny",
+                                    "ambient-light",
+                                    isKind(slopengine::ThingKind::AmbientLight),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::AmbientLight,
+                                            createTool);
                                     });
                                 drawCatalogDefs(
                                     slopengine::thingDefRegistry().defsForRole(

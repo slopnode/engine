@@ -92,6 +92,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{255, 140, 200, 255};
     case slopengine::ThingKind::Sun:
         return Color{255, 255, 160, 255};
+    case slopengine::ThingKind::AmbientLight:
+        return Color{180, 200, 255, 255};
     case slopengine::ThingKind::Prefab:
         return Color{140, 140, 200, 255};
     case slopengine::ThingKind::SoundSource:
@@ -263,6 +265,15 @@ void drawLightGizmo(
         DrawLine3D({pos.x - hx, pos.y, pos.z + hz}, {pos.x - hx, pos.y, pos.z - hz}, color);
         break;
     }
+    case slopengine::ThingKind::AmbientLight: {
+        if (!drawThingIcon(assets, camera, pos, "wb_sunny", color)) {
+            DrawSphere(pos, 0.14f, color);
+        }
+        if (showGizmos) {
+            DrawSphereWires(pos, 0.45f, 8, 8, Fade(color, 0.55f));
+        }
+        break;
+    }
     case slopengine::ThingKind::Sun: {
         const float yaw = thing.haveAngles ? thing.angles.y : thing.yaw;
         const float pitch = thing.haveAngles ? thing.angles.x : -0.7f;
@@ -350,6 +361,7 @@ void drawThings(
         case slopengine::ThingKind::SpotLight:
         case slopengine::ThingKind::AreaLight:
         case slopengine::ThingKind::Sun:
+        case slopengine::ThingKind::AmbientLight:
             drawLightGizmo(assets, camera, thing, selected, showGizmos);
             break;
         case slopengine::ThingKind::Prefab:

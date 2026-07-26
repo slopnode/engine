@@ -22,6 +22,7 @@ enum class ThingKind {
     SpotLight,
     AreaLight,
     Sun,
+    AmbientLight,
     Prefab,
     SoundSource,
     Marker,
@@ -167,6 +168,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "area-light";
     case ThingKind::Sun:
         return "sun";
+    case ThingKind::AmbientLight:
+        return "ambient-light";
     case ThingKind::Prefab:
         return "prefab";
     case ThingKind::SoundSource:
@@ -179,7 +182,8 @@ inline const char* thingKindName(ThingKind kind) {
 
 inline bool thingKindIsLight(ThingKind kind) {
     return kind == ThingKind::PointLight || kind == ThingKind::SpotLight ||
-        kind == ThingKind::AreaLight || kind == ThingKind::Sun;
+        kind == ThingKind::AreaLight || kind == ThingKind::Sun ||
+        kind == ThingKind::AmbientLight;
 }
 
 inline bool thingKindNeedsPresentation(ThingKind kind) {

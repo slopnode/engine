@@ -24,8 +24,8 @@ struct MapMeta {
     std::string description;
     std::string package; /**< Owning package id (filled from directory at load). */
     std::vector<std::string> depends; /**< Other package ids that must be mounted. */
-    Vector3 ambient{0.02f, 0.02f, 0.025f}; /**< Soft fill used when baking radiosity. */
-    MapSun sun;
+    Vector3 ambient{0.0f, 0.0f, 0.0f}; /**< Legacy; bake/runtime ambient comes from ambient-light things. */
+    MapSun sun; /**< Legacy; bake sun comes from sun things. */
 };
 
 /** Parses map.meta text into @p out. */

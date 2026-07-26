@@ -39,15 +39,10 @@ Describes the map and which *other* packages it needs mounted. Owning package is
   (name "My Map")
   (author "Mapper Name")
   (description "Short blurb for menus or docs.")
-  (depends)
-  (ambient 0.03 0.03 0.04)
-  (sun
-    (color 1.0 0.95 0.9)
-    (intensity 1.2)
-    (angles -0.9 0.4 0.0)))
+  (depends))
 ```
 
-id is required. name, author, and description are optional display/metadata strings. (depends ...) lists other package ids that must be mounted when this map uses their assets; omit or leave empty when the map only uses its own package. A legacy (package ...) field is ignored. ambient is a soft fill color used when baking radiosity (not a runtime lightmap fill); if omitted, the tools use a small default gray-blue. Optional (sun ...) adds one directional bake light (color / intensity / angles or yaw; defaults color 1 1 1, intensity 1, angles 0 0 0). Omit (sun ...) for indoor or underground maps with no sky light.
+id is required. name, author, and description are optional display/metadata strings. (depends ...) lists other package ids that must be mounted when this map uses their assets; omit or leave empty when the map only uses its own package. A legacy (package ...) field is ignored. Legacy `(ambient ...)` / `(sun ...)` in map.meta are ignored for lighting — place an `ambient-light` thing and/or `sun` thing in things.s7 (editable in slopmap). Without an ambient-light thing, bake/runtime ambient is black. Sun only reaches surfaces that can see a face with a `(sky)` material (stock `default/sky`); rotate the sun thing for direction, then re-run sloprad.
 
 ### static.csg
 
@@ -166,7 +161,8 @@ Optional Scheme file of things loaded after map geometry. Engine bindings spawn 
 | point-light | id, at | Optional color, intensity, range. Baked by sloprad; see [Lights](lights.md). |
 | spot-light | id, at | Optional yaw/angles, color, intensity, range, cone. Baked by sloprad. |
 | area-light | id, at | Optional angles, color, intensity, size. Authoring / gizmo; not a bake emitter. |
-| sun | id | Optional at (gizmo), angles/yaw, color, intensity. Authoring / gizmo only; bake sun is map.meta `(sun ...)`. |
+| sun | id | Optional at (gizmo), angles/yaw, color, intensity. Bake directional sun (needs sky-material faces). |
+| ambient-light | id | Optional at (gizmo), color, intensity. Sets bake/runtime ambient; omit for black ambient. |
 | prefab | path, id | Loads optional prefabs/{path}.s7 with the same at / angles as CSG instances; missing sidecar is a no-op. Entity ids are prefixed with the instance id. |
 
 on-use handlers live in package scripts (for example scripts/things.s7). If the handler is missing, Interact falls back to the inspect UI. Props, usables, pickups, lights, actors, and scripting are covered in [Things](things.md). Baked vs dynamic lighting is covered in [Lights](lights.md).
@@ -193,7 +189,7 @@ You can edit .csg by hand, generate it from another program, or build a dedicate
 
 ### Materials on brushes
 
-Face materials drive diffuse appearance and bake sampling (albedo + emission only; no normal maps). texel-size on the material controls how densely the texture tiles in world space. Emission fields on the material feed radiosity (see the materials guide). After changing materials or emitters that affect a map, re-run sloprad if you rely on baked lighting.
+Face materials drive diffuse appearance and bake sampling (albedo + emission only; no normal maps). texel-size on the material controls how densely the texture tiles in world space. Emission fields on the material feed radiosity; `(sky)` marks sun apertures (see the materials guide). After changing materials or emitters that affect a map, re-run sloprad if you rely on baked lighting.
 
 ## Compile order
 
@@ -233,7 +229,7 @@ Typical sequence:
 | Hull brushes, sealing, or hull face layout | slopbsp, then slopfac, then slopvis, then sloprad if you use lightmaps |
 | Detail brushes only (no hull / face-id churn) | slopfac, then slopvis, then sloprad; run slopbsp if you care about detail-outside warnings or stale analysis |
 | Face ids | slopfac then sloprad (charts key off FAC ids); slopvis if portals/leaves changed; slopbsp if hull planes changed |
-| Materials, albedo, emission, ambient, map.meta sun | sloprad |
+| Materials, albedo, emission, sky, ambient-light, sun thing | sloprad |
 | things.s7 light thing change | Re-bake sloprad if point/spot should change static light; runtime DynamicLight is separate ([Lights](lights.md)) |
 | Authored (nodraw) | slopfac, then slopvis, then sloprad |
 

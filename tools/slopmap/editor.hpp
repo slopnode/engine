@@ -202,8 +202,7 @@ struct Editor {
     void setViewPlane(ViewPlane plane);
     void setActiveViewport(int index);
     void toggleViewportLayout();
-    void syncOrthoFocus();
-    void syncOrthoFocusFrom(const FlyCamera& cam, ViewPlane plane);
+    void applyOrthoPoseToViewport(int index, Vector3 focus);
     void applyOrthoPoses();
     void syncActiveCameraFromBank();
     void syncBankFromActiveCamera();
