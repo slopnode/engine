@@ -3,6 +3,8 @@
 #include "assets/material_loader.hpp"
 #include "map/brush.hpp"
 #include "map/csg_compile.hpp"
+#include "map/fac.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/uv_math.hpp"
 
 #include <raymath.h>
@@ -15,6 +17,7 @@
 #include <functional>
 #include <limits>
 #include <string_view>
+#include <unordered_set>
 
 namespace slopmap {
 
@@ -704,6 +707,89 @@ bool faceFacesRay(const slopengine::BrushFace& face, Ray ray, bool ignoreBackfac
     return dot3(face.normal, ray.direction) < 0.0f;
 }
 
+bool normalFacesRay(Vector3 normal, Ray ray, bool ignoreBackfaces) {
+    if (!ignoreBackfaces) {
+        return true;
+    }
+    return dot3(normal, ray.direction) < 0.0f;
+}
+
+bool useVisPick(const Editor& editor) {
+    switch (editor.fill) {
+    case PreviewFill::Unlit:
+    case PreviewFill::Lit:
+    case PreviewFill::SolidLit:
+        return !editor.preview.pickFac.faces.empty();
+    case PreviewFill::Wireframe:
+    case PreviewFill::Solid:
+    case PreviewFill::Textures:
+    default:
+        return false;
+    }
+}
+
+std::optional<FaceRef> findFaceRefById(
+    const std::vector<slopengine::Brush>& brushes,
+    std::string_view sourceFaceId) {
+    if (sourceFaceId.empty()) {
+        return std::nullopt;
+    }
+    auto lookupExact = [&](std::string_view id) -> std::optional<FaceRef> {
+        for (std::size_t bi = 0; bi < brushes.size(); ++bi) {
+            const slopengine::Brush& brush = brushes[bi];
+            for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                if (brush.faces[fi].id == id) {
+                    return FaceRef{static_cast<int>(bi), static_cast<int>(fi)};
+                }
+            }
+        }
+        return std::nullopt;
+    };
+    if (auto hit = lookupExact(sourceFaceId)) {
+        return hit;
+    }
+    std::size_t start = 0;
+    while (start < sourceFaceId.size()) {
+        const std::size_t plus = sourceFaceId.find('+', start);
+        const std::string_view part = plus == std::string_view::npos
+            ? sourceFaceId.substr(start)
+            : sourceFaceId.substr(start, plus - start);
+        if (!part.empty()) {
+            if (auto hit = lookupExact(part)) {
+                return hit;
+            }
+        }
+        if (plus == std::string_view::npos) {
+            break;
+        }
+        start = plus + 1;
+    }
+    return std::nullopt;
+}
+
+std::optional<float> rayVisibleFaceDistance(
+    Ray ray,
+    const slopengine::VisibleFace& face,
+    bool ignoreBackfaces) {
+    if (face.vertices.size() < 3 || !normalFacesRay(face.normal, ray, ignoreBackfaces)) {
+        return std::nullopt;
+    }
+    float best = std::numeric_limits<float>::max();
+    bool hit = false;
+    for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+        float t = 0.0f;
+        if (rayTriangle(ray, face.vertices[0], face.vertices[i], face.vertices[i + 1], t) &&
+            t < best) {
+            best = t;
+            hit = true;
+        }
+    }
+    if (!hit) {
+        return std::nullopt;
+    }
+    return best;
+}
+
 constexpr float kPickCyclePixelSlop = 6.0f;
 
 bool pickCycleMouseNear(Vector2 a, Vector2 b) {
@@ -1211,24 +1297,63 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             float t = 0.0f;
         };
         std::vector<BrushHit> hits;
-        for (std::size_t i = 0; i < d.brushes.size(); ++i) {
-            float faceT = 0.0f;
-            const auto face =
-                rayBrushFaceIndex(ray, d.brushes[i], &faceT, ignoreBackfaces);
-            if (face) {
-                hits.push_back({static_cast<int>(i), faceT});
-                continue;
+        if (useVisPick(editor)) {
+            for (const slopengine::VisibleFace& face : editor.preview.pickFac.faces) {
+                const auto faceT = rayVisibleFaceDistance(ray, face, ignoreBackfaces);
+                if (!faceT) {
+                    continue;
+                }
+                const auto ref = findFaceRefById(d.brushes, face.sourceFaceId);
+                if (!ref) {
+                    continue;
+                }
+                hits.push_back({ref->brush, *faceT});
             }
-            if (!ignoreBackfaces) {
-                const auto hit = rayBrushHitDistance(ray, d.brushes[i], false);
-                if (hit) {
-                    hits.push_back({static_cast<int>(i), *hit});
+            slopengine::ThingDocument thingsDoc{};
+            thingsDoc.things = d.things;
+            const std::unordered_set<std::string> moverBrushIds =
+                slopengine::collectClaimedBrushIds(&thingsDoc, d.brushes);
+            for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                if (moverBrushIds.find(d.brushes[i].id) == moverBrushIds.end()) {
+                    continue;
+                }
+                float faceT = 0.0f;
+                if (rayBrushFaceIndex(ray, d.brushes[i], &faceT, ignoreBackfaces)) {
+                    hits.push_back({static_cast<int>(i), faceT});
                 }
             }
+            std::sort(hits.begin(), hits.end(), [](const BrushHit& a, const BrushHit& b) {
+                return a.t < b.t;
+            });
+            std::vector<BrushHit> unique;
+            unique.reserve(hits.size());
+            std::unordered_set<int> seen;
+            for (const BrushHit& hit : hits) {
+                if (seen.insert(hit.brush).second) {
+                    unique.push_back(hit);
+                }
+            }
+            hits = std::move(unique);
+        } else {
+            for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                float faceT = 0.0f;
+                const auto face =
+                    rayBrushFaceIndex(ray, d.brushes[i], &faceT, ignoreBackfaces);
+                if (face) {
+                    hits.push_back({static_cast<int>(i), faceT});
+                    continue;
+                }
+                if (!ignoreBackfaces) {
+                    const auto hit = rayBrushHitDistance(ray, d.brushes[i], false);
+                    if (hit) {
+                        hits.push_back({static_cast<int>(i), *hit});
+                    }
+                }
+            }
+            std::sort(hits.begin(), hits.end(), [](const BrushHit& a, const BrushHit& b) {
+                return a.t < b.t;
+            });
         }
-        std::sort(hits.begin(), hits.end(), [](const BrushHit& a, const BrushHit& b) {
-            return a.t < b.t;
-        });
         std::vector<int> stack;
         stack.reserve(hits.size());
         for (const BrushHit& hit : hits) {
@@ -1274,36 +1399,99 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             float t = 0.0f;
         };
         std::vector<FaceHit> hits;
-        for (std::size_t i = 0; i < d.brushes.size(); ++i) {
-            const slopengine::Brush& brush = d.brushes[i];
-            for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
-                const slopengine::BrushFace& face = brush.faces[fi];
-                if (face.vertices.size() < 3 || !faceFacesRay(face, ray, ignoreBackfaces)) {
+        if (useVisPick(editor)) {
+            for (const slopengine::VisibleFace& face : editor.preview.pickFac.faces) {
+                const auto faceT = rayVisibleFaceDistance(ray, face, ignoreBackfaces);
+                if (!faceT) {
                     continue;
                 }
-                float bestT = std::numeric_limits<float>::max();
-                bool hit = false;
-                for (std::size_t vi = 1; vi + 1 < face.vertices.size(); ++vi) {
-                    float t = 0.0f;
-                    if (rayTriangle(
-                            ray,
-                            face.vertices[0],
-                            face.vertices[vi],
-                            face.vertices[vi + 1],
-                            t) &&
-                        t < bestT) {
-                        bestT = t;
-                        hit = true;
+                const auto ref = findFaceRefById(d.brushes, face.sourceFaceId);
+                if (!ref) {
+                    continue;
+                }
+                hits.push_back({*ref, *faceT});
+            }
+            slopengine::ThingDocument thingsDoc{};
+            thingsDoc.things = d.things;
+            const std::unordered_set<std::string> moverBrushIds =
+                slopengine::collectClaimedBrushIds(&thingsDoc, d.brushes);
+            for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                if (moverBrushIds.find(d.brushes[i].id) == moverBrushIds.end()) {
+                    continue;
+                }
+                const slopengine::Brush& brush = d.brushes[i];
+                for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                    const slopengine::BrushFace& face = brush.faces[fi];
+                    if (face.vertices.size() < 3 || !faceFacesRay(face, ray, ignoreBackfaces)) {
+                        continue;
+                    }
+                    float bestT = std::numeric_limits<float>::max();
+                    bool hit = false;
+                    for (std::size_t vi = 1; vi + 1 < face.vertices.size(); ++vi) {
+                        float t = 0.0f;
+                        if (rayTriangle(
+                                ray,
+                                face.vertices[0],
+                                face.vertices[vi],
+                                face.vertices[vi + 1],
+                                t) &&
+                            t < bestT) {
+                            bestT = t;
+                            hit = true;
+                        }
+                    }
+                    if (hit) {
+                        hits.push_back({{static_cast<int>(i), static_cast<int>(fi)}, bestT});
                     }
                 }
-                if (hit) {
-                    hits.push_back({{static_cast<int>(i), static_cast<int>(fi)}, bestT});
+            }
+            std::sort(hits.begin(), hits.end(), [](const FaceHit& a, const FaceHit& b) {
+                return a.t < b.t;
+            });
+            std::vector<FaceHit> unique;
+            unique.reserve(hits.size());
+            for (const FaceHit& hit : hits) {
+                const bool exists = std::any_of(
+                    unique.begin(),
+                    unique.end(),
+                    [&](const FaceHit& existing) { return existing.ref == hit.ref; });
+                if (!exists) {
+                    unique.push_back(hit);
                 }
             }
+            hits = std::move(unique);
+        } else {
+            for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                const slopengine::Brush& brush = d.brushes[i];
+                for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                    const slopengine::BrushFace& face = brush.faces[fi];
+                    if (face.vertices.size() < 3 || !faceFacesRay(face, ray, ignoreBackfaces)) {
+                        continue;
+                    }
+                    float bestT = std::numeric_limits<float>::max();
+                    bool hit = false;
+                    for (std::size_t vi = 1; vi + 1 < face.vertices.size(); ++vi) {
+                        float t = 0.0f;
+                        if (rayTriangle(
+                                ray,
+                                face.vertices[0],
+                                face.vertices[vi],
+                                face.vertices[vi + 1],
+                                t) &&
+                            t < bestT) {
+                            bestT = t;
+                            hit = true;
+                        }
+                    }
+                    if (hit) {
+                        hits.push_back({{static_cast<int>(i), static_cast<int>(fi)}, bestT});
+                    }
+                }
+            }
+            std::sort(hits.begin(), hits.end(), [](const FaceHit& a, const FaceHit& b) {
+                return a.t < b.t;
+            });
         }
-        std::sort(hits.begin(), hits.end(), [](const FaceHit& a, const FaceHit& b) {
-            return a.t < b.t;
-        });
         std::vector<FaceRef> stack;
         stack.reserve(hits.size());
         for (const FaceHit& hit : hits) {

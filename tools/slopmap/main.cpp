@@ -471,6 +471,10 @@ void drawScene(
     if (ortho) {
         rlSetClipPlanes(prevNear, prevFar);
     }
+    slopmap::drawOrientationWidget(
+        camera,
+        static_cast<float>(GetRenderWidth()),
+        static_cast<float>(GetRenderHeight()));
 }
 
 void beginThingKind(

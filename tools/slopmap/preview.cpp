@@ -233,6 +233,9 @@ void MapPreview::clearLit() {
     useLightmapLoc = -1;
     solidLitLoc = -1;
     rad = {};
+    if (!visValid) {
+        pickFac = {};
+    }
 }
 
 void MapPreview::clearVis() {
@@ -241,6 +244,9 @@ void MapPreview::clearVis() {
     }
     visModel = {};
     visValid = false;
+    if (!litValid) {
+        pickFac = {};
+    }
 }
 
 void MapPreview::clear() {
@@ -308,8 +314,9 @@ bool MapPreview::reloadVisPreview(
 
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    pickFac = std::move(*loadedFac);
     const slopengine::CsgCompileResult compiled =
-        slopengine::compileVisibleFacesToGeo(*loadedFac, resolveUv, nullptr);
+        slopengine::compileVisibleFacesToGeo(pickFac, resolveUv, nullptr);
 
     visModel = slopengine::buildModelFromGeo(
         compiled.asset,
@@ -389,6 +396,11 @@ bool MapPreview::reloadBake(
         }
     }
 
+    if (haveVis) {
+        pickFac = vis;
+    } else if (!visValid) {
+        pickFac = {};
+    }
     const slopengine::CsgCompileResult compiled = haveVis
         ? slopengine::compileVisibleFacesToGeo(vis, resolveUv, &rad)
         : slopengine::compileBrushesToGeo(brushes, resolveUv, &rad);
@@ -773,6 +785,96 @@ void drawGrid(
                 viewDir);
         }
         break;
+    }
+}
+
+void drawOrientationWidget(const Camera3D& camera, float width, float height) {
+    if (width < 8.0f || height < 8.0f) {
+        return;
+    }
+
+    Vector3 forward{
+        camera.target.x - camera.position.x,
+        camera.target.y - camera.position.y,
+        camera.target.z - camera.position.z,
+    };
+    const float forwardLen =
+        std::sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
+    if (forwardLen <= 1e-8f) {
+        return;
+    }
+    forward = {forward.x / forwardLen, forward.y / forwardLen, forward.z / forwardLen};
+
+    Vector3 right{
+        forward.y * camera.up.z - forward.z * camera.up.y,
+        forward.z * camera.up.x - forward.x * camera.up.z,
+        forward.x * camera.up.y - forward.y * camera.up.x,
+    };
+    float rightLen = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+    if (rightLen <= 1e-6f) {
+        const Vector3 fallback =
+            std::fabs(forward.y) < 0.9f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
+        right = {
+            forward.y * fallback.z - forward.z * fallback.y,
+            forward.z * fallback.x - forward.x * fallback.z,
+            forward.x * fallback.y - forward.y * fallback.x,
+        };
+        rightLen = std::sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
+        if (rightLen <= 1e-6f) {
+            return;
+        }
+    }
+    right = {right.x / rightLen, right.y / rightLen, right.z / rightLen};
+    const Vector3 up{
+        right.y * forward.z - right.z * forward.y,
+        right.z * forward.x - right.x * forward.z,
+        right.x * forward.y - right.y * forward.x,
+    };
+
+    const float cx = width - 54.0f;
+    const float cy = 54.0f;
+    const float len = 34.0f;
+    const Vector2 origin{cx, cy};
+
+    struct AxisArm {
+        Vector3 dir{};
+        Color color{};
+        const char* label = nullptr;
+        float depth = 0.0f;
+    };
+
+    AxisArm arms[] = {
+        {{1.0f, 0.0f, 0.0f}, Color{220, 70, 70, 255}, "X", 0.0f},
+        {{-1.0f, 0.0f, 0.0f}, Color{70, 190, 190, 255}, nullptr, 0.0f},
+        {{0.0f, 1.0f, 0.0f}, Color{70, 200, 90, 255}, "Y", 0.0f},
+        {{0.0f, -1.0f, 0.0f}, Color{200, 70, 190, 255}, nullptr, 0.0f},
+        {{0.0f, 0.0f, 1.0f}, Color{70, 120, 230, 255}, "Z", 0.0f},
+        {{0.0f, 0.0f, -1.0f}, Color{230, 200, 70, 255}, nullptr, 0.0f},
+    };
+    for (AxisArm& arm : arms) {
+        arm.depth = -(arm.dir.x * forward.x + arm.dir.y * forward.y + arm.dir.z * forward.z);
+    }
+    std::sort(std::begin(arms), std::end(arms), [](const AxisArm& a, const AxisArm& b) {
+        return a.depth < b.depth;
+    });
+
+    DrawCircleV(origin, 3.0f, Color{200, 200, 205, 220});
+    for (const AxisArm& arm : arms) {
+        const Vector2 tip{
+            cx + (arm.dir.x * right.x + arm.dir.y * right.y + arm.dir.z * right.z) * len,
+            cy - (arm.dir.x * up.x + arm.dir.y * up.y + arm.dir.z * up.z) * len,
+        };
+        const float thickness = arm.label != nullptr ? 3.0f : 2.0f;
+        DrawLineEx(origin, tip, thickness, arm.color);
+        DrawCircleV(tip, arm.label != nullptr ? 4.0f : 3.0f, arm.color);
+        if (arm.label != nullptr) {
+            DrawText(
+                arm.label,
+                static_cast<int>(tip.x + 5.0f),
+                static_cast<int>(tip.y - 6.0f),
+                12,
+                arm.color);
+        }
     }
 }
 

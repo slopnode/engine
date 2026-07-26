@@ -2,6 +2,7 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
+#include "map/fac.hpp"
 #include "map/lightmap.hpp"
 
 #include <raylib.h>
@@ -40,6 +41,7 @@ struct MapPreview {
 
     Model visModel{};
     bool visValid = false;
+    slopengine::FacFile pickFac{};
 
     Model moverOverlayModel{};
     bool moverOverlayValid = false;
@@ -101,5 +103,6 @@ void drawGrid(
     float lineWidth,
     Vector3 viewDir = {},
     Vector3 origin = {});
+void drawOrientationWidget(const Camera3D& camera, float width, float height);
 
 }
