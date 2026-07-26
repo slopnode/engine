@@ -1070,47 +1070,46 @@ int main(int argc, char* argv[]) {
                     selectTool.toggleSelectedUvLock(editor);
                     previewNeedsRebuild = true;
                 }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "box",
-                        "Hollow...",
-                        nullptr,
-                        false,
-                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                if (editor.doc().selectionMode == slopmap::SelectionMode::Brush) {
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "box",
+                            "Hollow...",
+                            nullptr,
+                            false,
                             !editor.doc().selectedBrushes.empty())) {
-                    editor.hollowThickness = editor.gridSize;
-                    editor.showHollowModal = true;
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "cut",
-                        "Punch-out",
-                        nullptr,
-                        false,
-                        editor.doc().selectionMode == slopmap::SelectionMode::Face &&
-                            !editor.doc().selectedFaces.empty())) {
-                    selectTool.cancelTranslate(editor);
-                    selectTool.cancelRotate(editor);
-                    createTool.reset();
-                    clipTool.reset();
-                    punchTool.beginFromSelection(editor);
-                }
-                if (menuItemWithIcon(
-                        assets,
-                        kIcons,
-                        "arrow_divide",
-                        "Clip",
-                        "Shift+X",
-                        false,
-                        editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
+                        editor.hollowThickness = editor.gridSize;
+                        editor.showHollowModal = true;
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "cut",
+                            "Punch-out",
+                            nullptr,
+                            false,
                             !editor.doc().selectedBrushes.empty())) {
-                    selectTool.cancelTranslate(editor);
-                    selectTool.cancelRotate(editor);
-                    createTool.reset();
-                    punchTool.reset();
-                    clipTool.beginFromSelection(editor);
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
+                        createTool.reset();
+                        clipTool.reset();
+                        punchTool.beginFromSelection(editor);
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "arrow_divide",
+                            "Clip",
+                            "Shift+X",
+                            false,
+                            !editor.doc().selectedBrushes.empty())) {
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
+                        createTool.reset();
+                        punchTool.reset();
+                        clipTool.beginFromSelection(editor);
+                    }
                 }
                 ImGui::Separator();
                 if (menuItemWithIcon(
@@ -2226,27 +2225,27 @@ int main(int argc, char* argv[]) {
                             ImGui::SetTooltip(
                                 "Brush role (H). Hull/Window/Water/Hint cut BSP; Detail/Trigger do not.");
                         }
-                    }
-                    toolSep();
-                    if (toolBtn("op-hollow", "box", "Hollow", false)) {
-                        editor.hollowThickness = editor.gridSize;
-                        editor.showHollowModal = true;
-                    }
-                    ImGui::SameLine();
-                    if (toolBtn("op-punch", "cut", "Punch-out", punchTool.active())) {
-                        selectTool.cancelTranslate(editor);
-                        selectTool.cancelRotate(editor);
-                        createTool.reset();
-                        clipTool.reset();
-                        punchTool.beginFromSelection(editor);
-                    }
-                    ImGui::SameLine();
-                    if (toolBtn("op-clip", "arrow_divide", "Clip", clipTool.active())) {
-                        selectTool.cancelTranslate(editor);
-                        selectTool.cancelRotate(editor);
-                        createTool.reset();
-                        punchTool.reset();
-                        clipTool.beginFromSelection(editor);
+                        toolSep();
+                        if (toolBtn("op-hollow", "box", "Hollow", false)) {
+                            editor.hollowThickness = editor.gridSize;
+                            editor.showHollowModal = true;
+                        }
+                        ImGui::SameLine();
+                        if (toolBtn("op-punch", "cut", "Punch-out", punchTool.active())) {
+                            selectTool.cancelTranslate(editor);
+                            selectTool.cancelRotate(editor);
+                            createTool.reset();
+                            clipTool.reset();
+                            punchTool.beginFromSelection(editor);
+                        }
+                        ImGui::SameLine();
+                        if (toolBtn("op-clip", "arrow_divide", "Clip", clipTool.active())) {
+                            selectTool.cancelTranslate(editor);
+                            selectTool.cancelRotate(editor);
+                            createTool.reset();
+                            punchTool.reset();
+                            clipTool.beginFromSelection(editor);
+                        }
                     }
                 } else if (editor.mode == slopmap::EditorMode::Create) {
                     if (toolBtn(
