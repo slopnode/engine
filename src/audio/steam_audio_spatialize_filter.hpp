@@ -2,6 +2,8 @@
 
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
 
+#include "core/win32.hpp"
+
 #include <phonon.h>
 #include <soloud.h>
 #include <soloud_filter.h>

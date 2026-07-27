@@ -4,6 +4,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 project(slopengine LANGUAGES C CXX)
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 option(SLOPENGINE_DOCS_ONLY "Configure only the Doxygen docs target" OFF)
 
 if(SLOPENGINE_DOCS_ONLY)

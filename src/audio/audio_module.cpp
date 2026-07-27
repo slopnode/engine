@@ -7,6 +7,7 @@
 #include "script/script_context.hpp"
 
 #include "audio/steam_audio_types.hpp"
+#include "core/win32.hpp"
 
 #include <soloud.h>
 #include <raymath.h>
