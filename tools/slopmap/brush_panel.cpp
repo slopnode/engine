@@ -173,6 +173,7 @@ bool forEachBrush(
     const std::vector<int>& targets,
     const std::function<void(slopengine::Brush&, slopengine::BrushRole previous)>& fn) {
     EditorDocument& doc = editor.doc();
+    editor.prepareEdit();
     int count = 0;
     for (int index : targets) {
         slopengine::Brush* brush = brushAt(doc, index);
@@ -186,6 +187,7 @@ bool forEachBrush(
         ++count;
     }
     if (count == 0) {
+        editor.abortEdit();
         return false;
     }
     editor.markDirty();
@@ -197,6 +199,7 @@ bool forEachFace(
     const std::vector<FaceTarget>& targets,
     const std::function<void(slopengine::BrushFace&)>& fn) {
     EditorDocument& doc = editor.doc();
+    editor.prepareEdit();
     int count = 0;
     for (const FaceTarget& target : targets) {
         slopengine::BrushFace* face = faceAt(doc, target);
@@ -207,6 +210,7 @@ bool forEachFace(
         ++count;
     }
     if (count == 0) {
+        editor.abortEdit();
         return false;
     }
     editor.markDirty();

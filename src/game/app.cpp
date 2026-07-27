@@ -186,6 +186,7 @@ void App::shutdown() {
     if (scheme_) {
         clearHookRegistry(scheme_);
         clearProcRoles();
+        clearScriptingErrors();
         s7_quit(scheme_);
         scheme_ = nullptr;
     }

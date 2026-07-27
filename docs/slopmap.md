@@ -62,6 +62,7 @@ Compile order and rebuild rules: [Maps](maps.md). Tool details: [BSP](bsp.md), [
 | Key | Action |
 |-----|--------|
 | Ctrl+N / Ctrl+O / Ctrl+S | New / Open / Save |
+| Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y | Undo / Redo |
 | F5 | Play Map |
 | G / R | Move / rotate yaw (Select) |
 | H / L | Toggle brush role / UV lock |

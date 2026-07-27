@@ -126,6 +126,7 @@ void ClipTool::commit(Editor& editor) {
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
     std::sort(indices.begin(), indices.end(), std::greater<int>());
 
+    editor.prepareEdit();
     std::vector<int> created;
     slopengine::BrushRole dirtyRole = slopengine::BrushRole::Detail;
     int keptCount = 0;
@@ -141,6 +142,7 @@ void ClipTool::commit(Editor& editor) {
         auto split =
             slopengine::splitBrushByPlane(source, point0, planeNormal, allocateId, error);
         if (!split) {
+            editor.abortEdit();
             editor.statusMessage = std::string("Clip failed: ") + error;
             reset();
             return;
@@ -169,6 +171,7 @@ void ClipTool::commit(Editor& editor) {
     }
 
     if (created.empty()) {
+        editor.abortEdit();
         editor.statusMessage = "Clip produced no brushes";
         reset();
         return;
@@ -177,6 +180,7 @@ void ClipTool::commit(Editor& editor) {
     editor.selectBrushes(created, created.back());
     editor.markDirty();
     editor.markBrushCompileDirty(dirtyRole);
+    editor.endEdit();
     editor.statusMessage =
         "Clip kept " + std::to_string(keptCount) + " brush(es) (" + keepModeLabel() + ")";
     reset();

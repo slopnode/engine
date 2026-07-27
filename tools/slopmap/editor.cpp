@@ -416,6 +416,14 @@ const EditorDocument& Editor::doc() const {
     return scene == EditorScene::Level ? levelDoc : prefabDoc;
 }
 
+DocumentHistory& Editor::history() {
+    return scene == EditorScene::Level ? levelHistory : prefabHistory;
+}
+
+const DocumentHistory& Editor::history() const {
+    return scene == EditorScene::Level ? levelHistory : prefabHistory;
+}
+
 bool EditorDocument::hasSelection() const {
     switch (selectionMode) {
     case SelectionMode::Brush:
@@ -598,6 +606,7 @@ void Editor::newMap(const std::string& mapName) {
     levelDoc.things.clear();
     levelDoc.dirty = false;
     resetSelectionSerial(levelDoc);
+    levelHistory.clear();
     expandedInstanceBrushes.clear();
     expandedInstanceOwners.clear();
     preview.clear();
@@ -617,6 +626,7 @@ void Editor::newPrefab() {
     prefabDoc.things.clear();
     prefabDoc.dirty = false;
     resetSelectionSerial(prefabDoc);
+    prefabHistory.clear();
     expandedInstanceBrushes.clear();
     expandedInstanceOwners.clear();
     preview.clear();
@@ -652,6 +662,7 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
         writePackageId = owned->package->meta().id;
     }
     resetSelectionSerial(levelDoc);
+    levelHistory.clear();
     compileDirty = {};
     rebuildPreview(assets);
     reloadVisPreview(assets);
@@ -694,6 +705,7 @@ bool Editor::loadPrefab(
         writePackageId = owned->package->meta().id;
     }
     resetSelectionSerial(prefabDoc);
+    prefabHistory.clear();
     rebuildPreview(assets);
     resetCamera(*this);
     frameSelection();
@@ -753,6 +765,7 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
 
     levelDoc.assetPath = mapName;
     levelDoc.dirty = false;
+    levelHistory.markClean();
     statusMessage = "Saved " + csgPath.string();
     return true;
 }
@@ -809,6 +822,7 @@ bool Editor::savePrefabAs(slopengine::AssetStore& assets, const std::string& pre
 
     prefabDoc.assetPath = prefabPath;
     prefabDoc.dirty = false;
+    prefabHistory.markClean();
     statusMessage = "Saved prefab " + csgPath.string();
     return true;
 }
@@ -831,6 +845,46 @@ bool Editor::switchScene(EditorScene next, bool force) {
                                                    : slopengine::BrushRole::Hull;
     clearSelection();
     statusMessage = scene == EditorScene::Level ? "Level scene" : "Prefab scene";
+    return true;
+}
+
+void Editor::prepareEdit() {
+    history().prepareEdit(doc());
+}
+
+void Editor::abortEdit() {
+    history().abortEdit(doc());
+}
+
+void Editor::endEdit() {
+    history().endEdit();
+}
+
+bool Editor::canUndo() const {
+    return history().canUndo();
+}
+
+bool Editor::canRedo() const {
+    return history().canRedo();
+}
+
+bool Editor::undo(slopengine::AssetStore& assets) {
+    if (!history().undo(doc())) {
+        return false;
+    }
+    markBspDirty();
+    rebuildPreview(assets);
+    statusMessage = "Undo";
+    return true;
+}
+
+bool Editor::redo(slopengine::AssetStore& assets) {
+    if (!history().redo(doc())) {
+        return false;
+    }
+    markBspDirty();
+    rebuildPreview(assets);
+    statusMessage = "Redo";
     return true;
 }
 
@@ -1317,6 +1371,7 @@ bool Editor::renameBrush(int index, std::string_view newId) {
     const std::string oldId = brush.id;
     const std::string oldPrefix = oldId + "/";
     const std::string newPrefix = id + "/";
+    prepareEdit();
     brush.id = id;
     for (slopengine::BrushFace& face : brush.faces) {
         if (face.id.rfind(oldPrefix, 0) == 0) {
@@ -1455,6 +1510,7 @@ void Editor::convertSelectedBrushesToTriggers() {
     std::sort(indices.begin(), indices.end());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
 
+    prepareEdit();
     std::vector<EntityRef> created;
     for (int index : indices) {
         if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
@@ -1492,6 +1548,7 @@ void Editor::convertSelectedBrushesToTriggers() {
     }
 
     if (created.empty()) {
+        abortEdit();
         return;
     }
 
@@ -1510,6 +1567,7 @@ void Editor::convertSelectedBrushesToTriggers() {
     markDirty();
     markBspDirty();
     markThingCompileDirty(slopengine::ThingKind::Trigger);
+    endEdit();
     statusMessage = created.size() == 1
         ? "Converted brush to trigger — set on-enter in Properties"
         : "Converted " + std::to_string(created.size()) +
@@ -1526,6 +1584,7 @@ void Editor::convertSelectedBrushesToMovers() {
     std::sort(indices.begin(), indices.end());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
 
+    prepareEdit();
     std::vector<EntityRef> created;
     int skipped = 0;
     for (int index : indices) {
@@ -1579,6 +1638,7 @@ void Editor::convertSelectedBrushesToMovers() {
     }
 
     if (created.empty()) {
+        abortEdit();
         statusMessage = skipped > 0
             ? "Convert to Mover needs unclaimed detail brushes with ids"
             : "No brushes selected";
@@ -1592,6 +1652,7 @@ void Editor::convertSelectedBrushesToMovers() {
     markDirty();
     markFacDirty();
     markThingCompileDirty(slopengine::ThingKind::Mover);
+    endEdit();
     statusMessage = created.size() == 1
         ? "Created mover claiming brush leaf — brush stays in CSG"
         : "Created " + std::to_string(created.size()) +
@@ -1608,6 +1669,7 @@ void Editor::setSelectedBrushesAsDoors() {
     std::sort(indices.begin(), indices.end());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
 
+    prepareEdit();
     int updated = 0;
     int skipped = 0;
     for (int index : indices) {
@@ -1649,6 +1711,7 @@ void Editor::setSelectedBrushesAsDoors() {
     }
 
     if (updated == 0) {
+        abortEdit();
         statusMessage = skipped > 0
             ? "Set as Door needs brushes with ids (not mover-claimed)"
             : "No brushes selected";
@@ -1657,6 +1720,7 @@ void Editor::setSelectedBrushesAsDoors() {
 
     markDirty();
     markFacDirty();
+    endEdit();
     statusMessage = updated == 1
         ? "Set 1 brush as door"
         : "Set " + std::to_string(updated) + " brushes as doors";
@@ -1667,6 +1731,7 @@ void Editor::toggleSelectedBrushRole() {
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
         return;
     }
+    prepareEdit();
     bool anySplit = false;
     slopengine::BrushRole lastRole = slopengine::BrushRole::Hull;
     std::string lastId;
@@ -1713,6 +1778,7 @@ void Editor::toggleSelectedBrushRole() {
     } else {
         markFacDirty();
     }
+    endEdit();
     statusMessage = std::string("Role: ") + slopengine::brushRoleName(lastRole) + " (" + lastId + ")";
 }
 

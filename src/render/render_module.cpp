@@ -17,6 +17,7 @@
 #include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/render_context.hpp"
+#include "render/post_process.hpp"
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
 #include "render/render_frustum.hpp"
@@ -176,6 +177,21 @@ void registerRenderSystems(flecs::world& world) {
             buildFxLightFrameState(world, &frustum, unlit, fxLights);
             storeFxLightFrameState(world, std::move(fxLights));
 
+            const bool playing = isPlaying(world);
+            PostProcessState* postState = nullptr;
+            bool sceneToTexture = false;
+            if (playing) {
+                postState = &ensurePostProcessState(world);
+                sceneToTexture = ensurePostProcessScene(
+                    *postState,
+                    GetRenderWidth(),
+                    GetRenderHeight());
+                if (sceneToTexture) {
+                    BeginTextureMode(postState->scene);
+                    ClearBackground(BLACK);
+                }
+            }
+
             BeginMode3D(presentCam);
             drawWorldModels(world, context, lens, frustum, unlit);
             const std::string spriteAimStatus =
@@ -183,9 +199,14 @@ void registerRenderSystems(flecs::world& world) {
             drawWorldDebugOverlays(world);
             EndMode3D();
 
-            if (isPlaying(world)) {
+            if (playing) {
                 drawFirstPersonPass(world, context, lens, unlit);
-                drawViewSpritesAndHud(world);
+                drawViewSprites(world);
+                if (sceneToTexture) {
+                    EndTextureMode();
+                    presentPostProcess(*postState);
+                }
+                drawHud(world);
                 drawSpriteAimHudText(spriteAimStatus);
             }
 

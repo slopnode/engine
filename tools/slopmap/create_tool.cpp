@@ -179,6 +179,7 @@ void CreateTool::commitPending(Editor& editor) {
     }
 
     EditorDocument& d = editor.doc();
+    editor.prepareEdit();
     std::vector<int> created;
     const auto nocollide = slopengine::brushRoleDefaultNocollide(editor.createBrushRole);
 
@@ -193,6 +194,7 @@ void CreateTool::commitPending(Editor& editor) {
             editor.createBrushRole,
             error);
         if (!brush) {
+            editor.abortEdit();
             editor.statusMessage = error;
             reset();
             editor.showPrimitiveParamsModal = false;
@@ -229,6 +231,7 @@ void CreateTool::commitPending(Editor& editor) {
     }
 
     if (created.empty()) {
+        editor.abortEdit();
         editor.statusMessage = "Create failed";
         reset();
         editor.showPrimitiveParamsModal = false;
@@ -238,6 +241,7 @@ void CreateTool::commitPending(Editor& editor) {
     editor.selectBrushes(created, created.back());
     editor.markDirty();
     editor.markBrushCompileDirty(editor.createBrushRole);
+    editor.endEdit();
     const std::string createdMsg = "Created " + std::to_string(created.size()) + " brush(es)";
     editor.numericBuffer.clear();
     editor.showPrimitiveParamsModal = false;

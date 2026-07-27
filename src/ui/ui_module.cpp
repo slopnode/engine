@@ -28,6 +28,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "render/render_context.hpp"
 #include "render/sprite_animator.hpp"
+#include "script/scheme_harden.hpp"
 #include "script/script_context.hpp"
 #include "script/ui_script.hpp"
 #include "ui/icon_ui.hpp"
@@ -1074,6 +1075,28 @@ void drawInteractionPrompt(const InteractionTarget& target, const InputContextSt
     ImGui::End();
 }
 
+void drawScriptingErrorBanner(AssetStore& assets) {
+    if (!scriptingErrorsOccurred()) {
+        return;
+    }
+
+    constexpr float kPad = 8.0f;
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::SetNextWindowPos(
+        {ImGui::GetIO().DisplaySize.x - kPad, ImGui::GetFrameHeight() + kPad},
+        ImGuiCond_Always,
+        {1.0f, 0.0f});
+    ImGui::Begin(
+        "ScriptingErrorBanner",
+        nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoNav);
+    drawIconImGui(assets, kDefaultIconSet, "error");
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Scripting Errors! See program output.");
+    ImGui::End();
+}
+
 void applyImGuiCursorPolicy(const InputContextStack& contexts) {
     ImGuiIO& io = ImGui::GetIO();
     if (contexts.blocksWorldInput()) {
@@ -1230,6 +1253,10 @@ void drawUi(flecs::world world) {
     AssetStore* assets = nullptr;
     if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
         assets = world.get_mut<AssetServices>().store;
+    }
+
+    if (assets != nullptr) {
+        drawScriptingErrorBanner(*assets);
     }
 
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {

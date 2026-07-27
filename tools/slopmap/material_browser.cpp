@@ -153,13 +153,15 @@ std::string selectionMaterialLabel(const EditorDocument& doc) {
 
 bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
     EditorDocument& d = editor.doc();
-    d.defaultMaterial = materialPath;
 
     if (d.selectionMode == SelectionMode::Face) {
         if (d.selectedFaces.empty()) {
+            d.defaultMaterial = materialPath;
             editor.statusMessage = "Active material: " + materialPath;
             return false;
         }
+        editor.prepareEdit();
+        d.defaultMaterial = materialPath;
         int count = 0;
         for (const FaceRef& ref : d.selectedFaces) {
             if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
@@ -173,21 +175,26 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
             ++count;
         }
         if (count == 0) {
+            editor.abortEdit();
             editor.statusMessage = "Active material: " + materialPath;
             return false;
         }
         editor.markDirty();
         editor.markFacDirty();
+        editor.endEdit();
         editor.statusMessage =
             "Applied " + materialPath + " to " + std::to_string(count) + " face(s)";
         return true;
     }
 
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
+        d.defaultMaterial = materialPath;
         editor.statusMessage = "Active material: " + materialPath;
         return false;
     }
 
+    editor.prepareEdit();
+    d.defaultMaterial = materialPath;
     int count = 0;
     for (int index : d.selectedBrushes) {
         if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
@@ -201,6 +208,7 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
     }
     editor.markDirty();
     editor.markFacDirty();
+    editor.endEdit();
     editor.statusMessage =
         "Applied " + materialPath + " to " + std::to_string(count) + " brush(es)";
     return true;

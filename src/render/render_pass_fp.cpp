@@ -260,7 +260,7 @@ void drawFirstPersonPass(
     EndMode3D();
 }
 
-void drawViewSpritesAndHud(flecs::world& world) {
+void drawViewSprites(flecs::world& world) {
     if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
         return;
     }
@@ -269,16 +269,10 @@ void drawViewSpritesAndHud(flecs::world& world) {
     if (world.has<ViewCanvas>()) {
         viewCanvas = world.get<ViewCanvas>();
     }
-    HudCanvas hudCanvas{};
-    if (world.has<HudCanvas>()) {
-        hudCanvas = world.get<HudCanvas>();
-    }
     const float screenW = static_cast<float>(GetScreenWidth());
     const float screenH = static_cast<float>(GetScreenHeight());
     const ViewCanvasFit viewFit = makeViewCanvasFit(
         viewCanvas.width, viewCanvas.height, screenW, screenH);
-    const ViewCanvasFit hudFit = makeViewCanvasFit(
-        hudCanvas.width, hudCanvas.height, screenW, screenH);
 
     BeginBlendMode(BLEND_ALPHA);
     auto drawViewSprite =
@@ -384,6 +378,21 @@ void drawViewSpritesAndHud(flecs::world& world) {
         drawViewSprite(item.entity, *item.viewSprite, *item.sprite);
     }
     EndBlendMode();
+}
+
+void drawHud(flecs::world& world) {
+    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
+        return;
+    }
+    AssetStore& viewAssets = *world.get_mut<AssetServices>().store;
+    HudCanvas hudCanvas{};
+    if (world.has<HudCanvas>()) {
+        hudCanvas = world.get<HudCanvas>();
+    }
+    const float screenW = static_cast<float>(GetScreenWidth());
+    const float screenH = static_cast<float>(GetScreenHeight());
+    const ViewCanvasFit hudFit = makeViewCanvasFit(
+        hudCanvas.width, hudCanvas.height, screenW, screenH);
 
     if (!world.has<HudDrawList>()) {
         world.set<HudDrawList>({});

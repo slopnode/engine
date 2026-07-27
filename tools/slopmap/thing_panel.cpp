@@ -195,6 +195,7 @@ bool forEachTarget(
     const std::function<bool(const slopengine::Thing&)>& pred,
     const std::function<void(slopengine::Thing&)>& fn) {
     EditorDocument& doc = editor.doc();
+    editor.prepareEdit();
     int count = 0;
     for (int index : targets) {
         slopengine::Thing* thing = thingAt(doc, index);
@@ -206,6 +207,7 @@ bool forEachTarget(
         ++count;
     }
     if (count == 0) {
+        editor.abortEdit();
         return false;
     }
     editor.markDirty();

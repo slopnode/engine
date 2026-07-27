@@ -334,6 +334,7 @@ bool alignTargetsToActive(
         return false;
     }
 
+    editor.prepareEdit();
     int count = 0;
     for (const FaceRef& ref : doc.selectedFaces) {
         if (!ref.valid() || ref == doc.activeFace) {
@@ -347,6 +348,7 @@ bool alignTargetsToActive(
         ++count;
     }
     if (count == 0) {
+        editor.abortEdit();
         return false;
     }
     editor.markDirty();
@@ -359,6 +361,7 @@ bool forEachTarget(
     const std::vector<FaceTarget>& targets,
     const std::function<void(slopengine::BrushFace&)>& fn) {
     EditorDocument& doc = editor.doc();
+    editor.prepareEdit();
     int count = 0;
     for (const FaceTarget& target : targets) {
         slopengine::BrushFace* face = faceAt(doc, target);
@@ -369,6 +372,7 @@ bool forEachTarget(
         ++count;
     }
     if (count == 0) {
+        editor.abortEdit();
         return false;
     }
     editor.markDirty();

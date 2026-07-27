@@ -29,6 +29,8 @@ void runSchemeHardenTests() {
     CHECK(sc != nullptr);
     hardenSchemeRuntime(sc);
 
+    CHECK(!scriptingErrorsOccurred());
+
     CHECK(isProcedure(sc, "system"));
     CHECK(isProcedure(sc, "load"));
     CHECK(isProcedure(sc, "open-input-file"));
@@ -38,6 +40,13 @@ void runSchemeHardenTests() {
     CHECK(callDisabled(sc, "(load \"nope.s7\")"));
     CHECK(callDisabled(sc, "(open-input-file \"/etc/passwd\")"));
     CHECK(callDisabled(sc, "(eval '(+ 1 2))"));
+    CHECK(!scriptingErrorsOccurred());
+
+    s7_eval_c_string(sc, "(system \"echo hi\")");
+    CHECK(scriptingErrorsOccurred());
+
+    clearScriptingErrors();
+    CHECK(!scriptingErrorsOccurred());
 
     s7_quit(sc);
 }
