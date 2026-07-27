@@ -1,0 +1,77 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: winblows
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch Steam Audio
+        run: |
+          $version = "4.8.1"
+          $url = "https://github.com/ValveSoftware/steam-audio/releases/download/v$version/steamaudio_$version.zip"
+          Invoke-WebRequest -Uri $url -OutFile steamaudio.zip
+          Expand-Archive -Path steamaudio.zip -DestinationPath .
+          $root = (Resolve-Path steamaudio).Path
+          "STEAM_AUDIO_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build release
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DSLOPENGINE_USE_STEAM_AUDIO=ON `
+            -DSTEAM_AUDIO_ROOT="$env:STEAM_AUDIO_ROOT"
+          cmake --build build --config Release --target `
+            slopengine `
+            slopbsp `
+            sloprad `
+            slopfac `
+            slopvis `
+            slopmap `
+            slopsprite `
+            slopicons
+
+      - name: Package
+        run: |
+          $dest = "dist/slopengine-win64"
+          New-Item -ItemType Directory -Force -Path "$dest/packages" | Out-Null
+          $bins = @(
+            "slopengine",
+            "slopbsp",
+            "sloprad",
+            "slopfac",
+            "slopvis",
+            "slopmap",
+            "slopsprite",
+            "slopicons"
+          )
+          foreach ($bin in $bins) {
+            Copy-Item "build/Release/$bin.exe" "$dest/"
+          }
+          Copy-Item "$env:STEAM_AUDIO_ROOT/lib/windows-x64/phonon.dll" "$dest/"
+          Copy-Item "$env:STEAM_AUDIO_ROOT/lib/windows-x64/GPUUtilities.dll" "$dest/"
+          Copy-Item "$env:STEAM_AUDIO_ROOT/lib/windows-x64/TrueAudioNext.dll" "$dest/"
+          Copy-Item -Recurse "packages/engine" "$dest/packages/engine"
+
+      - name: Name artifact
+        id: artifact
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $ts = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
+          "name=slopengine-win64-$version-$ts" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: dist/slopengine-win64
+          retention-days: 7

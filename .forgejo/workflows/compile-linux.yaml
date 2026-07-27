@@ -44,7 +44,6 @@ jobs:
           done
           cp "${STEAM_AUDIO_ROOT}/lib/linux-x64/libphonon.so" "${DEST}/"
           cp -a packages/engine "${DEST}/packages/"
-          tar -C dist -czf dist/slopengine-linux-x64.tar.gz slopengine-linux-x64
 
       - name: Name artifact
         id: artifact
@@ -52,12 +51,10 @@ jobs:
           VERSION=$(tr -d '[:space:]' < VERSION)
           TS=$(date -u +%Y%m%d-%H%M%S)
           echo "name=slopengine-linux-x64-${VERSION}-${TS}" >> "$GITHUB_OUTPUT"
-          mv dist/slopengine-linux-x64.tar.gz "dist/slopengine-linux-x64-${VERSION}-${TS}.tar.gz"
-          echo "path=dist/slopengine-linux-x64-${VERSION}-${TS}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
           name: ${{ steps.artifact.outputs.name }}
-          path: ${{ steps.artifact.outputs.path }}
+          path: dist/slopengine-linux-x64
           retention-days: 7
