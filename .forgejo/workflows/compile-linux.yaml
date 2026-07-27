@@ -16,36 +16,48 @@ jobs:
 
       - name: Build release
         run: |
+          set -eux
           cmake -S . -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DSLOPENGINE_USE_STEAM_AUDIO=ON \
             -DSTEAM_AUDIO_ROOT="${STEAM_AUDIO_ROOT}"
-          cmake --build build --target slopengine
+          cmake --build build --target \
+            slopengine \
+            slopbsp \
+            sloprad \
+            slopfac \
+            slopvis \
+            slopmap \
+            slopsprite \
+            slopicons
 
       - name: Package
         run: |
+          set -eux
           DEST=dist/slopengine-linux-x64
           mkdir -p "${DEST}/packages"
-          cp build/slopengine "${DEST}/slopengine.bin"
-          strip --strip-unneeded "${DEST}/slopengine.bin"
+          for bin in slopengine slopbsp sloprad slopfac slopvis slopmap slopsprite slopicons; do
+            cp "build/${bin}" "${DEST}/${bin}"
+            strip --strip-unneeded "${DEST}/${bin}"
+            chmod +x "${DEST}/${bin}"
+          done
           cp "${STEAM_AUDIO_ROOT}/lib/linux-x64/libphonon.so" "${DEST}/"
           cp -a packages/engine "${DEST}/packages/"
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)' \
-            'export LD_LIBRARY_PATH="${DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"' \
-            'exec "${DIR}/slopengine.bin" "$@"' \
-            > "${DEST}/slopengine"
-          chmod +x "${DEST}/slopengine" "${DEST}/slopengine.bin"
+          tar -C dist -czf dist/slopengine-linux-x64.tar.gz slopengine-linux-x64
 
       - name: Name artifact
         id: artifact
-        run: echo "name=slopengine-linux-x64-$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          TS=$(date -u +%Y%m%d-%H%M%S)
+          echo "name=slopengine-linux-x64-${VERSION}-${TS}" >> "$GITHUB_OUTPUT"
+          mv dist/slopengine-linux-x64.tar.gz "dist/slopengine-linux-x64-${VERSION}-${TS}.tar.gz"
+          echo "path=dist/slopengine-linux-x64-${VERSION}-${TS}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
           name: ${{ steps.artifact.outputs.name }}
-          path: dist/slopengine-linux-x64
+          path: ${{ steps.artifact.outputs.path }}
           retention-days: 7
