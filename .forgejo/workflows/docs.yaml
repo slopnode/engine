@@ -18,9 +18,13 @@ jobs:
           cmake -S . -B build -DSLOPENGINE_DOCS_ONLY=ON
           cmake --build build --target docs
 
+      - name: Name artifact
+        id: artifact
+        run: echo "name=doxygen-engine-$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
       - name: Upload documentation artifact
         uses: actions/upload-artifact@v3
         with:
-          name: docs
+          name: ${{ steps.artifact.outputs.name }}
           path: build/docs/html
           retention-days: 7
