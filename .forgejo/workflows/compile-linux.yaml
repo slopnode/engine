@@ -1,0 +1,51 @@
+name: Build Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: bryan
+    container:
+      image: git.slopnode.net/containers/engine-linux-builder:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build release
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSLOPENGINE_USE_STEAM_AUDIO=ON \
+            -DSTEAM_AUDIO_ROOT="${STEAM_AUDIO_ROOT}"
+          cmake --build build --target slopengine
+
+      - name: Package
+        run: |
+          DEST=dist/slopengine-linux-x64
+          mkdir -p "${DEST}/packages"
+          cp build/slopengine "${DEST}/slopengine.bin"
+          strip --strip-unneeded "${DEST}/slopengine.bin"
+          cp "${STEAM_AUDIO_ROOT}/lib/linux-x64/libphonon.so" "${DEST}/"
+          cp -a packages/engine "${DEST}/packages/"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)' \
+            'export LD_LIBRARY_PATH="${DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"' \
+            'exec "${DIR}/slopengine.bin" "$@"' \
+            > "${DEST}/slopengine"
+          chmod +x "${DEST}/slopengine" "${DEST}/slopengine.bin"
+
+      - name: Name artifact
+        id: artifact
+        run: echo "name=slopengine-linux-x64-$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: dist/slopengine-linux-x64
+          retention-days: 7
