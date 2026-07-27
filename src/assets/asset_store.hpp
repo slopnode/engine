@@ -178,6 +178,12 @@ public:
     /** Returns a cached sprite animation bank, loading it when needed. */
     const SpriteAnimBank* getSpriteAnimBank(std::string_view path);
 
+    /** Drops cached .spr / atlas / .spanim for @p path so the next get reloads from disk. */
+    void invalidateSprite(std::string_view path);
+
+    /** Invalidates and reloads @p path when .spr / .spanim mtime changed since cache. */
+    bool reloadSpriteIfChanged(std::string_view path);
+
     /** Returns true when an icon atlas map exists for @p set. */
     bool hasIconAtlas(std::string_view set) const;
 
@@ -297,6 +303,7 @@ private:
     std::unordered_map<std::string, SpriteAsset> spriteAssets_;
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
+    std::unordered_map<std::string, std::filesystem::file_time_type> spriteSourceMtimes_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;
     std::unordered_map<std::string, AudioDef> audioDefs_;
     std::string audioDefLoadPath_;

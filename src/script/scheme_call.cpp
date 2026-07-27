@@ -296,6 +296,32 @@ bool schemeResultIsTruthy(s7_scheme* scheme, s7_pointer result) {
     return !s7_is_null(scheme, result) && result != s7_f(scheme);
 }
 
+bool tryCallSchemeProc2StringTruthy(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    ScriptScope scope) {
+    if (scheme == nullptr || name.empty()) {
+        return true;
+    }
+    const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
+    if (!s7_is_procedure(func)) {
+        return true;
+    }
+    ScriptScopeGuard guard(scope);
+    ScriptRoleGuard roleGuard(roleForProc(name));
+    const s7_pointer result = s7_call(
+        scheme,
+        func,
+        s7_list(
+            scheme,
+            2,
+            s7_make_string(scheme, arg0.c_str()),
+            s7_make_string(scheme, arg1.c_str())));
+    return schemeResultIsTruthy(scheme, result);
+}
+
 bool tryCallMapHandlerCanUse(
     s7_scheme* scheme,
     HandlerBinding binding,

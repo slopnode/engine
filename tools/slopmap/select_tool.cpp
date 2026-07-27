@@ -947,6 +947,7 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
         return;
     }
 
+    editor.prepareEdit();
     captureTranslateGrab(*this, editor, camera);
     updateTranslateStatus(editor, *this);
 }
@@ -1062,31 +1063,13 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
     } else if (wasEntity) {
         editor.markThingCompileDirty(thingKind);
     }
+    editor.endEdit();
     editor.statusMessage = "Translate confirmed";
 }
 
 void SelectTool::cancelTranslate(Editor& editor) {
     if (!translating) {
         return;
-    }
-    EditorDocument& d = editor.doc();
-    for (std::size_t i = 0; i < entitySnapshotRefs.size(); ++i) {
-        const EntityRef& ref = entitySnapshotRefs[i];
-        if (ref.kind == EntityRef::Kind::Thing &&
-            ref.index >= 0 && ref.index < static_cast<int>(d.things.size())) {
-            d.things[static_cast<std::size_t>(ref.index)].at = entityAtSnapshots[i];
-            d.things[static_cast<std::size_t>(ref.index)].haveAt = true;
-        } else if (
-            ref.kind == EntityRef::Kind::Instance && ref.index >= 0 &&
-            ref.index < static_cast<int>(d.instances.size())) {
-            d.instances[static_cast<std::size_t>(ref.index)].at = entityAtSnapshots[i];
-        }
-    }
-    for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
-        const int index = brushSnapshotIndices[i];
-        if (index >= 0 && index < static_cast<int>(d.brushes.size())) {
-            d.brushes[static_cast<std::size_t>(index)] = brushSnapshot[i];
-        }
     }
     translating = false;
     axisLock = TranslateAxis::None;
@@ -1097,6 +1080,7 @@ void SelectTool::cancelTranslate(Editor& editor) {
     entityAtSnapshots.clear();
     entitySnapshotRefs.clear();
     faceTranslate = {};
+    editor.abortEdit();
     editor.statusMessage = "Translate cancelled";
 }
 
@@ -1202,6 +1186,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
         if (d.selectedFaces.empty()) {
             return;
         }
+        editor.prepareEdit();
         bool any = false;
         bool lastLock = false;
         std::string lastId;
@@ -1225,10 +1210,12 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
             lastId = face.id;
         }
         if (!any) {
+            editor.abortEdit();
             return;
         }
         editor.markDirty();
         editor.markFacDirty();
+        editor.endEdit();
         editor.statusMessage = lastLock ? "UV lock on " + lastId : "UV lock off " + lastId;
         return;
     }
@@ -1236,6 +1223,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
         return;
     }
+    editor.prepareEdit();
     bool next = true;
     bool determined = false;
     for (int index : d.selectedBrushes) {
@@ -1274,6 +1262,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
     }
     editor.markDirty();
     editor.markFacDirty();
+    editor.endEdit();
     editor.statusMessage = next ? "UV lock on " + lastId : "UV lock off " + lastId;
 }
 
@@ -1616,6 +1605,7 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
         if (d.selectedEntities.empty()) {
             return;
         }
+        editor.prepareEdit();
         std::vector<int> thingIndices;
         std::vector<int> instanceIndices;
         for (const EntityRef& ref : d.selectedEntities) {
@@ -1654,6 +1644,7 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
         if (anyThing) {
             editor.markThingCompileDirty(kind);
         }
+        editor.endEdit();
         editor.statusMessage = "Deleted selection";
         return;
     }
@@ -1673,6 +1664,7 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
     if (brushIndices.empty()) {
         return;
     }
+    editor.prepareEdit();
     std::sort(brushIndices.begin(), brushIndices.end(), std::greater<int>());
     slopengine::BrushRole role = slopengine::BrushRole::Hull;
     for (int index : brushIndices) {
@@ -1685,6 +1677,7 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
     editor.clearSelection();
     editor.markDirty();
     editor.markBrushCompileDirty(role);
+    editor.endEdit();
     editor.statusMessage = "Deleted selection";
 }
 
@@ -1694,6 +1687,7 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
         if (d.selectedEntities.empty()) {
             return;
         }
+        editor.prepareEdit();
         std::vector<EntityRef> created;
         bool anyInstance = false;
         slopengine::ThingKind kind = slopengine::ThingKind::Prop;
@@ -1719,6 +1713,7 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
             }
         }
         if (created.empty()) {
+            editor.abortEdit();
             return;
         }
         editor.clearSelection();
@@ -1737,6 +1732,7 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
     if (d.selectionMode != SelectionMode::Brush || d.selectedBrushes.empty()) {
         return;
     }
+    editor.prepareEdit();
     std::vector<int> created;
     slopengine::BrushRole role = slopengine::BrushRole::Hull;
     for (int index : d.selectedBrushes) {
@@ -1758,6 +1754,7 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
         created.push_back(static_cast<int>(d.brushes.size()) - 1);
     }
     if (created.empty()) {
+        editor.abortEdit();
         return;
     }
     editor.selectBrushes(created, created.back());
@@ -1831,6 +1828,7 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
     rotating = true;
     numericActive = false;
     editor.numericBuffer.clear();
+    editor.prepareEdit();
     rotateOrigin = editor.selectionCenter();
     mouseGrabScreen = GetMousePosition();
     const Vector2 originScreen =
@@ -1947,38 +1945,13 @@ void SelectTool::confirmRotate(Editor& editor, slopengine::AssetStore& assets) {
         editor.markThingCompileDirty(thingKind);
     }
     editor.rebuildPreview(assets);
+    editor.endEdit();
     editor.statusMessage = "Rotate confirmed";
 }
 
 void SelectTool::cancelRotate(Editor& editor) {
     if (!rotating) {
         return;
-    }
-    EditorDocument& d = editor.doc();
-    for (std::size_t i = 0; i < entitySnapshotRefs.size(); ++i) {
-        const EntityRef& ref = entitySnapshotRefs[i];
-        if (ref.kind == EntityRef::Kind::Thing &&
-            ref.index >= 0 && ref.index < static_cast<int>(d.things.size())) {
-            slopengine::Thing& thing = d.things[static_cast<std::size_t>(ref.index)];
-            thing.at = entityAtSnapshots[i];
-            thing.haveAt = true;
-            thing.yaw = entityYawSnapshots[i];
-            thing.angles = entityAnglesSnapshots[i];
-            thing.haveAngles = entityHaveAnglesSnapshots[i];
-        } else if (
-            ref.kind == EntityRef::Kind::Instance && ref.index >= 0 &&
-            ref.index < static_cast<int>(d.instances.size())) {
-            slopengine::PrefabInstance& instance =
-                d.instances[static_cast<std::size_t>(ref.index)];
-            instance.at = entityAtSnapshots[i];
-            instance.angles = entityAnglesSnapshots[i];
-        }
-    }
-    for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
-        const int index = brushSnapshotIndices[i];
-        if (index >= 0 && index < static_cast<int>(d.brushes.size())) {
-            d.brushes[static_cast<std::size_t>(index)] = brushSnapshot[i];
-        }
     }
     rotating = false;
     rotateAxisLock = TranslateAxis::Y;
@@ -1992,6 +1965,7 @@ void SelectTool::cancelRotate(Editor& editor) {
     entityAnglesSnapshots.clear();
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
+    editor.abortEdit();
     editor.statusMessage = "Rotate cancelled";
 }
 

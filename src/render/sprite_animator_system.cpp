@@ -5,6 +5,7 @@
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
 #include "camera/components.hpp"
+#include "game/game_state.hpp"
 #include "render/components.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hook_registry.hpp"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <raylib.h>
 #include <raymath.h>
@@ -22,10 +24,153 @@
 
 namespace slopengine {
 
+namespace {
+
+void destroyOverlayLayer(flecs::entity host, int layer) {
+    if (!host.is_valid()) {
+        return;
+    }
+    std::vector<flecs::entity> toDestroy;
+    host.children([&](flecs::entity child) {
+        if (!child.has<SpriteOverlay>()) {
+            return;
+        }
+        if (child.get<SpriteOverlay>().layer == layer) {
+            toDestroy.push_back(child);
+        }
+    });
+    for (flecs::entity child : toDestroy) {
+        child.destruct();
+    }
+}
+
+bool spawnSpriteOverlay(
+    flecs::world& world,
+    flecs::entity host,
+    const SpriteAnimOverlay& overlay) {
+    if (!host.is_valid() || overlay.layer == 0 || overlay.sprite.empty() || overlay.clip.empty()) {
+        return false;
+    }
+    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
+        return false;
+    }
+    AssetStore& assets = *world.get_mut<AssetServices>().store;
+    if (!assets.hasSprite(overlay.sprite)) {
+        TraceLog(
+            LOG_WARNING,
+            "Sprite overlay: missing sprite '%s' (layer %d)",
+            overlay.sprite.c_str(),
+            overlay.layer);
+        return false;
+    }
+
+    destroyOverlayLayer(host, overlay.layer);
+
+    std::string frameId;
+    if (const SpriteAsset* asset = assets.getSpriteAsset(overlay.sprite); asset != nullptr) {
+        if (!asset->frames.empty()) {
+            frameId = asset->frames.front().id;
+        }
+    }
+
+    ViewSprite viewSprite{};
+    if (host.has<ViewSprite>()) {
+        viewSprite = host.get<ViewSprite>();
+        viewSprite.offsetX = viewSprite.offsetX + overlay.x;
+        viewSprite.offsetY = viewSprite.offsetY + overlay.y;
+    } else if (world.has<ViewCanvas>()) {
+        const ViewCanvas& canvas = world.get<ViewCanvas>();
+        viewSprite.canvasX = static_cast<float>(canvas.width) * 0.5f;
+        viewSprite.canvasY = static_cast<float>(canvas.height);
+        viewSprite.offsetX = overlay.x;
+        viewSprite.offsetY = overlay.y;
+    }
+
+    const float facingYaw = host.has<SpriteInstance>() ? host.get<SpriteInstance>().facingYaw : 0.0f;
+    SpriteInstance sprite{
+        .sprite = overlay.sprite,
+        .frame = frameId,
+        .facingYaw = facingYaw,
+    };
+
+    SpriteAnimator animator{};
+    animator.animPath = overlay.sprite;
+    bool shouldLoop = false;
+    const SpriteAnimBank* bank =
+        assets.hasSpriteAnim(overlay.sprite) ? assets.getSpriteAnimBank(overlay.sprite) : nullptr;
+    if (bank != nullptr) {
+        const auto clipIt = bank->clipIndexByName.find(overlay.clip);
+        if (clipIt == bank->clipIndexByName.end() || clipIt->second >= bank->clips.size()) {
+            TraceLog(
+                LOG_WARNING,
+                "Sprite overlay: missing clip '%s' on '%s' (layer %d)",
+                overlay.clip.c_str(),
+                overlay.sprite.c_str(),
+                overlay.layer);
+            return false;
+        }
+        shouldLoop = bank->clips[clipIt->second].loop;
+        playSpriteAnim(animator, sprite, bank, overlay.clip, shouldLoop);
+    } else {
+        TraceLog(
+            LOG_WARNING,
+            "Sprite overlay: missing .spanim for '%s' (layer %d)",
+            overlay.sprite.c_str(),
+            overlay.layer);
+        return false;
+    }
+
+    float pixelsPerMeter = 64.0f;
+    if (host.has<SpriteInstance>()) {
+        if (const SpriteAsset* hostAsset = assets.getSpriteAsset(host.get<SpriteInstance>().sprite);
+            hostAsset != nullptr && hostAsset->pixelsPerMeter > 0.0f) {
+            pixelsPerMeter = hostAsset->pixelsPerMeter;
+        }
+    }
+
+    LocalTransformation local{};
+    local.scale = {1.0f, 1.0f, 1.0f};
+    local.rotation = QuaternionIdentity();
+    if (!host.has<ViewSprite>()) {
+        local.position.x = overlay.x / pixelsPerMeter;
+        local.position.y = -overlay.y / pixelsPerMeter;
+    }
+    GlobalTransformation global{};
+    global.matrix = MatrixIdentity();
+
+    flecs::entity entity = world.entity()
+                               .child_of(host)
+                               .set<LocalTransformation>(local)
+                               .set<GlobalTransformation>(global)
+                               .set<SpriteInstance>(sprite)
+                               .set<SpriteAnimator>(animator)
+                               .set<SpriteOverlay>(SpriteOverlay{
+                                   .layer = overlay.layer,
+                                   .offsetX = overlay.x,
+                                   .offsetY = overlay.y,
+                                   .host = host.id(),
+                               });
+
+    if (host.has<ViewSprite>()) {
+        entity.add<ViewSpace>().set<ViewSprite>(viewSprite);
+    } else {
+        entity.add<WorldSpace>();
+    }
+
+    return true;
+}
+
+} // namespace
+
 void registerSpriteAnimatorSystem(flecs::world& world) {
     world.system<SpriteAnimator, SpriteInstance>("AdvanceSpriteAnimator")
         .kind(flecs::OnUpdate)
         .each([](flecs::entity entity, SpriteAnimator& animator, SpriteInstance& sprite) {
+            flecs::world world = entity.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
+
             animator.justFinished = false;
             const bool startedThisFrame = animator.justStarted;
             animator.justStarted = false;
@@ -34,7 +179,6 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 return;
             }
 
-            flecs::world world = entity.world();
             AssetServices& services = world.get_mut<AssetServices>();
             if (services.store == nullptr) {
                 return;
@@ -239,9 +383,19 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
             };
 
+            auto fireOverlays = [&](const SpriteAnimFrame& frame) {
+                if (!frame.hasOverlays()) {
+                    return;
+                }
+                for (const SpriteAnimOverlay& overlay : frame.overlays) {
+                    spawnSpriteOverlay(world, entity, overlay);
+                }
+            };
+
             auto fireHoldEnter = [&](const SpriteAnimFrame& frame) {
                 fireSound(frame);
                 fireHints(frame);
+                fireOverlays(frame);
             };
 
             auto fireEnteredHolds = [&](int previousIndex, int currentIndex) {
@@ -249,11 +403,17 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                     return;
                 }
                 const int frameCount = static_cast<int>(clip.frames.size());
-                if (previousIndex < 0) {
-                    fireHoldEnter(clip.frames[static_cast<std::size_t>(currentIndex)]);
+                if (previousIndex == currentIndex) {
                     return;
                 }
-                if (previousIndex == currentIndex) {
+                if (previousIndex < 0) {
+                    const int end = std::min(currentIndex, frameCount - 1);
+                    for (int i = 0; i <= end; ++i) {
+                        fireHoldEnter(clip.frames[static_cast<std::size_t>(i)]);
+                        if (animator.justStarted) {
+                            return;
+                        }
+                    }
                     return;
                 }
                 if (useLoop && currentIndex < previousIndex) {
@@ -269,6 +429,9 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                             return;
                         }
                     }
+                    return;
+                }
+                if (currentIndex < previousIndex) {
                     return;
                 }
                 const int begin = previousIndex + 1;
@@ -289,11 +452,12 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
             } else if (localTime >= clipDuration) {
                 const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
-                fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+                const int previousIndex = animator.lastEnteredHoldIndex;
+                animator.lastEnteredHoldIndex = lastIndex;
+                fireEnteredHolds(previousIndex, lastIndex);
                 if (animator.justStarted) {
                     return;
                 }
-                animator.lastEnteredHoldIndex = lastIndex;
                 animator.playing = false;
                 animator.justFinished = true;
                 animator.time = clipDuration;
@@ -306,11 +470,12 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 const SpriteAnimFrame& frame = clip.frames[frameIndex];
                 if (localTime < frame.duration) {
                     const int currentIndex = static_cast<int>(frameIndex);
-                    fireEnteredHolds(animator.lastEnteredHoldIndex, currentIndex);
+                    const int previousIndex = animator.lastEnteredHoldIndex;
+                    animator.lastEnteredHoldIndex = currentIndex;
+                    fireEnteredHolds(previousIndex, currentIndex);
                     if (animator.justStarted) {
                         return;
                     }
-                    animator.lastEnteredHoldIndex = currentIndex;
                     sprite.frame = frame.id;
                     applyTween(frameIndex, localTime, frame.duration);
                     return;
@@ -319,13 +484,55 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             }
 
             const int lastIndex = static_cast<int>(clip.frames.size()) - 1;
-            fireEnteredHolds(animator.lastEnteredHoldIndex, lastIndex);
+            const int previousIndex = animator.lastEnteredHoldIndex;
+            animator.lastEnteredHoldIndex = lastIndex;
+            fireEnteredHolds(previousIndex, lastIndex);
             if (animator.justStarted) {
                 return;
             }
-            animator.lastEnteredHoldIndex = lastIndex;
+            animator.playing = false;
+            animator.justFinished = true;
+            animator.time = clipDuration;
             sprite.frame = clip.frames.back().id;
             clearTween();
+        });
+
+    world.system<SpriteOverlay, ViewSprite>("SyncSpriteOverlayViewOffset")
+        .kind(flecs::OnUpdate)
+        .each([](flecs::entity entity, SpriteOverlay& overlay, ViewSprite& viewSprite) {
+            flecs::entity host = entity.world().entity(overlay.host);
+            if (!host.is_valid() || !host.has<ViewSprite>()) {
+                return;
+            }
+            const ViewSprite& hostView = host.get<ViewSprite>();
+            viewSprite.canvasX = hostView.canvasX;
+            viewSprite.canvasY = hostView.canvasY;
+            viewSprite.scaleX = hostView.scaleX;
+            viewSprite.scaleY = hostView.scaleY;
+            viewSprite.rotationDeg = hostView.rotationDeg;
+            viewSprite.originX = hostView.originX;
+            viewSprite.originY = hostView.originY;
+            viewSprite.offsetX = hostView.offsetX + overlay.offsetX;
+            viewSprite.offsetY = hostView.offsetY + overlay.offsetY;
+        });
+
+    world.system<SpriteOverlay, SpriteInstance>("SyncSpriteOverlayFacing")
+        .kind(flecs::OnUpdate)
+        .without<ViewSprite>()
+        .each([](flecs::entity entity, SpriteOverlay& overlay, SpriteInstance& sprite) {
+            flecs::entity host = entity.world().entity(overlay.host);
+            if (!host.is_valid() || !host.has<SpriteInstance>()) {
+                return;
+            }
+            sprite.facingYaw = host.get<SpriteInstance>().facingYaw;
+        });
+
+    world.system<SpriteOverlay, SpriteAnimator>("DespawnFinishedSpriteOverlays")
+        .kind(flecs::OnUpdate)
+        .each([](flecs::entity entity, SpriteOverlay&, SpriteAnimator& animator) {
+            if (animator.justFinished && !animator.loop) {
+                entity.destruct();
+            }
         });
 }
 

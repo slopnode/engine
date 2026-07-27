@@ -9,6 +9,7 @@
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
 #include "render/animation_player.hpp"
+#include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "physics/rigid_mover.hpp"
@@ -586,6 +587,7 @@ std::string drawWorldSprites(
         const GlobalTransformation* global = nullptr;
         const SpriteAnimator* animator = nullptr;
         float distSq = 0.0f;
+        int layer = 0;
     };
     std::vector<SpriteDrawItem> spriteDrawList;
     spriteDrawList.reserve(32);
@@ -616,13 +618,17 @@ std::string drawWorldSprites(
                 spriteEntity.has<SpriteAnimator>() ? &spriteEntity.get<SpriteAnimator>()
                                                    : nullptr,
                 dx * dx + dy * dy + dz * dz,
+                spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
             });
         });
     std::sort(
         spriteDrawList.begin(),
         spriteDrawList.end(),
         [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
-            return a.distSq > b.distSq;
+            if (std::fabs(a.distSq - b.distSq) > 1.0e-3f) {
+                return a.distSq > b.distSq;
+            }
+            return a.layer < b.layer;
         });
 
     rlDisableShader();

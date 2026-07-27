@@ -16,6 +16,7 @@
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
+#include "physics/sight_components.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
@@ -596,6 +597,17 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
                 tags.push_back("actor");
             }
             entity.set<CollisionTags>(CollisionTags{std::move(tags)});
+            if (placement.haveSight) {
+                ActorSight sight{};
+                sight.enabled = placement.sightEnabled;
+                sight.range = placement.sightRange;
+                sight.fovDegrees = placement.sightFovDegrees;
+                sight.eyeLift = placement.sightEyeLift;
+                sight.seeTags = placement.sightSeeTags;
+                sight.ignoreTags = placement.sightIgnoreTags;
+                sight.filterProc = placement.sightFilterProc;
+                entity.set<ActorSight>(std::move(sight));
+            }
             if (ctx.world->has<PhysicsContext>()) {
                 PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
                 if (physics != nullptr) {

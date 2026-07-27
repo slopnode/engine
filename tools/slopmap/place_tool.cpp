@@ -100,6 +100,7 @@ void PlaceTool::update(
             return;
         }
 
+        editor.prepareEdit();
         slopengine::PrefabInstance instance;
         instance.path = editor.placePrefabPath;
         instance.id = editor.allocatePrefabId();
@@ -111,6 +112,7 @@ void PlaceTool::update(
         editor.markDirty();
         editor.markBspDirty();
         editor.rebuildPreview(assets);
+        editor.endEdit();
         editor.mode = EditorMode::Select;
         editor.statusMessage = "Placed " + editor.doc().instances.back().id + " (" +
             editor.placePrefabPath + ") — G move, R rotate";
@@ -152,6 +154,7 @@ void PlaceTool::update(
         catalogDef = slopengine::thingDefRegistry().find(editor.placeThingType);
     }
     if (catalogDef != nullptr) {
+        editor.prepareEdit();
         slopengine::applyThingDef(*catalogDef, thing);
         thing.id = editor.allocateThingId(catalogDef->id.c_str());
         thing.at = snapToGrid(hit, editor.gridSize);
@@ -161,12 +164,14 @@ void PlaceTool::update(
         editor.selectEntity({EntityRef::Kind::Thing, index}, false);
         editor.markDirty();
         editor.markThingCompileDirty(catalogDef->kind);
+        editor.endEdit();
         editor.mode = EditorMode::Select;
         editor.statusMessage =
             "Placed " + editor.doc().things.back().id + " (" + catalogDef->id + ")";
         return;
     }
 
+    editor.prepareEdit();
     if (slopengine::thingKindIsLight(kind)) {
         thing = slopengine::makeDefaultLightThing(kind);
         if (kind == slopengine::ThingKind::AmbientLight) {
@@ -230,6 +235,7 @@ void PlaceTool::update(
     editor.selectEntity({EntityRef::Kind::Thing, index}, false);
     editor.markDirty();
     editor.markThingCompileDirty(kind);
+    editor.endEdit();
     editor.mode = EditorMode::Select;
     if (kind == slopengine::ThingKind::Prop &&
         editor.placePresentation == PlacePresentation::Sprite) {

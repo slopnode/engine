@@ -120,6 +120,8 @@ A call is allowed only when both the current scope and the package role permit t
 | (draw-hud) | When the HUD pass runs, if defined |
 | (draw-title) | Each menu frame for title chrome; same hud-* APIs as draw-hud. See [Title screen](titlescreen.md) |
 | (on-sprite-hint source name) | When a .spanim hold with (hint "name") is entered; source is the entity name or FP socket (weapon / emission). See [Sprites](sprites.md#logic-hints). |
+| (on-sight observer-id target-id) | When an enabled `ActorSight` observer newly acquires LOS on a target (edge-triggered). |
+| (sight-filter observer-id target-id) | Optional veto during sight scans; return falsey to skip the pair. Missing hooks allow the pair. |
 
 These stay name-lookup only (no hook-add list):
 
@@ -202,6 +204,9 @@ Player progress is written under the user config directory (not inside packages)
 | (current-map) | Current map folder id string, or #f |
 | (player-pose) | (x y z yaw pitch) feet position and look, or #f |
 | (player-set-pose x y z yaw pitch) | Teleport player and set look |
+| (player-eye-height) | Current eye height above feet (or absolute Y when not physics-driven), or #f |
+| (player-set-eye-height h) | Set CharacterMotor / FirstPersonController eye height and refresh Lens |
+| (player-set-control move? look?) | Enable/disable move wish and mouse look (defaults true/true on spawn) |
 
 Relative save paths must stay under the context root (.. and absolute paths are rejected). Suggested envelope for package blobs: (save (version N) (package "id") ...). Body fields are package-defined.
 
@@ -264,6 +269,18 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | Binding | Meaning |
 |---------|---------|
 | (thing-despawn id) | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule / mover kinematic) |
+| (thing-type id) | Catalog type id string for a spawned thing, or #f |
+| (thing-def-health type) | Catalog health integer, or #f |
+| (thing-def-idle-anim type) | Catalog idle anim clip string, or #f |
+| (thing-def-behavior type) | Catalog behavior string, or #f |
+| (thing-def-melee-damage type) | Catalog melee damage, or #f if no `(melee …)` |
+| (thing-def-melee-range type) | Catalog melee range (meters), or #f |
+| (thing-def-melee-cooldown type) | Catalog melee cooldown (seconds), or #f |
+| (thing-def-melee-anim type) | Catalog melee anim clip, or #f |
+| (thing-def-ranged-range type) | Catalog ranged max range (meters), or #f if no `(ranged …)` |
+| (thing-def-ranged-min-range type) | Catalog ranged min range (meters), or #f |
+| (thing-def-ranged-cooldown type) | Catalog ranged cooldown (seconds), or #f |
+| (thing-def-ranged-anim type) | Catalog ranged anim clip, or #f |
 | (thing-pos id) | World position (x y z) for any named entity with a transform, or #f |
 | (thing-yaw id) | Yaw radians (sprite facingYaw when present, else transform Euler Y), or #f |
 | (mover-open id) / (mover-close id) / (mover-toggle id) | Request mover target open/closed/flip; no-op if locked. See [Movers](things.md#movers-mover). |
@@ -272,7 +289,7 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (mover-progress id) | Current 0..1 progress, or #f. |
 | (mover-state id) | Alist `((open? . bool) (progress . n) (locked? . bool))` or #f — for save capture. |
 | (mover-set-state id open? progress [locked?]) | Restore after map load (snaps pose / kinematic). |
-| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "". Integrates velocity against static brush hulls and actor capsules; positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z hit)` with the hit point and `hit` = actor id string or `#f` for a world/brush hit, then despawns. See [Things](things.md#motored-bodies). |
+| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "", ignore "". Integrates velocity against static brush hulls and CharacterMotor capsules (actors and player); optional `ignore` entity id is skipped in character sweeps (shooter). Positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z hit)` with the hit point and `hit` = entity id string or `#f` for a world/brush hit, then despawns. See [Things](things.md#motored-bodies). |
 | (sprite-spawn id x y z path [clip] [lifetime]) | Spawn a world billboard at runtime. Optional non-looping `.spanim` clip; optional lifetime (default 0.5) queues despawn. |
 | (actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) | Runtime actor (kind "sprite" or "geo"). Defaults match player motor; empty tags → ("actor"). |
 | (actor-pos id) | Feet (x y z) or #f |
@@ -285,6 +302,12 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (actors-in-radius x y z r [tag]) | Actor ids whose feet are within r (optional tag filter) |
 | (los? x0 y0 z0 x1 y1 z1) | #t if the segment is clear of static brush hulls |
 | (actor-los? from-id to-id) | LOS between approximate eye heights of two actors |
+| (actor-sight-set! id alist) | Create/update `ActorSight` from alist keys: `enabled`, `range`, `fov`, `eye-lift`, `see-tags`, `ignore-tags`, `filter` |
+| (actor-sight-get id) | Current sight alist, or #f |
+| (actor-can-see? from to) | Full sight pipeline one-shot (ignores per-frame LOS budget) |
+| (sight-budget) / (sight-budget-set! n) | Max LOS traces per frame for the engine sight scan (default 6) |
+
+Sight scan order per candidate: tag include/exclude → per-actor `filter` proc → global `sight-filter` hook → range → FOV → PVS → LOS. Empty `see-tags` means any tagged character; `ignore-tags` always wins. The player is a valid target (CollisionTags `"player"`) even though it is not an `Actor`.
 
 Player aim helpers for spawn recipes: (player-eye) and (player-look-dir) — see [Player](player.md#scheme-api-engine-primitives).
 

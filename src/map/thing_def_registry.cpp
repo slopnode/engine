@@ -175,6 +175,142 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
     return true;
 }
 
+bool parseSightTagList(s7_scheme* scheme, s7_pointer values, std::vector<std::string>& out) {
+    out.clear();
+    for (s7_pointer cursor = values; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        std::string tag;
+        if (readStringValue(scheme, s7_car(cursor), tag) && !tag.empty()) {
+            out.push_back(std::move(tag));
+        }
+    }
+    return true;
+}
+
+bool parseMeleeClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
+    def.haveMelee = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (!s7_is_pair(values)) {
+            return false;
+        }
+        if (std::strcmp(tag, "anim") == 0) {
+            if (!readStringValue(scheme, s7_car(values), def.meleeAnim)) {
+                return false;
+            }
+            continue;
+        }
+        if (!s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "damage") == 0) {
+            def.meleeDamage = value;
+        } else if (std::strcmp(tag, "range") == 0) {
+            def.meleeRange = value;
+        } else if (std::strcmp(tag, "cooldown") == 0) {
+            def.meleeCooldown = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool parseRangedClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
+    def.haveRanged = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (!s7_is_pair(values)) {
+            return false;
+        }
+        if (std::strcmp(tag, "anim") == 0) {
+            if (!readStringValue(scheme, s7_car(values), def.rangedAnim)) {
+                return false;
+            }
+            continue;
+        }
+        if (!s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "range") == 0) {
+            def.rangedRange = value;
+        } else if (std::strcmp(tag, "min-range") == 0) {
+            def.rangedMinRange = value;
+        } else if (std::strcmp(tag, "cooldown") == 0) {
+            def.rangedCooldown = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+template <typename SightOwner>
+bool parseSightClauses(s7_scheme* scheme, s7_pointer rest, SightOwner& out) {
+    out.haveSight = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (std::strcmp(tag, "see-tags") == 0) {
+            parseSightTagList(scheme, values, out.sightSeeTags);
+            continue;
+        }
+        if (std::strcmp(tag, "ignore-tags") == 0) {
+            parseSightTagList(scheme, values, out.sightIgnoreTags);
+            continue;
+        }
+        if (!s7_is_pair(values)) {
+            return false;
+        }
+        if (std::strcmp(tag, "filter") == 0) {
+            if (!readStringValue(scheme, s7_car(values), out.sightFilterProc)) {
+                return false;
+            }
+            continue;
+        }
+        if (std::strcmp(tag, "enabled") == 0) {
+            s7_pointer value = s7_car(values);
+            if (s7_is_boolean(value)) {
+                out.sightEnabled = s7_boolean(scheme, value);
+            } else if (s7_is_integer(value)) {
+                out.sightEnabled = s7_integer(value) != 0;
+            } else {
+                return false;
+            }
+            continue;
+        }
+        if (!s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "range") == 0) {
+            out.sightRange = value;
+        } else if (std::strcmp(tag, "fov") == 0) {
+            out.sightFovDegrees = value;
+        } else if (std::strcmp(tag, "eye-lift") == 0) {
+            out.sightEyeLift = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 ThingDefRegistry& thingDefRegistry() {
@@ -314,6 +450,14 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.onUse = def.onUse;
     out.haveTriggerSize = def.haveTriggerSize;
     out.triggerSize = def.triggerSize;
+    out.haveSight = def.haveSight;
+    out.sightEnabled = def.sightEnabled;
+    out.sightRange = def.sightRange;
+    out.sightFovDegrees = def.sightFovDegrees;
+    out.sightEyeLift = def.sightEyeLift;
+    out.sightSeeTags = def.sightSeeTags;
+    out.sightIgnoreTags = def.sightIgnoreTags;
+    out.sightFilterProc = def.sightFilterProc;
 }
 
 bool registerPackageThingsFromScheme(s7_scheme* scheme) {
@@ -472,6 +616,39 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
         }
         readAssocString(scheme, props, "idle-anim", def.idleAnim);
         readAssocString(scheme, props, "behavior", def.behavior);
+
+        s7_pointer meleeVal = nullptr;
+        if (readAssoc(scheme, props, "melee", meleeVal)) {
+            if (!parseMeleeClauses(scheme, meleeVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid melee; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+
+        s7_pointer rangedVal = nullptr;
+        if (readAssoc(scheme, props, "ranged", rangedVal)) {
+            if (!parseRangedClauses(scheme, rangedVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid ranged; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+
+        s7_pointer sightVal = nullptr;
+        if (readAssoc(scheme, props, "sight", sightVal)) {
+            if (!parseSightClauses(scheme, sightVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid sight; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
 
         def.packageId = packageId;
         def.packageRole = packageRole;

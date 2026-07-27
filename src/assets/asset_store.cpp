@@ -10,9 +10,11 @@
 #include <s7.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <stdexcept>
+#include <system_error>
 #include <unordered_map>
 
 namespace slopengine {
@@ -792,6 +794,31 @@ const AnimBank* AssetStore::getAnimBank(std::string_view path) {
     return &inserted.first->second;
 }
 
+namespace {
+
+std::optional<std::filesystem::file_time_type> newestWriteTime(
+    const std::optional<std::filesystem::path>& a,
+    const std::optional<std::filesystem::path>& b) {
+    std::optional<std::filesystem::file_time_type> newest;
+    std::error_code ec;
+    if (a) {
+        const auto t = std::filesystem::last_write_time(*a, ec);
+        if (!ec) {
+            newest = t;
+        }
+    }
+    if (b) {
+        ec.clear();
+        const auto t = std::filesystem::last_write_time(*b, ec);
+        if (!ec && (!newest || t > *newest)) {
+            newest = t;
+        }
+    }
+    return newest;
+}
+
+} // namespace
+
 const SpriteAsset* AssetStore::getSpriteAsset(std::string_view path) {
     const std::string key = cacheKey(path);
     const auto existing = spriteAssets_.find(key);
@@ -829,6 +856,30 @@ const SpriteAsset* AssetStore::getSpriteAsset(std::string_view path) {
         }
     }
 
+    auto stamp = newestWriteTime(
+        resolvePath(AssetKind::Sprite, path), resolvePath(AssetKind::SpriteAnim, path));
+    {
+        std::error_code ec;
+        for (const SpriteFrame& frame : asset.frames) {
+            for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
+                if (!frame.rotations[rotation].has_value()) {
+                    continue;
+                }
+                if (const auto tex =
+                        resolvePath(AssetKind::Texture, frame.rotations[rotation]->texturePath)) {
+                    ec.clear();
+                    const auto t = std::filesystem::last_write_time(*tex, ec);
+                    if (!ec && (!stamp || t > *stamp)) {
+                        stamp = t;
+                    }
+                }
+            }
+        }
+    }
+    if (stamp) {
+        spriteSourceMtimes_[key] = *stamp;
+    }
+
     spriteAtlases_.emplace(key, std::move(atlas));
     return &spriteAssets_.emplace(key, std::move(asset)).first->second;
 }
@@ -862,7 +913,64 @@ const SpriteAnimBank* AssetStore::getSpriteAnimBank(std::string_view path) {
         return nullptr;
     }
 
+    const auto stamp = newestWriteTime(
+        resolvePath(AssetKind::Sprite, path), resolvePath(AssetKind::SpriteAnim, path));
+    if (stamp) {
+        spriteSourceMtimes_[key] = *stamp;
+    }
+
     return &spriteAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+void AssetStore::invalidateSprite(std::string_view path) {
+    const std::string key = cacheKey(path);
+    spriteAssets_.erase(key);
+    spriteAnimBanks_.erase(key);
+    spriteSourceMtimes_.erase(key);
+    const auto atlasIt = spriteAtlases_.find(key);
+    if (atlasIt != spriteAtlases_.end()) {
+        unloadSpriteAtlas(atlasIt->second);
+        spriteAtlases_.erase(atlasIt);
+    }
+}
+
+bool AssetStore::reloadSpriteIfChanged(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto assetIt = spriteAssets_.find(key);
+    const bool cached =
+        assetIt != spriteAssets_.end() || spriteAnimBanks_.find(key) != spriteAnimBanks_.end();
+    if (!cached) {
+        return false;
+    }
+    auto stamp = newestWriteTime(
+        resolvePath(AssetKind::Sprite, path), resolvePath(AssetKind::SpriteAnim, path));
+    if (assetIt != spriteAssets_.end()) {
+        std::error_code ec;
+        for (const SpriteFrame& frame : assetIt->second.frames) {
+            for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
+                if (!frame.rotations[rotation].has_value()) {
+                    continue;
+                }
+                const SpriteRotation& entry = *frame.rotations[rotation];
+                if (const auto tex = resolvePath(AssetKind::Texture, entry.texturePath)) {
+                    ec.clear();
+                    const auto t = std::filesystem::last_write_time(*tex, ec);
+                    if (!ec && (!stamp || t > *stamp)) {
+                        stamp = t;
+                    }
+                }
+            }
+        }
+    }
+    if (!stamp) {
+        return false;
+    }
+    const auto cachedStamp = spriteSourceMtimes_.find(key);
+    if (cachedStamp != spriteSourceMtimes_.end() && *stamp <= cachedStamp->second) {
+        return false;
+    }
+    invalidateSprite(path);
+    return true;
 }
 
 std::string AssetStore::getScriptSource(std::string_view path) {

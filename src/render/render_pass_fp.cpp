@@ -8,6 +8,7 @@
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "physics/components.hpp"
+#include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
@@ -259,7 +260,7 @@ void drawFirstPersonPass(
     EndMode3D();
 }
 
-void drawViewSpritesAndHud(flecs::world& world) {
+void drawViewSprites(flecs::world& world) {
     if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
         return;
     }
@@ -268,95 +269,130 @@ void drawViewSpritesAndHud(flecs::world& world) {
     if (world.has<ViewCanvas>()) {
         viewCanvas = world.get<ViewCanvas>();
     }
+    const float screenW = static_cast<float>(GetScreenWidth());
+    const float screenH = static_cast<float>(GetScreenHeight());
+    const ViewCanvasFit viewFit = makeViewCanvasFit(
+        viewCanvas.width, viewCanvas.height, screenW, screenH);
+
+    BeginBlendMode(BLEND_ALPHA);
+    auto drawViewSprite =
+        [&](flecs::entity entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
+            const auto frame = resolveViewSpriteFrame(sprite, viewAssets);
+            if (!frame) {
+                return;
+            }
+
+            auto originFromFrame = [&](const ViewSpriteFrame& resolved) {
+                if (resolved.hasOffset && resolved.pixelWidth > 0 && resolved.pixelHeight > 0) {
+                    return Vector2{
+                        static_cast<float>(resolved.offsetX) /
+                            static_cast<float>(resolved.pixelWidth),
+                        static_cast<float>(resolved.offsetY) /
+                            static_cast<float>(resolved.pixelHeight),
+                    };
+                }
+                return Vector2{viewSprite.originX, viewSprite.originY};
+            };
+
+            float originX = originFromFrame(*frame).x;
+            float originY = originFromFrame(*frame).y;
+            float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+            float scaleX = frame->scaleX * frame->animScaleX;
+            float scaleY = frame->scaleY * frame->animScaleY;
+            float translateX = frame->translateX + frame->animTranslateX;
+            float translateY = frame->translateY + frame->animTranslateY;
+
+            if (entity.has<SpriteAnimator>()) {
+                const SpriteAnimator& animator = entity.get<SpriteAnimator>();
+                if (animator.hasTween() && !animator.nextFrame.empty()) {
+                    SpriteInstance nextSprite = sprite;
+                    nextSprite.frame = animator.nextFrame;
+                    const auto nextFrame = resolveViewSpriteFrame(nextSprite, viewAssets);
+                    if (nextFrame) {
+                        const float blend = animator.transformBlend;
+                        const float nextRotation =
+                            nextFrame->rotationDeg + nextFrame->animRotationDeg;
+                        const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
+                        const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
+                        const float nextTranslateX =
+                            nextFrame->translateX + nextFrame->animTranslateX;
+                        const float nextTranslateY =
+                            nextFrame->translateY + nextFrame->animTranslateY;
+                        if (animator.tweenRotation) {
+                            rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
+                        }
+                        if (animator.tweenScale) {
+                            scaleX = scaleX + (nextScaleX - scaleX) * blend;
+                            scaleY = scaleY + (nextScaleY - scaleY) * blend;
+                        }
+                        if (animator.tweenTranslate) {
+                            translateX = translateX + (nextTranslateX - translateX) * blend;
+                            translateY = translateY + (nextTranslateY - translateY) * blend;
+                        }
+                    }
+                }
+            }
+
+            const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale *
+                                viewSprite.scaleX * scaleX;
+            const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale *
+                                viewSprite.scaleY * scaleY;
+            const float screenX =
+                viewFit.offsetX +
+                (viewSprite.canvasX + viewSprite.offsetX + translateX) * viewFit.scale;
+            const float screenY =
+                viewFit.offsetY +
+                (viewSprite.canvasY + viewSprite.offsetY + translateY) * viewFit.scale;
+            const Rectangle dest{screenX, screenY, destW, destH};
+            DrawTexturePro(
+                *frame->texture,
+                frame->source,
+                dest,
+                Vector2{destW * originX, destH * originY},
+                viewSprite.rotationDeg + rotationDeg,
+                WHITE);
+        };
+
+    struct ViewDrawItem {
+        flecs::entity entity{};
+        ViewSprite* viewSprite = nullptr;
+        SpriteInstance* sprite = nullptr;
+        int layer = 0;
+    };
+    std::vector<ViewDrawItem> viewDrawList;
+    world.each([&](flecs::entity entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
+        viewDrawList.push_back(ViewDrawItem{
+            entity,
+            &viewSprite,
+            &sprite,
+            entity.has<SpriteOverlay>() ? entity.get<SpriteOverlay>().layer : 0,
+        });
+    });
+    std::sort(
+        viewDrawList.begin(),
+        viewDrawList.end(),
+        [](const ViewDrawItem& a, const ViewDrawItem& b) {
+            return a.layer < b.layer;
+        });
+    for (const ViewDrawItem& item : viewDrawList) {
+        drawViewSprite(item.entity, *item.viewSprite, *item.sprite);
+    }
+    EndBlendMode();
+}
+
+void drawHud(flecs::world& world) {
+    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
+        return;
+    }
+    AssetStore& viewAssets = *world.get_mut<AssetServices>().store;
     HudCanvas hudCanvas{};
     if (world.has<HudCanvas>()) {
         hudCanvas = world.get<HudCanvas>();
     }
     const float screenW = static_cast<float>(GetScreenWidth());
     const float screenH = static_cast<float>(GetScreenHeight());
-    const ViewCanvasFit viewFit = makeViewCanvasFit(
-        viewCanvas.width, viewCanvas.height, screenW, screenH);
     const ViewCanvasFit hudFit = makeViewCanvasFit(
         hudCanvas.width, hudCanvas.height, screenW, screenH);
-
-    BeginBlendMode(BLEND_ALPHA);
-    world.each([&](flecs::entity entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
-        const auto frame = resolveViewSpriteFrame(sprite, viewAssets);
-        if (!frame) {
-            return;
-        }
-
-        auto originFromFrame = [&](const ViewSpriteFrame& resolved) {
-            if (resolved.hasOffset && resolved.pixelWidth > 0 && resolved.pixelHeight > 0) {
-                return Vector2{
-                    static_cast<float>(resolved.offsetX) /
-                        static_cast<float>(resolved.pixelWidth),
-                    static_cast<float>(resolved.offsetY) /
-                        static_cast<float>(resolved.pixelHeight),
-                };
-            }
-            return Vector2{viewSprite.originX, viewSprite.originY};
-        };
-
-        float originX = originFromFrame(*frame).x;
-        float originY = originFromFrame(*frame).y;
-        float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
-        float scaleX = frame->scaleX * frame->animScaleX;
-        float scaleY = frame->scaleY * frame->animScaleY;
-        float translateX = frame->translateX + frame->animTranslateX;
-        float translateY = frame->translateY + frame->animTranslateY;
-
-        if (entity.has<SpriteAnimator>()) {
-            const SpriteAnimator& animator = entity.get<SpriteAnimator>();
-            if (animator.hasTween() && !animator.nextFrame.empty()) {
-                SpriteInstance nextSprite = sprite;
-                nextSprite.frame = animator.nextFrame;
-                const auto nextFrame = resolveViewSpriteFrame(nextSprite, viewAssets);
-                if (nextFrame) {
-                    const float blend = animator.transformBlend;
-                    const float nextRotation =
-                        nextFrame->rotationDeg + nextFrame->animRotationDeg;
-                    const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
-                    const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
-                    const float nextTranslateX =
-                        nextFrame->translateX + nextFrame->animTranslateX;
-                    const float nextTranslateY =
-                        nextFrame->translateY + nextFrame->animTranslateY;
-                    if (animator.tweenRotation) {
-                        rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
-                    }
-                    if (animator.tweenScale) {
-                        scaleX = scaleX + (nextScaleX - scaleX) * blend;
-                        scaleY = scaleY + (nextScaleY - scaleY) * blend;
-                    }
-                    if (animator.tweenTranslate) {
-                        translateX = translateX + (nextTranslateX - translateX) * blend;
-                        translateY = translateY + (nextTranslateY - translateY) * blend;
-                    }
-                }
-            }
-        }
-
-        const float destW = static_cast<float>(frame->pixelWidth) * viewFit.scale *
-                            viewSprite.scaleX * scaleX;
-        const float destH = static_cast<float>(frame->pixelHeight) * viewFit.scale *
-                            viewSprite.scaleY * scaleY;
-        const float screenX =
-            viewFit.offsetX +
-            (viewSprite.canvasX + viewSprite.offsetX + translateX) * viewFit.scale;
-        const float screenY =
-            viewFit.offsetY +
-            (viewSprite.canvasY + viewSprite.offsetY + translateY) * viewFit.scale;
-        const Rectangle dest{screenX, screenY, destW, destH};
-        DrawTexturePro(
-            *frame->texture,
-            frame->source,
-            dest,
-            Vector2{destW * originX, destH * originY},
-            viewSprite.rotationDeg + rotationDeg,
-            WHITE);
-    });
-    EndBlendMode();
 
     if (!world.has<HudDrawList>()) {
         world.set<HudDrawList>({});

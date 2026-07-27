@@ -2,6 +2,7 @@
 
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "game/game_state.hpp"
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
@@ -182,6 +183,12 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
             CharacterMotor& motor = camera.get_mut<CharacterMotor>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
+            if (!controller.allowMove) {
+                motor.wishX = 0.0f;
+                motor.wishZ = 0.0f;
+                return;
+            }
+
             InputState& input = it.world().get_mut<InputState>();
 
             const Vector3 forwardFlat =
@@ -213,6 +220,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 it.world().has<FramePerfStats>() ? &it.world().get_mut<FramePerfStats>() : nullptr;
             if (perf != nullptr) {
                 perf->physicsMs = 0.0f;
+            }
+
+            if (isSimulationPaused(it.world())) {
+                return;
             }
 
             if (!it.world().has<PhysicsContext>()) {
@@ -294,6 +305,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<ScriptContext>()) {
                 return;
             }
@@ -358,6 +372,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<ScriptContext>()) {
                 return;
             }

@@ -344,6 +344,102 @@ s7_pointer g_player_set_pose(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_player_eye_height(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::MapControl)) {
+        return s7_f(sc);
+    }
+    if (g_saveWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_saveWorld->lookup("Player");
+    if (!player.is_valid()) {
+        return s7_f(sc);
+    }
+    if (player.has<CharacterMotor>()) {
+        return s7_make_real(sc, static_cast<double>(player.get<CharacterMotor>().eyeHeight));
+    }
+    if (player.has<FirstPersonController>()) {
+        return s7_make_real(sc, static_cast<double>(player.get<FirstPersonController>().eyeHeight));
+    }
+    return s7_f(sc);
+}
+
+s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::MapControl)) {
+        return s7_f(sc);
+    }
+    if (g_saveWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "player-set-eye-height", 1, args, "number");
+    }
+    flecs::entity player = g_saveWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<FirstPersonController>()) {
+        return s7_f(sc);
+    }
+
+    const float h = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    FirstPersonController& controller = player.get_mut<FirstPersonController>();
+    controller.eyeHeight = h;
+    if (player.has<CharacterMotor>()) {
+        player.get_mut<CharacterMotor>().eyeHeight = h;
+    }
+    if (player.has<Lens>()) {
+        Lens& lens = player.get_mut<Lens>();
+        if (g_saveWorld->has<PhysicsContext>()) {
+            PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
+            if (physics != nullptr && physics->hasPlayer()) {
+                const JPH::RVec3 feet = physics->playerPosition();
+                lens.camera.position.x = static_cast<float>(feet.GetX());
+                lens.camera.position.y = static_cast<float>(feet.GetY()) + h;
+                lens.camera.position.z = static_cast<float>(feet.GetZ());
+            } else {
+                lens.camera.position.y = h;
+            }
+        } else {
+            lens.camera.position.y = h;
+        }
+        const float cosPitch = std::cos(controller.pitch);
+        const Vector3 forward = {
+            std::sin(controller.yaw) * cosPitch,
+            std::sin(controller.pitch),
+            std::cos(controller.yaw) * cosPitch,
+        };
+        lens.camera.target = Vector3Add(lens.camera.position, forward);
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_player_set_control(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::MapControl)) {
+        return s7_f(sc);
+    }
+    if (g_saveWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "player-set-control", 1, args, "boolean");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest)) {
+        return s7_wrong_type_arg_error(sc, "player-set-control", 2, rest, "boolean");
+    }
+    flecs::entity player = g_saveWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<FirstPersonController>()) {
+        return s7_f(sc);
+    }
+    FirstPersonController& controller = player.get_mut<FirstPersonController>();
+    controller.allowMove = s7_boolean(sc, s7_car(args));
+    controller.allowLook = s7_boolean(sc, s7_car(rest));
+    if (!controller.allowMove && player.has<CharacterMotor>()) {
+        CharacterMotor& motor = player.get_mut<CharacterMotor>();
+        motor.wishX = 0.0f;
+        motor.wishZ = 0.0f;
+    }
+    return s7_t(sc);
+}
+
 bool parseSaveStemDisplay(std::string_view stem, std::string& displayOut) {
     const std::size_t under = stem.rfind('_');
     if (under == std::string_view::npos || under == 0 || under + 1 >= stem.size()) {
@@ -581,6 +677,24 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
     s7_define_function(scheme, "player-pose", g_player_pose, 0, 0, false, "(player-pose)");
     s7_define_function(
         scheme, "player-set-pose", g_player_set_pose, 5, 0, false, "(player-set-pose x y z yaw pitch)");
+    s7_define_function(
+        scheme, "player-eye-height", g_player_eye_height, 0, 0, false, "(player-eye-height)");
+    s7_define_function(
+        scheme,
+        "player-set-eye-height",
+        g_player_set_eye_height,
+        1,
+        0,
+        false,
+        "(player-set-eye-height h)");
+    s7_define_function(
+        scheme,
+        "player-set-control",
+        g_player_set_control,
+        2,
+        0,
+        false,
+        "(player-set-control move? look?)");
 }
 
 void bindStartupApi(s7_scheme* scheme, const std::unordered_map<std::string, std::string>& args) {

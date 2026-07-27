@@ -1,5 +1,6 @@
 #pragma once
 
+#include "assets/asset_store.hpp"
 #include "camera.hpp"
 #include "editor.hpp"
 
@@ -13,7 +14,11 @@ struct WorldPreview {
     bool autoOrbit = false;
     float autoOrbitSpeedDeg = 45.0f;
 
-    void draw(Editor& editor, RenderTexture2D& target, bool allowInput);
+    void draw(
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        RenderTexture2D& target,
+        bool allowInput);
 };
 
 }

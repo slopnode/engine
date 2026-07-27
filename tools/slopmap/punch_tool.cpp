@@ -210,6 +210,7 @@ void PunchTool::commit(Editor& editor) {
         return;
     }
     const slopengine::Brush source = d.brushes[static_cast<std::size_t>(brushIndex)];
+    editor.prepareEdit();
     auto allocateId = [&]() { return editor.allocateBrushId(); };
     auto pieces = slopengine::punchOutBrushBox(
         source,
@@ -221,6 +222,7 @@ void PunchTool::commit(Editor& editor) {
         depth,
         allocateId);
     if (pieces.empty()) {
+        editor.abortEdit();
         editor.statusMessage = "Punch-out failed";
         reset();
         return;
@@ -236,6 +238,7 @@ void PunchTool::commit(Editor& editor) {
     editor.selectBrushes(created, created.back());
     editor.markDirty();
     editor.markBrushCompileDirty(role);
+    editor.endEdit();
     editor.statusMessage = "Punch-out created " + std::to_string(created.size()) + " brushes";
     editor.numericBuffer.clear();
     reset();

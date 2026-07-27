@@ -37,6 +37,42 @@ void writeIndentClause(std::ostringstream& out, const std::string& clause) {
     out << "  " << clause << "\n";
 }
 
+bool tagsEqual(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string formatSightClause(const Thing& p) {
+    std::string clause = "(sight (range " + formatFloat(p.sightRange) + ") (fov " +
+        formatFloat(p.sightFovDegrees) + ") (eye-lift " + formatFloat(p.sightEyeLift) + ")";
+    if (!p.sightSeeTags.empty()) {
+        clause += " (see-tags";
+        for (const std::string& tag : p.sightSeeTags) {
+            clause += " " + escapeSchemeString(tag);
+        }
+        clause += ")";
+    }
+    if (!p.sightIgnoreTags.empty()) {
+        clause += " (ignore-tags";
+        for (const std::string& tag : p.sightIgnoreTags) {
+            clause += " " + escapeSchemeString(tag);
+        }
+        clause += ")";
+    }
+    if (!p.sightFilterProc.empty()) {
+        clause += " (filter " + escapeSchemeString(p.sightFilterProc) + ")";
+    }
+    clause += p.sightEnabled ? " (enabled #t))" : " (enabled #f))";
+    return clause;
+}
+
 void writeCommonPose(std::ostringstream& out, const Thing& p) {
     writeIndentClause(out, "(id " + escapeSchemeString(p.id) + ")");
     if (p.haveAt) {
@@ -157,6 +193,9 @@ void writeActorFields(std::ostringstream& out, const Thing& p) {
         clause += ")";
         writeIndentClause(out, clause);
     }
+    if (p.haveSight) {
+        writeIndentClause(out, formatSightClause(p));
+    }
 }
 
 void writePresentation(std::ostringstream& out, const Thing& p) {
@@ -247,16 +286,14 @@ bool nearEq(float a, float b) {
     return std::fabs(a - b) <= 0.0001f;
 }
 
-bool tagsEqual(const std::vector<std::string>& a, const std::vector<std::string>& b) {
-    if (a.size() != b.size()) {
-        return false;
-    }
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        if (a[i] != b[i]) {
-            return false;
-        }
-    }
-    return true;
+bool sightDiffers(const Thing& p, const Thing& baseline) {
+    return p.haveSight != baseline.haveSight || p.sightEnabled != baseline.sightEnabled ||
+        !nearEq(p.sightRange, baseline.sightRange) ||
+        !nearEq(p.sightFovDegrees, baseline.sightFovDegrees) ||
+        !nearEq(p.sightEyeLift, baseline.sightEyeLift) ||
+        !tagsEqual(p.sightSeeTags, baseline.sightSeeTags) ||
+        !tagsEqual(p.sightIgnoreTags, baseline.sightIgnoreTags) ||
+        p.sightFilterProc != baseline.sightFilterProc;
 }
 
 void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& def) {
@@ -311,6 +348,9 @@ void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& de
             }
             clause += ")";
             writeIndentClause(out, clause);
+        }
+        if (sightDiffers(p, baseline) && p.haveSight) {
+            writeIndentClause(out, formatSightClause(p));
         }
     }
 

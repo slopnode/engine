@@ -117,6 +117,7 @@ add_executable(slopengine
     src/ui/imgui_fonts.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/sight_module.cpp
     src/physics/motored_body.cpp
     src/physics/motored_sweep.cpp
     src/physics/rigid_mover.cpp
@@ -142,6 +143,7 @@ add_executable(slopengine
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
     src/render/render_pass_fp.cpp
+    src/render/post_process.cpp
     src/render/render_module.cpp
     src/render/hud.cpp
     src/script/scheme_call.cpp
@@ -149,6 +151,7 @@ add_executable(slopengine
     src/script/hook_registry.cpp
     src/script/first_person_script.cpp
     src/script/hud_script.cpp
+    src/script/post_script.cpp
     src/script/input_script.cpp
     src/script/audio_script.cpp
     src/script/thing_script.cpp
@@ -220,6 +223,7 @@ add_executable(slopmap
     tools/slopmap/main.cpp
     tools/slopmap/camera.cpp
     tools/slopmap/editor.cpp
+    tools/slopmap/history.cpp
     tools/slopmap/preview.cpp
     tools/slopmap/thing_draw.cpp
     tools/slopmap/create_tool.cpp

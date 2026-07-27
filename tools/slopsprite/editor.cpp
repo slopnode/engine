@@ -9,6 +9,8 @@
 #include <iterator>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
+#include <utility>
 
 namespace slopsprite {
 
@@ -606,6 +608,18 @@ bool Editor::save(slopengine::AssetStore& assets) {
             return false;
         }
     }
+    assets.invalidateSprite(doc.virtualPath);
+    if (doc.hasAnim) {
+        for (const slopengine::SpriteAnimClip& clip : doc.animBank.clips) {
+            for (const slopengine::SpriteAnimFrame& frame : clip.frames) {
+                for (const slopengine::SpriteAnimOverlay& overlay : frame.overlays) {
+                    if (!overlay.sprite.empty()) {
+                        assets.invalidateSprite(overlay.sprite);
+                    }
+                }
+            }
+        }
+    }
     setStatus("Saved " + outPath.string());
     return true;
 }
@@ -794,7 +808,154 @@ void Editor::selectFrameIndex(int index) {
     doc.selectedFrameIndex = index;
     doc.currentFrame = doc.asset.frames[static_cast<std::size_t>(index)].id;
     doc.animPlaying = false;
+    doc.animHoldIndex = -1;
     clearAnimTween(doc);
+}
+
+void collectPreviewOverlays(
+    const EditorDocument& doc,
+    slopengine::AssetStore& assets,
+    std::vector<PreviewOverlayDraw>& out) {
+    out.clear();
+    if (!doc.open || !doc.hasAnim || doc.animClip.empty() || doc.animHoldIndex < 0) {
+        return;
+    }
+    const auto clipIt = doc.animBank.clipIndexByName.find(doc.animClip);
+    if (clipIt == doc.animBank.clipIndexByName.end() ||
+        clipIt->second >= doc.animBank.clips.size()) {
+        return;
+    }
+    const slopengine::SpriteAnimClip& clip = doc.animBank.clips[clipIt->second];
+    if (clip.frames.empty()) {
+        return;
+    }
+
+    float clipDuration = 0.0f;
+    for (const slopengine::SpriteAnimFrame& frame : clip.frames) {
+        clipDuration += frame.duration;
+    }
+    if (clipDuration <= 0.0f) {
+        return;
+    }
+
+    float localTime = doc.animTime;
+    if (doc.animLoop) {
+        while (localTime >= clipDuration) {
+            localTime -= clipDuration;
+        }
+        while (localTime < 0.0f) {
+            localTime += clipDuration;
+        }
+    } else if (localTime > clipDuration) {
+        localTime = clipDuration;
+    }
+
+    struct LayerFire {
+        slopengine::SpriteAnimOverlay overlay{};
+        float enterTime = 0.0f;
+        int holdIndex = -1;
+        int overlayIndex = -1;
+    };
+    std::unordered_map<int, LayerFire> layers;
+    float enterCursor = 0.0f;
+    for (std::size_t i = 0; i < clip.frames.size(); ++i) {
+        const slopengine::SpriteAnimFrame& hold = clip.frames[i];
+        if (enterCursor > localTime) {
+            break;
+        }
+        for (std::size_t oi = 0; oi < hold.overlays.size(); ++oi) {
+            const slopengine::SpriteAnimOverlay& overlay = hold.overlays[oi];
+            if (overlay.layer == 0 || overlay.sprite.empty() || overlay.clip.empty()) {
+                continue;
+            }
+            layers[overlay.layer] = LayerFire{
+                overlay,
+                enterCursor,
+                static_cast<int>(i),
+                static_cast<int>(oi),
+            };
+        }
+        enterCursor += hold.duration;
+    }
+
+    out.reserve(layers.size());
+    for (const auto& [layer, fire] : layers) {
+        (void)layer;
+        assets.reloadSpriteIfChanged(fire.overlay.sprite);
+        if (!assets.hasSprite(fire.overlay.sprite) || !assets.hasSpriteAnim(fire.overlay.sprite)) {
+            continue;
+        }
+        const slopengine::SpriteAnimBank* bank = assets.getSpriteAnimBank(fire.overlay.sprite);
+        if (bank == nullptr) {
+            continue;
+        }
+        const auto overlayClipIt = bank->clipIndexByName.find(fire.overlay.clip);
+        if (overlayClipIt == bank->clipIndexByName.end() ||
+            overlayClipIt->second >= bank->clips.size()) {
+            continue;
+        }
+        const slopengine::SpriteAnimClip& overlayClip = bank->clips[overlayClipIt->second];
+        if (overlayClip.frames.empty()) {
+            continue;
+        }
+        float overlayDuration = 0.0f;
+        for (const slopengine::SpriteAnimFrame& frame : overlayClip.frames) {
+            overlayDuration += frame.duration;
+        }
+        if (overlayDuration <= 0.0f) {
+            continue;
+        }
+
+        float age = localTime - fire.enterTime;
+        if (age < 0.0f) {
+            continue;
+        }
+        if (overlayClip.loop) {
+            while (age >= overlayDuration) {
+                age -= overlayDuration;
+            }
+        } else if (age >= overlayDuration) {
+            continue;
+        }
+
+        PreviewOverlayDraw draw{};
+        draw.layer = fire.overlay.layer;
+        draw.x = fire.overlay.x;
+        draw.y = fire.overlay.y;
+        draw.holdIndex = fire.holdIndex;
+        draw.overlayIndex = fire.overlayIndex;
+        draw.spritePath = fire.overlay.sprite;
+        float cursor = 0.0f;
+        for (std::size_t fi = 0; fi < overlayClip.frames.size(); ++fi) {
+            const slopengine::SpriteAnimFrame& frame = overlayClip.frames[fi];
+            const float next = cursor + frame.duration;
+            if (age < next || fi + 1 == overlayClip.frames.size()) {
+                draw.frameId = frame.id;
+                if (frame.hasTween() && frame.duration > 0.0f) {
+                    std::size_t nextIndex = fi + 1;
+                    if (nextIndex >= overlayClip.frames.size()) {
+                        if (!overlayClip.loop) {
+                            break;
+                        }
+                        nextIndex = 0;
+                    }
+                    draw.tweenRotation = frame.tweenRotation;
+                    draw.tweenScale = frame.tweenScale;
+                    draw.tweenTranslate = frame.tweenTranslate;
+                    draw.transformBlend = (age - cursor) / frame.duration;
+                    draw.nextFrame = overlayClip.frames[nextIndex].id;
+                }
+                break;
+            }
+            cursor = next;
+        }
+        if (!draw.frameId.empty()) {
+            out.push_back(std::move(draw));
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const PreviewOverlayDraw& a, const PreviewOverlayDraw& b) {
+        return a.layer < b.layer;
+    });
 }
 
 void loadViewCanvasSize(slopengine::AssetStore& assets, int& width, int& height) {

@@ -195,6 +195,7 @@ bool forEachTarget(
     const std::function<bool(const slopengine::Thing&)>& pred,
     const std::function<void(slopengine::Thing&)>& fn) {
     EditorDocument& doc = editor.doc();
+    editor.prepareEdit();
     int count = 0;
     for (int index : targets) {
         slopengine::Thing* thing = thingAt(doc, index);
@@ -206,6 +207,7 @@ bool forEachTarget(
         ++count;
     }
     if (count == 0) {
+        editor.abortEdit();
         return false;
     }
     editor.markDirty();
@@ -630,10 +632,76 @@ void setThingWorldAngles(slopengine::Thing& thing, Vector3 anglesRadians) {
     thing.havePitch = true;
 }
 
-bool drawWorldRotationSection(Editor& editor, const std::vector<int>& targets) {
+bool drawWorldPoseSection(Editor& editor, const std::vector<int>& targets) {
     bool changed = false;
     const EditorDocument& doc = editor.doc();
 
+    ImGui::TextDisabled("Position (world)");
+    const auto posCommon = commonValue<Vector3>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.haveAt ? t.at : Vector3{}; },
+        [](Vector3 a, Vector3 b) {
+            return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
+        });
+    float position[3] = {
+        posCommon.value_or(Vector3{}).x,
+        posCommon.value_or(Vector3{}).y,
+        posCommon.value_or(Vector3{}).z,
+    };
+    if (dragFloatMixed("X", &position[0], !posCommon.has_value(), 0.05f, -10000.0f, 10000.0f)) {
+        const float x = position[0];
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [x](slopengine::Thing& thing) {
+                    if (!thing.haveAt) {
+                        thing.at = {};
+                        thing.haveAt = true;
+                    }
+                    thing.at.x = x;
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world X";
+        }
+    }
+    if (dragFloatMixed("Y", &position[1], !posCommon.has_value(), 0.05f, -10000.0f, 10000.0f)) {
+        const float y = position[1];
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [y](slopengine::Thing& thing) {
+                    if (!thing.haveAt) {
+                        thing.at = {};
+                        thing.haveAt = true;
+                    }
+                    thing.at.y = y;
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world Y";
+        }
+    }
+    if (dragFloatMixed("Z", &position[2], !posCommon.has_value(), 0.05f, -10000.0f, 10000.0f)) {
+        const float z = position[2];
+        if (forEachTarget(
+                editor,
+                targets,
+                [](const slopengine::Thing&) { return true; },
+                [z](slopengine::Thing& thing) {
+                    if (!thing.haveAt) {
+                        thing.at = {};
+                        thing.haveAt = true;
+                    }
+                    thing.at.z = z;
+                })) {
+            changed = true;
+            editor.statusMessage = "Set world Z";
+        }
+    }
+
+    ImGui::Separator();
     ImGui::TextDisabled("Rotation (world)");
     const auto anglesCommon = commonValue<Vector3>(
         doc,
@@ -1063,6 +1131,27 @@ bool drawActorSection(
     ImGui::Text("Kind: actor");
     drawTypeInfo(doc, targets);
     ImGui::Text("%d actor(s)", static_cast<int>(targets.size()));
+    {
+        const auto typeCommon = commonValue<std::string>(
+            doc,
+            targets,
+            [](const slopengine::Thing& t) { return t.type; });
+        if (!typeCommon.has_value()) {
+            ImGui::TextDisabled("Behavior: mixed");
+        } else if (!typeCommon->empty()) {
+            if (const slopengine::ThingDef* def =
+                    slopengine::thingDefRegistry().find(*typeCommon)) {
+                if (!def->behavior.empty()) {
+                    ImGui::TextDisabled("Behavior: %s", def->behavior.c_str());
+                } else {
+                    ImGui::TextDisabled("Behavior: (none)");
+                }
+                if (!def->idleAnim.empty()) {
+                    ImGui::TextDisabled("Idle anim: %s", def->idleAnim.c_str());
+                }
+            }
+        }
+    }
     ImGui::Separator();
 
     if (drawPresentationSection(editor, assets, targets, false)) {
@@ -1170,6 +1259,153 @@ bool drawActorSection(
             })) {
             changed = true;
             editor.statusMessage = "Set actor tags";
+        }
+    }
+
+    auto joinTagList = [](const std::vector<std::string>& tags) {
+        std::string joined;
+        for (std::size_t i = 0; i < tags.size(); ++i) {
+            if (i > 0) {
+                joined.push_back(' ');
+            }
+            joined += tags[i];
+        }
+        return joined;
+    };
+    auto parseTagList = [](const char* text) {
+        std::vector<std::string> tags;
+        std::string token;
+        for (const char* p = text; *p != '\0'; ++p) {
+            if (*p == ' ' || *p == '\t' || *p == ',') {
+                if (!token.empty()) {
+                    tags.push_back(token);
+                    token.clear();
+                }
+                continue;
+            }
+            token.push_back(*p);
+        }
+        if (!token.empty()) {
+            tags.push_back(token);
+        }
+        return tags;
+    };
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Sight");
+    const auto enabledCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.haveSight && t.sightEnabled; });
+    const auto rangeCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.sightRange; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto fovCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.sightFovDegrees; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto eyeLiftCommon = commonValue<float>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.sightEyeLift; },
+        [](float a, float b) { return nearlyEqual(a, b); });
+    const auto seeTagsCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [&](const slopengine::Thing& t) { return joinTagList(t.sightSeeTags); });
+    const auto ignoreTagsCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [&](const slopengine::Thing& t) { return joinTagList(t.sightIgnoreTags); });
+    const auto filterCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.sightFilterProc; });
+
+    bool enabled = enabledCommon.value_or(false);
+    if (checkboxMixed("Enabled", &enabled, !enabledCommon.has_value())) {
+        if (forEachActor(editor, targets, [enabled](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightEnabled = enabled;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor sight enabled";
+        }
+    }
+
+    float range = rangeCommon.value_or(32.0f);
+    if (dragFloatMixed("Range", &range, !rangeCommon.has_value(), 0.25f, 0.5f, 200.0f)) {
+        if (forEachActor(editor, targets, [range](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightRange = range;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor sight range";
+        }
+    }
+
+    float fov = fovCommon.value_or(180.0f);
+    if (dragFloatMixed("FOV", &fov, !fovCommon.has_value(), 1.0f, 0.0f, 360.0f)) {
+        if (forEachActor(editor, targets, [fov](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightFovDegrees = fov;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor sight FOV";
+        }
+    }
+
+    float eyeLift = eyeLiftCommon.value_or(0.75f);
+    if (dragFloatMixed("Eye lift", &eyeLift, !eyeLiftCommon.has_value(), 0.01f, 0.0f, 2.0f)) {
+        if (forEachActor(editor, targets, [eyeLift](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightEyeLift = eyeLift;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor sight eye lift";
+        }
+    }
+
+    char seeTagsBuf[256];
+    copyToBuf(seeTagsBuf, sizeof(seeTagsBuf), seeTagsCommon.value_or(std::string{}));
+    if (inputTextMixed("See tags", seeTagsBuf, sizeof(seeTagsBuf), !seeTagsCommon.has_value())) {
+        const std::vector<std::string> tags = parseTagList(seeTagsBuf);
+        if (forEachActor(editor, targets, [&tags](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightSeeTags = tags;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor see tags";
+        }
+    }
+
+    char ignoreTagsBuf[256];
+    copyToBuf(ignoreTagsBuf, sizeof(ignoreTagsBuf), ignoreTagsCommon.value_or(std::string{}));
+    if (inputTextMixed(
+            "Ignore tags", ignoreTagsBuf, sizeof(ignoreTagsBuf), !ignoreTagsCommon.has_value())) {
+        const std::vector<std::string> tags = parseTagList(ignoreTagsBuf);
+        if (forEachActor(editor, targets, [&tags](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightIgnoreTags = tags;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor ignore tags";
+        }
+    }
+
+    char filterBuf[128];
+    copyToBuf(filterBuf, sizeof(filterBuf), filterCommon.value_or(std::string{}));
+    if (inputTextMixed("Filter", filterBuf, sizeof(filterBuf), !filterCommon.has_value())) {
+        const std::string filter = filterBuf;
+        if (forEachActor(editor, targets, [&filter](slopengine::Thing& thing) {
+                thing.haveSight = true;
+                thing.sightFilterProc = filter;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set actor sight filter";
         }
     }
 
@@ -1556,7 +1792,7 @@ ThingPanelResult ThingPanel::drawSection(
         return result;
     }
 
-    result.changed = drawWorldRotationSection(editor, targets);
+    result.changed = drawWorldPoseSection(editor, targets);
 
     if (editKind == ThingEditKind::Light) {
         result.changed = drawLightSection(editor, targets) || result.changed;

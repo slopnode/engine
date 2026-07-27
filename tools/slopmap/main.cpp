@@ -661,6 +661,7 @@ void applyHollow(slopmap::Editor& editor) {
     std::vector<int> indices = d.selectedBrushes;
     std::sort(indices.begin(), indices.end());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    editor.prepareEdit();
     std::vector<slopengine::Brush> walls;
     std::vector<int> removeIndices;
     slopengine::BrushRole role = slopengine::BrushRole::Hull;
@@ -682,6 +683,7 @@ void applyHollow(slopmap::Editor& editor) {
         walls.insert(walls.end(), std::make_move_iterator(next.begin()), std::make_move_iterator(next.end()));
     }
     if (walls.empty()) {
+        editor.abortEdit();
         editor.statusMessage = "Hollow failed (need box brushes, thickness < half size)";
         return;
     }
@@ -697,6 +699,7 @@ void applyHollow(slopmap::Editor& editor) {
     editor.selectBrushes(created, created.front());
     editor.markDirty();
     editor.markBrushCompileDirty(role);
+    editor.endEdit();
     editor.statusMessage = "Hollowed into " + std::to_string(created.size()) + " walls";
 }
 
@@ -994,6 +997,39 @@ int main(int argc, char* argv[]) {
                 ImGui::EndMenu();
             }
             if (beginMenuWithIcon(assets, kIcons, "pencil", "Edit")) {
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "arrow_undo",
+                        "Undo",
+                        "Ctrl+Z",
+                        false,
+                        editor.canUndo() || selectTool.active())) {
+                    if (selectTool.active()) {
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
+                        previewNeedsRebuild = true;
+                    } else if (editor.undo(assets)) {
+                        previewNeedsRebuild = true;
+                    }
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "arrow_redo",
+                        "Redo",
+                        "Ctrl+Shift+Z",
+                        false,
+                        editor.canRedo())) {
+                    if (selectTool.active()) {
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
+                    }
+                    if (editor.redo(assets)) {
+                        previewNeedsRebuild = true;
+                    }
+                }
+                ImGui::Separator();
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
@@ -1673,12 +1709,42 @@ int main(int argc, char* argv[]) {
         compileWasRunning = compile.running();
 
         if (!uiWantsKeyboard && !rmbFly) {
-            if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_S)) {
+            const bool ctrlDown =
+                IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+            const bool shiftDown =
+                IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+            if (ctrlDown && IsKeyPressed(KEY_Z)) {
+                if (shiftDown) {
+                    if (selectTool.active()) {
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
+                    }
+                    if (editor.redo(assets)) {
+                        previewNeedsRebuild = true;
+                    }
+                } else if (selectTool.active()) {
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
+                    previewNeedsRebuild = true;
+                } else if (editor.undo(assets)) {
+                    previewNeedsRebuild = true;
+                }
+            }
+            if (ctrlDown && IsKeyPressed(KEY_Y)) {
+                if (selectTool.active()) {
+                    selectTool.cancelTranslate(editor);
+                    selectTool.cancelRotate(editor);
+                }
+                if (editor.redo(assets)) {
+                    previewNeedsRebuild = true;
+                }
+            }
+            if (ctrlDown && IsKeyPressed(KEY_S)) {
                 if (editor.save(assets) && editor.scene == slopmap::EditorScene::Prefab) {
                     prefabBrowser.rescan(assets);
                 }
             }
-            if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_N)) {
+            if (ctrlDown && IsKeyPressed(KEY_N)) {
                 if (editor.scene != slopmap::EditorScene::Level) {
                     editor.switchScene(slopmap::EditorScene::Level);
                 }
@@ -1690,7 +1756,7 @@ int main(int argc, char* argv[]) {
                     previewNeedsRebuild = true;
                 }
             }
-            if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_O)) {
+            if (ctrlDown && IsKeyPressed(KEY_O)) {
                 editor.showLoadModal = true;
                 std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.levelDoc.assetPath.c_str());
             }
@@ -1711,7 +1777,7 @@ int main(int argc, char* argv[]) {
                 selectTool.toggleSelectedUvLock(editor);
                 previewNeedsRebuild = true;
             }
-            if ((IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) &&
+            if (shiftDown &&
                 IsKeyPressed(KEY_X) && !selectTool.active() &&
                 editor.doc().selectionMode == slopmap::SelectionMode::Brush &&
                 !editor.doc().selectedBrushes.empty()) {
@@ -1723,7 +1789,7 @@ int main(int argc, char* argv[]) {
                 editor.toggleOrthoTop();
             }
             if (IsKeyPressed(KEY_Q) &&
-                (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) &&
+                ctrlDown &&
                 (IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT))) {
                 editor.toggleViewportLayout();
             }
@@ -1740,8 +1806,8 @@ int main(int argc, char* argv[]) {
             if (IsKeyPressed(KEY_HOME)) {
                 editor.frameSelection();
             }
-            if (IsKeyPressed(KEY_Z) && !selectTool.active()) {
-                if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
+            if (IsKeyPressed(KEY_Z) && !ctrlDown && !selectTool.active()) {
+                if (shiftDown) {
                     switch (editor.wireframe) {
                     case slopmap::WireframeOverlay::Off:
                         editor.wireframe = slopmap::WireframeOverlay::Visible;
@@ -3428,6 +3494,10 @@ int main(int argc, char* argv[]) {
                 }
             }
             ImGui::End();
+        }
+
+        if (!selectTool.active() && !ImGui::IsAnyItemActive()) {
+            editor.endEdit();
         }
 
         rlImGuiEnd();

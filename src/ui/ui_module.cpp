@@ -28,6 +28,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "render/render_context.hpp"
 #include "render/sprite_animator.hpp"
+#include "script/scheme_harden.hpp"
 #include "script/script_context.hpp"
 #include "script/ui_script.hpp"
 #include "ui/icon_ui.hpp"
@@ -124,7 +125,7 @@ void drawPauseMenu(flecs::world world, AssetStore& assets, InputContextStack& co
         {0.5f, 0.5f});
 
     if (ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
-        ImGui::TextUnformatted("Simulation continues while paused.");
+        ImGui::TextUnformatted("Simulation is paused.");
         if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
             contexts.pop(InputContext::PauseMenu);
         }
@@ -355,6 +356,7 @@ void drawMainMenuBar(
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
         menuItemWithIcon(
             assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
+        callDrawDebugMenu(world);
         ImGui::EndMenu();
     }
 
@@ -1073,6 +1075,28 @@ void drawInteractionPrompt(const InteractionTarget& target, const InputContextSt
     ImGui::End();
 }
 
+void drawScriptingErrorBanner(AssetStore& assets) {
+    if (!scriptingErrorsOccurred()) {
+        return;
+    }
+
+    constexpr float kPad = 8.0f;
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::SetNextWindowPos(
+        {ImGui::GetIO().DisplaySize.x - kPad, ImGui::GetFrameHeight() + kPad},
+        ImGuiCond_Always,
+        {1.0f, 0.0f});
+    ImGui::Begin(
+        "ScriptingErrorBanner",
+        nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoNav);
+    drawIconImGui(assets, kDefaultIconSet, "error");
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Scripting Errors! See program output.");
+    ImGui::End();
+}
+
 void applyImGuiCursorPolicy(const InputContextStack& contexts) {
     ImGuiIO& io = ImGui::GetIO();
     if (contexts.blocksWorldInput()) {
@@ -1229,6 +1253,10 @@ void drawUi(flecs::world world) {
     AssetStore* assets = nullptr;
     if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
         assets = world.get_mut<AssetServices>().store;
+    }
+
+    if (assets != nullptr) {
+        drawScriptingErrorBanner(*assets);
     }
 
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {

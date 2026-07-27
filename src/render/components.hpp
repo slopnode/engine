@@ -3,6 +3,7 @@
 #include <raylib.h>
 #include <raymath.h>
 
+#include <cstdint>
 #include <string>
 
 namespace slopengine {
@@ -121,6 +122,16 @@ struct SpriteInstance {
     std::string sprite;
     std::string frame = "A";
     float facingYaw = 0.0f;
+};
+
+/** Layered sprite spawned from a .spanim (overlay ...) hold cue.
+ *  @ingroup render_components
+ */
+struct SpriteOverlay {
+    int layer = 1;
+    float offsetX = 0.0f;
+    float offsetY = 0.0f;
+    std::uint64_t host = 0;
 };
 
 }

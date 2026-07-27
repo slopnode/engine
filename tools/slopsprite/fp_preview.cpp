@@ -3,6 +3,7 @@
 #include "render/sprite_billboard.hpp"
 
 #include <algorithm>
+#include <vector>
 
 namespace slopsprite {
 
@@ -26,18 +27,118 @@ ViewCanvasFit makeViewCanvasFit(int width, int height, float screenW, float scre
     return fit;
 }
 
+void drawFpSpriteFrame(
+    const slopengine::SpriteAsset& asset,
+    const slopengine::SpriteAtlas& atlas,
+    const std::string& frameId,
+    const slopengine::ViewSprite& view,
+    const ViewCanvasFit& fit,
+    bool tweenRotation,
+    bool tweenScale,
+    bool tweenTranslate,
+    float transformBlend,
+    const std::string& nextFrame,
+    bool drawOriginDot,
+    Color tint) {
+    const auto frame = slopengine::resolveViewSpriteFrame(asset, atlas, frameId, 0);
+    if (!frame || frame->texture == nullptr) {
+        return;
+    }
+
+    auto originFromFrame = [&](const slopengine::ViewSpriteFrame& resolved) {
+        if (resolved.hasOffset && resolved.pixelWidth > 0 && resolved.pixelHeight > 0) {
+            return Vector2{
+                static_cast<float>(resolved.offsetX) / static_cast<float>(resolved.pixelWidth),
+                static_cast<float>(resolved.offsetY) / static_cast<float>(resolved.pixelHeight),
+            };
+        }
+        return Vector2{view.originX, view.originY};
+    };
+
+    float originX = originFromFrame(*frame).x;
+    float originY = originFromFrame(*frame).y;
+    float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+    float scaleX = frame->scaleX * frame->animScaleX;
+    float scaleY = frame->scaleY * frame->animScaleY;
+    float translateX = frame->translateX + frame->animTranslateX;
+    float translateY = frame->translateY + frame->animTranslateY;
+
+    if (!nextFrame.empty() && (tweenRotation || tweenScale || tweenTranslate)) {
+        const auto next = slopengine::resolveViewSpriteFrame(asset, atlas, nextFrame, 0);
+        if (next) {
+            const float nextRotation = next->rotationDeg + next->animRotationDeg;
+            const float nextScaleX = next->scaleX * next->animScaleX;
+            const float nextScaleY = next->scaleY * next->animScaleY;
+            const float nextTranslateX = next->translateX + next->animTranslateX;
+            const float nextTranslateY = next->translateY + next->animTranslateY;
+            if (tweenRotation) {
+                rotationDeg = rotationDeg + (nextRotation - rotationDeg) * transformBlend;
+            }
+            if (tweenScale) {
+                scaleX = scaleX + (nextScaleX - scaleX) * transformBlend;
+                scaleY = scaleY + (nextScaleY - scaleY) * transformBlend;
+            }
+            if (tweenTranslate) {
+                translateX = translateX + (nextTranslateX - translateX) * transformBlend;
+                translateY = translateY + (nextTranslateY - translateY) * transformBlend;
+            }
+        }
+    }
+
+    const float destW = static_cast<float>(frame->pixelWidth) * fit.scale * view.scaleX * scaleX;
+    const float destH = static_cast<float>(frame->pixelHeight) * fit.scale * view.scaleY * scaleY;
+    const float screenX = fit.offsetX + (view.canvasX + view.offsetX + translateX) * fit.scale;
+    const float screenY = fit.offsetY + (view.canvasY + view.offsetY + translateY) * fit.scale;
+    const Rectangle dest{screenX, screenY, destW, destH};
+    DrawTexturePro(
+        *frame->texture,
+        frame->source,
+        dest,
+        Vector2{destW * originX, destH * originY},
+        view.rotationDeg + rotationDeg,
+        tint);
+    if (drawOriginDot) {
+        DrawCircleV({screenX, screenY}, 4.0f, Color{255, 180, 60, 255});
+    }
+}
+
+slopengine::SpriteAnimOverlay* selectedOverlayMutable(Editor& editor) {
+    if (!editor.doc.hasAnim || editor.doc.selectedOverlayHoldIndex < 0 ||
+        editor.doc.selectedOverlayIndex < 0) {
+        return nullptr;
+    }
+    const auto clipIt = editor.doc.animBank.clipIndexByName.find(editor.doc.animClip);
+    if (clipIt == editor.doc.animBank.clipIndexByName.end() ||
+        clipIt->second >= editor.doc.animBank.clips.size()) {
+        return nullptr;
+    }
+    slopengine::SpriteAnimClip& clip = editor.doc.animBank.clips[clipIt->second];
+    if (editor.doc.selectedOverlayHoldIndex >= static_cast<int>(clip.frames.size())) {
+        return nullptr;
+    }
+    slopengine::SpriteAnimFrame& hold =
+        clip.frames[static_cast<std::size_t>(editor.doc.selectedOverlayHoldIndex)];
+    if (editor.doc.selectedOverlayIndex >= static_cast<int>(hold.overlays.size())) {
+        return nullptr;
+    }
+    return &hold.overlays[static_cast<std::size_t>(editor.doc.selectedOverlayIndex)];
+}
+
 } // namespace
 
-void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentRect, bool allowInput) {
-    (void)contentRect;
-    (void)allowInput;
-
+void FpPreview::draw(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    RenderTexture2D& target,
+    Rectangle contentRect,
+    bool allowInput) {
     BeginTextureMode(target);
     ClearBackground(previewClearColor(editor.doc, PreviewMode::FirstPerson));
 
     const float screenW = static_cast<float>(target.texture.width);
     const float screenH = static_cast<float>(target.texture.height);
-    const ViewCanvasFit fit = makeViewCanvasFit(editor.viewCanvasW, editor.viewCanvasH, screenW, screenH);
+    const ViewCanvasFit fit =
+        makeViewCanvasFit(editor.viewCanvasW, editor.viewCanvasH, screenW, screenH);
 
     const Rectangle canvasRect{
         fit.offsetX,
@@ -64,75 +165,80 @@ void FpPreview::draw(Editor& editor, RenderTexture2D& target, Rectangle contentR
         Color{70, 80, 100, 160});
 
     if (editor.doc.open && !editor.doc.atlasDirty) {
-        const auto frame = slopengine::resolveViewSpriteFrame(
-            editor.doc.asset, editor.doc.atlas, editor.doc.currentFrame, 0);
-        if (frame && frame->texture != nullptr) {
-            const slopengine::ViewSprite& view = editor.doc.viewSprite;
+        std::vector<PreviewOverlayDraw> overlays;
+        collectPreviewOverlays(editor.doc, assets, overlays);
 
-            auto originFromFrame = [&](const slopengine::ViewSpriteFrame& resolved) {
-                if (resolved.hasOffset && resolved.pixelWidth > 0 && resolved.pixelHeight > 0) {
-                    return Vector2{
-                        static_cast<float>(resolved.offsetX) /
-                            static_cast<float>(resolved.pixelWidth),
-                        static_cast<float>(resolved.offsetY) /
-                            static_cast<float>(resolved.pixelHeight),
-                    };
-                }
-                return Vector2{view.originX, view.originY};
-            };
-
-            float originX = originFromFrame(*frame).x;
-            float originY = originFromFrame(*frame).y;
-            float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
-            float scaleX = frame->scaleX * frame->animScaleX;
-            float scaleY = frame->scaleY * frame->animScaleY;
-            float translateX = frame->translateX + frame->animTranslateX;
-            float translateY = frame->translateY + frame->animTranslateY;
-
-            if (!editor.doc.animNextFrame.empty() &&
-                (editor.doc.animTweenRotation || editor.doc.animTweenScale ||
-                 editor.doc.animTweenTranslate)) {
-                const auto nextFrame = slopengine::resolveViewSpriteFrame(
-                    editor.doc.asset, editor.doc.atlas, editor.doc.animNextFrame, 0);
-                if (nextFrame) {
-                    const float blend = editor.doc.animTransformBlend;
-                    const float nextRotation =
-                        nextFrame->rotationDeg + nextFrame->animRotationDeg;
-                    const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
-                    const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
-                    const float nextTranslateX =
-                        nextFrame->translateX + nextFrame->animTranslateX;
-                    const float nextTranslateY =
-                        nextFrame->translateY + nextFrame->animTranslateY;
-                    if (editor.doc.animTweenRotation) {
-                        rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
-                    }
-                    if (editor.doc.animTweenScale) {
-                        scaleX = scaleX + (nextScaleX - scaleX) * blend;
-                        scaleY = scaleY + (nextScaleY - scaleY) * blend;
-                    }
-                    if (editor.doc.animTweenTranslate) {
-                        translateX = translateX + (nextTranslateX - translateX) * blend;
-                        translateY = translateY + (nextTranslateY - translateY) * blend;
+        if (allowInput && fit.scale > 0.0f) {
+            const Vector2 mouse = GetMousePosition();
+            const bool inContent = CheckCollisionPointRec(mouse, contentRect);
+            if (inContent && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+                if (slopengine::SpriteAnimOverlay* overlay = selectedOverlayMutable(editor)) {
+                    const Vector2 delta = GetMouseDelta();
+                    overlay->x += delta.x / fit.scale;
+                    overlay->y += delta.y / fit.scale;
+                    editor.doc.animDirty = true;
+                    for (PreviewOverlayDraw& draw : overlays) {
+                        if (draw.holdIndex == editor.doc.selectedOverlayHoldIndex &&
+                            draw.overlayIndex == editor.doc.selectedOverlayIndex) {
+                            draw.x = overlay->x;
+                            draw.y = overlay->y;
+                        }
                     }
                 }
             }
+        }
 
-            const float destW =
-                static_cast<float>(frame->pixelWidth) * fit.scale * view.scaleX * scaleX;
-            const float destH =
-                static_cast<float>(frame->pixelHeight) * fit.scale * view.scaleY * scaleY;
-            const float screenX = fit.offsetX + (view.canvasX + translateX) * fit.scale;
-            const float screenY = fit.offsetY + (view.canvasY + translateY) * fit.scale;
-            const Rectangle dest{screenX, screenY, destW, destH};
-            DrawTexturePro(
-                *frame->texture,
-                frame->source,
-                dest,
-                Vector2{destW * originX, destH * originY},
-                view.rotationDeg + rotationDeg,
+        auto drawHost = [&]() {
+            drawFpSpriteFrame(
+                editor.doc.asset,
+                editor.doc.atlas,
+                editor.doc.currentFrame,
+                editor.doc.viewSprite,
+                fit,
+                editor.doc.animTweenRotation,
+                editor.doc.animTweenScale,
+                editor.doc.animTweenTranslate,
+                editor.doc.animTransformBlend,
+                editor.doc.animNextFrame,
+                true,
                 WHITE);
-            DrawCircleV({screenX, screenY}, 4.0f, Color{255, 180, 60, 255});
+        };
+
+        auto drawOverlay = [&](const PreviewOverlayDraw& overlay) {
+            const slopengine::SpriteAsset* asset = assets.getSpriteAsset(overlay.spritePath);
+            const slopengine::SpriteAtlas* atlas = assets.getSpriteAtlas(overlay.spritePath);
+            if (asset == nullptr || atlas == nullptr) {
+                return;
+            }
+            slopengine::ViewSprite view = editor.doc.viewSprite;
+            view.offsetX = editor.doc.viewSprite.offsetX + overlay.x;
+            view.offsetY = editor.doc.viewSprite.offsetY + overlay.y;
+            const bool selected = overlay.holdIndex == editor.doc.selectedOverlayHoldIndex &&
+                                  overlay.overlayIndex == editor.doc.selectedOverlayIndex;
+            drawFpSpriteFrame(
+                *asset,
+                *atlas,
+                overlay.frameId,
+                view,
+                fit,
+                overlay.tweenRotation,
+                overlay.tweenScale,
+                overlay.tweenTranslate,
+                overlay.transformBlend,
+                overlay.nextFrame,
+                selected,
+                selected ? Color{255, 255, 180, 255} : WHITE);
+        };
+
+        std::size_t oi = 0;
+        while (oi < overlays.size() && overlays[oi].layer < 0) {
+            drawOverlay(overlays[oi]);
+            ++oi;
+        }
+        drawHost();
+        while (oi < overlays.size()) {
+            drawOverlay(overlays[oi]);
+            ++oi;
         }
     }
 

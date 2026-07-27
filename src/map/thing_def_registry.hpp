@@ -55,6 +55,27 @@ struct ThingDef {
     std::string idleAnim;
     std::string behavior;
 
+    bool haveMelee = false;
+    float meleeDamage = 0.0f;
+    float meleeRange = 1.2f;
+    float meleeCooldown = 1.0f;
+    std::string meleeAnim;
+
+    bool haveRanged = false;
+    float rangedRange = 24.0f;
+    float rangedMinRange = 1.5f;
+    float rangedCooldown = 2.0f;
+    std::string rangedAnim;
+
+    bool haveSight = false;
+    bool sightEnabled = true;
+    float sightRange = 32.0f;
+    float sightFovDegrees = 180.0f;
+    float sightEyeLift = 0.75f;
+    std::vector<std::string> sightSeeTags;
+    std::vector<std::string> sightIgnoreTags;
+    std::string sightFilterProc;
+
     std::string packageId;
     PackageRole packageRole = PackageRole::Base;
 };

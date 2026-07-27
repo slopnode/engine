@@ -7,6 +7,7 @@
 #include "script/hook_registry.hpp"
 #include "script/hud_script.hpp"
 #include "script/input_script.hpp"
+#include "script/post_script.hpp"
 #include "script/save_script.hpp"
 #include "script/script_scope.hpp"
 #include "script/thing_script.hpp"
@@ -21,6 +22,7 @@ namespace slopengine {
 void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
     bindFirstPersonApi(world, scheme);
     bindHudApi(world, scheme);
+    bindPostProcessApi(world, scheme);
     bindInputApi(world, scheme);
     bindThingRuntimeApi(world, scheme);
     bindSaveApi(world, assets, scheme);

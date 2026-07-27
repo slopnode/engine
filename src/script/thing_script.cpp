@@ -5,6 +5,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
+#include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
 #include "map/thing.hpp"
@@ -13,6 +14,8 @@
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
+#include "physics/sight_components.hpp"
+#include "physics/sight_module.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
@@ -22,6 +25,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -149,13 +153,16 @@ void registerTimedDespawnSystem(flecs::world& world) {
     world.system<TimedDespawn>("TimedDespawnAdvance")
         .kind(flecs::OnUpdate)
         .each([](flecs::entity entity, TimedDespawn& timed) {
+            flecs::world world = entity.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             const float dt = GetFrameTime();
             if (dt <= 0.0f) {
                 return;
             }
             timed.age += dt;
             if (timed.lifetime > 0.0f && timed.age >= timed.lifetime) {
-                flecs::world world = entity.world();
                 queueThingDespawn(world, entityIdString(entity));
             }
         });
@@ -211,6 +218,7 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     float gravity = 0.0f;
     float lifetime = 8.0f;
     std::string onImpact;
+    std::string ignoreId;
     if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
         radius = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
         args = s7_cdr(args);
@@ -225,6 +233,10 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     }
     if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
         onImpact = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+        ignoreId = s7_string(s7_car(args));
         args = s7_cdr(args);
     }
 
@@ -287,6 +299,7 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     body.lifetime = lifetime;
     body.age = 0.0f;
     body.onImpact = std::move(onImpact);
+    body.ignoreId = std::move(ignoreId);
     entity.set<MotoredBody>(body);
 
     return s7_t(sc);
@@ -439,12 +452,16 @@ s7_pointer g_dyn_light_spawn(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
+    DynamicLight light = makePointDynamicLight(r, g, b, intensity, range);
+    if (lifetime > 0.0f) {
+        light.castShadows = false;
+    }
     flecs::entity entity = spawnDynamicLight(
         *g_thingWorld,
         id.c_str(),
         {x, y, z},
         QuaternionIdentity(),
-        makePointDynamicLight(r, g, b, intensity, range));
+        light);
     entity.add<MapOwned>();
     if (lifetime > 0.0f) {
         entity.set<TimedDespawn>({.age = 0.0f, .lifetime = lifetime});
@@ -1332,6 +1349,202 @@ s7_pointer g_mover_set_state(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer stringListFromTags(s7_scheme* sc, const std::vector<std::string>& tags) {
+    s7_pointer list = s7_nil(sc);
+    for (auto it = tags.rbegin(); it != tags.rend(); ++it) {
+        list = s7_cons(sc, s7_make_string(sc, it->c_str()), list);
+    }
+    return list;
+}
+
+bool readSightTagList(s7_scheme* sc, s7_pointer value, std::vector<std::string>& out) {
+    (void)sc;
+    out.clear();
+    if (s7_is_string(value) || s7_is_symbol(value)) {
+        const char* tag = s7_is_string(value) ? s7_string(value) : s7_symbol_name(value);
+        if (tag != nullptr && tag[0] != '\0') {
+            out.emplace_back(tag);
+        }
+        return true;
+    }
+    for (s7_pointer cursor = value; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer cell = s7_car(cursor);
+        if (s7_is_string(cell)) {
+            out.emplace_back(s7_string(cell));
+        } else if (s7_is_symbol(cell)) {
+            out.emplace_back(s7_symbol_name(cell));
+        }
+    }
+    return true;
+}
+
+bool applySightAlist(s7_scheme* sc, s7_pointer alist, ActorSight& sight) {
+    if (!s7_is_pair(alist) && !s7_is_null(sc, alist)) {
+        return false;
+    }
+    for (s7_pointer cursor = alist; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            return false;
+        }
+        const char* key = s7_symbol_name(s7_car(entry));
+        s7_pointer value = s7_cdr(entry);
+        if (std::strcmp(key, "enabled") == 0) {
+            if (s7_is_boolean(value)) {
+                sight.enabled = s7_boolean(sc, value);
+            } else if (s7_is_integer(value)) {
+                sight.enabled = s7_integer(value) != 0;
+            } else {
+                return false;
+            }
+        } else if (std::strcmp(key, "range") == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            sight.range = static_cast<float>(s7_number_to_real(sc, value));
+        } else if (std::strcmp(key, "fov") == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            sight.fovDegrees = static_cast<float>(s7_number_to_real(sc, value));
+        } else if (std::strcmp(key, "eye-lift") == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            sight.eyeLift = static_cast<float>(s7_number_to_real(sc, value));
+        } else if (std::strcmp(key, "filter") == 0) {
+            if (value == s7_f(sc) || s7_is_null(sc, value)) {
+                sight.filterProc.clear();
+            } else if (s7_is_string(value)) {
+                sight.filterProc = s7_string(value);
+            } else if (s7_is_symbol(value)) {
+                sight.filterProc = s7_symbol_name(value);
+            } else {
+                return false;
+            }
+        } else if (std::strcmp(key, "see-tags") == 0) {
+            if (!readSightTagList(sc, value, sight.seeTags)) {
+                return false;
+            }
+        } else if (std::strcmp(key, "ignore-tags") == 0) {
+            if (!readSightTagList(sc, value, sight.ignoreTags)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+s7_pointer g_actor_sight_set(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-sight-set!", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest)) {
+        return s7_wrong_type_arg_error(sc, "actor-sight-set!", 2, rest, "alist");
+    }
+    flecs::entity entity = g_thingWorld->lookup(id);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    ActorSight sight = entity.has<ActorSight>() ? entity.get<ActorSight>() : ActorSight{};
+    if (!applySightAlist(sc, s7_car(rest), sight)) {
+        return s7_wrong_type_arg_error(
+            sc,
+            "actor-sight-set!",
+            2,
+            s7_car(rest),
+            "alist with enabled/range/fov/eye-lift/see-tags/ignore-tags/filter");
+    }
+    entity.set<ActorSight>(std::move(sight));
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_sight_get(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-sight-get", 1, args, "id string");
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<ActorSight>()) {
+        return s7_f(sc);
+    }
+    const ActorSight& sight = entity.get<ActorSight>();
+    s7_pointer enabledPair =
+        s7_cons(sc, s7_make_symbol(sc, "enabled"), sight.enabled ? s7_t(sc) : s7_f(sc));
+    s7_pointer rangePair =
+        s7_cons(sc, s7_make_symbol(sc, "range"), s7_make_real(sc, sight.range));
+    s7_pointer fovPair =
+        s7_cons(sc, s7_make_symbol(sc, "fov"), s7_make_real(sc, sight.fovDegrees));
+    s7_pointer eyePair =
+        s7_cons(sc, s7_make_symbol(sc, "eye-lift"), s7_make_real(sc, sight.eyeLift));
+    s7_pointer seePair =
+        s7_cons(sc, s7_make_symbol(sc, "see-tags"), stringListFromTags(sc, sight.seeTags));
+    s7_pointer ignorePair =
+        s7_cons(sc, s7_make_symbol(sc, "ignore-tags"), stringListFromTags(sc, sight.ignoreTags));
+    s7_pointer filterPair = s7_cons(
+        sc,
+        s7_make_symbol(sc, "filter"),
+        sight.filterProc.empty() ? s7_f(sc) : s7_make_string(sc, sight.filterProc.c_str()));
+    return s7_list(
+        sc, 7, enabledPair, rangePair, fovPair, eyePair, seePair, ignorePair, filterPair);
+}
+
+s7_pointer g_actor_can_see(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-can-see?", 1, args, "from-id string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "actor-can-see?", 2, rest, "to-id string");
+    }
+    return actorCanSee(*g_thingWorld, s7_string(s7_car(args)), s7_string(s7_car(rest)))
+        ? s7_t(sc)
+        : s7_f(sc);
+}
+
+s7_pointer g_sight_budget(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !g_thingWorld->has<SightScanState>()) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, g_thingWorld->get<SightScanState>().maxLosPerFrame);
+}
+
+s7_pointer g_sight_budget_set(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "sight-budget-set!", 1, args, "integer");
+    }
+    if (!g_thingWorld->has<SightScanState>()) {
+        g_thingWorld->set<SightScanState>(SightScanState{});
+    }
+    SightScanState& state = g_thingWorld->get_mut<SightScanState>();
+    state.maxLosPerFrame = static_cast<int>(s7_integer(s7_car(args)));
+    if (state.maxLosPerFrame < 0) {
+        state.maxLosPerFrame = 0;
+    }
+    return s7_t(sc);
+}
+
 s7_pointer g_thing_type(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1392,6 +1605,118 @@ s7_pointer g_thing_def_behavior(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->behavior.c_str());
 }
 
+s7_pointer g_thing_def_melee_damage(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-damage", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->meleeDamage));
+}
+
+s7_pointer g_thing_def_melee_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->meleeRange));
+}
+
+s7_pointer g_thing_def_melee_cooldown(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-cooldown", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->meleeCooldown));
+}
+
+s7_pointer g_thing_def_melee_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-melee-anim", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMelee || def->meleeAnim.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, def->meleeAnim.c_str());
+}
+
+s7_pointer g_thing_def_ranged_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedRange));
+}
+
+s7_pointer g_thing_def_ranged_min_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-min-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedMinRange));
+}
+
+s7_pointer g_thing_def_ranged_cooldown(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-cooldown", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedCooldown));
+}
+
+s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-anim", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged || def->rangedAnim.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, def->rangedAnim.c_str());
+}
+
 void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     g_thingWorld = &world;
     if (!world.has<ThingDespawnQueue>()) {
@@ -1433,12 +1758,76 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(thing-def-behavior type)");
     s7_define_function(
         scheme,
+        "thing-def-melee-damage",
+        g_thing_def_melee_damage,
+        1,
+        0,
+        false,
+        "(thing-def-melee-damage type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-range",
+        g_thing_def_melee_range,
+        1,
+        0,
+        false,
+        "(thing-def-melee-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-cooldown",
+        g_thing_def_melee_cooldown,
+        1,
+        0,
+        false,
+        "(thing-def-melee-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-melee-anim",
+        g_thing_def_melee_anim,
+        1,
+        0,
+        false,
+        "(thing-def-melee-anim type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-range",
+        g_thing_def_ranged_range,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-min-range",
+        g_thing_def_ranged_min_range,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-min-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-cooldown",
+        g_thing_def_ranged_cooldown,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-anim",
+        g_thing_def_ranged_anim,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-anim type)");
+    s7_define_function(
+        scheme,
         "motored-spawn",
         g_motored_spawn,
         9,
-        4,
+        5,
         false,
-        "(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact])");
+        "(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore])");
     s7_define_function(
         scheme,
         "sprite-spawn",
@@ -1531,6 +1920,21 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(pvs-can-see x0 y0 z0 x1 y1 z1)");
     s7_define_function(
         scheme, "actor-los?", g_actor_los, 2, 0, false, "(actor-los? from-id to-id)");
+    s7_define_function(
+        scheme,
+        "actor-sight-set!",
+        g_actor_sight_set,
+        2,
+        0,
+        false,
+        "(actor-sight-set! id alist)");
+    s7_define_function(
+        scheme, "actor-sight-get", g_actor_sight_get, 1, 0, false, "(actor-sight-get id)");
+    s7_define_function(
+        scheme, "actor-can-see?", g_actor_can_see, 2, 0, false, "(actor-can-see? from-id to-id)");
+    s7_define_function(scheme, "sight-budget", g_sight_budget, 0, 0, false, "(sight-budget)");
+    s7_define_function(
+        scheme, "sight-budget-set!", g_sight_budget_set, 1, 0, false, "(sight-budget-set! n)");
     s7_define_function(
         scheme,
         "hitscan-actors",

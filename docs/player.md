@@ -87,6 +87,9 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 | (player-wish-speed) | hypot(wishX, wishZ) from CharacterMotor (move intent). |
 | (player-eye) | List (x y z) of the raw Lens eye position, or #f if no player. |
 | (player-look-dir) | List (dx dy dz) unit look direction from Lens, or #f if no player. |
+| (player-eye-height) | Current eye height (motor or controller), or #f. |
+| (player-set-eye-height h) | Set eye height on CharacterMotor and FirstPersonController; updates Lens immediately. |
+| (player-set-control move? look?) | When move is false, wish stays zero; when look is false, mouse look is ignored. |
 | (fp-spawn-light socket kind [intensity range cone r g b x y z]) | Spawn a dynamic light under a socket (starts off). |
 | (fp-set-light-enabled socket enabled) | Toggle light intensity using the spawn-time on-intensity. |
 | (fp-set-rad-tint enabled) | Tint viewmodels from a baked rad probe at the feet (plus dynamic lights). Off by default. |
@@ -140,6 +143,8 @@ When rad tint is on, the FP pass samples baked light from the player feet (avera
 | moveSpeed | 6 | Used when there is no CharacterMotor. |
 | lookSensitivity | 0.003 | Scales mouse delta into yaw / pitch. |
 | eyeHeight | 1.7 | Camera height when not physics-driven. |
+| allowMove | true | When false, move input does not write wish / free-move. |
+| allowLook | true | When false, mouse delta does not update yaw / pitch. |
 
 ### CharacterMotor
 

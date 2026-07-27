@@ -175,6 +175,7 @@ Sibling of the .spr at the same virtual path:
 | (tween all\|rot\|scale\|translate ...) | Per-hold: interpolate effective pose (base + anim-*) toward the next hold for the listed channels (all = rot + scale + translate) |
 | (sound "path" [volume]) | On hold enter, play a raw clip from sound/ (see [Audio](audio.md)). Optional volume defaults to 1.0. |
 | (hint "name") | On hold enter, call Scheme (on-sprite-hint source name) if defined. Repeatable on one hold. |
+| (overlay LAYER "sprite" "clip" X Y) | On hold enter, spawn or replace a layered sprite on the host (see [Overlays](#overlays)). Repeatable on one hold. |
 
 Legacy clip-level (tween 0|1) expands to tween-all on every frame in that clip. A bare offset token inside (tween ...) is ignored (offset is not tweenable).
 
@@ -194,6 +195,29 @@ Frame ids must exist in the paired .spr. Missing banks or clips leave the instan
 | name | The string from (hint "..."). |
 
 Multiple (hint ...) forms on one hold each fire once, in order. Holds skipped in a single dt still fire (same as sounds). Packages own what a name means (hitscan, spawn, muzzle flash, etc.).
+
+### Overlays
+
+`(overlay LAYER "sprite" "clip" X Y)` is a presentation cue on the same hold-enter path as sounds and hints. It spawns a child sprite entity on the animating host:
+
+| Arg | Meaning |
+|-----|---------|
+| LAYER | Signed draw order. Host/base is `0` (reserved; must not be used). Negative draws behind the host; positive in front. Re-entering the same layer replaces the previous overlay on that host. |
+| sprite | Virtual sprite path (own `.spr` / `.spanim`). |
+| clip | Clip to play on spawn. Uses that clip's authored `(loop …)` flag. |
+| X Y | Canvas-space offset relative to the host (same units as `.spr` translate). |
+
+First-person hosts (`ViewSprite`) get a child view sprite that inherits the host rest pose; screen pin is host canvas + host presentation offset + `(X, Y)`. World hosts get a child billboard with a local offset derived from `X Y` and texel size. Non-looping overlays despawn when their clip finishes. Sticky overlays (for example a scope) stay script-driven via `(fp-attach-sprite …)`.
+
+Example:
+
+```text
+(frame "B" 0.05
+  (sound "pistol/fire")
+  (hint "fire")
+  (overlay 1 "fx/muzzle" "flash" 48 -36))
+```
+
 ## World vs first-person
 
 The same .spr / .spanim assets can draw in two places. A world billboard is a SpriteInstance with WorldSpace (optional SpriteAnimator): a camera-facing quad whose rotation index comes from the camera versus facingYaw. A view / first-person sprite keeps SpriteInstance but adds ViewSprite (usually under ViewSpace) and draws as a screen-space overlay on the view canvas, typically with rot 0 because yaw sectors are for world facing.

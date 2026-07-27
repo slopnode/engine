@@ -27,7 +27,8 @@ std::unordered_map<std::string, std::string> g_inputTextBuffers;
 std::unordered_map<std::string, std::vector<char>> g_inputTextScratch;
 
 bool inMenuItemSlot() {
-    return g_uiSlot == PackageUiDrawSlot::FileMenu || g_uiSlot == PackageUiDrawSlot::PauseMenu;
+    return g_uiSlot == PackageUiDrawSlot::FileMenu || g_uiSlot == PackageUiDrawSlot::PauseMenu ||
+           g_uiSlot == PackageUiDrawSlot::DebugMenu;
 }
 
 bool contextContains(InputContext context) {
@@ -113,6 +114,24 @@ s7_pointer g_ui_menu_item(s7_scheme* sc, s7_pointer args) {
         enabled = s7_boolean(sc, s7_cadr(args));
     }
     return ImGui::MenuItem(s7_string(s7_car(args)), nullptr, false, enabled) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_ui_menu_check(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    if (!inMenuItemSlot()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "ui-menu-check", 1, s7_car(args), "string");
+    }
+    if (!s7_is_pair(s7_cdr(args)) || !s7_is_boolean(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "ui-menu-check", 2, s7_cadr(args), "boolean");
+    }
+    bool selected = s7_boolean(sc, s7_cadr(args));
+    ImGui::MenuItem(s7_string(s7_car(args)), nullptr, &selected, true);
+    return selected ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_selectable(s7_scheme* sc, s7_pointer args) {
@@ -322,6 +341,8 @@ void bindUiApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(
         scheme, "ui-menu-item", g_ui_menu_item, 1, 1, false, "(ui-menu-item label [enabled?])");
     s7_define_function(
+        scheme, "ui-menu-check", g_ui_menu_check, 2, 0, false, "(ui-menu-check label selected?)");
+    s7_define_function(
         scheme, "ui-selectable", g_ui_selectable, 1, 1, false, "(ui-selectable label [selected?])");
     s7_define_function(scheme, "ui-begin", g_ui_begin, 1, 0, false, "(ui-begin title)");
     s7_define_function(scheme, "ui-end", g_ui_end, 0, 0, false, "(ui-end)");
@@ -365,6 +386,12 @@ void callDrawFileMenu(flecs::world& world) {
 void callDrawPauseMenu(flecs::world& world) {
     setPackageUiDrawSlot(PackageUiDrawSlot::PauseMenu);
     callNamedHook(world, "draw-pause-menu");
+    setPackageUiDrawSlot(PackageUiDrawSlot::None);
+}
+
+void callDrawDebugMenu(flecs::world& world) {
+    setPackageUiDrawSlot(PackageUiDrawSlot::DebugMenu);
+    callNamedHook(world, "draw-debug-menu");
     setPackageUiDrawSlot(PackageUiDrawSlot::None);
 }
 

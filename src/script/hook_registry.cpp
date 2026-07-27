@@ -38,19 +38,28 @@ const char* kEngineHooks[] = {
     "draw-title",
     "draw-file-menu",
     "draw-pause-menu",
+    "draw-debug-menu",
     "draw-modals",
     "on-sprite-hint",
+    "on-sight",
+    "sight-filter",
 };
 
 void callOwnerThenContribs(s7_scheme* scheme, std::string_view name, s7_pointer args) {
-    const auto it = g_hooks.find(std::string(name));
+    const std::string nameStr(name);
+    const auto it = g_hooks.find(nameStr);
     if (it == g_hooks.end()) {
         return;
     }
     HookEntry& entry = it->second;
-    if (entry.owner != nullptr && s7_is_procedure(entry.owner)) {
+    s7_pointer owner = entry.owner;
+    const s7_pointer live = s7_name_to_value(scheme, nameStr.c_str());
+    if (s7_is_procedure(live)) {
+        owner = live;
+    }
+    if (owner != nullptr && s7_is_procedure(owner)) {
         ScriptRoleGuard roleGuard(PackageRole::Base);
-        s7_call(scheme, entry.owner, args);
+        s7_call(scheme, owner, args);
     }
     for (const HookContrib& contrib : entry.contribs) {
         if (contrib.proc != nullptr && s7_is_procedure(contrib.proc)) {
@@ -195,6 +204,52 @@ void callHook2String(
             2,
             s7_make_string(scheme, arg0.c_str()),
             s7_make_string(scheme, arg1.c_str())));
+}
+
+bool callHook2StringAllTruthy(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    ScriptScope scope) {
+    if (scheme == nullptr) {
+        return true;
+    }
+    const auto it = g_hooks.find(std::string(name));
+    if (it == g_hooks.end()) {
+        return true;
+    }
+    ScriptScopeGuard guard(scope);
+    const s7_pointer args = s7_list(
+        scheme,
+        2,
+        s7_make_string(scheme, arg0.c_str()),
+        s7_make_string(scheme, arg1.c_str()));
+    HookEntry& entry = it->second;
+    auto truthy = [scheme](s7_pointer result) -> bool {
+        if (result == nullptr) {
+            return false;
+        }
+        if (s7_is_boolean(result)) {
+            return s7_boolean(scheme, result);
+        }
+        return !s7_is_null(scheme, result) && result != s7_f(scheme);
+    };
+    if (entry.owner != nullptr && s7_is_procedure(entry.owner)) {
+        ScriptRoleGuard roleGuard(PackageRole::Base);
+        if (!truthy(s7_call(scheme, entry.owner, args))) {
+            return false;
+        }
+    }
+    for (const HookContrib& contrib : entry.contribs) {
+        if (contrib.proc != nullptr && s7_is_procedure(contrib.proc)) {
+            ScriptRoleGuard roleGuard(contrib.role);
+            if (!truthy(s7_call(scheme, contrib.proc, args))) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void bindHookApi(s7_scheme* scheme) {
