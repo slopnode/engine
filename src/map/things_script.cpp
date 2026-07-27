@@ -1,5 +1,7 @@
 #include "map/things_script.hpp"
 
+#include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
 #include "script/script_scope.hpp"
 
 #include <raylib.h>
@@ -76,6 +78,13 @@ s7_pointer g_id(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "id", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_type(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "type", 1, args, "catalog-id");
+    }
+    return makeTaggedList(sc, "type", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_at(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "at", 0, args, "x y z");
@@ -88,6 +97,13 @@ s7_pointer g_yaw(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "yaw", 1, args, "radians");
     }
     return makeTaggedList(sc, "yaw", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_pitch(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "pitch", 1, args, "radians");
+    }
+    return makeTaggedList(sc, "pitch", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
 s7_pointer g_angles(s7_scheme* sc, s7_pointer args) {
@@ -112,6 +128,13 @@ s7_pointer g_geo(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "geo", 1, args, "path");
     }
     return makeTaggedList(sc, "geo", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_brush(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "brush", 1, args, "brush-id");
+    }
+    return makeTaggedList(sc, "brush", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
 s7_pointer g_frame(s7_scheme* sc, s7_pointer args) {
@@ -142,7 +165,7 @@ s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-use", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-use", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-use", args);
 }
 
 s7_pointer g_pivot(s7_scheme* sc, s7_pointer args) {
@@ -227,6 +250,20 @@ s7_pointer g_block_mode(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "block-mode", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_push(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "push", 1, args, "full|horizontal|off");
+    }
+    return makeTaggedList(sc, "push", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_carry(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "carry", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "carry", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_on_crush(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-crush", 1, args, "handler");
@@ -245,14 +282,14 @@ s7_pointer g_on_enter(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-enter", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-enter", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-enter", args);
 }
 
 s7_pointer g_on_exit(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "on-exit", 1, args, "handler");
     }
-    return makeTaggedList(sc, "on-exit", s7_cons(sc, s7_car(args), s7_nil(sc)));
+    return makeTaggedList(sc, "on-exit", args);
 }
 
 s7_pointer g_trigger_size(s7_scheme* sc, s7_pointer args) {
@@ -275,6 +312,46 @@ s7_pointer g_tags(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_motor(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "motor", args);
+}
+
+s7_pointer g_sight(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "sight", args);
+}
+
+s7_pointer g_sight_fov(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "fov", 1, args, "value");
+    }
+    return makeTaggedList(sc, "fov", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sight_eye_lift(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "eye-lift", 1, args, "value");
+    }
+    return makeTaggedList(sc, "eye-lift", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sight_see_tags(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "see-tags", args);
+}
+
+s7_pointer g_sight_ignore_tags(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "ignore-tags", args);
+}
+
+s7_pointer g_sight_filter(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "filter", 1, args, "proc-name");
+    }
+    return makeTaggedList(sc, "filter", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sight_enabled(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "enabled", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "enabled", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
 s7_pointer g_motor_radius(s7_scheme* sc, s7_pointer args) {
@@ -435,6 +512,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
 
         if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.id);
+        } else if (std::strcmp(tag, "type") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.type);
         } else if (std::strcmp(tag, "at") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -445,6 +524,12 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             if (!out.haveAngles) {
                 out.angles.y = out.yaw;
             }
+        } else if (std::strcmp(tag, "pitch") == 0 && s7_is_pair(rest) && s7_is_number(s7_car(rest))) {
+            out.pitch = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            out.havePitch = true;
+            if (!out.haveAngles) {
+                out.angles.x = out.pitch;
+            }
         } else if (std::strcmp(tag, "angles") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -452,11 +537,17 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             out.haveAngles = readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.angles);
             if (out.haveAngles) {
                 out.yaw = out.angles.y;
+                if (!out.havePitch) {
+                    out.pitch = out.angles.x;
+                    out.havePitch = true;
+                }
             }
         } else if (std::strcmp(tag, "sprite") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.sprite);
         } else if (std::strcmp(tag, "geo") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.geo);
+        } else if (std::strcmp(tag, "brush") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.brush);
         } else if (std::strcmp(tag, "frame") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.frame);
         } else if (std::strcmp(tag, "anim") == 0 && s7_is_pair(rest)) {
@@ -475,7 +566,9 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(rest)) {
             out.havePrompt = readString(sc, s7_car(rest), out.prompt);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.onUse);
+            if (parseHandlerBinding(sc, rest, out.onUse)) {
+                mapHandlerRegistry().refineBinding(out.onUse, MapHandlerKind::Use);
+            }
         } else if (std::strcmp(tag, "pivot") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -525,14 +618,22 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                 readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.moverCollideCenter);
         } else if (std::strcmp(tag, "block-mode") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.moverBlockMode);
+        } else if (std::strcmp(tag, "push") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.moverPush);
+        } else if (std::strcmp(tag, "carry") == 0 && s7_is_pair(rest)) {
+            out.haveMoverSlide = readBool(sc, s7_car(rest), out.moverSlide);
         } else if (std::strcmp(tag, "on-crush") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.onCrush);
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.moverGroup);
         } else if (std::strcmp(tag, "on-enter") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.onEnter);
+            if (parseHandlerBinding(sc, rest, out.onEnter)) {
+                mapHandlerRegistry().refineBinding(out.onEnter, MapHandlerKind::Enter);
+            }
         } else if (std::strcmp(tag, "on-exit") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.onExit);
+            if (parseHandlerBinding(sc, rest, out.onExit)) {
+                mapHandlerRegistry().refineBinding(out.onExit, MapHandlerKind::Exit);
+            }
         } else if (std::strcmp(tag, "trigger-size") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -608,6 +709,73 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorStepHeight = value;
                 } else {
                     TraceLog(LOG_WARNING, "THING: unknown motor clause '%s'", motorTag);
+                    return false;
+                }
+            }
+        } else if (std::strcmp(tag, "sight") == 0) {
+            out.haveSight = true;
+            for (s7_pointer sightCursor = rest; s7_is_pair(sightCursor);
+                 sightCursor = s7_cdr(sightCursor)) {
+                s7_pointer sightClause = s7_car(sightCursor);
+                if (!s7_is_pair(sightClause) || !s7_is_symbol(s7_car(sightClause))) {
+                    TraceLog(LOG_WARNING, "THING: sight expected clause list");
+                    return false;
+                }
+                const char* sightTag = s7_symbol_name(s7_car(sightClause));
+                s7_pointer sightRest = s7_cdr(sightClause);
+                if (std::strcmp(sightTag, "see-tags") == 0) {
+                    out.sightSeeTags.clear();
+                    for (s7_pointer tagCursor = sightRest; s7_is_pair(tagCursor);
+                         tagCursor = s7_cdr(tagCursor)) {
+                        std::string tagValue;
+                        if (readString(sc, s7_car(tagCursor), tagValue) && !tagValue.empty()) {
+                            out.sightSeeTags.push_back(std::move(tagValue));
+                        }
+                    }
+                    continue;
+                }
+                if (std::strcmp(sightTag, "ignore-tags") == 0) {
+                    out.sightIgnoreTags.clear();
+                    for (s7_pointer tagCursor = sightRest; s7_is_pair(tagCursor);
+                         tagCursor = s7_cdr(tagCursor)) {
+                        std::string tagValue;
+                        if (readString(sc, s7_car(tagCursor), tagValue) && !tagValue.empty()) {
+                            out.sightIgnoreTags.push_back(std::move(tagValue));
+                        }
+                    }
+                    continue;
+                }
+                if (!s7_is_pair(sightRest)) {
+                    TraceLog(LOG_WARNING, "THING: malformed sight clause '%s'", sightTag);
+                    return false;
+                }
+                if (std::strcmp(sightTag, "filter") == 0) {
+                    if (!readString(sc, s7_car(sightRest), out.sightFilterProc)) {
+                        TraceLog(LOG_WARNING, "THING: sight filter must be a string");
+                        return false;
+                    }
+                    continue;
+                }
+                if (std::strcmp(sightTag, "enabled") == 0) {
+                    if (!readBool(sc, s7_car(sightRest), out.sightEnabled)) {
+                        TraceLog(LOG_WARNING, "THING: sight enabled must be bool");
+                        return false;
+                    }
+                    continue;
+                }
+                if (!s7_is_number(s7_car(sightRest))) {
+                    TraceLog(LOG_WARNING, "THING: unknown or malformed sight clause '%s'", sightTag);
+                    return false;
+                }
+                const float value = static_cast<float>(s7_number_to_real(sc, s7_car(sightRest)));
+                if (std::strcmp(sightTag, "range") == 0) {
+                    out.sightRange = value;
+                } else if (std::strcmp(sightTag, "fov") == 0) {
+                    out.sightFovDegrees = value;
+                } else if (std::strcmp(sightTag, "eye-lift") == 0) {
+                    out.sightEyeLift = value;
+                } else {
+                    TraceLog(LOG_WARNING, "THING: unknown sight clause '%s'", sightTag);
                     return false;
                 }
             }
@@ -724,6 +892,32 @@ s7_pointer g_usable(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "usable requires id and at", true);
 }
 
+s7_pointer g_pickup(s7_scheme* sc, s7_pointer args) {
+    Thing placement{};
+    placement.kind = ThingKind::Pickup;
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "pickup has invalid clauses")));
+    }
+    const bool hasSprite = !placement.sprite.empty();
+    const bool hasGeo = !placement.geo.empty();
+    if (hasSprite == hasGeo) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "pickup requires exactly one of sprite or geo")));
+    }
+    if (placement.onEnter.empty() && placement.onUse.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "pickup requires on-enter or on-use")));
+    }
+    return appendThing(sc, std::move(placement), "pickup requires id and at", true);
+}
+
 s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Actor;
@@ -736,6 +930,59 @@ s7_pointer g_actor(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "actor requires id and at", true);
 }
 
+s7_pointer g_thing(s7_scheme* sc, s7_pointer args) {
+    Thing probe{};
+    if (!parseThingClauses(sc, args, probe)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing has invalid clauses")));
+    }
+    if (probe.type.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing requires type")));
+    }
+    const ThingDef* def = thingDefRegistry().find(probe.type);
+    if (def == nullptr) {
+        const std::string msg = "thing unknown type '" + probe.type + "'";
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, msg.c_str())));
+    }
+    Thing placement{};
+    applyThingDef(*def, placement);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "thing has invalid clauses")));
+    }
+    placement.kind = def->kind;
+    if (placement.kind == ThingKind::Pickup) {
+        const bool hasSprite = !placement.sprite.empty();
+        const bool hasGeo = !placement.geo.empty();
+        if (hasSprite == hasGeo) {
+            return s7_error(
+                sc,
+                s7_make_symbol(sc, "thing-error"),
+                s7_list(
+                    sc,
+                    1,
+                    s7_make_string(sc, "pickup thing requires exactly one of sprite or geo")));
+        }
+        if (placement.onEnter.empty() && placement.onUse.empty()) {
+            return s7_error(
+                sc,
+                s7_make_symbol(sc, "thing-error"),
+                s7_list(sc, 1, s7_make_string(sc, "pickup thing requires on-enter or on-use")));
+        }
+    }
+    return appendThing(sc, std::move(placement), "thing requires id and at", true);
+}
+
 s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
     Thing placement{};
     placement.kind = ThingKind::Mover;
@@ -745,11 +992,18 @@ s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "mover has invalid clauses")));
     }
-    if (!placement.haveMoverCollideSize) {
+    const bool hasBrush = !placement.brush.empty();
+    if (hasBrush && (!placement.geo.empty() || !placement.sprite.empty())) {
         return s7_error(
             sc,
             s7_make_symbol(sc, "thing-error"),
-            s7_list(sc, 1, s7_make_string(sc, "mover requires collide-size")));
+            s7_list(sc, 1, s7_make_string(sc, "mover brush cannot combine with geo or sprite")));
+    }
+    if (!hasBrush && !placement.haveMoverCollideSize) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "mover requires collide-size or brush")));
     }
     if (!placement.haveMoverOpenOffset && !placement.haveMoverOpenAngle) {
         return s7_error(
@@ -757,7 +1011,11 @@ s7_pointer g_mover(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "mover requires open-offset or open-pitch/yaw/roll")));
     }
-    return appendThing(sc, std::move(placement), "mover requires id and at", true);
+    return appendThing(
+        sc,
+        std::move(placement),
+        "mover requires id and at (or brush)",
+        !hasBrush);
 }
 
 s7_pointer g_trigger(s7_scheme* sc, s7_pointer args) {
@@ -822,6 +1080,18 @@ s7_pointer g_sun(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "sun requires id", false);
 }
 
+s7_pointer g_ambient_light(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultLightThing(ThingKind::AmbientLight);
+    placement.color = {0.08f, 0.08f, 0.09f};
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "ambient-light has invalid clauses")));
+    }
+    return appendThing(sc, std::move(placement), "ambient-light requires id", false);
+}
+
 s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultSoundSourceThing();
     if (!parseThingClauses(sc, args, placement)) {
@@ -837,6 +1107,17 @@ s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "sound-source requires audio or clip")));
     }
     return appendThing(sc, std::move(placement), "sound-source requires id and at", true);
+}
+
+s7_pointer g_marker(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultMarkerThing();
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "marker has invalid clauses")));
+    }
+    return appendThing(sc, std::move(placement), "marker requires id and at", true);
 }
 
 s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
@@ -883,15 +1164,18 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
 
 void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
+    s7_define_function(sc, "type", g_type, 1, 0, false, "(type catalog-id)");
     s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
     s7_define_function(sc, "yaw", g_yaw, 1, 0, false, "(yaw radians)");
+    s7_define_function(sc, "pitch", g_pitch, 1, 0, false, "(pitch radians)");
     s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
     s7_define_function(sc, "sprite", g_sprite, 1, 0, false, "(sprite path)");
     s7_define_function(sc, "geo", g_geo, 1, 0, false, "(geo path)");
+    s7_define_function(sc, "brush", g_brush, 1, 0, false, "(brush brush-id)");
     s7_define_function(sc, "frame", g_frame, 1, 0, false, "(frame id)");
     s7_define_function(sc, "anim", g_anim, 1, 1, false, "(anim clip [loop])");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt text)");
-    s7_define_function(sc, "on-use", g_on_use, 1, 0, false, "(on-use handler)");
+    s7_define_function(sc, "on-use", g_on_use, 1, 0, true, "(on-use handler arg-clause...)");
     s7_define_function(sc, "pivot", g_pivot, 3, 0, false, "(pivot x y z)");
     s7_define_function(sc, "open-offset", g_open_offset, 3, 0, false, "(open-offset dx dy dz)");
     s7_define_function(sc, "open-pitch", g_open_pitch, 1, 0, false, "(open-pitch radians)");
@@ -902,10 +1186,12 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "collide-size", g_collide_size, 3, 0, false, "(collide-size w h d)");
     s7_define_function(sc, "collide-center", g_collide_center, 3, 0, false, "(collide-center x y z)");
     s7_define_function(sc, "block-mode", g_block_mode, 1, 0, false, "(block-mode shove|crush)");
+    s7_define_function(sc, "push", g_push, 1, 0, false, "(push full|horizontal|off)");
+    s7_define_function(sc, "carry", g_carry, 1, 0, false, "(carry bool)");
     s7_define_function(sc, "on-crush", g_on_crush, 1, 0, false, "(on-crush handler)");
     s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
-    s7_define_function(sc, "on-enter", g_on_enter, 1, 0, false, "(on-enter handler)");
-    s7_define_function(sc, "on-exit", g_on_exit, 1, 0, false, "(on-exit handler)");
+    s7_define_function(sc, "on-enter", g_on_enter, 1, 0, true, "(on-enter handler arg-clause...)");
+    s7_define_function(sc, "on-exit", g_on_exit, 1, 0, true, "(on-exit handler arg-clause...)");
     s7_define_function(sc, "trigger-size", g_trigger_size, 3, 0, false, "(trigger-size w h d)");
     s7_define_function(sc, "collide-tags", g_collide_tags, 0, 0, true, "(collide-tags values...)");
     s7_define_function(sc, "tags", g_tags, 0, 0, true, "(tags values...)");
@@ -921,6 +1207,14 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_variable(sc, "box", s7_make_symbol(sc, "box"));
     s7_define_variable(sc, "slide", s7_make_symbol(sc, "slide"));
     s7_define_variable(sc, "try-move", s7_make_symbol(sc, "try-move"));
+    s7_define_function(sc, "sight", g_sight, 0, 0, true, "(sight clauses...)");
+    s7_define_function(sc, "fov", g_sight_fov, 1, 0, false, "(fov degrees)");
+    s7_define_function(sc, "eye-lift", g_sight_eye_lift, 1, 0, false, "(eye-lift fraction)");
+    s7_define_function(sc, "see-tags", g_sight_see_tags, 0, 0, true, "(see-tags values...)");
+    s7_define_function(
+        sc, "ignore-tags", g_sight_ignore_tags, 0, 0, true, "(ignore-tags values...)");
+    s7_define_function(sc, "filter", g_sight_filter, 1, 0, false, "(filter proc-name)");
+    s7_define_function(sc, "enabled", g_sight_enabled, 1, 0, false, "(enabled bool)");
     s7_define_function(sc, "color", g_color, 3, 0, false, "(color r g b)");
     s7_define_function(sc, "intensity", g_intensity, 1, 0, false, "(intensity value)");
     s7_define_function(sc, "range", g_range, 1, 0, false, "(range value)");
@@ -936,15 +1230,20 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
     s7_define_function(sc, "prop", g_prop, 0, 0, true, "(prop clauses...)");
     s7_define_function(sc, "usable", g_usable, 0, 0, true, "(usable clauses...)");
+    s7_define_function(sc, "pickup", g_pickup, 0, 0, true, "(pickup clauses...)");
     s7_define_function(sc, "actor", g_actor, 0, 0, true, "(actor clauses...)");
+    s7_define_function(sc, "thing", g_thing, 0, 0, true, "(thing clauses...)");
     s7_define_function(sc, "mover", g_mover, 0, 0, true, "(mover clauses...)");
     s7_define_function(sc, "trigger", g_trigger, 0, 0, true, "(trigger clauses...)");
     s7_define_function(sc, "point-light", g_point_light, 0, 0, true, "(point-light clauses...)");
     s7_define_function(sc, "spot-light", g_spot_light, 0, 0, true, "(spot-light clauses...)");
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
+    s7_define_function(sc, "ambient-light", g_ambient_light, 0, 0, true, "(ambient-light clauses...)");
     s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
+    s7_define_function(sc, "marker", g_marker, 0, 0, true, "(marker clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
+    bindMapHandlerArgClauses(sc);
 }
 
 std::optional<ThingDocument> evaluateThings(

@@ -419,6 +419,7 @@ void bindDynamicLightShadowMaps(
     glBindTexture(GL_TEXTURE_2D_ARRAY, shadowState.depthArrayId);
     rlSetUniform(bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT, 1);
     rlActiveTextureSlot(0);
+    rlDisableShader();
 }
 
 }

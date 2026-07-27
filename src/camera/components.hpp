@@ -40,6 +40,8 @@ struct FirstPersonController {
     float moveSpeed = 6.0f;
     float lookSensitivity = 0.003f;
     float eyeHeight = 1.7f;
+    bool allowMove = true;
+    bool allowLook = true;
 };
 
 /** Package-written view-space eye offset (meters). Applied only to presentation camera.

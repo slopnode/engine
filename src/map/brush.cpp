@@ -388,6 +388,7 @@ const char* brushRoleName(BrushRole role) {
     switch (role) {
     case BrushRole::Hull: return "hull";
     case BrushRole::Detail: return "detail";
+    case BrushRole::Door: return "door";
     case BrushRole::Hint: return "hint";
     case BrushRole::Trigger: return "trigger";
     case BrushRole::Water: return "water";
@@ -403,6 +404,10 @@ bool parseBrushRoleName(std::string_view name, BrushRole& out) {
     }
     if (name == "detail") {
         out = BrushRole::Detail;
+        return true;
+    }
+    if (name == "door") {
+        out = BrushRole::Door;
         return true;
     }
     if (name == "hint") {
@@ -424,6 +429,34 @@ bool parseBrushRoleName(std::string_view name, BrushRole& out) {
     return false;
 }
 
+const char* doorMotionName(DoorMotion motion) {
+    switch (motion) {
+    case DoorMotion::Raise:
+        return "raise";
+    case DoorMotion::Slide:
+        return "slide";
+    case DoorMotion::Swing:
+        return "swing";
+    }
+    return "raise";
+}
+
+bool parseDoorMotionName(std::string_view name, DoorMotion& out) {
+    if (name == "raise") {
+        out = DoorMotion::Raise;
+        return true;
+    }
+    if (name == "slide") {
+        out = DoorMotion::Slide;
+        return true;
+    }
+    if (name == "swing") {
+        out = DoorMotion::Swing;
+        return true;
+    }
+    return false;
+}
+
 bool brushRoleContributesSplits(BrushRole role) {
     switch (role) {
     case BrushRole::Hull:
@@ -432,6 +465,7 @@ bool brushRoleContributesSplits(BrushRole role) {
     case BrushRole::Hint:
         return true;
     case BrushRole::Detail:
+    case BrushRole::Door:
     case BrushRole::Trigger:
         return false;
     }
@@ -446,6 +480,7 @@ bool brushRoleEmitsVisFaces(BrushRole role) {
     switch (role) {
     case BrushRole::Hull:
     case BrushRole::Detail:
+    case BrushRole::Door:
     case BrushRole::Water:
     case BrushRole::Window:
         return true;
@@ -464,6 +499,7 @@ bool brushRoleDefaultNocollide(BrushRole role) {
         return true;
     case BrushRole::Hull:
     case BrushRole::Detail:
+    case BrushRole::Door:
     case BrushRole::Window:
         return false;
     }
@@ -473,6 +509,7 @@ bool brushRoleDefaultNocollide(BrushRole role) {
 bool brushRoleNeedsInteriorPlacement(BrushRole role) {
     switch (role) {
     case BrushRole::Detail:
+    case BrushRole::Door:
     case BrushRole::Hint:
     case BrushRole::Trigger:
     case BrushRole::Water:
@@ -525,6 +562,8 @@ Brush makeBrushBox(
             face.uvLock = overrideFace.uvLock;
             face.uvUAxis = overrideFace.uvUAxis;
             face.uvVAxis = overrideFace.uvVAxis;
+            face.onUse = overrideFace.onUse;
+            face.onTouch = overrideFace.onTouch;
             break;
         }
         ensureFaceUvAxes(face);
@@ -821,13 +860,13 @@ std::optional<Brush> makeBrushCylinder(
     bottom.id = id + "/bottom";
     bottom.material = material;
     bottom.vertices = ringBottom;
-    std::reverse(bottom.vertices.begin(), bottom.vertices.end());
     faces.push_back(std::move(bottom));
 
     BrushFace top;
     top.id = id + "/top";
     top.material = material;
     top.vertices = ringTop;
+    std::reverse(top.vertices.begin(), top.vertices.end());
     faces.push_back(std::move(top));
 
     for (int i = 0; i < sides; ++i) {
@@ -836,10 +875,10 @@ std::optional<Brush> makeBrushCylinder(
         side.id = id + "/side-" + std::to_string(i);
         side.material = material;
         side.vertices = {
-            ringBottom[static_cast<std::size_t>(i)],
             ringBottom[static_cast<std::size_t>(next)],
-            ringTop[static_cast<std::size_t>(next)],
+            ringBottom[static_cast<std::size_t>(i)],
             ringTop[static_cast<std::size_t>(i)],
+            ringTop[static_cast<std::size_t>(next)],
         };
         faces.push_back(std::move(side));
     }

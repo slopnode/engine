@@ -1,42 +1,30 @@
 name: Docs
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  publish:
-    if: ${{ !forge.event.repository.private }}
-    runs-on: codeberg-small
+  docs:
+    runs-on: bryan
+    container:
+      image: git.slopnode.net/containers/engine-linux-builder:latest
     steps:
-      - name: Build and publish documentation
-        env:
-          FORGE_TOKEN: ${{ forge.token }}
-          SITE_URL: https://${{ forge.repository_owner }}.codeberg.page/engine/
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build documentation
         run: |
           set -eux
-          export DEBIAN_FRONTEND=noninteractive
-          if [ "$(id -u)" -eq 0 ]; then
-            APT="apt-get"
-          else
-            APT="sudo apt-get"
-          fi
-          $APT update
-          $APT install -y --no-install-recommends \
-            ca-certificates curl git build-essential cmake doxygen
-
-          git clone --depth 1 --branch "${{ forge.ref_name }}" \
-            "${{ forge.server_url }}/${{ forge.repository }}.git" src
-          cd src
-
           cmake -S . -B build -DSLOPENGINE_DOCS_ONLY=ON
           cmake --build build --target docs
 
-          curl -fsSL -o /tmp/git-pages-cli \
-            https://codeberg.org/git-pages/git-pages-cli/releases/download/v1.10.0/git-pages-cli.linux-amd64
-          chmod +x /tmp/git-pages-cli
-          /tmp/git-pages-cli "${SITE_URL}" \
-            --token="${FORGE_TOKEN}" \
-            --upload-dir=build/docs/html \
-            --parents \
-            --server=codeberg.page
+      - name: Name artifact
+        id: artifact
+        run: echo "name=doxygen-engine-$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: build/docs/html
+          retention-days: 7

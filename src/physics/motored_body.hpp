@@ -15,6 +15,7 @@ struct MotoredBody {
     float lifetime = 8.0f;
     float age = 0.0f;
     std::string onImpact;
+    std::string ignoreId;
 };
 
 struct SphereCastHit {

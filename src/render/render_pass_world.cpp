@@ -9,8 +9,10 @@
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
 #include "render/animation_player.hpp"
+#include "render/components.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
+#include "physics/rigid_mover.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/render_debug.hpp"
 #include "render/sprite_animator.hpp"
@@ -74,7 +76,8 @@ void renderWorldModel(
     flecs::entity entity,
     Model3D& model,
     GlobalTransformation& globalTransform,
-    const Lens& lens) {
+    const Lens& lens,
+    bool unlit) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
@@ -82,6 +85,7 @@ void renderWorldModel(
     std::vector<Shader> previousShaders;
     bool swappedPropShader = false;
     const MapLightmapState* mapLightmaps = nullptr;
+    const int mapUseLightmap = unlit ? 0 : 1;
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
@@ -91,7 +95,7 @@ void renderWorldModel(
                 prepareLightmapShaderDraw(
                     shader,
                     lightmaps.useLightmapLoc,
-                    1,
+                    mapUseLightmap,
                     globalTransform.matrix,
                     world);
             }
@@ -141,11 +145,10 @@ void renderWorldModel(
             model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
         }
         if (mapLightmaps != nullptr && mapLightmaps->useLightmapLoc >= 0) {
-            const int useLightmap = 1;
             SetShaderValue(
                 mapLightmaps->lightmapShader,
                 mapLightmaps->useLightmapLoc,
-                &useLightmap,
+                &mapUseLightmap,
                 SHADER_UNIFORM_INT);
         }
     }
@@ -513,16 +516,28 @@ void drawWorldModels(
             if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
                 return;
             }
+            const Matrix* closedMatrix = nullptr;
+            Matrix closedMatrixStorage{};
+            if (modelEntity.has<RigidMover>()) {
+                Vector3 scale{1.0f, 1.0f, 1.0f};
+                if (modelEntity.has<LocalTransformation>()) {
+                    scale = modelEntity.get<LocalTransformation>().scale;
+                }
+                closedMatrixStorage =
+                    moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
+                closedMatrix = &closedMatrixStorage;
+            }
             if (mapLightmapState(world) != nullptr) {
-                model.color =
-                    sampleBakeTintColorForModel(world, model.model, global.matrix, unlit);
+                model.color = sampleBakeTintColorForModel(
+                    world, model.model, global.matrix, unlit, closedMatrix);
             } else {
-                model.color =
-                    sampleReceiverTintColorForModel(world, model.model, global.matrix, unlit);
+                model.color = sampleReceiverTintColorForModel(
+                    world, model.model, global.matrix, unlit, closedMatrix);
             }
         }
-        renderWorldModel(modelEntity, model, global, lens);
+        renderWorldModel(modelEntity, model, global, lens, unlit);
     });
+    rlDisableShader();
     context.animOverlayQuery.each(
         [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
             if (!modelEntity.has<MapLightmapState>()) {
@@ -572,6 +587,7 @@ std::string drawWorldSprites(
         const GlobalTransformation* global = nullptr;
         const SpriteAnimator* animator = nullptr;
         float distSq = 0.0f;
+        int layer = 0;
     };
     std::vector<SpriteDrawItem> spriteDrawList;
     spriteDrawList.reserve(32);
@@ -602,15 +618,20 @@ std::string drawWorldSprites(
                 spriteEntity.has<SpriteAnimator>() ? &spriteEntity.get<SpriteAnimator>()
                                                    : nullptr,
                 dx * dx + dy * dy + dz * dz,
+                spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
             });
         });
     std::sort(
         spriteDrawList.begin(),
         spriteDrawList.end(),
         [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
-            return a.distSq > b.distSq;
+            if (std::fabs(a.distSq - b.distSq) > 1.0e-3f) {
+                return a.distSq > b.distSq;
+            }
+            return a.layer < b.layer;
         });
 
+    rlDisableShader();
     BeginBlendMode(BLEND_ALPHA);
     rlDisableDepthMask();
     for (const SpriteDrawItem& item : spriteDrawList) {

@@ -1,0 +1,4 @@
+(material
+  (shader "default")
+  (sky)
+  (base-color 0.4 0.7 1.0 1.0))

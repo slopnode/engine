@@ -27,6 +27,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "slopbsp: failed to init scheme\n";
         return 1;
     }
+    loadPackageMapHandlers(scheme, assets);
 
     auto brushes = loadMapBrushes(scheme, assets, *config->map);
     if (!brushes) {

@@ -118,30 +118,77 @@ bool PunchTool::projectToFaceUV(Vector3 world, float& outU, float& outV) const {
 void PunchTool::beginFromSelection(Editor& editor) {
     reset();
     EditorDocument& d = editor.doc();
-    FaceRef face = d.activeFace;
-    if (!face.valid() && !d.selectedFaces.empty()) {
-        face = d.selectedFaces.back();
+
+    int brushIdx = -1;
+    if (d.selectionMode == SelectionMode::Brush) {
+        if (d.activeBrush >= 0 && d.activeBrush < static_cast<int>(d.brushes.size())) {
+            brushIdx = d.activeBrush;
+        } else if (!d.selectedBrushes.empty()) {
+            brushIdx = d.selectedBrushes.back();
+        }
     }
-    if (!face.valid()) {
-        editor.statusMessage = "Punch-out: select a face first (Face selection mode)";
+    if (brushIdx < 0) {
+        FaceRef face = d.activeFace;
+        if (!face.valid() && !d.selectedFaces.empty()) {
+            face = d.selectedFaces.back();
+        }
+        if (face.valid()) {
+            brushIdx = face.brush;
+        }
+    }
+    if (brushIdx < 0 || brushIdx >= static_cast<int>(d.brushes.size())) {
+        editor.statusMessage = "Punch-out: select a box brush first";
         return;
     }
-    if (face.brush < 0 || face.brush >= static_cast<int>(d.brushes.size())) {
-        editor.statusMessage = "Punch-out: invalid face";
-        return;
-    }
-    const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(face.brush)];
+
+    const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(brushIdx)];
     if (!brush.box) {
         editor.statusMessage = "Punch-out: only box brushes supported";
         return;
     }
-    if (face.face < 0 || face.face >= static_cast<int>(brush.faces.size())) {
-        editor.statusMessage = "Punch-out: invalid face";
+
+    int faceIdx = -1;
+    if (d.activeFace.valid() && d.activeFace.brush == brushIdx &&
+        d.activeFace.face >= 0 &&
+        d.activeFace.face < static_cast<int>(brush.faces.size())) {
+        faceIdx = d.activeFace.face;
+    } else {
+        const Vector3 eye = editor.camera.toRaylib().position;
+        const Vector3 center = {
+            (brush.mins.x + brush.maxs.x) * 0.5f,
+            (brush.mins.y + brush.maxs.y) * 0.5f,
+            (brush.mins.z + brush.maxs.z) * 0.5f,
+        };
+        Vector3 toEye = {
+            eye.x - center.x,
+            eye.y - center.y,
+            eye.z - center.z,
+        };
+        const float len = std::sqrt(toEye.x * toEye.x + toEye.y * toEye.y + toEye.z * toEye.z);
+        if (len > 1e-6f) {
+            toEye.x /= len;
+            toEye.y /= len;
+            toEye.z /= len;
+        }
+        float bestDot = -2.0f;
+        for (int i = 0; i < static_cast<int>(brush.faces.size()); ++i) {
+            const Vector3& n = brush.faces[static_cast<std::size_t>(i)].normal;
+            const float dot = n.x * toEye.x + n.y * toEye.y + n.z * toEye.z;
+            if (dot > bestDot) {
+                bestDot = dot;
+                faceIdx = i;
+            }
+        }
+    }
+    if (faceIdx < 0) {
+        editor.statusMessage = "Punch-out: brush has no faces";
         return;
     }
 
+    const FaceRef face{brushIdx, faceIdx};
     brushIndex = face.brush;
-    faceSide = slopengine::brushBoxSideFromNormal(brush.faces[static_cast<std::size_t>(face.face)].normal);
+    faceSide = slopengine::brushBoxSideFromNormal(
+        brush.faces[static_cast<std::size_t>(face.face)].normal);
     const FaceAxes axes = axesForBoxSide(faceSide, brush.mins, brush.maxs);
     plane.origin = axes.origin;
     plane.normal = axes.normal;
@@ -151,8 +198,8 @@ void PunchTool::beginFromSelection(Editor& editor) {
     depth = maxDepth;
     phase = PunchPhase::DrawingRect;
     editor.mode = EditorMode::Select;
-    editor.setSelectionMode(SelectionMode::Face);
-    editor.selectFace(face, false);
+    editor.setSelectionMode(SelectionMode::Brush);
+    editor.selectBrush(brushIdx, false);
     editor.statusMessage = "Punch-out: drag opening on face";
 }
 
@@ -163,6 +210,7 @@ void PunchTool::commit(Editor& editor) {
         return;
     }
     const slopengine::Brush source = d.brushes[static_cast<std::size_t>(brushIndex)];
+    editor.prepareEdit();
     auto allocateId = [&]() { return editor.allocateBrushId(); };
     auto pieces = slopengine::punchOutBrushBox(
         source,
@@ -174,6 +222,7 @@ void PunchTool::commit(Editor& editor) {
         depth,
         allocateId);
     if (pieces.empty()) {
+        editor.abortEdit();
         editor.statusMessage = "Punch-out failed";
         reset();
         return;
@@ -189,6 +238,7 @@ void PunchTool::commit(Editor& editor) {
     editor.selectBrushes(created, created.back());
     editor.markDirty();
     editor.markBrushCompileDirty(role);
+    editor.endEdit();
     editor.statusMessage = "Punch-out created " + std::to_string(created.size()) + " brushes";
     editor.numericBuffer.clear();
     reset();

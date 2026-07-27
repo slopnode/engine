@@ -2,9 +2,11 @@
 
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "game/game_state.hpp"
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
+#include "interact/components.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/rigid_mover.hpp"
@@ -12,6 +14,7 @@
 #include "render/components.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
+#include "script/script_scope.hpp"
 #include "ui/ui_state.hpp"
 
 #include <raylib.h>
@@ -100,6 +103,52 @@ std::string entityIdString(flecs::entity entity) {
     return std::to_string(static_cast<std::uint64_t>(entity.id()));
 }
 
+bool pointInFacePolygon(const Vector3& point, const FaceUseSurface& surface) {
+    if (surface.vertices.size() < 3) {
+        return false;
+    }
+    const Vector3& v0 = surface.vertices[0];
+    for (std::size_t i = 1; i + 1 < surface.vertices.size(); ++i) {
+        const Vector3& v1 = surface.vertices[i];
+        const Vector3& v2 = surface.vertices[i + 1];
+        const Vector3 n = Vector3CrossProduct(Vector3Subtract(v1, v0), Vector3Subtract(v2, v0));
+        const Vector3 c0 = Vector3CrossProduct(Vector3Subtract(v1, v0), Vector3Subtract(point, v0));
+        const Vector3 c1 = Vector3CrossProduct(Vector3Subtract(v2, v1), Vector3Subtract(point, v1));
+        const Vector3 c2 = Vector3CrossProduct(Vector3Subtract(v0, v2), Vector3Subtract(point, v2));
+        if (Vector3DotProduct(n, c0) >= -1e-5f && Vector3DotProduct(n, c1) >= -1e-5f &&
+            Vector3DotProduct(n, c2) >= -1e-5f) {
+            return true;
+        }
+        if (Vector3DotProduct(n, c0) <= 1e-5f && Vector3DotProduct(n, c1) <= 1e-5f &&
+            Vector3DotProduct(n, c2) <= 1e-5f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool capsuleTouchesFace(
+    const Vector3& feet,
+    const CharacterMotor& motor,
+    const FaceUseSurface& surface,
+    float depth) {
+    if (surface.vertices.size() < 3 || Vector3Length(surface.normal) < 1e-6f) {
+        return false;
+    }
+    const float totalHeight = motor.height + 2.0f * motor.radius;
+    const Vector3 center = {
+        feet.x,
+        feet.y + totalHeight * 0.5f,
+        feet.z,
+    };
+    const float planeDist = Vector3DotProduct(Vector3Subtract(center, surface.vertices[0]), surface.normal);
+    if (std::fabs(planeDist) > depth + motor.radius) {
+        return false;
+    }
+    const Vector3 onPlane = Vector3Subtract(center, Vector3Scale(surface.normal, planeDist));
+    return pointInFacePolygon(onPlane, surface);
+}
+
 } // namespace
 
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
@@ -134,6 +183,12 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
             CharacterMotor& motor = camera.get_mut<CharacterMotor>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
+            if (!controller.allowMove) {
+                motor.wishX = 0.0f;
+                motor.wishZ = 0.0f;
+                return;
+            }
+
             InputState& input = it.world().get_mut<InputState>();
 
             const Vector3 forwardFlat =
@@ -165,6 +220,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 it.world().has<FramePerfStats>() ? &it.world().get_mut<FramePerfStats>() : nullptr;
             if (perf != nullptr) {
                 perf->physicsMs = 0.0f;
+            }
+
+            if (isSimulationPaused(it.world())) {
+                return;
             }
 
             if (!it.world().has<PhysicsContext>()) {
@@ -246,6 +305,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
             if (!world.has<ScriptContext>()) {
                 return;
             }
@@ -279,7 +341,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
                     if (volume.inside.find(otherId) == volume.inside.end() &&
                         !volume.onEnter.empty()) {
-                        tryCallSchemeProc2String(
+                        tryCallMapHandlerEnterExit(
                             scheme,
                             volume.onEnter,
                             thingId,
@@ -298,11 +360,63 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                     flecs::entity other = world.entity(previousId);
                     const std::string otherId = other.is_alive() ? entityIdString(other)
                                                                 : std::to_string(previousId);
-                    tryCallSchemeProc2String(
+                    tryCallMapHandlerEnterExit(
                         scheme, volume.onExit, thingId, otherId, ScriptScope::World);
                 }
 
                 volume.inside = std::move(currentlyInside);
+            });
+        });
+
+    world.system("UpdateFaceTouch")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (isSimulationPaused(world)) {
+                return;
+            }
+            if (!world.has<ScriptContext>()) {
+                return;
+            }
+            s7_scheme* scheme = world.get<ScriptContext>().scheme;
+
+            std::vector<TriggerCandidate> candidates;
+            world.each([&](flecs::entity entity, const CollisionTags& tags, const CharacterMotor& motor) {
+                TriggerCandidate candidate{};
+                candidate.entity = entity;
+                candidate.tags = tags.tags;
+                candidate.bounds = capsuleAabb(candidateFeet(entity, motor), motor);
+                candidates.push_back(std::move(candidate));
+            });
+
+            world.each([&](flecs::entity faceEntity, FaceTouch& touch, const FaceUseSurface& surface) {
+                if (touch.onTouch.empty()) {
+                    return;
+                }
+                const std::string faceId = entityIdString(faceEntity);
+                std::unordered_set<std::uint64_t> currentlyInside;
+                for (const TriggerCandidate& candidate : candidates) {
+                    if (!tagsIntersect({}, candidate.tags)) {
+                        continue;
+                    }
+                    const CharacterMotor& motor = candidate.entity.get<CharacterMotor>();
+                    const Vector3 feet = candidateFeet(candidate.entity, motor);
+                    if (!capsuleTouchesFace(feet, motor, surface, touch.depth)) {
+                        continue;
+                    }
+                    const std::uint64_t otherId =
+                        static_cast<std::uint64_t>(candidate.entity.id());
+                    currentlyInside.insert(otherId);
+                    if (touch.inside.find(otherId) == touch.inside.end()) {
+                        tryCallMapHandlerEnterExit(
+                            scheme,
+                            touch.onTouch,
+                            faceId,
+                            entityIdString(candidate.entity),
+                            ScriptScope::World);
+                    }
+                }
+                touch.inside = std::move(currentlyInside);
             });
         });
 

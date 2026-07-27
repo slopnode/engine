@@ -1,135 +1,154 @@
 #include "map/map_meta.hpp"
 
-#include <cctype>
-#include <charconv>
-#include <optional>
+#include "core/sexpr.hpp"
+
 #include <string>
 
 namespace slopengine {
 
 namespace {
 
-std::string_view trim(std::string_view value) {
-    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
-        value.remove_prefix(1);
-    }
-    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
-        value.remove_suffix(1);
-    }
-    return value;
-}
-
-std::optional<std::string> readQuoted(std::string_view text, std::size_t& cursor) {
-    while (cursor < text.size() && std::isspace(static_cast<unsigned char>(text[cursor]))) {
-        ++cursor;
-    }
-    if (cursor >= text.size() || text[cursor] != '"') {
-        return std::nullopt;
-    }
-    ++cursor;
-    const std::size_t start = cursor;
-    while (cursor < text.size() && text[cursor] != '"') {
-        ++cursor;
-    }
-    if (cursor >= text.size()) {
-        return std::nullopt;
-    }
-    std::string value{text.substr(start, cursor - start)};
-    ++cursor;
-    return value;
-}
-
-std::optional<std::string> readQuotedField(std::string_view line, std::string_view prefix) {
-    if (line.rfind(prefix, 0) != 0) {
-        return std::nullopt;
-    }
-    std::size_t cursor = prefix.size();
-    return readQuoted(line, cursor);
-}
-
-bool readFloats(std::string_view text, std::size_t count, float* out) {
-    std::string_view value = text;
-    for (std::size_t index = 0; index < count; ++index) {
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
-            value.remove_prefix(1);
-        }
-        if (value.empty()) {
-            return false;
-        }
-        float parsed = 0.0f;
-        const auto* begin = value.data();
-        const auto* end = value.data() + value.size();
-        const auto result = std::from_chars(begin, end, parsed);
-        if (result.ec != std::errc{} || result.ptr == begin) {
-            return false;
-        }
-        out[index] = parsed;
-        value.remove_prefix(static_cast<std::size_t>(result.ptr - begin));
-    }
-    return true;
-}
-
-bool readDepends(std::string_view line, std::vector<std::string>& out) {
-    constexpr std::string_view kPrefix = "(depends";
-    if (line.rfind(kPrefix, 0) != 0) {
+bool readStringField(const Sexpr& form, std::string& out) {
+    if (!form.isList() || form.list.size() != 2 || !form.list[1].isString()) {
         return false;
     }
-    std::size_t cursor = kPrefix.size();
-    while (cursor < line.size()) {
-        while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor]))) {
-            ++cursor;
-        }
-        if (cursor >= line.size() || line[cursor] == ')') {
-            break;
-        }
-        auto value = readQuoted(line, cursor);
-        if (!value) {
+    out = form.list[1].text;
+    return true;
+}
+
+bool readNumberField(const Sexpr& form, std::size_t count, float* out) {
+    if (!form.isList() || form.list.size() != count + 1) {
+        return false;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!form.list[i + 1].isNumber()) {
             return false;
         }
-        out.push_back(*value);
+        out[i] = static_cast<float>(form.list[i + 1].number);
     }
     return true;
+}
+
+bool applySunField(const Sexpr& form, MapSun& sun) {
+    if (!form.isList() || form.list.empty() || form.list[0].kind != SexprKind::Atom) {
+        return false;
+    }
+
+    const std::string& tag = form.list[0].text;
+    if (tag == "color") {
+        float rgb[3] = {1.0f, 1.0f, 1.0f};
+        if (!readNumberField(form, 3, rgb)) {
+            return false;
+        }
+        sun.color = {rgb[0], rgb[1], rgb[2]};
+        return true;
+    }
+    if (tag == "intensity") {
+        float intensity = 1.0f;
+        if (!readNumberField(form, 1, &intensity)) {
+            return false;
+        }
+        sun.intensity = intensity;
+        return true;
+    }
+    if (tag == "angles") {
+        float angles[3] = {0.0f, 0.0f, 0.0f};
+        if (!readNumberField(form, 3, angles)) {
+            return false;
+        }
+        sun.angles = {angles[0], angles[1], angles[2]};
+        return true;
+    }
+    if (tag == "yaw") {
+        float yaw = 0.0f;
+        if (!readNumberField(form, 1, &yaw)) {
+            return false;
+        }
+        sun.angles = {0.0f, yaw, 0.0f};
+        return true;
+    }
+    return false;
+}
+
+bool applySunForm(const Sexpr& form, MapSun& sun) {
+    if (!form.isList() || form.list.empty() || !form.list[0].isAtom("sun")) {
+        return false;
+    }
+    sun = {};
+    sun.enabled = true;
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        if (!applySunField(form.list[i], sun)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool applyMapField(const Sexpr& form, MapMeta& out) {
+    if (!form.isList() || form.list.empty() || form.list[0].kind != SexprKind::Atom) {
+        return false;
+    }
+
+    const std::string& tag = form.list[0].text;
+    if (tag == "id") {
+        return readStringField(form, out.id);
+    }
+    if (tag == "name") {
+        return readStringField(form, out.name);
+    }
+    if (tag == "author") {
+        return readStringField(form, out.author);
+    }
+    if (tag == "description") {
+        return readStringField(form, out.description);
+    }
+    if (tag == "package") {
+        std::string ignored;
+        return readStringField(form, ignored);
+    }
+    if (tag == "depends") {
+        out.depends.clear();
+        for (std::size_t i = 1; i < form.list.size(); ++i) {
+            if (!form.list[i].isString()) {
+                return false;
+            }
+            out.depends.push_back(form.list[i].text);
+        }
+        return true;
+    }
+    if (tag == "ambient") {
+        float rgb[3] = {0.02f, 0.02f, 0.025f};
+        if (!readNumberField(form, 3, rgb)) {
+            return false;
+        }
+        out.ambient = {rgb[0], rgb[1], rgb[2]};
+        return true;
+    }
+    if (tag == "sun") {
+        return applySunForm(form, out.sun);
+    }
+    return false;
 }
 
 } // namespace
 
 bool parseMapMeta(std::string_view source, MapMeta& out) {
     out = {};
-    std::size_t lineStart = 0;
-    while (lineStart <= source.size()) {
-        const std::size_t lineEnd = source.find('\n', lineStart);
-        const std::string_view line = trim(source.substr(
-            lineStart,
-            lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - lineStart));
-
-        if (lineEnd == std::string_view::npos && line.empty()) {
-            break;
-        }
-
-        if (auto id = readQuotedField(line, "(id ")) {
-            out.id = *id;
-        } else if (auto name = readQuotedField(line, "(name ")) {
-            out.name = *name;
-        } else if (readQuotedField(line, "(package ")) {
-            // Ignored: ownership comes from the package directory that contains the map.
-        } else if (line.rfind("(depends", 0) == 0) {
-            if (!readDepends(line, out.depends)) {
-                return false;
-            }
-        } else if (line.rfind("(ambient ", 0) == 0) {
-            float rgb[3] = {0.02f, 0.02f, 0.025f};
-            if (!readFloats(line.substr(std::string_view("(ambient ").size()), 3, rgb)) {
-                return false;
-            }
-            out.ambient = {rgb[0], rgb[1], rgb[2]};
-        }
-
-        if (lineEnd == std::string_view::npos) {
-            break;
-        }
-        lineStart = lineEnd + 1;
+    const SexprParseResult parsed = parseSexprs(source);
+    if (!parsed.ok) {
+        return false;
+    }
+    if (parsed.forms.size() != 1 || !parsed.forms[0].isList() || parsed.forms[0].list.empty() ||
+        !parsed.forms[0].list[0].isAtom("map")) {
+        return false;
     }
 
+    const Sexpr& root = parsed.forms[0];
+    for (std::size_t i = 1; i < root.list.size(); ++i) {
+        if (!applyMapField(root.list[i], out)) {
+            return false;
+        }
+    }
     return !out.id.empty();
 }
 

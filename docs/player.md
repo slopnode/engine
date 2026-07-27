@@ -61,7 +61,7 @@ View axes: +X screen-right, +Y up, +Z forward. Author viewmodels and offsets in 
 
 Raw vs presentation eye: Physics and look write the authoritative Lens (feet + eyeHeight + yaw/pitch). Aim and interact always use that raw Lens. Packages may set a view-space ViewEyeOffset via (fp-set-eye-offset x y z); world draw and ViewSpace light lifts use a presentation camera (raw eye + offset). The offset is never written back into Lens. Bob / punch / settle formulas stay package Scheme.
 
-After Player spawns, the engine calls (prepare-first-person "Player") if that procedure exists (loaded from scripts/player.s7). That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under ViewSpace are converted to world space at light-gather time via the presentation camera (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
+After Player spawns, the engine calls the owner `(prepare-first-person "Player")` from the base package's scripts/player.s7 (if defined), then any mod contribs registered with `(hook-add 'prepare-first-person proc)`. That hook is the usual place to sync sockets to initial game state (clear, attach geo, spawn lights, set tint flags). View models draw in a separate fixed-eye pass after the world. Dynamic lights under ViewSpace are converted to world space at light-gather time via the presentation camera (so a flashlight still lights the map without rotating the weapon stage). Details: [Lights](lights.md).
 
 ### Scheme API (engine primitives)
 
@@ -87,6 +87,9 @@ These bindings mutate presentation only (or read motion sensors). Keep authorita
 | (player-wish-speed) | hypot(wishX, wishZ) from CharacterMotor (move intent). |
 | (player-eye) | List (x y z) of the raw Lens eye position, or #f if no player. |
 | (player-look-dir) | List (dx dy dz) unit look direction from Lens, or #f if no player. |
+| (player-eye-height) | Current eye height (motor or controller), or #f. |
+| (player-set-eye-height h) | Set eye height on CharacterMotor and FirstPersonController; updates Lens immediately. |
+| (player-set-control move? look?) | When move is false, wish stays zero; when look is false, mouse look is ignored. |
 | (fp-spawn-light socket kind [intensity range cone r g b x y z]) | Spawn a dynamic light under a socket (starts off). |
 | (fp-set-light-enabled socket enabled) | Toggle light intensity using the spawn-time on-intensity. |
 | (fp-set-rad-tint enabled) | Tint viewmodels from a baked rad probe at the feet (plus dynamic lights). Off by default. |
@@ -105,7 +108,7 @@ Raise/lower, bob, kick, and similar presentation policies stay in package Scheme
 | (action-down? id) | #t while the bound action is held (gameplay context only). Works for package and core action ids. |
 | (action-pressed? id) | #t on the press edge this frame (gameplay context only). Works for package and core action ids. |
 
-Packages override virtual path player (scripts/player.s7) for presentation: attach geo or view sprites, spawn socket lights, enable rad tint / shading, and react to (on-action-*). Inventory and loadouts stay package-only and optional. See [Scripting](scripting.md).
+The base package owns scripts/player.s7 for presentation: attach geo or view sprites, spawn socket lights, enable rad tint / shading, and react to (on-action-*). Mods extend prepare-first-person / tick / draw-hud via `(hook-add ...)` in scripts/contrib.s7 rather than replacing player.s7. Inventory and loadouts stay package-only and optional. See [Scripting](scripting.md).
 
 ### Package actions
 
@@ -140,6 +143,8 @@ When rad tint is on, the FP pass samples baked light from the player feet (avera
 | moveSpeed | 6 | Used when there is no CharacterMotor. |
 | lookSensitivity | 0.003 | Scales mouse delta into yaw / pitch. |
 | eyeHeight | 1.7 | Camera height when not physics-driven. |
+| allowMove | true | When false, move input does not write wish / free-move. |
+| allowLook | true | When false, mouse delta does not update yaw / pitch. |
 
 ### CharacterMotor
 

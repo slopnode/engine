@@ -146,7 +146,8 @@ std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis) {
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
     float luxelsPerMeter,
-    int atlasSize) {
+    int atlasSize,
+    const std::vector<char>* skipFaces) {
     LightmapPackResult result;
     result.rad.luxelsPerMeter = luxelsPerMeter;
     atlasSize = std::max(2, atlasSize);
@@ -160,6 +161,10 @@ LightmapPackResult packLightmapCharts(
     pending.reserve(faces.size());
     constexpr float kLargeFaceMeters = 4.0f;
     for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
+        if (skipFaces != nullptr && static_cast<std::size_t>(faceIndex) < skipFaces->size()
+            && (*skipFaces)[static_cast<std::size_t>(faceIndex)] != 0) {
+            continue;
+        }
         const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
         Vector3 uAxis{};
         Vector3 vAxis{};
@@ -437,6 +442,7 @@ void bindLightmapDummyShadowMaps(Shader shader) {
     glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArrayId);
     rlSetUniform(loc, &unit, SHADER_UNIFORM_INT, 1);
     rlActiveTextureSlot(0);
+    rlDisableShader();
 }
 
 }

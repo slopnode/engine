@@ -1,5 +1,7 @@
 #pragma once
 
+#include "map/handler_binding.hpp"
+
 #include <raylib.h>
 
 #include <array>
@@ -26,10 +28,36 @@ enum class BrushBoxSide {
 enum class BrushRole {
     Hull,
     Detail,
+    Door,
     Hint,
     Trigger,
     Water,
     Window,
+};
+
+/** Engine door motion on a detail brush leaf. */
+enum class DoorMotion {
+    Raise,
+    Slide,
+    Swing,
+};
+
+/** Door motion/interact metadata when role is Door (spawns RigidMover at load). */
+struct BrushDoor {
+    DoorMotion motion = DoorMotion::Raise;
+    float duration = 0.6f;
+    bool haveDuration = false;
+    float autoClose = 0.0f;
+    bool haveAutoClose = false;
+    float angle = 1.5707963267948966f;
+    bool haveAngle = false;
+    float travel = 0.0f;
+    bool haveTravel = false;
+    std::string hingeThingId;
+    std::string group;
+    std::string prompt = "Open";
+    bool havePrompt = false;
+    HandlerBinding canUse;
 };
 
 /** One polygonal face of a convex brush. */
@@ -44,6 +72,8 @@ struct BrushFace {
     Vector3 uvVAxis{};
     bool nodraw = false; /**< Omit from mesh and lightmaps. */
     bool uvLock = false; /**< Keep texture glued under transforms. */
+    HandlerBinding onUse; /**< Package Scheme on-use binding; empty id = none. */
+    HandlerBinding onTouch; /**< Package Scheme on-touch binding; empty id = none. */
 };
 
 /** Convex solid used for CSG maps and prefabs. */
@@ -55,12 +85,15 @@ struct Brush {
     std::vector<BrushFace> faces;
     bool box = false;      /**< True when authored as brush-box. */
     bool nocollide = false; /**< Skip physics body when true. */
+    BrushDoor door{}; /**< Meaningful when role is Door. */
 };
 
 const char* brushBoxSideName(BrushBoxSide side);
 BrushBoxSide brushBoxSideFromNormal(Vector3 normal);
 const char* brushRoleName(BrushRole role);
 bool parseBrushRoleName(std::string_view name, BrushRole& out);
+const char* doorMotionName(DoorMotion motion);
+bool parseDoorMotionName(std::string_view name, DoorMotion& out);
 bool brushRoleContributesSplits(BrushRole role);
 bool brushRoleSeals(BrushRole role);
 bool brushRoleEmitsVisFaces(BrushRole role);

@@ -73,6 +73,8 @@ struct EditorDocument {
 
     int selectedFrameIndex = 0;
     int selectedRot = 0;
+    int selectedOverlayHoldIndex = -1;
+    int selectedOverlayIndex = -1;
 
     bool onionEnabled = false;
     int onionFrameIndex = 0;
@@ -122,5 +124,27 @@ bool previewShowingTween(const EditorDocument& doc);
 Color previewClearColor(const EditorDocument& doc, PreviewMode mode);
 const char* previewPoseLabel(const EditorDocument& doc, PreviewMode mode);
 Color previewPoseLabelColor(const EditorDocument& doc, PreviewMode mode);
+
+/** Active (overlay ...) layer for FP / World preview at the current anim scrub time. */
+struct PreviewOverlayDraw {
+    int layer = 1;
+    float x = 0.0f;
+    float y = 0.0f;
+    int holdIndex = -1;
+    int overlayIndex = -1;
+    std::string spritePath;
+    std::string frameId;
+    bool tweenRotation = false;
+    bool tweenScale = false;
+    bool tweenTranslate = false;
+    float transformBlend = 0.0f;
+    std::string nextFrame;
+};
+
+/** Fills @p out with overlays visible at doc.animTime for the current clip. */
+void collectPreviewOverlays(
+    const EditorDocument& doc,
+    slopengine::AssetStore& assets,
+    std::vector<PreviewOverlayDraw>& out);
 
 }

@@ -50,16 +50,19 @@ struct PhysicsWorld {
         std::uint64_t id,
         Vector3 center,
         Vector3 halfExtents,
-        Quaternion rotation);
+        Quaternion rotation,
+        bool slide = true);
     void setKinematicPose(
         std::uint64_t id,
         Vector3 center,
         Quaternion rotation,
         float dt);
+    void setKinematicSlide(std::uint64_t id, bool slide);
     void destroyKinematic(std::uint64_t id);
     void clearKinematics();
     bool hasKinematic(std::uint64_t id) const;
     bool tryGetKinematicAabb(std::uint64_t id, Vector3& outMin, Vector3& outMax) const;
+    bool kinematicAllowsSlide(JPH::BodyID bodyId) const;
 
     void createCharacter(std::uint64_t id, float x, float y, float z, const CharacterMotor& motor);
     void destroyCharacter(std::uint64_t id);
@@ -130,6 +133,8 @@ private:
     std::unique_ptr<JPH::PhysicsSystem> system_;
     std::unordered_map<std::uint64_t, CharacterEntry> characters_;
     std::unordered_map<std::uint64_t, JPH::BodyID> kinematicBodies_;
+    std::unordered_map<std::uint32_t, std::uint64_t> kinematicBodyToEntity_;
+    std::unordered_map<std::uint64_t, bool> kinematicSlide_;
     std::uint64_t playerId_ = 0;
     std::vector<JPH::BodyID> staticBodies_;
     float accumulator_ = 0.0f;

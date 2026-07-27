@@ -18,7 +18,8 @@ void renderWorldModel(
     flecs::entity entity,
     Model3D& model,
     GlobalTransformation& globalTransform,
-    const Lens& lens);
+    const Lens& lens,
+    bool unlit = false);
 
 std::vector<RankedDynamicLight> gatherDynamicLights(
     flecs::world& world,

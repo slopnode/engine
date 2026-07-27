@@ -73,11 +73,13 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
 /** Collects drawable faces from a VIS visible-face set. */
 std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis);
 
-/** Packs faces into atlas charts at @p luxelsPerMeter. */
+/** Packs faces into atlas charts at @p luxelsPerMeter.
+ *  When @p skipFaces is non-null and sized to faces, non-zero entries are omitted. */
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
     float luxelsPerMeter,
-    int atlasSize = 512);
+    int atlasSize = 512,
+    const std::vector<char>* skipFaces = nullptr);
 
 bool writeRadFile(const std::filesystem::path& path, const RadFile& rad);
 std::optional<RadFile> readRadFile(const std::filesystem::path& path);

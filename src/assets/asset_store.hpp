@@ -178,6 +178,12 @@ public:
     /** Returns a cached sprite animation bank, loading it when needed. */
     const SpriteAnimBank* getSpriteAnimBank(std::string_view path);
 
+    /** Drops cached .spr / atlas / .spanim for @p path so the next get reloads from disk. */
+    void invalidateSprite(std::string_view path);
+
+    /** Invalidates and reloads @p path when .spr / .spanim mtime changed since cache. */
+    bool reloadSpriteIfChanged(std::string_view path);
+
     /** Returns true when an icon atlas map exists for @p set. */
     bool hasIconAtlas(std::string_view set) const;
 
@@ -210,6 +216,12 @@ public:
 
     /** Returns true when a mounted package with @p packageId exists. */
     bool hasPackageId(std::string_view packageId) const;
+
+    /** Finds a mounted package by id. */
+    const Package* findPackage(std::string_view packageId) const;
+
+    /** Returns the base-game package id, or empty when missing. */
+    std::string_view basePackageId() const;
 
     /** Returns the text source of the skeleton at @p path. */
     std::string getSkeletonSource(std::string_view path);
@@ -244,8 +256,11 @@ public:
     /** Reads track data for a specific @p clip within the animation at @p animPath. */
     std::vector<std::byte> readAnimTracksForClip(std::string_view animPath, const AnimClip& clip) const;
 
-    /** Loads and evaluates the Scheme script at @p path in @p scheme. */
+    /** Loads and evaluates the Scheme script at @p path via layered VFS resolve. */
     bool loadScript(s7_scheme* scheme, std::string_view path);
+
+    /** Loads scripts/{path}.s7 only from the mounted package @p packageId. */
+    bool loadScriptFromPackage(s7_scheme* scheme, std::string_view packageId, std::string_view path);
 
     /** Loads and evaluates the map CSG script at @p path in @p scheme. */
     bool loadMapCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
@@ -256,8 +271,11 @@ public:
     /** Loads and evaluates the map graphs script at @p path in @p scheme. */
     bool loadMapGraphs(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
-    /** Loads and evaluates the data script at @p path in @p scheme. */
+    /** Loads and evaluates the data script at @p path via layered VFS resolve. */
     bool loadData(s7_scheme* scheme, std::string_view path);
+
+    /** Loads data/{path}.s7 only from the mounted package @p packageId. */
+    bool loadDataFromPackage(s7_scheme* scheme, std::string_view packageId, std::string_view path);
 
     /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
     bool loadPrefabCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
@@ -285,6 +303,7 @@ private:
     std::unordered_map<std::string, SpriteAsset> spriteAssets_;
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
+    std::unordered_map<std::string, std::filesystem::file_time_type> spriteSourceMtimes_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;
     std::unordered_map<std::string, AudioDef> audioDefs_;
     std::string audioDefLoadPath_;

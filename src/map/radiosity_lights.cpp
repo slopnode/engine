@@ -18,12 +18,13 @@ namespace {
 struct CollectContext {
     AssetStore* assets = nullptr;
     s7_scheme* scheme = nullptr;
-    std::vector<RadiosityLight>* out = nullptr;
+    RadiosityThingLights* out = nullptr;
     std::string idPrefix;
     bool inPrefab = false;
     Vector3 prefabAt{};
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
+    bool haveSun = false;
 };
 
 Vector3 lightForward(const Thing& placement, const CollectContext& ctx) {
@@ -142,10 +143,49 @@ void collectOne(CollectContext& ctx, Thing placement) {
         return;
     }
 
+    if (ctx.out == nullptr) {
+        return;
+    }
+
+    if (placement.kind == ThingKind::AmbientLight) {
+        if (ctx.out->hasAmbient) {
+            TraceLog(
+                LOG_WARNING,
+                "sloprad: ignoring extra ambient-light '%s'",
+                placement.id.c_str());
+            return;
+        }
+        ctx.out->hasAmbient = true;
+        ctx.out->ambient = {
+            placement.color.x * placement.intensity,
+            placement.color.y * placement.intensity,
+            placement.color.z * placement.intensity,
+        };
+        return;
+    }
+
+    if (placement.kind == ThingKind::Sun) {
+        if (ctx.haveSun) {
+            TraceLog(LOG_WARNING, "sloprad: ignoring extra sun '%s'", placement.id.c_str());
+            return;
+        }
+        RadiosityLight light{};
+        light.kind = RadiosityLightKind::Sun;
+        light.direction = lightForward(placement, ctx);
+        light.color = placement.color;
+        light.intensity = placement.intensity;
+        if (placement.haveAt) {
+            light.position = placement.at;
+        }
+        ctx.out->lights.push_back(light);
+        ctx.haveSun = true;
+        return;
+    }
+
     if (placement.kind != ThingKind::PointLight && placement.kind != ThingKind::SpotLight) {
         return;
     }
-    if (!placement.haveAt || ctx.out == nullptr) {
+    if (!placement.haveAt) {
         return;
     }
 
@@ -158,29 +198,29 @@ void collectOne(CollectContext& ctx, Thing placement) {
     light.intensity = placement.intensity;
     light.range = placement.range;
     light.coneAngle = placement.coneAngle;
-    ctx.out->push_back(light);
+    ctx.out->lights.push_back(light);
 }
 
 } // namespace
 
-std::vector<RadiosityLight> collectRadiosityLights(
+RadiosityThingLights collectRadiosityLights(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
-    std::vector<RadiosityLight> lights;
+    RadiosityThingLights result{};
     auto doc = loadMapThings(scheme, assets, mapName);
     if (!doc) {
-        return lights;
+        return result;
     }
 
     CollectContext ctx{};
     ctx.assets = &assets;
     ctx.scheme = scheme;
-    ctx.out = &lights;
+    ctx.out = &result;
     for (const Thing& placement : doc->things) {
         collectOne(ctx, placement);
     }
-    return lights;
+    return result;
 }
 
 }

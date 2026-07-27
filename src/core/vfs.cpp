@@ -143,6 +143,22 @@ bool VirtualFileSystem::exists(AssetKind kind, std::string_view virtualPath) con
     return resolve(kind, virtualPath).has_value();
 }
 
+bool VirtualFileSystem::buildAssetRelative(
+    AssetKind kind,
+    std::string_view virtualPath,
+    std::filesystem::path& outDirectory,
+    std::string& outFilename) {
+    const auto relative = normalizeVirtualPath(virtualPath);
+    if (relative.empty() || relative.is_absolute()) {
+        return false;
+    }
+
+    const auto assetPath = std::filesystem::path{kindDirectory(kind)} / relative;
+    outFilename = assetPath.filename().string() + implicitExtension(kind);
+    outDirectory = assetPath.parent_path();
+    return true;
+}
+
 std::optional<ResolvedAsset> VirtualFileSystem::resolveOwned(
     AssetKind kind,
     std::string_view virtualPath) const {
@@ -150,14 +166,11 @@ std::optional<ResolvedAsset> VirtualFileSystem::resolveOwned(
         return std::nullopt;
     }
 
-    const auto relative = normalizeVirtualPath(virtualPath);
-    if (relative.empty() || relative.is_absolute()) {
+    std::filesystem::path directory;
+    std::string filename;
+    if (!buildAssetRelative(kind, virtualPath, directory, filename)) {
         return std::nullopt;
     }
-
-    const auto assetPath = std::filesystem::path{kindDirectory(kind)} / relative;
-    const auto filename = assetPath.filename().string() + implicitExtension(kind);
-    const auto directory = assetPath.parent_path();
 
     for (auto it = packages_.rbegin(); it != packages_.rend(); ++it) {
         const auto candidate = it->root() / directory / filename;
@@ -167,6 +180,41 @@ std::optional<ResolvedAsset> VirtualFileSystem::resolveOwned(
         }
     }
 
+    return std::nullopt;
+}
+
+const Package* VirtualFileSystem::findPackage(std::string_view packageId) const {
+    if (packageId.empty()) {
+        return nullptr;
+    }
+    for (const Package& package : packages_) {
+        if (package.meta().id == packageId) {
+            return &package;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<ResolvedAsset> VirtualFileSystem::resolveInPackage(
+    AssetKind kind,
+    std::string_view packageId,
+    std::string_view virtualPath) const {
+    const Package* package = findPackage(packageId);
+    if (package == nullptr) {
+        return std::nullopt;
+    }
+
+    std::filesystem::path directory;
+    std::string filename;
+    if (!buildAssetRelative(kind, virtualPath, directory, filename)) {
+        return std::nullopt;
+    }
+
+    const auto candidate = package->root() / directory / filename;
+    const auto resolved = followSymlinks(candidate);
+    if (!resolved.empty() && std::filesystem::exists(resolved)) {
+        return ResolvedAsset{resolved, package};
+    }
     return std::nullopt;
 }
 

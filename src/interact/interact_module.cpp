@@ -8,6 +8,8 @@
 #include "interact/components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_billboard.hpp"
+#include "physics/rigid_mover.hpp"
+#include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
 
@@ -16,7 +18,6 @@
 
 #include <raylib.h>
 #include <raymath.h>
-#include <s7.h>
 
 namespace slopengine {
 
@@ -57,23 +58,42 @@ bool rayHitsModel(const Ray& ray, const Model& model, const Matrix& transform, f
     return hit;
 }
 
-bool tryCallUseHandler(s7_scheme* scheme, const std::string& handlerName, const std::string& entityId) {
-    if (scheme == nullptr || handlerName.empty()) {
+bool tryCallUseHandler(
+    s7_scheme* scheme,
+    const HandlerBinding& binding,
+    const std::string& entityId) {
+    return tryCallMapHandlerUse(scheme, binding, entityId, ScriptScope::World);
+}
+
+bool rayHitsFaceUseSurface(
+    const Ray& ray,
+    const FaceUseSurface& surface,
+    float maxDistance,
+    float& hitDistance) {
+    if (surface.vertices.size() < 3) {
         return false;
     }
-
-    const s7_pointer func = s7_name_to_value(scheme, handlerName.c_str());
-    if (!s7_is_procedure(func)) {
-        return false;
+    bool hit = false;
+    float closest = maxDistance;
+    const Vector3& v0 = surface.vertices[0];
+    for (std::size_t i = 1; i + 1 < surface.vertices.size(); ++i) {
+        const RayCollision collision =
+            GetRayCollisionTriangle(ray, v0, surface.vertices[i], surface.vertices[i + 1]);
+        if (collision.hit && collision.distance >= 0.0f && collision.distance < closest) {
+            closest = collision.distance;
+            hit = true;
+        }
     }
-
-    ScriptScopeGuard guard(ScriptScope::World);
-    s7_call(scheme, func, s7_list(scheme, 1, s7_make_string(scheme, entityId.c_str())));
-    return true;
+    if (hit) {
+        hitDistance = closest;
+    }
+    return hit;
 }
 
 void registerComponents(flecs::world& world) {
     world.component<Interactable>();
+    world.component<FaceUseSurface>();
+    world.component<FaceTouch>();
     world.component<InteractionTarget>();
 }
 
@@ -87,7 +107,9 @@ void registerSystems(flecs::world& world) {
             target.entity = {};
             target.distance = 0.0f;
             target.prompt.clear();
-            target.eventName.clear();
+            target.onUse.clear();
+            target.canUse.clear();
+            target.engineToggle = false;
 
             if (!contexts.allowsGameplay()) {
                 return;
@@ -102,7 +124,9 @@ void registerSystems(flecs::world& world) {
             float bestDistance = std::numeric_limits<float>::max();
             flecs::entity bestEntity{};
             std::string bestPrompt;
-            std::string bestEventName;
+            HandlerBinding bestOnUse;
+            HandlerBinding bestCanUse;
+            bool bestEngineToggle = false;
 
             it.world()
                 .query<Interactable, Model3D, GlobalTransformation>()
@@ -120,7 +144,9 @@ void registerSystems(flecs::world& world) {
                         bestDistance = hitDistance;
                         bestEntity = entity;
                         bestPrompt = interactable.prompt;
-                        bestEventName = interactable.eventName;
+                        bestOnUse = interactable.onUse;
+                        bestCanUse = interactable.canUse;
+                        bestEngineToggle = interactable.engineToggle;
                     }
                 });
 
@@ -150,16 +176,42 @@ void registerSystems(flecs::world& world) {
                             bestDistance = hit->distance;
                             bestEntity = entity;
                             bestPrompt = interactable.prompt;
-                            bestEventName = interactable.eventName;
+                            bestOnUse = interactable.onUse;
+                            bestCanUse = interactable.canUse;
+                            bestEngineToggle = interactable.engineToggle;
                         });
                 }
             }
+
+            it.world()
+                .query<Interactable, FaceUseSurface>()
+                .each([&](flecs::entity entity, Interactable& interactable, FaceUseSurface& surface) {
+                    if (!entity.has<WorldSpace>()) {
+                        return;
+                    }
+
+                    float hitDistance = 0.0f;
+                    if (!rayHitsFaceUseSurface(ray, surface, interactable.maxDistance, hitDistance)) {
+                        return;
+                    }
+
+                    if (hitDistance < bestDistance) {
+                        bestDistance = hitDistance;
+                        bestEntity = entity;
+                        bestPrompt = interactable.prompt;
+                        bestOnUse = interactable.onUse;
+                        bestCanUse = interactable.canUse;
+                        bestEngineToggle = interactable.engineToggle;
+                    }
+                });
 
             if (bestEntity.is_valid()) {
                 target.entity = bestEntity;
                 target.distance = bestDistance;
                 target.prompt = std::move(bestPrompt);
-                target.eventName = std::move(bestEventName);
+                target.onUse = std::move(bestOnUse);
+                target.canUse = std::move(bestCanUse);
+                target.engineToggle = bestEngineToggle;
             }
         });
 
@@ -184,7 +236,16 @@ void registerSystems(flecs::world& world) {
                 entityId = target.entity.name();
             }
 
-            if (tryCallUseHandler(scheme, target.eventName, entityId)) {
+            if (target.engineToggle) {
+                if (!tryCallMapHandlerCanUse(
+                        scheme, target.canUse, entityId, ScriptScope::World)) {
+                    return;
+                }
+                moverRequestToggle(target.entity);
+                return;
+            }
+
+            if (tryCallUseHandler(scheme, target.onUse, entityId)) {
                 return;
             }
 

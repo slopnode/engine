@@ -13,6 +13,7 @@
 #include "render/dynamic_light.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/transform.hpp"
+#include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
@@ -1090,7 +1091,7 @@ void callPrepareFirstPerson(flecs::world& world) {
     if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    tryCallSchemeProc1String(
+    callHook1String(
         world.get<ScriptContext>().scheme,
         "prepare-first-person",
         "Player",

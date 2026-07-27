@@ -3,16 +3,20 @@
 #include "script/script_scope.hpp"
 
 #include "map/brush.hpp"
+#include "map/map_handler_registry.hpp"
+#include "map/thing_def_registry.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_compile.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
+#include "map/mover_brushes.hpp"
 #include "map/prefab.hpp"
 #include "map/fac.hpp"
 #include "map/fac_io.hpp"
 #include "map/pvs_io.hpp"
+#include "map/things_script.hpp"
 
 #include <algorithm>
 #include <raylib.h>
@@ -161,6 +165,14 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
             face.uvLock = true;
         } else if (std::strcmp(tag, "uv-axes") == 0) {
             readUvAxes(sc, rest, face);
+        } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
+            if (parseHandlerBinding(sc, rest, face.onUse)) {
+                mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
+            }
+        } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
+            if (parseHandlerBinding(sc, rest, face.onTouch)) {
+                mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
+            }
         }
     }
 
@@ -203,7 +215,7 @@ s7_pointer g_material(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_role(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail|hint|trigger|water|window");
+        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail|door|hint|trigger|water|window");
     }
     return makeTaggedList(sc, "role", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
@@ -225,6 +237,134 @@ s7_pointer g_uv_scale(s7_scheme* sc, s7_pointer args) {
 s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
     (void)args;
     return makeTaggedList(sc, "nodraw", s7_nil(sc));
+}
+
+s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-use", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-use", args);
+}
+
+s7_pointer g_on_touch(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "on-touch", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "on-touch", args);
+}
+
+s7_pointer g_can_use(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "can-use", 1, args, "handler");
+    }
+    return makeTaggedList(sc, "can-use", args);
+}
+
+s7_pointer g_motion(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "motion", 1, args, "raise|slide|swing");
+    }
+    return makeTaggedList(sc, "motion", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_travel(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "travel", 1, args, "distance");
+    }
+    return makeTaggedList(sc, "travel", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_angle(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "angle", 1, args, "radians");
+    }
+    return makeTaggedList(sc, "angle", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_hinge(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "hinge", 1, args, "thing-id");
+    }
+    return makeTaggedList(sc, "hinge", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_group(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "group", 1, args, "id");
+    }
+    return makeTaggedList(sc, "group", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_prompt(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "prompt", 1, args, "string");
+    }
+    return makeTaggedList(sc, "prompt", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_duration(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "duration", 1, args, "seconds");
+    }
+    return makeTaggedList(sc, "duration", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_auto_close(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "auto-close", 1, args, "seconds");
+    }
+    return makeTaggedList(sc, "auto-close", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_door(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "door", args);
+}
+
+bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
+    BrushDoor door{};
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            continue;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer args = s7_cdr(clause);
+        if (std::strcmp(tag, "motion") == 0 && s7_is_pair(args)) {
+            std::string name;
+            if (readString(sc, s7_car(args), name)) {
+                DoorMotion motion = DoorMotion::Raise;
+                if (parseDoorMotionName(name, motion)) {
+                    door.motion = motion;
+                }
+            }
+        } else if (std::strcmp(tag, "duration") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            door.duration = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            door.haveDuration = true;
+        } else if (std::strcmp(tag, "auto-close") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            door.autoClose = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            door.haveAutoClose = true;
+        } else if (std::strcmp(tag, "angle") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            door.angle = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            door.haveAngle = true;
+        } else if (std::strcmp(tag, "travel") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            door.travel = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            door.haveTravel = true;
+        } else if (std::strcmp(tag, "hinge") == 0 && s7_is_pair(args)) {
+            readString(sc, s7_car(args), door.hingeThingId);
+        } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(args)) {
+            readString(sc, s7_car(args), door.group);
+        } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(args)) {
+            if (readString(sc, s7_car(args), door.prompt)) {
+                door.havePrompt = true;
+            }
+        } else if (std::strcmp(tag, "can-use") == 0 && s7_is_pair(args)) {
+            if (parseHandlerBinding(sc, args, door.canUse)) {
+                mapHandlerRegistry().refineBinding(door.canUse, MapHandlerKind::CanUse);
+            }
+        }
+    }
+    out = std::move(door);
+    return true;
 }
 
 s7_pointer g_uv_lock(s7_scheme* sc, s7_pointer args) {
@@ -472,6 +612,8 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     bool haveMins = false;
     bool haveMaxs = false;
     bool nocollide = false;
+    bool haveDoorClause = false;
+    BrushDoor door{};
     std::vector<std::pair<BrushBoxSide, BrushFace>> overrides;
 
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -497,6 +639,10 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
             }
         } else if (std::strcmp(tag, "nocollide") == 0) {
             nocollide = true;
+        } else if (std::strcmp(tag, "door") == 0) {
+            if (parseBrushDoor(sc, rest, door)) {
+                haveDoorClause = true;
+            }
         } else if (std::strcmp(tag, "mins") == 0 &&
                    s7_is_pair(rest) &&
                    s7_is_pair(s7_cdr(rest)) &&
@@ -525,8 +671,14 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "brush-box requires id, mins, and maxs")));
     }
 
+    if (haveDoorClause) {
+        role = BrushRole::Door;
+    }
     Brush brush = makeBrushBox(std::move(id), mins, maxs, material, overrides, role);
     brush.nocollide = nocollide || brushRoleDefaultNocollide(role);
+    if (role == BrushRole::Door) {
+        brush.door = haveDoorClause ? std::move(door) : BrushDoor{};
+    }
     g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
 }
@@ -570,6 +722,14 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
             face.uvLock = true;
         } else if (std::strcmp(tag, "uv-axes") == 0) {
             readUvAxes(sc, rest, face);
+        } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
+            if (parseHandlerBinding(sc, rest, face.onUse)) {
+                mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
+            }
+        } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
+            if (parseHandlerBinding(sc, rest, face.onTouch)) {
+                mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
+            }
         } else if (std::strcmp(tag, "verts") == 0) {
             for (s7_pointer vertCursor = rest; s7_is_pair(vertCursor); vertCursor = s7_cdr(vertCursor)) {
                 s7_pointer vert = s7_car(vertCursor);
@@ -605,6 +765,8 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     std::string defaultMaterial = "default/cube";
     BrushRole role = BrushRole::Hull;
     bool nocollide = false;
+    bool haveDoorClause = false;
+    BrushDoor door{};
     std::vector<BrushFace> faces;
 
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -628,6 +790,10 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             }
         } else if (std::strcmp(tag, "nocollide") == 0) {
             nocollide = true;
+        } else if (std::strcmp(tag, "door") == 0) {
+            if (parseBrushDoor(sc, rest, door)) {
+                haveDoorClause = true;
+            }
         } else if (std::strcmp(tag, "faces") == 0) {
             for (s7_pointer faceCursor = rest; s7_is_pair(faceCursor); faceCursor = s7_cdr(faceCursor)) {
                 BrushFace face{};
@@ -648,6 +814,9 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "brush-convex requires id and faces")));
     }
 
+    if (haveDoorClause) {
+        role = BrushRole::Door;
+    }
     std::string error;
     auto brush = makeBrushConvex(std::move(id), std::move(faces), role, error);
     if (!brush) {
@@ -657,6 +826,9 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, error.c_str())));
     }
     brush->nocollide = nocollide || brushRoleDefaultNocollide(role);
+    if (role == BrushRole::Door) {
+        brush->door = haveDoorClause ? std::move(door) : BrushDoor{};
+    }
     g_builder->brushes.push_back(std::move(*brush));
     return s7_t(sc);
 }
@@ -666,10 +838,22 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "mins", g_mins, 3, 0, false, "(mins x y z)");
     s7_define_function(sc, "maxs", g_maxs, 3, 0, false, "(maxs x y z)");
     s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
-    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail|hint|trigger|water|window)");
+    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail|door|hint|trigger|water|window)");
     s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
     s7_define_function(sc, "uv-scale", g_uv_scale, 2, 0, false, "(uv-scale sx sy)");
     s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
+    s7_define_function(sc, "on-use", g_on_use, 1, 0, true, "(on-use handler arg-clause...)");
+    s7_define_function(sc, "on-touch", g_on_touch, 1, 0, true, "(on-touch handler arg-clause...)");
+    s7_define_function(sc, "can-use", g_can_use, 1, 0, true, "(can-use handler arg-clause...)");
+    s7_define_function(sc, "motion", g_motion, 1, 0, false, "(motion raise|slide|swing)");
+    s7_define_function(sc, "travel", g_travel, 1, 0, false, "(travel distance)");
+    s7_define_function(sc, "angle", g_angle, 1, 0, false, "(angle radians)");
+    s7_define_function(sc, "hinge", g_hinge, 1, 0, false, "(hinge thing-id)");
+    s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
+    s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt string)");
+    s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
+    s7_define_function(sc, "auto-close", g_auto_close, 1, 0, false, "(auto-close seconds)");
+    s7_define_function(sc, "door", g_door, 0, 0, true, "(door clauses...)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
     s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
@@ -688,6 +872,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
     s7_define_function(sc, "brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
+    bindMapHandlerArgClauses(sc);
 }
 
 MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -707,6 +892,52 @@ MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPa
 }
 
 } // namespace
+
+void loadPackageMapHandlers(s7_scheme* scheme, AssetStore& assets) {
+    if (scheme == nullptr) {
+        return;
+    }
+    mapHandlerRegistry().clear();
+    const std::string baseId{assets.basePackageId()};
+    if (!baseId.empty() && assets.loadDataFromPackage(scheme, baseId, "map-handlers")) {
+        registerPackageMapHandlersFromScheme(scheme);
+    }
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "map-handlers")) {
+            registerPackageMapHandlersFromScheme(scheme);
+        }
+    }
+}
+
+void loadPackageThings(s7_scheme* scheme, AssetStore& assets) {
+    if (scheme == nullptr) {
+        return;
+    }
+    thingDefRegistry().clear();
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Engine) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "things")) {
+            registerPackageThingsFromScheme(scheme);
+        }
+    }
+    const std::string baseId{assets.basePackageId()};
+    if (!baseId.empty() && assets.loadDataFromPackage(scheme, baseId, "things")) {
+        registerPackageThingsFromScheme(scheme);
+    }
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "things")) {
+            registerPackageThingsFromScheme(scheme);
+        }
+    }
+}
 
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName) {
     const std::string metaPath = std::string(mapName) + "/map";
@@ -915,19 +1146,29 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     TraceLog(
         LOG_INFO,
-        "MAP: meta id='%s' name='%s' package='%s' depends=%d ambient=(%.3f %.3f %.3f)",
+        "MAP: meta id='%s' name='%s' author='%s' package='%s' depends=%d ambient=(%.3f %.3f %.3f) sun=%s",
         mapMeta->id.c_str(),
         mapMeta->name.c_str(),
+        mapMeta->author.c_str(),
         mapMeta->package.c_str(),
         static_cast<int>(mapMeta->depends.size()),
         mapMeta->ambient.x,
         mapMeta->ambient.y,
-        mapMeta->ambient.z);
+        mapMeta->ambient.z,
+        mapMeta->sun.enabled ? "yes" : "no");
 
     auto brushes = loadMapBrushes(scheme, assets, mapName);
     if (!brushes) {
         TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.csg", virtualPath.c_str());
         return std::nullopt;
+    }
+
+    std::unordered_set<std::string> moverBrushIds;
+    if (auto things = loadMapThings(scheme, assets, mapName)) {
+        moverBrushIds = collectClaimedBrushIds(&*things, *brushes);
+    } else {
+        TraceLog(LOG_WARNING, "MAP: failed to load things.s7; mover brush claims not applied");
+        moverBrushIds = collectClaimedBrushIds(nullptr, *brushes);
     }
 
     const auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);
@@ -966,7 +1207,11 @@ std::optional<LoadedMap> loadAndCompileMap(
             "MAP: missing maps/%s.fac; building visible faces in-memory (run slopfac)",
             virtualPath.c_str());
         if (analysis.sealed) {
-            FacBuildResult built = buildVisibleFaces(*bsp, analysis, *brushes);
+            FacBuildResult built = buildVisibleFaces(
+                *bsp,
+                analysis,
+                *brushes,
+                moverBrushIds.empty() ? nullptr : &moverBrushIds);
             MapHullAnalysis nodrawAnalysis = analysis;
             nodrawAnalysis.inferredNodrawFaceIds = std::move(built.inferredNodrawFaceIds);
             applyInferredNodraw(*brushes, nodrawAnalysis);
@@ -983,6 +1228,7 @@ std::optional<LoadedMap> loadAndCompileMap(
                 "MAP: hull is not sealed; falling back to authored brush faces");
         }
     } else {
+        eraseFacFacesForMoverBrushes(fac, moverBrushIds);
         std::unordered_set<std::string> visibleSources;
         for (const VisibleFace& face : fac.faces) {
             std::string remaining = face.sourceFaceId;
@@ -1139,9 +1385,21 @@ std::optional<LoadedMap> loadAndCompileMap(
     const RadFile* lightmaps = result.hasLightmaps ? &rad : nullptr;
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+    std::vector<Brush> staticBrushes;
+    if (!haveFac && !moverBrushIds.empty()) {
+        staticBrushes.reserve(brushes->size());
+        for (const Brush& brush : *brushes) {
+            if (moverBrushIds.count(brush.id) == 0) {
+                staticBrushes.push_back(brush);
+            }
+        }
+    }
     const CsgCompileResult compiled = haveFac
         ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
-        : compileBrushesToGeo(*brushes, resolveUv, lightmaps);
+        : compileBrushesToGeo(
+              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+              resolveUv,
+              lightmaps);
     result.fac = std::move(fac);
     result.pvs = std::move(pvs);
 
@@ -1197,6 +1455,7 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     result.model = model;
     result.brushes = std::move(*brushes);
+    result.moverBrushIds = std::move(moverBrushIds);
     result.bsp = std::move(*bsp);
     result.rad = std::move(rad);
     result.meta = std::move(*mapMeta);

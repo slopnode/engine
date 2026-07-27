@@ -7,6 +7,7 @@
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/transform.hpp"
+#include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
@@ -22,7 +23,10 @@ namespace slopengine {
 void registerSpinSystem(flecs::world& world) {
     world.system<LocalTransformation, Spin>("ApplySpin")
         .kind(flecs::OnUpdate)
-        .each([](LocalTransformation& local, Spin& spin) {
+        .each([](flecs::iter& it, size_t, LocalTransformation& local, Spin& spin) {
+            if (isSimulationPaused(it.world())) {
+                return;
+            }
             const Vector3 axis = Vector3Normalize(spin.axis);
             const float angle = spin.speed * GetFrameTime();
             const Quaternion delta = QuaternionFromAxisAngle(axis, angle);
@@ -35,13 +39,13 @@ void registerSchemeTickSystem(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            if (!isPlaying(world)) {
+            if (!isPlaying(world) || isSimulationPaused(world)) {
                 return;
             }
             if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
                 return;
             }
-            tryCallSchemeProc1Real(
+            callHook1Real(
                 world.get<ScriptContext>().scheme,
                 "tick",
                 static_cast<double>(GetFrameTime()),
@@ -53,6 +57,10 @@ void registerAnimationSystems(flecs::world& world) {
     world.system<Model3D, AnimationPlayer>("AdvanceAnimationPlayer")
         .kind(flecs::OnUpdate)
         .each([](flecs::iter& it, size_t, Model3D& model3d, AnimationPlayer& player) {
+            if (isSimulationPaused(it.world())) {
+                return;
+            }
+
             const bool startedThisFrame = player.justStarted;
             player.justStarted = false;
             player.justFinished = false;

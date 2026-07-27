@@ -3,6 +3,8 @@
 #include "assets/asset_store.hpp"
 #include "camera.hpp"
 #include "compile.hpp"
+#include "editor_types.hpp"
+#include "history.hpp"
 #include "map/brush.hpp"
 #include "map/thing.hpp"
 #include "map/prefab.hpp"
@@ -11,6 +13,8 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 struct s7_scheme;
@@ -26,19 +30,6 @@ enum class EditorMode {
 enum class EditorScene {
     Level,
     Prefab,
-};
-
-enum class ViewPlane {
-    PerspectiveY0,
-    Top,
-    Front,
-    Side,
-};
-
-enum class SelectionMode {
-    Brush,
-    Face,
-    Entity,
 };
 
 enum class TranslateSnapMode {
@@ -57,24 +48,10 @@ enum class PlaceTarget {
     Thing,
 };
 
-struct FaceRef {
-    int brush = -1;
-    int face = -1;
-
-    bool valid() const { return brush >= 0 && face >= 0; }
-    bool operator==(const FaceRef& other) const {
-        return brush == other.brush && face == other.face;
-    }
-};
-
-struct EntityRef {
-    enum class Kind { Thing, Instance } kind = Kind::Thing;
-    int index = -1;
-
-    bool valid() const { return index >= 0; }
-    bool operator==(const EntityRef& other) const {
-        return kind == other.kind && index == other.index;
-    }
+enum class PlacePresentation {
+    None,
+    Sprite,
+    Geo,
 };
 
 struct CompileDirty {
@@ -84,45 +61,34 @@ struct CompileDirty {
     bool rad = false;
 };
 
-struct EditorDocument {
-    std::string assetPath;
-    std::vector<slopengine::Brush> brushes;
-    std::vector<slopengine::PrefabInstance> instances;
-    std::vector<slopengine::Thing> things;
-    bool dirty = false;
-    SelectionMode selectionMode = SelectionMode::Brush;
-    std::vector<int> selectedBrushes;
-    std::vector<FaceRef> selectedFaces;
-    std::vector<EntityRef> selectedEntities;
-    int activeBrush = -1;
-    FaceRef activeFace{};
-    EntityRef activeEntity{};
-    std::string defaultMaterial = "default/cube";
-    int nextBrushSerial = 1;
-    int nextPrefabSerial = 1;
-    int nextThingSerial = 1;
-
-    bool hasSelection() const;
-    bool isBrushSelected(int index) const;
-    bool isFaceSelected(FaceRef ref) const;
-    bool isEntitySelected(EntityRef ref) const;
+struct ViewportCamera {
+    ViewPlane plane = ViewPlane::PerspectiveY0;
+    FlyCamera camera;
 };
 
 struct Editor {
     EditorDocument levelDoc;
     EditorDocument prefabDoc;
+    DocumentHistory levelHistory;
+    DocumentHistory prefabHistory;
     EditorScene scene = EditorScene::Level;
     EditorMode mode = EditorMode::Select;
+    ViewportLayout viewportLayout = ViewportLayout::Single;
+    int activeViewport = 0;
+    ViewportCamera viewports[kViewportCount]{};
     ViewPlane viewPlane = ViewPlane::PerspectiveY0;
     FlyCamera camera;
+    Vector3 orthoFocus{0.0f, 1.0f, 0.0f};
     MapPreview preview;
     PreviewFill fill = PreviewFill::Textures;
     WireframeOverlay wireframe = WireframeOverlay::Off;
     bool ignoreBackfaces = true;
     float gridSize = 0.1f;
     bool showGrid = true;
+    bool showGizmos = true;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
+    float rotateSnapDegrees = 15.0f;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     CreatePrimitive createPrimitive = CreatePrimitive::Box;
     Rectangle contentViewport{0.0f, 0.0f, 1.0f, 1.0f};
@@ -147,8 +113,9 @@ struct Editor {
     PlaceTarget placeTarget = PlaceTarget::PrefabInstance;
     std::string placePrefabPath;
     std::optional<slopengine::ThingKind> placeThingKind;
-    std::string placeSpritePath;
-    std::string placeGeoPath;
+    std::string placeThingType;
+    PlacePresentation placePresentation = PlacePresentation::None;
+    std::unordered_map<std::string, PlacePresentation> propChannelLock;
     std::filesystem::path writePackageRoot;
     std::string writePackageId = "slopengine.base";
     s7_scheme* scheme = nullptr;
@@ -158,6 +125,8 @@ struct Editor {
 
     EditorDocument& doc();
     const EditorDocument& doc() const;
+    DocumentHistory& history();
+    const DocumentHistory& history() const;
 
     void newMap(const std::string& mapName);
     void newPrefab();
@@ -168,6 +137,13 @@ struct Editor {
     bool savePrefab(slopengine::AssetStore& assets);
     bool savePrefabAs(slopengine::AssetStore& assets, const std::string& prefabPath);
     bool switchScene(EditorScene next, bool force = false);
+    void prepareEdit();
+    void abortEdit();
+    void endEdit();
+    bool canUndo() const;
+    bool canRedo() const;
+    bool undo(slopengine::AssetStore& assets);
+    bool redo(slopengine::AssetStore& assets);
     void markDirty();
     void markBspDirty();
     void markFacDirty();
@@ -187,10 +163,19 @@ struct Editor {
     void cycleGridPlane();
     const char* gridPlaneLabel() const;
     void setViewPlane(ViewPlane plane);
+    void setActiveViewport(int index);
+    void toggleViewportLayout();
+    void applyOrthoPoseToViewport(int index, Vector3 focus);
+    void applyOrthoPoses();
+    void syncActiveCameraFromBank();
+    void syncBankFromActiveCamera();
     void toggleOrthoTop();
+    static int viewportIndexForPlane(ViewPlane plane);
+    static ViewPlane planeForViewportIndex(int index);
     std::string allocateBrushId();
     std::string allocatePrefabId();
     std::string allocateThingId(const char* prefix);
+    bool renameBrush(int index, std::string_view newId);
     void clearSelection();
     void setSelectionMode(SelectionMode mode);
     void selectBrush(int index, bool additive);
@@ -200,6 +185,9 @@ struct Editor {
     void frameSelection();
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();
+    void convertSelectedBrushesToTriggers();
+    void convertSelectedBrushesToMovers();
+    void setSelectedBrushesAsDoors();
 };
 
 float snapToGrid(float value, float grid);
@@ -228,6 +216,7 @@ struct ConstructionPlane {
 
 ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane = GridPlane::XZ);
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane);
+GridPlane gridPlaneForView(ViewPlane view, GridPlane gridPlane);
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin);
 
 }

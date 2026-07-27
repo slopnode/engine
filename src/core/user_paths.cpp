@@ -60,8 +60,35 @@ std::filesystem::path userConfigDirectory() {
     return std::filesystem::path("slopengine-config");
 }
 
+std::filesystem::path userCacheDirectory() {
+#if defined(_WIN32)
+    if (const char* local = std::getenv("LOCALAPPDATA"); local != nullptr && local[0] != '\0') {
+        return std::filesystem::path(local) / "slopengine";
+    }
+    if (const char* appdata = std::getenv("APPDATA"); appdata != nullptr && appdata[0] != '\0') {
+        return std::filesystem::path(appdata) / "slopengine" / "cache";
+    }
+#elif defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        return std::filesystem::path(home) / "Library" / "Caches" / "slopengine";
+    }
+#else
+    if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && xdg[0] != '\0') {
+        return std::filesystem::path(xdg) / "slopengine";
+    }
+    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
+        return std::filesystem::path(home) / ".cache" / "slopengine";
+    }
+#endif
+    return std::filesystem::path("slopengine-cache");
+}
+
 std::filesystem::path userSettingsPath() {
     return userConfigDirectory() / "settings.cfg";
+}
+
+std::filesystem::path userSlopmapSettingsPath() {
+    return userConfigDirectory() / "slopmap.cfg";
 }
 
 std::filesystem::path userScreenshotDirectory() {
@@ -70,6 +97,10 @@ std::filesystem::path userScreenshotDirectory() {
 
 std::filesystem::path userSavesDirectory() {
     return userConfigDirectory() / "saves";
+}
+
+std::filesystem::path defaultSlopmapThumbnailCacheDirectory() {
+    return userCacheDirectory() / "slopmap" / "thumbnails";
 }
 
 std::string sanitizeSaveSegment(std::string_view text) {

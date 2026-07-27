@@ -44,8 +44,11 @@ set(SLOPLIB_SOURCES
     src/core/package.cpp
     src/core/package_meta.cpp
     src/core/sexpr.cpp
+    src/core/user_paths.cpp
     src/core/vfs.cpp
     src/script/script_scope.cpp
+    src/script/package_load_context.cpp
+    src/script/proc_role.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
@@ -66,6 +69,10 @@ set(SLOPLIB_SOURCES
     src/map/csg_write.cpp
     src/map/things_script.cpp
     src/map/things_write.cpp
+    src/map/mover_brushes.cpp
+    src/map/handler_binding.cpp
+    src/map/map_handler_registry.cpp
+    src/map/thing_def_registry.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_sample.cpp
@@ -99,7 +106,6 @@ endif()
 
 add_executable(slopengine
     src/main.cpp
-    src/core/user_paths.cpp
     src/core/screenshot.cpp
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
@@ -115,6 +121,7 @@ add_executable(slopengine
     src/ui/imgui_fonts.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/sight_module.cpp
     src/physics/motored_body.cpp
     src/physics/motored_sweep.cpp
     src/physics/rigid_mover.cpp
@@ -123,8 +130,11 @@ add_executable(slopengine
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
+    src/map/brush_door.cpp
+    src/map/face_triggers.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
+    src/game/menu_background.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
@@ -137,12 +147,15 @@ add_executable(slopengine
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
     src/render/render_pass_fp.cpp
+    src/render/post_process.cpp
     src/render/render_module.cpp
     src/render/hud.cpp
     src/script/scheme_call.cpp
     src/script/scheme_harden.cpp
+    src/script/hook_registry.cpp
     src/script/first_person_script.cpp
     src/script/hud_script.cpp
+    src/script/post_script.cpp
     src/script/input_script.cpp
     src/script/audio_script.cpp
     src/script/thing_script.cpp
@@ -214,6 +227,7 @@ add_executable(slopmap
     tools/slopmap/main.cpp
     tools/slopmap/camera.cpp
     tools/slopmap/editor.cpp
+    tools/slopmap/history.cpp
     tools/slopmap/preview.cpp
     tools/slopmap/thing_draw.cpp
     tools/slopmap/create_tool.cpp
@@ -222,9 +236,12 @@ add_executable(slopmap
     tools/slopmap/punch_tool.cpp
     tools/slopmap/clip_tool.cpp
     tools/slopmap/material_browser.cpp
+    tools/slopmap/material_thumb_atlas.cpp
+    tools/slopmap/editor_settings.cpp
     tools/slopmap/texture_panel.cpp
     tools/slopmap/thing_panel.cpp
     tools/slopmap/brush_panel.cpp
+    tools/slopmap/handler_ui.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp
     tools/slopmap/compile.cpp

@@ -179,6 +179,8 @@ PhysicsWorld::~PhysicsWorld() {
             bodies.DestroyBody(bodyId);
         }
         kinematicBodies_.clear();
+        kinematicBodyToEntity_.clear();
+        kinematicSlide_.clear();
     }
 
     system_.reset();
@@ -317,7 +319,8 @@ void PhysicsWorld::createKinematicBox(
     std::uint64_t id,
     Vector3 center,
     Vector3 halfExtents,
-    Quaternion rotation) {
+    Quaternion rotation,
+    bool slide) {
     if (!system_ || halfExtents.x <= 0.0f || halfExtents.y <= 0.0f || halfExtents.z <= 0.0f) {
         return;
     }
@@ -361,6 +364,8 @@ void PhysicsWorld::createKinematicBox(
     bodies.SetLinearVelocity(bodyId, JPH::Vec3::sZero());
     bodies.SetAngularVelocity(bodyId, JPH::Vec3::sZero());
     kinematicBodies_[id] = bodyId;
+    kinematicBodyToEntity_[bodyId.GetIndexAndSequenceNumber()] = id;
+    kinematicSlide_[id] = slide;
     TraceLog(LOG_INFO, "PHYSICS: kinematic box %llu at (%.3f %.3f %.3f) he=(%.3f %.3f %.3f)",
         static_cast<unsigned long long>(id),
         center.x,
@@ -416,6 +421,15 @@ void PhysicsWorld::setKinematicPose(
         return;
     }
 
+    auto slideIt = kinematicSlide_.find(id);
+    const bool allowCarry = slideIt == kinematicSlide_.end() || slideIt->second;
+    if (!allowCarry) {
+        bodies.SetLinearAndAngularVelocity(bodyId, JPH::Vec3::sZero(), JPH::Vec3::sZero());
+        bodies.SetPositionAndRotation(
+            bodyId, targetPos, targetRot, JPH::EActivation::Activate);
+        return;
+    }
+
     float stepDt = dt;
     if (!(stepDt > 1.0e-4f) || !std::isfinite(stepDt)) {
         stepDt = kFixedDt;
@@ -444,6 +458,13 @@ void PhysicsWorld::setKinematicPose(
     }
 }
 
+void PhysicsWorld::setKinematicSlide(std::uint64_t id, bool slide) {
+    if (kinematicBodies_.find(id) == kinematicBodies_.end()) {
+        return;
+    }
+    kinematicSlide_[id] = slide;
+}
+
 void PhysicsWorld::destroyKinematic(std::uint64_t id) {
     if (!system_) {
         return;
@@ -453,6 +474,8 @@ void PhysicsWorld::destroyKinematic(std::uint64_t id) {
         return;
     }
     JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    kinematicBodyToEntity_.erase(it->second.GetIndexAndSequenceNumber());
+    kinematicSlide_.erase(id);
     bodies.RemoveBody(it->second);
     bodies.DestroyBody(it->second);
     kinematicBodies_.erase(it);
@@ -469,10 +492,27 @@ void PhysicsWorld::clearKinematics() {
         bodies.DestroyBody(bodyId);
     }
     kinematicBodies_.clear();
+    kinematicBodyToEntity_.clear();
+    kinematicSlide_.clear();
 }
 
 bool PhysicsWorld::hasKinematic(std::uint64_t id) const {
     return kinematicBodies_.find(id) != kinematicBodies_.end();
+}
+
+bool PhysicsWorld::kinematicAllowsSlide(JPH::BodyID bodyId) const {
+    if (bodyId.IsInvalid()) {
+        return true;
+    }
+    auto entityIt = kinematicBodyToEntity_.find(bodyId.GetIndexAndSequenceNumber());
+    if (entityIt == kinematicBodyToEntity_.end()) {
+        return true;
+    }
+    auto slideIt = kinematicSlide_.find(entityIt->second);
+    if (slideIt == kinematicSlide_.end()) {
+        return true;
+    }
+    return slideIt->second;
 }
 
 bool PhysicsWorld::tryGetKinematicAabb(std::uint64_t id, Vector3& outMin, Vector3& outMax) const {
@@ -599,9 +639,11 @@ void PhysicsWorld::applyCharacterInput(
     const JPH::Vec3 groundVelocity = character.GetGroundVelocity();
     JPH::Vec3 newVelocity;
 
+    const bool allowSlide = kinematicAllowsSlide(character.GetGroundBodyID());
     const bool movingTowardsGround = (currentVertical.GetY() - groundVelocity.GetY()) < 0.1f;
     if (character.GetGroundState() == JPH::CharacterVirtual::EGroundState::OnGround &&
-        movingTowardsGround) {
+        movingTowardsGround &&
+        allowSlide) {
         newVelocity = groundVelocity;
     } else {
         newVelocity = currentVertical;

@@ -4,13 +4,17 @@
 #include "assets/saudio_loader.hpp"
 #include "core/engine_package.hpp"
 #include "map/map_meta.hpp"
+#include "script/package_load_context.hpp"
+#include "script/proc_role.hpp"
 
 #include <s7.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <stdexcept>
+#include <system_error>
 #include <unordered_map>
 
 namespace slopengine {
@@ -137,6 +141,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
     if (!engine.hasMeta()) {
         throw std::runtime_error("engine package missing package.meta: " + enginePath->string());
     }
+    engine.setRole(PackageRole::Engine);
 
     Package base{config.base_game};
     if (!base.valid()) {
@@ -145,6 +150,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
     if (!base.hasMeta()) {
         throw std::runtime_error("base game missing package.meta: " + config.base_game.string());
     }
+    base.setRole(PackageRole::Base);
 
     vfs_.setBasePackage(std::move(engine));
     vfs_.addPackage(std::move(base));
@@ -157,6 +163,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
         if (!mod.hasMeta()) {
             throw std::runtime_error("mod missing package.meta: " + modPath.string());
         }
+        mod.setRole(PackageRole::Mod);
         vfs_.addPackage(std::move(mod));
     }
 
@@ -787,6 +794,31 @@ const AnimBank* AssetStore::getAnimBank(std::string_view path) {
     return &inserted.first->second;
 }
 
+namespace {
+
+std::optional<std::filesystem::file_time_type> newestWriteTime(
+    const std::optional<std::filesystem::path>& a,
+    const std::optional<std::filesystem::path>& b) {
+    std::optional<std::filesystem::file_time_type> newest;
+    std::error_code ec;
+    if (a) {
+        const auto t = std::filesystem::last_write_time(*a, ec);
+        if (!ec) {
+            newest = t;
+        }
+    }
+    if (b) {
+        ec.clear();
+        const auto t = std::filesystem::last_write_time(*b, ec);
+        if (!ec && (!newest || t > *newest)) {
+            newest = t;
+        }
+    }
+    return newest;
+}
+
+} // namespace
+
 const SpriteAsset* AssetStore::getSpriteAsset(std::string_view path) {
     const std::string key = cacheKey(path);
     const auto existing = spriteAssets_.find(key);
@@ -824,6 +856,30 @@ const SpriteAsset* AssetStore::getSpriteAsset(std::string_view path) {
         }
     }
 
+    auto stamp = newestWriteTime(
+        resolvePath(AssetKind::Sprite, path), resolvePath(AssetKind::SpriteAnim, path));
+    {
+        std::error_code ec;
+        for (const SpriteFrame& frame : asset.frames) {
+            for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
+                if (!frame.rotations[rotation].has_value()) {
+                    continue;
+                }
+                if (const auto tex =
+                        resolvePath(AssetKind::Texture, frame.rotations[rotation]->texturePath)) {
+                    ec.clear();
+                    const auto t = std::filesystem::last_write_time(*tex, ec);
+                    if (!ec && (!stamp || t > *stamp)) {
+                        stamp = t;
+                    }
+                }
+            }
+        }
+    }
+    if (stamp) {
+        spriteSourceMtimes_[key] = *stamp;
+    }
+
     spriteAtlases_.emplace(key, std::move(atlas));
     return &spriteAssets_.emplace(key, std::move(asset)).first->second;
 }
@@ -857,7 +913,64 @@ const SpriteAnimBank* AssetStore::getSpriteAnimBank(std::string_view path) {
         return nullptr;
     }
 
+    const auto stamp = newestWriteTime(
+        resolvePath(AssetKind::Sprite, path), resolvePath(AssetKind::SpriteAnim, path));
+    if (stamp) {
+        spriteSourceMtimes_[key] = *stamp;
+    }
+
     return &spriteAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+void AssetStore::invalidateSprite(std::string_view path) {
+    const std::string key = cacheKey(path);
+    spriteAssets_.erase(key);
+    spriteAnimBanks_.erase(key);
+    spriteSourceMtimes_.erase(key);
+    const auto atlasIt = spriteAtlases_.find(key);
+    if (atlasIt != spriteAtlases_.end()) {
+        unloadSpriteAtlas(atlasIt->second);
+        spriteAtlases_.erase(atlasIt);
+    }
+}
+
+bool AssetStore::reloadSpriteIfChanged(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto assetIt = spriteAssets_.find(key);
+    const bool cached =
+        assetIt != spriteAssets_.end() || spriteAnimBanks_.find(key) != spriteAnimBanks_.end();
+    if (!cached) {
+        return false;
+    }
+    auto stamp = newestWriteTime(
+        resolvePath(AssetKind::Sprite, path), resolvePath(AssetKind::SpriteAnim, path));
+    if (assetIt != spriteAssets_.end()) {
+        std::error_code ec;
+        for (const SpriteFrame& frame : assetIt->second.frames) {
+            for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
+                if (!frame.rotations[rotation].has_value()) {
+                    continue;
+                }
+                const SpriteRotation& entry = *frame.rotations[rotation];
+                if (const auto tex = resolvePath(AssetKind::Texture, entry.texturePath)) {
+                    ec.clear();
+                    const auto t = std::filesystem::last_write_time(*tex, ec);
+                    if (!ec && (!stamp || t > *stamp)) {
+                        stamp = t;
+                    }
+                }
+            }
+        }
+    }
+    if (!stamp) {
+        return false;
+    }
+    const auto cachedStamp = spriteSourceMtimes_.find(key);
+    if (cachedStamp != spriteSourceMtimes_.end() && *stamp <= cachedStamp->second) {
+        return false;
+    }
+    invalidateSprite(path);
+    return true;
 }
 
 std::string AssetStore::getScriptSource(std::string_view path) {
@@ -873,12 +986,20 @@ const std::vector<Package>& AssetStore::packages() const {
 }
 
 bool AssetStore::hasPackageId(std::string_view packageId) const {
+    return findPackage(packageId) != nullptr;
+}
+
+const Package* AssetStore::findPackage(std::string_view packageId) const {
+    return vfs_.findPackage(packageId);
+}
+
+std::string_view AssetStore::basePackageId() const {
     for (const Package& package : vfs_.packages()) {
-        if (package.meta().id == packageId) {
-            return true;
+        if (package.role() == PackageRole::Base) {
+            return package.meta().id;
         }
     }
-    return false;
+    return {};
 }
 
 std::string AssetStore::getSkeletonSource(std::string_view path) {
@@ -938,12 +1059,36 @@ std::vector<std::byte> AssetStore::readAnimTracksForClip(std::string_view animPa
 }
 
 bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
-    const auto resolved = vfs_.resolve(AssetKind::Script, path);
-    if (!resolved) {
+    const auto owned = vfs_.resolveOwned(AssetKind::Script, path);
+    if (!owned) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    const std::string_view packageId = owned->package != nullptr ? owned->package->meta().id : "";
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
+    return true;
+}
+
+bool AssetStore::loadScriptFromPackage(
+    s7_scheme* scheme,
+    std::string_view packageId,
+    std::string_view path) {
+    const auto owned = vfs_.resolveInPackage(AssetKind::Script, packageId, path);
+    if (!owned) {
+        return false;
+    }
+
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
     return true;
 }
 
@@ -990,12 +1135,36 @@ bool AssetStore::loadMapGraphs(s7_scheme* scheme, std::string_view path, s7_cell
 }
 
 bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
-    const auto resolved = vfs_.resolve(AssetKind::Data, path);
-    if (!resolved) {
+    const auto owned = vfs_.resolveOwned(AssetKind::Data, path);
+    if (!owned) {
         return false;
     }
 
-    s7_load(scheme, resolved->string().c_str());
+    const std::string_view packageId = owned->package != nullptr ? owned->package->meta().id : "";
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
+    return true;
+}
+
+bool AssetStore::loadDataFromPackage(
+    s7_scheme* scheme,
+    std::string_view packageId,
+    std::string_view path) {
+    const auto owned = vfs_.resolveInPackage(AssetKind::Data, packageId, path);
+    if (!owned) {
+        return false;
+    }
+
+    const PackageRole role =
+        owned->package != nullptr ? owned->package->role() : PackageRole::Base;
+    const ProcRoleSnapshot before = snapshotProcRoles(scheme);
+    PackageLoadContextGuard loadGuard(packageId, role);
+    s7_load(scheme, owned->path.string().c_str());
+    stampProcRoles(scheme, before, role);
     return true;
 }
 

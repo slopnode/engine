@@ -28,6 +28,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "render/render_context.hpp"
 #include "render/sprite_animator.hpp"
+#include "script/scheme_harden.hpp"
 #include "script/script_context.hpp"
 #include "script/ui_script.hpp"
 #include "ui/icon_ui.hpp"
@@ -124,7 +125,7 @@ void drawPauseMenu(flecs::world world, AssetStore& assets, InputContextStack& co
         {0.5f, 0.5f});
 
     if (ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
-        ImGui::TextUnformatted("Simulation continues while paused.");
+        ImGui::TextUnformatted("Simulation is paused.");
         if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
             contexts.pop(InputContext::PauseMenu);
         }
@@ -355,6 +356,7 @@ void drawMainMenuBar(
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
         menuItemWithIcon(
             assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
+        callDrawDebugMenu(world);
         ImGui::EndMenu();
     }
 
@@ -394,6 +396,9 @@ const char* entityKindLabel(flecs::entity entity) {
     }
     if (entity.has<SunLight>()) {
         return "sun";
+    }
+    if (entity.has<AmbientLight>()) {
+        return "ambient-light";
     }
     if (entity.has<RigidMover>()) {
         return "mover";
@@ -529,7 +534,7 @@ void drawEntityComponentDetails(flecs::entity entity) {
         const Interactable& interactable = entity.get<Interactable>();
         if (ImGui::TreeNode("Interactable")) {
             ImGui::Text("Prompt: %s", interactable.prompt.c_str());
-            ImGui::Text("Event: %s", interactable.eventName.c_str());
+            ImGui::Text("Event: %s", interactable.onUse.id.c_str());
             ImGui::Text("Max Distance: %.2f", static_cast<double>(interactable.maxDistance));
             ImGui::TreePop();
         }
@@ -636,6 +641,18 @@ void drawEntityComponentDetails(flecs::entity entity) {
     if (entity.has<SunLight>()) {
         const SunLight& light = entity.get<SunLight>();
         if (ImGui::TreeNode("SunLight")) {
+            ImGui::Text(
+                "Color: %.3f, %.3f, %.3f",
+                static_cast<double>(light.color.x),
+                static_cast<double>(light.color.y),
+                static_cast<double>(light.color.z));
+            ImGui::Text("Intensity: %.3f", static_cast<double>(light.intensity));
+            ImGui::TreePop();
+        }
+    }
+    if (entity.has<AmbientLight>()) {
+        const AmbientLight& light = entity.get<AmbientLight>();
+        if (ImGui::TreeNode("AmbientLight")) {
             ImGui::Text(
                 "Color: %.3f, %.3f, %.3f",
                 static_cast<double>(light.color.x),
@@ -993,8 +1010,8 @@ void drawInteractPanel(InputContextStack& contexts, InteractionTarget& target) {
 
     const char* title = target.prompt.empty() ? "Interact" : target.prompt.c_str();
     if (ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoCollapse)) {
-        if (!target.eventName.empty()) {
-            ImGui::Text("Event: %s", target.eventName.c_str());
+        if (!target.onUse.empty()) {
+            ImGui::Text("Event: %s", target.onUse.id.c_str());
         }
         if (target.entity.is_valid()) {
             ImGui::Text("Entity: %llu", static_cast<unsigned long long>(target.entity.id()));
@@ -1055,6 +1072,28 @@ void drawInteractionPrompt(const InteractionTarget& target, const InputContextSt
         nullptr,
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs);
     ImGui::Text("[E] %s", prompt);
+    ImGui::End();
+}
+
+void drawScriptingErrorBanner(AssetStore& assets) {
+    if (!scriptingErrorsOccurred()) {
+        return;
+    }
+
+    constexpr float kPad = 8.0f;
+    ImGui::SetNextWindowBgAlpha(0.55f);
+    ImGui::SetNextWindowPos(
+        {ImGui::GetIO().DisplaySize.x - kPad, ImGui::GetFrameHeight() + kPad},
+        ImGuiCond_Always,
+        {1.0f, 0.0f});
+    ImGui::Begin(
+        "ScriptingErrorBanner",
+        nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+            ImGuiWindowFlags_NoNav);
+    drawIconImGui(assets, kDefaultIconSet, "error");
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Scripting Errors! See program output.");
     ImGui::End();
 }
 
@@ -1214,6 +1253,10 @@ void drawUi(flecs::world world) {
     AssetStore* assets = nullptr;
     if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
         assets = world.get_mut<AssetServices>().store;
+    }
+
+    if (assets != nullptr) {
+        drawScriptingErrorBanner(*assets);
     }
 
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {

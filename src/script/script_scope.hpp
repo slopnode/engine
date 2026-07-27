@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/package.hpp"
+
 #include <cstdint>
 
 struct s7_scheme;
@@ -42,8 +44,23 @@ private:
     ScriptScope previous_;
 };
 
+class ScriptRoleGuard {
+public:
+    explicit ScriptRoleGuard(PackageRole role);
+    ~ScriptRoleGuard();
+
+    ScriptRoleGuard(const ScriptRoleGuard&) = delete;
+    ScriptRoleGuard& operator=(const ScriptRoleGuard&) = delete;
+
+private:
+    PackageRole previous_;
+};
+
 ScriptScope currentScriptScope();
+PackageRole currentScriptRole();
 bool scriptScopeAllows(ScriptScope scope, ScriptCap cap);
+bool scriptRoleAllows(PackageRole role, ScriptCap cap);
+bool scriptAllows(ScriptScope scope, PackageRole role, ScriptCap cap);
 bool requireCap(s7_scheme* sc, ScriptCap cap);
 
 }

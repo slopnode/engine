@@ -45,7 +45,11 @@ Camera3D FlyCamera::toRaylib() const {
         position.y + dir.y,
         position.z + dir.z,
     };
-    camera.up = {0.0f, 1.0f, 0.0f};
+    if (orthographic && viewPlane == ViewPlane::Top) {
+        camera.up = {0.0f, 0.0f, 1.0f};
+    } else {
+        camera.up = {0.0f, 1.0f, 0.0f};
+    }
     camera.fovy = orthographic ? orthoHalfHeight * 2.0f : 60.0f;
     camera.projection = orthographic ? CAMERA_ORTHOGRAPHIC : CAMERA_PERSPECTIVE;
     return camera;
@@ -55,16 +59,18 @@ void FlyCamera::update(bool allowInput) {
     const bool flying = allowInput && IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
 
     if (flying) {
-        const Vector2 delta = GetMouseDelta();
-        yaw -= delta.x * lookSensitivity;
-        pitch -= delta.y * lookSensitivity;
-        pitch = std::clamp(pitch, -1.45f, 1.45f);
+        if (!orthographic) {
+            const Vector2 delta = GetMouseDelta();
+            yaw -= delta.x * lookSensitivity;
+            pitch -= delta.y * lookSensitivity;
+            pitch = std::clamp(pitch, -1.45f, 1.45f);
 
-        while (yaw > kPi) {
-            yaw -= 2.0f * kPi;
-        }
-        while (yaw < -kPi) {
-            yaw += 2.0f * kPi;
+            while (yaw > kPi) {
+                yaw -= 2.0f * kPi;
+            }
+            while (yaw < -kPi) {
+                yaw += 2.0f * kPi;
+            }
         }
 
         const float dt = GetFrameTime();
@@ -75,31 +81,86 @@ void FlyCamera::update(bool allowInput) {
         const float step = speed * dt;
 
         Vector3 move{};
-        const Vector3 fwd = forward();
-        const Vector3 right = rightFlat();
-        if (IsKeyDown(KEY_W)) {
-            move.x += fwd.x;
-            move.y += fwd.y;
-            move.z += fwd.z;
-        }
-        if (IsKeyDown(KEY_S)) {
-            move.x -= fwd.x;
-            move.y -= fwd.y;
-            move.z -= fwd.z;
-        }
-        if (IsKeyDown(KEY_D)) {
-            move.x += right.x;
-            move.z += right.z;
-        }
-        if (IsKeyDown(KEY_A)) {
-            move.x -= right.x;
-            move.z -= right.z;
-        }
-        if (IsKeyDown(KEY_E) || IsKeyDown(KEY_SPACE)) {
-            move.y += 1.0f;
-        }
-        if (IsKeyDown(KEY_Q) || IsKeyDown(KEY_LEFT_CONTROL)) {
-            move.y -= 1.0f;
+        if (orthographic) {
+            const Vector3 right = rightFlat();
+            Vector3 planeUp{};
+            Vector3 normal{};
+            switch (viewPlane) {
+            case ViewPlane::Top:
+                planeUp = {0.0f, 0.0f, 1.0f};
+                normal = {0.0f, 1.0f, 0.0f};
+                break;
+            case ViewPlane::Front:
+                planeUp = {0.0f, 1.0f, 0.0f};
+                normal = {0.0f, 0.0f, 1.0f};
+                break;
+            case ViewPlane::Side:
+                planeUp = {0.0f, 1.0f, 0.0f};
+                normal = {1.0f, 0.0f, 0.0f};
+                break;
+            case ViewPlane::PerspectiveY0:
+            default:
+                planeUp = {0.0f, 1.0f, 0.0f};
+                normal = {0.0f, 1.0f, 0.0f};
+                break;
+            }
+            if (IsKeyDown(KEY_W)) {
+                move.x += planeUp.x;
+                move.y += planeUp.y;
+                move.z += planeUp.z;
+            }
+            if (IsKeyDown(KEY_S)) {
+                move.x -= planeUp.x;
+                move.y -= planeUp.y;
+                move.z -= planeUp.z;
+            }
+            if (IsKeyDown(KEY_D)) {
+                move.x += right.x;
+                move.y += right.y;
+                move.z += right.z;
+            }
+            if (IsKeyDown(KEY_A)) {
+                move.x -= right.x;
+                move.y -= right.y;
+                move.z -= right.z;
+            }
+            if (IsKeyDown(KEY_E) || IsKeyDown(KEY_SPACE)) {
+                move.x += normal.x;
+                move.y += normal.y;
+                move.z += normal.z;
+            }
+            if (IsKeyDown(KEY_Q) || IsKeyDown(KEY_LEFT_CONTROL)) {
+                move.x -= normal.x;
+                move.y -= normal.y;
+                move.z -= normal.z;
+            }
+        } else {
+            const Vector3 fwd = forward();
+            const Vector3 right = rightFlat();
+            if (IsKeyDown(KEY_W)) {
+                move.x += fwd.x;
+                move.y += fwd.y;
+                move.z += fwd.z;
+            }
+            if (IsKeyDown(KEY_S)) {
+                move.x -= fwd.x;
+                move.y -= fwd.y;
+                move.z -= fwd.z;
+            }
+            if (IsKeyDown(KEY_D)) {
+                move.x += right.x;
+                move.z += right.z;
+            }
+            if (IsKeyDown(KEY_A)) {
+                move.x -= right.x;
+                move.z -= right.z;
+            }
+            if (IsKeyDown(KEY_E) || IsKeyDown(KEY_SPACE)) {
+                move.y += 1.0f;
+            }
+            if (IsKeyDown(KEY_Q) || IsKeyDown(KEY_LEFT_CONTROL)) {
+                move.y -= 1.0f;
+            }
         }
 
         const float moveLen = std::sqrt(move.x * move.x + move.y * move.y + move.z * move.z);

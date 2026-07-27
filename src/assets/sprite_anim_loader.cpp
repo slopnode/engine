@@ -62,6 +62,27 @@ bool parseHintForm(const Sexpr& form, SpriteAnimFrame& out) {
     return true;
 }
 
+bool parseOverlayForm(const Sexpr& form, SpriteAnimFrame& out) {
+    if (!form.isList() || form.list.size() != 6 || !form.list[0].isAtom("overlay") ||
+        !form.list[1].isNumber() || !form.list[2].isString() || form.list[2].text.empty() ||
+        !form.list[3].isString() || form.list[3].text.empty() || !form.list[4].isNumber() ||
+        !form.list[5].isNumber()) {
+        return false;
+    }
+    const int layer = static_cast<int>(form.list[1].number);
+    if (layer == 0) {
+        return false;
+    }
+    out.overlays.push_back(SpriteAnimOverlay{
+        .layer = layer,
+        .sprite = form.list[2].text,
+        .clip = form.list[3].text,
+        .x = static_cast<float>(form.list[4].number),
+        .y = static_cast<float>(form.list[5].number),
+    });
+    return true;
+}
+
 bool parseFrameForm(const Sexpr& form, SpriteAnimFrame& out) {
     if (!form.isList() || form.list.size() < 3 || !form.list[0].isAtom("frame") ||
         !form.list[1].isString() || form.list[1].text.empty() || !form.list[2].isNumber() ||
@@ -88,6 +109,10 @@ bool parseFrameForm(const Sexpr& form, SpriteAnimFrame& out) {
             }
         } else if (tag == "hint") {
             if (!parseHintForm(child, out)) {
+                return false;
+            }
+        } else if (tag == "overlay") {
+            if (!parseOverlayForm(child, out)) {
                 return false;
             }
         } else {
@@ -183,6 +208,13 @@ void writeHintSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
     }
 }
 
+void writeOverlaySuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
+    for (const SpriteAnimOverlay& overlay : frame.overlays) {
+        out << " (overlay " << overlay.layer << " \"" << overlay.sprite << "\" \"" << overlay.clip
+            << "\" " << overlay.x << ' ' << overlay.y << ')';
+    }
+}
+
 } // namespace
 
 bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
@@ -237,6 +269,7 @@ std::string serializeSpriteAnimBank(const SpriteAnimBank& bank) {
             writeTweenSuffix(out, frame);
             writeSoundSuffix(out, frame);
             writeHintSuffix(out, frame);
+            writeOverlaySuffix(out, frame);
             out << ")\n";
         }
         out << "  )\n";

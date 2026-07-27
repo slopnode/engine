@@ -16,7 +16,9 @@ void drawFirstPersonPass(
     const Lens& lens,
     bool unlit);
 
-void drawViewSpritesAndHud(flecs::world& world);
+void drawViewSprites(flecs::world& world);
+
+void drawHud(flecs::world& world);
 
 void drawSpriteAimHudText(const std::string& spriteAimStatus);
 
