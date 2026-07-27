@@ -718,14 +718,15 @@ void drawWritePackagePicker(slopmap::Editor& editor, const slopengine::AssetStor
     }
 
     const std::string& previewId = packages[static_cast<std::size_t>(current)].meta().id;
-    const char* preview =
-        !previewId.empty() ? previewId.c_str() : packages[static_cast<std::size_t>(current)].root().c_str();
+    const std::string previewRoot = packages[static_cast<std::size_t>(current)].root().string();
+    const char* preview = !previewId.empty() ? previewId.c_str() : previewRoot.c_str();
     ImGui::TextUnformatted("Save to package");
     if (ImGui::BeginCombo("##writepackage", preview)) {
         for (std::size_t i = 0; i < packages.size(); ++i) {
             const slopengine::Package& package = packages[i];
             const std::string& id = package.meta().id;
-            const char* label = !id.empty() ? id.c_str() : package.root().c_str();
+            const std::string rootLabel = package.root().string();
+            const char* label = !id.empty() ? id.c_str() : rootLabel.c_str();
             const bool selected = static_cast<int>(i) == current;
             if (ImGui::Selectable(label, selected)) {
                 editor.writePackageRoot = package.root();

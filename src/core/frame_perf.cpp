@@ -3,7 +3,7 @@
 #include <raylib.h>
 
 #if defined(_WIN32)
-#include <windows.h>
+#include "core/win32.hpp"
 #include <psapi.h>
 #else
 #include <sys/resource.h>

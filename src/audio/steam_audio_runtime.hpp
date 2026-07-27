@@ -2,6 +2,8 @@
 
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
 
+#include "core/win32.hpp"
+
 #include "audio/steam_audio_types.hpp"
 #include "map/fac.hpp"
 

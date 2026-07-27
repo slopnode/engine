@@ -61,7 +61,7 @@ void configureBrushDoorMover(
     }
     case DoorMotion::Swing: {
         mover.openAngleRadians =
-            door.haveAngle ? door.angle : static_cast<float>(M_PI) * 0.5f;
+            door.haveAngle ? door.angle : PI * 0.5f;
         mover.rotAxis = MoverRotAxis::Yaw;
         if (!door.hingeThingId.empty()) {
             const Thing* hinge = findThingById(things, door.hingeThingId);

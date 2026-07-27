@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/win32.hpp"
+
 #include "assets/asset_store.hpp"
 #include "assets/audio_def.hpp"
 #include "audio/steam_audio_types.hpp"

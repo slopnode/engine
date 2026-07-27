@@ -59,7 +59,7 @@ void runBrushDoorTests() {
     {
         Brush brush = makeDoorBrush("door-swing", DoorMotion::Swing);
         brush.door.haveAngle = true;
-        brush.door.angle = static_cast<float>(M_PI) * 0.5f;
+        brush.door.angle = PI * 0.5f;
         brush.door.hingeThingId = "hinge-a";
 
         ThingDocument things{};

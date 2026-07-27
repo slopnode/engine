@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/win32.hpp"
+
 #include <soloud.h>
 
 namespace slopengine {
