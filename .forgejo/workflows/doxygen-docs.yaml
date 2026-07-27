@@ -1,0 +1,40 @@
+name: Docs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  docs:
+    runs-on: bryan
+    container:
+      image: git.slopnode.net/containers/engine-linux-builder:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build documentation
+        run: |
+          set -eux
+          cmake -S . -B build -DSLOPENGINE_DOCS_ONLY=ON
+          cmake --build build --target docs
+
+      - name: Publish documentation
+        env:
+          DO_ACCESS_KEY: ${{ secrets.DO_ACCESS_KEY }}
+          DO_SECRET_KEY: ${{ secrets.DO_SECRET_KEY }}
+          DO_BUCKET_NAME: ${{ secrets.DO_BUCKET_NAME }}
+        run: |
+          set -eux
+          cat > config.toml <<EOF
+          [storage]
+          type = "s3"
+
+          [storage.s3]
+          endpoint = "fra1.digitaloceanspaces.com"
+          access-key-id = "${DO_ACCESS_KEY}"
+          secret-access-key = "${DO_SECRET_KEY}"
+          region = "fra1"
+          bucket = "${DO_BUCKET_NAME}"
+          EOF
+          tar cf docs.tar -C build/docs/html .
+          git-pages -config config.toml -update-site pages.slopnode.net/engine-docs docs.tar
