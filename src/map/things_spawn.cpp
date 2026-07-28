@@ -20,6 +20,8 @@
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
 #include "render/sprite_animator.hpp"
+#include "particles/particle_module.hpp"
+#include "particles/components.hpp"
 
 #include <cstdint>
 
@@ -657,6 +659,38 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
 
     if (placement.kind == ThingKind::Marker) {
         entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
+        return;
+    }
+
+    if (placement.kind == ThingKind::Particle) {
+        if (ctx.assets == nullptr || placement.particleSystem.empty()) {
+            entity.destruct();
+            return;
+        }
+        ParticleSystemInstance instance{};
+        if (!initParticleSystemInstance(
+                instance,
+                *ctx.assets,
+                placement.particleSystem,
+                placement.particlePlay)) {
+            TraceLog(
+                LOG_WARNING,
+                "THING: particle '%s' missing system '%s'",
+                placement.id.c_str(),
+                placement.particleSystem.c_str());
+            entity.destruct();
+            return;
+        }
+        LocalTransformation local = makeLocalTransform(placement, ctx);
+        Matrix s = MatrixScale(local.scale.x, local.scale.y, local.scale.z);
+        Matrix r = QuaternionToMatrix(local.rotation);
+        Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
+        GlobalTransformation global{};
+        global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+        entity.add<WorldSpace>()
+            .set<LocalTransformation>(local)
+            .set<GlobalTransformation>(global)
+            .set<ParticleSystemInstance>(std::move(instance));
         return;
     }
 

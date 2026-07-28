@@ -291,6 +291,10 @@ Full formats, buses, filters, and frame sounds: [Audio](audio.md).
 | (mover-set-state id open? progress [locked?]) | Restore after map load (snaps pose / kinematic). |
 | (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "", ignore "". Integrates velocity against static brush hulls and CharacterMotor capsules (actors and player); optional `ignore` entity id is skipped in character sweeps (shooter). Positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z hit)` with the hit point and `hit` = entity id string or `#f` for a world/brush hit, then despawns. See [Things](things.md#motored-bodies). |
 | (sprite-spawn id x y z path [clip] [lifetime]) | Spawn a world billboard at runtime. Optional non-looping `.spanim` clip; optional lifetime (default 0.5) queues despawn. |
+| (particle-spawn id x y z path [yaw]) | Spawn a playing particle system from a `.prt` path. |
+| (particle-play id) | Restart and play a particle system entity. |
+| (particle-stop id) | Stop a particle system entity. |
+| (particle-despawn id) | Destroy a particle system entity. |
 | (actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) | Runtime actor (kind "sprite" or "geo"). Defaults match player motor; empty tags → ("actor"). |
 | (actor-pos id) | Feet (x y z) or #f |
 | (actor-yaw id) | Yaw radians or #f |

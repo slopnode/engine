@@ -51,6 +51,7 @@ enum class ThingEditKind {
     Usable,
     Pickup,
     Mover,
+    Particle,
     Mixed,
 };
 
@@ -92,6 +93,8 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
             entryKind = ThingEditKind::Pickup;
         } else if (thingKind == slopengine::ThingKind::Mover) {
             entryKind = ThingEditKind::Mover;
+        } else if (thingKind == slopengine::ThingKind::Particle) {
+            entryKind = ThingEditKind::Particle;
         } else {
             continue;
         }
@@ -234,6 +237,19 @@ bool forEachSound(
         targets,
         [](const slopengine::Thing& thing) {
             return thing.kind == slopengine::ThingKind::SoundSource;
+        },
+        fn);
+}
+
+bool forEachParticle(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    return forEachTarget(
+        editor,
+        targets,
+        [](const slopengine::Thing& thing) {
+            return thing.kind == slopengine::ThingKind::Particle;
         },
         fn);
 }
@@ -1066,6 +1082,92 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
+bool drawParticleSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::Text("Kind: particle");
+    ImGui::Text("%d particle system(s)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto systemCommon = commonValue<std::string>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.particleSystem; });
+    const auto playCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Thing& t) { return t.particlePlay; });
+
+    const std::vector<std::string> systemPaths =
+        scanPackageAssets(assets, "particles", ".prt");
+    const char* systemPreview = !systemCommon.has_value()
+        ? "(mixed)"
+        : (systemCommon->empty() ? "(none)" : systemCommon->c_str());
+    if (ImGui::BeginCombo("System##particle", systemPreview)) {
+        if (ImGui::Selectable("(none)", systemCommon.has_value() && systemCommon->empty())) {
+            if (forEachParticle(editor, targets, [](slopengine::Thing& thing) {
+                    thing.particleSystem.clear();
+                })) {
+                changed = true;
+                editor.statusMessage = "Cleared particle system";
+            }
+        }
+        for (const std::string& path : systemPaths) {
+            const bool selected = systemCommon.has_value() && *systemCommon == path;
+            if (ImGui::Selectable(path.c_str(), selected)) {
+                if (forEachParticle(editor, targets, [&path](slopengine::Thing& thing) {
+                        thing.particleSystem = path;
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set particle system";
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    char systemBuf[256];
+    copyToBuf(systemBuf, sizeof(systemBuf), systemCommon.value_or(std::string{}));
+    if (inputTextMixed("System path", systemBuf, sizeof(systemBuf), !systemCommon.has_value())) {
+        const std::string system = systemBuf;
+        if (forEachParticle(editor, targets, [&system](slopengine::Thing& thing) {
+                thing.particleSystem = system;
+            })) {
+            changed = true;
+            editor.statusMessage = "Set particle system path";
+        }
+    }
+
+    bool play = playCommon.value_or(true);
+    if (checkboxMixed("Play", &play, !playCommon.has_value())) {
+        if (forEachParticle(editor, targets, [play](slopengine::Thing& thing) {
+                thing.particlePlay = play;
+                thing.haveParticlePlay = true;
+            })) {
+            changed = true;
+            editor.statusMessage = play ? "Particle play: on" : "Particle play: off";
+        }
+    }
+
+    if (ImGui::Button("Restart preview")) {
+        editor.particlePreviewEnabled = true;
+        editor.particlePreviewRestartRequest = true;
+        if (forEachParticle(editor, targets, [](slopengine::Thing& thing) {
+                thing.particlePlay = true;
+                thing.haveParticlePlay = true;
+            })) {
+            changed = true;
+        }
+        editor.statusMessage = "Restarted particle preview";
+    }
+
+    return changed;
+}
+
 void drawTypeInfo(const EditorDocument& doc, const std::vector<int>& targets) {
     const auto typeCommon = commonValue<std::string>(
         doc,
@@ -1782,7 +1884,7 @@ ThingPanelResult ThingPanel::drawSection(
     const std::vector<int> targets = collectEditableTargets(editor.doc(), &editKind);
     if (targets.empty() || editKind == ThingEditKind::None) {
         ImGui::TextDisabled(
-            "Select prop, light, sound, actor, trigger, usable, pickup, or mover thing(s) to edit");
+            "Select prop, light, sound, particle, actor, trigger, usable, pickup, or mover thing(s) to edit");
         ImGui::EndChild();
         return result;
     }
@@ -1810,6 +1912,8 @@ ThingPanelResult ThingPanel::drawSection(
         result.changed = drawPickupSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Mover) {
         result.changed = drawMoverSection(editor, assets, targets) || result.changed;
+    } else if (editKind == ThingEditKind::Particle) {
+        result.changed = drawParticleSection(editor, assets, targets) || result.changed;
     }
 
     ImGui::EndChild();

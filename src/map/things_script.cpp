@@ -452,6 +452,20 @@ s7_pointer g_clip(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "clip", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_system(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "system", 1, args, "path");
+    }
+    return makeTaggedList(sc, "system", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_play(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "play", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "play", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_volume(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "volume", 1, args, "value");
@@ -813,6 +827,10 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         } else if (std::strcmp(tag, "max-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
             out.maxDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "system") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.particleSystem);
+        } else if (std::strcmp(tag, "play") == 0 && s7_is_pair(rest)) {
+            out.haveParticlePlay = readBool(sc, s7_car(rest), out.particlePlay);
         } else {
             TraceLog(LOG_WARNING, "THING: unknown or malformed clause '%s'", tag);
             return false;
@@ -1120,6 +1138,23 @@ s7_pointer g_marker(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "marker requires id and at", true);
 }
 
+s7_pointer g_particle(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultParticleThing();
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "particle has invalid clauses")));
+    }
+    if (placement.particleSystem.empty()) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "particle requires system")));
+    }
+    return appendThing(sc, std::move(placement), "particle requires id and at", true);
+}
+
 s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
     if (g_context == nullptr || g_context->doc == nullptr) {
         return s7_error(
@@ -1222,6 +1257,8 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "size", g_size, 2, 0, false, "(size width height)");
     s7_define_function(sc, "audio", g_audio, 1, 0, false, "(audio path)");
     s7_define_function(sc, "clip", g_clip, 1, 0, false, "(clip path)");
+    s7_define_function(sc, "system", g_system, 1, 0, false, "(system path)");
+    s7_define_function(sc, "play", g_play, 1, 0, false, "(play bool)");
     s7_define_function(sc, "volume", g_volume, 1, 0, false, "(volume value)");
     s7_define_function(sc, "loop", g_loop, 1, 0, false, "(loop bool)");
     s7_define_function(sc, "spatial", g_spatial, 1, 0, false, "(spatial bool)");
@@ -1242,6 +1279,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "ambient-light", g_ambient_light, 0, 0, true, "(ambient-light clauses...)");
     s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
     s7_define_function(sc, "marker", g_marker, 0, 0, true, "(marker clauses...)");
+    s7_define_function(sc, "particle", g_particle, 0, 0, true, "(particle clauses...)");
     s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
     bindMapHandlerArgClauses(sc);
 }

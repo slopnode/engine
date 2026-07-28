@@ -416,6 +416,10 @@ bool AssetStore::hasSpriteAnim(std::string_view path) const {
     return vfs_.exists(AssetKind::SpriteAnim, path);
 }
 
+bool AssetStore::hasParticle(std::string_view path) const {
+    return vfs_.exists(AssetKind::Particle, path);
+}
+
 bool AssetStore::hasIconAtlas(std::string_view set) const {
     return vfs_.exists(AssetKind::IconMap, set);
 }
@@ -645,6 +649,10 @@ std::string AssetStore::getShaderSource(std::string_view path) {
 
 std::string AssetStore::getMaterialSource(std::string_view path) {
     return vfs_.readText(AssetKind::Material, path);
+}
+
+std::string AssetStore::getParticleSource(std::string_view path) {
+    return vfs_.readText(AssetKind::Particle, path);
 }
 
 Material AssetStore::resolveMaterial(std::string_view path) {
@@ -920,6 +928,27 @@ const SpriteAnimBank* AssetStore::getSpriteAnimBank(std::string_view path) {
     }
 
     return &spriteAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+const ParticleSystemAsset* AssetStore::getParticleAsset(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto existing = particleAssets_.find(key);
+    if (existing != particleAssets_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasParticle(path)) {
+        TraceLog(LOG_WARNING, "Particle system not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    ParticleSystemAsset asset{};
+    if (!parseParticleSystemAsset(getParticleSource(path), asset)) {
+        TraceLog(LOG_WARNING, "Failed to parse particle system: %s", key.c_str());
+        return nullptr;
+    }
+
+    return &particleAssets_.emplace(key, std::move(asset)).first->second;
 }
 
 void AssetStore::invalidateSprite(std::string_view path) {

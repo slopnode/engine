@@ -1,6 +1,7 @@
 #include "test_assert.hpp"
 
 #include "assets/material_loader.hpp"
+#include "assets/prt_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
 
 namespace slopengine {
@@ -25,6 +26,61 @@ void runAssetTests() {
         MaterialAsset asset{};
         const bool ok = parseMaterialAsset(
             "(material (shader \"default\") (texure \"typo\"))",
+            asset);
+        CHECK_FALSE(ok);
+    }
+
+    {
+        ParticleSystemAsset asset{};
+        const bool ok = parseParticleSystemAsset(
+            "(particle-system\n"
+            "  (duration 0)\n"
+            "  (loop #t)\n"
+            "  (emitter \"smoke\"\n"
+            "    (sim gpu)\n"
+            "    (sprite \"fx/smoke\")\n"
+            "    (blend alpha)\n"
+            "    (max-particles 128)\n"
+            "    (rate 10)\n"
+            "    (lifetime 1.0 2.0)\n"
+            "    (speed 0.2)\n"
+            "    (size 0.3 0.5)\n"
+            "    (color 1 1 1 0.5)\n"
+            "    (shape sphere 0.2)\n"
+            "    (size-over-life 1.0 0.2)\n"
+            "    (alpha-over-life 1.0 0.0))\n"
+            "  (emitter \"bits\"\n"
+            "    (sim cpu)\n"
+            "    (sprite \"fx/smoke\")\n"
+            "    (max-particles 32)\n"
+            "    (burst 8)\n"
+            "    (bounce 0.4)\n"
+            "    (max-bounces 2)\n"
+            "    (die-on-hit #f)))\n",
+            asset);
+        CHECK(ok);
+        CHECK(asset.loop);
+        CHECK_EQ(asset.emitters.size(), 2u);
+        CHECK_EQ(asset.emitters[0].name, std::string("smoke"));
+        CHECK(asset.emitters[0].sim == ParticleSimMode::Gpu);
+        CHECK_EQ(asset.emitters[0].sprite, std::string("fx/smoke"));
+        CHECK(asset.emitters[0].blend == ParticleBlendMode::Alpha);
+        CHECK_EQ(asset.emitters[0].maxParticles, 128);
+        CHECK_EQ(asset.emitters[0].rate, 10.0f);
+        CHECK_EQ(asset.emitters[0].lifetime.min, 1.0f);
+        CHECK_EQ(asset.emitters[0].lifetime.max, 2.0f);
+        CHECK(asset.emitters[0].shape == ParticleShapeKind::Sphere);
+        CHECK_EQ(asset.emitters[1].name, std::string("bits"));
+        CHECK(asset.emitters[1].sim == ParticleSimMode::Cpu);
+        CHECK_EQ(asset.emitters[1].burst, 8);
+        CHECK_EQ(asset.emitters[1].bounce, 0.4f);
+        CHECK_EQ(asset.emitters[1].maxBounces, 2);
+    }
+
+    {
+        ParticleSystemAsset asset{};
+        const bool ok = parseParticleSystemAsset(
+            "(particle-system (duration 1))\n",
             asset);
         CHECK_FALSE(ok);
     }
@@ -78,7 +134,8 @@ void runAssetTests() {
             "  (clip \"fire\"\n"
             "    (loop 0)\n"
             "    (frame \"B\" 0.05 (sound \"pistol/fire\") (hint \"fire\") "
-            "(overlay 1 \"fx/muzzle\" \"flash\" 48 -36))\n"
+            "(overlay 1 \"fx/muzzle\" \"flash\" 48 -36) "
+            "(particle \"fx/generic-smoke\" 0.1 0.2 0.3))\n"
             "  )\n"
             ")\n",
             bank);
@@ -95,6 +152,11 @@ void runAssetTests() {
         CHECK_EQ(frame.overlays[0].clip, std::string("flash"));
         CHECK_EQ(frame.overlays[0].x, 48.0f);
         CHECK_EQ(frame.overlays[0].y, -36.0f);
+        CHECK_EQ(frame.particles.size(), 1u);
+        CHECK_EQ(frame.particles[0].system, std::string("fx/generic-smoke"));
+        CHECK_EQ(frame.particles[0].x, 0.1f);
+        CHECK_EQ(frame.particles[0].y, 0.2f);
+        CHECK_EQ(frame.particles[0].z, 0.3f);
 
         const std::string serialized = serializeSpriteAnimBank(bank);
         SpriteAnimBank roundTrip{};
@@ -102,6 +164,8 @@ void runAssetTests() {
         CHECK_EQ(roundTrip.clips[0].frames[0].overlays.size(), 1u);
         CHECK_EQ(roundTrip.clips[0].frames[0].overlays[0].layer, 1);
         CHECK_EQ(roundTrip.clips[0].frames[0].overlays[0].x, 48.0f);
+        CHECK_EQ(roundTrip.clips[0].frames[0].particles.size(), 1u);
+        CHECK_EQ(roundTrip.clips[0].frames[0].particles[0].system, std::string("fx/generic-smoke"));
     }
 
     {

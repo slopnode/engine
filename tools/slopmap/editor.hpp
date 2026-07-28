@@ -124,6 +124,8 @@ struct Editor {
     std::string placeThingType;
     PlacePresentation placePresentation = PlacePresentation::None;
     std::unordered_map<std::string, PlacePresentation> propChannelLock;
+    bool particlePreviewEnabled = true;
+    bool particlePreviewRestartRequest = false;
     std::filesystem::path writePackageRoot;
     std::string writePackageId = "slopengine.base";
     s7_scheme* scheme = nullptr;

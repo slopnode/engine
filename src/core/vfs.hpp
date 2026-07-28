@@ -46,6 +46,7 @@ enum class AssetKind {
     SoundWav,      /**< .wav under sound/ */
     Audio,         /**< .s7 under audio/ */
     AudioSaudio,   /**< .saudio under audio/ */
+    Particle,      /**< .prt under particles/ */
 };
 
 class AssetStore;

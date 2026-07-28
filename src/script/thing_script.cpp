@@ -22,6 +22,8 @@
 #include "render/fx_local_light.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
+#include "particles/components.hpp"
+#include "particles/particle_module.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -611,6 +613,118 @@ s7_pointer g_sprite_spawn(s7_scheme* sc, s7_pointer args) {
         entity.set<TimedDespawn>({.age = 0.0f, .lifetime = lifetime});
     }
 
+    return s7_t(sc);
+}
+
+s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0, y = 0, z = 0;
+    if (!readNumberArg(sc, args, x, "particle-spawn", 2) ||
+        !readNumberArg(sc, args, y, "particle-spawn", 3) ||
+        !readNumberArg(sc, args, z, "particle-spawn", 4)) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn", 2, args, "x y z numbers");
+    }
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn", 5, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float yaw = 0.0f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        yaw = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasParticle(path)) {
+        TraceLog(LOG_WARNING, "particle-spawn: missing system '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnParticleSystem(
+        *g_thingWorld,
+        assets,
+        id.c_str(),
+        {x, y, z},
+        yaw,
+        path,
+        true,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_particle_play(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_f(sc);
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<ParticleSystemInstance>()) {
+        return s7_f(sc);
+    }
+    ParticleSystemInstance& instance = entity.get_mut<ParticleSystemInstance>();
+    if (!instance.playing) {
+        resetParticleSystemInstance(instance);
+        instance.playing = true;
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_particle_stop(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_f(sc);
+    }
+    flecs::entity entity = g_thingWorld->lookup(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<ParticleSystemInstance>()) {
+        return s7_f(sc);
+    }
+    entity.get_mut<ParticleSystemInstance>().playing = false;
+    return s7_t(sc);
+}
+
+s7_pointer g_particle_despawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_f(sc);
+    }
+    const std::string id = s7_string(s7_car(args));
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid() || !entity.has<ParticleSystemInstance>()) {
+        return s7_f(sc);
+    }
+    entity.destruct();
     return s7_t(sc);
 }
 
@@ -1836,6 +1950,38 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         2,
         false,
         "(sprite-spawn id x y z path [clip] [lifetime])");
+    s7_define_function(
+        scheme,
+        "particle-spawn",
+        g_particle_spawn,
+        5,
+        1,
+        false,
+        "(particle-spawn id x y z path [yaw])");
+    s7_define_function(
+        scheme,
+        "particle-play",
+        g_particle_play,
+        1,
+        0,
+        false,
+        "(particle-play id)");
+    s7_define_function(
+        scheme,
+        "particle-stop",
+        g_particle_stop,
+        1,
+        0,
+        false,
+        "(particle-stop id)");
+    s7_define_function(
+        scheme,
+        "particle-despawn",
+        g_particle_despawn,
+        1,
+        0,
+        false,
+        "(particle-despawn id)");
     s7_define_function(
         scheme,
         "fx-light-spawn",

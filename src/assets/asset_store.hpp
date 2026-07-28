@@ -4,6 +4,7 @@
 #include "assets/audio_def.hpp"
 #include "assets/icon_atlas.hpp"
 #include "assets/material_loader.hpp"
+#include "assets/prt_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
 #include "assets/sprite_loader.hpp"
@@ -145,6 +146,9 @@ public:
     /** Returns true when a sprite animation bank exists at @p path. */
     bool hasSpriteAnim(std::string_view path) const;
 
+    /** Returns true when a particle system exists at @p path. */
+    bool hasParticle(std::string_view path) const;
+
     /** Returns a cached texture, loading it when needed. */
     Texture2D getTexture(std::string_view path);
 
@@ -178,6 +182,9 @@ public:
     /** Returns a cached sprite animation bank, loading it when needed. */
     const SpriteAnimBank* getSpriteAnimBank(std::string_view path);
 
+    /** Returns a cached particle system asset, loading it when needed. */
+    const ParticleSystemAsset* getParticleAsset(std::string_view path);
+
     /** Drops cached .spr / atlas / .spanim for @p path so the next get reloads from disk. */
     void invalidateSprite(std::string_view path);
 
@@ -204,6 +211,9 @@ public:
 
     /** Returns the text source of the material at @p path. */
     std::string getMaterialSource(std::string_view path);
+
+    /** Returns the text source of the particle system at @p path. */
+    std::string getParticleSource(std::string_view path);
 
     /** Returns the text source of the script at @p path. */
     std::string getScriptSource(std::string_view path);
@@ -303,6 +313,7 @@ private:
     std::unordered_map<std::string, SpriteAsset> spriteAssets_;
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
+    std::unordered_map<std::string, ParticleSystemAsset> particleAssets_;
     std::unordered_map<std::string, std::filesystem::file_time_type> spriteSourceMtimes_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;
     std::unordered_map<std::string, AudioDef> audioDefs_;

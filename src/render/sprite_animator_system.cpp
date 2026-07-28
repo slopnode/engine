@@ -12,8 +12,10 @@
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
+#include "particles/particle_module.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -392,10 +394,42 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 }
             };
 
+            auto fireParticles = [&](const SpriteAnimFrame& frame) {
+                if (!frame.hasParticles()) {
+                    return;
+                }
+                if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
+                    return;
+                }
+                AssetStore& assets = *world.get_mut<AssetServices>().store;
+                Vector3 origin{};
+                if (entity.has<GlobalTransformation>()) {
+                    const Matrix& m = entity.get<GlobalTransformation>().matrix;
+                    origin = {m.m12, m.m13, m.m14};
+                } else if (entity.has<LocalTransformation>()) {
+                    origin = entity.get<LocalTransformation>().position;
+                }
+                static std::uint64_t particleCueSerial = 0;
+                for (const SpriteAnimParticle& cue : frame.particles) {
+                    const std::string id =
+                        "prt-cue-" + std::to_string(++particleCueSerial);
+                    spawnParticleSystem(
+                        world,
+                        assets,
+                        id.c_str(),
+                        {origin.x + cue.x, origin.y + cue.y, origin.z + cue.z},
+                        0.0f,
+                        cue.system,
+                        true,
+                        true);
+                }
+            };
+
             auto fireHoldEnter = [&](const SpriteAnimFrame& frame) {
                 fireSound(frame);
                 fireHints(frame);
                 fireOverlays(frame);
+                fireParticles(frame);
             };
 
             auto fireEnteredHolds = [&](int previousIndex, int currentIndex) {

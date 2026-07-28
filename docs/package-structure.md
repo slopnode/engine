@@ -49,6 +49,7 @@ my-package/
   icons/          # .png atlas + .iconmap (+ source folders)
   maps/           # map folders
   materials/      # .mat
+  particles/      # .prt
   prefabs/        # brush assemblies (+ optional entity sidecars)
   scripts/        # .s7 (base: init, things, player, menus; mods: contrib.s7)
   shaders/        # .glsl
@@ -71,6 +72,7 @@ Example: material virtual path surfaces/stone resolves to materials/surfaces/sto
 | geometry/ | .geo, .vert, .weights | props/crate -> geometry/props/crate.geo |
 | animations/ | .anim, .tracks | character -> animations/character/character.anim |
 | sprites/ | .spr, .spanim | characters/guard -> sprites/characters/guard.spr |
+| particles/ | .prt | fx/generic-smoke -> particles/fx/generic-smoke.prt |
 | sound/ | .ogg | weapons/fire -> sound/weapons/fire.ogg |
 | audio/ | .saudio, .s7 | ui/pickup -> audio/ui/pickup.saudio |
 | icons/ | .png, .iconmap | silk -> icons/silk.png / icons/silk.iconmap |

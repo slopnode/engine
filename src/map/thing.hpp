@@ -26,6 +26,7 @@ enum class ThingKind {
     Prefab,
     SoundSource,
     Marker,
+    Particle,
 };
 
 /** Runtime component: catalog type id for a spawned map thing (empty if legacy). */
@@ -119,6 +120,10 @@ struct Thing {
     float maxDistance = 30.0f;
     bool looping = true;
     bool spatial = true;
+
+    std::string particleSystem;
+    bool particlePlay = true;
+    bool haveParticlePlay = false;
 };
 
 struct ThingDocument {
@@ -150,6 +155,14 @@ inline Thing makeDefaultSoundSourceThing() {
 inline Thing makeDefaultMarkerThing() {
     Thing t{};
     t.kind = ThingKind::Marker;
+    return t;
+}
+
+inline Thing makeDefaultParticleThing() {
+    Thing t{};
+    t.kind = ThingKind::Particle;
+    t.particleSystem = "fx/generic-smoke";
+    t.particlePlay = true;
     return t;
 }
 
@@ -185,6 +198,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "sound-source";
     case ThingKind::Marker:
         return "marker";
+    case ThingKind::Particle:
+        return "particle";
     }
     return "thing";
 }

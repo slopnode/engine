@@ -1,0 +1,6 @@
+(sprite-anim
+  (clip "puff"
+    (loop 1)
+    (frame "A" 0.2)
+  )
+)

@@ -51,6 +51,7 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::SoundWav: return "sound";
     case AssetKind::Audio: return "audio";
     case AssetKind::AudioSaudio: return "audio";
+    case AssetKind::Particle: return "particles";
     }
     return "";
 }
@@ -90,6 +91,7 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::SoundWav: return ".wav";
     case AssetKind::Audio: return ".s7";
     case AssetKind::AudioSaudio: return ".saudio";
+    case AssetKind::Particle: return ".prt";
     }
     return "";
 }

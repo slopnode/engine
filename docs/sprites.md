@@ -176,6 +176,7 @@ Sibling of the .spr at the same virtual path:
 | (sound "path" [volume]) | On hold enter, play a raw clip from sound/ (see [Audio](audio.md)). Optional volume defaults to 1.0. |
 | (hint "name") | On hold enter, call Scheme (on-sprite-hint source name) if defined. Repeatable on one hold. |
 | (overlay LAYER "sprite" "clip" X Y) | On hold enter, spawn or replace a layered sprite on the host (see [Overlays](#overlays)). Repeatable on one hold. |
+| (particle "system" [x y [z]]) | On hold enter, spawn a particle system at the host origin plus optional offset. See [Particles](particles.md). |
 
 Legacy clip-level (tween 0|1) expands to tween-all on every frame in that clip. A bare offset token inside (tween ...) is ignored (offset is not tweenable).
 
