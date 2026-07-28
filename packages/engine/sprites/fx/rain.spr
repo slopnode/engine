@@ -1,0 +1,7 @@
+(sprite
+  (texel-size 64)
+  (fullbright)
+  (frame "A"
+    (rot 0 "fx/rain" offset 8 24)
+  )
+)

@@ -317,6 +317,9 @@ bool applyEmitterField(const Sexpr& form, ParticleEmitterDef& emitter) {
     if (tag == "die-on-hit" || tag == "die-on-ground") {
         return readBoolField(form, emitter.dieOnHit);
     }
+    if (tag == "unlit") {
+        return readBoolField(form, emitter.unlit);
+    }
     return false;
 }
 

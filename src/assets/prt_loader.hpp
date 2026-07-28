@@ -86,6 +86,7 @@ struct ParticleEmitterDef {
     float bounce = 0.0f;
     int maxBounces = 0;
     bool dieOnHit = false;
+    bool unlit = false;
 };
 
 struct ParticleSystemAsset {

@@ -251,7 +251,8 @@ Color sampleReceiverTintAtOrigin(
     flecs::world& world,
     Vector3 origin,
     bool unlit,
-    bool includeFxLights) {
+    bool includeFxLights,
+    float bakeMaxDistance) {
     if (unlit) {
         return WHITE;
     }
@@ -261,8 +262,8 @@ Color sampleReceiverTintAtOrigin(
         const MapLighting& lighting = world.get<MapLighting>();
         tint = lighting.ambient;
         if (lighting.available) {
-            if (auto sample =
-                    sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            if (auto sample = sampleMapLight(
+                    lighting, origin, {0.0f, -1.0f, 0.0f}, bakeMaxDistance)) {
                 tint = *sample;
             }
         }
@@ -285,8 +286,12 @@ Color sampleReceiverTintAtOrigin(
     return linearToColor(composeReceiverLighting(tint, overlay));
 }
 
-Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit) {
-    return sampleReceiverTintAtOrigin(world, origin, unlit, true);
+Color sampleReceiverTintColor(
+    flecs::world& world,
+    Vector3 origin,
+    bool unlit,
+    float bakeMaxDistance) {
+    return sampleReceiverTintAtOrigin(world, origin, unlit, true, bakeMaxDistance);
 }
 
 namespace {
@@ -379,7 +384,7 @@ Color sampleReceiverTintColorForModel(
         world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
     const QuadBvh* occlusionBvh = occlusionBvhFromLighting(lighting);
 
-    Color best = sampleReceiverTintAtOrigin(world, samples[0], false, false);
+    Color best = sampleReceiverTintAtOrigin(world, samples[0], false, false, 2.0f);
     float bestStrength = overlayStrength(evaluateOverlayLightsAtPoint(
         dynLights,
         nullptr,
@@ -394,7 +399,7 @@ Color sampleReceiverTintColorForModel(
             samples[i],
             {0.0f, 1.0f, 0.0f},
             occlusionBvh));
-        const Color candidate = sampleReceiverTintAtOrigin(world, samples[i], false, false);
+        const Color candidate = sampleReceiverTintAtOrigin(world, samples[i], false, false, 2.0f);
         const float lum = linearLuminance(colorToLinear(candidate));
         if (strength > bestStrength + 1e-6f ||
             (std::fabs(strength - bestStrength) <= 1e-6f && lum > bestLum)) {

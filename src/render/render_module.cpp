@@ -198,7 +198,8 @@ void registerRenderSystems(flecs::world& world) {
             const std::string spriteAimStatus =
                 drawWorldSprites(world, context, lens, frustum, unlit);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
-                drawParticleSystems(world, *world.get_mut<AssetServices>().store, presentCam);
+                drawParticleSystems(
+                    world, *world.get_mut<AssetServices>().store, presentCam, unlit);
             }
             drawWorldDebugOverlays(world);
             EndMode3D();

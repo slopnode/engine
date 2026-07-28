@@ -33,7 +33,8 @@ void updateParticleSystems(
 void drawParticleSystems(
     flecs::world& world,
     AssetStore& assets,
-    const Camera3D& camera);
+    const Camera3D& camera,
+    bool unlit = false);
 
 void registerParticleModule(flecs::world& world, AssetStore& assets);
 

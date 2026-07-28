@@ -51,6 +51,7 @@ Particle systems are authored as `.prt` files under `particles/`. One file is a 
 | clip | Optional `.spanim` clip name (reserved for frame animation; v1 samples frame A). |
 | billboard | `face` / `view` / `screen` / `fixed` (stored; draw uses camera-facing quads in v1). |
 | blend | `alpha` (default; premultiplied soft compositing) or `additive` (glow/smoke/sparks). Soft FX sprites should be authored premultiplied (RGB≈A). |
+| unlit | When true, skip scene lighting (full authored tint). Default lit: multiply by bake + dyn/FX receiver tint. |
 | max-particles | Cap per emitter. |
 | rate | Continuous emission per second. |
 | burst | One-shot count when the system starts (or restarts). |
@@ -66,7 +67,7 @@ Stock example: `packages/engine/particles/fx/generic-smoke.prt` with sprite `fx/
 
 ## Runtime
 
-Each placed or spawned system is a flecs entity with `ParticleSystemInstance` plus a transform. Emitters keep SoA particle buffers. CPU emitters raycast against `PhysicsWorld` static geo and reflect; GPU emitters skip collision. Draw is a depth-sorted billboard pass after world sprites (`alpha` and `additive` emitters are batched separately).
+Each placed or spawned system is a flecs entity with `ParticleSystemInstance` plus a transform. Emitters keep SoA particle buffers. CPU emitters raycast against `PhysicsWorld` static geo and reflect; GPU emitters skip collision. Draw is a depth-sorted billboard pass after world sprites (`alpha` and `additive` emitters are batched separately). Lit emitters multiply authored tint by `sampleReceiverTintColor` (bake + dyn/FX) per particle unless `(unlit #t)` or the render unlit debug flag is set.
 
 ## Placement
 

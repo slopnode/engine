@@ -28,6 +28,7 @@ struct ParticleDrawItem {
     Rectangle source{};
     float distSq = 0.0f;
     ParticleBlendMode blend = ParticleBlendMode::Alpha;
+    bool unlit = false;
 };
 
 bool initParticleSystemInstance(

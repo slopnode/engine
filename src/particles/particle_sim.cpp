@@ -402,6 +402,7 @@ void appendParticleDrawItems(
                 .source = source,
                 .distSq = dx * dx + dy * dy + dz * dz,
                 .blend = emitter.def.blend,
+                .unlit = emitter.def.unlit,
             });
         }
     }

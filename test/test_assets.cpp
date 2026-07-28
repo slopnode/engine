@@ -40,6 +40,7 @@ void runAssetTests() {
             "    (sim gpu)\n"
             "    (sprite \"fx/smoke\")\n"
             "    (blend alpha)\n"
+            "    (unlit #f)\n"
             "    (max-particles 128)\n"
             "    (rate 10)\n"
             "    (lifetime 1.0 2.0)\n"
@@ -65,6 +66,7 @@ void runAssetTests() {
         CHECK(asset.emitters[0].sim == ParticleSimMode::Gpu);
         CHECK_EQ(asset.emitters[0].sprite, std::string("fx/smoke"));
         CHECK(asset.emitters[0].blend == ParticleBlendMode::Alpha);
+        CHECK_FALSE(asset.emitters[0].unlit);
         CHECK_EQ(asset.emitters[0].maxParticles, 128);
         CHECK_EQ(asset.emitters[0].rate, 10.0f);
         CHECK_EQ(asset.emitters[0].lifetime.min, 1.0f);

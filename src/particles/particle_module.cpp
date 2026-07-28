@@ -8,10 +8,28 @@
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
+#include "render/fx_local_light.hpp"
 
+#include <algorithm>
 #include <raymath.h>
 
 namespace slopengine {
+
+namespace {
+
+Color multiplyParticleTint(Color particle, Color scene) {
+    return {
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.r) * static_cast<int>(scene.r) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.g) * static_cast<int>(scene.g) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
+        particle.a,
+    };
+}
+
+} // namespace
 
 flecs::entity spawnParticleSystem(
     flecs::world& world,
@@ -77,12 +95,22 @@ void updateParticleSystems(
 void drawParticleSystems(
     flecs::world& world,
     AssetStore& assets,
-    const Camera3D& camera) {
+    const Camera3D& camera,
+    bool unlit) {
     std::vector<ParticleDrawItem> items;
     items.reserve(256);
     world.each([&](const ParticleSystemInstance& instance) {
         appendParticleDrawItems(instance, assets, camera, items);
     });
+    if (!unlit) {
+        for (ParticleDrawItem& item : items) {
+            if (item.unlit) {
+                continue;
+            }
+            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
+            item.color = multiplyParticleTint(item.color, scene);
+        }
+    }
     drawParticleDrawItems(items, camera);
 }
 
