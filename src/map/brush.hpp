@@ -112,7 +112,7 @@ struct BrushConvexError {
 
 std::optional<BrushConvexError> validateBrushConvex(const Brush& brush);
 
-/** Snap verts to @p grid (preferring neighbor verts in the same cell), merge exact overlaps, drop degenerates. */
+/** Weld verts to neighbor verts in the same grid cell, merge exact overlaps, drop degenerates. */
 void cleanupBrushGeometry(
     Brush& brush,
     float grid,

@@ -549,21 +549,19 @@ slopengine::Brush translateBrush(
     return brush;
 }
 
-void appendUniqueSeed(std::vector<Vector3>& seeds, Vector3 pos, float grid) {
-    const Vector3 snapped = snapToGrid(pos, grid);
+void appendUniqueSeed(std::vector<Vector3>& seeds, Vector3 pos) {
     for (const Vector3& existing : seeds) {
-        if (existing.x == snapped.x && existing.y == snapped.y && existing.z == snapped.z) {
+        if (vertsNear(existing, pos)) {
             return;
         }
     }
-    seeds.push_back(snapped);
+    seeds.push_back(pos);
 }
 
 void collectVertSeeds(
     const slopengine::Brush& brush,
     const std::vector<VertRef>& refs,
     int brushIndex,
-    float grid,
     std::vector<Vector3>& seeds) {
     for (const VertRef& ref : refs) {
         if (ref.brush != brushIndex || !ref.valid()) {
@@ -576,7 +574,7 @@ void collectVertSeeds(
         if (ref.vert < 0 || ref.vert >= static_cast<int>(verts.size())) {
             continue;
         }
-        appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.vert)], grid);
+        appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.vert)]);
     }
 }
 
@@ -584,7 +582,6 @@ void collectEdgeSeeds(
     const slopengine::Brush& brush,
     const std::vector<EdgeRef>& refs,
     int brushIndex,
-    float grid,
     std::vector<Vector3>& seeds) {
     for (const EdgeRef& ref : refs) {
         if (ref.brush != brushIndex || !ref.valid()) {
@@ -597,16 +594,15 @@ void collectEdgeSeeds(
         if (verts.size() < 2 || ref.edge < 0 || ref.edge >= static_cast<int>(verts.size())) {
             continue;
         }
-        appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.edge)], grid);
+        appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.edge)]);
         appendUniqueSeed(
-            seeds, verts[static_cast<std::size_t>((ref.edge + 1) % verts.size())], grid);
+            seeds, verts[static_cast<std::size_t>((ref.edge + 1) % verts.size())]);
     }
 }
 
-bool seedMatches(const std::vector<Vector3>& seeds, Vector3 pos, float grid) {
-    const Vector3 snapped = snapToGrid(pos, grid);
+bool seedMatches(const std::vector<Vector3>& seeds, Vector3 pos) {
     for (const Vector3& seed : seeds) {
-        if (seed.x == snapped.x && seed.y == snapped.y && seed.z == snapped.z) {
+        if (vertsNear(seed, pos)) {
             return true;
         }
     }
@@ -617,7 +613,6 @@ slopengine::Brush moveWeldedVerts(
     const slopengine::Brush& src,
     const std::vector<Vector3>& seeds,
     Vector3 delta,
-    float grid,
     slopengine::AssetStore& assets) {
     if (seeds.empty()) {
         return src;
@@ -635,7 +630,7 @@ slopengine::Brush moveWeldedVerts(
         bool moved = false;
         std::vector<char> moveFlags(face.vertices.size(), 0);
         for (std::size_t vi = 0; vi < face.vertices.size(); ++vi) {
-            if (seedMatches(seeds, face.vertices[vi], grid)) {
+            if (seedMatches(seeds, face.vertices[vi])) {
                 moveFlags[vi] = 1;
                 moved = true;
             }
@@ -837,7 +832,6 @@ slopengine::Brush pushFace(
     const slopengine::Brush& src,
     int faceIndex,
     float distance,
-    float grid,
     slopengine::AssetStore& assets) {
     if (faceIndex < 0 || faceIndex >= static_cast<int>(src.faces.size())) {
         return src;
@@ -879,9 +873,9 @@ slopengine::Brush pushFace(
     std::vector<Vector3> seeds;
     seeds.reserve(face.vertices.size());
     for (const Vector3& v : face.vertices) {
-        appendUniqueSeed(seeds, v, grid);
+        appendUniqueSeed(seeds, v);
     }
-    return moveWeldedVerts(src, seeds, scale3(face.normal, distance), grid, assets);
+    return moveWeldedVerts(src, seeds, scale3(face.normal, distance), assets);
 }
 
 bool faceFacesRay(const slopengine::BrushFace& face, Ray ray, bool ignoreBackfaces) {
@@ -1223,7 +1217,7 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
                     rawDistance, originAlong, editor.gridSize, editor.translateSnapMode);
             }
             d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-                pushFace(src, faceTranslate.face, distance, editor.gridSize, assets);
+                pushFace(src, faceTranslate.face, distance, assets);
             return;
         }
         if (!exact) {
@@ -1233,10 +1227,10 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
         std::vector<Vector3> seeds;
         seeds.reserve(face.vertices.size());
         for (const Vector3& v : face.vertices) {
-            appendUniqueSeed(seeds, v, editor.gridSize);
+            appendUniqueSeed(seeds, v);
         }
-        d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-            moveWeldedVerts(src, seeds, delta, editor.gridSize, assets);
+            d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
+            moveWeldedVerts(src, seeds, delta, assets);
         return;
     }
 
@@ -1254,13 +1248,13 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
             std::vector<Vector3> seeds;
             if (d.selectionMode == SelectionMode::Vert) {
                 collectVertSeeds(
-                    brushSnapshot[i], d.selectedVerts, index, editor.gridSize, seeds);
+                    brushSnapshot[i], d.selectedVerts, index, seeds);
             } else {
                 collectEdgeSeeds(
-                    brushSnapshot[i], d.selectedEdges, index, editor.gridSize, seeds);
+                    brushSnapshot[i], d.selectedEdges, index, seeds);
             }
             d.brushes[static_cast<std::size_t>(index)] =
-                moveWeldedVerts(brushSnapshot[i], seeds, delta, editor.gridSize, assets);
+                moveWeldedVerts(brushSnapshot[i], seeds, delta, assets);
         }
         return;
     }

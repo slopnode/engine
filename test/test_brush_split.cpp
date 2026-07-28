@@ -131,17 +131,50 @@ void runBrushSplitTests() {
             brush, {{4.0187f, 3.0f, -5.9626f}, {4.0187f, 3.0f, -6.0f}, {4.0f, 3.0f, -6.0f}}));
 
         cleanupBrushGeometry(brush, 0.25f);
-        CHECK(brush.faces.size() < facesBefore);
-        CHECK(!hasFaceWithExactVerts(
+        CHECK(brush.faces.size() == facesBefore);
+        CHECK(hasFaceWithExactVerts(
             brush, {{4.0187f, 3.0f, -5.9626f}, {4.0187f, 3.0f, -6.0f}, {4.0f, 3.0f, -6.0f}}));
-        for (const BrushFace& face : brush.faces) {
-            for (const Vector3& v : face.vertices) {
-                CHECK(v.x == std::round(v.x / 0.25f) * 0.25f);
-                CHECK(v.y == std::round(v.y / 0.25f) * 0.25f);
-                CHECK(v.z == std::round(v.z / 0.25f) * 0.25f);
-            }
-            CHECK(face.vertices.size() >= 3);
+    }
+
+    {
+        std::string error;
+        auto cylinder = makeBrushCylinder(
+            "cyl",
+            {0.0f, 0.0f, 0.0f},
+            {1.0f, 2.0f, 1.0f},
+            16,
+            "mat/a",
+            BrushRole::Detail,
+            error);
+        CHECK(cylinder.has_value());
+        CHECK(error.empty());
+        if (!cylinder) {
+            return;
         }
+        std::vector<Vector3> before;
+        for (const BrushFace& face : cylinder->faces) {
+            for (const Vector3& v : face.vertices) {
+                before.push_back(v);
+            }
+        }
+        CHECK(!before.empty());
+
+        cleanupBrushGeometry(*cylinder, 0.1f);
+
+        std::size_t i = 0;
+        for (const BrushFace& face : cylinder->faces) {
+            for (const Vector3& v : face.vertices) {
+                CHECK(i < before.size());
+                if (i >= before.size()) {
+                    return;
+                }
+                CHECK(v.x == before[i].x);
+                CHECK(v.y == before[i].y);
+                CHECK(v.z == before[i].z);
+                ++i;
+            }
+        }
+        CHECK_EQ(i, before.size());
     }
 
     {

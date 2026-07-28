@@ -429,13 +429,12 @@ void cleanupBrushGeometry(
     for (BrushFace& face : brush.faces) {
         for (Vector3& v : face.vertices) {
             const Vector3 cell = snapVertLocal(v, grid);
-            Vector3 snapped = cell;
             const auto neighbor = neighborByCell.find(cell);
-            if (neighbor != neighborByCell.end()) {
-                snapped = neighbor->second;
+            if (neighbor == neighborByCell.end()) {
+                continue;
             }
-            if (!vertsExactEqual(v, snapped)) {
-                v = snapped;
+            if (!vertsExactEqual(v, neighbor->second)) {
+                v = neighbor->second;
                 changed = true;
             }
         }
