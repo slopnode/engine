@@ -59,7 +59,7 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
     ToolConfig config;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        auto needValue = [&](const char* flag) -> const char* {
+        auto needValue = [&](const char*) -> const char* {
             if (i + 1 >= argc) {
                 return nullptr;
             }

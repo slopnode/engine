@@ -166,15 +166,16 @@ void drawParticleSystems(
     AssetStore& assets,
     const Camera3D& camera,
     bool unlit) {
-    std::vector<ParticleDrawItem> worldItems;
-    std::vector<ParticleDrawItem> muzzleItems;
-    worldItems.reserve(256);
-    muzzleItems.reserve(64);
+    std::vector<ParticleDrawItem> items;
+    items.reserve(256);
 
-    auto tintItems = [&](std::vector<ParticleDrawItem>& items) {
-        if (unlit) {
+    world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
+        if (entity.has<ParticleFollowViewMuzzle>()) {
             return;
         }
+        appendParticleDrawItems(instance, assets, camera, items);
+    });
+    if (!unlit) {
         for (ParticleDrawItem& item : items) {
             if (item.unlit) {
                 continue;
@@ -182,19 +183,34 @@ void drawParticleSystems(
             const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
             item.color = multiplyParticleTint(item.color, scene);
         }
-    };
+    }
+    drawParticleDrawItems(items, camera, true);
+}
+
+void drawMuzzleParticleSystems(
+    flecs::world& world,
+    AssetStore& assets,
+    const Camera3D& camera,
+    bool unlit) {
+    std::vector<ParticleDrawItem> items;
+    items.reserve(64);
 
     world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
-        if (entity.has<ParticleFollowViewMuzzle>()) {
-            appendParticleDrawItems(instance, assets, camera, muzzleItems);
-        } else {
-            appendParticleDrawItems(instance, assets, camera, worldItems);
+        if (!entity.has<ParticleFollowViewMuzzle>()) {
+            return;
         }
+        appendParticleDrawItems(instance, assets, camera, items);
     });
-    tintItems(worldItems);
-    tintItems(muzzleItems);
-    drawParticleDrawItems(worldItems, camera, true);
-    drawParticleDrawItems(muzzleItems, camera, false);
+    if (!unlit) {
+        for (ParticleDrawItem& item : items) {
+            if (item.unlit) {
+                continue;
+            }
+            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
+            item.color = multiplyParticleTint(item.color, scene);
+        }
+    }
+    drawParticleDrawItems(items, camera, false);
 }
 
 void registerParticleModule(flecs::world& world, AssetStore& assets) {

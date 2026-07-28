@@ -122,6 +122,7 @@ void drawFirstPersonPass(
     const Lens& lens,
     bool unlit) {
     rlDrawRenderBatchActive();
+    rlEnableDepthMask();
     glClear(GL_DEPTH_BUFFER_BIT);
 
     Camera3D eyeCam{};

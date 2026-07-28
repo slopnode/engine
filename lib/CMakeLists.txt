@@ -33,6 +33,15 @@ add_subdirectory(raylib)
 target_compile_definitions(raylib PUBLIC SUPPORT_GPU_SKINNING=1)
 target_compile_definitions(raylib PUBLIC SUPPORT_SCREEN_CAPTURE=0)
 
+# Dependents include raymath.h; its `{ 0 }` inits trip -Wmissing-field-initializers.
+# Mark INTERFACE includes as system so consumers get -isystem (no raylib source edits).
+get_target_property(_raylib_incdirs raylib INTERFACE_INCLUDE_DIRECTORIES)
+if(_raylib_incdirs)
+    set_property(TARGET raylib PROPERTY
+        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_raylib_incdirs}")
+endif()
+unset(_raylib_incdirs)
+
 include(${CMAKE_SOURCE_DIR}/cmake/SoLoud.cmake)
 include(${CMAKE_SOURCE_DIR}/cmake/SteamAudio.cmake)
 
@@ -73,6 +82,12 @@ add_custom_target(s7_patched_source DEPENDS "${S7_PATCHED}")
 add_dependencies(s7 s7_patched_source)
 target_include_directories(s7 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/s7 ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(s7 PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+get_target_property(_s7_incdirs s7 INTERFACE_INCLUDE_DIRECTORIES)
+if(_s7_incdirs)
+    set_property(TARGET s7 PROPERTY
+        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_s7_incdirs}")
+endif()
+unset(_s7_incdirs)
 set_target_properties(s7 PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED ON
@@ -89,9 +104,9 @@ if(MSVC)
         MUS_CONFIG_H_LOADED=1
         _CRT_SECURE_NO_WARNINGS
     )
-    target_compile_options(s7 PRIVATE /W3)
+    target_compile_options(s7 PRIVATE /W0)
 else()
-    target_compile_options(s7 PRIVATE -Wall -Wextra)
+    target_compile_options(s7 PRIVATE -w)
 endif()
 
 if(MSVC)

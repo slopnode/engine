@@ -46,6 +46,12 @@ void drawParticleSystems(
     const Camera3D& camera,
     bool unlit = false);
 
+void drawMuzzleParticleSystems(
+    flecs::world& world,
+    AssetStore& assets,
+    const Camera3D& camera,
+    bool unlit = false);
+
 void registerParticleModule(flecs::world& world, AssetStore& assets);
 
 }

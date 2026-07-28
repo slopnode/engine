@@ -424,6 +424,7 @@ void drawParticleDrawItems(
         return a.distSq > b.distSq;
     });
 
+    rlDrawRenderBatchActive();
     rlDisableShader();
     rlDisableDepthMask();
     if (!depthTest) {
@@ -488,6 +489,7 @@ void drawParticleDrawItems(
     if (filterTex != nullptr) {
         SetTextureFilter(*filterTex, TEXTURE_FILTER_POINT);
     }
+    rlDrawRenderBatchActive();
     if (!depthTest) {
         rlEnableDepthTest();
     }

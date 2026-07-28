@@ -175,10 +175,6 @@ Matrix skinMatrixForGpu(const Matrix& bindMatrix, const Matrix& currentMatrix) {
     return MatrixMultiply(MatrixInvert(bindMatrix), currentMatrix);
 }
 
-Vector3 jointPositionFromMatrix(const Matrix& matrix) {
-    return {matrix.m12, matrix.m13, matrix.m14};
-}
-
 const std::vector<Matrix>* resolveBindMatrices(
     const std::vector<Matrix>* bindGlobalMatrices,
     const std::vector<std::vector<Matrix>>* matrixKeyframes,

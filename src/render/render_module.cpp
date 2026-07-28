@@ -205,6 +205,12 @@ void registerRenderSystems(flecs::world& world) {
             EndMode3D();
 
             if (playing) {
+                if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                    BeginMode3D(presentCam);
+                    drawMuzzleParticleSystems(
+                        world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+                    EndMode3D();
+                }
                 drawFirstPersonPass(world, context, lens, unlit);
                 drawViewSprites(world);
                 if (sceneToTexture) {
