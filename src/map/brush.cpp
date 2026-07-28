@@ -7,6 +7,7 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <map>
 #include <utility>
 #include <vector>
 
@@ -362,7 +363,7 @@ std::optional<BrushConvexError> validateBrushConvex(const Brush& brush) {
                 continue;
             }
             for (const Vector3& v : brush.faces[oj].vertices) {
-                const float side = dot3(sub3(v, face.vertices[0]), face.normal);
+                const float side = dot3(sub3(v, face.vertices[0]), normal);
                 if (side > 1e-3f) {
                     return BrushConvexError{"brush is not convex (vertex outside face plane)"};
                 }
@@ -370,6 +371,152 @@ std::optional<BrushConvexError> validateBrushConvex(const Brush& brush) {
         }
     }
     return std::nullopt;
+}
+
+namespace {
+
+float snapCoordLocal(float value, float grid) {
+    if (grid <= 0.0f) {
+        return value;
+    }
+    return std::round(value / grid) * grid;
+}
+
+Vector3 snapVertLocal(Vector3 v, float grid) {
+    return {
+        snapCoordLocal(v.x, grid),
+        snapCoordLocal(v.y, grid),
+        snapCoordLocal(v.z, grid),
+    };
+}
+
+struct Vec3ExactLess {
+    bool operator()(Vector3 a, Vector3 b) const {
+        if (a.x != b.x) {
+            return a.x < b.x;
+        }
+        if (a.y != b.y) {
+            return a.y < b.y;
+        }
+        return a.z < b.z;
+    }
+};
+
+bool vertsExactEqual(Vector3 a, Vector3 b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+} // namespace
+
+void cleanupBrushGeometry(
+    Brush& brush,
+    float grid,
+    const std::vector<const Brush*>& neighbors) {
+    bool changed = false;
+
+    std::map<Vector3, Vector3, Vec3ExactLess> neighborByCell;
+    for (const Brush* other : neighbors) {
+        if (other == nullptr || other == &brush) {
+            continue;
+        }
+        for (const BrushFace& face : other->faces) {
+            for (const Vector3& v : face.vertices) {
+                neighborByCell.emplace(snapVertLocal(v, grid), v);
+            }
+        }
+    }
+
+    for (BrushFace& face : brush.faces) {
+        for (Vector3& v : face.vertices) {
+            const Vector3 cell = snapVertLocal(v, grid);
+            Vector3 snapped = cell;
+            const auto neighbor = neighborByCell.find(cell);
+            if (neighbor != neighborByCell.end()) {
+                snapped = neighbor->second;
+            }
+            if (!vertsExactEqual(v, snapped)) {
+                v = snapped;
+                changed = true;
+            }
+        }
+    }
+
+    std::map<Vector3, Vector3, Vec3ExactLess> reps;
+    for (BrushFace& face : brush.faces) {
+        for (Vector3& v : face.vertices) {
+            const auto inserted = reps.emplace(v, v);
+            if (!inserted.second) {
+                if (!vertsExactEqual(v, inserted.first->second)) {
+                    v = inserted.first->second;
+                    changed = true;
+                }
+            }
+        }
+    }
+    for (BrushFace& face : brush.faces) {
+        for (Vector3& v : face.vertices) {
+            const auto it = reps.find(v);
+            if (it != reps.end() && !vertsExactEqual(v, it->second)) {
+                v = it->second;
+                changed = true;
+            }
+        }
+    }
+
+    std::vector<BrushFace> kept;
+    kept.reserve(brush.faces.size());
+    for (BrushFace& face : brush.faces) {
+        std::vector<Vector3> collapsed;
+        collapsed.reserve(face.vertices.size());
+        for (const Vector3& v : face.vertices) {
+            if (!collapsed.empty() && vertsExactEqual(collapsed.back(), v)) {
+                changed = true;
+                continue;
+            }
+            collapsed.push_back(v);
+        }
+        if (collapsed.size() >= 2 && vertsExactEqual(collapsed.front(), collapsed.back())) {
+            collapsed.pop_back();
+            changed = true;
+        }
+        if (collapsed.size() < 3 || polygonAreaLocal(collapsed) < 1e-6f) {
+            changed = true;
+            continue;
+        }
+        if (collapsed.size() != face.vertices.size()) {
+            changed = true;
+        }
+        face.vertices = std::move(collapsed);
+        face.normal = faceNormalFromVertices(face.vertices);
+        ensureFaceUvAxes(face);
+        kept.push_back(std::move(face));
+    }
+
+    if (kept.size() != brush.faces.size()) {
+        changed = true;
+    }
+    brush.faces = std::move(kept);
+    if (changed) {
+        brush.box = false;
+    }
+    recomputeBrushBounds(brush);
+}
+
+Brush finalizeBrushFaces(std::string id, std::vector<BrushFace> faces, BrushRole role) {
+    Brush brush;
+    brush.id = std::move(id);
+    brush.role = role;
+    brush.faces = std::move(faces);
+    for (std::size_t i = 0; i < brush.faces.size(); ++i) {
+        BrushFace& face = brush.faces[i];
+        if (face.id.empty()) {
+            face.id = brush.id + "/" + std::to_string(i);
+        }
+        face.normal = faceNormalFromVertices(face.vertices);
+        ensureFaceUvAxes(face);
+    }
+    recomputeBrushBounds(brush);
+    return brush;
 }
 
 const char* brushBoxSideName(BrushBoxSide side) {
@@ -578,19 +725,7 @@ std::optional<Brush> makeBrushConvex(
     std::vector<BrushFace> faces,
     BrushRole role,
     std::string& errorOut) {
-    Brush brush;
-    brush.id = std::move(id);
-    brush.role = role;
-    brush.faces = std::move(faces);
-    for (std::size_t i = 0; i < brush.faces.size(); ++i) {
-        BrushFace& face = brush.faces[i];
-        if (face.id.empty()) {
-            face.id = brush.id + "/" + std::to_string(i);
-        }
-        face.normal = faceNormalFromVertices(face.vertices);
-        ensureFaceUvAxes(face);
-    }
-    recomputeBrushBounds(brush);
+    Brush brush = finalizeBrushFaces(std::move(id), std::move(faces), role);
     if (const auto err = validateBrushConvex(brush)) {
         errorOut = err->message;
         return std::nullopt;

@@ -108,6 +108,7 @@ struct Editor {
     bool showSwitchSceneModal = false;
     bool showHollowModal = false;
     bool showPrimitiveParamsModal = false;
+    bool showValidateBrushesWindow = false;
     float hollowThickness = 0.1f;
     int createCylinderSides = 16;
     int createStairsSteps = 8;

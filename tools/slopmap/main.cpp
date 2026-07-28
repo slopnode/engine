@@ -1320,6 +1320,10 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 ImGui::Separator();
+                if (menuItemWithIcon(assets, kIcons, "error", "Validate Brushes")) {
+                    editor.showValidateBrushesWindow = true;
+                }
+                ImGui::Separator();
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
@@ -3419,6 +3423,46 @@ int main(int argc, char* argv[]) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
+        }
+
+        if (editor.showValidateBrushesWindow) {
+            ImGui::SetNextWindowSize(ImVec2(520, 320), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin(
+                    "Validate Brushes",
+                    &editor.showValidateBrushesWindow,
+                    ImGuiWindowFlags_None)) {
+                constexpr const char* kIcons = kDefaultIconSet;
+                const slopmap::EditorDocument& d = editor.doc();
+                int invalidCount = 0;
+                for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                    const slopengine::Brush& brush = d.brushes[i];
+                    const auto error = slopengine::validateBrushConvex(brush);
+                    if (!error) {
+                        continue;
+                    }
+                    ++invalidCount;
+                    ImGui::PushID(static_cast<int>(i));
+                    const std::string label =
+                        brush.id.empty() ? ("brush#" + std::to_string(i)) : brush.id;
+                    ImGui::TextUnformatted((label + " — " + error->message).c_str());
+                    ImGui::SameLine();
+                    if (buttonWithIcon(assets, kIcons, "cursor", "Select", ImVec2(80, 0))) {
+                        editor.mode = slopmap::EditorMode::Select;
+                        editor.setSelectionMode(slopmap::SelectionMode::Brush);
+                        editor.selectBrushes({static_cast<int>(i)}, static_cast<int>(i));
+                        editor.statusMessage = label + ": " + error->message;
+                        editor.frameSelection();
+                    }
+                    ImGui::PopID();
+                }
+                if (invalidCount == 0) {
+                    ImGui::TextUnformatted("All brushes valid");
+                } else {
+                    ImGui::Separator();
+                    ImGui::Text("%d invalid brush(es)", invalidCount);
+                }
+            }
+            ImGui::End();
         }
 
         if (editor.showSaveAsModal) {

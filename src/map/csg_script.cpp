@@ -817,19 +817,12 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     if (haveDoorClause) {
         role = BrushRole::Door;
     }
-    std::string error;
-    auto brush = makeBrushConvex(std::move(id), std::move(faces), role, error);
-    if (!brush) {
-        return s7_error(
-            sc,
-            s7_make_symbol(sc, "csg-error"),
-            s7_list(sc, 1, s7_make_string(sc, error.c_str())));
-    }
-    brush->nocollide = nocollide || brushRoleDefaultNocollide(role);
+    Brush brush = finalizeBrushFaces(std::move(id), std::move(faces), role);
+    brush.nocollide = nocollide || brushRoleDefaultNocollide(role);
     if (role == BrushRole::Door) {
-        brush->door = haveDoorClause ? std::move(door) : BrushDoor{};
+        brush.door = haveDoorClause ? std::move(door) : BrushDoor{};
     }
-    g_builder->brushes.push_back(std::move(*brush));
+    g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
 }
 

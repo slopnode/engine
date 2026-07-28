@@ -794,9 +794,19 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     resetCamera(*this);
     frameSelection();
     createBrushRole = slopengine::BrushRole::Hull;
+    int invalidCount = 0;
+    for (const slopengine::Brush& brush : levelDoc.brushes) {
+        if (slopengine::validateBrushConvex(brush)) {
+            ++invalidCount;
+        }
+    }
     statusMessage = "Loaded " + mapName + " (" + std::to_string(levelDoc.brushes.size()) +
         " brushes, " + std::to_string(levelDoc.instances.size()) + " prefabs, " +
         std::to_string(levelDoc.things.size()) + " things)";
+    if (invalidCount > 0) {
+        statusMessage += " — " + std::to_string(invalidCount) +
+            " brush(es) failed validation (Edit → Validate Brushes)";
+    }
     return true;
 }
 
@@ -834,9 +844,19 @@ bool Editor::loadPrefab(
     resetCamera(*this);
     frameSelection();
     createBrushRole = slopengine::BrushRole::Detail;
+    int invalidCount = 0;
+    for (const slopengine::Brush& brush : prefabDoc.brushes) {
+        if (slopengine::validateBrushConvex(brush)) {
+            ++invalidCount;
+        }
+    }
     statusMessage =
         "Loaded prefab " + prefabPath + " (" + std::to_string(prefabDoc.brushes.size()) +
         " brushes, " + std::to_string(prefabDoc.things.size()) + " things)";
+    if (invalidCount > 0) {
+        statusMessage += " — " + std::to_string(invalidCount) +
+            " brush(es) failed validation (Edit → Validate Brushes)";
+    }
     return true;
 }
 

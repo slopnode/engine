@@ -216,6 +216,12 @@ void ClipTool::commit(Editor& editor) {
         d.brushes.erase(d.brushes.begin() + index);
 
         auto pushKept = [&](slopengine::Brush brush) {
+            std::vector<const slopengine::Brush*> neighbors;
+            neighbors.reserve(d.brushes.size());
+            for (const slopengine::Brush& existing : d.brushes) {
+                neighbors.push_back(&existing);
+            }
+            slopengine::cleanupBrushGeometry(brush, editor.gridSize, neighbors);
             d.brushes.push_back(std::move(brush));
             created.push_back(static_cast<int>(d.brushes.size()) - 1);
             ++keptCount;

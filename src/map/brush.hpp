@@ -112,6 +112,18 @@ struct BrushConvexError {
 
 std::optional<BrushConvexError> validateBrushConvex(const Brush& brush);
 
+/** Snap verts to @p grid (preferring neighbor verts in the same cell), merge exact overlaps, drop degenerates. */
+void cleanupBrushGeometry(
+    Brush& brush,
+    float grid,
+    const std::vector<const Brush*>& neighbors = {});
+
+/** Assign face ids/normals/UV axes and bounds; does not require convexity. */
+Brush finalizeBrushFaces(
+    std::string id,
+    std::vector<BrushFace> faces,
+    BrushRole role = BrushRole::Hull);
+
 /** Builds an axis-aligned box brush with optional per-side overrides. */
 Brush makeBrushBox(
     std::string id,
