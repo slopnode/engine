@@ -297,8 +297,10 @@ void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets
     ImGui::TextDisabled("Selection");
     ImGui::Text(
         "Mode: %s",
-        d.selectionMode == slopmap::SelectionMode::Brush   ? "Brush"
+        d.selectionMode == slopmap::SelectionMode::Brush     ? "Brush"
             : d.selectionMode == slopmap::SelectionMode::Face ? "Face"
+            : d.selectionMode == slopmap::SelectionMode::Edge ? "Edge"
+            : d.selectionMode == slopmap::SelectionMode::Vert ? "Vert"
                                                              : "Entity");
     if (d.selectionMode == slopmap::SelectionMode::Brush && !d.selectedBrushes.empty()) {
         ImGui::Text("Brushes: %d", static_cast<int>(d.selectedBrushes.size()));
@@ -316,6 +318,18 @@ void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets
                 ImGui::Text("Active: %s", face.id.c_str());
                 ImGui::Text("Material: %s", face.material.c_str());
             }
+        }
+    } else if (d.selectionMode == slopmap::SelectionMode::Edge && !d.selectedEdges.empty()) {
+        ImGui::Text("Edges: %d", static_cast<int>(d.selectedEdges.size()));
+        if (d.activeEdge.valid() && d.activeEdge.brush < static_cast<int>(d.brushes.size())) {
+            const auto& brush = d.brushes[static_cast<std::size_t>(d.activeEdge.brush)];
+            ImGui::Text("Active: %s f%de%d", brush.id.c_str(), d.activeEdge.face, d.activeEdge.edge);
+        }
+    } else if (d.selectionMode == slopmap::SelectionMode::Vert && !d.selectedVerts.empty()) {
+        ImGui::Text("Verts: %d", static_cast<int>(d.selectedVerts.size()));
+        if (d.activeVert.valid() && d.activeVert.brush < static_cast<int>(d.brushes.size())) {
+            const auto& brush = d.brushes[static_cast<std::size_t>(d.activeVert.brush)];
+            ImGui::Text("Active: %s f%dv%d", brush.id.c_str(), d.activeVert.face, d.activeVert.vert);
         }
     } else if (d.selectionMode == slopmap::SelectionMode::Entity && !d.selectedEntities.empty()) {
         ImGui::Text("Entities: %d", static_cast<int>(d.selectedEntities.size()));
@@ -442,10 +456,15 @@ void drawScene(
         !d.selectedBrushes.empty();
     const bool drawFaceSelection =
         d.selectionMode == slopmap::SelectionMode::Face && !d.selectedFaces.empty();
+    const bool drawEdgeSelection =
+        d.selectionMode == slopmap::SelectionMode::Edge && !d.selectedEdges.empty();
+    const bool drawVertSelection =
+        d.selectionMode == slopmap::SelectionMode::Vert && !d.selectedVerts.empty();
     const bool drawEntitySelection =
         !fillWire && !xrayAll && !xrayVisible &&
         d.selectionMode == slopmap::SelectionMode::Entity && !d.selectedEntities.empty();
-    if (drawBrushSelection || drawFaceSelection || drawEntitySelection) {
+    if (drawBrushSelection || drawFaceSelection || drawEdgeSelection || drawVertSelection ||
+        drawEntitySelection) {
         rlDrawRenderBatchActive();
         rlDisableDepthTest();
         rlDisableDepthMask();
@@ -495,6 +514,76 @@ void drawScene(
                     const Vector3& b = face.vertices[(i + 1) % face.vertices.size()];
                     slopmap::drawThickLine3D(a, b, faceColor, lineWidth * 1.25f, eye);
                 }
+            }
+        }
+
+        if (drawEdgeSelection) {
+            std::unordered_set<int> outlinedBrushes;
+            for (const slopmap::EdgeRef& ref : d.selectedEdges) {
+                if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                if (!outlinedBrushes.insert(ref.brush).second) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+                slopmap::drawBrushFaceOutlines(
+                    brush, Color{160, 100, 50, 255}, eye, lineWidth);
+            }
+            for (const slopmap::EdgeRef& ref : d.selectedEdges) {
+                if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+                if (ref.face >= static_cast<int>(brush.faces.size())) {
+                    continue;
+                }
+                const auto& face = brush.faces[static_cast<std::size_t>(ref.face)];
+                if (face.vertices.size() < 2 || ref.edge < 0 ||
+                    ref.edge >= static_cast<int>(face.vertices.size())) {
+                    continue;
+                }
+                const Vector3& a = face.vertices[static_cast<std::size_t>(ref.edge)];
+                const Vector3& b =
+                    face.vertices[static_cast<std::size_t>((ref.edge + 1) % face.vertices.size())];
+                const bool active = ref == d.activeEdge;
+                const Color edgeColor =
+                    active ? Color{80, 220, 255, 255} : Color{80, 160, 200, 255};
+                slopmap::drawThickLine3D(a, b, edgeColor, lineWidth * 1.5f, eye);
+            }
+        }
+
+        if (drawVertSelection) {
+            std::unordered_set<int> outlinedBrushes;
+            for (const slopmap::VertRef& ref : d.selectedVerts) {
+                if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                if (!outlinedBrushes.insert(ref.brush).second) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+                slopmap::drawBrushFaceOutlines(
+                    brush, Color{160, 100, 50, 255}, eye, lineWidth);
+            }
+            for (const slopmap::VertRef& ref : d.selectedVerts) {
+                if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                    continue;
+                }
+                const auto& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+                if (ref.face >= static_cast<int>(brush.faces.size())) {
+                    continue;
+                }
+                const auto& face = brush.faces[static_cast<std::size_t>(ref.face)];
+                if (ref.vert < 0 || ref.vert >= static_cast<int>(face.vertices.size())) {
+                    continue;
+                }
+                const Vector3& pos = face.vertices[static_cast<std::size_t>(ref.vert)];
+                const bool active = ref == d.activeVert;
+                const Color vertColor =
+                    active ? Color{255, 220, 80, 255} : Color{80, 220, 255, 255};
+                const float radius = active ? 0.08f : 0.06f;
+                DrawSphere(pos, radius, vertColor);
             }
         }
 
@@ -1099,6 +1188,26 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
+                        "connect",
+                        "Selection: Edge",
+                        nullptr,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Edge,
+                        editor.mode == slopmap::EditorMode::Select)) {
+                    editor.setSelectionMode(slopmap::SelectionMode::Edge);
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "vector",
+                        "Selection: Vert",
+                        nullptr,
+                        editor.doc().selectionMode == slopmap::SelectionMode::Vert,
+                        editor.mode == slopmap::EditorMode::Select)) {
+                    editor.setSelectionMode(slopmap::SelectionMode::Vert);
+                }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
                         "user",
                         "Selection: Entity",
                         nullptr,
@@ -1389,6 +1498,29 @@ int main(int argc, char* argv[]) {
                             editor.translateSnapMode == slopmap::TranslateSnapMode::Absolute)) {
                         editor.translateSnapMode = slopmap::TranslateSnapMode::Absolute;
                         editor.statusMessage = "Translate snap: Absolute";
+                    }
+                    ImGui::EndMenu();
+                }
+                if (beginMenuWithIcon(assets, kIcons, "world", "Transform Space")) {
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "world",
+                            "Global",
+                            nullptr,
+                            editor.transformSpace == slopmap::TransformSpace::Global)) {
+                        editor.transformSpace = slopmap::TransformSpace::Global;
+                        editor.statusMessage = "Transform space: Global";
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "vector",
+                            "Relative",
+                            nullptr,
+                            editor.transformSpace == slopmap::TransformSpace::Relative)) {
+                        editor.transformSpace = slopmap::TransformSpace::Relative;
+                        editor.statusMessage = "Transform space: Relative";
                     }
                     ImGui::EndMenu();
                 }
@@ -2257,6 +2389,29 @@ int main(int argc, char* argv[]) {
                     editor.showGizmos = !editor.showGizmos;
                     editor.statusMessage = editor.showGizmos ? "Gizmos: on" : "Gizmos: off";
                 }
+                ImGui::SameLine();
+                {
+                    const bool global =
+                        editor.transformSpace == slopmap::TransformSpace::Global;
+                    if (toolBtn(
+                            "transform-space",
+                            global ? "world" : "vector",
+                            global ? "Global" : "Relative",
+                            true)) {
+                        editor.transformSpace = global
+                            ? slopmap::TransformSpace::Relative
+                            : slopmap::TransformSpace::Global;
+                        editor.statusMessage = editor.transformSpace ==
+                                slopmap::TransformSpace::Global
+                            ? "Transform space: Global"
+                            : "Transform space: Relative";
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            "Transform space. Relative: face move along normal. "
+                            "Global: world axes.");
+                    }
+                }
 
                 toolSep();
                 if (toolBtn(
@@ -2319,6 +2474,22 @@ int main(int argc, char* argv[]) {
                             "Face",
                             editor.doc().selectionMode == slopmap::SelectionMode::Face)) {
                         editor.setSelectionMode(slopmap::SelectionMode::Face);
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "sel-edge",
+                            "connect",
+                            "Edge",
+                            editor.doc().selectionMode == slopmap::SelectionMode::Edge)) {
+                        editor.setSelectionMode(slopmap::SelectionMode::Edge);
+                    }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "sel-vert",
+                            "vector",
+                            "Vert",
+                            editor.doc().selectionMode == slopmap::SelectionMode::Vert)) {
+                        editor.setSelectionMode(slopmap::SelectionMode::Vert);
                     }
                     ImGui::SameLine();
                     if (toolBtn(

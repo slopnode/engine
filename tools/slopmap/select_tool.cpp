@@ -16,12 +16,22 @@
 #include <cstdlib>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <string_view>
 #include <unordered_set>
 
 namespace slopmap {
 
 namespace {
+
+constexpr float kWeldEpsilon = 1e-3f;
+constexpr float kVertPickPixels = 10.0f;
+constexpr float kEdgePickPixels = 8.0f;
+
+bool vertsNear(Vector3 a, Vector3 b, float epsilon = kWeldEpsilon) {
+    return std::fabs(a.x - b.x) <= epsilon && std::fabs(a.y - b.y) <= epsilon &&
+        std::fabs(a.z - b.z) <= epsilon;
+}
 
 float facePixelsPerMeter(slopengine::AssetStore& assets, std::string_view materialPath) {
     const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialPath);
@@ -108,6 +118,64 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
             }
         }
     }
+    if ((d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) &&
+        !tool.brushSnapshot.empty() && !tool.brushSnapshotIndices.empty()) {
+        auto resolvePos = [&](int brushIndex, int faceIndex, int vertIndex) -> std::optional<Vector3> {
+            if (brushIndex < 0 || brushIndex >= static_cast<int>(d.brushes.size()) ||
+                faceIndex < 0 || vertIndex < 0) {
+                return std::nullopt;
+            }
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(brushIndex)];
+            if (faceIndex >= static_cast<int>(brush.faces.size())) {
+                return std::nullopt;
+            }
+            const auto& verts = brush.faces[static_cast<std::size_t>(faceIndex)].vertices;
+            if (vertIndex >= static_cast<int>(verts.size())) {
+                return std::nullopt;
+            }
+            return verts[static_cast<std::size_t>(vertIndex)];
+        };
+        auto resolveSnapPos =
+            [&](const slopengine::Brush& snap, int faceIndex, int vertIndex) -> std::optional<Vector3> {
+            if (faceIndex < 0 || vertIndex < 0 ||
+                faceIndex >= static_cast<int>(snap.faces.size())) {
+                return std::nullopt;
+            }
+            const auto& verts = snap.faces[static_cast<std::size_t>(faceIndex)].vertices;
+            if (vertIndex >= static_cast<int>(verts.size())) {
+                return std::nullopt;
+            }
+            return verts[static_cast<std::size_t>(vertIndex)];
+        };
+        if (d.selectionMode == SelectionMode::Vert && d.activeVert.valid()) {
+            for (std::size_t i = 0; i < tool.brushSnapshotIndices.size(); ++i) {
+                if (tool.brushSnapshotIndices[i] != d.activeVert.brush) {
+                    continue;
+                }
+                const auto oldPos = resolveSnapPos(
+                    tool.brushSnapshot[i], d.activeVert.face, d.activeVert.vert);
+                const auto newPos =
+                    resolvePos(d.activeVert.brush, d.activeVert.face, d.activeVert.vert);
+                if (oldPos && newPos) {
+                    return sub3(*newPos, *oldPos);
+                }
+            }
+        }
+        if (d.selectionMode == SelectionMode::Edge && d.activeEdge.valid()) {
+            for (std::size_t i = 0; i < tool.brushSnapshotIndices.size(); ++i) {
+                if (tool.brushSnapshotIndices[i] != d.activeEdge.brush) {
+                    continue;
+                }
+                const auto oldPos = resolveSnapPos(
+                    tool.brushSnapshot[i], d.activeEdge.face, d.activeEdge.edge);
+                const auto newPos =
+                    resolvePos(d.activeEdge.brush, d.activeEdge.face, d.activeEdge.edge);
+                if (oldPos && newPos) {
+                    return sub3(*newPos, *oldPos);
+                }
+            }
+        }
+    }
     if (!tool.brushSnapshot.empty() && !tool.brushSnapshotIndices.empty()) {
         const int index = tool.brushSnapshotIndices[0];
         if (index >= 0 && index < static_cast<int>(d.brushes.size())) {
@@ -122,7 +190,8 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
 std::optional<Vector3> constrainedTranslateAxis(
     const Editor& editor,
     const SelectTool& tool) {
-    if (editor.doc().selectionMode == SelectionMode::Face && tool.faceTranslate.valid() &&
+    if (editor.doc().selectionMode == SelectionMode::Face &&
+        editor.transformSpace == TransformSpace::Relative && tool.faceTranslate.valid() &&
         !tool.brushSnapshot.empty()) {
         const int faceIndex = tool.faceTranslate.face;
         const slopengine::Brush& src = tool.brushSnapshot[0];
@@ -225,11 +294,18 @@ const char* translateTargetName(const Editor& editor) {
     if (d.selectionMode == SelectionMode::Face) {
         return "Face";
     }
+    if (d.selectionMode == SelectionMode::Edge) {
+        return "Edge";
+    }
+    if (d.selectionMode == SelectionMode::Vert) {
+        return "Vert";
+    }
     return "Brush";
 }
 
 const char* translateAxisName(const Editor& editor, TranslateAxis axisLock) {
-    if (editor.doc().selectionMode == SelectionMode::Face) {
+    if (editor.doc().selectionMode == SelectionMode::Face &&
+        editor.transformSpace == TransformSpace::Relative) {
         return "Normal";
     }
     switch (axisLock) {
@@ -239,6 +315,16 @@ const char* translateAxisName(const Editor& editor, TranslateAxis axisLock) {
     case TranslateAxis::None: break;
     }
     return "Free";
+}
+
+const char* transformSpaceName(TransformSpace space) {
+    switch (space) {
+    case TransformSpace::Global:
+        return "Global";
+    case TransformSpace::Relative:
+        return "Relative";
+    }
+    return "Relative";
 }
 
 const char* translateSnapModeName(TranslateSnapMode mode) {
@@ -281,6 +367,8 @@ float snapTranslateDistance(
 void updateTranslateStatus(Editor& editor, const SelectTool& tool) {
     std::string message = "Translate ";
     message += translateTargetName(editor);
+    message += " | ";
+    message += transformSpaceName(editor.transformSpace);
     message += " | ";
     message += translateAxisName(editor, tool.axisLock);
     message += " | ";
@@ -462,6 +550,115 @@ slopengine::Brush translateBrush(
         }
     }
     slopengine::recomputeBrushBounds(brush);
+    return brush;
+}
+
+void appendUniqueSeed(std::vector<Vector3>& seeds, Vector3 pos) {
+    for (const Vector3& existing : seeds) {
+        if (vertsNear(existing, pos)) {
+            return;
+        }
+    }
+    seeds.push_back(pos);
+}
+
+void collectVertSeeds(
+    const slopengine::Brush& brush,
+    const std::vector<VertRef>& refs,
+    int brushIndex,
+    std::vector<Vector3>& seeds) {
+    for (const VertRef& ref : refs) {
+        if (ref.brush != brushIndex || !ref.valid()) {
+            continue;
+        }
+        if (ref.face >= static_cast<int>(brush.faces.size())) {
+            continue;
+        }
+        const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+        if (ref.vert < 0 || ref.vert >= static_cast<int>(verts.size())) {
+            continue;
+        }
+        appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.vert)]);
+    }
+}
+
+void collectEdgeSeeds(
+    const slopengine::Brush& brush,
+    const std::vector<EdgeRef>& refs,
+    int brushIndex,
+    std::vector<Vector3>& seeds) {
+    for (const EdgeRef& ref : refs) {
+        if (ref.brush != brushIndex || !ref.valid()) {
+            continue;
+        }
+        if (ref.face >= static_cast<int>(brush.faces.size())) {
+            continue;
+        }
+        const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+        if (verts.size() < 2 || ref.edge < 0 || ref.edge >= static_cast<int>(verts.size())) {
+            continue;
+        }
+        appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.edge)]);
+        appendUniqueSeed(
+            seeds, verts[static_cast<std::size_t>((ref.edge + 1) % verts.size())]);
+    }
+}
+
+bool seedMatches(const std::vector<Vector3>& seeds, Vector3 pos) {
+    for (const Vector3& seed : seeds) {
+        if (vertsNear(seed, pos)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+slopengine::Brush moveWeldedVerts(
+    const slopengine::Brush& src,
+    const std::vector<Vector3>& seeds,
+    Vector3 delta,
+    slopengine::AssetStore& assets) {
+    if (seeds.empty()) {
+        return src;
+    }
+    slopengine::Brush brush = src;
+    for (slopengine::BrushFace& face : brush.faces) {
+        const Vector3 oldRef = face.vertices.empty() ? Vector3{} : face.vertices[0];
+        Vector3 oldU{};
+        Vector3 oldV{};
+        if (face.uvLock) {
+            slopengine::ensureFaceUvAxes(face);
+            oldU = face.uvUAxis;
+            oldV = face.uvVAxis;
+        }
+        bool moved = false;
+        std::vector<char> moveFlags(face.vertices.size(), 0);
+        for (std::size_t vi = 0; vi < face.vertices.size(); ++vi) {
+            if (seedMatches(seeds, face.vertices[vi])) {
+                moveFlags[vi] = 1;
+                moved = true;
+            }
+        }
+        if (!moved) {
+            continue;
+        }
+        for (std::size_t vi = 0; vi < face.vertices.size(); ++vi) {
+            if (moveFlags[vi]) {
+                face.vertices[vi] = add3(face.vertices[vi], delta);
+            }
+        }
+        face.normal = slopengine::faceNormalFromVertices(face.vertices);
+        if (face.uvLock) {
+            slopengine::lockFaceUvShift(
+                face,
+                oldRef,
+                oldU,
+                oldV,
+                facePixelsPerMeter(assets, face.material));
+        }
+    }
+    slopengine::recomputeBrushBounds(brush);
+    brush.box = false;
     return brush;
 }
 
@@ -673,31 +870,16 @@ slopengine::Brush pushFace(
         return makeBoxAt(src, mins, maxs, assets);
     }
 
-    slopengine::Brush brush = src;
-    slopengine::BrushFace& face = brush.faces[static_cast<std::size_t>(faceIndex)];
-    const Vector3 oldRef = face.vertices.empty() ? Vector3{} : face.vertices[0];
-    Vector3 oldU{};
-    Vector3 oldV{};
-    if (face.uvLock) {
-        slopengine::ensureFaceUvAxes(face);
-        oldU = face.uvUAxis;
-        oldV = face.uvVAxis;
+    const slopengine::BrushFace& face = src.faces[static_cast<std::size_t>(faceIndex)];
+    if (face.vertices.empty()) {
+        return src;
     }
-    const Vector3 n = face.normal;
-    for (Vector3& v : face.vertices) {
-        v = add3(v, scale3(n, distance));
+    std::vector<Vector3> seeds;
+    seeds.reserve(face.vertices.size());
+    for (const Vector3& v : face.vertices) {
+        appendUniqueSeed(seeds, v);
     }
-    face.normal = slopengine::faceNormalFromVertices(face.vertices);
-    if (face.uvLock) {
-        slopengine::lockFaceUvShift(
-            face,
-            oldRef,
-            oldU,
-            oldV,
-            facePixelsPerMeter(assets, face.material));
-    }
-    slopengine::recomputeBrushBounds(brush);
-    return brush;
+    return moveWeldedVerts(src, seeds, scale3(face.normal, distance), assets);
 }
 
 bool faceFacesRay(const slopengine::BrushFace& face, Ray ray, bool ignoreBackfaces) {
@@ -923,6 +1105,45 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
         brushSnapshotIndices.push_back(faceTranslate.brush);
         brushSnapshot.push_back(d.brushes[static_cast<std::size_t>(faceTranslate.brush)]);
         translateOrigin = editor.selectionCenter();
+    } else if (
+        d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) {
+        const bool haveVerts =
+            d.selectionMode == SelectionMode::Vert && !d.selectedVerts.empty();
+        const bool haveEdges =
+            d.selectionMode == SelectionMode::Edge && !d.selectedEdges.empty();
+        if (!haveVerts && !haveEdges) {
+            return;
+        }
+        std::unordered_set<int> brushSet;
+        if (haveVerts) {
+            for (const VertRef& ref : d.selectedVerts) {
+                if (ref.brush >= 0) {
+                    brushSet.insert(ref.brush);
+                }
+            }
+        } else {
+            for (const EdgeRef& ref : d.selectedEdges) {
+                if (ref.brush >= 0) {
+                    brushSet.insert(ref.brush);
+                }
+            }
+        }
+        translating = true;
+        axisLock = TranslateAxis::None;
+        numericActive = false;
+        editor.numericBuffer.clear();
+        for (int index : brushSet) {
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            brushSnapshotIndices.push_back(index);
+            brushSnapshot.push_back(d.brushes[static_cast<std::size_t>(index)]);
+        }
+        if (brushSnapshot.empty()) {
+            translating = false;
+            return;
+        }
+        translateOrigin = editor.selectionCenter();
     } else if (d.selectionMode == SelectionMode::Brush) {
         if (d.selectedBrushes.empty()) {
             return;
@@ -989,17 +1210,31 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
         }
         const slopengine::BrushFace& face =
             src.faces[static_cast<std::size_t>(faceTranslate.face)];
-        const float rawDistance = dot3(delta, face.normal);
-        float distance = rawDistance;
+        if (editor.transformSpace == TransformSpace::Relative) {
+            const float rawDistance = dot3(delta, face.normal);
+            float distance = rawDistance;
+            if (!exact) {
+                const Vector3 originPoint =
+                    face.vertices.empty() ? translateOrigin : face.vertices[0];
+                const float originAlong = dot3(originPoint, face.normal);
+                distance = snapTranslateDistance(
+                    rawDistance, originAlong, editor.gridSize, editor.translateSnapMode);
+            }
+            d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
+                pushFace(src, faceTranslate.face, distance, assets);
+            return;
+        }
         if (!exact) {
-            const Vector3 originPoint =
-                face.vertices.empty() ? translateOrigin : face.vertices[0];
-            const float originAlong = dot3(originPoint, face.normal);
-            distance = snapTranslateDistance(
-                rawDistance, originAlong, editor.gridSize, editor.translateSnapMode);
+            delta = snapTranslateDelta(
+                delta, translateOrigin, editor.gridSize, editor.translateSnapMode);
+        }
+        std::vector<Vector3> seeds;
+        seeds.reserve(face.vertices.size());
+        for (const Vector3& v : face.vertices) {
+            appendUniqueSeed(seeds, v);
         }
         d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-            pushFace(src, faceTranslate.face, distance, assets);
+            moveWeldedVerts(src, seeds, delta, assets);
         return;
     }
 
@@ -1007,6 +1242,25 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
         delta = snapTranslateDelta(
             delta, translateOrigin, editor.gridSize, editor.translateSnapMode);
     }
+
+    if (d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) {
+        for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
+            const int index = brushSnapshotIndices[i];
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            std::vector<Vector3> seeds;
+            if (d.selectionMode == SelectionMode::Vert) {
+                collectVertSeeds(brushSnapshot[i], d.selectedVerts, index, seeds);
+            } else {
+                collectEdgeSeeds(brushSnapshot[i], d.selectedEdges, index, seeds);
+            }
+            d.brushes[static_cast<std::size_t>(index)] =
+                moveWeldedVerts(brushSnapshot[i], seeds, delta, assets);
+        }
+        return;
+    }
+
     for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
         const int index = brushSnapshotIndices[i];
         if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
@@ -1023,8 +1277,22 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
     }
     EditorDocument& d = editor.doc();
     const bool wasEntity = d.selectionMode == SelectionMode::Entity;
-    const bool wasBrush =
-        d.selectionMode == SelectionMode::Brush || d.selectionMode == SelectionMode::Face;
+    const bool wasFace = d.selectionMode == SelectionMode::Face;
+    const bool wasVertEdge =
+        d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge;
+    const bool wasBrush = d.selectionMode == SelectionMode::Brush || wasFace || wasVertEdge;
+
+    if (wasVertEdge || wasFace) {
+        for (std::size_t i = 0; i < brushSnapshotIndices.size(); ++i) {
+            const int index = brushSnapshotIndices[i];
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+            brush = promoteToBoxIfPossible(brush, assets);
+        }
+    }
+
     bool anyInstance = false;
     slopengine::BrushRole brushRole = slopengine::BrushRole::Hull;
     slopengine::ThingKind thingKind = slopengine::ThingKind::Prop;
@@ -1162,7 +1430,8 @@ void SelectTool::handleNumeric(
     }
 
     Vector3 delta{};
-    if (editor.doc().selectionMode == SelectionMode::Face && faceTranslate.valid() &&
+    if (editor.doc().selectionMode == SelectionMode::Face &&
+        editor.transformSpace == TransformSpace::Relative && faceTranslate.valid() &&
         !brushSnapshot.empty() &&
         faceTranslate.face < static_cast<int>(brushSnapshot[0].faces.size())) {
         const auto& face =
@@ -1276,6 +1545,8 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
     if (additive) {
         pickCycleBrushes.clear();
         pickCycleFaces.clear();
+        pickCycleEdges.clear();
+        pickCycleVerts.clear();
         pickCycleEntities.clear();
         pickCycleIndex = 0;
     }
@@ -1367,6 +1638,8 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
         pickCycleMouse = mouse;
         pickCycleBrushes = stack;
         pickCycleFaces.clear();
+        pickCycleEdges.clear();
+        pickCycleVerts.clear();
         pickCycleEntities.clear();
         pickCycleIndex = index;
 
@@ -1505,6 +1778,8 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
         pickCycleMouse = mouse;
         pickCycleFaces = stack;
         pickCycleBrushes.clear();
+        pickCycleEdges.clear();
+        pickCycleVerts.clear();
         pickCycleEntities.clear();
         pickCycleIndex = index;
 
@@ -1518,6 +1793,232 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             msg += " (" + std::to_string(index + 1) + "/" + std::to_string(stack.size()) + ")";
         }
         editor.statusMessage = std::move(msg);
+        return;
+    }
+
+    if (d.selectionMode == SelectionMode::Vert) {
+        struct VertHit {
+            VertRef ref{};
+            float screenDist = 0.0f;
+            float depth = 0.0f;
+        };
+        std::vector<VertHit> hits;
+        for (std::size_t bi = 0; bi < d.brushes.size(); ++bi) {
+            const slopengine::Brush& brush = d.brushes[bi];
+            for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                const slopengine::BrushFace& face = brush.faces[fi];
+                for (std::size_t vi = 0; vi < face.vertices.size(); ++vi) {
+                    const Vector3& world = face.vertices[vi];
+                    const Vector2 screen =
+                        worldToViewportScreen(world, camera, editor.contentViewport);
+                    const float dx = screen.x - mouse.x;
+                    const float dy = screen.y - mouse.y;
+                    const float screenDist = std::sqrt(dx * dx + dy * dy);
+                    if (screenDist > kVertPickPixels) {
+                        continue;
+                    }
+                    const Vector3 toVert = sub3(world, ray.position);
+                    const float depth = dot3(toVert, ray.direction);
+                    if (depth < 0.0f) {
+                        continue;
+                    }
+                    hits.push_back(
+                        {{static_cast<int>(bi), static_cast<int>(fi), static_cast<int>(vi)},
+                         screenDist,
+                         depth});
+                }
+            }
+        }
+        std::sort(hits.begin(), hits.end(), [](const VertHit& a, const VertHit& b) {
+            if (a.screenDist != b.screenDist) {
+                return a.screenDist < b.screenDist;
+            }
+            return a.depth < b.depth;
+        });
+        std::vector<VertRef> stack;
+        stack.reserve(hits.size());
+        for (const VertHit& hit : hits) {
+            const bool exists = std::any_of(
+                stack.begin(), stack.end(), [&](const VertRef& existing) {
+                    if (existing.brush != hit.ref.brush) {
+                        return false;
+                    }
+                    const auto& brush = d.brushes[static_cast<std::size_t>(existing.brush)];
+                    const Vector3& a = brush.faces[static_cast<std::size_t>(existing.face)]
+                                           .vertices[static_cast<std::size_t>(existing.vert)];
+                    const Vector3& b = brush.faces[static_cast<std::size_t>(hit.ref.face)]
+                                           .vertices[static_cast<std::size_t>(hit.ref.vert)];
+                    return vertsNear(a, b);
+                });
+            if (!exists) {
+                stack.push_back(hit.ref);
+            }
+        }
+
+        if (stack.empty()) {
+            if (!additive) {
+                editor.clearSelection();
+                editor.statusMessage = "Selection cleared";
+            }
+            pickCycleVerts.clear();
+            pickCycleIndex = 0;
+            return;
+        }
+
+        int index = 0;
+        if (!additive && pickCycleMouseNear(mouse, pickCycleMouse) &&
+            samePickStack(stack, pickCycleVerts) && !pickCycleVerts.empty()) {
+            index = (pickCycleIndex + 1) % static_cast<int>(stack.size());
+        }
+        pickCycleMouse = mouse;
+        pickCycleVerts = stack;
+        pickCycleBrushes.clear();
+        pickCycleFaces.clear();
+        pickCycleEdges.clear();
+        pickCycleEntities.clear();
+        pickCycleIndex = index;
+
+        const VertRef best = stack[static_cast<std::size_t>(index)];
+        editor.selectVert(best, additive);
+        std::string msg = "Selected vert " +
+            d.brushes[static_cast<std::size_t>(best.brush)].id + " f" +
+            std::to_string(best.face) + "v" + std::to_string(best.vert);
+        if (stack.size() > 1 && !additive) {
+            msg += " (" + std::to_string(index + 1) + "/" + std::to_string(stack.size()) + ")";
+        }
+        editor.statusMessage = std::move(msg);
+        return;
+    }
+
+    if (d.selectionMode == SelectionMode::Edge) {
+        auto screenDistToSegment = [](Vector2 p, Vector2 a, Vector2 b) {
+            const float abx = b.x - a.x;
+            const float aby = b.y - a.y;
+            const float lenSq = abx * abx + aby * aby;
+            float t = 0.0f;
+            if (lenSq > 1e-6f) {
+                t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq;
+                t = std::clamp(t, 0.0f, 1.0f);
+            }
+            const float cx = a.x + abx * t;
+            const float cy = a.y + aby * t;
+            const float dx = p.x - cx;
+            const float dy = p.y - cy;
+            return std::sqrt(dx * dx + dy * dy);
+        };
+
+        struct EdgeHit {
+            EdgeRef ref{};
+            float screenDist = 0.0f;
+            float depth = 0.0f;
+        };
+        std::vector<EdgeHit> hits;
+        for (std::size_t bi = 0; bi < d.brushes.size(); ++bi) {
+            const slopengine::Brush& brush = d.brushes[bi];
+            for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                const slopengine::BrushFace& face = brush.faces[fi];
+                if (face.vertices.size() < 2) {
+                    continue;
+                }
+                for (std::size_t ei = 0; ei < face.vertices.size(); ++ei) {
+                    const Vector3& wa = face.vertices[ei];
+                    const Vector3& wb = face.vertices[(ei + 1) % face.vertices.size()];
+                    const Vector2 sa =
+                        worldToViewportScreen(wa, camera, editor.contentViewport);
+                    const Vector2 sb =
+                        worldToViewportScreen(wb, camera, editor.contentViewport);
+                    const float screenDist = screenDistToSegment(mouse, sa, sb);
+                    if (screenDist > kEdgePickPixels) {
+                        continue;
+                    }
+                    const Vector3 mid = {
+                        0.5f * (wa.x + wb.x),
+                        0.5f * (wa.y + wb.y),
+                        0.5f * (wa.z + wb.z),
+                    };
+                    const float depth = dot3(sub3(mid, ray.position), ray.direction);
+                    if (depth < 0.0f) {
+                        continue;
+                    }
+                    hits.push_back(
+                        {{static_cast<int>(bi), static_cast<int>(fi), static_cast<int>(ei)},
+                         screenDist,
+                         depth});
+                }
+            }
+        }
+        std::sort(hits.begin(), hits.end(), [](const EdgeHit& a, const EdgeHit& b) {
+            if (a.screenDist != b.screenDist) {
+                return a.screenDist < b.screenDist;
+            }
+            return a.depth < b.depth;
+        });
+        std::vector<EdgeRef> stack;
+        stack.reserve(hits.size());
+        for (const EdgeHit& hit : hits) {
+            const bool exists = std::any_of(
+                stack.begin(), stack.end(), [&](const EdgeRef& existing) {
+                    if (existing.brush != hit.ref.brush) {
+                        return false;
+                    }
+                    const auto& brush = d.brushes[static_cast<std::size_t>(existing.brush)];
+                    const auto& faceA =
+                        brush.faces[static_cast<std::size_t>(existing.face)].vertices;
+                    const auto& faceB =
+                        brush.faces[static_cast<std::size_t>(hit.ref.face)].vertices;
+                    if (faceA.size() < 2 || faceB.size() < 2) {
+                        return false;
+                    }
+                    const Vector3& a0 = faceA[static_cast<std::size_t>(existing.edge)];
+                    const Vector3& a1 =
+                        faceA[static_cast<std::size_t>((existing.edge + 1) % faceA.size())];
+                    const Vector3& b0 = faceB[static_cast<std::size_t>(hit.ref.edge)];
+                    const Vector3& b1 =
+                        faceB[static_cast<std::size_t>((hit.ref.edge + 1) % faceB.size())];
+                    return (vertsNear(a0, b0) && vertsNear(a1, b1)) ||
+                        (vertsNear(a0, b1) && vertsNear(a1, b0));
+                });
+            if (!exists) {
+                stack.push_back(hit.ref);
+            }
+        }
+
+        if (stack.empty()) {
+            if (!additive) {
+                editor.clearSelection();
+                editor.statusMessage = "Selection cleared";
+            }
+            pickCycleEdges.clear();
+            pickCycleIndex = 0;
+            return;
+        }
+
+        int index = 0;
+        if (!additive && pickCycleMouseNear(mouse, pickCycleMouse) &&
+            samePickStack(stack, pickCycleEdges) && !pickCycleEdges.empty()) {
+            index = (pickCycleIndex + 1) % static_cast<int>(stack.size());
+        }
+        pickCycleMouse = mouse;
+        pickCycleEdges = stack;
+        pickCycleBrushes.clear();
+        pickCycleFaces.clear();
+        pickCycleVerts.clear();
+        pickCycleEntities.clear();
+        pickCycleIndex = index;
+
+        const EdgeRef best = stack[static_cast<std::size_t>(index)];
+        editor.selectEdge(best, additive);
+        std::string msg = "Selected edge " +
+            d.brushes[static_cast<std::size_t>(best.brush)].id + " f" +
+            std::to_string(best.face) + "e" + std::to_string(best.edge);
+        if (stack.size() > 1 && !additive) {
+            msg += " (" + std::to_string(index + 1) + "/" + std::to_string(stack.size()) + ")";
+        }
+        editor.statusMessage = std::move(msg);
+        return;
+    }
+
+    if (d.selectionMode != SelectionMode::Entity) {
         return;
     }
 
@@ -1583,6 +2084,8 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
     pickCycleEntities = stack;
     pickCycleBrushes.clear();
     pickCycleFaces.clear();
+    pickCycleEdges.clear();
+    pickCycleVerts.clear();
     pickCycleIndex = index;
 
     const EntityRef best = stack[static_cast<std::size_t>(index)];
@@ -1652,6 +2155,22 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
     std::vector<int> brushIndices;
     if (d.selectionMode == SelectionMode::Face) {
         for (const FaceRef& ref : d.selectedFaces) {
+            if (ref.brush >= 0) {
+                brushIndices.push_back(ref.brush);
+            }
+        }
+        std::sort(brushIndices.begin(), brushIndices.end());
+        brushIndices.erase(std::unique(brushIndices.begin(), brushIndices.end()), brushIndices.end());
+    } else if (d.selectionMode == SelectionMode::Edge) {
+        for (const EdgeRef& ref : d.selectedEdges) {
+            if (ref.brush >= 0) {
+                brushIndices.push_back(ref.brush);
+            }
+        }
+        std::sort(brushIndices.begin(), brushIndices.end());
+        brushIndices.erase(std::unique(brushIndices.begin(), brushIndices.end()), brushIndices.end());
+    } else if (d.selectionMode == SelectionMode::Vert) {
+        for (const VertRef& ref : d.selectedVerts) {
             if (ref.brush >= 0) {
                 brushIndices.push_back(ref.brush);
             }

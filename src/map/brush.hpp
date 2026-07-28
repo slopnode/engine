@@ -173,7 +173,7 @@ struct BrushSplitResult {
     Brush back;
 };
 
-/** Split a convex brush by a plane. Nullopt if the plane misses or a half is degenerate. */
+/** Split a brush by a plane. Nullopt if the plane misses or a half is empty. Does not require convex halves. */
 std::optional<BrushSplitResult> splitBrushByPlane(
     const Brush& source,
     Vector3 planePoint,

@@ -143,7 +143,7 @@ std::vector<Vector3> buildCapPolygonLocal(
 
     Vector3 origin = polygonCentroidLocal(points);
     Vector3 n = planeNormal;
-    if (!frontCap) {
+    if (frontCap) {
         n = scale3(n, -1.0f);
     }
     Vector3 tangent =
@@ -1295,26 +1295,33 @@ std::optional<BrushSplitResult> splitBrushByPlane(
         backFaces.push_back(makeCapFace(capMaterial, std::move(backCap), false, false));
     }
 
-    std::string frontErr;
-    std::string backErr;
-    auto frontBrush = makeBrushConvex(allocateId(), std::move(frontFaces), source.role, frontErr);
-    auto backBrush = makeBrushConvex(allocateId(), std::move(backFaces), source.role, backErr);
-    if (!frontBrush || !backBrush) {
-        errorOut = !frontErr.empty() ? frontErr : backErr;
-        if (errorOut.empty()) {
-            errorOut = "split produced invalid brush";
-        }
+    if (frontFaces.empty() || backFaces.empty()) {
+        errorOut = "split produced empty half";
         return std::nullopt;
     }
 
-    frontBrush->nocollide = source.nocollide;
-    backBrush->nocollide = source.nocollide;
-    frontBrush->box = false;
-    backBrush->box = false;
+    auto finalizeHalf = [&](std::vector<BrushFace> faces) {
+        Brush brush;
+        brush.id = allocateId();
+        brush.role = source.role;
+        brush.nocollide = source.nocollide;
+        brush.box = false;
+        brush.faces = std::move(faces);
+        for (std::size_t i = 0; i < brush.faces.size(); ++i) {
+            BrushFace& face = brush.faces[i];
+            if (face.id.empty()) {
+                face.id = brush.id + "/" + std::to_string(i);
+            }
+            face.normal = faceNormalFromVertices(face.vertices);
+            ensureFaceUvAxes(face);
+        }
+        recomputeBrushBounds(brush);
+        return brush;
+    };
 
     BrushSplitResult result;
-    result.front = std::move(*frontBrush);
-    result.back = std::move(*backBrush);
+    result.front = finalizeHalf(std::move(frontFaces));
+    result.back = finalizeHalf(std::move(backFaces));
     return result;
 }
 

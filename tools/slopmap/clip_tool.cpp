@@ -2,15 +2,36 @@
 
 #include "map/brush.hpp"
 #include "preview.hpp"
+#include "select_tool.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <string>
 
 namespace slopmap {
 
 namespace {
+
+float projectAxis(Vector3 point, Vector3 axis) {
+    return point.x * axis.x + point.y * axis.y + point.z * axis.z;
+}
+
+Vector3 combineAxes(const ConstructionPlane& plane, float u, float v, float n) {
+    return {
+        plane.origin.x + plane.axisU.x * u + plane.axisV.x * v + plane.normal.x * n,
+        plane.origin.y + plane.axisU.y * u + plane.axisV.y * v + plane.normal.y * n,
+        plane.origin.z + plane.axisU.z * u + plane.axisV.z * v + plane.normal.z * n,
+    };
+}
+
+Vector3 snapOnPlane(Vector3 point, const ConstructionPlane& plane, float grid) {
+    const Vector3 rel = sub3(point, plane.origin);
+    const float u = snapToGrid(projectAxis(rel, plane.axisU), grid);
+    const float v = snapToGrid(projectAxis(rel, plane.axisV), grid);
+    return combineAxes(plane, u, v, 0.0f);
+}
 
 void drawBrushSolidTint(const slopengine::Brush& brush, Color color) {
     for (const slopengine::BrushFace& face : brush.faces) {
@@ -32,6 +53,8 @@ void ClipTool::reset() {
     point1 = {};
     planeNormal = {};
     planeFlipped = false;
+    hoverValid = false;
+    hoverPoint = {};
     brushIndices.clear();
 }
 
@@ -50,10 +73,10 @@ const char* ClipTool::keepModeLabel() const {
 void ClipTool::setStatus(Editor& editor) const {
     switch (phase) {
     case ClipPhase::PickingP0:
-        editor.statusMessage = "Clip: click first point on grid";
+        editor.statusMessage = "Clip: click first point on a face";
         break;
     case ClipPhase::PickingP1:
-        editor.statusMessage = "Clip: click second point";
+        editor.statusMessage = "Clip: click second point on the face";
         break;
     case ClipPhase::Preview:
         editor.statusMessage = std::string("Clip: keep ") + keepModeLabel() +
@@ -78,15 +101,58 @@ void ClipTool::refreshPlane() {
     planeNormal = n;
 }
 
-bool ClipTool::hitConstruction(Editor& editor, const Camera3D& camera, Vector3& outHit) const {
+bool ClipTool::hitSelectedFace(
+    Editor& editor,
+    const Camera3D& camera,
+    Vector3& outHit,
+    ConstructionPlane& outPlane) const {
+    const Ray ray = mouseRay(camera, editor.contentViewport);
+    const EditorDocument& d = editor.doc();
+    float bestT = std::numeric_limits<float>::max();
+    int bestBrush = -1;
+    int bestFace = -1;
+
+    for (int index : brushIndices) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        float faceT = 0.0f;
+        const auto face =
+            rayBrushFaceIndex(ray, d.brushes[static_cast<std::size_t>(index)], &faceT, editor.ignoreBackfaces);
+        if (face && faceT < bestT) {
+            bestT = faceT;
+            bestBrush = index;
+            bestFace = *face;
+        }
+    }
+
+    if (bestBrush < 0 || bestFace < 0) {
+        return false;
+    }
+
+    const slopengine::BrushFace& face =
+        d.brushes[static_cast<std::size_t>(bestBrush)].faces[static_cast<std::size_t>(bestFace)];
+    const Vector3 hit{
+        ray.position.x + ray.direction.x * bestT,
+        ray.position.y + ray.direction.y * bestT,
+        ray.position.z + ray.direction.z * bestT,
+    };
+    outPlane = constructionPlaneFromFace(face, hit);
+    outHit = snapOnPlane(hit, outPlane, editor.gridSize);
+    outPlane.origin = outHit;
+    return true;
+}
+
+bool ClipTool::hitLockedFacePlane(Editor& editor, const Camera3D& camera, Vector3& outHit) const {
+    Vector3 hit{};
     if (!rayPlaneIntersection(
             mouseRay(camera, editor.contentViewport),
             construction.origin,
             construction.normal,
-            outHit)) {
+            hit)) {
         return false;
     }
-    outHit = snapToGrid(outHit, editor.gridSize);
+    outHit = snapOnPlane(hit, construction, editor.gridSize);
     return true;
 }
 
@@ -107,7 +173,6 @@ void ClipTool::beginFromSelection(Editor& editor) {
             return;
         }
     }
-    construction = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
     phase = ClipPhase::PickingP0;
     editor.mode = EditorMode::Select;
     editor.setSelectionMode(SelectionMode::Brush);
@@ -202,6 +267,7 @@ void ClipTool::update(
     }
 
     if (phase == ClipPhase::Preview) {
+        hoverValid = false;
         if (!uiWantsKeyboard && IsKeyPressed(KEY_F)) {
             if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
                 planeFlipped = !planeFlipped;
@@ -225,12 +291,23 @@ void ClipTool::update(
             commit(editor);
             return;
         }
+        return;
     }
 
-    if (phase == ClipPhase::PickingP1) {
-        Vector3 hover{};
-        if (hitConstruction(editor, camera, hover)) {
-            point1 = hover;
+    hoverValid = false;
+    if (phase == ClipPhase::PickingP0) {
+        ConstructionPlane hoverPlane{};
+        Vector3 hit{};
+        if (hitSelectedFace(editor, camera, hit, hoverPlane)) {
+            hoverValid = true;
+            hoverPoint = hit;
+        }
+    } else if (phase == ClipPhase::PickingP1) {
+        Vector3 hit{};
+        if (hitLockedFacePlane(editor, camera, hit)) {
+            hoverValid = true;
+            hoverPoint = hit;
+            point1 = hit;
             refreshPlane();
         }
     }
@@ -239,27 +316,36 @@ void ClipTool::update(
         return;
     }
 
-    Vector3 hit{};
-    if (!hitConstruction(editor, camera, hit)) {
-        editor.statusMessage = "Clip: click the construction grid";
-        return;
-    }
-
     if (phase == ClipPhase::PickingP0) {
+        ConstructionPlane hitPlane{};
+        Vector3 hit{};
+        if (!hitSelectedFace(editor, camera, hit, hitPlane)) {
+            editor.statusMessage = "Clip: click a face on the selected brush";
+            return;
+        }
+        construction = hitPlane;
         point0 = hit;
         point1 = hit;
+        hoverValid = true;
+        hoverPoint = hit;
         phase = ClipPhase::PickingP1;
         setStatus(editor);
         return;
     }
 
     if (phase == ClipPhase::PickingP1) {
+        Vector3 hit{};
+        if (!hitLockedFacePlane(editor, camera, hit)) {
+            editor.statusMessage = "Clip: click a face on the selected brush";
+            return;
+        }
         point1 = hit;
         refreshPlane();
         if (length3(planeNormal) < 1e-6f || length3(sub3(point1, point0)) < editor.gridSize * 0.5f) {
-            editor.statusMessage = "Clip: points too close or parallel to plane axes";
+            editor.statusMessage = "Clip: points too close or parallel to face edges";
             return;
         }
+        hoverValid = false;
         phase = ClipPhase::Preview;
         setStatus(editor);
     }
@@ -272,6 +358,10 @@ void ClipTool::drawPreview(const Editor& editor, Vector3 eye, float lineWidth) c
 
     const float markerR = std::max(0.03f, lineWidth * 2.0f);
     const float axisWidth = lineWidth * 1.5f;
+
+    if (hoverValid && (phase == ClipPhase::PickingP0 || phase == ClipPhase::PickingP1)) {
+        DrawSphere(hoverPoint, markerR, Color{255, 240, 120, 220});
+    }
 
     if (phase == ClipPhase::PickingP0) {
         return;

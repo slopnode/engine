@@ -13,6 +13,7 @@ add_executable(sloptests
     test_transform.cpp
     test_dynamic_light.cpp
     test_brush_door.cpp
+    test_brush_split.cpp
     test_sight.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
@@ -50,4 +51,5 @@ add_test(NAME sloptests.frustum COMMAND sloptests frustum)
 add_test(NAME sloptests.transform COMMAND sloptests transform)
 add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)
 add_test(NAME sloptests.brush_door COMMAND sloptests brush_door)
+add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
 add_test(NAME sloptests.sight COMMAND sloptests sight)

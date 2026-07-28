@@ -37,6 +37,11 @@ enum class TranslateSnapMode {
     Absolute,
 };
 
+enum class TransformSpace {
+    Global,
+    Relative,
+};
+
 enum class CreatePrimitive {
     Box,
     Cylinder,
@@ -88,6 +93,7 @@ struct Editor {
     bool showGizmos = true;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
+    TransformSpace transformSpace = TransformSpace::Relative;
     float rotateSnapDegrees = 15.0f;
     slopengine::BrushRole createBrushRole = slopengine::BrushRole::Hull;
     CreatePrimitive createPrimitive = CreatePrimitive::Box;
@@ -180,6 +186,8 @@ struct Editor {
     void setSelectionMode(SelectionMode mode);
     void selectBrush(int index, bool additive);
     void selectFace(FaceRef ref, bool additive);
+    void selectEdge(EdgeRef ref, bool additive);
+    void selectVert(VertRef ref, bool additive);
     void selectEntity(EntityRef ref, bool additive);
     void selectBrushes(const std::vector<int>& indices, int active);
     void frameSelection();

@@ -29,6 +29,8 @@ struct ClipTool {
     Vector3 point1{};
     Vector3 planeNormal{};
     bool planeFlipped = false;
+    bool hoverValid = false;
+    Vector3 hoverPoint{};
     std::vector<int> brushIndices;
 
     void reset();
@@ -41,7 +43,9 @@ private:
     void commit(Editor& editor);
     void refreshPlane();
     void setStatus(Editor& editor) const;
-    bool hitConstruction(Editor& editor, const Camera3D& camera, Vector3& outHit) const;
+    bool hitSelectedFace(Editor& editor, const Camera3D& camera, Vector3& outHit, ConstructionPlane& outPlane)
+        const;
+    bool hitLockedFacePlane(Editor& editor, const Camera3D& camera, Vector3& outHit) const;
     const char* keepModeLabel() const;
 };
 

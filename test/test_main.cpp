@@ -18,6 +18,7 @@ void runFrustumTests();
 void runTransformTests();
 void runDynamicLightTests();
 void runBrushDoorTests();
+void runBrushSplitTests();
 void runSightTests();
 
 }
@@ -43,6 +44,7 @@ const Suite kSuites[] = {
     {"transform", slopengine::runTransformTests},
     {"dynamic_light", slopengine::runDynamicLightTests},
     {"brush_door", slopengine::runBrushDoorTests},
+    {"brush_split", slopengine::runBrushSplitTests},
     {"sight", slopengine::runSightTests},
 };
 

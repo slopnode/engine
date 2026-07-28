@@ -15,9 +15,13 @@ struct DocumentSnapshot {
     SelectionMode selectionMode = SelectionMode::Brush;
     std::vector<int> selectedBrushes;
     std::vector<FaceRef> selectedFaces;
+    std::vector<EdgeRef> selectedEdges;
+    std::vector<VertRef> selectedVerts;
     std::vector<EntityRef> selectedEntities;
     int activeBrush = -1;
     FaceRef activeFace{};
+    EdgeRef activeEdge{};
+    VertRef activeVert{};
     EntityRef activeEntity{};
     std::string defaultMaterial = "default/cube";
     int nextBrushSerial = 1;

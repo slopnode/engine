@@ -67,9 +67,13 @@ void resetSelectionSerial(EditorDocument& doc) {
     doc.selectionMode = SelectionMode::Brush;
     doc.selectedBrushes.clear();
     doc.selectedFaces.clear();
+    doc.selectedEdges.clear();
+    doc.selectedVerts.clear();
     doc.selectedEntities.clear();
     doc.activeBrush = -1;
     doc.activeFace = {};
+    doc.activeEdge = {};
+    doc.activeVert = {};
     doc.activeEntity = {};
     doc.nextBrushSerial = 1;
     doc.nextPrefabSerial = 1;
@@ -430,6 +434,10 @@ bool EditorDocument::hasSelection() const {
         return !selectedBrushes.empty();
     case SelectionMode::Face:
         return !selectedFaces.empty();
+    case SelectionMode::Edge:
+        return !selectedEdges.empty();
+    case SelectionMode::Vert:
+        return !selectedVerts.empty();
     case SelectionMode::Entity:
         return !selectedEntities.empty();
     }
@@ -444,6 +452,14 @@ bool EditorDocument::isFaceSelected(FaceRef ref) const {
     return std::find(selectedFaces.begin(), selectedFaces.end(), ref) != selectedFaces.end();
 }
 
+bool EditorDocument::isEdgeSelected(EdgeRef ref) const {
+    return std::find(selectedEdges.begin(), selectedEdges.end(), ref) != selectedEdges.end();
+}
+
+bool EditorDocument::isVertSelected(VertRef ref) const {
+    return std::find(selectedVerts.begin(), selectedVerts.end(), ref) != selectedVerts.end();
+}
+
 bool EditorDocument::isEntitySelected(EntityRef ref) const {
     return std::find(selectedEntities.begin(), selectedEntities.end(), ref) !=
         selectedEntities.end();
@@ -453,9 +469,13 @@ void Editor::clearSelection() {
     EditorDocument& d = doc();
     d.selectedBrushes.clear();
     d.selectedFaces.clear();
+    d.selectedEdges.clear();
+    d.selectedVerts.clear();
     d.selectedEntities.clear();
     d.activeBrush = -1;
     d.activeFace = {};
+    d.activeEdge = {};
+    d.activeVert = {};
     d.activeEntity = {};
 }
 
@@ -473,6 +493,12 @@ void Editor::setSelectionMode(SelectionMode mode) {
     case SelectionMode::Face:
         statusMessage = "Selection mode: Face";
         break;
+    case SelectionMode::Edge:
+        statusMessage = "Selection mode: Edge";
+        break;
+    case SelectionMode::Vert:
+        statusMessage = "Selection mode: Vert";
+        break;
     case SelectionMode::Entity:
         statusMessage = "Selection mode: Entity";
         break;
@@ -483,8 +509,12 @@ void Editor::selectBrush(int index, bool additive) {
     EditorDocument& d = doc();
     d.selectionMode = SelectionMode::Brush;
     d.selectedFaces.clear();
+    d.selectedEdges.clear();
+    d.selectedVerts.clear();
     d.selectedEntities.clear();
     d.activeFace = {};
+    d.activeEdge = {};
+    d.activeVert = {};
     d.activeEntity = {};
     if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
         if (!additive) {
@@ -514,8 +544,12 @@ void Editor::selectFace(FaceRef ref, bool additive) {
     EditorDocument& d = doc();
     d.selectionMode = SelectionMode::Face;
     d.selectedBrushes.clear();
+    d.selectedEdges.clear();
+    d.selectedVerts.clear();
     d.selectedEntities.clear();
     d.activeBrush = -1;
+    d.activeEdge = {};
+    d.activeVert = {};
     d.activeEntity = {};
     if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size()) ||
         ref.face >= static_cast<int>(d.brushes[static_cast<std::size_t>(ref.brush)].faces.size())) {
@@ -542,13 +576,103 @@ void Editor::selectFace(FaceRef ref, bool additive) {
     d.activeFace = ref;
 }
 
+void Editor::selectEdge(EdgeRef ref, bool additive) {
+    EditorDocument& d = doc();
+    d.selectionMode = SelectionMode::Edge;
+    d.selectedBrushes.clear();
+    d.selectedFaces.clear();
+    d.selectedVerts.clear();
+    d.selectedEntities.clear();
+    d.activeBrush = -1;
+    d.activeFace = {};
+    d.activeVert = {};
+    d.activeEntity = {};
+    if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+    if (ref.face >= static_cast<int>(brush.faces.size()) ||
+        ref.edge >= static_cast<int>(brush.faces[static_cast<std::size_t>(ref.face)].vertices.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (!additive) {
+        d.selectedEdges.clear();
+        d.selectedEdges.push_back(ref);
+        d.activeEdge = ref;
+        return;
+    }
+    const auto it = std::find(d.selectedEdges.begin(), d.selectedEdges.end(), ref);
+    if (it != d.selectedEdges.end()) {
+        d.selectedEdges.erase(it);
+        if (d.activeEdge == ref) {
+            d.activeEdge = d.selectedEdges.empty() ? EdgeRef{} : d.selectedEdges.back();
+        }
+        return;
+    }
+    d.selectedEdges.push_back(ref);
+    d.activeEdge = ref;
+}
+
+void Editor::selectVert(VertRef ref, bool additive) {
+    EditorDocument& d = doc();
+    d.selectionMode = SelectionMode::Vert;
+    d.selectedBrushes.clear();
+    d.selectedFaces.clear();
+    d.selectedEdges.clear();
+    d.selectedEntities.clear();
+    d.activeBrush = -1;
+    d.activeFace = {};
+    d.activeEdge = {};
+    d.activeEntity = {};
+    if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+    if (ref.face >= static_cast<int>(brush.faces.size()) ||
+        ref.vert >= static_cast<int>(brush.faces[static_cast<std::size_t>(ref.face)].vertices.size())) {
+        if (!additive) {
+            clearSelection();
+        }
+        return;
+    }
+    if (!additive) {
+        d.selectedVerts.clear();
+        d.selectedVerts.push_back(ref);
+        d.activeVert = ref;
+        return;
+    }
+    const auto it = std::find(d.selectedVerts.begin(), d.selectedVerts.end(), ref);
+    if (it != d.selectedVerts.end()) {
+        d.selectedVerts.erase(it);
+        if (d.activeVert == ref) {
+            d.activeVert = d.selectedVerts.empty() ? VertRef{} : d.selectedVerts.back();
+        }
+        return;
+    }
+    d.selectedVerts.push_back(ref);
+    d.activeVert = ref;
+}
+
 void Editor::selectEntity(EntityRef ref, bool additive) {
     EditorDocument& d = doc();
     d.selectionMode = SelectionMode::Entity;
     d.selectedBrushes.clear();
     d.selectedFaces.clear();
+    d.selectedEdges.clear();
+    d.selectedVerts.clear();
     d.activeBrush = -1;
     d.activeFace = {};
+    d.activeEdge = {};
+    d.activeVert = {};
     if (!ref.valid()) {
         if (!additive) {
             clearSelection();
@@ -1439,6 +1563,56 @@ Vector3 Editor::selectionCenter() const {
                 const float inv = 1.0f / static_cast<float>(verts.size());
                 return {sum.x * inv, sum.y * inv, sum.z * inv};
             }
+        }
+    }
+    if (d.selectionMode == SelectionMode::Vert && !d.selectedVerts.empty()) {
+        Vector3 sum{};
+        int count = 0;
+        for (const VertRef& ref : d.selectedVerts) {
+            if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+            if (ref.face >= static_cast<int>(brush.faces.size())) {
+                continue;
+            }
+            const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+            if (ref.vert < 0 || ref.vert >= static_cast<int>(verts.size())) {
+                continue;
+            }
+            const Vector3& v = verts[static_cast<std::size_t>(ref.vert)];
+            sum = {sum.x + v.x, sum.y + v.y, sum.z + v.z};
+            ++count;
+        }
+        if (count > 0) {
+            const float inv = 1.0f / static_cast<float>(count);
+            return {sum.x * inv, sum.y * inv, sum.z * inv};
+        }
+    }
+    if (d.selectionMode == SelectionMode::Edge && !d.selectedEdges.empty()) {
+        Vector3 sum{};
+        int count = 0;
+        for (const EdgeRef& ref : d.selectedEdges) {
+            if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+            if (ref.face >= static_cast<int>(brush.faces.size())) {
+                continue;
+            }
+            const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+            if (verts.size() < 2 || ref.edge < 0 ||
+                ref.edge >= static_cast<int>(verts.size())) {
+                continue;
+            }
+            const Vector3& a = verts[static_cast<std::size_t>(ref.edge)];
+            const Vector3& b = verts[static_cast<std::size_t>((ref.edge + 1) % verts.size())];
+            sum = {sum.x + 0.5f * (a.x + b.x), sum.y + 0.5f * (a.y + b.y), sum.z + 0.5f * (a.z + b.z)};
+            ++count;
+        }
+        if (count > 0) {
+            const float inv = 1.0f / static_cast<float>(count);
+            return {sum.x * inv, sum.y * inv, sum.z * inv};
         }
     }
     if (d.selectionMode == SelectionMode::Brush && !d.selectedBrushes.empty()) {

@@ -11,9 +11,13 @@ DocumentSnapshot DocumentHistory::capture(const EditorDocument& doc, std::uint64
     snap.selectionMode = doc.selectionMode;
     snap.selectedBrushes = doc.selectedBrushes;
     snap.selectedFaces = doc.selectedFaces;
+    snap.selectedEdges = doc.selectedEdges;
+    snap.selectedVerts = doc.selectedVerts;
     snap.selectedEntities = doc.selectedEntities;
     snap.activeBrush = doc.activeBrush;
     snap.activeFace = doc.activeFace;
+    snap.activeEdge = doc.activeEdge;
+    snap.activeVert = doc.activeVert;
     snap.activeEntity = doc.activeEntity;
     snap.defaultMaterial = doc.defaultMaterial;
     snap.nextBrushSerial = doc.nextBrushSerial;
@@ -29,9 +33,13 @@ void DocumentHistory::apply(EditorDocument& doc, const DocumentSnapshot& snap) {
     doc.selectionMode = snap.selectionMode;
     doc.selectedBrushes = snap.selectedBrushes;
     doc.selectedFaces = snap.selectedFaces;
+    doc.selectedEdges = snap.selectedEdges;
+    doc.selectedVerts = snap.selectedVerts;
     doc.selectedEntities = snap.selectedEntities;
     doc.activeBrush = snap.activeBrush;
     doc.activeFace = snap.activeFace;
+    doc.activeEdge = snap.activeEdge;
+    doc.activeVert = snap.activeVert;
     doc.activeEntity = snap.activeEntity;
     doc.defaultMaterial = snap.defaultMaterial;
     doc.nextBrushSerial = snap.nextBrushSerial;

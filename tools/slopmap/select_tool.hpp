@@ -54,6 +54,8 @@ private:
     Vector2 pickCycleMouse{};
     std::vector<int> pickCycleBrushes;
     std::vector<FaceRef> pickCycleFaces;
+    std::vector<EdgeRef> pickCycleEdges;
+    std::vector<VertRef> pickCycleVerts;
     std::vector<EntityRef> pickCycleEntities;
     int pickCycleIndex = 0;
 
