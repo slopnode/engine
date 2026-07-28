@@ -363,6 +363,7 @@ void drawClipFramesSection(
             if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
                 editor.doc.selectedOverlayHoldIndex = i;
                 editor.doc.selectedOverlayIndex = oi;
+                editor.doc.muzzleSelected = false;
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(48.0f);
@@ -940,6 +941,61 @@ void drawInspector(
                 editor.markDirty();
             }
             ImGui::EndCombo();
+        }
+    }
+
+    if (ImGui::CollapsingHeader("View defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
+        float canvas[2] = {editor.doc.viewSprite.canvasX, editor.doc.viewSprite.canvasY};
+        if (ImGui::DragFloat2("Canvas", canvas, 0.5f, 0.0f, 0.0f, "%.1f")) {
+            editor.doc.viewSprite.canvasX = canvas[0];
+            editor.doc.viewSprite.canvasY = canvas[1];
+            editor.markDirty();
+        }
+        float origin[2] = {editor.doc.viewSprite.originX, editor.doc.viewSprite.originY};
+        if (ImGui::DragFloat2("Origin", origin, 0.01f, 0.0f, 1.0f, "%.2f")) {
+            editor.doc.viewSprite.originX = origin[0];
+            editor.doc.viewSprite.originY = origin[1];
+            editor.markDirty();
+        }
+        float scale[2] = {editor.doc.viewSprite.scaleX, editor.doc.viewSprite.scaleY};
+        if (ImGui::DragFloat2("Scale", scale, 0.01f, 0.01f, 8.0f, "%.2f")) {
+            editor.doc.viewSprite.scaleX = scale[0];
+            editor.doc.viewSprite.scaleY = scale[1];
+            editor.markDirty();
+        }
+        if (ImGui::DragFloat("Rotation", &editor.doc.viewSprite.rotationDeg, 0.5f, -360.0f, 360.0f, "%.1f")) {
+            editor.markDirty();
+        }
+        float eye[3] = {editor.doc.eyeOffsetX, editor.doc.eyeOffsetY, editor.doc.eyeOffsetZ};
+        if (ImGui::DragFloat3("Eye offset", eye, 0.01f, 0.0f, 0.0f, "%.2f")) {
+            editor.doc.eyeOffsetX = eye[0];
+            editor.doc.eyeOffsetY = eye[1];
+            editor.doc.eyeOffsetZ = eye[2];
+            editor.markDirty();
+        }
+        if (ImGui::Checkbox("Muzzle tip", &editor.doc.hasMuzzle)) {
+            editor.markDirty();
+            if (!editor.doc.hasMuzzle) {
+                editor.doc.muzzleSelected = false;
+            }
+        }
+        if (editor.doc.hasMuzzle) {
+            if (ImGui::SmallButton(editor.doc.muzzleSelected ? "[*] Select" : "[ ] Select")) {
+                editor.doc.muzzleSelected = !editor.doc.muzzleSelected;
+                if (editor.doc.muzzleSelected) {
+                    editor.doc.selectedOverlayHoldIndex = -1;
+                    editor.doc.selectedOverlayIndex = -1;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("drag in FP preview");
+            float muzzle[2] = {editor.doc.muzzleX, editor.doc.muzzleY};
+            if (ImGui::DragFloat2("Muzzle XY", muzzle, 0.5f, 0.0f, 0.0f, "%.1f")) {
+                editor.doc.muzzleX = muzzle[0];
+                editor.doc.muzzleY = muzzle[1];
+                editor.markDirty();
+            }
+            ImGui::TextDisabled("Canvas px from sprite pivot (same as overlay XY)");
         }
     }
 

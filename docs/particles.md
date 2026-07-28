@@ -49,7 +49,7 @@ Particle systems are authored as `.prt` files under `particles/`. One file is a 
 | sim gpu\|cpu | `gpu` = no world collision (high-count fluff). `cpu` = bounce off brush geo via raycast. |
 | sprite | Required `.spr` virtual path. Particles draw as Doom-style billboards. |
 | clip | Optional `.spanim` clip name (reserved for frame animation; v1 samples frame A). |
-| billboard | `face` / `view` / `screen` / `fixed` (stored; draw uses camera-facing quads in v1). |
+| billboard | `face` / `view` / `fixed` = Y-up cylindrical (Doom actor style). `screen` = full camera-facing (plasma-style). |
 | blend | `alpha` (default; premultiplied soft compositing) or `additive` (glow/smoke/sparks). Soft FX sprites should be authored premultiplied (RGB≈A). |
 | unlit | When true, skip scene lighting (full authored tint). Default lit: multiply by bake + dyn/FX receiver tint. |
 | max-particles | Cap per emitter. |
@@ -87,6 +87,7 @@ Each placed or spawned system is a flecs entity with `ParticleSystemInstance` pl
 | Form | Role |
 |------|------|
 | (particle-spawn id x y z path [yaw]) | Spawn a playing system |
+| (particle-spawn-fp id socket path [depth]) | Spawn at an FP ViewSprite `(muzzle …)` tip and follow that tip while emitting (`socket` is `"weapon"` / `"emission"`; `depth` is meters along the presentation camera ray, default 0.35) |
 | (particle-play id) | Restart and play |
 | (particle-stop id) | Stop emission/update |
 | (particle-despawn id) | Destroy the entity |

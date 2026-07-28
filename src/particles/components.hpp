@@ -36,4 +36,9 @@ struct ParticleSystemInstance {
     std::vector<ParticleEmitterRuntime> emitters;
 };
 
+struct ParticleFollowViewMuzzle {
+    std::uint64_t host = 0;
+    float depth = 0.35f;
+};
+
 }

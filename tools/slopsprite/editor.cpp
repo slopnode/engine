@@ -440,6 +440,10 @@ void Editor::applyViewFromAsset() {
         doc.eyeOffsetX = 0.0f;
         doc.eyeOffsetY = 0.0f;
         doc.eyeOffsetZ = 0.0f;
+        doc.hasMuzzle = false;
+        doc.muzzleX = 0.0f;
+        doc.muzzleY = 0.0f;
+        doc.muzzleSelected = false;
         return;
     }
     doc.viewSprite.canvasX = doc.asset.view.canvasX;
@@ -452,6 +456,9 @@ void Editor::applyViewFromAsset() {
     doc.eyeOffsetX = doc.asset.view.eyeOffsetX;
     doc.eyeOffsetY = doc.asset.view.eyeOffsetY;
     doc.eyeOffsetZ = doc.asset.view.eyeOffsetZ;
+    doc.hasMuzzle = doc.asset.view.hasMuzzle;
+    doc.muzzleX = doc.asset.view.muzzleX;
+    doc.muzzleY = doc.asset.view.muzzleY;
 }
 
 void Editor::syncViewToAsset() {
@@ -466,6 +473,9 @@ void Editor::syncViewToAsset() {
     doc.asset.view.eyeOffsetX = doc.eyeOffsetX;
     doc.asset.view.eyeOffsetY = doc.eyeOffsetY;
     doc.asset.view.eyeOffsetZ = doc.eyeOffsetZ;
+    doc.asset.view.hasMuzzle = doc.hasMuzzle;
+    doc.asset.view.muzzleX = doc.muzzleX;
+    doc.asset.view.muzzleY = doc.muzzleY;
 }
 
 void Editor::markDirty() {

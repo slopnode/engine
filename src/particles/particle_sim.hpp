@@ -28,6 +28,7 @@ struct ParticleDrawItem {
     Rectangle source{};
     float distSq = 0.0f;
     ParticleBlendMode blend = ParticleBlendMode::Alpha;
+    SpriteBillboardMode billboard = SpriteBillboardMode::Face;
     bool unlit = false;
 };
 
@@ -54,6 +55,7 @@ void appendParticleDrawItems(
 
 void drawParticleDrawItems(
     const std::vector<ParticleDrawItem>& items,
-    const Camera3D& camera);
+    const Camera3D& camera,
+    bool depthTest = true);
 
 }

@@ -24,13 +24,11 @@ LocalTransformation makeLocal(Vector3 position, Vector3 scale = {1.0f, 1.0f, 1.0
 }
 
 Matrix expectedLocalMatrix(const LocalTransformation& local) {
-    Matrix m = MatrixIdentity();
-    m = MatrixMultiply(m, MatrixScale(local.scale.x, local.scale.y, local.scale.z));
-    m = MatrixMultiply(m, QuaternionToMatrix(local.rotation));
-    m = MatrixMultiply(
-        m,
-        MatrixTranslate(local.position.x, local.position.y, local.position.z));
-    return m;
+    return MatrixMultiply(
+        MatrixTranslate(local.position.x, local.position.y, local.position.z),
+        MatrixMultiply(
+            QuaternionToMatrix(local.rotation),
+            MatrixScale(local.scale.x, local.scale.y, local.scale.z)));
 }
 
 Vector3 translationOf(const Matrix& matrix) {

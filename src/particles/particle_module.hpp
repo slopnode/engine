@@ -7,6 +7,7 @@
 #include <flecs.h>
 
 #include <raylib.h>
+#include <string_view>
 
 struct s7_scheme;
 
@@ -22,6 +23,15 @@ flecs::entity spawnParticleSystem(
     float yaw,
     std::string_view path,
     bool playing = true,
+    bool mapOwned = true);
+
+flecs::entity spawnParticleSystemFp(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity hostViewSprite,
+    std::string_view path,
+    float depth = 0.35f,
     bool mapOwned = true);
 
 void updateParticleSystems(

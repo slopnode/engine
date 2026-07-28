@@ -9,8 +9,10 @@
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/view_sprite_muzzle.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <raymath.h>
 
 namespace slopengine {
@@ -27,6 +29,51 @@ Color multiplyParticleTint(Color particle, Color scene) {
             std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
         particle.a,
     };
+}
+
+void writeWorldPose(
+    LocalTransformation& local,
+    GlobalTransformation& global,
+    Vector3 position,
+    float yaw) {
+    local.position = position;
+    local.scale = {1.0f, 1.0f, 1.0f};
+    local.rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, yaw);
+    const Matrix s = MatrixScale(local.scale.x, local.scale.y, local.scale.z);
+    const Matrix r = QuaternionToMatrix(local.rotation);
+    const Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
+    global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+}
+
+void applyWorldPose(flecs::entity entity, Vector3 position, float yaw) {
+    LocalTransformation local{};
+    GlobalTransformation global{};
+    writeWorldPose(local, global, position, yaw);
+    entity.set<LocalTransformation>(local);
+    entity.set<GlobalTransformation>(global);
+}
+
+void syncFollowViewMuzzle(flecs::world& world) {
+    world.each([&](flecs::entity entity,
+                   ParticleFollowViewMuzzle& follow,
+                   ParticleSystemInstance& instance,
+                   LocalTransformation& local,
+                   GlobalTransformation& global) {
+        if (!instance.playing) {
+            entity.destruct();
+            return;
+        }
+        flecs::entity host = world.entity(static_cast<flecs::entity_t>(follow.host));
+        if (!host.is_valid() || !host.has<ViewSprite>()) {
+            entity.destruct();
+            return;
+        }
+        const auto tip = resolveViewSpriteMuzzleWorld(world, host, follow.depth);
+        if (!tip) {
+            return;
+        }
+        writeWorldPose(local, global, *tip, 0.0f);
+    });
 }
 
 } // namespace
@@ -47,22 +94,42 @@ flecs::entity spawnParticleSystem(
 
     flecs::entity entity =
         id != nullptr && id[0] != '\0' ? world.entity(id) : world.entity();
-    LocalTransformation local{};
-    local.position = position;
-    local.scale = {1.0f, 1.0f, 1.0f};
-    local.rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, yaw);
-    Matrix s = MatrixScale(local.scale.x, local.scale.y, local.scale.z);
-    Matrix r = QuaternionToMatrix(local.rotation);
-    Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
-    GlobalTransformation global{};
-    global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
-    entity.add<WorldSpace>()
-        .set<LocalTransformation>(local)
-        .set<GlobalTransformation>(global)
-        .set<ParticleSystemInstance>(std::move(instance));
+    applyWorldPose(entity, position, yaw);
+    entity.add<WorldSpace>().set<ParticleSystemInstance>(std::move(instance));
     if (mapOwned) {
         entity.add<MapOwned>();
     }
+    return entity;
+}
+
+flecs::entity spawnParticleSystemFp(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity hostViewSprite,
+    std::string_view path,
+    float depth,
+    bool mapOwned) {
+    if (!hostViewSprite.is_valid()) {
+        return {};
+    }
+    const auto tip = resolveViewSpriteMuzzleWorld(world, hostViewSprite, depth);
+    if (!tip) {
+        TraceLog(
+            LOG_WARNING,
+            "spawnParticleSystemFp: host missing muzzle or view pose");
+        return {};
+    }
+
+    flecs::entity entity =
+        spawnParticleSystem(world, assets, id, *tip, 0.0f, path, true, mapOwned);
+    if (!entity.is_valid()) {
+        return {};
+    }
+    entity.set<ParticleFollowViewMuzzle>({
+        .host = static_cast<std::uint64_t>(hostViewSprite.id()),
+        .depth = depth > 0.0f ? depth : 0.35f,
+    });
     return entity;
 }
 
@@ -74,6 +141,8 @@ void updateParticleSystems(
     if (dt <= 0.0f) {
         return;
     }
+
+    syncFollowViewMuzzle(world);
 
     ParticleRaycastFn raycast;
     if (physics != nullptr) {
@@ -97,12 +166,15 @@ void drawParticleSystems(
     AssetStore& assets,
     const Camera3D& camera,
     bool unlit) {
-    std::vector<ParticleDrawItem> items;
-    items.reserve(256);
-    world.each([&](const ParticleSystemInstance& instance) {
-        appendParticleDrawItems(instance, assets, camera, items);
-    });
-    if (!unlit) {
+    std::vector<ParticleDrawItem> worldItems;
+    std::vector<ParticleDrawItem> muzzleItems;
+    worldItems.reserve(256);
+    muzzleItems.reserve(64);
+
+    auto tintItems = [&](std::vector<ParticleDrawItem>& items) {
+        if (unlit) {
+            return;
+        }
         for (ParticleDrawItem& item : items) {
             if (item.unlit) {
                 continue;
@@ -110,12 +182,24 @@ void drawParticleSystems(
             const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
             item.color = multiplyParticleTint(item.color, scene);
         }
-    }
-    drawParticleDrawItems(items, camera);
+    };
+
+    world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
+        if (entity.has<ParticleFollowViewMuzzle>()) {
+            appendParticleDrawItems(instance, assets, camera, muzzleItems);
+        } else {
+            appendParticleDrawItems(instance, assets, camera, worldItems);
+        }
+    });
+    tintItems(worldItems);
+    tintItems(muzzleItems);
+    drawParticleDrawItems(worldItems, camera, true);
+    drawParticleDrawItems(muzzleItems, camera, false);
 }
 
 void registerParticleModule(flecs::world& world, AssetStore& assets) {
     world.component<ParticleSystemInstance>();
+    world.component<ParticleFollowViewMuzzle>();
 
     world.system("ParticleSystemUpdate")
         .kind(flecs::OnUpdate)

@@ -66,6 +66,9 @@ struct SpriteViewDefaults {
     float eyeOffsetX = 0.0f;
     float eyeOffsetY = 0.0f;
     float eyeOffsetZ = 0.0f;
+    bool hasMuzzle = false;
+    float muzzleX = 0.0f;
+    float muzzleY = 0.0f;
 };
 
 enum class SpriteBillboardMode {

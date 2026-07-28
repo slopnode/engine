@@ -402,13 +402,17 @@ void appendParticleDrawItems(
                 .source = source,
                 .distSq = dx * dx + dy * dy + dz * dz,
                 .blend = emitter.def.blend,
+                .billboard = emitter.def.billboard,
                 .unlit = emitter.def.unlit,
             });
         }
     }
 }
 
-void drawParticleDrawItems(const std::vector<ParticleDrawItem>& items, const Camera3D& camera) {
+void drawParticleDrawItems(
+    const std::vector<ParticleDrawItem>& items,
+    const Camera3D& camera,
+    bool depthTest) {
     if (items.empty()) {
         return;
     }
@@ -422,6 +426,9 @@ void drawParticleDrawItems(const std::vector<ParticleDrawItem>& items, const Cam
 
     rlDisableShader();
     rlDisableDepthMask();
+    if (!depthTest) {
+        rlDisableDepthTest();
+    }
 
     const Texture2D* filterTex = nullptr;
     auto ensureBilinear = [&](const Texture2D* texture) {
@@ -434,6 +441,10 @@ void drawParticleDrawItems(const std::vector<ParticleDrawItem>& items, const Cam
         SetTextureFilter(*texture, TEXTURE_FILTER_BILINEAR);
         filterTex = texture;
     };
+
+    const Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
+    const Vector3 screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
+    const Vector3 worldUp{0.0f, 1.0f, 0.0f};
 
     BlendMode activeBlend = BLEND_ALPHA_PREMULTIPLY;
     BeginBlendMode(activeBlend);
@@ -458,17 +469,27 @@ void drawParticleDrawItems(const std::vector<ParticleDrawItem>& items, const Cam
             static_cast<unsigned char>(std::clamp(static_cast<float>(item.color.b) * a, 0.0f, 255.0f)),
             item.color.a,
         };
-        DrawBillboardRec(
+        const Vector2 size{item.size, item.size};
+        const Vector2 origin = Vector2Scale(size, 0.5f);
+        const Vector3 up =
+            item.billboard == SpriteBillboardMode::Screen ? screenUp : worldUp;
+        DrawBillboardPro(
             camera,
             *item.texture,
             item.source,
             item.position,
-            {item.size, item.size},
+            up,
+            size,
+            origin,
+            0.0f,
             tint);
     }
     EndBlendMode();
     if (filterTex != nullptr) {
         SetTextureFilter(*filterTex, TEXTURE_FILTER_POINT);
+    }
+    if (!depthTest) {
+        rlEnableDepthTest();
     }
     rlEnableDepthMask();
 }

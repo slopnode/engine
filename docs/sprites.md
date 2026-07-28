@@ -102,6 +102,7 @@ Optional block for first-person defaults (used by slopsprite and by runtime atta
 | (rotation DEG) | Default view-sprite rotation. |
 | (origin OX OY) | Normalized pivot (default 0.5 1 = bottom-center). |
 | (eye-offset X Y Z) | Suggested view-space eye offset (meters); presentation only. |
+| (muzzle X Y) | Optional canvas-pixel tip offset from the sprite pivot (same units/sign as FP overlay XY). Used to project world-space muzzle FX that follow the animated viewmodel. |
 
 ### Rotations
 

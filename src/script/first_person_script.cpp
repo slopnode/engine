@@ -1227,4 +1227,13 @@ void updateFirstPersonSceneTransforms(flecs::world world) {
     updateTransform(root, local, root.get_mut<GlobalTransformation>());
 }
 
+flecs::entity findFirstPersonSocketSprite(flecs::world& world, const char* socketName) {
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(world, player, scene) || socketName == nullptr) {
+        return {};
+    }
+    return findSpriteUnderSocket(socketByName(world, scene, socketName));
+}
+
 }

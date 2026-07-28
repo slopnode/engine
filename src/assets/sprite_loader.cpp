@@ -350,6 +350,14 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             asset.view.eyeOffsetX = values[0];
             asset.view.eyeOffsetY = values[1];
             asset.view.eyeOffsetZ = values[2];
+        } else if (inView && line.rfind("(muzzle ", 0) == 0) {
+            float values[2] = {};
+            if (!readFloats(line.substr(std::string_view("(muzzle ").size()), 2, values)) {
+                return false;
+            }
+            asset.view.hasMuzzle = true;
+            asset.view.muzzleX = values[0];
+            asset.view.muzzleY = values[1];
         } else if (inView && (line == ")" || line.rfind(")", 0) == 0)) {
             inView = false;
         } else if (line == "(fullbright)" || line.rfind("(fullbright", 0) == 0) {
@@ -504,6 +512,9 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
         out << "    (origin " << asset.view.originX << ' ' << asset.view.originY << ")\n";
         out << "    (eye-offset " << asset.view.eyeOffsetX << ' ' << asset.view.eyeOffsetY << ' '
             << asset.view.eyeOffsetZ << ")\n";
+        if (asset.view.hasMuzzle) {
+            out << "    (muzzle " << asset.view.muzzleX << ' ' << asset.view.muzzleY << ")\n";
+        }
         out << "  )\n";
     }
     for (const SpriteHitPartDef& part : asset.hitParts) {

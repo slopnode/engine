@@ -24,6 +24,7 @@
 #include "render/sprite_billboard.hpp"
 #include "particles/components.hpp"
 #include "particles/particle_module.hpp"
+#include "script/first_person_script.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -671,6 +672,69 @@ s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
         yaw,
         path,
         true,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-fp", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-fp", 2, args, "socket string");
+    }
+    const std::string socket = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-fp", 3, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float depth = 0.35f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        depth = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasParticle(path)) {
+        TraceLog(LOG_WARNING, "particle-spawn-fp: missing system '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity host = findFirstPersonSocketSprite(*g_thingWorld, socket.c_str());
+    if (!host.is_valid()) {
+        TraceLog(LOG_WARNING, "particle-spawn-fp: no ViewSprite on socket '%s'", socket.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnParticleSystemFp(
+        *g_thingWorld,
+        assets,
+        id.c_str(),
+        host,
+        path,
+        depth,
         true);
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
@@ -1958,6 +2022,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         1,
         false,
         "(particle-spawn id x y z path [yaw])");
+    s7_define_function(
+        scheme,
+        "particle-spawn-fp",
+        g_particle_spawn_fp,
+        3,
+        1,
+        false,
+        "(particle-spawn-fp id socket path [depth])");
     s7_define_function(
         scheme,
         "particle-play",
