@@ -20,6 +20,8 @@ struct CreateTool {
     Vector3 corner1{};
     float thickness = 0.0f;
     bool thicknessFromNumeric = false;
+    Vector2 thicknessGrabScreen{};
+    float thicknessAtGrab = 0.0f;
     bool hoverValid = false;
     Vector3 pendingMins{};
     Vector3 pendingMaxs{};

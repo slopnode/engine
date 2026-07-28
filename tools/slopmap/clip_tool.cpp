@@ -14,25 +14,6 @@ namespace slopmap {
 
 namespace {
 
-float projectAxis(Vector3 point, Vector3 axis) {
-    return point.x * axis.x + point.y * axis.y + point.z * axis.z;
-}
-
-Vector3 combineAxes(const ConstructionPlane& plane, float u, float v, float n) {
-    return {
-        plane.origin.x + plane.axisU.x * u + plane.axisV.x * v + plane.normal.x * n,
-        plane.origin.y + plane.axisU.y * u + plane.axisV.y * v + plane.normal.y * n,
-        plane.origin.z + plane.axisU.z * u + plane.axisV.z * v + plane.normal.z * n,
-    };
-}
-
-Vector3 snapOnPlane(Vector3 point, const ConstructionPlane& plane, float grid) {
-    const Vector3 rel = sub3(point, plane.origin);
-    const float u = snapToGrid(projectAxis(rel, plane.axisU), grid);
-    const float v = snapToGrid(projectAxis(rel, plane.axisV), grid);
-    return combineAxes(plane, u, v, 0.0f);
-}
-
 void drawBrushSolidTint(const slopengine::Brush& brush, Color color) {
     for (const slopengine::BrushFace& face : brush.faces) {
         const auto tris = slopengine::triangulateFace(face.vertices);
@@ -137,9 +118,7 @@ bool ClipTool::hitSelectedFace(
         ray.position.y + ray.direction.y * bestT,
         ray.position.z + ray.direction.z * bestT,
     };
-    outPlane = constructionPlaneFromFace(face, hit);
-    outHit = snapOnPlane(hit, outPlane, editor.gridSize);
-    outPlane.origin = outHit;
+    snapPickOnFace(face, hit, editor.gridSize, outPlane, outHit);
     return true;
 }
 
@@ -152,7 +131,7 @@ bool ClipTool::hitLockedFacePlane(Editor& editor, const Camera3D& camera, Vector
             hit)) {
         return false;
     }
-    outHit = snapOnPlane(hit, construction, editor.gridSize);
+    outHit = snapOnConstructionPlane(hit, construction, editor.gridSize);
     return true;
 }
 

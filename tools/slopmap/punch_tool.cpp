@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <string>
@@ -96,6 +97,10 @@ Vector3 combineAxes(const FaceAxes& axes, float u, float v, float d) {
     };
 }
 
+bool enterPressed() {
+    return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
+}
+
 } // namespace
 
 void PunchTool::reset() {
@@ -107,6 +112,26 @@ void PunchTool::reset() {
     maxDepth = 0.0f;
     u0 = u1 = v0 = v1 = 0.0f;
     depthFromNumeric = false;
+    depthGrabScreen = {};
+    depthAtGrab = 0.0f;
+}
+
+void PunchTool::setDepthStatus(Editor& editor) const {
+    char buf[96];
+    if (depthFromNumeric && !editor.numericBuffer.empty()) {
+        std::snprintf(
+            buf,
+            sizeof(buf),
+            "Punch-out: depth %s (Enter commit)",
+            editor.numericBuffer.c_str());
+    } else {
+        std::snprintf(
+            buf,
+            sizeof(buf),
+            "Punch-out: depth %.3f (Enter commit)",
+            depth);
+    }
+    editor.statusMessage = buf;
 }
 
 bool PunchTool::projectToFaceUV(Vector3 world, float& outU, float& outV) const {
@@ -271,6 +296,9 @@ void PunchTool::handleNumeric(Editor& editor, bool uiWantsKeyboard) {
             depth = std::clamp(snapToGrid(value, editor.gridSize), editor.gridSize, maxDepth);
         }
     }
+    if (depthFromNumeric) {
+        setDepthStatus(editor);
+    }
 }
 
 void PunchTool::update(
@@ -290,7 +318,7 @@ void PunchTool::update(
         editor.statusMessage = "Punch-out cancelled";
         return;
     }
-    if (!uiWantsKeyboard && phase == PunchPhase::ExtrudingDepth && IsKeyPressed(KEY_ENTER)) {
+    if (!uiWantsKeyboard && phase == PunchPhase::ExtrudingDepth && enterPressed()) {
         commit(editor);
         return;
     }
@@ -336,8 +364,10 @@ void PunchTool::update(
                 depth = maxDepth;
                 depthFromNumeric = false;
                 editor.numericBuffer.clear();
+                depthGrabScreen = GetMousePosition();
+                depthAtGrab = depth;
                 phase = PunchPhase::ExtrudingDepth;
-                editor.statusMessage = "Punch-out: set depth (Enter commit)";
+                setDepthStatus(editor);
             }
         }
         return;
@@ -346,15 +376,14 @@ void PunchTool::update(
     if (phase == PunchPhase::ExtrudingDepth) {
         if (!depthFromNumeric) {
             const Vector3 mid = combineAxes(axes, 0.5f * (u0 + u1), 0.5f * (v0 + v1), 0.0f);
-            const Vector3 dragNormal = dragPlaneNormalForAxis(plane.normal, cameraForward(camera));
-            Vector3 hit{};
-            if (rayPlaneIntersection(ray, mid, dragNormal, hit)) {
-                const float along = projectAxis(sub3(hit, plane.origin), scale3(plane.normal, -1.0f));
-                depth = std::clamp(snapToGrid(along, editor.gridSize), editor.gridSize, maxDepth);
-            }
-        }
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            commit(editor);
+            const Vector3 inward = scale3(plane.normal, -1.0f);
+            const float amount = screenDeltaAlongAxis(
+                inward, mid, depthGrabScreen, camera, editor.contentViewport);
+            depth = std::clamp(
+                snapToGrid(depthAtGrab + amount, editor.gridSize),
+                editor.gridSize,
+                maxDepth);
+            setDepthStatus(editor);
         }
     }
 }

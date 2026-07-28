@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 
@@ -25,10 +26,7 @@ Vector3 combineAxes(const ConstructionPlane& plane, float u, float v, float n) {
 }
 
 Vector3 snapOnPlane(Vector3 point, const ConstructionPlane& plane, float grid) {
-    const Vector3 rel = sub3(point, plane.origin);
-    const float u = snapToGrid(projectAxis(rel, plane.axisU), grid);
-    const float v = snapToGrid(projectAxis(rel, plane.axisV), grid);
-    return combineAxes(plane, u, v, 0.0f);
+    return snapOnConstructionPlane(point, plane, grid);
 }
 
 bool pickCreatePlane(Editor& editor, const Ray& ray, ConstructionPlane& outPlane, Vector3& outHit) {
@@ -55,9 +53,7 @@ bool pickCreatePlane(Editor& editor, const Ray& ray, ConstructionPlane& outPlane
             ray.position.y + ray.direction.y * bestFaceT,
             ray.position.z + ray.direction.z * bestFaceT,
         };
-        outPlane = constructionPlaneFromFace(face, hit);
-        outHit = snapOnPlane(hit, outPlane, editor.gridSize);
-        outPlane.origin = outHit;
+        snapPickOnFace(face, hit, editor.gridSize, outPlane, outHit);
         return true;
     }
 
@@ -82,6 +78,8 @@ void CreateTool::reset() {
     corner1 = {};
     thickness = 0.0f;
     thicknessFromNumeric = false;
+    thicknessGrabScreen = {};
+    thicknessAtGrab = 0.0f;
     hoverValid = false;
     pendingMins = {};
     pendingMaxs = {};
@@ -95,9 +93,24 @@ void CreateTool::setStatus(Editor& editor) const {
     case CreatePhase::DrawingBase:
         editor.statusMessage = "Create: set opposite corner (Enter)";
         break;
-    case CreatePhase::Extruding:
-        editor.statusMessage = "Create: set height (Enter commit)";
+    case CreatePhase::Extruding: {
+        char buf[96];
+        if (thicknessFromNumeric && !editor.numericBuffer.empty()) {
+            std::snprintf(
+                buf,
+                sizeof(buf),
+                "Create: height %s (Enter commit)",
+                editor.numericBuffer.c_str());
+        } else {
+            std::snprintf(
+                buf,
+                sizeof(buf),
+                "Create: height %.3f (Enter commit)",
+                thickness);
+        }
+        editor.statusMessage = buf;
         break;
+    }
     case CreatePhase::AwaitingParams:
         break;
     }
@@ -303,6 +316,9 @@ void CreateTool::handleNumeric(Editor& editor, bool uiWantsKeyboard) {
             thickness = snapToGrid(value, editor.gridSize);
         }
     }
+    if (thicknessFromNumeric) {
+        setStatus(editor);
+    }
 }
 
 void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMouse, bool uiWantsKeyboard) {
@@ -371,6 +387,8 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
             thickness = editor.gridSize;
             thicknessFromNumeric = false;
             editor.numericBuffer.clear();
+            thicknessGrabScreen = GetMousePosition();
+            thicknessAtGrab = thickness;
             phase = CreatePhase::Extruding;
             setStatus(editor);
         }
@@ -384,15 +402,13 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
                 0.5f * (corner0.y + corner1.y),
                 0.5f * (corner0.z + corner1.z),
             };
-            const Vector3 dragNormal = dragPlaneNormalForAxis(plane.normal, cameraForward(camera));
-            Vector3 hit{};
-            if (rayPlaneIntersection(ray, mid, dragNormal, hit)) {
-                thickness =
-                    snapToGrid(projectAxis(sub3(hit, plane.origin), plane.normal), editor.gridSize);
-                if (std::fabs(thickness) < editor.gridSize * 0.5f) {
-                    thickness = thickness < 0.0f ? -editor.gridSize : editor.gridSize;
-                }
+            const float amount = screenDeltaAlongAxis(
+                plane.normal, mid, thicknessGrabScreen, camera, editor.contentViewport);
+            thickness = snapToGrid(thicknessAtGrab + amount, editor.gridSize);
+            if (std::fabs(thickness) < editor.gridSize * 0.5f) {
+                thickness = thickness < 0.0f ? -editor.gridSize : editor.gridSize;
             }
+            setStatus(editor);
         }
 
         if (!uiWantsKeyboard && enterPressed()) {

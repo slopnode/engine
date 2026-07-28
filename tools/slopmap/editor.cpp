@@ -328,6 +328,25 @@ Vector3 dragPlaneNormalForAxis(Vector3 axis, Vector3 viewForward) {
     return normalize3(n);
 }
 
+float screenDeltaAlongAxis(
+    Vector3 axis,
+    Vector3 origin,
+    Vector2 mouseGrabScreen,
+    const Camera3D& camera,
+    Rectangle viewport) {
+    const Vector2 mouse = GetMousePosition();
+    const Vector2 s0 = worldToViewportScreen(origin, camera, viewport);
+    const Vector2 s1 = worldToViewportScreen(add3(origin, axis), camera, viewport);
+    const Vector2 axisScreen{s1.x - s0.x, s1.y - s0.y};
+    const float lenSq = axisScreen.x * axisScreen.x + axisScreen.y * axisScreen.y;
+    const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
+    if (lenSq < 4.0f) {
+        const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
+        return -mouseDelta.y * dist * 0.0025f;
+    }
+    return (mouseDelta.x * axisScreen.x + mouseDelta.y * axisScreen.y) / lenSq;
+}
+
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane) {
     ConstructionPlane plane{};
     plane.origin = {0.0f, 0.0f, 0.0f};
@@ -375,6 +394,23 @@ ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, V
     plane.origin = origin;
     plane.normal = normalize3(face.normal);
 
+    const Vector3 n = plane.normal;
+    if (std::fabs(n.x) > 0.99f) {
+        plane.axisU = {0.0f, 0.0f, 1.0f};
+        plane.axisV = normalize3(cross3(plane.normal, plane.axisU));
+        return plane;
+    }
+    if (std::fabs(n.y) > 0.99f) {
+        plane.axisU = {1.0f, 0.0f, 0.0f};
+        plane.axisV = normalize3(cross3(plane.normal, plane.axisU));
+        return plane;
+    }
+    if (std::fabs(n.z) > 0.99f) {
+        plane.axisU = {1.0f, 0.0f, 0.0f};
+        plane.axisV = normalize3(cross3(plane.normal, plane.axisU));
+        return plane;
+    }
+
     Vector3 edge{};
     if (face.vertices.size() >= 2) {
         edge = {
@@ -410,6 +446,55 @@ ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, V
     plane.axisU = normalize3(edge);
     plane.axisV = normalize3(cross3(plane.normal, plane.axisU));
     return plane;
+}
+
+Vector3 snapOnConstructionPlane(Vector3 point, const ConstructionPlane& plane, float grid) {
+    const Vector3 rel = sub3(point, plane.origin);
+    const float u = snapToGrid(dot3(rel, plane.axisU), grid);
+    const float v = snapToGrid(dot3(rel, plane.axisV), grid);
+    return {
+        plane.origin.x + plane.axisU.x * u + plane.axisV.x * v,
+        plane.origin.y + plane.axisU.y * u + plane.axisV.y * v,
+        plane.origin.z + plane.axisU.z * u + plane.axisV.z * v,
+    };
+}
+
+void snapPickOnFace(
+    const slopengine::BrushFace& face,
+    Vector3 hit,
+    float grid,
+    ConstructionPlane& outPlane,
+    Vector3& outHit) {
+    const float magnet = std::max(grid, 1e-4f);
+    float bestDistSq = magnet * magnet;
+    bool foundVert = false;
+    Vector3 bestVert = hit;
+    for (const Vector3& vert : face.vertices) {
+        const Vector3 d = sub3(hit, vert);
+        const float distSq = d.x * d.x + d.y * d.y + d.z * d.z;
+        if (distSq <= bestDistSq) {
+            bestDistSq = distSq;
+            bestVert = vert;
+            foundVert = true;
+        }
+    }
+    if (foundVert) {
+        outHit = bestVert;
+        outPlane = constructionPlaneFromFace(face, outHit);
+        return;
+    }
+
+    const Vector3 normal = normalize3(face.normal);
+    Vector3 snapped = snapToGrid(hit, grid);
+    const float off = dot3(sub3(snapped, hit), normal);
+    snapped = sub3(snapped, scale3(normal, off));
+
+    outPlane = constructionPlaneFromFace(face, snapped);
+    const Vector3 gridOrigin = snapToGrid(snapped, grid);
+    const float originOff = dot3(sub3(gridOrigin, snapped), normal);
+    outPlane.origin = sub3(gridOrigin, scale3(normal, originOff));
+    outHit = snapOnConstructionPlane(snapped, outPlane, grid);
+    outPlane.origin = outHit;
 }
 
 EditorDocument& Editor::doc() {

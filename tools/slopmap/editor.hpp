@@ -110,6 +110,7 @@ struct Editor {
     bool showPrimitiveParamsModal = false;
     bool showValidateBrushesWindow = false;
     float hollowThickness = 0.1f;
+    bool hollowOutward = false;
     int createCylinderSides = 16;
     int createStairsSteps = 8;
     EditorScene pendingScene = EditorScene::Level;
@@ -215,6 +216,12 @@ Vector3 cross3(Vector3 a, Vector3 b);
 Vector3 normalize3(Vector3 v);
 Vector3 cameraForward(const Camera3D& camera);
 Vector3 dragPlaneNormalForAxis(Vector3 axis, Vector3 viewForward);
+float screenDeltaAlongAxis(
+    Vector3 axis,
+    Vector3 origin,
+    Vector2 mouseGrabScreen,
+    const Camera3D& camera,
+    Rectangle viewport);
 
 struct ConstructionPlane {
     Vector3 origin{};
@@ -227,5 +234,12 @@ ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane =
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane);
 GridPlane gridPlaneForView(ViewPlane view, GridPlane gridPlane);
 ConstructionPlane constructionPlaneFromFace(const slopengine::BrushFace& face, Vector3 origin);
+void snapPickOnFace(
+    const slopengine::BrushFace& face,
+    Vector3 hit,
+    float grid,
+    ConstructionPlane& outPlane,
+    Vector3& outHit);
+Vector3 snapOnConstructionPlane(Vector3 point, const ConstructionPlane& plane, float grid);
 
 }

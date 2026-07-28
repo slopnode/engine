@@ -1072,19 +1072,37 @@ std::vector<Brush> makeBrushStairs(
 std::vector<Brush> hollowBrushBox(
     const Brush& source,
     float thickness,
-    const std::function<std::string()>& allocateId) {
+    const std::function<std::string()>& allocateId,
+    bool outward) {
     std::vector<Brush> out;
     if (!source.box || thickness <= 0.0f) {
         return out;
     }
-    const Vector3& mins = source.mins;
-    const Vector3& maxs = source.maxs;
-    const float sx = maxs.x - mins.x;
-    const float sy = maxs.y - mins.y;
-    const float sz = maxs.z - mins.z;
-    if (thickness * 2.0f >= sx || thickness * 2.0f >= sy || thickness * 2.0f >= sz) {
-        return out;
+
+    Vector3 outerMins = source.mins;
+    Vector3 outerMaxs = source.maxs;
+    if (outward) {
+        outerMins = {
+            source.mins.x - thickness,
+            source.mins.y - thickness,
+            source.mins.z - thickness,
+        };
+        outerMaxs = {
+            source.maxs.x + thickness,
+            source.maxs.y + thickness,
+            source.maxs.z + thickness,
+        };
+    } else {
+        const float sx = outerMaxs.x - outerMins.x;
+        const float sy = outerMaxs.y - outerMins.y;
+        const float sz = outerMaxs.z - outerMins.z;
+        if (thickness * 2.0f >= sx || thickness * 2.0f >= sy || thickness * 2.0f >= sz) {
+            return out;
+        }
     }
+
+    const Vector3& mins = outerMins;
+    const Vector3& maxs = outerMaxs;
 
     const std::string material =
         source.faces.empty() ? std::string{} : source.faces.front().material;

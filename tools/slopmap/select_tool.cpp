@@ -242,33 +242,26 @@ Vector3 computeAxisTranslateDelta(
     return scale3(axis, amount);
 }
 
-Vector3 freeTranslatePlaneNormal(const Editor& editor, const Camera3D& camera) {
-    if (editor.viewPlane == ViewPlane::PerspectiveY0) {
-        const Vector3 gridNormal =
-            constructionPlaneForView(editor.viewPlane, editor.gridPlane).normal;
-        const Vector3 forward = cameraForward(camera);
-        if (std::fabs(dot3(forward, gridNormal)) < 0.2f) {
-            return forward;
-        }
-        return gridNormal;
-    }
-    return cameraForward(camera);
+Vector3 cameraRight(const Camera3D& camera) {
+    return normalize3(cross3(cameraForward(camera), camera.up));
+}
+
+Vector3 computeFreeTranslateDelta(
+    Vector3 origin,
+    Vector2 mouseGrabScreen,
+    const Camera3D& camera) {
+    const Vector2 mouse = GetMousePosition();
+    const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
+    const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
+    const float scale = dist * 0.0025f;
+    const Vector3 right = cameraRight(camera);
+    const Vector3 up = normalize3(camera.up);
+    return add3(scale3(right, mouseDelta.x * scale), scale3(up, -mouseDelta.y * scale));
 }
 
 void captureTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& camera) {
     tool.mouseGrabScreen = GetMousePosition();
     const Vector3 applied = currentTranslateDelta(editor, tool);
-    const Vector3 planeNormal = freeTranslatePlaneNormal(editor, camera);
-    Vector3 hit{};
-    if (rayPlaneIntersection(
-            mouseRay(camera, editor.contentViewport),
-            tool.translateOrigin,
-            planeNormal,
-            hit)) {
-        tool.mouseGrabWorld = sub3(hit, applied);
-    } else {
-        tool.mouseGrabWorld = sub3(tool.translateOrigin, applied);
-    }
 
     if (const auto axis = constrainedTranslateAxis(editor, tool)) {
         const Vector2 axisScreen = screenAxisForWorldAxis(
@@ -279,6 +272,9 @@ void captureTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& came
             mouse.x - axisScreen.x * appliedAmount,
             mouse.y - axisScreen.y * appliedAmount,
         };
+        tool.mouseGrabWorld = {};
+    } else {
+        tool.mouseGrabWorld = applied;
     }
 }
 
@@ -2587,24 +2583,10 @@ void SelectTool::update(
                     editor.contentViewport);
                 haveDelta = true;
             } else {
-                const Vector3 planeNormal = freeTranslatePlaneNormal(editor, camera);
-                Vector3 hit{};
-                if (rayPlaneIntersection(
-                        mouseRay(camera, editor.contentViewport),
-                        translateOrigin,
-                        planeNormal,
-                        hit)) {
-                    delta = sub3(hit, mouseGrabWorld);
-                    if (editor.viewPlane == ViewPlane::PerspectiveY0 ||
-                        editor.viewPlane == ViewPlane::Top) {
-                        delta.y = 0.0f;
-                    } else if (editor.viewPlane == ViewPlane::Front) {
-                        delta.z = 0.0f;
-                    } else if (editor.viewPlane == ViewPlane::Side) {
-                        delta.x = 0.0f;
-                    }
-                    haveDelta = true;
-                }
+                delta = add3(
+                    computeFreeTranslateDelta(translateOrigin, mouseGrabScreen, camera),
+                    mouseGrabWorld);
+                haveDelta = true;
             }
             if (haveDelta) {
                 if (editor.numericBuffer == "-") {

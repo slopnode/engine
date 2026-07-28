@@ -26,6 +26,8 @@ struct PunchTool {
     float v0 = 0.0f;
     float v1 = 0.0f;
     bool depthFromNumeric = false;
+    Vector2 depthGrabScreen{};
+    float depthAtGrab = 0.0f;
 
     void reset();
     void beginFromSelection(Editor& editor);
@@ -36,6 +38,7 @@ struct PunchTool {
 private:
     void commit(Editor& editor);
     void handleNumeric(Editor& editor, bool uiWantsKeyboard);
+    void setDepthStatus(Editor& editor) const;
     bool projectToFaceUV(Vector3 world, float& outU, float& outV) const;
 };
 

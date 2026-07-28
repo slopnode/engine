@@ -763,7 +763,8 @@ void applyHollow(slopmap::Editor& editor) {
         if (!source.box) {
             continue;
         }
-        auto next = slopengine::hollowBrushBox(source, editor.hollowThickness, allocateId);
+        auto next = slopengine::hollowBrushBox(
+            source, editor.hollowThickness, allocateId, editor.hollowOutward);
         if (next.empty()) {
             continue;
         }
@@ -773,7 +774,9 @@ void applyHollow(slopmap::Editor& editor) {
     }
     if (walls.empty()) {
         editor.abortEdit();
-        editor.statusMessage = "Hollow failed (need box brushes, thickness < half size)";
+        editor.statusMessage = editor.hollowOutward
+            ? "Hollow failed (need box brushes)"
+            : "Hollow failed (need box brushes, thickness < half size)";
         return;
     }
     std::sort(removeIndices.begin(), removeIndices.end(), std::greater<int>());
@@ -3354,6 +3357,14 @@ int main(int argc, char* argv[]) {
             editor.showHollowModal = false;
         }
         if (ImGui::BeginPopupModal("Hollow Brush", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Walls");
+            if (ImGui::RadioButton("Inside", !editor.hollowOutward)) {
+                editor.hollowOutward = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Outside", editor.hollowOutward)) {
+                editor.hollowOutward = true;
+            }
             ImGui::TextUnformatted("Wall thickness");
             ImGui::DragFloat("##hollowthick", &editor.hollowThickness, 0.01f, 0.01f, 10.0f, "%.3f");
             if (ImGui::Button("Hollow", ImVec2(120, 0))) {

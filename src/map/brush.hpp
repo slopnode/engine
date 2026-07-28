@@ -159,11 +159,14 @@ std::vector<Brush> makeBrushStairs(
     const std::string& material,
     BrushRole role);
 
-/** Six wall slabs leaving an inner void; empty if thickness is invalid. */
+/** Six wall slabs leaving an inner void; empty if thickness is invalid.
+ *  When @p outward is false, walls grow inward inside the source AABB.
+ *  When @p outward is true, the source AABB is the inner void and walls expand outside. */
 std::vector<Brush> hollowBrushBox(
     const Brush& source,
     float thickness,
-    const std::function<std::string()>& allocateId);
+    const std::function<std::string()>& allocateId,
+    bool outward = false);
 
 /**
  * Rebuild an AABB brush around a rectangular opening punched from @p faceSide.
