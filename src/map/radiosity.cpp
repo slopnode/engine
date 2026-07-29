@@ -1204,12 +1204,8 @@ RadiosityBakeResult bakeRadiosity(
     std::fflush(stdout);
 
     logStage("collecting emitter patches...");
-    constexpr float kMaxEmitterPatchesPerMeter = 8.0f;
-    const int emitterStride = std::max(
-        1,
-        static_cast<int>(std::lround(
-            settings.luxelsPerMeter / std::max(kMaxEmitterPatchesPerMeter, 1e-3f))));
     std::vector<EmitterPatch> emitters;
+    int emitterCharts = 0;
     for (std::size_t chartIndex = 0; chartIndex < packed.rad.charts.size(); ++chartIndex) {
         const LightmapChart& chart = packed.rad.charts[chartIndex];
         if (chart.faceIndex < 0 || chart.faceIndex >= static_cast<std::int32_t>(faces.size())) {
@@ -1225,20 +1221,26 @@ RadiosityBakeResult bakeRadiosity(
             ((basis.uMax - basis.uMin) * (basis.vMax - basis.vMin))
             / static_cast<float>(std::max(1, chart.luxelWidth * chart.luxelHeight));
 
-        for (int y = 0; y < chart.luxelHeight; y += emitterStride) {
-            for (int x = 0; x < chart.luxelWidth; x += emitterStride) {
+        const std::size_t emittersBefore = emitters.size();
+        for (int y = 0; y < chart.luxelHeight; ++y) {
+            for (int x = 0; x < chart.luxelWidth; ++x) {
+                const float fu = luxelFaceParam(x, chart.luxelWidth);
+                const float fv = luxelFaceParam(y, chart.luxelHeight);
+                const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
+                const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
+                if (!pointInFacePolygon(face, basis, u, v)) {
+                    continue;
+                }
                 const Vector3 pos = luxelWorldPos(basis, chart, x, y);
                 const Color3 emit = emissionAt(face, material, pos);
                 if (luminance(emit) <= 0.0f) {
                     continue;
                 }
-                const int cellsX = std::min(emitterStride, chart.luxelWidth - x);
-                const int cellsY = std::min(emitterStride, chart.luxelHeight - y);
                 EmitterPatch patch;
                 patch.position = add3(pos, scale3(face.normal, 0.02f));
                 patch.normal = face.normal;
                 patch.radiance = emit;
-                patch.area = luxelArea * static_cast<float>(cellsX * cellsY);
+                patch.area = luxelArea;
                 patch.faceIndex = chart.faceIndex;
                 patch.interiorLeaf = face.interiorLeaf;
                 if (patch.interiorLeaf < 0 && tree != nullptr) {
@@ -1247,16 +1249,18 @@ RadiosityBakeResult bakeRadiosity(
                 emitters.push_back(patch);
             }
         }
+        if (emitters.size() > emittersBefore) {
+            ++emitterCharts;
+        }
         if ((chartIndex + 1) % 32 == 0 || chartIndex + 1 == packed.rad.charts.size()) {
             logProgress("emitters from charts", chartIndex + 1, packed.rad.charts.size());
         }
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: emitter patches=%d stride=%d (max %.1f/m)",
+        "sloprad: emitter patches=%d charts=%d",
         static_cast<int>(emitters.size()),
-        emitterStride,
-        kMaxEmitterPatchesPerMeter);
+        emitterCharts);
     std::fflush(stdout);
 
     std::vector<std::int32_t> lightLeaves(lights.size(), -1);

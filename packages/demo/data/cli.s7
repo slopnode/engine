@@ -1,0 +1,3 @@
+(define *package-cli*
+  '((flags
+     ((name "map") (value "string") (help "Initial map folder under maps/")))))

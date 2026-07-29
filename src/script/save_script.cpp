@@ -220,6 +220,25 @@ s7_pointer g_request_map_load(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_list_maps(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_nil(sc);
+    }
+    if (g_saveAssets == nullptr) {
+        return s7_nil(sc);
+    }
+    const std::vector<AssetStore::MapListEntry> maps = g_saveAssets->listMaps();
+    s7_pointer list = s7_nil(sc);
+    for (auto it = maps.rbegin(); it != maps.rend(); ++it) {
+        const s7_pointer pair = s7_cons(
+            sc,
+            s7_make_string(sc, it->id.c_str()),
+            s7_make_string(sc, it->name.c_str()));
+        list = s7_cons(sc, pair, list);
+    }
+    return list;
+}
+
 s7_pointer g_current_map(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -673,6 +692,7 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         1,
         false,
         "(request-map-load name [reason])");
+    s7_define_function(scheme, "list-maps", g_list_maps, 0, 0, false, "(list-maps)");
     s7_define_function(scheme, "current-map", g_current_map, 0, 0, false, "(current-map)");
     s7_define_function(scheme, "player-pose", g_player_pose, 0, 0, false, "(player-pose)");
     s7_define_function(

@@ -316,6 +316,7 @@ void registerRenderModule(
             .build(),
     });
     world.set<PlayerEntity>({});
+    world.set<PostProcessState>({});
 
     registerSpinSystem(world);
     registerSchemeTickSystem(world);
