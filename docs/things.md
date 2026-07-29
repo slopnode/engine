@@ -12,6 +12,8 @@ A static prop ((prop ...)) is visual only: a sprite or mesh at a pose, with no i
 
 (marker ...) is a named pose-only point (door centers, script hints). It spawns a flecs entity with a transform and no presentation, physics, or handlers. Scripts read it with (thing-pos id) / (thing-yaw id).
 
+(particle ...) places a multi-emitter particle system from a `.prt` asset. See [Particles](particles.md).
+
 These forms are engine Scheme bindings, always available regardless of which package is mounted. Package scripts may wrap them; they do not define the primitives.
 
 Debug entity list labels match this split: prop, usable, mover, actor, point-light, spot-light, area-light, sun, player (plus map for MapStatic). Presented pickups may still show as prop/usable in the debug list depending on components.
@@ -256,6 +258,27 @@ A marker is a named world point with no mesh, interact, light, or collision. Use
 | yaw | no | Radians around Y (default 0). |
 
 Spawn adds `WorldSpace` and `LocalTransformation` only. Runtime pose: `(thing-pos id)` / `(thing-yaw id)` in [Scripting](scripting.md#thing-runtime).
+
+## Particles (particle)
+
+A particle thing plays a multi-emitter `.prt` system at a pose. Presentation is the particle system itself (sprite billboards), not a prop sprite/geo. Full format: [Particles](particles.md).
+
+```text
+(particle
+  (id "vent-smoke")
+  (at 0.0 1.0 0.0)
+  (yaw 0.0)
+  (system "fx/generic-smoke")
+  (play #t))
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| id | yes | Flecs entity name; must be unique in the file. |
+| at | yes | World position (x y z). |
+| yaw | no | Radians around Y (default 0). |
+| system | yes | Particle virtual path (particles/{path}.prt). |
+| play | no | Start playing on spawn (default #t). |
 
 ## Motored bodies
 

@@ -17,6 +17,7 @@
 #include "map/map_scene.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/sight_module.hpp"
+#include "particles/particle_module.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
 #include "script/save_script.hpp"
@@ -63,6 +64,7 @@ App::App(AppConfig config)
     registerAudioModule(world_, audioWorld_.get(), assetStore_, scheme_);
     registerCameraModule(world_);
     registerInteractModule(world_);
+    registerParticleModule(world_, assetStore_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
     registerScriptBoot(world_, assetStore_, scheme_);
     callOnStartup(world_);

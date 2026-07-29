@@ -17,6 +17,10 @@ void drawWorldBillboard(const slopengine::SpriteBillboard& billboard) {
     if (billboard.texture == nullptr) {
         return;
     }
+    const BlendMode blend = billboard.blend == slopengine::SpriteBlendMode::Additive
+        ? BLEND_ADD_COLORS
+        : BLEND_ALPHA;
+    BeginBlendMode(blend);
     const Texture2D& texture = *billboard.texture;
     const Rectangle source = billboard.source;
     const float texW = static_cast<float>(texture.width);
@@ -30,12 +34,13 @@ void drawWorldBillboard(const slopengine::SpriteBillboard& billboard) {
     rlSetTexture(texture.id);
     rlBegin(RL_QUADS);
     for (int i = 0; i < 4; ++i) {
-        rlColor4ub(255, 255, 255, 255);
+        rlColor4ub(billboard.tint.r, billboard.tint.g, billboard.tint.b, billboard.tint.a);
         rlTexCoord2f(texcoords[i].x, texcoords[i].y);
         rlVertex3f(billboard.points[i].x, billboard.points[i].y, billboard.points[i].z);
     }
     rlEnd();
     rlSetTexture(0);
+    EndBlendMode();
 }
 
 slopengine::GlobalTransformation overlayGlobal(

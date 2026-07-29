@@ -1,0 +1,6 @@
+(map
+  (id "room")
+  (name "room")
+  (author "")
+  (description "")
+  (depends))

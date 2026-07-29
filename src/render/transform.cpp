@@ -1,14 +1,15 @@
 #include "render/transform.hpp"
 
+#include <raymath.h>
+
 namespace slopengine {
 
 void updateTransform(flecs::entity entity, LocalTransformation& local, GlobalTransformation& global) {
-    Matrix mLocal = MatrixIdentity();
-    mLocal = MatrixMultiply(mLocal, MatrixScale(local.scale.x, local.scale.y, local.scale.z));
-    mLocal = MatrixMultiply(mLocal, QuaternionToMatrix(local.rotation));
-    mLocal = MatrixMultiply(
-        mLocal,
-        MatrixTranslate(local.position.x, local.position.y, local.position.z));
+    const Matrix mLocal = MatrixMultiply(
+        MatrixTranslate(local.position.x, local.position.y, local.position.z),
+        MatrixMultiply(
+            QuaternionToMatrix(local.rotation),
+            MatrixScale(local.scale.x, local.scale.y, local.scale.z)));
 
     if (entity.parent().is_valid()) {
         const flecs::entity parent = entity.parent();

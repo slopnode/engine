@@ -99,8 +99,13 @@ Color addLinearRgbToColor(Color base, Vector3 linearRgb);
 
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state);
 
-/** Baked probe (when available) plus ranked dyn + FX overlay at @p origin. */
-Color sampleReceiverTintColor(flecs::world& world, Vector3 origin, bool unlit);
+/** Baked probe (when available) plus ranked dyn + FX overlay at @p origin.
+ *  @p bakeMaxDistance is the downward bake ray length (sprites use ~2m; airborne FX need more). */
+Color sampleReceiverTintColor(
+    flecs::world& world,
+    Vector3 origin,
+    bool unlit,
+    float bakeMaxDistance = 2.0f);
 
 /** Tint for a world model using AABB sample points (survives mover motion). */
 Color sampleReceiverTintColorForModel(

@@ -102,6 +102,7 @@ Optional block for first-person defaults (used by slopsprite and by runtime atta
 | (rotation DEG) | Default view-sprite rotation. |
 | (origin OX OY) | Normalized pivot (default 0.5 1 = bottom-center). |
 | (eye-offset X Y Z) | Suggested view-space eye offset (meters); presentation only. |
+| (muzzle X Y) | Optional canvas-pixel tip offset from the sprite pivot (same units/sign as FP overlay XY). Used to project world-space muzzle FX that follow the animated viewmodel. |
 
 ### Rotations
 
@@ -176,6 +177,7 @@ Sibling of the .spr at the same virtual path:
 | (sound "path" [volume]) | On hold enter, play a raw clip from sound/ (see [Audio](audio.md)). Optional volume defaults to 1.0. |
 | (hint "name") | On hold enter, call Scheme (on-sprite-hint source name) if defined. Repeatable on one hold. |
 | (overlay LAYER "sprite" "clip" X Y) | On hold enter, spawn or replace a layered sprite on the host (see [Overlays](#overlays)). Repeatable on one hold. |
+| (particle "system" [x y [z]]) | On hold enter, spawn a particle system at the host origin plus optional offset. See [Particles](particles.md). |
 
 Legacy clip-level (tween 0|1) expands to tween-all on every frame in that clip. A bare offset token inside (tween ...) is ignored (offset is not tweenable).
 

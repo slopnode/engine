@@ -53,11 +53,13 @@ set(SLOPLIB_SOURCES
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
     src/assets/material_loader.cpp
+    src/assets/prt_loader.cpp
     src/assets/saudio_loader.cpp
     src/assets/sprite_loader.cpp
     src/assets/sprite_anim_loader.cpp
     src/assets/skeleton_loader.cpp
     src/assets/anim_loader.cpp
+    src/particles/particle_sim.cpp
     src/game/app_config.cpp
     src/map/brush.cpp
     src/map/bsp_analyze.cpp
@@ -127,6 +129,8 @@ add_executable(slopengine
     src/physics/rigid_mover.cpp
     src/physics/rigid_mover_motion.cpp
     src/physics/map_collision.cpp
+    src/particles/particle_module.cpp
+    src/render/view_sprite_muzzle.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
@@ -240,6 +244,7 @@ add_executable(slopmap
     tools/slopmap/editor_settings.cpp
     tools/slopmap/texture_panel.cpp
     tools/slopmap/thing_panel.cpp
+    tools/slopmap/particle_preview.cpp
     tools/slopmap/brush_panel.cpp
     tools/slopmap/handler_ui.cpp
     tools/slopmap/prefab_browser.cpp

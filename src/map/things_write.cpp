@@ -91,7 +91,7 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                p.kind == ThingKind::Pickup || p.kind == ThingKind::Actor ||
                p.kind == ThingKind::Mover || p.kind == ThingKind::Trigger ||
                p.kind == ThingKind::SpotLight || p.kind == ThingKind::Sun ||
-               p.kind == ThingKind::Marker) {
+               p.kind == ThingKind::Marker || p.kind == ThingKind::Particle) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
     if (!p.haveAngles && p.havePitch) {
@@ -422,6 +422,12 @@ void writeThing(std::ostringstream& out, const Thing& p) {
     }
     if (p.kind == ThingKind::SoundSource) {
         writeSoundSourceFields(out, p);
+    }
+    if (p.kind == ThingKind::Particle) {
+        writeIndentClause(out, "(system " + escapeSchemeString(p.particleSystem) + ")");
+        if (p.haveParticlePlay) {
+            writeIndentClause(out, p.particlePlay ? "(play #t)" : "(play #f)");
+        }
     }
 
     out << ")\n\n";

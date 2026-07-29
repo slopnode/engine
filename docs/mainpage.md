@@ -37,6 +37,7 @@ API reference for flecs types is under **Modules**: @ref components "Components"
 - [Geometry](geometry.md)
 - [Skeletal animation](animation.md)
 - [Sprites](sprites.md)
+- [Particles](particles.md)
 - [Materials, textures, and shaders](materials.md)
 - [Audio](audio.md)
 - [Icons](icons.md)

@@ -1,0 +1,5 @@
+(material
+  (shader "default")
+  (texture "engine/unassigned")
+  (texel-size 64)
+  (base-color 1 1 1 1))

@@ -66,6 +66,9 @@ struct SpriteViewDefaults {
     float eyeOffsetX = 0.0f;
     float eyeOffsetY = 0.0f;
     float eyeOffsetZ = 0.0f;
+    bool hasMuzzle = false;
+    float muzzleX = 0.0f;
+    float muzzleY = 0.0f;
 };
 
 enum class SpriteBillboardMode {
@@ -75,11 +78,18 @@ enum class SpriteBillboardMode {
     Screen,
 };
 
+enum class SpriteBlendMode {
+    Alpha,
+    Additive,
+};
+
 /** Parsed .spr sprite asset. */
 struct SpriteAsset {
     float pixelsPerMeter = 64.0f;
     SpriteBillboardMode billboardMode = SpriteBillboardMode::Face;
+    SpriteBlendMode blend = SpriteBlendMode::Alpha;
     bool fullbright = false;
+    Color tint = WHITE;
     SpriteViewDefaults view{};
     std::vector<SpriteHitPartDef> hitParts;
     std::vector<SpriteFrame> frames;

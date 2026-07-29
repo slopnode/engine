@@ -100,6 +100,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{120, 220, 255, 255};
     case slopengine::ThingKind::Marker:
         return Color{200, 120, 255, 255};
+    case slopengine::ThingKind::Particle:
+        return Color{160, 255, 180, 255};
     }
     return WHITE;
 }
@@ -232,7 +234,9 @@ void drawLightGizmo(
     bool showGizmos) {
     const Vector3 pos = thingPosition(thing);
     const Color color = lightColor(thing, selected);
-    if (!drawThingIcon(assets, camera, pos, "lightbulb", color)) {
+    const char* iconId =
+        thing.kind == slopengine::ThingKind::AmbientLight ? "weather_sun" : "lightbulb";
+    if (!drawThingIcon(assets, camera, pos, iconId, color)) {
         DrawSphere(pos, 0.12f, color);
     }
     if (!showGizmos) {
@@ -266,9 +270,6 @@ void drawLightGizmo(
         break;
     }
     case slopengine::ThingKind::AmbientLight: {
-        if (!drawThingIcon(assets, camera, pos, "wb_sunny", color)) {
-            DrawSphere(pos, 0.14f, color);
-        }
         if (showGizmos) {
             DrawSphereWires(pos, 0.45f, 8, 8, Fade(color, 0.55f));
         }
@@ -395,6 +396,16 @@ void drawThings(
                     Vector3{pos.x, pos.y, pos.z - 0.25f},
                     Vector3{pos.x, pos.y, pos.z + 0.25f},
                     color);
+                drawYawArrow(pos, thing.yaw, color);
+            }
+            break;
+        }
+        case slopengine::ThingKind::Particle: {
+            if (!drawThingIcon(assets, camera, pos, "weather_clouds", color)) {
+                DrawSphere(pos, 0.14f, color);
+            }
+            if (showGizmos) {
+                DrawSphereWires(pos, 0.35f, 8, 8, Fade(color, 0.55f));
                 drawYawArrow(pos, thing.yaw, color);
             }
             break;

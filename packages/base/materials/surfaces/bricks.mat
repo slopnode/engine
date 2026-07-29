@@ -1,5 +1,0 @@
-(material
-  (shader "default")
-  (texture "bricks")
-  (texel-size 64)
-  (base-color 1 1 1 1))

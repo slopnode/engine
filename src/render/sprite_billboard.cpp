@@ -249,6 +249,8 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     billboard.texture = &texture;
     billboard.source = source;
     billboard.fullbright = asset.fullbright;
+    billboard.blend = asset.blend;
+    billboard.tint = asset.tint;
 
     const auto maskIt = atlas.hitmasks.find(selected.texturePath);
     if (maskIt != atlas.hitmasks.end()) {

@@ -36,7 +36,7 @@ HudCanvas hudCanvas() {
     return canvas;
 }
 
-bool parseAnchorSymbol(s7_scheme* sc, s7_pointer value, HudAnchor& out) {
+bool parseAnchorSymbol(s7_scheme*, s7_pointer value, HudAnchor& out) {
     const char* name = nullptr;
     if (s7_is_symbol(value)) {
         name = s7_symbol_name(value);

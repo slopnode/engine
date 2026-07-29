@@ -1,8 +1,0 @@
-(material
-  (shader "default")
-  (texture "male1591")
-  (texel-size 64)
-  (emission "emission-strip")
-  (emission-color 1.0 0.95 0.8 1.0)
-  (emission-power 2.0)
-  (base-color 1 1 1 1))

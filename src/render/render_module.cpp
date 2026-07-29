@@ -22,6 +22,7 @@
 #include "render/render_pass_world.hpp"
 #include "render/render_frustum.hpp"
 #include "render/sprite_animator.hpp"
+#include "particles/particle_module.hpp"
 #include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
@@ -196,10 +197,20 @@ void registerRenderSystems(flecs::world& world) {
             drawWorldModels(world, context, lens, frustum, unlit);
             const std::string spriteAimStatus =
                 drawWorldSprites(world, context, lens, frustum, unlit);
+            if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                drawParticleSystems(
+                    world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+            }
             drawWorldDebugOverlays(world);
             EndMode3D();
 
             if (playing) {
+                if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                    BeginMode3D(presentCam);
+                    drawMuzzleParticleSystems(
+                        world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+                    EndMode3D();
+                }
                 drawFirstPersonPass(world, context, lens, unlit);
                 drawViewSprites(world);
                 if (sceneToTexture) {
@@ -310,8 +321,8 @@ void registerRenderModule(
     registerSchemeTickSystem(world);
     registerAnimationSystems(world);
     registerAnimationClipFlipTestSystem(world);
-    registerSpriteAnimatorSystem(world);
     registerTransformSystems(world);
+    registerSpriteAnimatorSystem(world);
     registerRenderSystems(world);
 
     (void)config;

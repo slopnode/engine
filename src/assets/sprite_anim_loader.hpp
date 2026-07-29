@@ -19,6 +19,13 @@ struct SpriteAnimOverlay {
     float y = 0.0f;
 };
 
+struct SpriteAnimParticle {
+    std::string system;
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
 /** One timed frame inside a sprite clip. */
 struct SpriteAnimFrame {
     std::string id; /**< Frame id from the paired .spr. */
@@ -30,6 +37,7 @@ struct SpriteAnimFrame {
     float soundVolume = 1.0f;
     std::vector<std::string> hints;
     std::vector<SpriteAnimOverlay> overlays;
+    std::vector<SpriteAnimParticle> particles;
 
     bool hasTween() const {
         return tweenRotation || tweenScale || tweenTranslate;
@@ -45,6 +53,10 @@ struct SpriteAnimFrame {
 
     bool hasOverlays() const {
         return !overlays.empty();
+    }
+
+    bool hasParticles() const {
+        return !particles.empty();
     }
 };
 

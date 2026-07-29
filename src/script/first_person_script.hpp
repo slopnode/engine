@@ -82,6 +82,9 @@ void callPrepareFirstPerson(flecs::world& world);
 /** Updates Local/Global transforms under the FP stage. */
 void updateFirstPersonSceneTransforms(flecs::world world);
 
+/** ViewSprite child under an FP socket ("weapon" / "emission"), if present. */
+flecs::entity findFirstPersonSocketSprite(flecs::world& world, const char* socketName);
+
 /** Loads package default/viewmodel_* into a FirstPersonViewShader. */
 FirstPersonViewShader createFirstPersonViewShader(AssetStore& assets);
 

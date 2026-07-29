@@ -10,7 +10,7 @@ namespace slopengine {
 
 namespace {
 
-bool symbolEquals(s7_scheme* scheme, s7_pointer value, const char* name) {
+bool symbolEquals(s7_scheme*, s7_pointer value, const char* name) {
     return s7_is_symbol(value) && std::strcmp(s7_symbol_name(value), name) == 0;
 }
 

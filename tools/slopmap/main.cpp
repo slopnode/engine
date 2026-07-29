@@ -12,6 +12,7 @@
 #include "punch_tool.hpp"
 #include "clip_tool.hpp"
 #include "thing_draw.hpp"
+#include "particle_preview.hpp"
 #include "prefab_browser.hpp"
 #include "preview.hpp"
 #include "select_tool.hpp"
@@ -359,7 +360,8 @@ void drawScene(
     const slopmap::CreateTool& createTool,
     const slopmap::PunchTool& punchTool,
     const slopmap::ClipTool& clipTool,
-    const slopmap::InfiniteGrid& infiniteGrid) {
+    const slopmap::InfiniteGrid& infiniteGrid,
+    slopmap::ParticlePreviewState& particlePreview) {
     ClearBackground(Color{32, 34, 38, 255});
     const bool ortho = camera.projection == CAMERA_ORTHOGRAPHIC;
     const double prevNear = rlGetCullDistanceNear();
@@ -615,6 +617,9 @@ void drawScene(
         }
     }
     slopmap::drawThings(assets, d.things, selectedThings, camera, editor.showGizmos);
+    if (particlePreview.enabled) {
+        slopmap::drawParticlePreview(particlePreview, assets, d.things, camera);
+    }
 
     createTool.drawPreview();
     punchTool.drawPreview();
@@ -872,6 +877,7 @@ int main(int argc, char* argv[]) {
     slopmap::Editor editor;
     editor.writePackageRoot = config->target;
     editor.scheme = scheme;
+    slopmap::ParticlePreviewState particlePreview;
     if (auto meta = loadPackageMetaFile(config->target / "package.meta")) {
         editor.writePackageId = meta->id;
     }
@@ -1485,6 +1491,18 @@ int main(int argc, char* argv[]) {
                     editor.showGizmos = !editor.showGizmos;
                     editor.statusMessage = editor.showGizmos ? "Gizmos: on" : "Gizmos: off";
                 }
+                if (menuItemWithIcon(
+                        assets,
+                        kIcons,
+                        "control_play",
+                        "Preview Particles",
+                        nullptr,
+                        editor.particlePreviewEnabled)) {
+                    editor.particlePreviewEnabled = !editor.particlePreviewEnabled;
+                    editor.statusMessage = editor.particlePreviewEnabled
+                        ? "Particle preview: on"
+                        : "Particle preview: off";
+                }
                 if (beginMenuWithIcon(assets, kIcons, "arrow_refresh", "Translate Snap")) {
                     if (menuItemWithIcon(
                             assets,
@@ -2058,6 +2076,14 @@ int main(int argc, char* argv[]) {
         BeginDrawing();
         ClearBackground(Color{28, 30, 34, 255});
 
+        particlePreview.enabled = editor.particlePreviewEnabled;
+        const bool restartParticles = editor.particlePreviewRestartRequest;
+        editor.particlePreviewRestartRequest = false;
+        slopmap::syncParticlePreview(
+            particlePreview, assets, editor.doc().things, restartParticles);
+        slopmap::tickParticlePreview(
+            particlePreview, assets, editor.doc().things, GetFrameTime());
+
         {
             const slopmap::ViewPlane drawPlane = editor.viewPlane;
             const slopmap::FlyCamera drawCamera = editor.camera;
@@ -2074,7 +2100,14 @@ int main(int argc, char* argv[]) {
                 const Camera3D paneCamera = editor.camera.toRaylib();
                 BeginTextureMode(contentTargets[i]);
                 drawScene(
-                    editor, assets, paneCamera, createTool, punchTool, clipTool, infiniteGrid);
+                    editor,
+                    assets,
+                    paneCamera,
+                    createTool,
+                    punchTool,
+                    clipTool,
+                    infiniteGrid,
+                    particlePreview);
                 EndTextureMode();
                 slopmap::drawContentTarget(contentTargets[i], paneRect);
             }
@@ -2397,6 +2430,17 @@ int main(int argc, char* argv[]) {
                     editor.statusMessage = editor.showGizmos ? "Gizmos: on" : "Gizmos: off";
                 }
                 ImGui::SameLine();
+                if (toolBtn(
+                        "preview-particles",
+                        "control_play",
+                        "Particles",
+                        editor.particlePreviewEnabled)) {
+                    editor.particlePreviewEnabled = !editor.particlePreviewEnabled;
+                    editor.statusMessage = editor.particlePreviewEnabled
+                        ? "Particle preview: on"
+                        : "Particle preview: off";
+                }
+                ImGui::SameLine();
                 {
                     const bool global =
                         editor.transformSpace == slopmap::TransformSpace::Global;
@@ -2682,7 +2726,9 @@ int main(int argc, char* argv[]) {
                                 const std::string label = d.things[i].id + " (" +
                                     slopengine::thingKindName(d.things[i].kind) + ")";
                                 const char* icon = slopengine::thingKindIsLight(d.things[i].kind)
-                                    ? "lightbulb"
+                                    ? (d.things[i].kind == slopengine::ThingKind::AmbientLight
+                                           ? "weather_sun"
+                                           : "lightbulb")
                                     : (d.things[i].kind == slopengine::ThingKind::SoundSource
                                            ? "sound"
                                            : (d.things[i].kind == slopengine::ThingKind::PlayerStart
@@ -2691,9 +2737,13 @@ int main(int argc, char* argv[]) {
                                                              slopengine::ThingKind::Marker
                                                          ? "cross"
                                                          : (d.things[i].kind ==
-                                                                    slopengine::ThingKind::Pickup
-                                                                ? "basket"
-                                                                : "transmit"))));
+                                                                    slopengine::ThingKind::Particle
+                                                                ? "weather_clouds"
+                                                                : (d.things[i].kind ==
+                                                                           slopengine::ThingKind::
+                                                                               Pickup
+                                                                       ? "basket"
+                                                                       : "transmit")))));
                                 if (selectableWithIcon(
                                         assets, kIconSet, icon, label.c_str(), selected)) {
                                     editor.selectEntity(
@@ -3031,6 +3081,14 @@ int main(int argc, char* argv[]) {
                                             editor, slopengine::ThingKind::Marker, createTool);
                                     });
                                 placeKindButton(
+                                    "weather_clouds",
+                                    "particle",
+                                    isKind(slopengine::ThingKind::Particle),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Particle, createTool);
+                                    });
+                                placeKindButton(
                                     "lightbulb",
                                     "point-light",
                                     isKind(slopengine::ThingKind::PointLight),
@@ -3069,7 +3127,7 @@ int main(int argc, char* argv[]) {
                                             editor, slopengine::ThingKind::Sun, createTool);
                                     });
                                 placeKindButton(
-                                    "wb_sunny",
+                                    "weather_sun",
                                     "ambient-light",
                                     isKind(slopengine::ThingKind::AmbientLight),
                                     [&] {

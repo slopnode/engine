@@ -3,6 +3,7 @@
 #include "render/sprite_billboard.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace slopsprite {
@@ -17,6 +18,12 @@ struct ViewCanvasFit {
     float offsetY = 0.0f;
 };
 
+struct HostPose {
+    float pinX = 0.0f;
+    float pinY = 0.0f;
+    float rotationDeg = 0.0f;
+};
+
 ViewCanvasFit makeViewCanvasFit(int width, int height, float screenW, float screenH) {
     ViewCanvasFit fit{};
     fit.canvasW = static_cast<float>(std::max(width, 1));
@@ -25,6 +32,61 @@ ViewCanvasFit makeViewCanvasFit(int width, int height, float screenW, float scre
     fit.offsetX = (screenW - fit.canvasW * fit.scale) * 0.5f;
     fit.offsetY = (screenH - fit.canvasH * fit.scale) * 0.5f;
     return fit;
+}
+
+HostPose resolveHostPose(
+    const slopengine::SpriteAsset& asset,
+    const slopengine::SpriteAtlas& atlas,
+    const std::string& frameId,
+    const slopengine::ViewSprite& view,
+    bool tweenRotation,
+    bool tweenScale,
+    bool tweenTranslate,
+    float transformBlend,
+    const std::string& nextFrame) {
+    HostPose pose{};
+    const auto frame = slopengine::resolveViewSpriteFrame(asset, atlas, frameId, 0);
+    if (!frame) {
+        pose.pinX = view.canvasX + view.offsetX;
+        pose.pinY = view.canvasY + view.offsetY;
+        pose.rotationDeg = view.rotationDeg;
+        return pose;
+    }
+
+    float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+    float translateX = frame->translateX + frame->animTranslateX;
+    float translateY = frame->translateY + frame->animTranslateY;
+
+    if (!nextFrame.empty() && (tweenRotation || tweenScale || tweenTranslate)) {
+        const auto next = slopengine::resolveViewSpriteFrame(asset, atlas, nextFrame, 0);
+        if (next) {
+            const float nextRotation = next->rotationDeg + next->animRotationDeg;
+            const float nextTranslateX = next->translateX + next->animTranslateX;
+            const float nextTranslateY = next->translateY + next->animTranslateY;
+            if (tweenRotation) {
+                rotationDeg = rotationDeg + (nextRotation - rotationDeg) * transformBlend;
+            }
+            if (tweenTranslate) {
+                translateX = translateX + (nextTranslateX - translateX) * transformBlend;
+                translateY = translateY + (nextTranslateY - translateY) * transformBlend;
+            }
+        }
+    }
+
+    pose.pinX = view.canvasX + view.offsetX + translateX;
+    pose.pinY = view.canvasY + view.offsetY + translateY;
+    pose.rotationDeg = view.rotationDeg + rotationDeg;
+    return pose;
+}
+
+Vector2 muzzleCanvasPoint(const HostPose& pose, float muzzleX, float muzzleY) {
+    const float theta = pose.rotationDeg * (static_cast<float>(DEG2RAD));
+    const float cosT = std::cos(theta);
+    const float sinT = std::sin(theta);
+    return {
+        pose.pinX + muzzleX * cosT - muzzleY * sinT,
+        pose.pinY + muzzleX * sinT + muzzleY * cosT,
+    };
 }
 
 void drawFpSpriteFrame(
@@ -102,6 +164,24 @@ void drawFpSpriteFrame(
     }
 }
 
+void drawMuzzleMarker(Vector2 screen, bool selected) {
+    const Color color = selected ? Color{80, 220, 255, 255} : Color{40, 180, 220, 220};
+    const float r = selected ? 6.0f : 5.0f;
+    DrawCircleLines(static_cast<int>(screen.x), static_cast<int>(screen.y), r, color);
+    DrawLine(
+        static_cast<int>(screen.x - 8.0f),
+        static_cast<int>(screen.y),
+        static_cast<int>(screen.x + 8.0f),
+        static_cast<int>(screen.y),
+        color);
+    DrawLine(
+        static_cast<int>(screen.x),
+        static_cast<int>(screen.y - 8.0f),
+        static_cast<int>(screen.x),
+        static_cast<int>(screen.y + 8.0f),
+        color);
+}
+
 slopengine::SpriteAnimOverlay* selectedOverlayMutable(Editor& editor) {
     if (!editor.doc.hasAnim || editor.doc.selectedOverlayHoldIndex < 0 ||
         editor.doc.selectedOverlayIndex < 0) {
@@ -168,11 +248,32 @@ void FpPreview::draw(
         std::vector<PreviewOverlayDraw> overlays;
         collectPreviewOverlays(editor.doc, assets, overlays);
 
+        const HostPose hostPose = resolveHostPose(
+            editor.doc.asset,
+            editor.doc.atlas,
+            editor.doc.currentFrame,
+            editor.doc.viewSprite,
+            editor.doc.animTweenRotation,
+            editor.doc.animTweenScale,
+            editor.doc.animTweenTranslate,
+            editor.doc.animTransformBlend,
+            editor.doc.animNextFrame);
+
         if (allowInput && fit.scale > 0.0f) {
             const Vector2 mouse = GetMousePosition();
             const bool inContent = CheckCollisionPointRec(mouse, contentRect);
             if (inContent && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-                if (slopengine::SpriteAnimOverlay* overlay = selectedOverlayMutable(editor)) {
+                if (editor.doc.hasMuzzle && editor.doc.muzzleSelected) {
+                    const Vector2 delta = GetMouseDelta();
+                    const float theta = hostPose.rotationDeg * (static_cast<float>(DEG2RAD));
+                    const float cosT = std::cos(theta);
+                    const float sinT = std::sin(theta);
+                    const float dx = delta.x / fit.scale;
+                    const float dy = delta.y / fit.scale;
+                    editor.doc.muzzleX += dx * cosT + dy * sinT;
+                    editor.doc.muzzleY += -dx * sinT + dy * cosT;
+                    editor.markDirty();
+                } else if (slopengine::SpriteAnimOverlay* overlay = selectedOverlayMutable(editor)) {
                     const Vector2 delta = GetMouseDelta();
                     overlay->x += delta.x / fit.scale;
                     overlay->y += delta.y / fit.scale;
@@ -239,6 +340,15 @@ void FpPreview::draw(
         while (oi < overlays.size()) {
             drawOverlay(overlays[oi]);
             ++oi;
+        }
+
+        if (editor.doc.hasMuzzle) {
+            const Vector2 canvas = muzzleCanvasPoint(hostPose, editor.doc.muzzleX, editor.doc.muzzleY);
+            const Vector2 screen{
+                fit.offsetX + canvas.x * fit.scale,
+                fit.offsetY + canvas.y * fit.scale,
+            };
+            drawMuzzleMarker(screen, editor.doc.muzzleSelected);
         }
     }
 

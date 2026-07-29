@@ -39,6 +39,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "sound-source";
     case slopengine::ThingKind::Marker:
         return "marker";
+    case slopengine::ThingKind::Particle:
+        return "particle";
     }
     return "thing";
 }
@@ -185,6 +187,8 @@ void PlaceTool::update(
         thing = slopengine::makeDefaultSoundSourceThing();
     } else if (kind == slopengine::ThingKind::Marker) {
         thing = slopengine::makeDefaultMarkerThing();
+    } else if (kind == slopengine::ThingKind::Particle) {
+        thing = slopengine::makeDefaultParticleThing();
     }
     thing.kind = kind;
     thing.id = editor.allocateThingId(thingIdPrefix(kind));

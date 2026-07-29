@@ -56,6 +56,10 @@ struct EditorDocument {
     float eyeOffsetX = 0.0f;
     float eyeOffsetY = 0.0f;
     float eyeOffsetZ = 0.0f;
+    bool hasMuzzle = false;
+    float muzzleX = 0.0f;
+    float muzzleY = 0.0f;
+    bool muzzleSelected = false;
 
     std::string animClip;
     float animTime = 0.0f;

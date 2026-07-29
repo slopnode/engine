@@ -1,7 +1,0 @@
-(anim
-  (skeleton "biped")
-  (clips
-    ((name "idle"
-      fps 30
-      duration 1.0
-      tracks "idle.tracks"))))

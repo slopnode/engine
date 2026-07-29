@@ -122,6 +122,7 @@ void drawFirstPersonPass(
     const Lens& lens,
     bool unlit) {
     rlDrawRenderBatchActive();
+    rlEnableDepthMask();
     glClear(GL_DEPTH_BUFFER_BIT);
 
     Camera3D eyeCam{};
@@ -275,11 +276,23 @@ void drawViewSprites(flecs::world& world) {
         viewCanvas.width, viewCanvas.height, screenW, screenH);
 
     BeginBlendMode(BLEND_ALPHA);
+    BlendMode activeBlend = BLEND_ALPHA;
     auto drawViewSprite =
         [&](flecs::entity entity, ViewSprite& viewSprite, SpriteInstance& sprite) {
             const auto frame = resolveViewSpriteFrame(sprite, viewAssets);
             if (!frame) {
                 return;
+            }
+
+            BlendMode want = BLEND_ALPHA;
+            if (const SpriteAsset* asset = viewAssets.getSpriteAsset(sprite.sprite);
+                asset != nullptr && asset->blend == SpriteBlendMode::Additive) {
+                want = BLEND_ADD_COLORS;
+            }
+            if (want != activeBlend) {
+                EndBlendMode();
+                activeBlend = want;
+                BeginBlendMode(activeBlend);
             }
 
             auto originFromFrame = [&](const ViewSpriteFrame& resolved) {
@@ -344,13 +357,18 @@ void drawViewSprites(flecs::world& world) {
                 viewFit.offsetY +
                 (viewSprite.canvasY + viewSprite.offsetY + translateY) * viewFit.scale;
             const Rectangle dest{screenX, screenY, destW, destH};
+            Color tint = WHITE;
+            if (const SpriteAsset* asset = viewAssets.getSpriteAsset(sprite.sprite);
+                asset != nullptr) {
+                tint = asset->tint;
+            }
             DrawTexturePro(
                 *frame->texture,
                 frame->source,
                 dest,
                 Vector2{destW * originX, destH * originY},
                 viewSprite.rotationDeg + rotationDeg,
-                WHITE);
+                tint);
         };
 
     struct ViewDrawItem {

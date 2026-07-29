@@ -83,6 +83,34 @@ bool parseOverlayForm(const Sexpr& form, SpriteAnimFrame& out) {
     return true;
 }
 
+bool parseParticleForm(const Sexpr& form, SpriteAnimFrame& out) {
+    if (!form.isList() || form.list.size() < 2 || !form.list[0].isAtom("particle") ||
+        !form.list[1].isString() || form.list[1].text.empty()) {
+        return false;
+    }
+    SpriteAnimParticle particle{};
+    particle.system = form.list[1].text;
+    if (form.list.size() == 2) {
+        out.particles.push_back(std::move(particle));
+        return true;
+    }
+    if (form.list.size() == 4 && form.list[2].isNumber() && form.list[3].isNumber()) {
+        particle.x = static_cast<float>(form.list[2].number);
+        particle.y = static_cast<float>(form.list[3].number);
+        out.particles.push_back(std::move(particle));
+        return true;
+    }
+    if (form.list.size() == 5 && form.list[2].isNumber() && form.list[3].isNumber() &&
+        form.list[4].isNumber()) {
+        particle.x = static_cast<float>(form.list[2].number);
+        particle.y = static_cast<float>(form.list[3].number);
+        particle.z = static_cast<float>(form.list[4].number);
+        out.particles.push_back(std::move(particle));
+        return true;
+    }
+    return false;
+}
+
 bool parseFrameForm(const Sexpr& form, SpriteAnimFrame& out) {
     if (!form.isList() || form.list.size() < 3 || !form.list[0].isAtom("frame") ||
         !form.list[1].isString() || form.list[1].text.empty() || !form.list[2].isNumber() ||
@@ -113,6 +141,10 @@ bool parseFrameForm(const Sexpr& form, SpriteAnimFrame& out) {
             }
         } else if (tag == "overlay") {
             if (!parseOverlayForm(child, out)) {
+                return false;
+            }
+        } else if (tag == "particle") {
+            if (!parseParticleForm(child, out)) {
                 return false;
             }
         } else {
@@ -215,6 +247,16 @@ void writeOverlaySuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
     }
 }
 
+void writeParticleSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
+    for (const SpriteAnimParticle& particle : frame.particles) {
+        out << " (particle \"" << particle.system << '"';
+        if (particle.x != 0.0f || particle.y != 0.0f || particle.z != 0.0f) {
+            out << ' ' << particle.x << ' ' << particle.y << ' ' << particle.z;
+        }
+        out << ')';
+    }
+}
+
 } // namespace
 
 bool parseSpriteAnimBank(std::string_view source, SpriteAnimBank& bank) {
@@ -270,6 +312,7 @@ std::string serializeSpriteAnimBank(const SpriteAnimBank& bank) {
             writeSoundSuffix(out, frame);
             writeHintSuffix(out, frame);
             writeOverlaySuffix(out, frame);
+            writeParticleSuffix(out, frame);
             out << ")\n";
         }
         out << "  )\n";

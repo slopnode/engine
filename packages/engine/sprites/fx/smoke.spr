@@ -1,0 +1,7 @@
+(sprite
+  (texel-size 64)
+  (fullbright)
+  (frame "A"
+    (rot 0 "fx/smoke" offset 16 16)
+  )
+)
