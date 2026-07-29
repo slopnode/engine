@@ -52,3 +52,9 @@
 
 (define (draw-modals)
   (draw-level-select-modal))
+
+(define (on-startup)
+  (let ((map-id (startup-arg "map")))
+    (if map-id
+        (request-map-load map-id "fresh")
+        #t)))
