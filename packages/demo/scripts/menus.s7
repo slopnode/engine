@@ -1,0 +1,54 @@
+(define *menu-level-open* #f)
+(define *menu-selected-map* "")
+
+(define (open-level-select-menu)
+  (set! *menu-selected-map* (or (current-map) ""))
+  (set! *menu-level-open* #t))
+
+(define (draw-file-menu)
+  (if (ui-menu-item "Select Level")
+      (open-level-select-menu)
+      #f)
+  (ui-separator))
+
+(define (draw-pause-menu)
+  (if (ui-button "Select Level")
+      (open-level-select-menu)
+      #f))
+
+(define (draw-level-select-modal)
+  (if (not *menu-level-open*)
+      #f
+      (begin
+        (ui-set-next-window-size 420 360)
+        (ui-center-next-window)
+        (if (not (ui-begin "Select Level"))
+            (ui-end)
+            (begin
+              (ui-text "Map")
+              (ui-begin-child "maps" 240)
+              (let ((maps (list-maps)))
+                (if (null? maps)
+                    (ui-text "(no maps)")
+                    (for-each
+                     (lambda (entry)
+                       (let ((id (car entry))
+                             (title (cdr entry)))
+                         (if (ui-selectable title (string=? id *menu-selected-map*))
+                             (set! *menu-selected-map* id)
+                             #f)))
+                     maps)))
+              (ui-end-child)
+              (if (and (ui-button "Start") (not (string=? *menu-selected-map* "")))
+                  (begin
+                    (request-map-load *menu-selected-map* "fresh")
+                    (set! *menu-level-open* #f))
+                  #f)
+              (ui-same-line)
+              (if (ui-button "Cancel")
+                  (set! *menu-level-open* #f)
+                  #f)
+              (ui-end))))))
+
+(define (draw-modals)
+  (draw-level-select-modal))

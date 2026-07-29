@@ -4,5 +4,5 @@
   (texel-size 64)
   (emission "engine/dev/wall-1-mask")
   (emission-color 0.976 0.816 0.541 1.0)
-  (emission-power 256.0)
+  (emission-power 16.0)
   (base-color 1 1 1 1))

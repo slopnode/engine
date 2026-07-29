@@ -143,8 +143,16 @@ void PostProcessState::unload() {
 }
 
 PostProcessState& ensurePostProcessState(flecs::world& world) {
-    if (!world.has<PostProcessState>()) {
-        world.set<PostProcessState>({});
+    if (PostProcessState* existing = world.try_get_mut<PostProcessState>()) {
+        return *existing;
+    }
+    const bool suspended = world.is_deferred();
+    if (suspended) {
+        world.defer_suspend();
+    }
+    world.set<PostProcessState>({});
+    if (suspended) {
+        world.defer_resume();
     }
     return world.get_mut<PostProcessState>();
 }
