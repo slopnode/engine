@@ -1,0 +1,758 @@
+(brush-box
+  (id "brush-1")
+  (mins 0 -1 -24.5)
+  (maxs 10 0 7.5)
+  (material "engine/dev/dev-purple-128")
+  (role "detail")
+  (faces
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-2")
+  (mins 0 8 -24.5)
+  (maxs 10 9 7.5)
+  (material "engine/dev/dev-purple-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-3")
+  (mins 0 17 -24.5)
+  (maxs 10 22 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-4")
+  (mins 10 0 -24.5)
+  (maxs 11 17 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-5")
+  (mins -10 -1 -24.5)
+  (maxs 0 0 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-6")
+  (mins -20 17 -24.5)
+  (maxs -10 22 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-8")
+  (mins -20 -1 -24.5)
+  (maxs -10 0 7.5)
+  (material "engine/dev/dev-purple-128")
+  (role "detail")
+  (faces
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-9")
+  (mins -20 8 -24.5)
+  (maxs -10 9 7.5)
+  (material "engine/dev/dev-purple-128")
+  (role "detail")
+  (faces
+    (top
+      (uv-lock))
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-10")
+  (mins -20 0 -25.5)
+  (maxs 10 17 -24.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (east
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-11")
+  (mins -20 0 7.5)
+  (maxs 10 17 8.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (bottom
+      (nodraw))
+    (north
+      (material "engine/dev/wall-1-warm"))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-12")
+  (mins -10 17 7.5)
+  (maxs 0 22 8.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-13")
+  (mins -10 17 -25.5)
+  (maxs 0 22 -24.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (east
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-14")
+  (mins -10 22 -24.5)
+  (maxs 0 23.5 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-16")
+  (mins -21 13 -24.5)
+  (maxs -20 17 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-17")
+  (mins -21 9 -24.5)
+  (maxs -20 13 -17.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (north
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-18")
+  (mins -21 9 -12.5)
+  (maxs -20 13 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-19")
+  (mins -21 5 -24.5)
+  (maxs -20 9 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-20")
+  (mins -21 0 -24.5)
+  (maxs -20 5 -4)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-21")
+  (mins -21 0 2.5)
+  (maxs -20 5 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (bottom
+      (nodraw))
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-22")
+  (mins -21 -1 -4)
+  (maxs -20 0 2.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-23-0")
+  (mins -23.5 0 -13.5)
+  (maxs -21 0.625 -12.3125)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-1")
+  (mins -23.5 0 -12.3125)
+  (maxs -21 1.25 -11.125)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-2")
+  (mins -23.5 0 -11.125)
+  (maxs -21 1.875 -9.9375)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-3")
+  (mins -23.5 0 -9.9375)
+  (maxs -21 2.5 -8.75)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-4")
+  (mins -23.5 0 -8.75)
+  (maxs -21 3.125 -7.5625)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-5")
+  (mins -23.5 0 -7.5625)
+  (maxs -21 3.75 -6.375)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-6")
+  (mins -23.5 0 -6.375)
+  (maxs -21 4.375 -5.1875)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-23-7")
+  (mins -23.5 0 -5.1875)
+  (maxs -21 5 -4)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-24")
+  (mins -26 5 -5.1875)
+  (maxs -23.5 5.625 -4)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-25")
+  (mins -26 5 -6.375)
+  (maxs -23.5 6.25 -5.1875)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-26")
+  (mins -26 5 -7.5625)
+  (maxs -23.5 6.875 -6.375)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-27")
+  (mins -26 5 -8.75)
+  (maxs -23.5 7.5 -7.5625)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-28")
+  (mins -26 5 -9.9375)
+  (maxs -23.5 8.125 -8.75)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-29")
+  (mins -26 5 -11.125)
+  (maxs -23.5 8.75 -9.9375)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-32")
+  (mins -26 5 -4)
+  (maxs -21 5.625 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-33")
+  (mins -27 0 -18)
+  (maxs -26 17 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-34")
+  (mins -27 0 -19)
+  (maxs -21 17 -18)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-35")
+  (mins -26 17 -18)
+  (maxs -21 17.5 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-36")
+  (mins -26 -1 -18)
+  (maxs -21 0 7.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (bottom
+      (nodraw))
+    (north
+      (nodraw))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-37")
+  (mins -26 0 7.5)
+  (maxs -21 17 8.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (top
+      (nodraw))
+    (south
+      (nodraw))
+    (east
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-38")
+  (mins -26 8 -18)
+  (maxs -21 9 -11.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+  (faces
+    (north
+      (nodraw))
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-39")
+  (mins -23 8 -11.5)
+  (maxs -21 9 -8.5)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-41")
+  (mins -34.5 -3 -34.5)
+  (maxs 17.5 -2 17.5)
+  (material "engine/dev/dev-grey-128")
+  (faces
+    (top
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-42")
+  (mins -34.5 28 -34.5)
+  (maxs 17.5 29 17.5)
+  (material "engine/dev/dev-grey-128")
+  (faces
+    (bottom
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-43")
+  (mins -34.5 -2 -34.5)
+  (maxs 17.5 28 -33.5)
+  (material "engine/dev/dev-grey-128")
+  (faces
+    (south
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-44")
+  (mins -34.5 -2 16.5)
+  (maxs 17.5 28 17.5)
+  (material "engine/dev/dev-grey-128")
+  (faces
+    (north
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-45")
+  (mins -34.5 -2 -33.5)
+  (maxs -33.5 28 16.5)
+  (material "engine/dev/dev-grey-128")
+  (faces
+    (east
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-46")
+  (mins 16.5 -2 -33.5)
+  (maxs 17.5 28 16.5)
+  (material "engine/dev/dev-grey-128")
+  (faces
+    (west
+      (nodraw))
+  )
+)
+
+(brush-box
+  (id "brush-47")
+  (mins -10 8 -21)
+  (maxs -4.76837e-07 9 -20)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-48")
+  (mins -10 8 -13)
+  (maxs -4.76837e-07 9 -12)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-49")
+  (mins -10 8 -5)
+  (maxs -4.76837e-07 9 -4)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(brush-box
+  (id "brush-50")
+  (mins -10 8 3)
+  (maxs -4.76837e-07 9 4)
+  (material "engine/dev/dev-grey-128")
+  (role "detail")
+)
+
+(prefab "pillar1"
+  (id "prefab-1")
+  (at 0 0 -4)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-2")
+  (at 0 0 4)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-3")
+  (at 0 0 -12)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-4")
+  (at 0 0 -20)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-5")
+  (at 0 9 -4)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-6")
+  (at 0 9 4)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-7")
+  (at 0 9 -12)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-8")
+  (at 0 9 -20)
+  (angles 0 0 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-9")
+  (at -10 0 -13)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-10")
+  (at -10 0 -21)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-11")
+  (at -10 0 -5)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-12")
+  (at -10 9 -13)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-13")
+  (at -10 0 3)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-14")
+  (at -10 9 -21)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-15")
+  (at -10 9 -5)
+  (angles 0 3.14159 0)
+)
+
+(prefab "pillar1"
+  (id "prefab-16")
+  (at -10 9 3)
+  (angles 0 3.14159 0)
+)
+

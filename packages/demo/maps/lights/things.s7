@@ -1,0 +1,150 @@
+(player-start
+  (id "start-1")
+  (at -15.5 10 -20)
+  (yaw 3.14159)
+)
+
+(point-light
+  (id "point-light-2")
+  (at -3.5 12.5 -16.5)
+  (color 1 0 0)
+  (intensity 64)
+  (range 64)
+)
+
+(point-light
+  (id "point-light-3")
+  (at -3.5 12.5 -8)
+  (color 0.0294118 1 0)
+  (intensity 64)
+  (range 64)
+)
+
+(point-light
+  (id "point-light-4")
+  (at -3.5 12.5 -0.5)
+  (color 0 0 1)
+  (intensity 64)
+  (range 64)
+)
+
+(point-light
+  (id "point-light-5")
+  (at 6 12.5 -16.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-6")
+  (at 6 12.5 -8.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-7")
+  (at 6 12.5 -0.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-8")
+  (at -15 12.5 -16.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-9")
+  (at -15 12.5 -8.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-10")
+  (at -15 12.5 -0.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-11")
+  (at -15 1.5 -16.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-12")
+  (at -15 1.5 -8.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-13")
+  (at -18.5 1.5 -0.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-14")
+  (at 6 1.5 -16.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-15")
+  (at 6 1.5 -8.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-16")
+  (at 6 1.5 -0.5)
+  (color 0.833333 0.433247 0.0776144)
+  (intensity 20)
+  (range 10)
+)
+
+(point-light
+  (id "point-light-17")
+  (at -23.5 8.5 -2.5)
+  (color 1 1 1)
+  (intensity 10)
+  (range 8)
+)
+
+(particle
+  (id "particle-18")
+  (at -5 21.5 -9)
+  (yaw 0)
+  (system "fx/rain")
+  (play #t)
+)
+
+(point-light
+  (id "point-light-19")
+  (at -5.1 20.9 -9)
+  (color 1 1 1)
+  (intensity 50)
+  (range 50)
+)
+
