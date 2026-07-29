@@ -95,16 +95,38 @@ Vector3 sampleShapeOffset(const ParticleEmitterDef& def) {
     return {};
 }
 
+Vector3 sampleConeAroundAxis(Vector3 axis, float halfAngleRad) {
+    const float axisLen = Vector3Length(axis);
+    if (axisLen <= 1.0e-6f) {
+        axis = {0.0f, 1.0f, 0.0f};
+    } else {
+        axis = Vector3Scale(axis, 1.0f / axisLen);
+    }
+
+    if (halfAngleRad <= 1.0e-6f) {
+        return axis;
+    }
+
+    const float cosMax = std::cos(halfAngleRad);
+    const float cosTheta = cosMax + (1.0f - cosMax) * rand01();
+    const float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+    const float phi = rand01() * 2.0f * PI;
+    const Vector3 localAroundY{sinTheta * std::cos(phi), cosTheta, sinTheta * std::sin(phi)};
+
+    const Vector3 fromY{0.0f, 1.0f, 0.0f};
+    if (std::fabs(Vector3DotProduct(fromY, axis)) > 0.9999f) {
+        if (axis.y < 0.0f) {
+            return Vector3Negate(localAroundY);
+        }
+        return localAroundY;
+    }
+    const Quaternion rot = QuaternionFromVector3ToVector3(fromY, axis);
+    return Vector3Normalize(Vector3RotateByQuaternion(localAroundY, rot));
+}
+
 Vector3 sampleEmitDirection(const ParticleEmitterDef& def, const Matrix& world) {
-    Vector3 localDir{0.0f, 1.0f, 0.0f};
-    if (def.shape == ParticleShapeKind::Cone) {
-        const float halfAngle = def.shapeA * DEG2RAD;
-        const float cosMax = std::cos(halfAngle);
-        const float cosTheta = cosMax + (1.0f - cosMax) * rand01();
-        const float sinTheta = std::sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
-        const float phi = rand01() * 2.0f * PI;
-        localDir = {sinTheta * std::cos(phi), cosTheta, sinTheta * std::sin(phi)};
-    } else if (def.shape == ParticleShapeKind::Sphere) {
+    Vector3 localDir = def.direction;
+    if (def.shape == ParticleShapeKind::Sphere) {
         const float u = rand01();
         const float v = rand01();
         const float theta = u * 2.0f * PI;
@@ -114,15 +136,27 @@ Vector3 sampleEmitDirection(const ParticleEmitterDef& def, const Matrix& world) 
             std::cos(phi),
             std::sin(phi) * std::sin(theta),
         };
+    } else if (def.shape == ParticleShapeKind::Cone) {
+        localDir = sampleConeAroundAxis(def.direction, def.shapeA * DEG2RAD);
+    } else if (def.spread >= 0.0f) {
+        localDir = sampleConeAroundAxis(def.direction, def.spread * DEG2RAD);
     } else {
-        localDir = {
+        Vector3 jittered{
             (rand01() * 2.0f - 1.0f) * 0.15f,
             1.0f,
             (rand01() * 2.0f - 1.0f) * 0.15f,
         };
-        const float len = Vector3Length(localDir);
+        const float len = Vector3Length(jittered);
         if (len > 1.0e-6f) {
-            localDir = Vector3Scale(localDir, 1.0f / len);
+            jittered = Vector3Scale(jittered, 1.0f / len);
+        }
+        const Vector3 fromY{0.0f, 1.0f, 0.0f};
+        const Vector3 axis = Vector3Length(def.direction) > 1.0e-6f ? def.direction : fromY;
+        if (std::fabs(Vector3DotProduct(fromY, axis)) > 0.9999f) {
+            localDir = axis.y < 0.0f ? Vector3Negate(jittered) : jittered;
+        } else {
+            const Quaternion rot = QuaternionFromVector3ToVector3(fromY, axis);
+            localDir = Vector3Normalize(Vector3RotateByQuaternion(jittered, rot));
         }
     }
 
@@ -404,6 +438,7 @@ void appendParticleDrawItems(
                 .blend = emitter.def.blend,
                 .billboard = emitter.def.billboard,
                 .unlit = emitter.def.unlit,
+                .depthTest = emitter.def.depthTest,
             });
         }
     }

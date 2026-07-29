@@ -2,6 +2,8 @@
 
 #include "core/sexpr.hpp"
 
+#include <raymath.h>
+
 #include <algorithm>
 
 namespace slopengine {
@@ -297,6 +299,28 @@ bool applyEmitterField(const Sexpr& form, ParticleEmitterDef& emitter) {
     if (tag == "shape") {
         return parseShape(form, emitter);
     }
+    if (tag == "direction") {
+        float comps[3] = {};
+        if (!readNumberField(form, 3, comps)) {
+            return false;
+        }
+        Vector3 dir{comps[0], comps[1], comps[2]};
+        const float len = Vector3Length(dir);
+        if (len > 1.0e-6f) {
+            emitter.direction = Vector3Scale(dir, 1.0f / len);
+        } else {
+            emitter.direction = {0.0f, 1.0f, 0.0f};
+        }
+        return true;
+    }
+    if (tag == "spread") {
+        float value = 0.0f;
+        if (!readNumberField(form, 1, &value) || value < 0.0f) {
+            return false;
+        }
+        emitter.spread = value;
+        return true;
+    }
     if (tag == "size-over-life") {
         return readCurve(form, emitter.sizeOverLife);
     }
@@ -319,6 +343,9 @@ bool applyEmitterField(const Sexpr& form, ParticleEmitterDef& emitter) {
     }
     if (tag == "unlit") {
         return readBoolField(form, emitter.unlit);
+    }
+    if (tag == "depth-test") {
+        return readBoolField(form, emitter.depthTest);
     }
     return false;
 }

@@ -24,6 +24,8 @@
 #include "render/sprite_billboard.hpp"
 #include "particles/components.hpp"
 #include "particles/particle_module.hpp"
+#include "particles/particle_sim.hpp"
+#include "render/transform.hpp"
 #include "script/first_person_script.hpp"
 
 #include <cmath>
@@ -643,10 +645,26 @@ s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
     const std::string path = s7_string(s7_car(args));
     args = s7_cdr(args);
 
+    bool hasYaw = false;
+    bool hasAim = false;
     float yaw = 0.0f;
+    float dx = 0.0f;
+    float dy = 1.0f;
+    float dz = 0.0f;
     if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
-        yaw = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        const float first = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
         args = s7_cdr(args);
+        if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            dx = first;
+            if (!readNumberArg(sc, args, dy, "particle-spawn", 7) ||
+                !readNumberArg(sc, args, dz, "particle-spawn", 8)) {
+                return s7_wrong_type_arg_error(sc, "particle-spawn", 6, args, "dx dy dz numbers");
+            }
+            hasAim = true;
+        } else {
+            yaw = first;
+            hasYaw = true;
+        }
     }
 
     if (id.empty() || isProtectedThingId(id)) {
@@ -664,16 +682,37 @@ s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
-    flecs::entity entity = spawnParticleSystem(
-        *g_thingWorld,
-        assets,
-        id.c_str(),
-        {x, y, z},
-        yaw,
-        path,
-        true,
-        true);
-    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+    flecs::entity entity{};
+    if (hasAim) {
+        entity = spawnParticleSystemAimed(
+            *g_thingWorld,
+            assets,
+            id.c_str(),
+            {x, y, z},
+            {dx, dy, dz},
+            path,
+            true,
+            true);
+    } else {
+        entity = spawnParticleSystem(
+            *g_thingWorld,
+            assets,
+            id.c_str(),
+            {x, y, z},
+            hasYaw ? yaw : 0.0f,
+            path,
+            true,
+            true);
+    }
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<ParticleSystemInstance>() && entity.has<GlobalTransformation>()) {
+        ParticleSystemInstance& instance = entity.get_mut<ParticleSystemInstance>();
+        tickParticleSystemInstance(
+            instance, assets, entity.get<GlobalTransformation>().matrix, 1.0e-3f, {});
+    }
+    return s7_t(sc);
 }
 
 s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
@@ -1253,6 +1292,9 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
     SpriteBillboardHit bestHit{};
     float bestDistance = range;
 
+    flecs::entity player = g_thingWorld->lookup("Player");
+    const Lens* lens = (player.is_valid() && player.has<Lens>()) ? &player.get<Lens>() : nullptr;
+
     g_thingWorld->each([&](flecs::entity entity,
                            Actor,
                            SpriteInstance& sprite,
@@ -1265,9 +1307,36 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
                 return;
             }
         }
+        if (entity.has<LocalTransformation>()) {
+            updateTransform(entity, entity.get_mut<LocalTransformation>(), global);
+        }
 
-        const auto billboard =
-            resolveSpriteBillboard(sprite, global, origin, horizontalCameraYaw(origin, Vector3Add(origin, dir)), assets);
+        SpriteAnimTween tween{};
+        const SpriteAnimTween* tweenPtr = nullptr;
+        if (entity.has<SpriteAnimator>()) {
+            const SpriteAnimator& animator = entity.get<SpriteAnimator>();
+            if (animator.hasTween() && !animator.nextFrame.empty()) {
+                tween.nextFrame = animator.nextFrame;
+                tween.blend = animator.transformBlend;
+                tween.tweenRotation = animator.tweenRotation;
+                tween.tweenScale = animator.tweenScale;
+                tween.tweenTranslate = animator.tweenTranslate;
+                tweenPtr = &tween;
+            }
+        }
+
+        std::optional<SpriteBillboard> billboard;
+        if (lens != nullptr) {
+            billboard = resolveSpriteBillboard(sprite, global, *lens, assets, tweenPtr);
+        } else {
+            billboard = resolveSpriteBillboard(
+                sprite,
+                global,
+                origin,
+                horizontalCameraYaw(origin, Vector3Add(origin, dir)),
+                assets,
+                tweenPtr);
+        }
         if (!billboard) {
             return;
         }
@@ -1286,10 +1355,13 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
 
     return s7_list(
         sc,
-        3,
+        6,
         s7_make_string(sc, entityIdString(bestEntity).c_str()),
         s7_make_string(sc, bestHit.partName.c_str()),
-        s7_make_real(sc, bestHit.distance));
+        s7_make_real(sc, bestHit.distance),
+        s7_make_real(sc, bestHit.point.x),
+        s7_make_real(sc, bestHit.point.y),
+        s7_make_real(sc, bestHit.point.z));
 }
 
 s7_pointer g_actor_los(s7_scheme* sc, s7_pointer args) {
@@ -2019,9 +2091,9 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "particle-spawn",
         g_particle_spawn,
         5,
-        1,
+        3,
         false,
-        "(particle-spawn id x y z path [yaw])");
+        "(particle-spawn id x y z path [yaw | dx dy dz])");
     s7_define_function(
         scheme,
         "particle-spawn-fp",
@@ -2160,7 +2232,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         7,
         1,
         false,
-        "(hitscan-actors ox oy oz dx dy dz max-distance [tag])");
+        "(hitscan-actors ox oy oz dx dy dz max-distance [tag]) -> (id part distance x y z)");
     s7_define_function(scheme, "mover-open", g_mover_open, 1, 0, false, "(mover-open id)");
     s7_define_function(scheme, "mover-close", g_mover_close, 1, 0, false, "(mover-close id)");
     s7_define_function(scheme, "mover-toggle", g_mover_toggle, 1, 0, false, "(mover-toggle id)");

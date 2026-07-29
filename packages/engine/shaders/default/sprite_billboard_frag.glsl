@@ -15,7 +15,7 @@ void main()
 {
     vec4 texel = texture(texture0, fragTexCoord);
     float alpha = texel.a * fragColor.a;
-    if (alpha <= 0.001) {
+    if (alpha < 0.5) {
         discard;
     }
 

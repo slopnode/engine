@@ -25,6 +25,16 @@ flecs::entity spawnParticleSystem(
     bool playing = true,
     bool mapOwned = true);
 
+flecs::entity spawnParticleSystemAimed(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    Vector3 position,
+    Vector3 direction,
+    std::string_view path,
+    bool playing = true,
+    bool mapOwned = true);
+
 flecs::entity spawnParticleSystemFp(
     flecs::world& world,
     AssetStore& assets,

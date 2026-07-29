@@ -21,6 +21,8 @@ struct SpriteBillboard {
     const SpriteHitmask* hitmask = nullptr;
     bool mirror = false;
     bool fullbright = false;
+    SpriteBlendMode blend = SpriteBlendMode::Alpha;
+    Color tint = WHITE;
     int pixelWidth = 0;
     int pixelHeight = 0;
     const Texture2D* texture = nullptr;

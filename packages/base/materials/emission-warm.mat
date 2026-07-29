@@ -1,6 +1,0 @@
-(material
-  (shader "default")
-  (texel-size 64)
-  (emission-color 1.0 0.78 0.45 1.0)
-  (emission-power 6.0)
-  (base-color 1.0 0.85 0.55 1))

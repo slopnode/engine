@@ -310,6 +310,21 @@ void drawWorldSprite(
         colorHead = WHITE;
     }
 
+    auto multiplyTint = [](Color lit, Color tint) {
+        return Color{
+            static_cast<unsigned char>(
+                std::clamp(static_cast<int>(lit.r) * static_cast<int>(tint.r) / 255, 0, 255)),
+            static_cast<unsigned char>(
+                std::clamp(static_cast<int>(lit.g) * static_cast<int>(tint.g) / 255, 0, 255)),
+            static_cast<unsigned char>(
+                std::clamp(static_cast<int>(lit.b) * static_cast<int>(tint.b) / 255, 0, 255)),
+            static_cast<unsigned char>(
+                std::clamp(static_cast<int>(lit.a) * static_cast<int>(tint.a) / 255, 0, 255)),
+        };
+    };
+    colorFeet = multiplyTint(colorFeet, billboard->tint);
+    colorHead = multiplyTint(colorHead, billboard->tint);
+
     const Texture2D& texture = *billboard->texture;
     const Rectangle source = billboard->source;
     const float texW = static_cast<float>(texture.width);
@@ -322,15 +337,12 @@ void drawWorldSprite(
     };
     const Color colors[4] = {colorFeet, colorFeet, colorHead, colorHead};
 
-    SpriteBillboardShader* brightShader = nullptr;
-    if (useBrightmap) {
-        brightShader = &spriteBillboardShader(assets);
-        if (!brightShader->ready) {
-            brightShader = nullptr;
-        }
+    SpriteBillboardShader* billboardShader = &spriteBillboardShader(assets);
+    if (!billboardShader->ready) {
+        billboardShader = nullptr;
     }
 
-    if (brightShader != nullptr) {
+    if (billboardShader != nullptr) {
         const Vector4 albedoRect{
             source.x,
             source.y,
@@ -338,33 +350,33 @@ void drawWorldSprite(
             source.height,
         };
         const Vector2 atlasSize{texW, texH};
-        const int useBright = 1;
-        BeginShaderMode(brightShader->shader);
-        if (brightShader->albedoRectLoc >= 0) {
+        const int useBright = useBrightmap ? 1 : 0;
+        BeginShaderMode(billboardShader->shader);
+        if (billboardShader->albedoRectLoc >= 0) {
             SetShaderValue(
-                brightShader->shader,
-                brightShader->albedoRectLoc,
+                billboardShader->shader,
+                billboardShader->albedoRectLoc,
                 &albedoRect,
                 SHADER_UNIFORM_VEC4);
         }
-        if (brightShader->atlasSizeLoc >= 0) {
+        if (billboardShader->atlasSizeLoc >= 0) {
             SetShaderValue(
-                brightShader->shader,
-                brightShader->atlasSizeLoc,
+                billboardShader->shader,
+                billboardShader->atlasSizeLoc,
                 &atlasSize,
                 SHADER_UNIFORM_VEC2);
         }
-        if (brightShader->useBrightmapLoc >= 0) {
+        if (billboardShader->useBrightmapLoc >= 0) {
             SetShaderValue(
-                brightShader->shader,
-                brightShader->useBrightmapLoc,
+                billboardShader->shader,
+                billboardShader->useBrightmapLoc,
                 &useBright,
                 SHADER_UNIFORM_INT);
         }
-        if (brightShader->brightMapLoc >= 0) {
+        if (useBrightmap && billboardShader->brightMapLoc >= 0) {
             SetShaderValueTexture(
-                brightShader->shader,
-                brightShader->brightMapLoc,
+                billboardShader->shader,
+                billboardShader->brightMapLoc,
                 *billboard->brightTexture);
         }
     }
@@ -378,7 +390,7 @@ void drawWorldSprite(
     }
     rlEnd();
     rlSetTexture(0);
-    if (brightShader != nullptr) {
+    if (billboardShader != nullptr) {
         EndShaderMode();
     }
 }
@@ -631,10 +643,20 @@ std::string drawWorldSprites(
             return a.layer < b.layer;
         });
 
-    rlDisableShader();
     BeginBlendMode(BLEND_ALPHA);
-    rlDisableDepthMask();
+    BlendMode activeBlend = BLEND_ALPHA;
+    rlEnableDepthMask();
     for (const SpriteDrawItem& item : spriteDrawList) {
+        BlendMode want = BLEND_ALPHA;
+        if (const SpriteAsset* asset = assets.getSpriteAsset(item.sprite->sprite);
+            asset != nullptr && asset->blend == SpriteBlendMode::Additive) {
+            want = BLEND_ADD_COLORS;
+        }
+        if (want != activeBlend) {
+            EndBlendMode();
+            activeBlend = want;
+            BeginBlendMode(activeBlend);
+        }
         drawWorldSprite(
             *item.sprite,
             *item.global,
@@ -646,7 +668,7 @@ std::string drawWorldSprites(
             unlit,
             item.animator);
     }
-    rlEnableDepthMask();
+    rlDrawRenderBatchActive();
     EndBlendMode();
 
     if (world.has<DebugUiState>()) {

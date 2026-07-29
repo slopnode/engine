@@ -72,11 +72,83 @@ void runAssetTests() {
         CHECK_EQ(asset.emitters[0].lifetime.min, 1.0f);
         CHECK_EQ(asset.emitters[0].lifetime.max, 2.0f);
         CHECK(asset.emitters[0].shape == ParticleShapeKind::Sphere);
+        CHECK_EQ(asset.emitters[0].direction.x, 0.0f);
+        CHECK_EQ(asset.emitters[0].direction.y, 1.0f);
+        CHECK_EQ(asset.emitters[0].direction.z, 0.0f);
+        CHECK_EQ(asset.emitters[0].spread, -1.0f);
         CHECK_EQ(asset.emitters[1].name, std::string("bits"));
         CHECK(asset.emitters[1].sim == ParticleSimMode::Cpu);
         CHECK_EQ(asset.emitters[1].burst, 8);
         CHECK_EQ(asset.emitters[1].bounce, 0.4f);
         CHECK_EQ(asset.emitters[1].maxBounces, 2);
+    }
+
+    {
+        ParticleSystemAsset asset{};
+        const bool ok = parseParticleSystemAsset(
+            "(particle-system\n"
+            "  (duration 0.5)\n"
+            "  (loop #f)\n"
+            "  (emitter \"spray\"\n"
+            "    (sprite \"fx/blood\")\n"
+            "    (max-particles 12)\n"
+            "    (burst 12)\n"
+            "    (direction 0 0 1)\n"
+            "    (spread 40)\n"
+            "    (shape point)))\n",
+            asset);
+        CHECK(ok);
+        CHECK_EQ(asset.emitters.size(), 1u);
+        CHECK_EQ(asset.emitters[0].direction.x, 0.0f);
+        CHECK_EQ(asset.emitters[0].direction.y, 0.0f);
+        CHECK_EQ(asset.emitters[0].direction.z, 1.0f);
+        CHECK_EQ(asset.emitters[0].spread, 40.0f);
+    }
+
+    {
+        SpriteAsset asset{};
+        const bool ok = parseSpriteAsset(
+            "(sprite\n"
+            "  (texel-size 32)\n"
+            "  (fullbright)\n"
+            "  (blend additive)\n"
+            "  (billboard screen)\n"
+            "  (frame \"A\"\n"
+            "    (rot 0 \"fx/blood\" offset 8 8))\n"
+            ")\n",
+            asset);
+        CHECK(ok);
+        CHECK(asset.fullbright);
+        CHECK(asset.blend == SpriteBlendMode::Additive);
+        CHECK(asset.billboardMode == SpriteBillboardMode::Screen);
+        const std::string serialized = serializeSpriteAsset(asset);
+        SpriteAsset roundTrip{};
+        CHECK(parseSpriteAsset(serialized, roundTrip));
+        CHECK(roundTrip.blend == SpriteBlendMode::Additive);
+    }
+
+    {
+        SpriteAsset asset{};
+        const bool ok = parseSpriteAsset(
+            "(sprite\n"
+            "  (texel-size 32)\n"
+            "  (tint 1 0.5 0.25 0.75)\n"
+            "  (frame \"A\"\n"
+            "    (rot 0 \"fx/blood\" offset 8 8))\n"
+            ")\n",
+            asset);
+        CHECK(ok);
+        CHECK_EQ(asset.tint.r, 255);
+        CHECK_EQ(asset.tint.g, 128);
+        CHECK_EQ(asset.tint.b, 64);
+        CHECK_EQ(asset.tint.a, 191);
+        const std::string serialized = serializeSpriteAsset(asset);
+        SpriteAsset roundTrip{};
+        CHECK(parseSpriteAsset(serialized, roundTrip));
+        CHECK_EQ(roundTrip.tint.r, 255);
+        CHECK_EQ(roundTrip.tint.g, 128);
+        CHECK_EQ(roundTrip.tint.b, 64);
+        CHECK_EQ(roundTrip.tint.a, 191);
     }
 
     {

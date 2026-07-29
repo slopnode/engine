@@ -321,8 +321,8 @@ void registerRenderModule(
     registerSchemeTickSystem(world);
     registerAnimationSystems(world);
     registerAnimationClipFlipTestSystem(world);
-    registerSpriteAnimatorSystem(world);
     registerTransformSystems(world);
+    registerSpriteAnimatorSystem(world);
     registerRenderSystems(world);
 
     (void)config;

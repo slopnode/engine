@@ -30,6 +30,7 @@ struct ParticleDrawItem {
     ParticleBlendMode blend = ParticleBlendMode::Alpha;
     SpriteBillboardMode billboard = SpriteBillboardMode::Face;
     bool unlit = false;
+    bool depthTest = true;
 };
 
 bool initParticleSystemInstance(

@@ -363,6 +363,41 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
         } else if (line == "(fullbright)" || line.rfind("(fullbright", 0) == 0) {
             inView = false;
             asset.fullbright = true;
+        } else if (line.rfind("(blend ", 0) == 0) {
+            inView = false;
+            std::string_view rest = trim(line.substr(std::string_view("(blend ").size()));
+            if (!rest.empty() && rest.back() == ')') {
+                rest.remove_suffix(1);
+                rest = trim(rest);
+            }
+            if (rest == "alpha") {
+                asset.blend = SpriteBlendMode::Alpha;
+            } else if (rest == "additive") {
+                asset.blend = SpriteBlendMode::Additive;
+            } else {
+                return false;
+            }
+        } else if (line.rfind("(tint ", 0) == 0) {
+            inView = false;
+            float comps[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+            std::string_view rest = trim(line.substr(std::string_view("(tint ").size()));
+            if (!rest.empty() && rest.back() == ')') {
+                rest.remove_suffix(1);
+                rest = trim(rest);
+            }
+            if (readFloats(rest, 4, comps)) {
+                // ok
+            } else if (readFloats(rest, 3, comps)) {
+                comps[3] = 1.0f;
+            } else {
+                return false;
+            }
+            asset.tint = {
+                static_cast<unsigned char>(std::lround(std::clamp(comps[0], 0.0f, 1.0f) * 255.0f)),
+                static_cast<unsigned char>(std::lround(std::clamp(comps[1], 0.0f, 1.0f) * 255.0f)),
+                static_cast<unsigned char>(std::lround(std::clamp(comps[2], 0.0f, 1.0f) * 255.0f)),
+                static_cast<unsigned char>(std::lround(std::clamp(comps[3], 0.0f, 1.0f) * 255.0f)),
+            };
         } else if (line.rfind("(texel-size ", 0) == 0) {
             inView = false;
             float texelSize = 64.0f;
@@ -496,6 +531,15 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
     out << "  (texel-size " << asset.pixelsPerMeter << ")\n";
     if (asset.fullbright) {
         out << "  (fullbright)\n";
+    }
+    if (asset.blend == SpriteBlendMode::Additive) {
+        out << "  (blend additive)\n";
+    }
+    if (asset.tint.r != 255 || asset.tint.g != 255 || asset.tint.b != 255 || asset.tint.a != 255) {
+        out << "  (tint " << (static_cast<float>(asset.tint.r) / 255.0f) << ' '
+            << (static_cast<float>(asset.tint.g) / 255.0f) << ' '
+            << (static_cast<float>(asset.tint.b) / 255.0f) << ' '
+            << (static_cast<float>(asset.tint.a) / 255.0f) << ")\n";
     }
     if (asset.billboardMode == SpriteBillboardMode::Fixed) {
         out << "  (billboard fixed)\n";

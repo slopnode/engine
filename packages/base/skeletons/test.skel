@@ -1,8 +1,0 @@
-(skeleton
-  (id "test")
-  (version 1)
-  (bones
-   (
-    (name "Bone" parent -1 bind (t 0 0 0) (r 0.707107 0 0 0.707107) (s 1 1 1))
-    (name "Bone.001" parent -1 bind (t 2.01176 0.598556 -2.26867) (r 0.707107 0 0 0.707107) (s 1 1 1))
-   )))

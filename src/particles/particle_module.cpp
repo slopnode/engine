@@ -45,10 +45,38 @@ void writeWorldPose(
     global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
 }
 
+void writeWorldPoseAimed(
+    LocalTransformation& local,
+    GlobalTransformation& global,
+    Vector3 position,
+    Vector3 direction) {
+    local.position = position;
+    local.scale = {1.0f, 1.0f, 1.0f};
+    const float len = Vector3Length(direction);
+    if (len <= 1.0e-6f) {
+        local.rotation = QuaternionIdentity();
+    } else {
+        const Vector3 aim = Vector3Scale(direction, 1.0f / len);
+        local.rotation = QuaternionFromVector3ToVector3({0.0f, 1.0f, 0.0f}, aim);
+    }
+    const Matrix s = MatrixScale(local.scale.x, local.scale.y, local.scale.z);
+    const Matrix r = QuaternionToMatrix(local.rotation);
+    const Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
+    global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+}
+
 void applyWorldPose(flecs::entity entity, Vector3 position, float yaw) {
     LocalTransformation local{};
     GlobalTransformation global{};
     writeWorldPose(local, global, position, yaw);
+    entity.set<LocalTransformation>(local);
+    entity.set<GlobalTransformation>(global);
+}
+
+void applyWorldPoseAimed(flecs::entity entity, Vector3 position, Vector3 direction) {
+    LocalTransformation local{};
+    GlobalTransformation global{};
+    writeWorldPoseAimed(local, global, position, direction);
     entity.set<LocalTransformation>(local);
     entity.set<GlobalTransformation>(global);
 }
@@ -95,6 +123,30 @@ flecs::entity spawnParticleSystem(
     flecs::entity entity =
         id != nullptr && id[0] != '\0' ? world.entity(id) : world.entity();
     applyWorldPose(entity, position, yaw);
+    entity.add<WorldSpace>().set<ParticleSystemInstance>(std::move(instance));
+    if (mapOwned) {
+        entity.add<MapOwned>();
+    }
+    return entity;
+}
+
+flecs::entity spawnParticleSystemAimed(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    Vector3 position,
+    Vector3 direction,
+    std::string_view path,
+    bool playing,
+    bool mapOwned) {
+    ParticleSystemInstance instance{};
+    if (!initParticleSystemInstance(instance, assets, path, playing)) {
+        return {};
+    }
+
+    flecs::entity entity =
+        id != nullptr && id[0] != '\0' ? world.entity(id) : world.entity();
+    applyWorldPoseAimed(entity, position, direction);
     entity.add<WorldSpace>().set<ParticleSystemInstance>(std::move(instance));
     if (mapOwned) {
         entity.add<MapOwned>();
@@ -184,7 +236,19 @@ void drawParticleSystems(
             item.color = multiplyParticleTint(item.color, scene);
         }
     }
-    drawParticleDrawItems(items, camera, true);
+    std::vector<ParticleDrawItem> depthItems;
+    std::vector<ParticleDrawItem> overlayItems;
+    depthItems.reserve(items.size());
+    overlayItems.reserve(items.size());
+    for (ParticleDrawItem& item : items) {
+        if (item.depthTest) {
+            depthItems.push_back(std::move(item));
+        } else {
+            overlayItems.push_back(std::move(item));
+        }
+    }
+    drawParticleDrawItems(depthItems, camera, true);
+    drawParticleDrawItems(overlayItems, camera, false);
 }
 
 void drawMuzzleParticleSystems(

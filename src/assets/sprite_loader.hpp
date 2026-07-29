@@ -78,11 +78,18 @@ enum class SpriteBillboardMode {
     Screen,
 };
 
+enum class SpriteBlendMode {
+    Alpha,
+    Additive,
+};
+
 /** Parsed .spr sprite asset. */
 struct SpriteAsset {
     float pixelsPerMeter = 64.0f;
     SpriteBillboardMode billboardMode = SpriteBillboardMode::Face;
+    SpriteBlendMode blend = SpriteBlendMode::Alpha;
     bool fullbright = false;
+    Color tint = WHITE;
     SpriteViewDefaults view{};
     std::vector<SpriteHitPartDef> hitParts;
     std::vector<SpriteFrame> frames;

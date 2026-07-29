@@ -906,6 +906,46 @@ void drawInspector(
     }
 
     {
+        float tint[4] = {
+            static_cast<float>(editor.doc.asset.tint.r) / 255.0f,
+            static_cast<float>(editor.doc.asset.tint.g) / 255.0f,
+            static_cast<float>(editor.doc.asset.tint.b) / 255.0f,
+            static_cast<float>(editor.doc.asset.tint.a) / 255.0f,
+        };
+        if (ImGui::ColorEdit4("Tint", tint, ImGuiColorEditFlags_AlphaBar)) {
+            editor.doc.asset.tint = {
+                static_cast<unsigned char>(std::clamp(tint[0], 0.0f, 1.0f) * 255.0f),
+                static_cast<unsigned char>(std::clamp(tint[1], 0.0f, 1.0f) * 255.0f),
+                static_cast<unsigned char>(std::clamp(tint[2], 0.0f, 1.0f) * 255.0f),
+                static_cast<unsigned char>(std::clamp(tint[3], 0.0f, 1.0f) * 255.0f),
+            };
+            editor.markDirty();
+        }
+    }
+
+    {
+        const char* blendLabel =
+            editor.doc.asset.blend == slopengine::SpriteBlendMode::Additive ? "Additive"
+                                                                           : "Alpha";
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::BeginCombo("Blend", blendLabel)) {
+            if (ImGui::Selectable(
+                    "Alpha",
+                    editor.doc.asset.blend == slopengine::SpriteBlendMode::Alpha)) {
+                editor.doc.asset.blend = slopengine::SpriteBlendMode::Alpha;
+                editor.markDirty();
+            }
+            if (ImGui::Selectable(
+                    "Additive",
+                    editor.doc.asset.blend == slopengine::SpriteBlendMode::Additive)) {
+                editor.doc.asset.blend = slopengine::SpriteBlendMode::Additive;
+                editor.markDirty();
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+    {
         const char* modeLabel = "Face";
         if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Fixed) {
             modeLabel = "Fixed";

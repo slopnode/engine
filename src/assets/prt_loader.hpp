@@ -2,6 +2,8 @@
 
 #include "assets/sprite_loader.hpp"
 
+#include <raylib.h>
+
 #include <string>
 #include <string_view>
 #include <vector>
@@ -80,6 +82,8 @@ struct ParticleEmitterDef {
     float shapeA = 0.0f;
     float shapeB = 0.0f;
     float shapeC = 0.0f;
+    Vector3 direction{0.0f, 1.0f, 0.0f};
+    float spread = -1.0f;
     ParticleCurve sizeOverLife{{1.0f, 1.0f}};
     ParticleCurve alphaOverLife{{1.0f, 1.0f}};
     ParticleBlendMode blend = ParticleBlendMode::Alpha;
@@ -87,6 +91,7 @@ struct ParticleEmitterDef {
     int maxBounces = 0;
     bool dieOnHit = false;
     bool unlit = false;
+    bool depthTest = true;
 };
 
 struct ParticleSystemAsset {

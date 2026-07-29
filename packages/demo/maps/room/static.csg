@@ -1,0 +1,46 @@
+(brush-box
+  (id "brush-2")
+  (mins -5.1 -0.1 -5.1)
+  (maxs 5.1 0 5.1)
+  (material "engine/dev/dev-orange-128")
+)
+
+(brush-box
+  (id "brush-3")
+  (mins -5.1 5 -5.1)
+  (maxs 5.1 5.1 5.1)
+  (material "engine/dev/dev-orange-128")
+)
+
+(brush-box
+  (id "brush-4")
+  (mins -5.1 0 -5.1)
+  (maxs 5.1 5 -5)
+  (material "engine/dev/dev-orange-128")
+)
+
+(brush-box
+  (id "brush-5")
+  (mins -5.1 0 5)
+  (maxs 5.1 5 5.1)
+  (material "engine/dev/dev-orange-128")
+  (faces
+    (north
+      (material "engine/dev/wall-1-warm"))
+  )
+)
+
+(brush-box
+  (id "brush-6")
+  (mins -5.1 0 -5)
+  (maxs -5 5 5)
+  (material "engine/dev/dev-orange-128")
+)
+
+(brush-box
+  (id "brush-7")
+  (mins 5 0 -5)
+  (maxs 5.1 5 5)
+  (material "engine/dev/dev-orange-128")
+)
+

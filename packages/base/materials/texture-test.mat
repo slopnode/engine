@@ -1,5 +1,0 @@
-(material
-  (shader "default")
-  (texture "male1591")
-  (texel-size 64)
-  (base-color 1 1 1 1))

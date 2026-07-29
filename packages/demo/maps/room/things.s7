@@ -1,0 +1,6 @@
+(player-start
+  (id "start-1")
+  (at 0 0 0)
+  (yaw 3.14159)
+)
+
