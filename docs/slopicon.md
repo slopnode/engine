@@ -1,0 +1,1 @@
+@page slopicon slopicon

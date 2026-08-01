@@ -195,6 +195,15 @@ else()
     target_compile_options(slopengine PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(sloprepl tools/sloprepl/main.cpp)
+target_link_libraries(sloprepl PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(sloprepl PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(sloprepl PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+
 add_executable(slopbsp tools/slopbsp/main.cpp)
 target_link_libraries(slopbsp PRIVATE sloplib)
 if(MSVC)

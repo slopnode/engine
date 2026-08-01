@@ -1,330 +1,317 @@
-# Scripting
+@page tut_scheme Introduction to Scheme (s7)
 
-Game logic and presentation hooks are written in s7 Scheme (.s7). One Scheme heap lives for the whole run. C++ binds primitives, loads package scripts, and calls optional procedures by name.
+# History of Scheme & Lisp
 
-Related: [Writing s7](s7.md), [Package structure](package-structure.md), [Persistence](persistence.md), [Player](player.md), [Things](things.md), [Maps](maps.md), [Audio](audio.md), [Title screen](titlescreen.md).
+I won't dive into the entire background of Lisp and Scheme because it's a very long and complicated history. If it's something you find interesting it's definitely worth reading more about. I'll just cover enough to explain why Scheme looks the way it does.
 
-## Getting started
+Back in the late 1950s the dominant programming language was Fortran. It was great for numerical and mathematical calculations, but according to John McCarthy at MIT it wasn't very useful for working with symbolic data, logic, or the kinds of data structures needed for artificial intelligence research. To solve this problem he designed the List Processor, or Lisp, which focused on symbolic expressions rather than purely numerical computation.
 
-Language basics: [Writing s7](s7.md).
+Throughout the 1960s Lisp became popular in AI research, with people like Marvin Minsky and Seymour Papert using it extensively at MIT. As the language spread, different groups started creating their own dialects and implementations, each with their own extensions and ideas. By the 1970s there were many incompatible versions of Lisp, making it difficult to share programs and ideas between systems.
 
-1. As the **base game**, put boot scripts under scripts/ and catalogs under data/ (virtual paths omit the extension and scripts/ / data/ prefix).
-2. Declare input actions in data/actions.s7 (*package-actions*).
-3. Implement owner hooks in scripts/player.s7, at least (prepare-first-person player-id) for first-person presentation.
-4. Put reusable interact handlers in scripts/things.s7; place instances in maps/{name}/things.s7.
-5. Optional: (tick dt), (draw-hud), (on-action-{id}) for per-frame and input-driven behavior.
-6. As a **mod**, ship scripts/contrib.s7 and register extras with (hook-add ...); do not replace base boot files.
+Around the mid-1970s Gerald Jay Sussman and Guy L. Steele Jr. began a programming language design experiment to see what features were actually fundamental to a programming language. While studying Alonzo Church's lambda calculus from the 1930s they realized that much of Lisp's complexity could be expressed with only a small set of primitives centered around functions. Instead of building a language with every feature imaginable, they designed Scheme with a very small core and encouraged programmers to build their own abstractions.
 
-Minimal player hook (base package):
+Today Common Lisp, Clojure, and Racket are some of the more popular descendants of the Lisp family. Racket, being a dialect of Scheme, is a multi-paradigm general-purpose language that lets you either build your own language or use existing ones that provide conveniences like objects, interfaces, structures, and much more. It even ships with an IDE capable of things like 2D and 3D graphics.
 
-```text
-(define (prepare-first-person player-id)
-  (fp-clear-socket "weapon")
-  (fp-attach-geo "weapon" "fp/stub" 0.22 -0.18 0.42 0.08 0.08 0.35))
+## s7 Scheme
+
+To be honest I haven't dug into the history, the authors, or the reason this language was created. It was only until I started writing this document that I decided to read into it.
+
+The language s7 was created by Bill Schottstaedt originally as an embedded language for his sound editor, Snd. The goal was to provide a lightweight Scheme implementation that could be easily integrated into applications while still providing the expressive power of Scheme. Unlike larger Scheme implementations that are intended to be complete standalone programming environments, s7 focuses on being small, portable, and practical to embed inside other software.
+
+Because of this background, s7 fits particularly well as a scripting language for an engine. It provides enough of the Scheme language to allow complex behavior and user-defined abstractions while keeping the runtime and integration layer relatively simple. The engine can expose only the functionality that is necessary, while package authors can use Scheme itself to create the higher-level systems they need.
+
+Considering this now, the choice for s7 Scheme in this engine might make a little more sense. Just as Scheme was designed around a minimal core where developers build their own abstractions, this engine also provides only a handful of fundamental components. Package authors are expected to build higher-level abstractions that best fit their own applications.
+
+## Functional programming
+
+Developers coming from C, C++, Java, or C# are often used to describing software in terms of objects with associated methods and state. Functional programming instead focuses on describing behavior as functions that transform data. Rather than building large object hierarchies, data is passed through chains of functions that each perform a specific operation.
+
+This doesn't mean data structures disappear. Instead, the emphasis shifts away from attaching behavior to rigid object types and toward composing small reusable functions. In practice you'll still organize data into meaningful structures, but behavior is kept separate and combined where needed.
+
+This style fits Scheme well. Functions are treated as first-class values, can be passed around like any other object, and make it easy to build higher-level abstractions from a very small language core.
+
+## Engine architecture
+
+The engine itself follows a similar philosophy. Internally it uses flecs and an Entity Component System (ECS) to represent game objects. Instead of describing objects with inheritance ("is a"), entities are composed from components ("has a"). Systems then operate on every entity containing the components they care about.
+
+The interface between the engine and packages is intentionally minimal. Rather than exposing large object hierarchies, the engine provides callback hooks and prepared data structures. Game objects, referred to as things, are either built-in engine types or compositions of those types.
+
+Callbacks can be defined on a composite type, overridden for individual thing instances, or even replaced at run time to change behavior dynamically. As long as a callback implements the expected signature, package authors are free to build whatever abstractions best suit their application.
+
+# Features
+
+## REPL
+
+Before integrating Scheme into the engine it's often useful to experiment interactively. The engine includes a small REPL called `sloprepl` for exactly this purpose.
+
+REPL stands for read-eval-print loop and you see this commonly with languages like JavaScript or Python. By default the program starts up just an interactive prompt. You can with the argument `--load` provide a file to prepare the REPL environment, or `--exec` to run the file and exit.
+
+## Symbolic expressions
+
+At the core of Scheme are what people call symbolic expressions, or s-expressions (often shortened to s-exprs). An s-expression is the notation Scheme uses to represent both data and code. Unlike languages such as C or Java where code and data have different syntax, Scheme uses the same notation for everything.
+
+An s-expression can be an atomic value such as an integer, float, string, boolean, or symbol.
+
+```scheme
+#t
+#f
+1
+1.0
+"test"
+'symbol
 ```
 
-Minimal mod contrib:
+Or it can be a list containing other expressions.
 
-```text
-(hook-add 'prepare-first-person
-  (lambda (player-id)
-    (fp-attach-sprite "weapon" "mod/cool-gun")))
+```scheme
+(+ 1 2)
+(list 1 2 3)
+(display "Hello")
 ```
 
-## Load order
+Because every expression follows the same structure, Scheme doesn't need separate syntax for function calls, operators, or many language constructs. The first element of a list is treated as the operation to perform, while the remaining elements become its arguments.
 
-Boot scripts and data are loaded from the **base package only** (by package id / mount role). Mods do not replace those paths via VFS flatten. After base player/menus, each mod's scripts/contrib.s7 is loaded in mount order when present. Media assets (textures, sprites, maps, …) still use last-wins flatten.
-
-| Step | Source package | Path | When |
-|------|----------------|------|------|
-| 1 | Base | scripts/init.s7 | App start |
-| 2 | Base | data/actions.s7 | App start -> registers *package-actions* |
-| 3 | Each mod | data/actions.s7 | App start -> append actions (duplicate ids ignored) |
-| 4 | Base | data/map-handlers.s7 | App start -> registers *package-map-handlers* |
-| 5 | Each mod | data/map-handlers.s7 | App start -> append map handlers (duplicate ids ignored) |
-| 6 | Base | data/items.s7 | App start -> *item-catalog* (if present) |
-| 7 | Base | data/view.s7 | App start -> *view-canvas* / *hud-canvas* |
-| 8 | Base | data/cli.s7 | App start -> *package-cli* parsed for extra argv flags |
-| 9 | Base | scripts/things.s7 | App start |
-| 10 | | Module API binds | Render / audio / input / thing-runtime / save / hook / UI |
-| 11 | Base | scripts/player.s7 | After those binds |
-| 12 | Base | scripts/menus.s7 | After player (optional) |
-| 13 | Each mod | scripts/contrib.s7 | After menus (optional; (hook-add …)) |
-| 14 | Base | data/title.s7 | After contribs -> title layers; see [Title screen](titlescreen.md) |
-| 15 | | (on-startup) owner then contribs | Once after title config |
-
-| 16 | Map owner | maps/{name}/static.csg | Map load |
-| 17 | Map owner | maps/{name}/things.s7 | Map load |
-| 18 | Map owner | maps/{name}/graphs.s7 | Map load if present |
-
-Map thing / CSG / graph bindings are active only while that file evaluates.
-
-## Package data conventions
-
-| Symbol / file | Role |
-|---------------|------|
-| *package-actions* | Extra gameplay actions (data/actions.s7); see [Player](player.md) |
-| *package-map-handlers* | Map event handler inventory (data/map-handlers.s7); see [Map handlers](#map-handlers) |
-| *item-catalog* | Item definitions (data/items.s7) when used by the package |
-| *view-canvas* | View resolution pair, e.g. (320 200) |
-| *hud-canvas* | HUD resolution pair |
-| *package-cli* | Extra CLI flags (data/cli.s7) |
-| *package-title* | Title screen layers (data/title.s7); see [Title screen](titlescreen.md) |
-| *package-campaign* | Package-owned table for menus (optional; loaded by package Scheme, not the engine) |
-
-```text
-(define *view-canvas* '(320 200))
-(define *hud-canvas* '(320 200))
+```scheme
+(+ 1 2)
+(+ (+ 2 4) 2)
+(+ (+ 2 4) (+ 3 5))
 ```
 
-### Package CLI
+You might hear this described as Reverse Polish notation, although it's more accurately called prefix notation. Every expression starts with the operation followed by its operands. Since every nested expression is already grouped, order of operations is always explicit.
 
-data/cli.s7 defines *package-cli* after packages are mounted. The engine only parses --base-game and --mod up front; remaining argv must match this schema or startup fails with combined usage text.
-
-```text
-(define *package-cli*
-  '((flags
-     ((name "map") (value "string") (help "Initial map folder under maps/"))
-     ((name "mission") (value "string") (help "Mission id for a fresh run")))))
+```scheme
+(<operator> <operand> ...)
+(<operator> (<operator> <operand> ...) ...)
+(<operator> (<operator> <operand> ...)
+            (<operator> <operand> ...))
 ```
 
-| Field | Meaning |
-|-------|---------|
-| name | Flag without -- |
-| value | "string" (requires an argument) or "flag" (presence → "#t") |
-| help | Usage line text |
+The engine also uses symbolic expressions to describe package assets such as sprites, geometry, maps, and other resources. This keeps the majority of assets in a single consistent format that can be edited with any text editor without requiring additional parsers. Although these files are treated as data rather than executable Scheme, they are still valid symbolic expressions and are checked for proper structure.
 
-Read values with (startup-arg "map") → string or #f, or (startup-args) → alist. Handle them in (on-startup) (for example (request-map-load …) when map is set).
 
-### Package menus
+## Variables
 
-The F1 menu bar (File / Config / Debug) and Pause window stay engine chrome. Packages opt in by defining draw hooks that use Scheme ImGui bindings. No hooks → no New/Load/Save entries. Structure and presentation (labels, fields, mission lists, modal layout) live entirely in package Scheme, often scripts/menus.s7 plus optional data such as data/campaign.s7 loaded via `(package-load-data "your.package.id" "campaign")`.
+Variables in s7 are dynamically typed. They can be defined via the keyword `define`. Variable (and function) names can use symbols and Unicode characters for variable names.
 
-Save context layout is in [Persistence](persistence.md). Listing files for a Load UI uses (save-list dir suffix).
-
-## Engine hooks
-
-The base package defines owner procedures with these exact names. Mods extend them with `(hook-add 'name proc)` from scripts/contrib.s7. After base player/menus load, the engine captures those owner procedures. At call time it runs the captured owner (if any), then each contrib in registration order with the same arguments. Missing owner and empty contrib list → skip. Redefining an owner global from a mod does not change what the engine calls; use `(hook-add ...)`.
-
-A call is allowed only when both the current scope and the package role permit the capability. Scope is when the call runs (Boot, World, Hud, Ui, …). Role is who is running: Base/Engine for captured owners and base-loaded procedures; Mod for contribs and procedures defined while a mod package file evaluated. Mods may mutate the world and use presentation APIs; save I/O and map control stay base-only.
-
-| Procedure | When |
-|-----------|------|
-| (prepare-first-person player-id) | After the FP scene exists on map / free-camera spawn; presentation only |
-| (on-map-ready map-id reason) | After prepare-first-person on map spawn; reason is a string from request-map-load (default "fresh"). Packages apply carry/reset/restore policy here |
-| (on-startup) | Once after player / menus / contribs load; read (startup-arg …) and start a map or leave the menu |
-| (draw-file-menu) | Inside File menu (before Quit); use (ui-menu-item …) |
-| (draw-pause-menu) | Inside Pause after Resume; typically (ui-button …) |
-| (draw-modals) | Every UI frame; package-owned popup open flags |
-| (tick dt) | Each update frame (delta seconds), if defined |
-| (draw-hud) | When the HUD pass runs, if defined |
-| (draw-title) | Each menu frame for title chrome; same hud-* APIs as draw-hud. See [Title screen](titlescreen.md) |
-| (on-sprite-hint source name) | When a .spanim hold with (hint "name") is entered; source is the entity name or FP socket (weapon / emission). See [Sprites](sprites.md#logic-hints). |
-| (on-sight observer-id target-id) | When an enabled `ActorSight` observer newly acquires LOS on a target (edge-triggered). |
-| (sight-filter observer-id target-id) | Optional veto during sight scans; return falsey to skip the pair. Missing hooks allow the pair. |
-
-These stay name-lookup only (no hook-add list):
-
-| Procedure | When |
-|-----------|------|
-| (on-action-{id}) | When package action {id} is pressed (mods define these in contrib.s7) |
-| (on-use-{name} thing-id) / named handlers | From map (on-use "..."); see [Things](things.md) |
-| Trigger enter/exit handlers | From map thing `(on-enter …)` / `(on-exit …)` by handler id |
-| Use handlers | From map usable/pickup/mover `(on-use …)` or CSG face `(on-use …)` by handler id; faces are interact ray targets (see [Maps](maps.md)) |
-| Touch handlers | From CSG face `(on-touch …)` by handler id; fires once when a tagged character (default player) enters the face touch slab |
-
-Handlers receive string ids (flecs entity names). Catalog handlers also receive an instance-args alist. There is no entity object API in Scheme yet. Keep game state in Scheme variables or other package-owned structures.
-
-### Map handlers
-
-`data/map-handlers.s7` declares `*package-map-handlers*`: a package inventory of map-facing procedures with typed instance parameters. Base loads first; each mod appends (duplicate ids ignored). Catalog **id** is the Scheme procedure name.
-
-```text
-(define *package-map-handlers*
-  (list
-    (cons "toggle-light"
-          '((label . "Toggle light")
-            (kinds . (enter exit))
-            (params .
-              ((color color)
-               (intensity float 1.0)
-               (target thing)))))))
+```scheme
+(define my-number 1)
+(define my-string "string")
+(define my-float 1.258)
+(define my-bool #t)
 ```
 
-| Field | Meaning |
-|-------|---------|
-| label | Editor display name |
-| kinds | Subset of `use`, `enter`, `exit`, `touch`, `can-use` |
-| params | `(name type)` required, or `(name type default…)` optional |
+A convention in Scheme is if a function returns a boolean value the name will have a question mark on the name. For type checking:
 
-Param types: `int`, `float`, `bool`, `string`, `color` (3 floats), `vec3` (3 floats), `thing`, `brush`, `face`. Parameters are required unless a default is present. Content refs are string ids; slopmap pickers write resolved runtime ids (expanded prefab paths; face id matches spawn `resolveFaceId` before the `face:` entity prefix).
+```scheme
+(string? "Hello") ; #t
+(string? 100)     ; #f
 
-Map syntax uses trailing clauses:
+(number? 100)     ; #t
+(number? 1.0)     ; #t
 
-```text
-(on-enter "toggle-light" (color 1.0 0.4 0.2) (intensity 2.5) (target "ceiling-lamp-3"))
-(on-enter "on-enter-ammo" (ammo "clip"))
-(can-use "door-requires-key" (key "red"))  ; brush door predicate
+(integer? 100)    ; #t
+(integer? 100.0)  ; #f
+
+(float? 100)      ; #f
+(float? 1.0)      ; #t
+
+(list? '(1 2 3))  ; #t
+(list? 10)        ; #f
+
+(null? '())       ; #t
+(null? 10)        ; #f
 ```
 
-Runtime call shape:
+## Lists
 
-| Kind | Catalog handler | Legacy (id not in catalog) |
-|------|-----------------|----------------------------|
-| use | `(handler thing-id args)` | `(handler thing-id)` |
-| can-use | `(handler door-id args) -> bool` | `(handler door-id) -> bool` |
-| enter / exit / touch | `(handler thing-id other-id args)` | `(handler thing-id other-id)` |
+Lists are special in Scheme because behind the scenes everything is a list. You will commonly see the shorthand notation `'(...)` for `(list ...)`. The convention for `null` in Scheme is also an empty list.
 
-`can-use` gates engine door toggle: truthy allows open/close; false refuses (handler may play deny feedback).
+```scheme
+(define my-list '(1 2 3 4))
+(define other-list (list 1 2 3 4)) ; also ok
+```
 
-`args` is an alist of `(name . value)`; color/vec3 values are 3-element lists. Omitted optional params are filled from catalog defaults at call time. Define catalog procs in package scripts (for example `scripts/things.s7`).
+Scheme doesn't have built-in concepts of classes, interfaces, or structures. Developers create lists and give structure to it by using parameterization. 
 
-## Runtime APIs
+```scheme
+(define (create-car brand type color)
+    `(,brand ,type ,color))
+```
 
-### Save I/O and map flow
+What will be odd for developers of other languages are the function names scheme uses for reading and manipulating lists, `cons`, `car`, `cdr`, and then `cadr` and so forth.
 
-Player progress is written under the user config directory (not inside packages), scoped by the mounted stack engine → base game → mods. Path layout, mount.s7, and ownership are in [Persistence](persistence.md). The engine does not define campaigns, checkpoints, or save policies; packages own those and call these primitives when something in the game triggers a save or map change.
+```scheme
+; A pair of (A, B)
+(define a-pair (cons 1 2))
+a-pair ; (1 . 2)
+(car a-pair) ; 1
+(cdr a-pair) ; 2
 
-| Binding | Meaning |
-|---------|---------|
-| (save-root) | Absolute path string for the current mount's save context |
-| (save-write rel form) | Write an S-expression under the context root; creates dirs and mount.s7; #t / #f |
-| (save-read rel) | Read one S-expression from a relative path, or #f |
-| (save-exists? rel) | #t if a regular file exists at the relative path |
-| (save-delete rel) | Delete a regular file under the context root; #t / #f |
-| (save-timestamp) | Local time stamp string YYYYMMDD_HHMMSS for named save files |
-| (save-list dir suffix) | List of (rel-path . display) pairs under a relative directory |
-| (package-load-data package-id path) | Load data/{path}.s7 **only** from the mounted package with that id |
-| (package-load-script package-id path) | Load scripts/{path}.s7 **only** from that package |
-| (current-package-id) | Id of the package file currently evaluating, or #f |
-| (package-mounted? package-id) | #t if that package is mounted |
-| (hook-add hook-symbol proc) | Append a contrib for an engine-owned hook (e.g. `'prepare-first-person`) |
-| (startup-arg name) / (startup-args) | Package CLI values from data/cli.s7 |
-| (request-map-load name) / (request-map-load name reason) | Queue a map change; reason is delivered to on-map-ready (default "fresh") |
-| (current-map) | Current map folder id string, or #f |
-| (player-pose) | (x y z yaw pitch) feet position and look, or #f |
-| (player-set-pose x y z yaw pitch) | Teleport player and set look |
-| (player-eye-height) | Current eye height above feet (or absolute Y when not physics-driven), or #f |
-| (player-set-eye-height h) | Set CharacterMotor / FirstPersonController eye height and refresh Lens |
-| (player-set-control move? look?) | Enable/disable move wish and mouse look (defaults true/true on spawn) |
+; A list
+(define a-list '(1 2 3 4))
 
-Relative save paths must stay under the context root (.. and absolute paths are rejected). Suggested envelope for package blobs: (save (version N) (package "id") ...). Body fields are package-defined.
+; How scheme represents an list, pairs terminated with '()
+(cons 1 (cons 2 (cons 3 (cons 4 '())))) ; (1 2 3 4)
 
-### Package UI (ImGui)
+; car/cdr operations to read list
+(car a-list)  ; 1
+(cdr a-list)  ; (2 3 4)
+(cadr a-list) ; 2
+(cddr a-list) ; (3 4)
 
-Used from (draw-file-menu), (draw-pause-menu), and (draw-modals).
+(cdar a-list) ; error
+;cdar argument, (1 2 3 4), is a pair but should be a list whose car is also a list
 
-| Binding | Meaning |
-|---------|---------|
-| (playing?) / (main-menu?) / (pause-menu?) | Context predicates |
-| (ui-menu-item label [enabled?]) | File/Pause menu row; #t if clicked |
-| (ui-button label) / (ui-text str) / (ui-separator) / (ui-same-line) | Basic widgets |
-| (ui-begin title) / (ui-end) | Window; always call ui-end |
-| (ui-begin-child id [height]) / (ui-end-child) | Scroll region |
-| (ui-set-next-window-size w h) / (ui-center-next-window) | Next window placement |
-| (ui-input-text id initial) / (ui-input-text-set id str) | Text field; returns current string |
-| (ui-begin-combo id preview) / (ui-combo-item label [selected?]) / (ui-end-combo) | Combo |
-| (ui-selectable label [selected?]) | List row |
-| (ui-indent) / (ui-unindent) | Indentation |
+(cdar '('(1 2 3) 3 4 5)) ; ((1 2 3)) what?
+```
 
-### First-person
+The reason that these names stuck around is due to historical reasons that these functions mapped directly to machine instructions at the time, called CAR and CDR.
 
-Socket attach, view sprites, lights, rad tint, motion sensors. Full table: [Player Scheme API](player.md#scheme-api-engine-primitives).
+* CAR → Contents of the Address Register
+* CDR → Contents of the Decrement Register
 
-### Input
+Even though this might not reflect what is happening, the names have managed to stick around for decades now where `car` more or less just means the first element of a pair or less and `cdr` means the 2nd or rest of the list. As obtuse as this feels at first, it is a nice construction for creating recursive loops as you have the current element with `car`, and then the function simply accepts the rest of the list from `cdr` until `'()` has been found to terminate the list. 
 
-| Binding | Meaning |
-|---------|---------|
-| (action-down? id) | #t while the bound action is held (gameplay context) |
-| (action-pressed? id) | #t on the press edge this frame |
+Dialects and implementations of scheme today often implement macros like `first`, `second`, or `list-ref` as convience functions. This might make its way into the engine to make the scripts easier to read and write. 
 
-Works for package and core action ids.
+## Conditionals
 
-### HUD
+If conditions are similar to other languages. 
 
-Drawn from (draw-hud) into the HUD canvas. Coordinates are in canvas space; (hud-anchor ...) sets the origin for following draws.
+```scheme
+; if condition, (if <statement> <when true> <when false>)
+(display (if (eq? 2 2) #t #f)) ; #t
+(display (if (eq? 2 4) #t #f)) ; #f
+```
 
-| Binding | Signature |
-|---------|-----------|
-| hud-anchor | (hud-anchor symbol) with top-left, top-right, bottom-left, bottom-right, center, or bottom-center |
-| hud-font | (hud-font path) (virtual font path under fonts/) |
-| hud-rect | (hud-rect x y w h r g b [a]) |
-| hud-image | (hud-image tex-path x y [w h] [r g b a]) |
-| hud-text | (hud-text str x y size [r g b a]) |
+For situations where a condition check is needed, but that you don't want to program both a #t and #f path, there is the statement `when` available.
 
-### Audio
+```scheme
+; when true, do this
+(when (eq? 2 2) (display "equal")) ; "equal"
+(when (eq? 2 3) (display "equal")) ; won't be executed
+```
 
-| Binding | Role |
-|---------|------|
-| (play-sound path [volume] [loop?]) | Raw clip from sound/ |
-| (play-audio path [volume]) | Def from audio/ |
-| (play-music path [volume]) / (stop-music) | Music bus stream |
-| (stop-sound handle) / (set-sound-volume handle vol) | Voice control |
-| (set-bus-volume bus vol) | "sfx" or "music" |
+For statements with multiple conditions (if/elseif/else) Scheme includes the `cond` statement
 
-Full formats, buses, filters, and frame sounds: [Audio](audio.md).
+```scheme
+; conditional trees
+(define foo 100)
+(cond
+    ((eq? foo 90) "Equals 90")
+    ((eq? foo 80) "Equals 80")
+    (else "Does not equal 90 or 80"))
+```
 
-### Thing runtime
+## Functions
 
-| Binding | Meaning |
-|---------|---------|
-| (thing-despawn id) | Queue despawn of a spawned thing by entity name string (also destroys an actor character capsule / mover kinematic) |
-| (thing-type id) | Catalog type id string for a spawned thing, or #f |
-| (thing-def-health type) | Catalog health integer, or #f |
-| (thing-def-idle-anim type) | Catalog idle anim clip string, or #f |
-| (thing-def-behavior type) | Catalog behavior string, or #f |
-| (thing-def-melee-damage type) | Catalog melee damage, or #f if no `(melee …)` |
-| (thing-def-melee-range type) | Catalog melee range (meters), or #f |
-| (thing-def-melee-cooldown type) | Catalog melee cooldown (seconds), or #f |
-| (thing-def-melee-anim type) | Catalog melee anim clip, or #f |
-| (thing-def-ranged-range type) | Catalog ranged max range (meters), or #f if no `(ranged …)` |
-| (thing-def-ranged-min-range type) | Catalog ranged min range (meters), or #f |
-| (thing-def-ranged-cooldown type) | Catalog ranged cooldown (seconds), or #f |
-| (thing-def-ranged-anim type) | Catalog ranged anim clip, or #f |
-| (thing-pos id) | World position (x y z) for any named entity with a transform, or #f |
-| (thing-yaw id) | Yaw radians (sprite facingYaw when present, else transform Euler Y), or #f |
-| (mover-open id) / (mover-close id) / (mover-toggle id) | Request mover target open/closed/flip; no-op if locked. See [Movers](things.md#movers-mover). |
-| (mover-open-group g) / (mover-close-group g) / (mover-toggle-group g) | Same for all movers with that group id (double doors). |
-| (mover-set-locked id bool) / (mover-locked? id) | Latch; open requests fail while locked. |
-| (mover-progress id) | Current 0..1 progress, or #f. |
-| (mover-state id) | Alist `((open? . bool) (progress . n) (locked? . bool))` or #f — for save capture. |
-| (mover-set-state id open? progress [locked?]) | Restore after map load (snaps pose / kinematic). |
-| (motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore]) | Spawn a motored body at runtime (kind is "sprite" or "geo"). Defaults: radius 0.12, gravity 0, lifetime 8, on-impact "", ignore "". Integrates velocity against static brush hulls and CharacterMotor capsules (actors and player); optional `ignore` entity id is skipped in character sweeps (shooter). Positive gravity pulls down; empty on-impact silently despawns on hit. On hit, calls `(on-impact id x y z hit)` with the hit point and `hit` = entity id string or `#f` for a world/brush hit, then despawns. See [Things](things.md#motored-bodies). |
-| (sprite-spawn id x y z path [clip] [lifetime]) | Spawn a world billboard at runtime. Optional non-looping `.spanim` clip; optional lifetime (default 0.5) queues despawn. |
-| (particle-spawn id x y z path [yaw]) | Spawn a playing particle system from a `.prt` path. |
-| (particle-play id) | Restart and play a particle system entity. |
-| (particle-stop id) | Stop a particle system entity. |
-| (particle-despawn id) | Destroy a particle system entity. |
-| (actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) | Runtime actor (kind "sprite" or "geo"). Defaults match player motor; empty tags → ("actor"). |
-| (actor-pos id) | Feet (x y z) or #f |
-| (actor-yaw id) | Yaw radians or #f |
-| (actor-set-wish id wx wz) | Write horizontal wish on the actor motor |
-| (actor-grounded? id) | #t when the character is supported |
-| (actor-play-anim id clip [loop]) | Play a world sprite clip on the actor |
-| (actor-tags id) | Tag string list or #f |
-| (actors-with-tag tag) | List of actor id strings with that tag |
-| (actors-in-radius x y z r [tag]) | Actor ids whose feet are within r (optional tag filter) |
-| (los? x0 y0 z0 x1 y1 z1) | #t if the segment is clear of static brush hulls |
-| (actor-los? from-id to-id) | LOS between approximate eye heights of two actors |
-| (actor-sight-set! id alist) | Create/update `ActorSight` from alist keys: `enabled`, `range`, `fov`, `eye-lift`, `see-tags`, `ignore-tags`, `filter` |
-| (actor-sight-get id) | Current sight alist, or #f |
-| (actor-can-see? from to) | Full sight pipeline one-shot (ignores per-frame LOS budget) |
-| (sight-budget) / (sight-budget-set! n) | Max LOS traces per frame for the engine sight scan (default 6) |
+Functions are also defined via `define` or as `lambda`, where like other languages the function is anonymous.  
 
-Sight scan order per candidate: tag include/exclude → per-actor `filter` proc → global `sight-filter` hook → range → FOV → PVS → LOS. Empty `see-tags` means any tagged character; `ignore-tags` always wins. The player is a valid target (CollisionTags `"player"`) even though it is not an `Actor`.
+```scheme
+; Define and call
+(define (add-numbers num1 num2)
+    (+ num1 num2))
+(add-numbers 4 2) ; 6
 
-Player aim helpers for spawn recipes: (player-eye) and (player-look-dir) — see [Player](player.md#scheme-api-engine-primitives).
+; Goofy, but just as an example
+((lambda (num1 num2) (+ num1 num2)) 4 2) ; 6
+```
 
-### Map authoring DSLs
+When defining functions in Scheme that mutate data it is a convention to append `!` to the name. For example `set!`.
 
-Bound only while the matching map file loads, not for general gameplay scripts:
+```scheme
+(define my-var 10)
+(set! my-var 20) ; Changes my-var to 20
+```
 
-- Things: prop, usable, pickup, actor, mover, trigger, marker, lights, prefab, ... -> [Things](things.md), [Maps](maps.md)
-- CSG brushes -> [Maps](maps.md)
-- Nav graphs -> maps/{name}/graphs.s7 (graph, node, edge, ...)
+## Higher order functions
 
-## What belongs where
+Higher order functions are functions that take other functions as arguments or return functions. 
 
-maps/{name}/things.s7 holds instance data: poses, sprite or geo paths, handler names, light params -- composition for this level, not shared logic. Reusable behavior, constructors, first-person presentation, HUD, and New/Load/Save menus live under scripts/. Package catalogs such as actions, items, CLI flags, and canvas sizes live under data/. The engine supplies save I/O under the config saves tree, map/pose hooks, F1/Pause chrome, and ImGui bindings (see [Persistence](persistence.md)); it does not own per-game menu structure or content rules.
+```scheme
+; Function that takes another function as argument
+(define (apply-twice f x)
+  (f (f x)))
 
-Prefer new package procedures and thin map calls over new C++ thing kinds for each content type.
+(apply-twice (lambda (x) (+ x 1)) 5)
+; Returns: 7
+
+; Function that returns another function
+(define (make-adder n)
+  (lambda (x) (+ x n)))
+
+(define add-five (make-adder 5))
+(add-five 3)
+; Returns: 8
+```
+
+## Iteration
+
+Scheme doesn't have traditional for loops like C or Java. Instead, it uses recursion and built-in iteration functions.
+
+```scheme
+; Using built-in functions for iteration
+(map (lambda (x) (* x x)) '(1 2 3 4))
+; Returns: (1 4 9 16)
+
+(append '(1 2) '(3 4))
+; Returns: (1 2 3 4)
+
+(for-each (lambda (x) (display x)) '(1 2 3))
+; Displays: 123
+```
+
+For explicit recursion, you can define recursive functions:
+
+```scheme
+(define (factorial n)
+  (if (= n 0)
+      1
+      (* n (factorial (- n 1)))))
+
+(factorial 5) ; Returns: 120
+```
+
+## Local Bindings
+
+Local bindings in Scheme are created using `let`, `let*`, and `define` constructs. Each has different scoping rules and use cases:
+
+### `let` bindings
+```scheme
+(let ((x 1) (y 2))
+  (+ x y)) ; Returns: 3
+```
+`let` creates bindings that are all available simultaneously within the body. Variables defined in the binding list cannot reference each other. They are evaluated before any of the bindings take effect.
+
+### `let*` bindings
+```scheme
+(let* ((x 1) (y (+ x 1)))
+  (+ x y)) ; Returns: 3
+```
+`let*` creates bindings sequentially, where each binding can reference previous bindings in the same list. 
+
+### `define` bindings
+```scheme
+(define (my-function)
+  (let ((x 1) (y 2))
+    (+ x y))) ; Returns: 3
+```
+`define` is used to create global bindings or local bindings within function scopes. It's typically used for defining functions and creating top-level variables.
+
+The choice between these constructs depends on your specific needs:
+- Use `let` when you need parallel binding where each variable's value doesn't depend on others
+- Use `let*` when you need sequential binding where later bindings can reference earlier ones
+- Use `define` for creating functions or when you want the binding to be available in the current scope
+
+## Macros
+
+Macros let you extend the language itself by generating Scheme code before it is evaluated. Unlike C/C++ macros that are expanded at compile time, macros in scheme are expanded at run-time first in the definition environment and then evaluated. Because everything is an s-expr and this is evaluated during run-time it is possible to create code that can change itself based on data expression on the fly.
+
+```scheme
+; Simple macro example
+(define-macro (when* condition body)
+  `(if ,condition (begin ,body) #f))
+
+(when* (> 5 3) (display "Five is greater than three"))
+; Displays: Five is greater than three
+```

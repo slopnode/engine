@@ -8,7 +8,7 @@ OUTPUT_LANGUAGE        = English
 INPUT                  = "@DOXYGEN_INPUT_DIRECTORY@" \
                          "@CMAKE_SOURCE_DIR@/docs"
 RECURSIVE              = YES
-FILE_PATTERNS          = *.hpp *.md *.dox
+FILE_PATTERNS          = *.hpp *.md *.dox *.png
 EXCLUDE                =
 EXCLUDE_PATTERNS       =
 
@@ -21,6 +21,7 @@ REPEAT_BRIEF           = YES
 SORT_MEMBER_DOCS       = YES
 INLINE_SIMPLE_STRUCTS  = YES
 INLINE_GROUPED_CLASSES = YES
+IMAGE_PATH = ../docs
 
 EXTRACT_ALL            = NO
 EXTRACT_PRIVATE        = NO
@@ -41,3 +42,4 @@ WARN_IF_DOC_ERROR      = YES
 WARN_NO_PARAMDOC       = NO
 
 USE_MDFILE_AS_MAINPAGE = "@DOXYGEN_MAINPAGE@"
+
