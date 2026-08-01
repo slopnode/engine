@@ -1,0 +1,3 @@
+(define *package-title*
+  '((image "titlepic" fit)
+    (canvas 640 480)))

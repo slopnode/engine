@@ -6,11 +6,31 @@ Even though this engine is being developed as cross-platform and I attempt to te
 
 - CMake
 - C++20
+- git
 - Build tools 
     - Windows: Visual Studio
-    - Linux & OSX: clang or g++
+    - Linux & OSX: clang or g++.
 
+At the moment I don't feel like figuring out for each distro which system dependencies you need, so for now I will just print out the `ldd` of the engine binary. 
 
+- linux-vdso.so
+- libOpenGL.so
+- libGLX.so
+- libGLU.so
+- libSM.so
+- libICE.so
+- libX11.so
+- libXext.so
+- libm.so
+- libgcc_s.so
+- libc.so
+- /lib64/ld-linux-x86-64.so
+- libGLdispatch.so
+- libstdc++.so
+- libuuid.so
+- libxcb.so
+- libXau.so
+- libXdmcp.so
 
 # Getting the source
 
