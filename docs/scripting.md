@@ -12,6 +12,10 @@ Around the mid-1970s Gerald Jay Sussman and Guy L. Steele Jr. began a programmin
 
 Today Common Lisp, Clojure, and Racket are some of the more popular descendants of the Lisp family. Racket, being a dialect of Scheme, is a multi-paradigm general-purpose language that lets you either build your own language or use existing ones that provide conveniences like objects, interfaces, structures, and much more. It even ships with an IDE capable of things like 2D and 3D graphics.
 
+- [Recursive Functions Of Symbolic Expression And Their Computation By Machine - 1960](https://www-formal.stanford.edu/jmc/recursive.html)
+- [SCHEME An Interpreter For Extended Lambda Calculus - 1975](https://research.scheme.org/lambda-papers/lambda-papers-scheme-report.html)
+- [Scheme Registry](https://registry.scheme.org/)
+
 ## s7 Scheme
 
 To be honest I haven't dug into the history, the authors, or the reason this language was created. It was only until I started writing this document that I decided to read into it.
@@ -21,6 +25,8 @@ The language s7 was created by Bill Schottstaedt originally as an embedded langu
 Because of this background, s7 fits particularly well as a scripting language for an engine. It provides enough of the Scheme language to allow complex behavior and user-defined abstractions while keeping the runtime and integration layer relatively simple. The engine can expose only the functionality that is necessary, while package authors can use Scheme itself to create the higher-level systems they need.
 
 Considering this now, the choice for s7 Scheme in this engine might make a little more sense. Just as Scheme was designed around a minimal core where developers build their own abstractions, this engine also provides only a handful of fundamental components. Package authors are expected to build higher-level abstractions that best fit their own applications.
+
+ - [s7 Website](https://ccrma.stanford.edu/software/s7/s7.html)
 
 ## Functional programming
 
@@ -201,6 +207,32 @@ For statements with multiple conditions (if/elseif/else) Scheme includes the `co
     ((eq? foo 90) "Equals 90")
     ((eq? foo 80) "Equals 80")
     (else "Does not equal 90 or 80"))
+```
+
+`and`, `or` and `not` as logical operators are available as well
+
+```scheme
+(and (eq? 1 1) (eq? 1 1)) ; #t
+(and (eq? 1 2) (eq? 1 1)) ; #f
+
+(or (eq? 1 1) (eq? 1 1)) ; #t
+(or (eq? 1 2) (eq? 1 1)) ; #t
+
+(not (eq? 1 1)) ; #f
+```
+
+`xor`, or exclusive or you implement yourself if needed.
+
+```scheme
+; As function
+(define (xor a b)
+  (or (and a (not b))
+      (and (not a) b)))
+
+; As macro
+(define-macro (xor a b)
+  `(or (and ,a (not ,b))
+       (and (not ,a) ,b)))
 ```
 
 ## Functions
