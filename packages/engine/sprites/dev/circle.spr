@@ -1,0 +1,6 @@
+(sprite
+  (texel-size 64)
+  (frame "still"
+    (rot 0 "engine/dev/sprite-circle" offset 16 16)
+  )
+)
