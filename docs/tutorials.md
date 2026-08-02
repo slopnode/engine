@@ -6,6 +6,6 @@
 - @subpage tut_first_title_screen
 - @subpage tut_first_map
 - @subpage tut_first_things
-- @subpage tut_first_sprite
+- @subpage tut_first_sprites
 
 - @subpage tut_csg
