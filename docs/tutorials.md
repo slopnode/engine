@@ -7,5 +7,7 @@
 - @subpage tut_first_map
 - @subpage tut_first_things
 - @subpage tut_first_sprites
+- @subpage tut_first_actor
+- @subpage tut_first_items
 
 - @subpage tut_csg
