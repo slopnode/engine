@@ -29,42 +29,38 @@ It would be rather annoying if every thing in the map was just a sprite that mea
 
 The engine defines white sprite textures `engine/dev/sprite-circle`, `engine/dev/square`, and `engine/dev/triangle`. In this tutorial we will defined colored versions of these. The first thing to do is to define new sprites with tints applied to them. You can create these sprite files that recolors the engine provided assets.
 
-```scheme
-; sprites/red-square-sprite.spr
+<pre><code class="language-scheme">; sprites/red-square-sprite.spr
 (sprite
     (texel-size 64)
     (tint 1 0 0 1)
     (billboard screen)
     (frame "still"
         (rot 0 "engine/dev/sprite-square" offset 16 16)))
-```
+</code></pre>
 
-```scheme
-; sprites/green-square-sprite.spr
+<pre><code class="language-scheme">; sprites/green-square-sprite.spr
 (sprite
     (texel-size 64)
     (tint 0 1 0 1)
     (billboard screen)
     (frame "still"
         (rot 0 "engine/dev/sprite-square" offset 16 16)))
-```
+</code></pre>
 
-```scheme
-; sprites/blue-square-sprite.spr
+<pre><code class="language-scheme">; sprites/blue-square-sprite.spr
 (sprite
     (texel-size 64)
     (tint 0 0 1 1)
     (billboard screen)
     (frame "still"
         (rot 0 "engine/dev/sprite-square" offset 16 16)))        
-```
+</code></pre>
 
 # Placing things in maps
 
 Afterwards in `data/things.s7` you can implement `*package-things*` to export thing templates for map authors to see. These will be visible in `slopsprite` as well as `slopmap`.
 
-```scheme
-; data/things.s7
+<pre><code class="language-scheme">; data/things.s7
 ; Write a function that is more readable
 (define (create-sprite-prop id label sprite)
     (cons id
@@ -78,7 +74,7 @@ Afterwards in `data/things.s7` you can implement `*package-things*` to export th
     (create-sprite-prop "red-square"   "Red Square"   "red-square")
     (create-sprite-prop "green-square" "Green Square" "green-square")
     (create-sprite-prop "blue-square"  "Blue Square"  "blue-square")))
-```
+</code></pre>
 
 ![The blend and tint options are not rendered in `slopmap` yet](images/first-thing-slopmap.png)
 

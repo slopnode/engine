@@ -50,8 +50,7 @@ Capability|Description
 
 ## I/O
 
-```scheme
-(save-root)                                         ; Absolute path string for current mount's save context
+<pre><code class="language-scheme">(save-root)                                         ; Absolute path string for current mount's save context
 (save-write rel form)                               ; Write an S-expression under the context root
 (save-read rel)                                     ; Read one S-expression from a relative path
 (save-exists? rel)                                  ; Check if a regular file exists at relative path
@@ -68,24 +67,22 @@ Capability|Description
 (request-map-load name)                             ; Queue a map change
 (request-map-load name reason)                      ; Queue a map change with reason
 (current-map)                                       ; Current map folder id string
-```
+</code></pre>
 
 ## Player
 
-```scheme
-(player-pose)                                       ; Player position and look (x y z yaw pitch)
+<pre><code class="language-scheme">(player-pose)                                       ; Player position and look (x y z yaw pitch)
 (player-set-pose x y z yaw pitch)                   ; Teleport player and set look
 (player-eye-height)                                 ; Current eye height above feet
 (player-set-eye-height h)                           ; Set CharacterMotor eye height
 (player-set-control move? look?)                    ; Enable/disable move wish and mouse look
-```
+</code></pre>
 
 ## UI (ImGui)
 
 > NOTE: Scheme bindings directly to Imgui are temporary. This will change with a proper UI wrapper instead of direct Imgui calls.
 
-```scheme
-(playing?)                                          ; Check if in gameplay context
+<pre><code class="language-scheme">(playing?)                                          ; Check if in gameplay context
 (main-menu?)                                        ; Check if in main menu context  
 (pause-menu?)                                       ; Check if in pause menu context
 (ui-menu-item label [enabled?])                     ; File/Pause menu row
@@ -107,42 +104,38 @@ Capability|Description
 (ui-selectable label [selected?])                   ; Selectable list row
 (ui-indent)                                         ; Increase indentation
 (ui-unindent)                                       ; Decrease indentation
-```
+</code></pre>
 
 ## First-person
 
-```scheme
-(fp-clear-socket socket-name)                       ; Clear a first-person socket
+<pre><code class="language-scheme">(fp-clear-socket socket-name)                       ; Clear a first-person socket
 (fp-attach-geo socket-name geo-path x y z sx sy sz) ; Attach geometry to socket
 (fp-attach-sprite socket-name sprite-path)          ; Attach sprite to socket
-```
+</code></pre>
 
 ## HUD
 
-```scheme
-(hud-anchor symbol)                                 ; Set drawing origin (top-left, top-right, etc.)
+<pre><code class="language-scheme">(hud-anchor symbol)                                 ; Set drawing origin (top-left, top-right, etc.)
 (hud-font path)                                     ; Set font for HUD drawing
 (hud-rect x y w h r g b [a])                        ; Draw rectangle
 (hud-image tex-path x y [w h] [r g b a])            ; Draw image
 (hud-text str x y size [r g b a])                   ; Draw text
-```
+</code></pre>
 
 ## Audio
 
-```scheme
-(play-sound path [volume] [loop?])                  ; Play raw sound clip
+<pre><code class="language-scheme">(play-sound path [volume] [loop?])                  ; Play raw sound clip
 (play-audio path [volume])                          ; Play audio definition
 (play-music path [volume])                          ; Play music
 (stop-music)                                        ; Stop music
 (stop-sound handle)                                 ; Stop specific sound
 (set-sound-volume handle vol)                       ; Set sound volume
 (set-bus-volume bus vol)                            ; Set bus volume ("sfx" or "music")
-```
+</code></pre>
 
 ## Things
 
-```scheme
-(thing-despawn id)                                  ; Queue despawn of thing by entity name
+<pre><code class="language-scheme">(thing-despawn id)                                  ; Queue despawn of thing by entity name
 (thing-type id)                                     ; Get catalog type id for thing
 (thing-def-health type)                             ; Get health from catalog
 (thing-def-idle-anim type)                          ; Get idle animation from catalog
@@ -190,14 +183,13 @@ Capability|Description
 (actor-can-see? from to)                            ; Check if actors can see each other
 (sight-budget)                                      ; Get max LOS traces per frame
 (sight-budget-set! n)                               ; Set max LOS traces per frame
-```
+</code></pre>
 
 ## Hooks
 
 The base package defines owner procedures with exact names. Mods extend them using `(hook-add 'name proc)`:
 
-```scheme
-(prepare-first-person player-id)                    ; After FP scene exists on map spawn
+<pre><code class="language-scheme">(prepare-first-person player-id)                    ; After FP scene exists on map spawn
 (on-map-ready map-id reason)                        ; After prepare-first-person on map spawn  
 (on-startup)                                        ; Once after player/menus/contribs load
 (draw-file-menu)                                    ; Inside File menu (before Quit)
@@ -214,4 +206,4 @@ The base package defines owner procedures with exact names. Mods extend them usi
 (trigger enter/exit handlers)                       ; From map thing `(on-enter …)` / `(on-exit …)`
 (use handlers)                                      ; From map usable/pickup/mover `(on-use …)`
 (touch handlers)                                    ; From CSG face `(on-touch …)`
-```
+</code></pre>

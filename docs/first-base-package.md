@@ -2,18 +2,18 @@
 
 The only requirement for the engine to load a package is that it is a folder with a `package.meta` file. 
 
-```
+</code></pre>
 * my-base-package
     - package.meta
-```
+</code></pre>
 
-```scheme
+<pre><code class="language-scheme">
 (package
   (id "whatever.you.want") 
   (name "First Base Package")
   (version "0.3.0")
   (depends "whatever.you.want")) ; same as ID
-```
+</code></pre>
 
 A base-game package will not have other dependencies. From this point on you can run `slopengine --base-game path/to/game`. However, the menu will be black and the file menu empty. 
 
@@ -25,7 +25,7 @@ Because changing a map can be different in the context of different games packag
 
 Packages can declare command line arguments by providing a definition for `*package-cli*`. Using the function `startup-arg` values can be fetched.
 
-```scheme
+<pre><code class="language-scheme">
 ; * data/cli.s7
 ; Defining the --map argument
 (define *package-cli*
@@ -33,11 +33,11 @@ Packages can declare command line arguments by providing a definition for `*pack
      ((name "map") 
       (value "string") 
       (help "Initial map folder under maps/")))))
-```
+</code></pre>
 
 There is an engine hook `on-startup` that package developers provide a callback for that can be used to prepare the package environment or execute certain events. As an example of loading a map with the `--map` argument
 
-```scheme
+<pre><code class="language-scheme">
 ; * scripts/init.s7
 ; on-startup reads argument and runs map if available
 ; otherwise show main screen
@@ -46,11 +46,11 @@ There is an engine hook `on-startup` that package developers provide a callback 
     (if map-id
         (request-map-load map-id "fresh")
         #t)))
-```
+</code></pre>
 
 Without the maps there is nothing to launch, but to test you can take any compiled map with a player start. Developers can also print out statements as a means of cheap debugging.
 
-```scheme
+<pre><code class="language-scheme">
 ; * scripts/init.s7
 ; on-startup reads argument and runs map if available
 ; otherwise show main screen
@@ -60,16 +60,16 @@ Without the maps there is nothing to launch, but to test you can take any compil
         (display map-id)
         (display "No --map argument"))
     (newline)))
-```
+</code></pre>
 
-```
+</code></pre>
 ...
 INFO: SHADER: [ID 6] Program shader loaded successfully
 INFO: RENDER: entering menu (package on-startup / Debug → Map)
 room
 INFO: FILEIO: [/home/bryan/repos/engine/packages/engine/icons/silk.png] File loaded successfully
 ...
-```
+</code></pre>
 
 # Adding a menu option
 
@@ -79,7 +79,7 @@ As stated earlier the engine is unopinionated in regards to what the package wan
 
 The function `list-maps` is available to get a list of maps available after load. The engine will load any properly prepared arbitrary map. As to if a player can or can't is something the package author gates.
 
-```scheme
+<pre><code class="language-scheme">
 ; scripts/menus.s7
 ; Not proper scheme to use variables like this, but it will work
 (define *menu-level-open* #f)
@@ -133,6 +133,6 @@ The function `list-maps` is available to get a list of maps available after load
 
 (define (draw-modals)
   (draw-level-select-modal))
-```
+</code></pre>
 
 ![Blank Package](images/first-base-menu.png)

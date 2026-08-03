@@ -58,39 +58,35 @@ At the core of Scheme are what people call symbolic expressions, or s-expression
 
 An s-expression can be an atomic value such as an integer, float, string, boolean, or symbol.
 
-```scheme
-#t
+<pre><code class="language-scheme">#t
 #f
 1
 1.0
 "test"
 'symbol
-```
+</code></pre>
 
 Or it can be a list containing other expressions.
 
-```scheme
-(+ 1 2)
+<pre><code class="language-scheme">(+ 1 2)
 (list 1 2 3)
 (display "Hello")
-```
+</code></pre>
 
 Because every expression follows the same structure, Scheme doesn't need separate syntax for function calls, operators, or many language constructs. The first element of a list is treated as the operation to perform, while the remaining elements become its arguments.
 
-```scheme
-(+ 1 2)
+<pre><code class="language-scheme">(+ 1 2)
 (+ (+ 2 4) 2)
 (+ (+ 2 4) (+ 3 5))
-```
+</code></pre>
 
 You might hear this described as Reverse Polish notation, although it's more accurately called prefix notation. Every expression starts with the operation followed by its operands. Since every nested expression is already grouped, order of operations is always explicit.
 
-```scheme
-(<operator> <operand> ...)
+<pre><code class="language-scheme">(<operator> <operand> ...)
 (<operator> (<operator> <operand> ...) ...)
 (<operator> (<operator> <operand> ...)
             (<operator> <operand> ...))
-```
+</code></pre>
 
 The engine also uses symbolic expressions to describe package assets such as sprites, geometry, maps, and other resources. This keeps the majority of assets in a single consistent format that can be edited with any text editor without requiring additional parsers. Although these files are treated as data rather than executable Scheme, they are still valid symbolic expressions and are checked for proper structure.
 
@@ -99,17 +95,15 @@ The engine also uses symbolic expressions to describe package assets such as spr
 
 Variables in s7 are dynamically typed. They can be defined via the keyword `define`. Variable (and function) names can use symbols and Unicode characters for variable names.
 
-```scheme
-(define my-number 1)
+<pre><code class="language-scheme">(define my-number 1)
 (define my-string "string")
 (define my-float 1.258)
 (define my-bool #t)
-```
+</code></pre>
 
 A convention in Scheme is if a function returns a boolean value the name will have a question mark on the name. For type checking:
 
-```scheme
-(string? "Hello") ; #t
+<pre><code class="language-scheme">(string? "Hello") ; #t
 (string? 100)     ; #f
 
 (number? 100)     ; #t
@@ -126,28 +120,25 @@ A convention in Scheme is if a function returns a boolean value the name will ha
 
 (null? '())       ; #t
 (null? 10)        ; #f
-```
+</code></pre>
 
 ## Lists
 
 Lists are special in Scheme because behind the scenes everything is a list. You will commonly see the shorthand notation `'(...)` for `(list ...)`. The convention for `null` in Scheme is also an empty list.
 
-```scheme
-(define my-list '(1 2 3 4))
+<pre><code class="language-scheme">(define my-list '(1 2 3 4))
 (define other-list (list 1 2 3 4)) ; also ok
-```
+</code></pre>
 
 Scheme doesn't have built-in concepts of classes, interfaces, or structures. Developers create lists and give structure to it by using parameterization. 
 
-```scheme
-(define (create-car brand type color)
+<pre><code class="language-scheme">(define (create-car brand type color)
     `(,brand ,type ,color))
-```
+</code></pre>
 
 What will be odd for developers of other languages are the function names scheme uses for reading and manipulating lists, `cons`, `car`, `cdr`, and then `cadr` and so forth.
 
-```scheme
-; A pair of (A, B)
+<pre><code class="language-scheme">; A pair of (A, B)
 (define a-pair (cons 1 2))
 a-pair ; (1 . 2)
 (car a-pair) ; 1
@@ -169,7 +160,7 @@ a-pair ; (1 . 2)
 ;cdar argument, (1 2 3 4), is a pair but should be a list whose car is also a list
 
 (cdar '('(1 2 3) 3 4 5)) ; ((1 2 3)) what?
-```
+</code></pre>
 
 The reason that these names stuck around is due to historical reasons that these functions mapped directly to machine instructions at the time, called CAR and CDR.
 
@@ -184,47 +175,42 @@ Dialects and implementations of scheme today often implement macros like `first`
 
 If conditions are similar to other languages. 
 
-```scheme
-; if condition, (if <statement> <when true> <when false>)
+<pre><code class="language-scheme">; if condition, (if <statement> <when true> <when false>)
 (display (if (eq? 2 2) #t #f)) ; #t
 (display (if (eq? 2 4) #t #f)) ; #f
-```
+</code></pre>
 
 For situations where a condition check is needed, but that you don't want to program both a #t and #f path, there is the statement `when` available.
 
-```scheme
-; when true, do this
+<pre><code class="language-scheme">; when true, do this
 (when (eq? 2 2) (display "equal")) ; "equal"
 (when (eq? 2 3) (display "equal")) ; won't be executed
-```
+</code></pre>
 
 For statements with multiple conditions (if/elseif/else) Scheme includes the `cond` statement
 
-```scheme
-; conditional trees
+<pre><code class="language-scheme">; conditional trees
 (define foo 100)
 (cond
     ((eq? foo 90) "Equals 90")
     ((eq? foo 80) "Equals 80")
     (else "Does not equal 90 or 80"))
-```
+</code></pre>
 
 `and`, `or` and `not` as logical operators are available as well
 
-```scheme
-(and (eq? 1 1) (eq? 1 1)) ; #t
+<pre><code class="language-scheme">(and (eq? 1 1) (eq? 1 1)) ; #t
 (and (eq? 1 2) (eq? 1 1)) ; #f
 
 (or (eq? 1 1) (eq? 1 1)) ; #t
 (or (eq? 1 2) (eq? 1 1)) ; #t
 
 (not (eq? 1 1)) ; #f
-```
+</code></pre>
 
 `xor`, or exclusive or you implement yourself if needed.
 
-```scheme
-; As function
+<pre><code class="language-scheme">; As function
 (define (xor a b)
   (or (and a (not b))
       (and (not a) b)))
@@ -233,35 +219,32 @@ For statements with multiple conditions (if/elseif/else) Scheme includes the `co
 (define-macro (xor a b)
   `(or (and ,a (not ,b))
        (and (not ,a) ,b)))
-```
+</code></pre>
 
 ## Functions
 
 Functions are also defined via `define` or as `lambda`, where like other languages the function is anonymous.  
 
-```scheme
-; Define and call
+<pre><code class="language-scheme">; Define and call
 (define (add-numbers num1 num2)
     (+ num1 num2))
 (add-numbers 4 2) ; 6
 
 ; Goofy, but just as an example
 ((lambda (num1 num2) (+ num1 num2)) 4 2) ; 6
-```
+</code></pre>
 
 When defining functions in Scheme that mutate data it is a convention to append `!` to the name. For example `set!`.
 
-```scheme
-(define my-var 10)
+<pre><code class="language-scheme">(define my-var 10)
 (set! my-var 20) ; Changes my-var to 20
-```
+</code></pre>
 
 ## Higher order functions
 
 Higher order functions are functions that take other functions as arguments or return functions. 
 
-```scheme
-; Function that takes another function as argument
+<pre><code class="language-scheme">; Function that takes another function as argument
 (define (apply-twice f x)
   (f (f x)))
 
@@ -275,14 +258,13 @@ Higher order functions are functions that take other functions as arguments or r
 (define add-five (make-adder 5))
 (add-five 3)
 ; Returns: 8
-```
+</code></pre>
 
 ## Iteration
 
 Scheme doesn't have traditional for loops like C or Java. Instead, it uses recursion and built-in iteration functions.
 
-```scheme
-; Using built-in functions for iteration
+<pre><code class="language-scheme">; Using built-in functions for iteration
 (map (lambda (x) (* x x)) '(1 2 3 4))
 ; Returns: (1 4 9 16)
 
@@ -291,43 +273,42 @@ Scheme doesn't have traditional for loops like C or Java. Instead, it uses recur
 
 (for-each (lambda (x) (display x)) '(1 2 3))
 ; Displays: 123
-```
+</code></pre>
 
 For explicit recursion, you can define recursive functions:
 
-```scheme
-(define (factorial n)
+<pre><code class="language-scheme">(define (factorial n)
   (if (= n 0)
       1
       (* n (factorial (- n 1)))))
 
 (factorial 5) ; Returns: 120
-```
+</code></pre>
 
 ## Local Bindings
 
 Local bindings in Scheme are created using `let`, `let*`, and `define` constructs. Each has different scoping rules and use cases:
 
 ### `let` bindings
-```scheme
-(let ((x 1) (y 2))
+<pre><code class="language-scheme">(let ((x 1) (y 2))
   (+ x y)) ; Returns: 3
-```
+</code></pre>
+
 `let` creates bindings that are all available simultaneously within the body. Variables defined in the binding list cannot reference each other. They are evaluated before any of the bindings take effect.
 
 ### `let*` bindings
-```scheme
-(let* ((x 1) (y (+ x 1)))
+<pre><code class="language-scheme">(let* ((x 1) (y (+ x 1)))
   (+ x y)) ; Returns: 3
-```
+</code></pre>
+
 `let*` creates bindings sequentially, where each binding can reference previous bindings in the same list. 
 
 ### `define` bindings
-```scheme
-(define (my-function)
+<pre><code class="language-scheme">(define (my-function)
   (let ((x 1) (y 2))
     (+ x y))) ; Returns: 3
-```
+</code></pre>
+
 `define` is used to create global bindings or local bindings within function scopes. It's typically used for defining functions and creating top-level variables.
 
 The choice between these constructs depends on your specific needs:
@@ -339,11 +320,10 @@ The choice between these constructs depends on your specific needs:
 
 Macros let you extend the language itself by generating Scheme code before it is evaluated. Unlike C/C++ macros that are expanded at compile time, macros in scheme are expanded at run-time first in the definition environment and then evaluated. Because everything is an s-expr and this is evaluated during run-time it is possible to create code that can change itself based on data expression on the fly.
 
-```scheme
-; Simple macro example
+<pre><code class="language-scheme">; Simple macro example
 (define-macro (when* condition body)
   `(if ,condition (begin ,body) #f))
 
 (when* (> 5 3) (display "Five is greater than three"))
 ; Displays: Five is greater than three
-```
+</code></pre>

@@ -12,11 +12,10 @@ The 3rd mode is still a work in progress and won't be covered in this tutorial.
 
 If you choose for option 1 then it's fairly straight forward. Save your image under textures and reference it in `data/title.s7`
 
-```scheme
-(define *package-title*
+<pre><code class="language-scheme">(define *package-title*
   '((image "titlepic" fit)
     (canvas 640 480)))
-```
+</code></pre>
 
 ![Starting the demo with the new titlescreen](images/first-title-engine.png)
 
@@ -24,8 +23,7 @@ To have some animated elements though we will also use option 2 to draw some tex
 
 Developers implement the `draw-title` hook. They can combine this with the background image, or simply use this interface to draw the background. 
 
-```scheme
-; Keeping track of the phase
+<pre><code class="language-scheme">; Keeping track of the phase
 (define *title-phase* 0.0)
 (define *title-label* "Wiggle Text")
 
@@ -44,7 +42,7 @@ Developers implement the `draw-title` hook. They can combine this with the backg
     (hud-text *title-label* (+ x 2) (+ y 2) size 0 0 0 160)
     (hud-text *title-label* (+ x 1) (+ y 1) size 0 0 0 200)
     (hud-text *title-label* x y size 240 220 160 255)))
-```
+</code></pre>
 
 This example code is available in the demo package. It can be run via:
 

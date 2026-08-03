@@ -31,14 +31,13 @@ There are also other caveats to consider when designing your sprites. The engine
 
 Sprite files go in directory `sprites/` and have a `.spr` extension. Other files are ignored. These are symbolic files that define a sprite property. We'll look at one we made in our previous tutorial:
 
-```scheme
-(sprite
+<pre><code class="language-scheme">(sprite
   (texel-size 64)
   (tint 1 0 0 1)
   (billboard screen)
   (frame "still"
     (rot 0 "engine/dev/sprite-square" offset 16 16)))
-```
+</code></pre>
 
 * texel-size: Pixel density per 1m^2
 * tint: optional parameter to "recolor" images
@@ -52,8 +51,7 @@ Sprite files go in directory `sprites/` and have a `.spr` extension. Other files
 
 To create an animated sprite it's as easy as adding more frames. We'll create a new animated sprite that will animate between a square, circle, and triangle.
 
-```scheme
-(sprite
+<pre><code class="language-scheme">(sprite
   (texel-size 64)
   (billboard screen)
   (frame "square"
@@ -62,23 +60,21 @@ To create an animated sprite it's as easy as adding more frames. We'll create a 
     (rot 0 "engine/dev/sprite-circle" offset 16 16))
   (frame "triangle"
     (rot 0 "engine/dev/sprite-triangle" offset 16 16)))
-```
+</code></pre>
 
 Along with the `.spr`, a `.spanim` file of the same name describes animations that can be played:
 
-```scheme
-(sprite-anim
+<pre><code class="language-scheme">(sprite-anim
   (clip "loop"
     (loop 1)
     (frame "square" 0.125)
     (frame "triangle" 0.125)
     (frame "circle" 0.125)))
-```
+</code></pre>
 
 To be able to place this on the map without triggering the animation from code, we can define a thing that is set to play this animation:
 
-```scheme
-(define (create-animated-prop id label sprite)
+<pre><code class="language-scheme">(define (create-animated-prop id label sprite)
     (cons id
         (list (cons 'label label)
               (cons 'kind 'prop)
@@ -93,6 +89,6 @@ To be able to place this on the map without triggering the animation from code, 
         "Animated Sprite" 
         "animated-sprite")
     ...))
-```
+</code></pre>
 
 ![Imagine it flipping between the different sprites](images/first-sprite-animated.png)

@@ -21,8 +21,7 @@ Symbol `*package-actions*`
 
 Actions define gameplay actions that can be bound to input devices. These are typically used for key bindings, controller buttons, or other user input events.
 
-```scheme
-(define *package-actions*
+<pre><code class="language-scheme">(define *package-actions*
   (list
     (cons "fire"
       '((label . "Fire weapon")
@@ -33,7 +32,7 @@ Actions define gameplay actions that can be bound to input devices. These are ty
     (cons "run"
       '((label . "Run")
         (type . "toggle")))))
-```
+</code></pre>
 
 # Handlers
 
@@ -41,8 +40,7 @@ Symbol `*package-map-handlers*`
 
 Map handlers define event handlers for map interactions. These are used to create custom behavior for map elements like triggers, use events, or other interactive components.
 
-```scheme
-(define *package-map-handlers*
+<pre><code class="language-scheme">(define *package-map-handlers*
   (list
     (cons "toggle-light"
       '((label . "Toggle light")
@@ -51,7 +49,7 @@ Map handlers define event handlers for map interactions. These are used to creat
           ((color color)
            (intensity float 1.0)
            (target thing)))))))
-```
+</code></pre>
 
 # Items
 
@@ -59,8 +57,7 @@ Symbol `*item-catalog*`
 
 Item catalog defines items that can be used by the package, including their properties and behaviors.
 
-```scheme
-(define *item-catalog*
+<pre><code class="language-scheme">(define *item-catalog*
   (list
     (cons "health-potion"
       '((label . "Health Potion")
@@ -73,7 +70,7 @@ Item catalog defines items that can be used by the package, including their prop
         (stats .
           ((damage . 10)
            (speed . 1.2)))))))
-```
+</code></pre>
 
 # View
 
@@ -81,9 +78,8 @@ Symbol `*view-canvas*`
 
 View canvas defines the resolution and presentation properties for the main game view.
 
-```scheme
-(define *view-canvas* '(1920 1080))
-```
+<pre><code class="language-scheme">(define *view-canvas* '(1920 1080))
+</code></pre>
 
 # Canvas
 
@@ -91,9 +87,8 @@ Symbol `*hud-canvas*`
 
 HUD canvas defines the resolution and presentation properties for the heads-up display.
 
-```scheme
-(define *hud-canvas* '(1920 1080))
-```
+<pre><code class="language-scheme">(define *hud-canvas* '(1920 1080))
+</code></pre>
 
 # CLI
 
@@ -101,14 +96,13 @@ Symbol `*package-cli*`
 
 CLI flags define additional command-line arguments that can be used when launching the package.
 
-```scheme
-(define *package-cli*
+<pre><code class="language-scheme">(define *package-cli*
   '((flags
       (("--debug" . "Enable debug mode")
        ("--verbose" . "Enable verbose logging")))
     (args
       ((level . "Set difficulty level")))))
-```
+</code></pre>
 
 # Title
 
@@ -116,9 +110,8 @@ Symbol `*package-title*`
 
 Title screen layers define the elements that make up the title screen.
 
-```scheme
-(define *package-title*
+<pre><code class="language-scheme">(define *package-title*
   '((image "freedom/TITLEPIC" fit)
     (text "SlopEngine Demo" center)
     (logo "freedom/LOGO")))
-```
+</code></pre>

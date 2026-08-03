@@ -33,6 +33,14 @@ $mathjax
 $darkmode
 <link href="$relpath^$stylesheet" rel="stylesheet" type="text/css" />
 $extrastylesheet
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-scheme.min.js"></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    Prism.highlightAll();
+});
+</script>
 </head>
 <body>
 <!--BEGIN FULL_SIDEBAR-->
