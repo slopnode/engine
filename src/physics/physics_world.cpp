@@ -649,7 +649,10 @@ void PhysicsWorld::applyCharacterInput(
         newVelocity = currentVertical;
     }
 
-    newVelocity += JPH::Vec3(0.0f, -motor.gravity, 0.0f) * dt;
+    //newVelocity += JPH::Vec3(0.0f, -motor.gravity, 0.0f) * dt;
+    if (character.GetGroundState() != JPH::CharacterVirtual::EGroundState::OnGround) {
+        newVelocity += JPH::Vec3(0.0f, -motor.gravity, 0.0f) * dt;
+    }
     newVelocity += wish;
     character.SetLinearVelocity(newVelocity);
 }
