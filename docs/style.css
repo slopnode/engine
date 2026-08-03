@@ -17,6 +17,8 @@
 
 #titlearea {
     text-align: center;
+    background-color: #000;
+    color: #fff;
 }
 #titlearea > table {
     width: 100%
