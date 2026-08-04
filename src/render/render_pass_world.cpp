@@ -654,12 +654,23 @@ void drawWorldModels(
         }
         const std::unordered_set<int>* skipMeshes = nullptr;
         std::unordered_set<int> transparentSkip;
+        std::unordered_set<int> opaqueSkip;
         if (modelEntity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
             if (!lightmaps.transparentMeshIndices.empty()) {
                 transparentSkip = std::unordered_set<int>(
                     lightmaps.transparentMeshIndices.begin(),
                     lightmaps.transparentMeshIndices.end());
+            }
+            if (!lightmaps.skyMeshIndices.empty()) {
+                opaqueSkip = std::unordered_set<int>(
+                    lightmaps.skyMeshIndices.begin(),
+                    lightmaps.skyMeshIndices.end());
+                if (!transparentSkip.empty()) {
+                    opaqueSkip.insert(transparentSkip.begin(), transparentSkip.end());
+                }
+                skipMeshes = &opaqueSkip;
+            } else if (!transparentSkip.empty()) {
                 skipMeshes = &transparentSkip;
             }
         }

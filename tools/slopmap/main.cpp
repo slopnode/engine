@@ -19,6 +19,8 @@
 
 #include "map/thing.hpp"
 
+#include "render/skybox.hpp"
+#include "render/skybox_render.hpp"
 #include "assets/asset_store.hpp"
 #include "core/package.hpp"
 #include "core/package_meta.hpp"
@@ -439,6 +441,19 @@ void drawScene(
     const bool fillWire = editor.fill == slopmap::PreviewFill::Wireframe;
     const bool xrayAll = editor.wireframe == slopmap::WireframeOverlay::All;
     const bool xrayVisible = editor.wireframe == slopmap::WireframeOverlay::Visible;
+    const slopengine::SkyboxSettings* editorSky = nullptr;
+    slopengine::SkyboxSettings editorSkySettings{};
+    for (const slopengine::Thing& thing : d.things) {
+        if (thing.kind == slopengine::ThingKind::Skybox) {
+            editorSkySettings = slopengine::skyboxSettingsFromThing(thing, &assets);
+            editorSky = &editorSkySettings;
+            break;
+        }
+    }
+    if (editorSky != nullptr) {
+        slopengine::SkyboxShaderState& skyShaderState = slopengine::ensureSkyboxShaders(assets);
+        slopengine::drawSkyboxBackground(camera, assets, skyShaderState, *editorSky);
+    }
     editor.preview.draw(
         editor.fill,
         editor.wireframe,
@@ -447,7 +462,10 @@ void drawScene(
         selectedBrushes,
         eye,
         cameraForward,
-        lineWidth);
+        lineWidth,
+        &camera,
+        &assets,
+        &d.things);
 
     if (fillWire) {
         for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
@@ -3152,6 +3170,14 @@ int main(int argc, char* argv[]) {
                                             editor,
                                             slopengine::ThingKind::AmbientLight,
                                             createTool);
+                                    });
+                                placeKindButton(
+                                    "image",
+                                    "skybox",
+                                    isKind(slopengine::ThingKind::Skybox),
+                                    [&] {
+                                        beginThingKind(
+                                            editor, slopengine::ThingKind::Skybox, createTool);
                                     });
                                 drawCatalogDefs(
                                     slopengine::thingDefRegistry().defsForRole(

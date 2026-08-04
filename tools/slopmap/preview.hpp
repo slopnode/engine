@@ -4,6 +4,7 @@
 #include "map/brush.hpp"
 #include "map/fac.hpp"
 #include "map/lightmap.hpp"
+#include "map/thing.hpp"
 
 #include <raylib.h>
 
@@ -54,6 +55,8 @@ struct MapPreview {
     int solidLitLoc = -1;
     std::vector<Texture2D> lightmapAtlases;
     std::vector<int> transparentMeshIndices;
+    std::vector<int> skyMeshIndices;
+    Shader skyShader{};
 
     void clear();
     void clearVis();
@@ -77,7 +80,10 @@ struct MapPreview {
         const std::vector<int>& selectedBrushes,
         Vector3 eye,
         Vector3 cameraForward,
-        float lineWidth) const;
+        float lineWidth,
+        const Camera3D* camera = nullptr,
+        slopengine::AssetStore* assets = nullptr,
+        const std::vector<slopengine::Thing>* things = nullptr) const;
 };
 
 struct InfiniteGrid {

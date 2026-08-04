@@ -1,7 +1,10 @@
 #pragma once
 
+#include "map/sky_types.hpp"
+
 #include <raylib.h>
 
+#include <array>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -18,6 +21,12 @@ struct MaterialAsset {
     Color emissionColor = {0, 0, 0, 255};
     float emissionPower = 0.0f;
     bool sky = false; /**< Bake-time sun aperture; not a lightmap receiver. */
+    SkyboxMode skyMode = SkyboxMode::Solid;
+    bool haveSkyMode = false;
+    Vector3 skySolidColor{0.4f, 0.7f, 1.0f};
+    std::string skyCubeFaces[6];
+    std::array<SkyGradientStop, 4> skyGradientStops{};
+    int skyGradientStopCount = 0;
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;

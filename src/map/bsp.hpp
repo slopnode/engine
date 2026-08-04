@@ -99,7 +99,9 @@ struct MapLightmapState {
     bool available = false;
     int useLightmapLoc = -1;
     Shader lightmapShader{};
+    Shader skyShader{};
     std::vector<int> transparentMeshIndices;
+    std::vector<int> skyMeshIndices;
 };
 
 /** Tag on entities spawned as part of the active map scene. */

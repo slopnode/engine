@@ -91,6 +91,8 @@ set(SLOPLIB_SOURCES
     src/map/pvs_io.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
+    src/render/skybox.cpp
+    src/render/skybox_render.cpp
 )
 
 add_library(sloplib STATIC ${SLOPLIB_SOURCES})
@@ -152,6 +154,7 @@ add_executable(slopengine
     src/render/render_pass_world.cpp
     src/render/render_pass_fp.cpp
     src/render/post_process.cpp
+    src/render/skybox_world.cpp
     src/render/render_module.cpp
     src/render/hud.cpp
     src/script/scheme_call.cpp

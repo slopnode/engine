@@ -13,6 +13,7 @@
 #include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
+#include "render/skybox.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
@@ -637,6 +638,12 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
 
     if (thingKindIsLight(placement.kind)) {
         spawnLight(entity, placement, ctx);
+        return;
+    }
+
+    if (placement.kind == ThingKind::Skybox) {
+        entity.set<SkyboxSettings>(
+            skyboxSettingsFromThing(placement, ctx.assets));
         return;
     }
 

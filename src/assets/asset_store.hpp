@@ -152,6 +152,15 @@ public:
     /** Returns a cached texture, loading it when needed. */
     Texture2D getTexture(std::string_view path);
 
+    /** Returns a cached cubemap assembled from six face texture paths (+X -X +Y -Y +Z -Z). */
+    TextureCubemap getCubemapFaces(
+        std::string_view px,
+        std::string_view nx,
+        std::string_view py,
+        std::string_view ny,
+        std::string_view pz,
+        std::string_view nz);
+
     /** Returns a cached mesh model, loading it when needed. */
     Model getModel(std::string_view path);
 
@@ -304,6 +313,7 @@ private:
     VirtualFileSystem vfs_;
     Shader skinningShader_{};
     std::unordered_map<std::string, Texture2D> textures_;
+    std::unordered_map<std::string, Texture> cubemaps_;
     std::unordered_map<std::string, Model> models_;
     std::unordered_map<std::string, Model> geos_;
     std::unordered_map<std::string, MaterialAsset> materialAssets_;

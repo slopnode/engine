@@ -4,6 +4,7 @@
 
 #include <rlgl.h>
 
+#include <algorithm>
 #include <string>
 
 namespace slopengine {
@@ -36,6 +37,115 @@ bool readNumberField(const Sexpr& form, std::size_t count, float* out) {
             return false;
         }
         out[i] = static_cast<float>(form.list[i + 1].number);
+    }
+    return true;
+}
+
+bool readVec3Field(const Sexpr& form, Vector3& out) {
+    float rgb[3] = {};
+    if (!readNumberField(form, 3, rgb)) {
+        return false;
+    }
+    out = {rgb[0], rgb[1], rgb[2]};
+    return true;
+}
+
+bool applySkyCubeFace(const Sexpr& faceClause, MaterialAsset& asset, SexprParseError& error) {
+    if (!faceClause.isList() || faceClause.list.empty() ||
+        faceClause.list[0].kind != SexprKind::Atom) {
+        error = {"sky-cube face expected (tag \"path\")", faceClause.line, faceClause.column};
+        return false;
+    }
+    if (faceClause.list.size() != 2 || !faceClause.list[1].isString()) {
+        error = {"sky-cube face expected (tag \"path\")", faceClause.line, faceClause.column};
+        return false;
+    }
+    const std::string& faceTag = faceClause.list[0].text;
+    const std::string& path = faceClause.list[1].text;
+    if (faceTag == "px") {
+        asset.skyCubeFaces[0] = path;
+    } else if (faceTag == "nx") {
+        asset.skyCubeFaces[1] = path;
+    } else if (faceTag == "py") {
+        asset.skyCubeFaces[2] = path;
+    } else if (faceTag == "ny") {
+        asset.skyCubeFaces[3] = path;
+    } else if (faceTag == "pz") {
+        asset.skyCubeFaces[4] = path;
+    } else if (faceTag == "nz") {
+        asset.skyCubeFaces[5] = path;
+    } else {
+        error = {"unknown sky-cube face '" + faceTag + "'", faceClause.line, faceClause.column};
+        return false;
+    }
+    return true;
+}
+
+bool applySkyGradientField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
+    if (!form.isList() || !form.list[0].isAtom("sky-gradient")) {
+        error = {"(sky-gradient (stop ...))", form.line, form.column};
+        return false;
+    }
+    asset.skyMode = SkyboxMode::Gradient;
+    asset.haveSkyMode = true;
+    asset.skyGradientStopCount = 0;
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        const Sexpr& stopClause = form.list[i];
+        if (!stopClause.isList() || !stopClause.list[0].isAtom("stop")) {
+            error = {"sky-gradient expected (stop position r g b)", stopClause.line, stopClause.column};
+            return false;
+        }
+        if (stopClause.list.size() != 5) {
+            error = {"(stop position r g b)", stopClause.line, stopClause.column};
+            return false;
+        }
+        if (!stopClause.list[1].isNumber() || !stopClause.list[2].isNumber() ||
+            !stopClause.list[3].isNumber() || !stopClause.list[4].isNumber()) {
+            error = {"(stop position r g b)", stopClause.line, stopClause.column};
+            return false;
+        }
+        if (asset.skyGradientStopCount >= 4) {
+            error = {"sky-gradient accepts exactly 4 stops", stopClause.line, stopClause.column};
+            return false;
+        }
+        SkyGradientStop stop{};
+        stop.position = static_cast<float>(stopClause.list[1].number);
+        stop.color = {
+            static_cast<float>(stopClause.list[2].number),
+            static_cast<float>(stopClause.list[3].number),
+            static_cast<float>(stopClause.list[4].number),
+        };
+        asset.skyGradientStops[static_cast<std::size_t>(asset.skyGradientStopCount)] = stop;
+        ++asset.skyGradientStopCount;
+    }
+    if (asset.skyGradientStopCount != 4) {
+        error = {"sky-gradient requires exactly 4 stops", form.line, form.column};
+        return false;
+    }
+    std::sort(
+        asset.skyGradientStops.begin(),
+        asset.skyGradientStops.begin() + asset.skyGradientStopCount,
+        [](const SkyGradientStop& a, const SkyGradientStop& b) { return a.position < b.position; });
+    return true;
+}
+
+bool applySkyCubeField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
+    if (!form.isList() || !form.list[0].isAtom("sky-cube")) {
+        error = {"(sky-cube (px ...) ... (nz ...))", form.line, form.column};
+        return false;
+    }
+    asset.skyMode = SkyboxMode::Cube;
+    asset.haveSkyMode = true;
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        if (!applySkyCubeFace(form.list[i], asset, error)) {
+            return false;
+        }
+    }
+    if (asset.skyCubeFaces[0].empty() || asset.skyCubeFaces[1].empty() ||
+        asset.skyCubeFaces[2].empty() || asset.skyCubeFaces[3].empty() ||
+        asset.skyCubeFaces[4].empty() || asset.skyCubeFaces[5].empty()) {
+        error = {"sky-cube requires px nx py ny pz nz faces", form.line, form.column};
+        return false;
     }
     return true;
 }
@@ -117,6 +227,21 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.sky = flag != 0.0f;
         return true;
     }
+    if (tag == "sky-color") {
+        if (!readVec3Field(form, asset.skySolidColor)) {
+            error = {"(sky-color r g b)", form.line, form.column};
+            return false;
+        }
+        asset.skyMode = SkyboxMode::Solid;
+        asset.haveSkyMode = true;
+        return true;
+    }
+    if (tag == "sky-gradient") {
+        return applySkyGradientField(form, asset, error);
+    }
+    if (tag == "sky-cube") {
+        return applySkyCubeField(form, asset, error);
+    }
 
     error = {"unknown material field '" + tag + "'", form.line, form.column};
     return false;
@@ -137,10 +262,21 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
 
     const Sexpr& root = parsed.forms[0];
     SexprParseError error{};
+    int skyAppearanceCount = 0;
     for (std::size_t i = 1; i < root.list.size(); ++i) {
+        const Sexpr& field = root.list[i];
+        if (field.isList() && !field.list.empty() && field.list[0].kind == SexprKind::Atom) {
+            const std::string& tag = field.list[0].text;
+            if (tag == "sky-color" || tag == "sky-gradient" || tag == "sky-cube") {
+                ++skyAppearanceCount;
+            }
+        }
         if (!applyMaterialField(root.list[i], asset, error)) {
             return false;
         }
+    }
+    if (skyAppearanceCount > 1) {
+        return false;
     }
     return true;
 }

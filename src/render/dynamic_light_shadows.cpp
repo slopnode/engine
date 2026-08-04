@@ -39,14 +39,21 @@ void drawShadowCasters(
             return;
         }
         const std::unordered_set<int>* skipMeshes = nullptr;
-        std::unordered_set<int> transparentSkip;
+        std::unordered_set<int> meshSkip;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.transparentMeshIndices.empty()) {
-                transparentSkip = std::unordered_set<int>(
+                meshSkip.insert(
                     lightmaps.transparentMeshIndices.begin(),
                     lightmaps.transparentMeshIndices.end());
-                skipMeshes = &transparentSkip;
+            }
+            if (!lightmaps.skyMeshIndices.empty()) {
+                meshSkip.insert(
+                    lightmaps.skyMeshIndices.begin(),
+                    lightmaps.skyMeshIndices.end());
+            }
+            if (!meshSkip.empty()) {
+                skipMeshes = &meshSkip;
             }
         }
         std::vector<Shader> previous;

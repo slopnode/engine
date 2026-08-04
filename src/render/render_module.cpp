@@ -21,6 +21,7 @@
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
 #include "render/render_frustum.hpp"
+#include "render/skybox_world.hpp"
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
 #include "script/first_person_script.hpp"
@@ -194,7 +195,18 @@ void registerRenderSystems(flecs::world& world) {
             }
 
             BeginMode3D(presentCam);
+            AssetStore* assetStore =
+                world.has<AssetServices>() ? world.get<AssetServices>().store : nullptr;
+            SkyboxShaderState* skyShaderState = nullptr;
+            const SkyboxSettings* skySettings = findActiveSkybox(world);
+            if (skySettings != nullptr && assetStore != nullptr) {
+                skyShaderState = &ensureSkyboxShaders(*assetStore);
+                drawSkyboxBackground(presentCam, *assetStore, *skyShaderState, *skySettings);
+            }
             drawWorldModels(world, context, lens, frustum, unlit);
+            if (skySettings != nullptr && assetStore != nullptr && skyShaderState != nullptr) {
+                drawSkyMaterialFaces(world, presentCam, *assetStore, *skyShaderState, *skySettings);
+            }
             const std::string spriteAimStatus =
                 drawWorldTransparentPass(world, context, lens, frustum, unlit);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {

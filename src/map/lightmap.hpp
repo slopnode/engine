@@ -88,6 +88,12 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data);
 
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc);
 
+/** Loads the infinite-sky background shader. */
+Shader loadSkyboxBackgroundShader(AssetStore& assets);
+
+/** Loads the sky-face shader used by map sky brush materials. */
+Shader loadSkyFaceShader(AssetStore& assets);
+
 /** Binds a dummy sampler2DArray so lit preview/map draw does not conflict with albedo. */
 void bindLightmapDummyShadowMaps(Shader shader);
 
