@@ -30,9 +30,22 @@ struct RadiositySettings {
     float emitterGridLuxelsPerMeter = 8.0f;
     /** Maximum emission grid dimension per emissive face axis. */
     int emitterGridMaxSize = 32;
+    /** 0 = sharp sun/window shadows (legacy), 1 = fuzzy penumbra. */
+    float sunShadowSoftness = 0.0f;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
 };
+
+/** Resolved bake parameters derived from @ref RadiositySettings::sunShadowSoftness. */
+struct SunShadowSoftnessParams {
+    int rayCount = 1;
+    float angularSpreadRad = 0.0f;
+    float denoiseSpatialSigma = 1.0f;
+    float denoiseRangeSigma = 0.35f;
+    int denoiseKernelRadius = 1;
+};
+
+SunShadowSoftnessParams resolveSunShadowSoftness(float softness);
 
 /** Material + optional albedo/emission images for bake sampling. */
 struct MaterialBakeInfo {

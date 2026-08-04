@@ -128,6 +128,17 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.emitterGridMaxSize = parsed;
+        } else if (arg == "--sun-shadow-softness") {
+            const char* value = needValue("--sun-shadow-softness");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 0.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.sunShadowSoftness = parsed;
         } else if (arg == "--gpu") {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
@@ -158,7 +169,8 @@ int main(int argc, char* argv[]) {
             << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
             << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n"
             << "       [--emitter-direct-samples N] [--emitter-grid-luxels-per-meter N]\n"
-            << "       [--emitter-grid-max-size N] [--gpu|--cpu]\n"
+            << "       [--emitter-grid-max-size N] [--sun-shadow-softness N]\n"
+            << "       [--gpu|--cpu]\n"
             << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
     }

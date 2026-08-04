@@ -19,6 +19,7 @@ add_executable(sloptests
     test_lightmap_transparent.cpp
     test_lightmap_rgbe.cpp
     test_radiosity_emitters.cpp
+    test_sun_shadow_softness.cpp
     test_sight.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
@@ -62,4 +63,5 @@ add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)
 add_test(NAME sloptests.lightmap_rgbe COMMAND sloptests lightmap_rgbe)
 add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
+add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)

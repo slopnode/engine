@@ -3779,6 +3779,23 @@ int main(int argc, char* argv[]) {
             if (compile.radOptions.samples < 1) {
                 compile.radOptions.samples = 1;
             }
+            ImGui::SliderFloat(
+                "Sun shadow softness",
+                &compile.radOptions.sunShadowSoftness,
+                0.0f,
+                1.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "0 = sharp window/sun edges (legacy). "
+                    "Higher values add softer penumbra and denoise shadow boundaries.");
+            }
+            if (compile.radOptions.sunShadowSoftness < 0.0f) {
+                compile.radOptions.sunShadowSoftness = 0.0f;
+            }
+            if (compile.radOptions.sunShadowSoftness > 1.0f) {
+                compile.radOptions.sunShadowSoftness = 1.0f;
+            }
             if (ImGui::RadioButton("GPU", compile.radOptions.preferGpu)) {
                 compile.radOptions.preferGpu = true;
             }

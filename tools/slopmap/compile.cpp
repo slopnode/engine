@@ -167,6 +167,8 @@ std::vector<std::string> CompileController::buildArgs(CompileStage stage) const 
         args.push_back(std::to_string(radOptions.emitterGridLuxelsPerMeter));
         args.emplace_back("--emitter-grid-max-size");
         args.push_back(std::to_string(radOptions.emitterGridMaxSize));
+        args.emplace_back("--sun-shadow-softness");
+        args.push_back(std::to_string(radOptions.sunShadowSoftness));
         if (radOptions.preferGpu) {
             args.emplace_back("--gpu");
             if (radOptions.forceDiscreteGpu) {

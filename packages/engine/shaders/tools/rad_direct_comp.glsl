@@ -156,6 +156,8 @@ struct Params {
     float minDist2;
     int emitterDirectSamples;
     int emissionGridFloats;
+    int sunRayCount;
+    float sunAngularSpread;
 };
 
 layout(std430, binding = 0) buffer LuxelBuffer {
@@ -598,6 +600,69 @@ float smoothstep(float edge0, float edge1, float x) {
     return t * t * (3.0 - 2.0 * t);
 }
 
+void buildSunBasis(vec3 toLight, out vec3 tangentOut, out vec3 bitangentOut) {
+    vec3 helper = abs(toLight.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    tangentOut = normalize(cross(helper, toLight));
+    bitangentOut = normalize(cross(toLight, tangentOut));
+}
+
+vec3 sampleSunRayDirection(
+    vec3 toLight,
+    vec3 tangent,
+    vec3 bitangent,
+    float angularSpreadRad,
+    int rayIndex,
+    int rayCount) {
+    if (rayCount <= 1 || angularSpreadRad <= 0.0) {
+        return toLight;
+    }
+    int strataN = max(1, int(floor(sqrt(float(rayCount)))));
+    int strataM = max(1, (rayCount + strataN - 1) / strataN);
+    int sy = rayIndex / strataN;
+    int sx = rayIndex % strataN;
+    float fu = (float(sx) + 0.5) / float(strataN);
+    float fv = (float(sy) + 0.5) / float(strataM);
+    float r = sqrt(fu);
+    float theta = fv * 6.28318530718;
+    float dx = r * cos(theta);
+    float dy = r * sin(theta);
+    float spread = tan(angularSpreadRad);
+    return normalize(toLight + tangent * (dx * spread) + bitangent * (dy * spread));
+}
+
+float sunSkyVisibility(
+    vec3 luxelPos,
+    int luxelFaceIndex,
+    vec3 toLight,
+    vec3 tangent,
+    vec3 bitangent) {
+    if (params.sunRayCount <= 1 || params.sunAngularSpread <= 0.0) {
+        int hitFace = -1;
+        if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+            || !isSkyFace(hitFace)) {
+            return 0.0;
+        }
+        return 1.0;
+    }
+
+    float hits = 0.0;
+    for (int ray = 0; ray < params.sunRayCount; ++ray) {
+        vec3 rayDir = sampleSunRayDirection(
+            toLight,
+            tangent,
+            bitangent,
+            params.sunAngularSpread,
+            ray,
+            params.sunRayCount);
+        int hitFace = -1;
+        if (raycastAny(luxelPos, rayDir, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+            && isSkyFace(hitFace)) {
+            hits += 1.0;
+        }
+    }
+    return hits / float(params.sunRayCount);
+}
+
 void main() {
     uint localId = gl_GlobalInvocationID.x;
     if (localId >= uint(params.luxelBatch)) {
@@ -647,12 +712,14 @@ void main() {
             if (nDotL <= 0.0) {
                 continue;
             }
-            int hitFace = -1;
-            if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxel.faceIndex, -1, hitFace)
-                || !isSkyFace(hitFace)) {
+            vec3 tangent;
+            vec3 bitangent;
+            buildSunBasis(toLight, tangent, bitangent);
+            float visibility = sunSkyVisibility(luxelPos, luxel.faceIndex, toLight, tangent, bitangent);
+            if (visibility <= 0.0) {
                 continue;
             }
-            vec3 contrib = intensity * nDotL;
+            vec3 contrib = intensity * (nDotL * visibility);
             if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
                 && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
                 irradiance += contrib;

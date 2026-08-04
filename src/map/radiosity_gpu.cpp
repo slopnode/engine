@@ -203,6 +203,8 @@ struct GpuParamsSSBO {
     float minDist2 = 0.0025f;
     std::int32_t emitterDirectSamples = 4;
     std::int32_t emissionGridFloats = 0;
+    std::int32_t sunRayCount = 1;
+    float sunAngularSpread = 0.0f;
 };
 
 static_assert(sizeof(GpuLuxelSSBO) == 48);
@@ -212,7 +214,7 @@ static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
 static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
-static_assert(sizeof(GpuParamsSSBO) == 72);
+static_assert(sizeof(GpuParamsSSBO) == 80);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
@@ -400,6 +402,8 @@ void fillBaseParams(
     params.minDist2 = directParams.minDist2;
     params.emitterDirectSamples = directParams.emitterDirectSamples;
     params.emissionGridFloats = directParams.emissionGridFloats;
+    params.sunRayCount = directParams.sunRayCount;
+    params.sunAngularSpread = directParams.sunAngularSpread;
 }
 
 bool dispatchBatch(

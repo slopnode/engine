@@ -81,6 +81,8 @@ struct RadGpuDirectParams {
     float emitterQueryRadius = 0.0f;
     int emitterDirectSamples = 4;
     int emissionGridFloats = 0;
+    int sunRayCount = 1;
+    float sunAngularSpread = 0.0f;
     bool gpuSafeMode = false;
 };
 

@@ -20,6 +20,7 @@ struct RadCompileOptions {
     int emitterDirectSamples = 4;
     float emitterGridLuxelsPerMeter = 8.0f;
     int emitterGridMaxSize = 32;
+    float sunShadowSoftness = 0.0f;
     bool preferGpu = true;
     /** On hybrid systems, request the discrete GPU for sloprad (Linux DRI_PRIME / Windows shim). */
     bool forceDiscreteGpu = true;
