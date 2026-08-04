@@ -1975,7 +1975,7 @@ void Editor::setSelectedBrushesAsDoors() {
         const slopengine::BrushRole previous = brush.role;
         const bool wasDoor = brush.role == slopengine::BrushRole::Door;
         brush.role = slopengine::BrushRole::Door;
-        brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
+        slopengine::setBrushBlocks(brush, slopengine::brushRoleDefaultBlocks(brush.role));
         if (!wasDoor) {
             brush.door = slopengine::BrushDoor{};
             brush.door.motion = slopengine::DoorMotion::Raise;
@@ -2046,7 +2046,7 @@ void Editor::toggleSelectedBrushRole() {
             brush.role = slopengine::BrushRole::Hull;
             break;
         }
-        brush.nocollide = slopengine::brushRoleDefaultNocollide(brush.role);
+        slopengine::setBrushBlocks(brush, slopengine::brushRoleDefaultBlocks(brush.role));
         if (slopengine::brushRoleContributesSplits(previous) ||
             slopengine::brushRoleContributesSplits(brush.role)) {
             anySplit = true;

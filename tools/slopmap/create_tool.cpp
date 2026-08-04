@@ -194,7 +194,6 @@ void CreateTool::commitPending(Editor& editor) {
     EditorDocument& d = editor.doc();
     editor.prepareEdit();
     std::vector<int> created;
-    const auto nocollide = slopengine::brushRoleDefaultNocollide(editor.createBrushRole);
 
     if (editor.createPrimitive == CreatePrimitive::Cylinder) {
         std::string error;
@@ -213,7 +212,8 @@ void CreateTool::commitPending(Editor& editor) {
             editor.showPrimitiveParamsModal = false;
             return;
         }
-        brush->nocollide = nocollide;
+        brush->blocks = slopengine::brushRoleDefaultBlocks(editor.createBrushRole);
+        slopengine::syncBrushNocollide(*brush);
         d.brushes.push_back(std::move(*brush));
         created.push_back(static_cast<int>(d.brushes.size()) - 1);
     } else if (editor.createPrimitive == CreatePrimitive::Stairs) {
@@ -226,7 +226,8 @@ void CreateTool::commitPending(Editor& editor) {
             d.defaultMaterial,
             editor.createBrushRole);
         for (slopengine::Brush& brush : stairs) {
-            brush.nocollide = nocollide;
+            brush.blocks = slopengine::brushRoleDefaultBlocks(editor.createBrushRole);
+            slopengine::syncBrushNocollide(brush);
             d.brushes.push_back(std::move(brush));
             created.push_back(static_cast<int>(d.brushes.size()) - 1);
         }
@@ -238,7 +239,8 @@ void CreateTool::commitPending(Editor& editor) {
             d.defaultMaterial,
             {},
             editor.createBrushRole);
-        brush.nocollide = nocollide;
+        brush.blocks = slopengine::brushRoleDefaultBlocks(editor.createBrushRole);
+        slopengine::syncBrushNocollide(brush);
         d.brushes.push_back(std::move(brush));
         created.push_back(static_cast<int>(d.brushes.size()) - 1);
     }

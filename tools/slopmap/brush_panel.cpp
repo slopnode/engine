@@ -369,7 +369,7 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
                 const slopengine::BrushRole next = kRoles[i];
                 if (forEachBrush(editor, targets, [next](slopengine::Brush& brush, slopengine::BrushRole previous) {
                         brush.role = next;
-                        brush.nocollide = slopengine::brushRoleDefaultNocollide(next);
+                        slopengine::setBrushBlocks(brush, slopengine::brushRoleDefaultBlocks(next));
                         if (next == slopengine::BrushRole::Door &&
                             previous != slopengine::BrushRole::Door) {
                             brush.door = slopengine::BrushDoor{};
@@ -398,12 +398,90 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
     bool nocollide = nocollideCommon.value_or(false);
     if (checkboxMixed("Nocollide", &nocollide, !nocollideCommon.has_value())) {
         if (forEachBrush(editor, targets, [nocollide](slopengine::Brush& brush, slopengine::BrushRole) {
-                brush.nocollide = nocollide;
+                if (nocollide) {
+                    slopengine::setBrushBlocks(brush, 0);
+                } else {
+                    slopengine::setBrushBlocks(brush, slopengine::brushRoleDefaultBlocks(brush.role));
+                }
             })) {
             result.changed = true;
             editor.statusMessage = nocollide ? "Set brush nocollide" : "Cleared brush nocollide";
         }
     }
+
+    ImGui::TextUnformatted("Blocking");
+    const auto blockLosCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Brush& b) { return (b.blocks & slopengine::BrushBlock::Los) != 0; });
+    const auto blockLinescanCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Brush& b) { return (b.blocks & slopengine::BrushBlock::Linescan) != 0; });
+    const auto blockProjectileCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Brush& b) { return (b.blocks & slopengine::BrushBlock::Projectile) != 0; });
+    const auto blockPlayerCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Brush& b) { return (b.blocks & slopengine::BrushBlock::Player) != 0; });
+    const auto blockActorCommon = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Brush& b) { return (b.blocks & slopengine::BrushBlock::Actor) != 0; });
+
+    auto drawBlockToggle = [&](const char* label,
+                               const std::optional<bool>& common,
+                               std::uint8_t bit,
+                               const char* statusOn,
+                               const char* statusOff) {
+        bool value = common.value_or(false);
+        if (checkboxMixed(label, &value, !common.has_value())) {
+            if (forEachBrush(editor, targets, [bit, value](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (value) {
+                        brush.blocks = static_cast<std::uint8_t>(brush.blocks | bit);
+                    } else {
+                        brush.blocks = static_cast<std::uint8_t>(brush.blocks & ~bit);
+                    }
+                    slopengine::syncBrushNocollide(brush);
+                })) {
+                result.changed = true;
+                editor.statusMessage = value ? statusOn : statusOff;
+            }
+        }
+    };
+
+    drawBlockToggle(
+        "Blocks LOS",
+        blockLosCommon,
+        slopengine::BrushBlock::Los,
+        "Set brush block LOS",
+        "Cleared brush block LOS");
+    drawBlockToggle(
+        "Blocks Linescans",
+        blockLinescanCommon,
+        slopengine::BrushBlock::Linescan,
+        "Set brush block linescans",
+        "Cleared brush block linescans");
+    drawBlockToggle(
+        "Blocks Projectiles",
+        blockProjectileCommon,
+        slopengine::BrushBlock::Projectile,
+        "Set brush block projectiles",
+        "Cleared brush block projectiles");
+    drawBlockToggle(
+        "Blocks Player",
+        blockPlayerCommon,
+        slopengine::BrushBlock::Player,
+        "Set brush block player",
+        "Cleared brush block player");
+    drawBlockToggle(
+        "Blocks Actor",
+        blockActorCommon,
+        slopengine::BrushBlock::Actor,
+        "Set brush block actor",
+        "Cleared brush block actor");
 
     ImGui::Separator();
     if (boxCommon.has_value()) {

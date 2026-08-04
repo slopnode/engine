@@ -15,6 +15,7 @@ add_executable(sloptests
     test_brush_door.cpp
     test_brush_split.cpp
     test_brush_role.cpp
+    test_brush_blocks.cpp
     test_lightmap_transparent.cpp
     test_sight.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
@@ -55,5 +56,6 @@ add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)
 add_test(NAME sloptests.brush_door COMMAND sloptests brush_door)
 add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
 add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
+add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)
 add_test(NAME sloptests.sight COMMAND sloptests sight)

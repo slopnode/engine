@@ -5,6 +5,7 @@
 #include <raylib.h>
 
 #include <array>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -35,6 +36,16 @@ enum class BrushRole {
     Window,
     Transparent,
 };
+
+/** Per-brush physics query blocking flags. */
+namespace BrushBlock {
+constexpr std::uint8_t Los = 1u << 0;
+constexpr std::uint8_t Linescan = 1u << 1;
+constexpr std::uint8_t Projectile = 1u << 2;
+constexpr std::uint8_t Player = 1u << 3;
+constexpr std::uint8_t Actor = 1u << 4;
+constexpr std::uint8_t All = Los | Linescan | Projectile | Player | Actor;
+}
 
 /** Engine door motion on a detail brush leaf. */
 enum class DoorMotion {
@@ -84,8 +95,9 @@ struct Brush {
     Vector3 mins{};
     Vector3 maxs{};
     std::vector<BrushFace> faces;
-    bool box = false;      /**< True when authored as brush-box. */
-    bool nocollide = false; /**< Skip physics body when true. */
+    bool box = false; /**< True when authored as brush-box. */
+    std::uint8_t blocks = BrushBlock::All; /**< Physics query blocking mask. */
+    bool nocollide = false; /**< Derived: true when @p blocks is zero. */
     BrushDoor door{}; /**< Meaningful when role is Door. */
 };
 
@@ -101,6 +113,10 @@ bool brushRoleEmitsVisFaces(BrushRole role);
 bool brushRoleOccludesVisFaces(BrushRole role);
 bool brushRoleReceivesVisOcclusion(BrushRole role);
 bool brushRoleDefaultNocollide(BrushRole role);
+std::uint8_t brushRoleDefaultBlocks(BrushRole role);
+bool brushBlocksAny(std::uint8_t blocks);
+void syncBrushNocollide(Brush& brush);
+void setBrushBlocks(Brush& brush, std::uint8_t blocks);
 bool brushRoleNeedsInteriorPlacement(BrushRole role);
 
 Vector3 faceNormalFromVertices(const std::vector<Vector3>& vertices);

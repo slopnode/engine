@@ -200,7 +200,7 @@ void updateParticleSystems(
     if (physics != nullptr) {
         raycast = [physics](Vector3 origin, Vector3 direction, float distance)
             -> std::optional<ParticleRayHit> {
-            const auto hit = physics->castRay(origin, direction, distance);
+            const auto hit = physics->castRay(origin, direction, distance, BrushBlock::Projectile);
             if (!hit) {
                 return std::nullopt;
             }

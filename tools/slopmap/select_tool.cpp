@@ -509,7 +509,8 @@ slopengine::Brush makeBoxAt(
     }
     slopengine::Brush brush =
         slopengine::makeBrushBox(src.id, mins, maxs, material, overrides, src.role);
-    brush.nocollide = src.nocollide;
+    brush.blocks = src.blocks;
+    slopengine::syncBrushNocollide(brush);
     compensateUvLocks(src, brush, assets);
     return brush;
 }
@@ -705,7 +706,8 @@ slopengine::Brush promoteToBoxIfPossible(
     }
     slopengine::Brush brush = slopengine::makeBrushBox(
         src.id, src.mins, src.maxs, material, overrides, src.role);
-    brush.nocollide = src.nocollide;
+    brush.blocks = src.blocks;
+    slopengine::syncBrushNocollide(brush);
     compensateUvLocks(src, brush, assets);
     return brush;
 }

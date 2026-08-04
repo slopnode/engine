@@ -83,7 +83,7 @@ bool losClear(PhysicsWorld* physics, Vector3 from, Vector3 to) {
         return true;
     }
     const Vector3 dir = Vector3Scale(delta, 1.0f / distance);
-    return !physics->castRay(from, dir, distance).has_value();
+    return !physics->castRay(from, dir, distance, BrushBlock::Linescan).has_value();
 }
 
 bool pvsClear(flecs::world& world, Vector3 from, Vector3 to) {

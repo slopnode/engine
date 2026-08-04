@@ -1,5 +1,6 @@
 #pragma once
 
+#include "map/brush.hpp"
 #include "physics/motored_body.hpp"
 
 #include <Jolt/Jolt.h>
@@ -82,12 +83,14 @@ struct PhysicsWorld {
         Vector3 origin,
         Vector3 direction,
         float distance,
-        float radius) const;
+        float radius,
+        std::uint8_t blockMask = BrushBlock::Los) const;
 
     std::optional<RayCastHit> castRay(
         Vector3 origin,
         Vector3 direction,
-        float distance) const;
+        float distance,
+        std::uint8_t blockMask = BrushBlock::Los) const;
 
     bool hasCharacter(std::uint64_t id) const;
     bool hasPlayer() const;
@@ -116,10 +119,12 @@ private:
     void stepCharacter(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
-        bool noclip);
+        bool noclip,
+        std::uint64_t characterId);
     void stepCharacterTryMove(
         JPH::CharacterVirtual& character,
-        const CharacterMotor& motor);
+        const CharacterMotor& motor,
+        std::uint64_t characterId);
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;
@@ -137,6 +142,7 @@ private:
     std::unordered_map<std::uint64_t, bool> kinematicSlide_;
     std::uint64_t playerId_ = 0;
     std::vector<JPH::BodyID> staticBodies_;
+    std::unordered_map<JPH::uint32, std::uint8_t> staticBodyBlocks_;
     float accumulator_ = 0.0f;
     bool factoryInitialized_ = false;
 };
