@@ -45,6 +45,14 @@ std::string cubemapKey(const SkyboxSettings& settings) {
     return key;
 }
 
+int locateShaderArray(Shader shader, const char* baseName) {
+    int loc = GetShaderLocation(shader, baseName);
+    if (loc < 0) {
+        loc = GetShaderLocation(shader, TextFormat("%s[0]", baseName));
+    }
+    return loc;
+}
+
 } // namespace
 
 void applySkyShaderUniforms(
@@ -72,8 +80,8 @@ void applySkyShaderUniforms(
     const int skyModeLoc = GetShaderLocation(shader, "skyMode");
     const int skySolidColorLoc = GetShaderLocation(shader, "skySolidColor");
     const int skyCubeLoc = GetShaderLocation(shader, "skyCube");
-    const int skyGradientColorsLoc = GetShaderLocation(shader, "skyGradientColors");
-    const int skyGradientPositionsLoc = GetShaderLocation(shader, "skyGradientPositions");
+    const int skyGradientColorsLoc = locateShaderArray(shader, "skyGradientColors");
+    const int skyGradientPositionsLoc = locateShaderArray(shader, "skyGradientPositions");
 
     if (skyModeLoc >= 0) {
         SetShaderValue(shader, skyModeLoc, &skyMode, SHADER_UNIFORM_INT);
@@ -82,10 +90,10 @@ void applySkyShaderUniforms(
         SetShaderValue(shader, skySolidColorLoc, solidColor, SHADER_UNIFORM_VEC3);
     }
     if (skyGradientColorsLoc >= 0) {
-        SetShaderValue(shader, skyGradientColorsLoc, gradientColors, SHADER_UNIFORM_VEC4);
+        SetShaderValueV(shader, skyGradientColorsLoc, gradientColors, SHADER_UNIFORM_VEC4, 4);
     }
     if (skyGradientPositionsLoc >= 0) {
-        SetShaderValue(shader, skyGradientPositionsLoc, gradientPositions, SHADER_UNIFORM_FLOAT);
+        SetShaderValueV(shader, skyGradientPositionsLoc, gradientPositions, SHADER_UNIFORM_FLOAT, 4);
     }
 
     if (settings.mode != SkyboxMode::Cube || skyCubeLoc < 0) {
@@ -171,7 +179,9 @@ void drawSkyboxBackground(
     rlDisableDepthMask();
     rlEnableDepthTest();
     BeginShaderMode(shaderState.backgroundShader);
-    DrawMesh(skyboxCubeMesh(), Material{}, MatrixScale(1000.0f, 1000.0f, 1000.0f));
+    Matrix model = MatrixTranslate(camera.position.x, camera.position.y, camera.position.z);
+    model = MatrixMultiply(model, MatrixScale(1000.0f, 1000.0f, 1000.0f));
+    DrawMesh(skyboxCubeMesh(), Material{}, model);
     EndShaderMode();
     rlEnableDepthMask();
 }

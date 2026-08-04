@@ -1,21 +1,28 @@
 #include "render/skybox.hpp"
 
+#include "map/thing.hpp"
+
 namespace slopengine {
 
 namespace {
 
 SkyboxSettings settingsFromInlineThing(const Thing& placement) {
+    Thing normalized = placement;
+    if (normalized.skyboxMode == SkyboxMode::Gradient &&
+        normalized.skyGradientStopCount != 4) {
+        ensureSkyboxGradientDefaults(normalized);
+    }
     SkyboxSettings settings{};
-    settings.mode = placement.skyboxMode;
-    settings.solidColor = placement.color;
-    settings.cubeFaces[0] = placement.skyCubePx;
-    settings.cubeFaces[1] = placement.skyCubeNx;
-    settings.cubeFaces[2] = placement.skyCubePy;
-    settings.cubeFaces[3] = placement.skyCubeNy;
-    settings.cubeFaces[4] = placement.skyCubePz;
-    settings.cubeFaces[5] = placement.skyCubeNz;
-    settings.gradientStops = placement.skyGradientStops;
-    settings.gradientStopCount = placement.skyGradientStopCount;
+    settings.mode = normalized.skyboxMode;
+    settings.solidColor = normalized.color;
+    settings.cubeFaces[0] = normalized.skyCubePx;
+    settings.cubeFaces[1] = normalized.skyCubeNx;
+    settings.cubeFaces[2] = normalized.skyCubePy;
+    settings.cubeFaces[3] = normalized.skyCubeNy;
+    settings.cubeFaces[4] = normalized.skyCubePz;
+    settings.cubeFaces[5] = normalized.skyCubeNz;
+    settings.gradientStops = normalized.skyGradientStops;
+    settings.gradientStopCount = normalized.skyGradientStopCount;
     return settings;
 }
 

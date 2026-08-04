@@ -10,8 +10,9 @@ out vec3 fragViewDir;
 
 void main()
 {
-    fragWorldDir = vertexPosition;
     fragViewDir = (matViewRot * vec4(vertexPosition, 0.0)).xyz;
+    mat3 viewToWorld = transpose(mat3(matViewRot));
+    fragWorldDir = viewToWorld * vertexPosition;
     vec4 pos = matProjection * vec4(fragViewDir, 1.0);
     gl_Position = pos.xyww;
 }

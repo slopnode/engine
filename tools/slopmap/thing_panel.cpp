@@ -1948,6 +1948,9 @@ bool drawSkyboxSection(
             if (forEachSkybox(editor, targets, [next](slopengine::Thing& thing) {
                     thing.skyboxMode = next;
                     thing.haveSkyboxMode = true;
+                    if (next == slopengine::SkyboxMode::Gradient) {
+                        slopengine::ensureSkyboxGradientDefaults(thing);
+                    }
                 })) {
                 changed = true;
                 editor.statusMessage = "Set skybox mode override";
@@ -1961,6 +1964,9 @@ bool drawSkyboxSection(
         if (checkboxMixed("Use overrides", &hasOverride, !overrideCommon.has_value())) {
             if (forEachSkybox(editor, targets, [hasOverride](slopengine::Thing& thing) {
                     thing.haveSkyboxMode = hasOverride;
+                    if (hasOverride && thing.skyboxMode == slopengine::SkyboxMode::Gradient) {
+                        slopengine::ensureSkyboxGradientDefaults(thing);
+                    }
                 })) {
                 changed = true;
                 editor.statusMessage = hasOverride ? "Sky overrides enabled" : "Sky overrides disabled";
@@ -1969,7 +1975,7 @@ bool drawSkyboxSection(
 
         const slopengine::SkyboxMode editMode =
             modeCommon.value_or(slopengine::SkyboxMode::Gradient);
-        if (hasOverride || overrideCommon.has_value()) {
+        if (hasOverride) {
             if (editMode == slopengine::SkyboxMode::Solid) {
                 const auto colorCommon = commonValue<Vector3>(
                     doc, targets, [](const slopengine::Thing& t) { return t.color; }, colorEqual);

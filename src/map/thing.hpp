@@ -189,6 +189,19 @@ inline Thing makeDefaultSkyboxThing() {
     return t;
 }
 
+inline void ensureSkyboxGradientDefaults(Thing& t) {
+    if (t.skyGradientStopCount == 4) {
+        return;
+    }
+    t.skyGradientStops = {{
+        {0.0f, {0.55f, 0.75f, 1.0f}},
+        {0.25f, {0.45f, 0.65f, 0.95f}},
+        {0.55f, {0.25f, 0.45f, 0.75f}},
+        {1.0f, {0.05f, 0.10f, 0.25f}},
+    }};
+    t.skyGradientStopCount = 4;
+}
+
 inline const char* thingKindName(ThingKind kind) {
     switch (kind) {
     case ThingKind::PlayerStart:
