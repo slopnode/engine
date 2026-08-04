@@ -10,6 +10,7 @@
 #include "map/bsp_io.hpp"
 #include "map/csg_compile.hpp"
 #include "map/lightmap.hpp"
+#include "assets/texture_anim_loader.hpp"
 #include "map/map_meta.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/prefab.hpp"
@@ -1020,6 +1021,12 @@ MaterialUvInfo resolveMaterialUv(AssetStore& assets, std::string_view materialPa
                 info.textureWidth = static_cast<float>(texture.width);
                 info.textureHeight = static_cast<float>(texture.height);
             }
+        } else if (!asset->textureAnimPath.empty()) {
+            const Texture2D texture = assets.resolveTextureAnimFrame(asset->textureAnimPath, "default", 0);
+            if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
+                info.textureWidth = static_cast<float>(texture.width);
+                info.textureHeight = static_cast<float>(texture.height);
+            }
         }
     }
     return info;
@@ -1572,6 +1579,8 @@ std::optional<LoadedMap> loadAndCompileMap(
         static_cast<int>(brushes->size()),
         model.meshCount,
         result.hasLightmaps ? "yes" : "no");
+
+    collectMaterialAnimTargets(compiled.asset, assets, result.materialAnimTargets);
 
     result.model = model;
     result.brushes = std::move(*brushes);

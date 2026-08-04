@@ -19,6 +19,7 @@ void VirtualFileSystem::addPackage(Package package) {
 const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     switch (kind) {
     case AssetKind::Texture: return "textures";
+    case AssetKind::TextureAnim: return "textures";
     case AssetKind::Material: return "materials";
     case AssetKind::Mesh: return "meshes";
     case AssetKind::Shader: return "shaders";
@@ -59,6 +60,7 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
 const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     switch (kind) {
     case AssetKind::Texture: return ".png";
+    case AssetKind::TextureAnim: return ".texanim";
     case AssetKind::Material: return ".mat";
     case AssetKind::Mesh: return ".glb";
     case AssetKind::Shader: return ".glsl";

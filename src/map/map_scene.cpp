@@ -18,6 +18,7 @@
 #include "map/things_spawn.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
+#include "render/material_anim.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
 #include "physics/physics_module.hpp"
@@ -214,6 +215,11 @@ bool registerMapScene(
         })
         .set<Model3D>({loaded->model, WHITE})
         .set<MapLightmapState>(lightmapState);
+
+    flecs::entity mapEntity = world.lookup("MapStatic");
+    if (mapEntity.is_valid() && !loaded->materialAnimTargets.targets.empty()) {
+        attachMaterialAnimTargets(mapEntity, std::move(loaded->materialAnimTargets));
+    }
 
     if (loaded->hasLightmaps) {
         world.set<DynamicLightShadowState>(createDynamicLightShadowState(assets));

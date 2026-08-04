@@ -8,6 +8,7 @@
 #include "map/prefab.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
+#include "render/material_anim_types.hpp"
 
 #include <raylib.h>
 
@@ -40,6 +41,7 @@ struct LoadedMap {
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
     Shader skyShader{};
+    MaterialAnimTargets materialAnimTargets{};
 };
 
 /** Parsed static.csg: local brushes plus prefab instances. */

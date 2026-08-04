@@ -8,6 +8,7 @@
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
 #include "assets/sprite_loader.hpp"
+#include "assets/texture_anim_loader.hpp"
 #include "core/vfs.hpp"
 #include "game/app_config.hpp"
 
@@ -146,6 +147,9 @@ public:
     /** Returns true when a sprite animation bank exists at @p path. */
     bool hasSpriteAnim(std::string_view path) const;
 
+    /** Returns true when a texture animation bank exists at @p path. */
+    bool hasTextureAnim(std::string_view path) const;
+
     /** Returns true when a particle system exists at @p path. */
     bool hasParticle(std::string_view path) const;
 
@@ -190,6 +194,15 @@ public:
 
     /** Returns a cached sprite animation bank, loading it when needed. */
     const SpriteAnimBank* getSpriteAnimBank(std::string_view path);
+
+    /** Returns a cached texture animation bank, loading it when needed. */
+    const TextureAnimBank* getTextureAnimBank(std::string_view path);
+
+    /** Returns the albedo texture for @p frameIndex in @p clipName of @p animPath. */
+    Texture2D resolveTextureAnimFrame(
+        std::string_view animPath,
+        std::string_view clipName,
+        int frameIndex);
 
     /** Returns a cached particle system asset, loading it when needed. */
     const ParticleSystemAsset* getParticleAsset(std::string_view path);
@@ -257,6 +270,9 @@ public:
     /** Returns the text source of the sprite animation bank at @p path. */
     std::string getSpriteAnimSource(std::string_view path);
 
+    /** Returns the text source of the texture animation bank at @p path. */
+    std::string getTextureAnimSource(std::string_view path);
+
     /** Reads the full binary contents of an asset identified by @p kind. */
     std::vector<std::byte> readBinary(std::string_view path, AssetKind kind);
 
@@ -323,6 +339,7 @@ private:
     std::unordered_map<std::string, SpriteAsset> spriteAssets_;
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
+    std::unordered_map<std::string, TextureAnimBank> textureAnimBanks_;
     std::unordered_map<std::string, ParticleSystemAsset> particleAssets_;
     std::unordered_map<std::string, std::filesystem::file_time_type> spriteSourceMtimes_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;

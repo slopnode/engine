@@ -12,11 +12,13 @@
 #include "render/animation_player.hpp"
 #include "render/animation_systems.hpp"
 #include "render/components.hpp"
+#include "render/material_anim_types.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/render_context.hpp"
+#include "render/material_anim.hpp"
 #include "render/post_process.hpp"
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
@@ -62,6 +64,8 @@ void registerComponents(flecs::world& world) {
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
     world.component<AnimationClipFlipTest>();
+    world.component<MaterialAnimTargets>();
+    world.component<MaterialAnimClocks>();
     world.component<PointLight>();
     world.component<SpotLight>();
     world.component<AreaLight>();
@@ -339,6 +343,7 @@ void registerRenderModule(
     registerAnimationClipFlipTestSystem(world);
     registerTransformSystems(world);
     registerSpriteAnimatorSystem(world);
+    registerMaterialAnimSystem(world);
     registerRenderSystems(world);
 
     (void)config;

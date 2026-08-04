@@ -16,6 +16,7 @@ struct MaterialAsset {
     std::string shader = "default";
     Color baseColor = WHITE;
     std::string albedoTexture; /**< Texture virtual path, or empty. */
+    std::string textureAnimPath; /**< .texanim virtual path, or empty. */
     float pixelsPerMeter = 64.0f; /**< World texel density (texel-size). */
     std::string emissionTexture;
     Color emissionColor = {0, 0, 0, 255};
@@ -31,11 +32,15 @@ struct MaterialAsset {
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;
+using TextureAnimFrameResolver = std::function<Texture2D(std::string_view animPath, int frameIndex)>;
 
 /** Parses .mat text into @p asset. */
 bool parseMaterialAsset(std::string_view source, MaterialAsset& asset);
 
 /** Builds a raylib Material from @p asset, resolving textures via @p resolveTexture. */
-Material createRaylibMaterial(const MaterialAsset& asset, const TextureResolver& resolveTexture = {});
+Material createRaylibMaterial(
+    const MaterialAsset& asset,
+    const TextureResolver& resolveTexture = {},
+    const TextureAnimFrameResolver& resolveAnimFrame = {});
 
 }
