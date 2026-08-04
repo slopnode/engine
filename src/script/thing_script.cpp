@@ -1274,7 +1274,7 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
 
     float range = maxDistance;
     if (PhysicsWorld* physics = physicsWorld()) {
-        if (const auto wall = physics->castRay(origin, dir, range, BrushBlock::Los)) {
+        if (const auto wall = physics->castRay(origin, dir, range, BrushBlock::Linescan)) {
             range = wall->fraction * range;
         }
     }

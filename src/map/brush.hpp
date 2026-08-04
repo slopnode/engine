@@ -39,11 +39,11 @@ enum class BrushRole {
 
 /** Per-brush physics query blocking flags. */
 namespace BrushBlock {
-constexpr std::uint8_t Los = 1u << 0;
-constexpr std::uint8_t Linescan = 1u << 1;
-constexpr std::uint8_t Projectile = 1u << 2;
-constexpr std::uint8_t Player = 1u << 3;
-constexpr std::uint8_t Actor = 1u << 4;
+constexpr std::uint8_t Los = 1u << 0; /**< los?, actor-los?, ActorSight scans. */
+constexpr std::uint8_t Linescan = 1u << 1; /**< hitscan-actors wall clip. */
+constexpr std::uint8_t Projectile = 1u << 2; /**< MotoredBody / particle ray/sphere casts. */
+constexpr std::uint8_t Player = 1u << 3; /**< Player character movement. */
+constexpr std::uint8_t Actor = 1u << 4; /**< Non-player character movement. */
 constexpr std::uint8_t All = Los | Linescan | Projectile | Player | Actor;
 }
 
