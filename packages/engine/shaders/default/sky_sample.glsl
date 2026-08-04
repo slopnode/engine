@@ -32,6 +32,7 @@ vec3 sampleSky(vec3 worldDir, vec3 viewDir)
     if (skyMode == 1) {
         return texture(skyCube, normalize(worldDir)).rgb;
     }
-    float t = clamp(normalize(viewDir).y * 0.5 + 0.5, 0.0, 1.0);
+    (void)viewDir;
+    float t = clamp(normalize(worldDir).y * 0.5 + 0.5, 0.0, 1.0);
     return sampleSkyGradient(t);
 }
