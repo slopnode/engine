@@ -33,6 +33,8 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "sun";
     case slopengine::ThingKind::AmbientLight:
         return "ambient-light";
+    case slopengine::ThingKind::Skybox:
+        return "skybox";
     case slopengine::ThingKind::Prefab:
         return "prefab";
     case slopengine::ThingKind::SoundSource:
@@ -189,11 +191,18 @@ void PlaceTool::update(
         thing = slopengine::makeDefaultMarkerThing();
     } else if (kind == slopengine::ThingKind::Particle) {
         thing = slopengine::makeDefaultParticleThing();
+    } else if (kind == slopengine::ThingKind::Skybox) {
+        thing = slopengine::makeDefaultSkyboxThing();
     }
     thing.kind = kind;
     thing.id = editor.allocateThingId(thingIdPrefix(kind));
-    thing.at = snapToGrid(hit, editor.gridSize);
-    thing.haveAt = true;
+    if (kind == slopengine::ThingKind::Skybox || kind == slopengine::ThingKind::Sun ||
+        kind == slopengine::ThingKind::AmbientLight) {
+        thing.haveAt = false;
+    } else {
+        thing.at = snapToGrid(hit, editor.gridSize);
+        thing.haveAt = true;
+    }
     if (kind == slopengine::ThingKind::PlayerStart) {
         thing.yaw = 3.141592653589793f;
     }

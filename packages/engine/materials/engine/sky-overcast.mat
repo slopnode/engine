@@ -1,0 +1,9 @@
+(material
+  (shader "default")
+  (sky)
+  (base-color 0.55 0.58 0.62 1.0)
+  (sky-gradient
+    (stop 0.0 0.62 0.65 0.70)
+    (stop 0.25 0.52 0.55 0.60)
+    (stop 0.55 0.38 0.40 0.45)
+    (stop 1.0 0.22 0.24 0.28)))

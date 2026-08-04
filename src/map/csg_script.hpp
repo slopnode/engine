@@ -37,6 +37,8 @@ struct LoadedMap {
     std::vector<Image> lightmapAtlasImages;
     int useLightmapLoc = -1;
     std::vector<int> transparentMeshIndices;
+    std::vector<int> skyMeshIndices;
+    Shader skyShader{};
 };
 
 /** Parsed static.csg: local brushes plus prefab instances. */

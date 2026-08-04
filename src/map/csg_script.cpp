@@ -1495,6 +1495,11 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
     }
 
+    result.skyShader = loadSkyFaceShader(assets);
+    if (result.skyShader.id == 0) {
+        TraceLog(LOG_WARNING, "MAP: failed to load sky face shader for '%s'", virtualPath.c_str());
+    }
+
     if (result.hasLightmaps) {
         result.lightmapAtlases.reserve(rad.atlases.size());
         result.lightmapAtlasImages.reserve(rad.atlases.size());
@@ -1581,9 +1586,20 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     result.transparentMeshIndices.clear();
     result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
+    result.skyMeshIndices.clear();
+    result.skyMeshIndices.reserve(compiled.asset.primitives.size());
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
-        if (compiled.asset.primitives[static_cast<std::size_t>(meshIndex)].transparent) {
+        const GeoPrimitive& primitive =
+            compiled.asset.primitives[static_cast<std::size_t>(meshIndex)];
+        if (primitive.transparent) {
             result.transparentMeshIndices.push_back(meshIndex);
+        }
+        const MaterialAsset* materialAsset = assets.getMaterialAsset(primitive.material);
+        if (materialAsset != nullptr && materialAsset->sky) {
+            result.skyMeshIndices.push_back(meshIndex);
+            if (result.skyShader.id != 0) {
+                model.materials[meshIndex].shader = result.skyShader;
+            }
         }
     }
 

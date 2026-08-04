@@ -244,6 +244,46 @@ void writeLightFields(std::ostringstream& out, const Thing& p) {
     }
 }
 
+void writeSkyboxFields(std::ostringstream& out, const Thing& p) {
+    if (!p.skyMaterial.empty()) {
+        writeIndentClause(out, "(material " + escapeSchemeString(p.skyMaterial) + ")");
+    }
+    if (!p.haveSkyboxMode) {
+        return;
+    }
+    switch (p.skyboxMode) {
+    case SkyboxMode::Solid:
+        writeIndentClause(
+            out,
+            "(color " + formatFloat(p.color.x) + " " + formatFloat(p.color.y) + " " +
+                formatFloat(p.color.z) + ")");
+        break;
+    case SkyboxMode::Cube:
+        writeIndentClause(out, "(cube");
+        out << "\n";
+        writeIndentClause(out, "(px " + escapeSchemeString(p.skyCubePx) + ")");
+        writeIndentClause(out, "(nx " + escapeSchemeString(p.skyCubeNx) + ")");
+        writeIndentClause(out, "(py " + escapeSchemeString(p.skyCubePy) + ")");
+        writeIndentClause(out, "(ny " + escapeSchemeString(p.skyCubeNy) + ")");
+        writeIndentClause(out, "(pz " + escapeSchemeString(p.skyCubePz) + ")");
+        writeIndentClause(out, "(nz " + escapeSchemeString(p.skyCubeNz) + ")");
+        writeIndentClause(out, ")");
+        break;
+    case SkyboxMode::Gradient:
+        writeIndentClause(out, "(gradient");
+        out << "\n";
+        for (int i = 0; i < p.skyGradientStopCount; ++i) {
+            const SkyGradientStop& stop = p.skyGradientStops[static_cast<std::size_t>(i)];
+            writeIndentClause(
+                out,
+                "(stop " + formatFloat(stop.position) + " " + formatFloat(stop.color.x) + " " +
+                    formatFloat(stop.color.y) + " " + formatFloat(stop.color.z) + ")");
+        }
+        writeIndentClause(out, ")");
+        break;
+    }
+}
+
 void writeSoundSourceFields(std::ostringstream& out, const Thing& p) {
     if (!p.audio.empty()) {
         writeIndentClause(out, "(audio " + escapeSchemeString(p.audio) + ")");
@@ -419,6 +459,9 @@ void writeThing(std::ostringstream& out, const Thing& p) {
     }
     if (thingKindIsLight(p.kind)) {
         writeLightFields(out, p);
+    }
+    if (p.kind == ThingKind::Skybox) {
+        writeSkyboxFields(out, p);
     }
     if (p.kind == ThingKind::SoundSource) {
         writeSoundSourceFields(out, p);

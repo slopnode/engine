@@ -7,6 +7,9 @@
 #include "script/package_load_context.hpp"
 #include "script/proc_role.hpp"
 
+#include <rlgl.h>
+#include "external/glad.h"
+
 #include <s7.h>
 
 #include <algorithm>
@@ -113,6 +116,9 @@ AssetStore::~AssetStore() {
     }
     for (auto& [_, texture] : textures_) {
         UnloadTexture(texture);
+    }
+    for (auto& [_, cubemap] : cubemaps_) {
+        UnloadTexture(cubemap);
     }
     for (auto& [_, model] : models_) {
         if (model.meshCount > 0) {
@@ -505,6 +511,97 @@ Texture2D AssetStore::getTexture(std::string_view path) {
 
     textures_.emplace(key, texture);
     return texture;
+}
+
+namespace {
+
+std::string cubemapCacheKey(
+    std::string_view px,
+    std::string_view nx,
+    std::string_view py,
+    std::string_view ny,
+    std::string_view pz,
+    std::string_view nz) {
+    std::string key;
+    key.reserve(
+        px.size() + nx.size() + py.size() + ny.size() + pz.size() + nz.size() + 6);
+    for (std::string_view face : {px, nx, py, ny, pz, nz}) {
+        key.append(face);
+        key.push_back('\0');
+    }
+    return key;
+}
+
+} // namespace
+
+TextureCubemap AssetStore::getCubemapFaces(
+    std::string_view px,
+    std::string_view nx,
+    std::string_view py,
+    std::string_view ny,
+    std::string_view pz,
+    std::string_view nz) {
+    const std::string key = cubemapCacheKey(px, nx, py, ny, pz, nz);
+    const auto existing = cubemaps_.find(key);
+    if (existing != cubemaps_.end()) {
+        return existing->second;
+    }
+
+    const std::string_view faces[6] = {px, nx, py, ny, pz, nz};
+    Texture2D faceTextures[6]{};
+    int faceWidth = 0;
+    int faceHeight = 0;
+    int faceFormat = 0;
+    for (int i = 0; i < 6; ++i) {
+        faceTextures[i] = getTexture(faces[i]);
+        if (faceTextures[i].id == 0) {
+            TraceLog(LOG_WARNING, "ASSET: cubemap face missing '%.*s'", static_cast<int>(faces[i].size()), faces[i].data());
+            return {};
+        }
+        if (i == 0) {
+            faceWidth = faceTextures[i].width;
+            faceHeight = faceTextures[i].height;
+            faceFormat = faceTextures[i].format;
+        }
+    }
+
+    unsigned int cubemapId = 0;
+    glGenTextures(1, &cubemapId);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapId);
+    for (int i = 0; i < 6; ++i) {
+        Image image = LoadImageFromTexture(faceTextures[i]);
+        if (image.data == nullptr) {
+            TraceLog(LOG_WARNING, "ASSET: failed to read cubemap face '%.*s'", static_cast<int>(faces[i].size()), faces[i].data());
+            glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+            glDeleteTextures(1, &cubemapId);
+            return {};
+        }
+        glTexImage2D(
+            GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+            0,
+            GL_RGBA8,
+            image.width,
+            image.height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            image.data);
+        UnloadImage(image);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+
+    TextureCubemap cubemap{};
+    cubemap.id = cubemapId;
+    cubemap.width = faceWidth;
+    cubemap.height = faceHeight;
+    cubemap.format = faceFormat;
+    cubemaps_.emplace(key, cubemap);
+    return cubemap;
 }
 
 Model AssetStore::getModel(std::string_view path) {

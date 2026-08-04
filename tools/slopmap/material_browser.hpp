@@ -18,6 +18,7 @@ struct MaterialBrowserResult {
 struct MaterialBrowser {
     std::vector<std::string> materials;
     char filter[128] = {};
+    bool skyMaterialsOnly = false;
     MaterialThumbAtlas thumbs;
     bool thumbsDirty = true;
 

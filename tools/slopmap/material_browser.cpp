@@ -58,6 +58,22 @@ bool drawThumbButton(const char* id, const MaterialThumbLookup& thumb, float siz
         ImVec2(thumb.u1, thumb.v1));
 }
 
+bool isSkyMaterial(slopengine::AssetStore& assets, const std::string& path) {
+    const slopengine::MaterialAsset* asset = assets.getMaterialAsset(path);
+    return asset != nullptr && asset->sky;
+}
+
+bool materialPassesFilter(
+    slopengine::AssetStore& assets,
+    const std::string& path,
+    const std::string& filterStr,
+    bool skyOnly) {
+    if (skyOnly && !isSkyMaterial(assets, path)) {
+        return false;
+    }
+    return containsIgnoreCase(path, filterStr);
+}
+
 } // namespace
 
 void MaterialBrowser::rescan(const slopengine::AssetStore& assets) {
@@ -269,6 +285,7 @@ MaterialBrowserResult MaterialBrowser::drawSection(
     }
 
     ImGui::InputTextWithHint("##matfilter", "Filter…", filter, sizeof(filter));
+    ImGui::Checkbox("Sky materials only", &skyMaterialsOnly);
     ImGui::Text("Active: %s", editor.doc().defaultMaterial.c_str());
     const char* scopeLabel = "brush";
     if (editor.doc().selectionMode == SelectionMode::Face) {
@@ -289,18 +306,33 @@ MaterialBrowserResult MaterialBrowser::drawSection(
     ImGui::Separator();
     if (ImGui::BeginChild("##matlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         const std::string filterStr = filter;
+        std::vector<std::string> visibleMaterials;
+        visibleMaterials.reserve(materials.size());
+        for (const std::string& path : materials) {
+            if (materialPassesFilter(assets, path, filterStr, skyMaterialsOnly)) {
+                visibleMaterials.push_back(path);
+            }
+        }
+        if (skyMaterialsOnly) {
+            const auto defaultIt =
+                std::find(visibleMaterials.begin(), visibleMaterials.end(), "engine/sky");
+            if (defaultIt != visibleMaterials.end() && defaultIt != visibleMaterials.begin()) {
+                std::rotate(visibleMaterials.begin(), defaultIt, defaultIt + 1);
+            }
+        }
         if (settings.materialViewMode == MaterialViewMode::List) {
             constexpr float kListThumb = 20.0f;
-            for (const std::string& path : materials) {
-                if (!containsIgnoreCase(path, filterStr)) {
-                    continue;
-                }
+            for (const std::string& path : visibleMaterials) {
                 ImGui::PushID(path.c_str());
                 const bool isActive = path == editor.doc().defaultMaterial;
+                const bool skyMat = isSkyMaterial(assets, path);
                 const MaterialThumbLookup thumb = thumbs.lookup(path);
                 if (!drawThumbImage(thumb, kListThumb)) {
                     slopengine::drawIconImGui(
-                        assets, slopengine::kDefaultIconSet, "palette", kListThumb);
+                        assets,
+                        slopengine::kDefaultIconSet,
+                        skyMat ? "image" : "palette",
+                        kListThumb);
                 }
                 ImGui::SameLine();
                 if (ImGui::Selectable(path.c_str(), isActive)) {
@@ -318,15 +350,13 @@ MaterialBrowserResult MaterialBrowser::drawSection(
                 columns = 1;
             }
             int index = 0;
-            for (const std::string& path : materials) {
-                if (!containsIgnoreCase(path, filterStr)) {
-                    continue;
-                }
+            for (const std::string& path : visibleMaterials) {
                 if (index > 0 && (index % columns) != 0) {
                     ImGui::SameLine();
                 }
                 ImGui::PushID(path.c_str());
                 const bool isActive = path == editor.doc().defaultMaterial;
+                const bool skyMat = isSkyMaterial(assets, path);
                 ImGui::BeginGroup();
                 const MaterialThumbLookup thumb = thumbs.lookup(path);
                 bool clicked = false;
@@ -347,7 +377,10 @@ MaterialBrowserResult MaterialBrowser::drawSection(
                         min.x + (kGridThumb - 16.0f) * 0.5f,
                         min.y + (kGridThumb - 16.0f) * 0.5f));
                     slopengine::drawIconImGui(
-                        assets, slopengine::kDefaultIconSet, "palette", 16.0f);
+                        assets,
+                        slopengine::kDefaultIconSet,
+                        skyMat ? "image" : "palette",
+                        16.0f);
                     ImGui::SetCursorScreenPos(restore);
                 }
                 const std::string label = basenameOf(path);

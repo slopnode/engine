@@ -81,6 +81,11 @@ void unloadMapGpuResources(flecs::entity entity) {
             UnloadShader(lightmaps.lightmapShader);
             lightmaps.lightmapShader = {};
         }
+        if (lightmaps.skyShader.id != 0) {
+            UnloadShader(lightmaps.skyShader);
+            lightmaps.skyShader = {};
+        }
+        lightmaps.skyMeshIndices.clear();
         lightmaps.available = false;
         lightmaps.useLightmapLoc = -1;
         return;
@@ -195,6 +200,8 @@ bool registerMapScene(
     lightmapState.useLightmapLoc = loaded->useLightmapLoc;
     lightmapState.lightmapShader = loaded->lightmapShader;
     lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
+    lightmapState.skyMeshIndices = std::move(loaded->skyMeshIndices);
+    lightmapState.skyShader = loaded->skyShader;
 
     world.entity("MapStatic")
         .add<MapOwned>()

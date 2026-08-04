@@ -405,6 +405,48 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
     return shader;
 }
 
+namespace {
+
+std::string stripLeadingVersionDirective(std::string source) {
+    if (source.rfind("#version", 0) == 0) {
+        const std::size_t end = source.find('\n');
+        if (end != std::string::npos) {
+            source.erase(0, end + 1);
+        }
+    }
+    return source;
+}
+
+std::string buildSkyFragmentSource(AssetStore& assets, const char* fragPath) {
+    std::string frag = assets.getShaderSource(fragPath);
+    std::string sample = stripLeadingVersionDirective(assets.getShaderSource("default/sky_sample"));
+    const std::string includeToken = "#include \"SKY_SAMPLE\"";
+    const std::size_t includePos = frag.find(includeToken);
+    if (includePos != std::string::npos) {
+        frag.replace(includePos, includeToken.size(), sample);
+    }
+    return frag;
+}
+
+Shader loadSkyShader(AssetStore& assets, const char* vertPath, const char* fragPath) {
+    const std::string vert = assets.getShaderSource(vertPath);
+    const std::string frag = buildSkyFragmentSource(assets, fragPath);
+    if (vert.empty() || frag.empty()) {
+        return {};
+    }
+    return LoadShaderFromMemory(vert.c_str(), frag.c_str());
+}
+
+} // namespace
+
+Shader loadSkyboxBackgroundShader(AssetStore& assets) {
+    return loadSkyShader(assets, "default/skybox_vert", "default/skybox_frag");
+}
+
+Shader loadSkyFaceShader(AssetStore& assets) {
+    return loadSkyShader(assets, "default/sky_face_vert", "default/sky_face_frag");
+}
+
 void bindLightmapDummyShadowMaps(Shader shader) {
     if (shader.id == 0) {
         return;

@@ -5,6 +5,7 @@
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
+#include "render/skybox.hpp"
 
 #include "core/package.hpp"
 
@@ -52,6 +53,7 @@ enum class ThingEditKind {
     Pickup,
     Mover,
     Particle,
+    Skybox,
     Mixed,
 };
 
@@ -95,6 +97,8 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
             entryKind = ThingEditKind::Mover;
         } else if (thingKind == slopengine::ThingKind::Particle) {
             entryKind = ThingEditKind::Particle;
+        } else if (thingKind == slopengine::ThingKind::Skybox) {
+            entryKind = ThingEditKind::Skybox;
         } else {
             continue;
         }
@@ -252,6 +256,29 @@ bool forEachParticle(
             return thing.kind == slopengine::ThingKind::Particle;
         },
         fn);
+}
+
+bool forEachSkybox(
+    Editor& editor,
+    const std::vector<int>& targets,
+    const std::function<void(slopengine::Thing&)>& fn) {
+    EditorDocument& doc = editor.doc();
+    editor.prepareEdit();
+    int count = 0;
+    for (int index : targets) {
+        slopengine::Thing* thing = thingAt(doc, index);
+        if (thing == nullptr || thing->kind != slopengine::ThingKind::Skybox) {
+            continue;
+        }
+        fn(*thing);
+        ++count;
+    }
+    if (count == 0) {
+        editor.abortEdit();
+        return false;
+    }
+    editor.markDirty();
+    return true;
 }
 
 bool forEachActor(
@@ -1782,6 +1809,285 @@ bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
+std::vector<std::string> scanSkyMaterials(slopengine::AssetStore& assets) {
+    std::vector<std::string> allMaterials = scanPackageAssets(assets, "materials", ".mat");
+    std::vector<std::string> skyMaterials;
+    skyMaterials.reserve(allMaterials.size());
+    for (const std::string& path : allMaterials) {
+        const slopengine::MaterialAsset* asset = assets.getMaterialAsset(path);
+        if (asset != nullptr && asset->sky) {
+            skyMaterials.push_back(path);
+        }
+    }
+    std::sort(skyMaterials.begin(), skyMaterials.end());
+    const auto defaultIt = std::find(skyMaterials.begin(), skyMaterials.end(), "engine/sky");
+    if (defaultIt != skyMaterials.end() && defaultIt != skyMaterials.begin()) {
+        std::rotate(skyMaterials.begin(), defaultIt, defaultIt + 1);
+    }
+    return skyMaterials;
+}
+
+const char* skyModeLabel(slopengine::SkyboxMode mode) {
+    switch (mode) {
+    case slopengine::SkyboxMode::Solid:
+        return "Solid";
+    case slopengine::SkyboxMode::Cube:
+        return "Cube";
+    case slopengine::SkyboxMode::Gradient:
+        return "Gradient";
+    }
+    return "Unknown";
+}
+
+bool drawSkyTextureCombo(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets,
+    const char* label,
+    const std::function<std::string(const slopengine::Thing&)>& getter,
+    const std::function<void(slopengine::Thing&, const std::string&)>& setter) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+    const auto pathCommon = commonValue<std::string>(doc, targets, getter);
+    const std::vector<std::string> texturePaths = scanPackageAssets(assets, "textures", ".png");
+    const char* preview =
+        !pathCommon.has_value() ? "(mixed)" : (pathCommon->empty() ? "(none)" : pathCommon->c_str());
+    if (ImGui::BeginCombo(label, preview)) {
+        if (ImGui::Selectable("(none)", pathCommon.has_value() && pathCommon->empty())) {
+            if (forEachSkybox(editor, targets, [&](slopengine::Thing& thing) {
+                    setter(thing, {});
+                })) {
+                changed = true;
+                editor.statusMessage = "Cleared sky cube face";
+            }
+        }
+        for (const std::string& path : texturePaths) {
+            const bool selected = pathCommon.has_value() && *pathCommon == path;
+            if (ImGui::Selectable(path.c_str(), selected)) {
+                if (forEachSkybox(editor, targets, [&](slopengine::Thing& thing) {
+                        setter(thing, path);
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set sky cube face";
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+bool drawSkyboxSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    const std::vector<int>& targets) {
+    bool changed = false;
+    const EditorDocument& doc = editor.doc();
+
+    ImGui::Text("Kind: skybox");
+    ImGui::Text("%d skybox(es)", static_cast<int>(targets.size()));
+    ImGui::Separator();
+
+    const auto materialCommon = commonValue<std::string>(
+        doc, targets, [](const slopengine::Thing& t) { return t.skyMaterial; });
+    const std::vector<std::string> skyMaterials = scanSkyMaterials(assets);
+    const char* materialPreview = !materialCommon.has_value()
+        ? "(mixed)"
+        : (materialCommon->empty() ? "(none)" : materialCommon->c_str());
+    if (ImGui::BeginCombo("Sky material##skybox", materialPreview)) {
+        if (ImGui::Selectable("(none)", materialCommon.has_value() && materialCommon->empty())) {
+            if (forEachSkybox(editor, targets, [](slopengine::Thing& thing) {
+                    thing.skyMaterial.clear();
+                    thing.haveSkyboxMode = false;
+                })) {
+                changed = true;
+                editor.statusMessage = "Cleared sky material";
+            }
+        }
+        for (const std::string& path : skyMaterials) {
+            const bool selected = materialCommon.has_value() && *materialCommon == path;
+            if (ImGui::Selectable(path.c_str(), selected)) {
+                if (forEachSkybox(editor, targets, [&path](slopengine::Thing& thing) {
+                        thing.skyMaterial = path;
+                        thing.haveSkyboxMode = false;
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set sky material";
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    if (!targets.empty()) {
+        const slopengine::Thing* previewThing = thingAt(doc, targets.front());
+        if (previewThing != nullptr) {
+            const slopengine::SkyboxSettings settings =
+                slopengine::skyboxSettingsFromThing(*previewThing, &assets);
+            ImGui::Text("Resolved: %s", skyModeLabel(settings.mode));
+        }
+    }
+
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader("Overrides", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const auto modeCommon = commonValue<slopengine::SkyboxMode>(
+            doc,
+            targets,
+            [](const slopengine::Thing& t) { return t.skyboxMode; },
+            [](slopengine::SkyboxMode a, slopengine::SkyboxMode b) { return a == b; });
+        const auto overrideCommon = commonValue<bool>(
+            doc, targets, [](const slopengine::Thing& t) { return t.haveSkyboxMode; });
+
+        int modeIndex = modeCommon.has_value() ? static_cast<int>(*modeCommon) : 0;
+        const char* modeLabels[] = {"Solid", "Cube", "Gradient"};
+        if (!modeCommon.has_value()) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+        }
+        if (ImGui::Combo("Mode##skybox", &modeIndex, modeLabels, IM_ARRAYSIZE(modeLabels))) {
+            const slopengine::SkyboxMode next = static_cast<slopengine::SkyboxMode>(modeIndex);
+            if (forEachSkybox(editor, targets, [next](slopengine::Thing& thing) {
+                    thing.skyboxMode = next;
+                    thing.haveSkyboxMode = true;
+                })) {
+                changed = true;
+                editor.statusMessage = "Set skybox mode override";
+            }
+        }
+        if (!modeCommon.has_value()) {
+            ImGui::PopStyleVar();
+        }
+
+        bool hasOverride = overrideCommon.value_or(false);
+        if (checkboxMixed("Use overrides", &hasOverride, !overrideCommon.has_value())) {
+            if (forEachSkybox(editor, targets, [hasOverride](slopengine::Thing& thing) {
+                    thing.haveSkyboxMode = hasOverride;
+                })) {
+                changed = true;
+                editor.statusMessage = hasOverride ? "Sky overrides enabled" : "Sky overrides disabled";
+            }
+        }
+
+        const slopengine::SkyboxMode editMode =
+            modeCommon.value_or(slopengine::SkyboxMode::Gradient);
+        if (hasOverride || overrideCommon.has_value()) {
+            if (editMode == slopengine::SkyboxMode::Solid) {
+                const auto colorCommon = commonValue<Vector3>(
+                    doc, targets, [](const slopengine::Thing& t) { return t.color; }, colorEqual);
+                float color[3] = {
+                    colorCommon.has_value() ? colorCommon->x : 0.0f,
+                    colorCommon.has_value() ? colorCommon->y : 0.0f,
+                    colorCommon.has_value() ? colorCommon->z : 0.0f,
+                };
+                if (colorEdit3Mixed("Color##skybox", color, !colorCommon.has_value())) {
+                    const Vector3 next{color[0], color[1], color[2]};
+                    if (forEachSkybox(editor, targets, [next](slopengine::Thing& thing) {
+                            thing.color = next;
+                            thing.haveSkyboxMode = true;
+                            thing.skyboxMode = slopengine::SkyboxMode::Solid;
+                        })) {
+                        changed = true;
+                        editor.statusMessage = "Set sky color";
+                    }
+                }
+            } else if (editMode == slopengine::SkyboxMode::Gradient) {
+                for (int stopIndex = 0; stopIndex < 4; ++stopIndex) {
+                    ImGui::PushID(stopIndex);
+                    const auto posCommon = commonValue<float>(
+                        doc,
+                        targets,
+                        [stopIndex](const slopengine::Thing& t) {
+                            if (stopIndex >= t.skyGradientStopCount) {
+                                return 0.0f;
+                            }
+                            return t.skyGradientStops[static_cast<std::size_t>(stopIndex)].position;
+                        });
+                    const auto stopColorCommon = commonValue<Vector3>(
+                        doc,
+                        targets,
+                        [stopIndex](const slopengine::Thing& t) {
+                            if (stopIndex >= t.skyGradientStopCount) {
+                                return Vector3{0.0f, 0.0f, 0.0f};
+                            }
+                            return t.skyGradientStops[static_cast<std::size_t>(stopIndex)].color;
+                        },
+                        colorEqual);
+                    float position = posCommon.value_or(0.0f);
+                    float stopColor[3] = {
+                        stopColorCommon.has_value() ? stopColorCommon->x : 0.0f,
+                        stopColorCommon.has_value() ? stopColorCommon->y : 0.0f,
+                        stopColorCommon.has_value() ? stopColorCommon->z : 0.0f,
+                    };
+                    if (dragFloatMixed(
+                            "Position",
+                            &position,
+                            !posCommon.has_value(),
+                            0.01f,
+                            0.0f,
+                            1.0f)) {
+                        if (forEachSkybox(editor, targets, [stopIndex, position](slopengine::Thing& thing) {
+                                thing.haveSkyboxMode = true;
+                                thing.skyboxMode = slopengine::SkyboxMode::Gradient;
+                                if (thing.skyGradientStopCount < 4) {
+                                    thing.skyGradientStopCount = 4;
+                                }
+                                thing.skyGradientStops[static_cast<std::size_t>(stopIndex)].position =
+                                    position;
+                            })) {
+                            changed = true;
+                        }
+                    }
+                    if (colorEdit3Mixed("Color", stopColor, !stopColorCommon.has_value())) {
+                        const Vector3 next{stopColor[0], stopColor[1], stopColor[2]};
+                        if (forEachSkybox(editor, targets, [stopIndex, next](slopengine::Thing& thing) {
+                                thing.haveSkyboxMode = true;
+                                thing.skyboxMode = slopengine::SkyboxMode::Gradient;
+                                if (thing.skyGradientStopCount < 4) {
+                                    thing.skyGradientStopCount = 4;
+                                }
+                                thing.skyGradientStops[static_cast<std::size_t>(stopIndex)].color = next;
+                            })) {
+                            changed = true;
+                        }
+                    }
+                    ImGui::PopID();
+                }
+            } else if (editMode == slopengine::SkyboxMode::Cube) {
+                struct FaceBinding {
+                    const char* label;
+                    std::string slopengine::Thing::*field;
+                };
+                const FaceBinding faces[] = {
+                    {"+X (px)", &slopengine::Thing::skyCubePx},
+                    {"-X (nx)", &slopengine::Thing::skyCubeNx},
+                    {"+Y (py)", &slopengine::Thing::skyCubePy},
+                    {"-Y (ny)", &slopengine::Thing::skyCubeNy},
+                    {"+Z (pz)", &slopengine::Thing::skyCubePz},
+                    {"-Z (nz)", &slopengine::Thing::skyCubeNz},
+                };
+                for (const FaceBinding& face : faces) {
+                    if (drawSkyTextureCombo(
+                            editor,
+                            assets,
+                            targets,
+                            face.label,
+                            [field = face.field](const slopengine::Thing& thing) {
+                                return thing.*field;
+                            },
+                            [field = face.field](slopengine::Thing& thing, const std::string& path) {
+                                thing.*field = path;
+                                thing.haveSkyboxMode = true;
+                                thing.skyboxMode = slopengine::SkyboxMode::Cube;
+                            })) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    return changed;
+}
+
 bool drawPickupSection(
     Editor& editor,
     slopengine::AssetStore& assets,
@@ -1884,7 +2190,7 @@ ThingPanelResult ThingPanel::drawSection(
     const std::vector<int> targets = collectEditableTargets(editor.doc(), &editKind);
     if (targets.empty() || editKind == ThingEditKind::None) {
         ImGui::TextDisabled(
-            "Select prop, light, sound, particle, actor, trigger, usable, pickup, or mover thing(s) to edit");
+            "Select prop, light, sound, particle, skybox, actor, trigger, usable, pickup, or mover thing(s) to edit");
         ImGui::EndChild();
         return result;
     }
@@ -1894,7 +2200,9 @@ ThingPanelResult ThingPanel::drawSection(
         return result;
     }
 
-    result.changed = drawWorldPoseSection(editor, targets);
+    if (editKind != ThingEditKind::Skybox) {
+        result.changed = drawWorldPoseSection(editor, targets);
+    }
 
     if (editKind == ThingEditKind::Light) {
         result.changed = drawLightSection(editor, targets) || result.changed;
@@ -1914,6 +2222,8 @@ ThingPanelResult ThingPanel::drawSection(
         result.changed = drawMoverSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Particle) {
         result.changed = drawParticleSection(editor, assets, targets) || result.changed;
+    } else if (editKind == ThingEditKind::Skybox) {
+        result.changed = drawSkyboxSection(editor, assets, targets) || result.changed;
     }
 
     ImGui::EndChild();

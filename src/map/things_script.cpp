@@ -10,6 +10,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_set>
+#include <algorithm>
 
 namespace slopengine {
 
@@ -1110,6 +1111,148 @@ s7_pointer g_ambient_light(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "ambient-light requires id", false);
 }
 
+bool parseSkyboxClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
+    int modeCount = 0;
+    for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            TraceLog(LOG_WARNING, "THING: skybox expected clause list");
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer rest = s7_cdr(clause);
+        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
+            if (!readString(sc, s7_car(rest), out.id)) {
+                TraceLog(LOG_WARNING, "THING: skybox id must be a string");
+                return false;
+            }
+        } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
+            if (!readString(sc, s7_car(rest), out.skyMaterial)) {
+                TraceLog(LOG_WARNING, "THING: skybox material must be a string");
+                return false;
+            }
+        } else if (std::strcmp(tag, "color") == 0 && s7_is_pair(rest) && s7_is_pair(s7_cdr(rest)) &&
+                   s7_is_pair(s7_cddr(rest))) {
+            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.color);
+            out.skyboxMode = SkyboxMode::Solid;
+            out.haveSkyboxMode = true;
+            ++modeCount;
+        } else if (std::strcmp(tag, "cube") == 0) {
+            out.skyboxMode = SkyboxMode::Cube;
+            out.haveSkyboxMode = true;
+            ++modeCount;
+            for (s7_pointer faceCursor = rest; s7_is_pair(faceCursor); faceCursor = s7_cdr(faceCursor)) {
+                s7_pointer faceClause = s7_car(faceCursor);
+                if (!s7_is_pair(faceClause) || !s7_is_symbol(s7_car(faceClause))) {
+                    TraceLog(LOG_WARNING, "THING: skybox cube expected face clause");
+                    return false;
+                }
+                const char* faceTag = s7_symbol_name(s7_car(faceClause));
+                s7_pointer faceRest = s7_cdr(faceClause);
+                if (!s7_is_pair(faceRest)) {
+                    TraceLog(LOG_WARNING, "THING: skybox cube face missing path");
+                    return false;
+                }
+                std::string path;
+                if (!readString(sc, s7_car(faceRest), path)) {
+                    TraceLog(LOG_WARNING, "THING: skybox cube face path must be a string");
+                    return false;
+                }
+                if (std::strcmp(faceTag, "px") == 0) {
+                    out.skyCubePx = std::move(path);
+                } else if (std::strcmp(faceTag, "nx") == 0) {
+                    out.skyCubeNx = std::move(path);
+                } else if (std::strcmp(faceTag, "py") == 0) {
+                    out.skyCubePy = std::move(path);
+                } else if (std::strcmp(faceTag, "ny") == 0) {
+                    out.skyCubeNy = std::move(path);
+                } else if (std::strcmp(faceTag, "pz") == 0) {
+                    out.skyCubePz = std::move(path);
+                } else if (std::strcmp(faceTag, "nz") == 0) {
+                    out.skyCubeNz = std::move(path);
+                } else {
+                    TraceLog(LOG_WARNING, "THING: unknown skybox cube face '%s'", faceTag);
+                    return false;
+                }
+            }
+        } else if (std::strcmp(tag, "gradient") == 0) {
+            out.skyboxMode = SkyboxMode::Gradient;
+            out.haveSkyboxMode = true;
+            ++modeCount;
+            out.skyGradientStopCount = 0;
+            for (s7_pointer stopCursor = rest; s7_is_pair(stopCursor); stopCursor = s7_cdr(stopCursor)) {
+                s7_pointer stopClause = s7_car(stopCursor);
+                if (!s7_is_pair(stopClause) || !s7_is_symbol(s7_car(stopClause)) ||
+                    std::strcmp(s7_symbol_name(s7_car(stopClause)), "stop") != 0) {
+                    TraceLog(LOG_WARNING, "THING: skybox gradient expected (stop position r g b)");
+                    return false;
+                }
+                s7_pointer stopRest = s7_cdr(stopClause);
+                if (!s7_is_pair(stopRest) || !s7_is_pair(s7_cdr(stopRest)) ||
+                    !s7_is_pair(s7_cddr(stopRest)) || !s7_is_pair(s7_cdddr(stopRest))) {
+                    TraceLog(LOG_WARNING, "THING: skybox stop requires position r g b");
+                    return false;
+                }
+                if (out.skyGradientStopCount >= 4) {
+                    TraceLog(LOG_WARNING, "THING: skybox gradient accepts exactly 4 stops");
+                    return false;
+                }
+                SkyGradientStop stop{};
+                stop.position =
+                    static_cast<float>(s7_number_to_real(sc, s7_car(stopRest)));
+                readVec3(
+                    sc,
+                    s7_cadr(stopRest),
+                    s7_caddr(stopRest),
+                    s7_cadddr(stopRest),
+                    stop.color);
+                out.skyGradientStops[static_cast<std::size_t>(out.skyGradientStopCount)] = stop;
+                ++out.skyGradientStopCount;
+            }
+            if (out.skyGradientStopCount != 4) {
+                TraceLog(LOG_WARNING, "THING: skybox gradient requires exactly 4 stops");
+                return false;
+            }
+            std::sort(
+                out.skyGradientStops.begin(),
+                out.skyGradientStops.begin() + out.skyGradientStopCount,
+                [](const SkyGradientStop& a, const SkyGradientStop& b) {
+                    return a.position < b.position;
+                });
+        } else {
+            TraceLog(LOG_WARNING, "THING: unknown or malformed skybox clause '%s'", tag);
+            return false;
+        }
+    }
+    if (!out.haveSkyboxMode && out.skyMaterial.empty()) {
+        TraceLog(LOG_WARNING, "THING: skybox requires material, color, cube, or gradient");
+        return false;
+    }
+    if (out.haveSkyboxMode && modeCount != 1) {
+        TraceLog(LOG_WARNING, "THING: skybox requires exactly one of color, cube, or gradient");
+        return false;
+    }
+    if (out.skyboxMode == SkyboxMode::Cube) {
+        if (out.skyCubePx.empty() || out.skyCubeNx.empty() || out.skyCubePy.empty() ||
+            out.skyCubeNy.empty() || out.skyCubePz.empty() || out.skyCubeNz.empty()) {
+            TraceLog(LOG_WARNING, "THING: skybox cube requires px nx py ny pz nz faces");
+            return false;
+        }
+    }
+    return true;
+}
+
+s7_pointer g_skybox(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultSkyboxThing();
+    if (!parseSkyboxClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "skybox has invalid clauses")));
+    }
+    return appendThing(sc, std::move(placement), "skybox requires id", false);
+}
+
 s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
     Thing placement = makeDefaultSoundSourceThing();
     if (!parseThingClauses(sc, args, placement)) {
@@ -1277,6 +1420,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
     s7_define_function(sc, "ambient-light", g_ambient_light, 0, 0, true, "(ambient-light clauses...)");
+    s7_define_function(sc, "skybox", g_skybox, 0, 0, true, "(skybox clauses...)");
     s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
     s7_define_function(sc, "marker", g_marker, 0, 0, true, "(marker clauses...)");
     s7_define_function(sc, "particle", g_particle, 0, 0, true, "(particle clauses...)");

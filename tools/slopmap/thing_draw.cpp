@@ -94,6 +94,8 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{255, 255, 160, 255};
     case slopengine::ThingKind::AmbientLight:
         return Color{180, 200, 255, 255};
+    case slopengine::ThingKind::Skybox:
+        return Color{120, 180, 255, 255};
     case slopengine::ThingKind::Prefab:
         return Color{140, 140, 200, 255};
     case slopengine::ThingKind::SoundSource:
@@ -365,6 +367,12 @@ void drawThings(
         case slopengine::ThingKind::AmbientLight:
             drawLightGizmo(assets, camera, thing, selected, showGizmos);
             break;
+        case slopengine::ThingKind::Skybox: {
+            if (!drawThingIcon(assets, camera, pos, "image", color)) {
+                DrawCubeWires(pos, 0.5f, 0.5f, 0.5f, color);
+            }
+            break;
+        }
         case slopengine::ThingKind::Prefab:
             DrawCubeWires(pos, 0.4f, 0.4f, 0.4f, color);
             break;

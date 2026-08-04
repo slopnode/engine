@@ -5,6 +5,9 @@
 
 #include <raylib.h>
 
+#include "map/sky_types.hpp"
+
+#include <array>
 #include <string>
 #include <vector>
 
@@ -23,6 +26,7 @@ enum class ThingKind {
     AreaLight,
     Sun,
     AmbientLight,
+    Skybox,
     Prefab,
     SoundSource,
     Marker,
@@ -124,6 +128,18 @@ struct Thing {
     std::string particleSystem;
     bool particlePlay = true;
     bool haveParticlePlay = false;
+
+    SkyboxMode skyboxMode = SkyboxMode::Solid;
+    bool haveSkyboxMode = false;
+    std::string skyCubePx;
+    std::string skyCubeNx;
+    std::string skyCubePy;
+    std::string skyCubeNy;
+    std::string skyCubePz;
+    std::string skyCubeNz;
+    std::array<SkyGradientStop, 4> skyGradientStops{};
+    int skyGradientStopCount = 0;
+    std::string skyMaterial;
 };
 
 struct ThingDocument {
@@ -166,6 +182,13 @@ inline Thing makeDefaultParticleThing() {
     return t;
 }
 
+inline Thing makeDefaultSkyboxThing() {
+    Thing t{};
+    t.kind = ThingKind::Skybox;
+    t.skyMaterial = "engine/sky";
+    return t;
+}
+
 inline const char* thingKindName(ThingKind kind) {
     switch (kind) {
     case ThingKind::PlayerStart:
@@ -192,6 +215,8 @@ inline const char* thingKindName(ThingKind kind) {
         return "sun";
     case ThingKind::AmbientLight:
         return "ambient-light";
+    case ThingKind::Skybox:
+        return "skybox";
     case ThingKind::Prefab:
         return "prefab";
     case ThingKind::SoundSource:
