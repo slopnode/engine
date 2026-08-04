@@ -47,8 +47,12 @@ bool blockIsUniform(
     return (maxLum - minLum) / maxLum < maxRelativeVariance;
 }
 
-bool shouldMergeChart(int castEmitterCount) {
-    return castEmitterCount > kMaxEmittersBeforeMerge;
+bool shouldMergeChart(int castEmitterCount, int mergeThreshold) {
+    return castEmitterCount > mergeThreshold;
+}
+
+int emitterMergeThreshold(bool gpuSafeMode) {
+    return gpuSafeMode ? kMaxEmittersBeforeGpuMerge : kMaxEmittersBeforeMerge;
 }
 
 int chooseEmitterBlockSize(int emissiveCount, int chartWidth, int chartHeight) {

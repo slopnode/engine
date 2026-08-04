@@ -5,8 +5,10 @@
 #include <rlgl.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <string_view>
 #include <vector>
 
 namespace slopengine {
@@ -26,8 +28,14 @@ struct DirectDispatchConfig {
     int dispatchesPerSync = kDispatchesPerSync;
 };
 
-DirectDispatchConfig directDispatchConfig(int luxelCount, int lightCount) {
+DirectDispatchConfig directDispatchConfig(int luxelCount, int lightCount, bool gpuSafeMode) {
     DirectDispatchConfig config;
+    if (gpuSafeMode) {
+        config.luxelBatch = 256;
+        config.lightBatch = 128;
+        config.dispatchesPerSync = 1;
+        return config;
+    }
     if (luxelCount > kLargeLuxelThreshold) {
         config.luxelBatch = 2048;
         config.dispatchesPerSync = 32;
@@ -142,6 +150,9 @@ struct GpuEmitterBvhPrimSSBO {
     float maxz = 0.0f;
     std::int32_t emitterIndex = -1;
     std::int32_t pad1 = 0;
+    std::int32_t pad2 = 0;
+    std::int32_t pad3 = 0;
+    float pad4 = 0.0f;
 };
 
 struct GpuParamsSSBO {
@@ -168,7 +179,7 @@ static_assert(sizeof(GpuEmitterSSBO) == 48);
 static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
-static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 36);
+static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
 static_assert(sizeof(GpuParamsSSBO) == 64);
 
 using MemoryBarrierFn = void (*)(unsigned int);
@@ -380,6 +391,91 @@ bool dispatchBatch(
 }
 
 } // namespace
+
+namespace {
+
+constexpr unsigned int kGlRenderer = 0x1F01;
+
+using GetStringFn = const unsigned char* (*)(unsigned int);
+
+GetStringFn glGetStringFn() {
+    static GetStringFn fn = reinterpret_cast<GetStringFn>(rlGetProcAddress("glGetString"));
+    return fn;
+}
+
+bool stringContainsInsensitive(std::string_view haystack, std::string_view needle) {
+    if (needle.empty()) {
+        return true;
+    }
+    for (std::size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
+        bool match = true;
+        for (std::size_t j = 0; j < needle.size(); ++j) {
+            const char a = haystack[i + j];
+            const char b = needle[j];
+            if (std::tolower(static_cast<unsigned char>(a))
+                != std::tolower(static_cast<unsigned char>(b))) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+const char* radiosityGpuRenderer() {
+    if (!IsWindowReady()) {
+        return "";
+    }
+    GetStringFn fn = glGetStringFn();
+    if (fn == nullptr) {
+        return "";
+    }
+    const char* renderer = reinterpret_cast<const char*>(fn(kGlRenderer));
+    return renderer != nullptr ? renderer : "";
+}
+
+bool radiosityGpuIsIntegrated() {
+    const char* renderer = radiosityGpuRenderer();
+    if (renderer[0] == '\0') {
+        return false;
+    }
+    const std::string_view r(renderer);
+
+    if (stringContainsInsensitive(r, "llvmpipe") || stringContainsInsensitive(r, "softpipe")
+        || stringContainsInsensitive(r, "svga3d") || stringContainsInsensitive(r, "virgl")
+        || stringContainsInsensitive(r, "Microsoft Basic Render Driver")) {
+        return true;
+    }
+    if (stringContainsInsensitive(r, "Intel")) {
+        return true;
+    }
+    if (stringContainsInsensitive(r, "Apple M")) {
+        return true;
+    }
+
+    const bool amd =
+        stringContainsInsensitive(r, "AMD") || stringContainsInsensitive(r, "Radeon");
+    if (amd) {
+        if (stringContainsInsensitive(r, " RX ") || stringContainsInsensitive(r, " RX")
+            || stringContainsInsensitive(r, "Radeon Pro") || stringContainsInsensitive(r, "FirePro")
+            || stringContainsInsensitive(r, "Radeon VII")) {
+            return false;
+        }
+        if (stringContainsInsensitive(r, "Graphics") || stringContainsInsensitive(r, "Raven")
+            || stringContainsInsensitive(r, "Renoir") || stringContainsInsensitive(r, "Phoenix")
+            || stringContainsInsensitive(r, "Cezanne") || stringContainsInsensitive(r, "Rembrandt")
+            || stringContainsInsensitive(r, "Van Gogh") || stringContainsInsensitive(r, "Barcelo")) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 bool radiosityGpuContextReady() {
     if (!IsWindowReady()) {
@@ -612,7 +708,8 @@ bool accumulateDirectLightingGpu(
     const int luxelCount = static_cast<int>(gpuLuxels.size());
     const int emitterCount = static_cast<int>(emitters.size());
     const int lightCount = static_cast<int>(lights.size());
-    const DirectDispatchConfig dispatchConfig = directDispatchConfig(luxelCount, lightCount);
+    const DirectDispatchConfig dispatchConfig =
+        directDispatchConfig(luxelCount, lightCount, directParams.gpuSafeMode);
 
     GpuParamsSSBO initialParams{};
     fillBaseParams(
@@ -667,7 +764,7 @@ bool accumulateDirectLightingGpu(
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU direct lighting luxels=%d emitters=%d lights=%d luxelBatch=%d lightBatch=%d syncEvery=%d bvhRoot=%d emitterBvhRoot=%d leafCull=%d",
+        "sloprad: GPU direct lighting luxels=%d emitters=%d lights=%d luxelBatch=%d lightBatch=%d syncEvery=%d bvhRoot=%d emitterBvhRoot=%d leafCull=%d safeMode=%d",
         luxelCount,
         emitterCount,
         lightCount,
@@ -676,7 +773,8 @@ bool accumulateDirectLightingGpu(
         dispatchConfig.dispatchesPerSync,
         bvhRoot,
         emitterBvhRoot,
-        reachability.leafCount > 0 ? 1 : 0);
+        reachability.leafCount > 0 ? 1 : 0,
+        directParams.gpuSafeMode ? 1 : 0);
     std::fflush(stdout);
 
     rlEnableShader(program);
@@ -1063,13 +1161,16 @@ bool accumulateBounceLightingGpu(
         RL_DYNAMIC_COPY);
 
     const int luxelCount = static_cast<int>(gpuLuxels.size());
+    const int bounceLuxelBatch =
+        bounceParams.gpuSafeMode ? 256 : std::min(kLuxelBatchSize, luxelCount);
+    const int bounceDispatchesPerSync = bounceParams.gpuSafeMode ? 1 : kDispatchesPerSync;
     GpuBounceParamsSSBO initialParams{};
     initialParams.luxelCount = luxelCount;
     initialParams.faceCount = static_cast<std::int32_t>(faceGrids.size());
     initialParams.sampleCount = std::max(1, bounceParams.sampleCount);
     initialParams.bvhRoot = bvhRoot;
     initialParams.luxelOffset = 0;
-    initialParams.luxelBatch = std::min(kLuxelBatchSize, luxelCount);
+    initialParams.luxelBatch = std::min(bounceLuxelBatch, luxelCount);
     initialParams.seed = bounceParams.seed;
     initialParams.rayMaxDistance = bounceParams.rayMaxDistance;
     initialParams.ambientR = bounceParams.ambientR;
@@ -1121,10 +1222,12 @@ bool accumulateBounceLightingGpu(
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d",
+        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d luxelBatch=%d safeMode=%d",
         luxelCount,
         initialParams.sampleCount,
-        bvhRoot);
+        bvhRoot,
+        bounceLuxelBatch,
+        bounceParams.gpuSafeMode ? 1 : 0);
     std::fflush(stdout);
 
     rlEnableShader(program);
@@ -1140,17 +1243,17 @@ bool accumulateBounceLightingGpu(
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
     for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;
-         luxelOffset += kLuxelBatchSize) {
+         luxelOffset += bounceLuxelBatch) {
         GpuBounceParamsSSBO params = initialParams;
         params.luxelOffset = luxelOffset;
-        params.luxelBatch = std::min(kLuxelBatchSize, luxelCount - luxelOffset);
+        params.luxelBatch = std::min(bounceLuxelBatch, luxelCount - luxelOffset);
         rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
         memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
         const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
         rlComputeShaderDispatch(groups, 1, 1);
         memoryBarrierBits(kShaderStorageBarrierBit);
         ++dispatchesSinceSync;
-        if (dispatchesSinceSync >= kDispatchesPerSync) {
+        if (dispatchesSinceSync >= bounceDispatchesPerSync) {
             finishGpu();
             dispatchesSinceSync = 0;
             if (!checkGlError("bounce compute dispatch")) {

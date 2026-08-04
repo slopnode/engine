@@ -102,6 +102,9 @@ struct EmitterBvhPrim {
     float maxz;
     int emitterIndex;
     int pad1;
+    int pad2;
+    int pad3;
+    float pad4;
 };
 
 struct Params {

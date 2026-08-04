@@ -36,6 +36,10 @@ void runRadiosityEmitterTests() {
 
     CHECK_FALSE(shouldMergeChart(1000));
     CHECK(shouldMergeChart(kMaxEmittersBeforeMerge + 1));
+    CHECK_FALSE(shouldMergeChart(kMaxEmittersBeforeGpuMerge, kMaxEmittersBeforeGpuMerge));
+    CHECK(shouldMergeChart(kMaxEmittersBeforeGpuMerge + 1, kMaxEmittersBeforeGpuMerge));
+    CHECK_EQ(emitterMergeThreshold(false), kMaxEmittersBeforeMerge);
+    CHECK_EQ(emitterMergeThreshold(true), kMaxEmittersBeforeGpuMerge);
 
     const std::optional<EmitterPatch> merged =
         mergeEmitterBlock(uniform, 0.25f, {0.0f, 0.0f, 1.0f}, 0.02f, 3, 7);

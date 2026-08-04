@@ -839,6 +839,14 @@ bool accumulateDirectLighting(
         gpuReach.bits = reach.bits;
     }
     if (settings.preferGpu && !settings.directComputeShaderSource.empty()) {
+        if (settings.gpuSafeMode && emitters.size() > kMaxGpuDirectEmitters) {
+            TraceLog(
+                LOG_WARNING,
+                "sloprad: %zu emitters exceeds GPU safe budget (%d); using CPU direct lighting",
+                emitters.size(),
+                kMaxGpuDirectEmitters);
+            std::fflush(stdout);
+        } else {
         std::vector<RadGpuLuxel> gpuLuxels;
         std::vector<std::size_t> denseToSrc;
         gpuLuxels.reserve(luxels.size());
@@ -899,6 +907,7 @@ bool accumulateDirectLighting(
         gpuParams.coplanarSoft = 0.25f;
         gpuParams.minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
         gpuParams.emitterQueryRadius = emitterQueryRadius;
+        gpuParams.gpuSafeMode = settings.gpuSafeMode;
         std::vector<std::int32_t> faceIsSky(faceSky.size(), 0);
         for (std::size_t i = 0; i < faceSky.size(); ++i) {
             faceIsSky[i] = faceSky[i] != 0 ? 1 : 0;
@@ -928,6 +937,7 @@ bool accumulateDirectLighting(
         }
         TraceLog(LOG_WARNING, "sloprad: GPU direct lighting failed; falling back to CPU");
         std::fflush(stdout);
+        }
     } else if (settings.preferGpu) {
         TraceLog(LOG_WARNING, "sloprad: GPU direct lighting requested but shader source missing; using CPU");
         std::fflush(stdout);
@@ -1376,7 +1386,9 @@ RadiosityBakeResult bakeRadiosity(
             interiorLeaf = pointLeaf(*tree, castLuxels.front().position);
         }
 
-        if (shouldMergeChart(static_cast<int>(castLuxels.size()))) {
+        if (shouldMergeChart(
+                static_cast<int>(castLuxels.size()),
+                emitterMergeThreshold(settings.preferGpu && settings.gpuSafeMode))) {
             const int tileSize = kMergeTileSize;
             std::vector<EmitterMergeCandidate> tileCandidates;
             tileCandidates.reserve(static_cast<std::size_t>(tileSize * tileSize));
@@ -1594,6 +1606,7 @@ RadiosityBakeResult bakeRadiosity(
             bounceParams.ambientG = ambientRaw.g;
             bounceParams.ambientB = ambientRaw.b;
             bounceParams.seed = 0xA341316Cu ^ static_cast<std::uint32_t>(bounce * 0x9E3779B9u);
+            bounceParams.gpuSafeMode = settings.gpuSafeMode;
             if (accumulateBounceLightingGpu(
                     gpuLuxels,
                     gatheredRgb,

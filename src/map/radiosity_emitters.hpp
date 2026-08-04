@@ -12,6 +12,10 @@ namespace slopengine {
 inline constexpr int kTargetEmittersPerChart = 256;
 inline constexpr int kMaxEmitterBlockSize = 8;
 inline constexpr int kMaxEmittersBeforeMerge = 8192;
+/** Per-chart merge threshold when GPU safe mode is active (integrated / weak GPUs). */
+inline constexpr int kMaxEmittersBeforeGpuMerge = 2048;
+/** Total emitter budget above which GPU safe mode falls back to CPU direct lighting. */
+inline constexpr int kMaxGpuDirectEmitters = 4096;
 inline constexpr int kMergeTileSize = 4;
 inline constexpr float kMinEmitterContrib = 1e-5f;
 inline constexpr float kMinCastLuminance = 0.03f;
@@ -43,8 +47,11 @@ bool blockIsUniform(
     const std::vector<EmitterMergeCandidate>& candidates,
     float maxRelativeVariance = kMaxMergeVariance);
 
-/** Emergency merge when cast emitter count exceeds budget. */
-bool shouldMergeChart(int castEmitterCount);
+/** Emergency merge when cast emitter count exceeds @p mergeThreshold. */
+bool shouldMergeChart(int castEmitterCount, int mergeThreshold = kMaxEmittersBeforeMerge);
+
+/** Merge threshold for emitter collection (lower on GPU safe mode). */
+int emitterMergeThreshold(bool gpuSafeMode);
 
 /** Picks block size for emergency CPU-only merge fallback. */
 int chooseEmitterBlockSize(int emissiveCount, int chartWidth, int chartHeight);

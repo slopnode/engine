@@ -52,12 +52,19 @@ struct RadGpuReachability {
 
 bool radiosityGpuContextReady();
 
+/** OpenGL GL_RENDERER string, or empty when unavailable. */
+const char* radiosityGpuRenderer();
+
+/** True for integrated / software renderers that need conservative GPU lighting. */
+bool radiosityGpuIsIntegrated();
+
 struct RadGpuDirectParams {
     float directWrap = 0.35f;
     float coplanarFill = 0.15f;
     float coplanarSoft = 0.25f;
     float minDist2 = 0.0025f;
     float emitterQueryRadius = 0.0f;
+    bool gpuSafeMode = false;
 };
 
 bool accumulateDirectLightingGpu(
@@ -103,6 +110,7 @@ struct RadGpuBounceParams {
     float ambientG = 0.0f;
     float ambientB = 0.0f;
     std::uint32_t seed = 1;
+    bool gpuSafeMode = false;
 };
 
 bool accumulateBounceLightingGpu(

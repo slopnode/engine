@@ -7,6 +7,7 @@
 #include "map/lightmap.hpp"
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
+#include "map/radiosity_emitters.hpp"
 #include "map/radiosity_lights.hpp"
 #include "map/fac_io.hpp"
 
@@ -29,6 +30,7 @@ namespace {
 struct RadCli {
     slopengine::AppConfig config;
     slopengine::RadiositySettings settings;
+    std::optional<bool> gpuSafeOverride;
 };
 
 std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
@@ -98,6 +100,10 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
             cli.settings.preferGpu = false;
+        } else if (arg == "--gpu-safe") {
+            cli.gpuSafeOverride = true;
+        } else if (arg == "--gpu-fast") {
+            cli.gpuSafeOverride = false;
         } else {
             return std::nullopt;
         }
@@ -118,7 +124,8 @@ int main(int argc, char* argv[]) {
     if (!cli) {
         std::cerr
             << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
-            << "       [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]\n";
+            << "       [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]\n"
+            << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
     }
 
@@ -131,6 +138,26 @@ int main(int argc, char* argv[]) {
     }
 
     AssetStore assets(cli->config);
+
+    if (cli->gpuSafeOverride.has_value()) {
+        cli->settings.gpuSafeMode = *cli->gpuSafeOverride;
+    } else if (cli->settings.preferGpu && radiosityGpuIsIntegrated()) {
+        cli->settings.gpuSafeMode = true;
+    }
+    if (cli->settings.preferGpu) {
+        const char* renderer = radiosityGpuRenderer();
+        if (renderer[0] != '\0') {
+            TraceLog(LOG_INFO, "sloprad: GL renderer '%s'", renderer);
+            std::fflush(stdout);
+        }
+        if (cli->settings.gpuSafeMode) {
+            TraceLog(
+                LOG_INFO,
+                "sloprad: GPU safe mode enabled (smaller batches, contrast merge, CPU fallback over %d emitters)",
+                kMaxGpuDirectEmitters);
+            std::fflush(stdout);
+        }
+    }
 
     if (cli->settings.preferGpu) {
         cli->settings.directComputeShaderSource = assets.getShaderSource("tools/rad_direct_comp");

@@ -26,6 +26,8 @@ struct RadiositySettings {
 #else
     bool preferGpu = true;
 #endif
+    /** Conservative GPU dispatch + merge when set (auto-enabled on integrated GPUs). */
+    bool gpuSafeMode = false;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
 };
