@@ -71,6 +71,10 @@ struct GpuLuxelSSBO {
     float ig = 0.0f;
     float ib = 0.0f;
     std::int32_t leafIndex = -1;
+    float sunIr = 0.0f;
+    float sunIg = 0.0f;
+    float sunIb = 0.0f;
+    std::int32_t pad0 = 0;
 };
 
 struct GpuEmissiveFaceSSBO {
@@ -205,16 +209,17 @@ struct GpuParamsSSBO {
     std::int32_t emissionGridFloats = 0;
     std::int32_t sunRayCount = 1;
     float sunAngularSpread = 0.0f;
+    float sunLeakThreshold = 0.0f;
 };
 
-static_assert(sizeof(GpuLuxelSSBO) == 48);
+static_assert(sizeof(GpuLuxelSSBO) == 64);
 static_assert(sizeof(GpuEmissiveFaceSSBO) == 132);
 static_assert(sizeof(GpuGridSampleSSBO) == 16);
 static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
 static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
-static_assert(sizeof(GpuParamsSSBO) == 80);
+static_assert(sizeof(GpuParamsSSBO) == 84);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
@@ -404,6 +409,7 @@ void fillBaseParams(
     params.emissionGridFloats = directParams.emissionGridFloats;
     params.sunRayCount = directParams.sunRayCount;
     params.sunAngularSpread = directParams.sunAngularSpread;
+    params.sunLeakThreshold = directParams.sunLeakThreshold;
 }
 
 bool dispatchBatch(
@@ -1005,6 +1011,9 @@ bool accumulateDirectLightingGpu(
         luxels[i].irradianceR = gpuLuxels[i].ir;
         luxels[i].irradianceG = gpuLuxels[i].ig;
         luxels[i].irradianceB = gpuLuxels[i].ib;
+        luxels[i].sunIrradianceR = gpuLuxels[i].sunIr;
+        luxels[i].sunIrradianceG = gpuLuxels[i].sunIg;
+        luxels[i].sunIrradianceB = gpuLuxels[i].sunIb;
     }
 
     TraceLog(LOG_INFO, "sloprad: GPU direct lighting complete");

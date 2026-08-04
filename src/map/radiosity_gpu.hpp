@@ -18,6 +18,9 @@ struct RadGpuLuxel {
     float irradianceR = 0.0f;
     float irradianceG = 0.0f;
     float irradianceB = 0.0f;
+    float sunIrradianceR = 0.0f;
+    float sunIrradianceG = 0.0f;
+    float sunIrradianceB = 0.0f;
     std::int32_t faceIndex = -1;
     std::int32_t covered = 0;
     std::int32_t interiorLeaf = -1;
@@ -83,6 +86,7 @@ struct RadGpuDirectParams {
     int emissionGridFloats = 0;
     int sunRayCount = 1;
     float sunAngularSpread = 0.0f;
+    float sunLeakThreshold = 0.0f;
     bool gpuSafeMode = false;
 };
 

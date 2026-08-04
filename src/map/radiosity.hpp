@@ -40,6 +40,10 @@ struct RadiositySettings {
 struct SunShadowSoftnessParams {
     int rayCount = 1;
     float angularSpreadRad = 0.0f;
+    float leakThreshold = 0.0f;
+    float sunDenoiseSpatialSigma = 1.0f;
+    float sunDenoiseRangeSigma = 0.35f;
+    int sunDenoiseKernelRadius = 1;
 };
 
 SunShadowSoftnessParams resolveSunShadowSoftness(float softness);

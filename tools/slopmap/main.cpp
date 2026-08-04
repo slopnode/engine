@@ -3788,7 +3788,7 @@ int main(int argc, char* argv[]) {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
                     "0 = sharp window/sun edges (legacy). "
-                    "Higher values add softer sun penumbra via multi-ray sampling.");
+                    "Higher values add multi-ray sun penumbra and sun-only softening.");
             }
             if (compile.radOptions.sunShadowSoftness < 0.0f) {
                 compile.radOptions.sunShadowSoftness = 0.0f;

@@ -547,6 +547,7 @@ struct LuxelSample {
     Vector3 normal{};
     Color3 albedo{};
     Color3 irradiance{};
+    Color3 sunIrradiance{};
     Color3 emission{};
     std::int32_t faceIndex = -1;
     std::int32_t interiorLeaf = -1;
@@ -750,18 +751,15 @@ float sunSkyVisibility(
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent) {
     constexpr float kSunRayDistance = 1000.0f;
-    const auto centerHit = raycastQuadBvh(
-        occlusionBvh,
-        luxelPos,
-        toLight,
-        kSunRayDistance,
-        luxelFaceIndex,
-        &faceTransparent);
-    if (!centerHit || !faceIsSky(faceSky, centerHit->faceIndex)) {
-        return 0.0f;
-    }
     if (sunParams.rayCount <= 1 || sunParams.angularSpreadRad <= 0.0f) {
-        return 1.0f;
+        const auto hit = raycastQuadBvh(
+            occlusionBvh,
+            luxelPos,
+            toLight,
+            kSunRayDistance,
+            luxelFaceIndex,
+            &faceTransparent);
+        return hit && faceIsSky(faceSky, hit->faceIndex) ? 1.0f : 0.0f;
     }
 
     float hits = 0.0f;
@@ -784,7 +782,12 @@ float sunSkyVisibility(
             hits += 1.0f;
         }
     }
-    return hits / static_cast<float>(sunParams.rayCount);
+    const float visibility = hits / static_cast<float>(sunParams.rayCount);
+    if (visibility <= sunParams.leakThreshold) {
+        return 0.0f;
+    }
+    const float leakThreshold = std::clamp(sunParams.leakThreshold, 0.0f, 0.999f);
+    return (visibility - leakThreshold) / (1.0f - leakThreshold);
 }
 
 void accumulateEntityLight(
@@ -834,7 +837,9 @@ void accumulateEntityLight(
         if (visibility <= 0.0f) {
             return;
         }
-        luxel.irradiance += intensity * (nDotL * visibility);
+        const Color3 contrib = intensity * (nDotL * visibility);
+        luxel.irradiance += contrib;
+        luxel.sunIrradiance += contrib;
         return;
     }
 
@@ -1078,6 +1083,7 @@ bool accumulateDirectLighting(
         const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
         gpuParams.sunRayCount = sunParams.rayCount;
         gpuParams.sunAngularSpread = sunParams.angularSpreadRad;
+        gpuParams.sunLeakThreshold = sunParams.leakThreshold;
         std::vector<std::int32_t> faceIsSky(faceSky.size(), 0);
         for (std::size_t i = 0; i < faceSky.size(); ++i) {
             faceIsSky[i] = faceSky[i] != 0 ? 1 : 0;
@@ -1103,6 +1109,9 @@ bool accumulateDirectLighting(
                 dst.irradiance.r = gpuLuxels[d].irradianceR;
                 dst.irradiance.g = gpuLuxels[d].irradianceG;
                 dst.irradiance.b = gpuLuxels[d].irradianceB;
+                dst.sunIrradiance.r = gpuLuxels[d].sunIrradianceR;
+                dst.sunIrradiance.g = gpuLuxels[d].sunIrradianceG;
+                dst.sunIrradiance.b = gpuLuxels[d].sunIrradianceB;
             }
             return true;
         }
@@ -1198,16 +1207,17 @@ void inpaintCoveredLuxels(
     }
 }
 
-void bilateralDenoiseLuxels(
-    std::vector<LuxelSample>& luxels,
+void bilateralDenoiseColorGrid(
+    std::vector<Color3>& colors,
+    const std::vector<LuxelSample>& luxels,
     const std::vector<FaceLuxelGrid>& faceGrids,
     float spatialSigma,
     float rangeSigma,
     int kernelRadius) {
     const float invTwoSpatial = 1.0f / (2.0f * spatialSigma * spatialSigma);
     const float invTwoRange = 1.0f / (2.0f * rangeSigma * rangeSigma);
-    std::vector<Color3> filtered(luxels.size());
-    std::vector<char> writeMask(luxels.size(), 0);
+    std::vector<Color3> filtered(colors.size());
+    std::vector<char> writeMask(colors.size(), 0);
     for (const FaceLuxelGrid& grid : faceGrids) {
         if (!grid.valid || grid.luxelWidth <= 0 || grid.luxelHeight <= 0) {
             continue;
@@ -1217,10 +1227,10 @@ void bilateralDenoiseLuxels(
                 const std::size_t center =
                     grid.luxelBase + static_cast<std::size_t>(y) * static_cast<std::size_t>(grid.luxelWidth)
                     + static_cast<std::size_t>(x);
-                if (center >= luxels.size() || luxels[center].covered) {
+                if (center >= colors.size() || center >= luxels.size() || luxels[center].covered) {
                     continue;
                 }
-                const float centerLum = luminance(luxels[center].irradiance);
+                const float centerLum = luminance(colors[center]);
                 Color3 sum{};
                 float weightSum = 0.0f;
                 for (int oy = -kernelRadius; oy <= kernelRadius; ++oy) {
@@ -1234,13 +1244,13 @@ void bilateralDenoiseLuxels(
                             grid.luxelBase
                             + static_cast<std::size_t>(ny) * static_cast<std::size_t>(grid.luxelWidth)
                             + static_cast<std::size_t>(nx);
-                        if (ni >= luxels.size() || luxels[ni].covered) {
+                        if (ni >= colors.size() || ni >= luxels.size() || luxels[ni].covered) {
                             continue;
                         }
                         const float dist2 = static_cast<float>(ox * ox + oy * oy);
-                        const float lumDelta = luminance(luxels[ni].irradiance) - centerLum;
+                        const float lumDelta = luminance(colors[ni]) - centerLum;
                         const float w = std::exp(-dist2 * invTwoSpatial - lumDelta * lumDelta * invTwoRange);
-                        sum += luxels[ni].irradiance * w;
+                        sum += colors[ni] * w;
                         weightSum += w;
                     }
                 }
@@ -1251,10 +1261,26 @@ void bilateralDenoiseLuxels(
             }
         }
     }
-    for (std::size_t i = 0; i < luxels.size(); ++i) {
+    for (std::size_t i = 0; i < colors.size(); ++i) {
         if (writeMask[i] != 0) {
-            luxels[i].irradiance = filtered[i];
+            colors[i] = filtered[i];
         }
+    }
+}
+
+void bilateralDenoiseLuxels(
+    std::vector<LuxelSample>& luxels,
+    const std::vector<FaceLuxelGrid>& faceGrids,
+    float spatialSigma,
+    float rangeSigma,
+    int kernelRadius) {
+    std::vector<Color3> colors(luxels.size());
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        colors[i] = luxels[i].irradiance;
+    }
+    bilateralDenoiseColorGrid(colors, luxels, faceGrids, spatialSigma, rangeSigma, kernelRadius);
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        luxels[i].irradiance = colors[i];
     }
 }
 
@@ -1350,7 +1376,11 @@ SunShadowSoftnessParams resolveSunShadowSoftness(float softness) {
     SunShadowSoftnessParams params;
     const float t = std::clamp(softness, 0.0f, 1.0f);
     params.rayCount = std::max(1, static_cast<int>(std::lround(1.0f + t * 15.0f)));
-    params.angularSpreadRad = t * 0.07f;
+    params.angularSpreadRad = t * 0.05f;
+    params.leakThreshold = t * 0.12f;
+    params.sunDenoiseRangeSigma = 0.35f + t * 0.85f;
+    params.sunDenoiseSpatialSigma = t <= 0.5f ? 1.0f : 1.0f + (t - 0.5f) * 2.0f;
+    params.sunDenoiseKernelRadius = t > 0.5f ? 2 : 1;
     return params;
 }
 
@@ -1393,9 +1423,13 @@ RadiosityBakeResult bakeRadiosity(
     const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
     TraceLog(
         LOG_INFO,
-        "sloprad: sun softness resolved rays=%d spread=%.4f",
+        "sloprad: sun softness resolved rays=%d spread=%.4f leak=%.3f sunDenoiseRange=%.3f sunDenoiseSpatial=%.3f kernel=%d",
         sunParams.rayCount,
-        sunParams.angularSpreadRad);
+        sunParams.angularSpreadRad,
+        sunParams.leakThreshold,
+        sunParams.sunDenoiseRangeSigma,
+        sunParams.sunDenoiseSpatialSigma,
+        sunParams.sunDenoiseKernelRadius);
     std::fflush(stdout);
 
     LeafReachability reach;
@@ -1822,15 +1856,41 @@ RadiosityBakeResult bakeRadiosity(
     }
 
     logStage("denoising irradiance...");
-    constexpr float kDenoiseSpatialSigma = 1.0f;
-    constexpr float kDenoiseRangeSigma = 0.35f;
-    constexpr int kDenoiseKernelRadius = 1;
-    bilateralDenoiseLuxels(
-        luxels,
-        faceGrids,
-        kDenoiseSpatialSigma,
-        kDenoiseRangeSigma,
-        kDenoiseKernelRadius);
+    constexpr float kRestDenoiseSpatialSigma = 1.0f;
+    constexpr float kRestDenoiseRangeSigma = 0.35f;
+    constexpr int kRestDenoiseKernelRadius = 1;
+    if (settings.sunShadowSoftness > 0.0f) {
+        std::vector<Color3> sunChannel(luxels.size());
+        std::vector<Color3> restChannel(luxels.size());
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            sunChannel[i] = luxels[i].sunIrradiance;
+            restChannel[i] = luxels[i].irradiance - luxels[i].sunIrradiance;
+        }
+        bilateralDenoiseColorGrid(
+            sunChannel,
+            luxels,
+            faceGrids,
+            sunParams.sunDenoiseSpatialSigma,
+            sunParams.sunDenoiseRangeSigma,
+            sunParams.sunDenoiseKernelRadius);
+        bilateralDenoiseColorGrid(
+            restChannel,
+            luxels,
+            faceGrids,
+            kRestDenoiseSpatialSigma,
+            kRestDenoiseRangeSigma,
+            kRestDenoiseKernelRadius);
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            luxels[i].irradiance = restChannel[i] + sunChannel[i];
+        }
+    } else {
+        bilateralDenoiseLuxels(
+            luxels,
+            faceGrids,
+            kRestDenoiseSpatialSigma,
+            kRestDenoiseRangeSigma,
+            kRestDenoiseKernelRadius);
+    }
 
     logStage("rasterizing lightmap atlases...");
     for (std::size_t atlas = 0; atlas < packed.atlasRgb.size(); ++atlas) {

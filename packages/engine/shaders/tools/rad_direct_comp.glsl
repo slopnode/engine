@@ -24,6 +24,10 @@ struct Luxel {
     float ig;
     float ib;
     int leafIndex;
+    float sunIr;
+    float sunIg;
+    float sunIb;
+    int pad0;
 };
 
 struct EmissiveFace {
@@ -158,6 +162,7 @@ struct Params {
     int emissionGridFloats;
     int sunRayCount;
     float sunAngularSpread;
+    float sunLeakThreshold;
 };
 
 layout(std430, binding = 0) buffer LuxelBuffer {
@@ -636,12 +641,12 @@ float sunSkyVisibility(
     vec3 toLight,
     vec3 tangent,
     vec3 bitangent) {
-    int centerHitFace = -1;
-    if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, centerHitFace)
-        || !isSkyFace(centerHitFace)) {
-        return 0.0;
-    }
     if (params.sunRayCount <= 1 || params.sunAngularSpread <= 0.0) {
+        int hitFace = -1;
+        if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+            || !isSkyFace(hitFace)) {
+            return 0.0;
+        }
         return 1.0;
     }
 
@@ -660,7 +665,12 @@ float sunSkyVisibility(
             hits += 1.0;
         }
     }
-    return hits / float(params.sunRayCount);
+    float visibility = hits / float(params.sunRayCount);
+    if (visibility <= params.sunLeakThreshold) {
+        return 0.0;
+    }
+    float leakThreshold = clamp(params.sunLeakThreshold, 0.0, 0.999);
+    return (visibility - leakThreshold) / (1.0 - leakThreshold);
 }
 
 void main() {
@@ -681,6 +691,7 @@ void main() {
     vec3 luxelPos = vec3(luxel.px, luxel.py, luxel.pz);
     vec3 luxelNormal = vec3(luxel.nx, luxel.ny, luxel.nz);
     vec3 irradiance = vec3(luxel.ir, luxel.ig, luxel.ib);
+    vec3 sunIrradiance = vec3(luxel.sunIr, luxel.sunIg, luxel.sunIb);
     float wrap = params.directWrap;
     float coplanarFill = max(params.coplanarFill, 0.0);
     float coplanarSoft = max(params.coplanarSoft, 1e-4);
@@ -723,6 +734,7 @@ void main() {
             if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
                 && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
                 irradiance += contrib;
+                sunIrradiance += contrib;
             }
             continue;
         }
@@ -780,8 +792,12 @@ void main() {
     if (isnan(irradiance.x) || isnan(irradiance.y) || isnan(irradiance.z)
         || isinf(irradiance.x) || isinf(irradiance.y) || isinf(irradiance.z)) {
         irradiance = vec3(luxel.ir, luxel.ig, luxel.ib);
+        sunIrradiance = vec3(luxel.sunIr, luxel.sunIg, luxel.sunIb);
     }
     luxels[id].ir = irradiance.x;
     luxels[id].ig = irradiance.y;
     luxels[id].ib = irradiance.z;
+    luxels[id].sunIr = sunIrradiance.x;
+    luxels[id].sunIg = sunIrradiance.y;
+    luxels[id].sunIb = sunIrradiance.z;
 }
