@@ -83,6 +83,7 @@ set(SLOPLIB_SOURCES
     src/map/quad_bvh.cpp
     src/map/radiosity.cpp
     src/map/radiosity_emitters.cpp
+    src/map/emitter_bvh.cpp
     src/map/radiosity_gpu.cpp
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp

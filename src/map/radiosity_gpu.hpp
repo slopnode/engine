@@ -1,5 +1,6 @@
 #pragma once
 
+#include "map/emitter_bvh.hpp"
 #include "map/quad_bvh.hpp"
 
 #include <raylib.h>
@@ -56,6 +57,7 @@ struct RadGpuDirectParams {
     float coplanarFill = 0.15f;
     float coplanarSoft = 0.25f;
     float minDist2 = 0.0025f;
+    float emitterQueryRadius = 0.0f;
 };
 
 bool accumulateDirectLightingGpu(
@@ -63,6 +65,7 @@ bool accumulateDirectLightingGpu(
     const std::vector<RadGpuEmitter>& emitters,
     const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
+    const EmitterBvh& emitterBvh,
     std::string_view computeShaderSource,
     const RadGpuDirectParams& params = {},
     const RadGpuReachability& reachability = {},

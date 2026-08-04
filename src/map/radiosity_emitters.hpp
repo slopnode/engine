@@ -3,6 +3,7 @@
 #include <raylib.h>
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -10,7 +11,11 @@ namespace slopengine {
 
 inline constexpr int kTargetEmittersPerChart = 256;
 inline constexpr int kMaxEmitterBlockSize = 8;
+inline constexpr int kMaxEmittersBeforeMerge = 8192;
+inline constexpr int kMergeTileSize = 4;
 inline constexpr float kMinEmitterContrib = 1e-5f;
+inline constexpr float kMinCastLuminance = 0.03f;
+inline constexpr float kMaxMergeVariance = 0.15f;
 
 /** One emissive luxel candidate before block merging. */
 struct EmitterMergeCandidate {
@@ -30,7 +35,18 @@ struct EmitterPatch {
 
 float emitterLuminance(Vector3 radiance);
 
-/** Picks 1, 2, 4, or 8 from emissive luxel count and chart dimensions. */
+/** True when radiance is bright enough to cast light onto other surfaces. */
+bool passesCastGate(Vector3 radiance);
+
+/** True when luminance spread within a tile is low enough to merge safely. */
+bool blockIsUniform(
+    const std::vector<EmitterMergeCandidate>& candidates,
+    float maxRelativeVariance = kMaxMergeVariance);
+
+/** Emergency merge when cast emitter count exceeds budget. */
+bool shouldMergeChart(int castEmitterCount);
+
+/** Picks block size for emergency CPU-only merge fallback. */
 int chooseEmitterBlockSize(int emissiveCount, int chartWidth, int chartHeight);
 
 /** Merges emissive luxel candidates into one energy-weighted patch. */

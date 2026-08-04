@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace slopengine {
 
@@ -21,6 +22,33 @@ Vector3 scale3(Vector3 a, float s) {
 
 float emitterLuminance(Vector3 radiance) {
     return 0.2126f * radiance.x + 0.7152f * radiance.y + 0.0722f * radiance.z;
+}
+
+bool passesCastGate(Vector3 radiance) {
+    return emitterLuminance(radiance) >= kMinCastLuminance;
+}
+
+bool blockIsUniform(
+    const std::vector<EmitterMergeCandidate>& candidates,
+    float maxRelativeVariance) {
+    if (candidates.size() <= 1) {
+        return true;
+    }
+    float minLum = std::numeric_limits<float>::max();
+    float maxLum = 0.0f;
+    for (const EmitterMergeCandidate& candidate : candidates) {
+        const float lum = emitterLuminance(candidate.radiance);
+        minLum = std::min(minLum, lum);
+        maxLum = std::max(maxLum, lum);
+    }
+    if (maxLum <= 0.0f) {
+        return true;
+    }
+    return (maxLum - minLum) / maxLum < maxRelativeVariance;
+}
+
+bool shouldMergeChart(int castEmitterCount) {
+    return castEmitterCount > kMaxEmittersBeforeMerge;
 }
 
 int chooseEmitterBlockSize(int emissiveCount, int chartWidth, int chartHeight) {

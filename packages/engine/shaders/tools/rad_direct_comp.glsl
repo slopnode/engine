@@ -92,6 +92,18 @@ struct BvhPrim {
     int faceIndex;
 };
 
+struct EmitterBvhPrim {
+    float minx;
+    float miny;
+    float minz;
+    float pad0;
+    float maxx;
+    float maxy;
+    float maxz;
+    int emitterIndex;
+    int pad1;
+};
+
 struct Params {
     int luxelCount;
     int emitterCount;
@@ -99,8 +111,8 @@ struct Params {
     int bvhRoot;
     int luxelOffset;
     int luxelBatch;
-    int emitterOffset;
-    int emitterBatch;
+    int emitterBvhRoot;
+    float emitterQueryRadius;
     int lightOffset;
     int lightBatch;
     int leafCount;
@@ -147,6 +159,14 @@ layout(std430, binding = 8) readonly buffer FaceTransparentBuffer {
     int faceTransparent[];
 };
 
+layout(std430, binding = 9) readonly buffer EmitterNodeBuffer {
+    BvhNode emitterNodes[];
+};
+
+layout(std430, binding = 10) readonly buffer EmitterPrimBuffer {
+    EmitterBvhPrim emitterPrims[];
+};
+
 bool isSkyFace(int faceIndex) {
     if (faceIndex < 0 || faceIndex >= faceSky.length()) {
         return false;
@@ -170,6 +190,13 @@ bool leavesReachable(int a, int b) {
     }
     uint word = reachBits[a * params.wordsPerRow + (b >> 5)];
     return (word & (1u << (b & 31))) != 0u;
+}
+
+bool aabbOverlapsSphere(vec3 mins, vec3 maxs, vec3 center, float radius) {
+    float dx = max(max(mins.x - center.x, 0.0), center.x - maxs.x);
+    float dy = max(max(mins.y - center.y, 0.0), center.y - maxs.y);
+    float dz = max(max(mins.z - center.z, 0.0), center.z - maxs.z);
+    return dx * dx + dy * dy + dz * dz <= radius * radius;
 }
 
 bool rayAabb(vec3 origin, vec3 invDir, vec3 mins, vec3 maxs, float maxDistance) {
@@ -314,6 +341,113 @@ float wrapCosine(float cosine, float wrap) {
     return max(0.0, (cosine + w) / (1.0 + w));
 }
 
+void accumulateEmitter(int emitterIndex, vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int luxelLeaf,
+                       float wrap, float coplanarFill, float coplanarSoft, float minDist2,
+                       inout vec3 irradiance) {
+    if (emitterIndex < 0 || emitterIndex >= params.emitterCount) {
+        return;
+    }
+    Emitter emitter = emitters[emitterIndex];
+    if (emitter.faceIndex == luxelFaceIndex) {
+        return;
+    }
+    if (!leavesReachable(luxelLeaf, emitter.leafIndex)) {
+        return;
+    }
+    vec3 emitterPos = vec3(emitter.px, emitter.py, emitter.pz);
+    vec3 emitterNormal = vec3(emitter.nx, emitter.ny, emitter.nz);
+    vec3 delta = emitterPos - luxelPos;
+    float dist2Raw = dot(delta, delta);
+    if (dist2Raw < 1e-6) {
+        return;
+    }
+    float dist = sqrt(dist2Raw);
+    vec3 toLight = delta / dist;
+    float dist2 = max(dist2Raw, minDist2);
+    float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+    float nDotV = wrapCosine(-dot(emitterNormal, toLight), wrap);
+    bool formOk = nDotL > 0.0 && nDotV > 0.0;
+    float align = 0.0;
+    bool fillOk = false;
+    const float kCoplanarAlignMin = 0.85;
+    if (coplanarFill > 0.0) {
+        align = dot(luxelNormal, emitterNormal);
+        fillOk = align > kCoplanarAlignMin;
+    }
+    if (!formOk && !fillOk) {
+        return;
+    }
+    vec3 radiance = vec3(emitter.rr, emitter.rg, emitter.rb);
+    float lum = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+    float maxDist2 = lum * emitter.area / (kMinEmitterContrib * kPi);
+    if (dist2Raw > maxDist2) {
+        return;
+    }
+    float maxForm = emitter.area / (max(dist2, minDist2) * kPi);
+    if (lum * maxForm < kMinEmitterContrib) {
+        return;
+    }
+    if (segmentOccluded(luxelPos, emitterPos, luxelFaceIndex, emitter.faceIndex)) {
+        return;
+    }
+
+    if (formOk) {
+        float form = nDotL * nDotV * emitter.area / (dist2 * kPi);
+        if (!isnan(form) && !isinf(form)) {
+            irradiance += radiance * form;
+        }
+    }
+
+    if (fillOk) {
+        float planeSep = abs(dot(delta, luxelNormal));
+        float lateral2 = max(0.0, dist2Raw - planeSep * planeSep);
+        float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
+        float fill = emitter.area * coplanarFill * weight / (4.0 * kPi);
+        if (!isnan(fill) && !isinf(fill)) {
+            irradiance += radiance * fill;
+        }
+    }
+}
+
+void traverseEmitterBvh(vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int luxelLeaf,
+                        float wrap, float coplanarFill, float coplanarSoft, float minDist2,
+                        inout vec3 irradiance) {
+    if (params.emitterBvhRoot < 0 || params.emitterQueryRadius <= 0.0) {
+        return;
+    }
+    int stack[64];
+    int stackSize = 0;
+    stack[stackSize++] = params.emitterBvhRoot;
+    while (stackSize > 0) {
+        int nodeIndex = stack[--stackSize];
+        BvhNode node = emitterNodes[nodeIndex];
+        vec3 mins = vec3(node.minx, node.miny, node.minz);
+        vec3 maxs = vec3(node.maxx, node.maxy, node.maxz);
+        if (!aabbOverlapsSphere(mins, maxs, luxelPos, params.emitterQueryRadius)) {
+            continue;
+        }
+        if (node.primCount > 0) {
+            for (int i = 0; i < node.primCount; ++i) {
+                EmitterBvhPrim prim = emitterPrims[node.firstPrim + i];
+                vec3 primMins = vec3(prim.minx, prim.miny, prim.minz);
+                vec3 primMaxs = vec3(prim.maxx, prim.maxy, prim.maxz);
+                if (!aabbOverlapsSphere(primMins, primMaxs, luxelPos, params.emitterQueryRadius)) {
+                    continue;
+                }
+                accumulateEmitter(prim.emitterIndex, luxelPos, luxelNormal, luxelFaceIndex, luxelLeaf,
+                                  wrap, coplanarFill, coplanarSoft, minDist2, irradiance);
+            }
+            continue;
+        }
+        if (node.right >= 0 && stackSize < 64) {
+            stack[stackSize++] = node.right;
+        }
+        if (node.left >= 0 && stackSize < 64) {
+            stack[stackSize++] = node.left;
+        }
+    }
+}
+
 void main() {
     uint localId = gl_GlobalInvocationID.x;
     if (localId >= uint(params.luxelBatch)) {
@@ -336,69 +470,10 @@ void main() {
     float coplanarFill = max(params.coplanarFill, 0.0);
     float coplanarSoft = max(params.coplanarSoft, 1e-4);
     float minDist2 = max(params.minDist2, 1e-6);
-    const float kCoplanarAlignMin = 0.85;
-    int emitterBegin = params.emitterOffset;
-    int emitterEnd = min(params.emitterOffset + params.emitterBatch, params.emitterCount);
-    for (int e = emitterBegin; e < emitterEnd; ++e) {
-        Emitter emitter = emitters[e];
-        if (emitter.faceIndex == luxel.faceIndex) {
-            continue;
-        }
-        if (!leavesReachable(luxel.leafIndex, emitter.leafIndex)) {
-            continue;
-        }
-        vec3 emitterPos = vec3(emitter.px, emitter.py, emitter.pz);
-        vec3 emitterNormal = vec3(emitter.nx, emitter.ny, emitter.nz);
-        vec3 delta = emitterPos - luxelPos;
-        float dist2Raw = dot(delta, delta);
-        if (dist2Raw < 1e-6) {
-            continue;
-        }
-        float dist = sqrt(dist2Raw);
-        vec3 toLight = delta / dist;
-        float dist2 = max(dist2Raw, minDist2);
-        float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
-        float nDotV = wrapCosine(-dot(emitterNormal, toLight), wrap);
-        bool formOk = nDotL > 0.0 && nDotV > 0.0;
-        float align = 0.0;
-        bool fillOk = false;
-        if (coplanarFill > 0.0) {
-            align = dot(luxelNormal, emitterNormal);
-            fillOk = align > kCoplanarAlignMin;
-        }
-        if (!formOk && !fillOk) {
-            continue;
-        }
-        vec3 radiance = vec3(emitter.rr, emitter.rg, emitter.rb);
-        float lum = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
-        float maxDist2 = lum * emitter.area / (kMinEmitterContrib * kPi);
-        if (dist2Raw > maxDist2) {
-            continue;
-        }
-        float maxForm = emitter.area / (max(dist2, minDist2) * kPi);
-        if (lum * maxForm < kMinEmitterContrib) {
-            continue;
-        }
-        if (segmentOccluded(luxelPos, emitterPos, luxel.faceIndex, emitter.faceIndex)) {
-            continue;
-        }
 
-        if (formOk) {
-            float form = nDotL * nDotV * emitter.area / (dist2 * kPi);
-            if (!isnan(form) && !isinf(form)) {
-                irradiance += radiance * form;
-            }
-        }
-
-        if (fillOk) {
-            float planeSep = abs(dot(delta, luxelNormal));
-            float lateral2 = max(0.0, dist2Raw - planeSep * planeSep);
-            float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
-            float fill = emitter.area * coplanarFill * weight / (4.0 * kPi);
-            if (!isnan(fill) && !isinf(fill)) {
-                irradiance += radiance * fill;
-            }
-        }
+    if (params.emitterBvhRoot >= 0) {
+        traverseEmitterBvh(luxelPos, luxelNormal, luxel.faceIndex, luxel.leafIndex,
+                           wrap, coplanarFill, coplanarSoft, minDist2, irradiance);
     }
 
     int lightBegin = params.lightOffset;
