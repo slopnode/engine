@@ -3,6 +3,7 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const float kPi = 3.14159265358979323846;
+const float kMinEmitterContrib = 1e-5;
 const int kLightKindPoint = 0;
 const int kLightKindSpot = 1;
 const int kLightKindSun = 2;
@@ -368,11 +369,20 @@ void main() {
         if (!formOk && !fillOk) {
             continue;
         }
+        vec3 radiance = vec3(emitter.rr, emitter.rg, emitter.rb);
+        float lum = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+        float maxDist2 = lum * emitter.area / (kMinEmitterContrib * kPi);
+        if (dist2Raw > maxDist2) {
+            continue;
+        }
+        float maxForm = emitter.area / (max(dist2, minDist2) * kPi);
+        if (lum * maxForm < kMinEmitterContrib) {
+            continue;
+        }
         if (segmentOccluded(luxelPos, emitterPos, luxel.faceIndex, emitter.faceIndex)) {
             continue;
         }
 
-        vec3 radiance = vec3(emitter.rr, emitter.rg, emitter.rb);
         if (formOk) {
             float form = nDotL * nDotV * emitter.area / (dist2 * kPi);
             if (!isnan(form) && !isinf(form)) {

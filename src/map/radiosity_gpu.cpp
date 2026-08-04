@@ -17,6 +17,41 @@ constexpr int kLuxelBatchSize = 1024;
 constexpr int kEmitterBatchSize = 512;
 constexpr int kLightBatchSize = 512;
 constexpr int kDispatchesPerSync = 4;
+constexpr int kLargeWorkloadEmitterThreshold = 8192;
+
+struct DirectDispatchConfig {
+    int luxelBatch = kLuxelBatchSize;
+    int emitterBatch = kEmitterBatchSize;
+    int lightBatch = kLightBatchSize;
+    int dispatchesPerSync = kDispatchesPerSync;
+};
+
+DirectDispatchConfig directDispatchConfig(int luxelCount, int emitterCount, int lightCount) {
+    DirectDispatchConfig config;
+    if (emitterCount > kLargeWorkloadEmitterThreshold) {
+        config.luxelBatch = 2048;
+        config.emitterBatch = 2048;
+        config.dispatchesPerSync = 32;
+    } else if (emitterCount > 2048) {
+        config.luxelBatch = 2048;
+        config.emitterBatch = 1024;
+        config.dispatchesPerSync = 16;
+    }
+
+    const int luxelBatches = (luxelCount + config.luxelBatch - 1) / config.luxelBatch;
+    const int emitterBatches =
+        emitterCount > 0 ? (emitterCount + config.emitterBatch - 1) / config.emitterBatch : 0;
+    const int lightBatches =
+        lightCount > 0 ? (lightCount + config.lightBatch - 1) / config.lightBatch : 0;
+    const int totalDispatches = luxelBatches * (emitterBatches + lightBatches);
+    if (totalDispatches > 4096 && config.dispatchesPerSync < 16) {
+        config.dispatchesPerSync = 16;
+    }
+    if (totalDispatches > 16384 && config.dispatchesPerSync < 32) {
+        config.dispatchesPerSync = 32;
+    }
+    return config;
+}
 
 struct GpuLuxelSSBO {
     float px = 0.0f;
@@ -309,6 +344,7 @@ void fillBaseParams(
 bool dispatchBatch(
     unsigned int paramsSsbo,
     const GpuParamsSSBO& params,
+    int dispatchesPerSync,
     int& dispatchesSinceSync,
     bool& dispatchFailed) {
     rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
@@ -318,7 +354,7 @@ bool dispatchBatch(
     memoryBarrierBits(kShaderStorageBarrierBit);
 
     ++dispatchesSinceSync;
-    if (dispatchesSinceSync >= kDispatchesPerSync) {
+    if (dispatchesSinceSync >= dispatchesPerSync) {
         finishGpu();
         dispatchesSinceSync = 0;
         if (!checkGlError("compute dispatch")) {
@@ -516,6 +552,8 @@ bool accumulateDirectLightingGpu(
     const int luxelCount = static_cast<int>(gpuLuxels.size());
     const int emitterCount = static_cast<int>(emitters.size());
     const int lightCount = static_cast<int>(lights.size());
+    const DirectDispatchConfig dispatchConfig =
+        directDispatchConfig(luxelCount, emitterCount, lightCount);
 
     GpuParamsSSBO initialParams{};
     fillBaseParams(
@@ -525,7 +563,7 @@ bool accumulateDirectLightingGpu(
         lightCount,
         bvhRoot,
         0,
-        std::min(kLuxelBatchSize, luxelCount),
+        std::min(dispatchConfig.luxelBatch, luxelCount),
         directParams,
         reachability);
     const unsigned int paramsSsbo =
@@ -568,10 +606,10 @@ bool accumulateDirectLightingGpu(
         luxelCount,
         emitterCount,
         lightCount,
-        kLuxelBatchSize,
-        kEmitterBatchSize,
-        kLightBatchSize,
-        kDispatchesPerSync,
+        dispatchConfig.luxelBatch,
+        dispatchConfig.emitterBatch,
+        dispatchConfig.lightBatch,
+        dispatchConfig.dispatchesPerSync,
         bvhRoot,
         reachability.leafCount > 0 ? 1 : 0);
     std::fflush(stdout);
@@ -590,11 +628,13 @@ bool accumulateDirectLightingGpu(
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
     int lastLoggedLuxels = -1;
-    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed; luxelOffset += kLuxelBatchSize) {
-        const int luxelBatch = std::min(kLuxelBatchSize, luxelCount - luxelOffset);
+    const int logLuxelStep = std::max(dispatchConfig.luxelBatch * 4, 1);
+    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;
+         luxelOffset += dispatchConfig.luxelBatch) {
+        const int luxelBatch = std::min(dispatchConfig.luxelBatch, luxelCount - luxelOffset);
 
         for (int emitterOffset = 0; emitterOffset < emitterCount && !dispatchFailed;
-             emitterOffset += kEmitterBatchSize) {
+             emitterOffset += dispatchConfig.emitterBatch) {
             GpuParamsSSBO params{};
             fillBaseParams(
                 params,
@@ -607,14 +647,20 @@ bool accumulateDirectLightingGpu(
                 directParams,
                 reachability);
             params.emitterOffset = emitterOffset;
-            params.emitterBatch = std::min(kEmitterBatchSize, emitterCount - emitterOffset);
-            if (!dispatchBatch(paramsSsbo, params, dispatchesSinceSync, dispatchFailed)) {
+            params.emitterBatch =
+                std::min(dispatchConfig.emitterBatch, emitterCount - emitterOffset);
+            if (!dispatchBatch(
+                    paramsSsbo,
+                    params,
+                    dispatchConfig.dispatchesPerSync,
+                    dispatchesSinceSync,
+                    dispatchFailed)) {
                 break;
             }
         }
 
         for (int lightOffset = 0; lightOffset < lightCount && !dispatchFailed;
-             lightOffset += kLightBatchSize) {
+             lightOffset += dispatchConfig.lightBatch) {
             GpuParamsSSBO params{};
             fillBaseParams(
                 params,
@@ -627,16 +673,21 @@ bool accumulateDirectLightingGpu(
                 directParams,
                 reachability);
             params.lightOffset = lightOffset;
-            params.lightBatch = std::min(kLightBatchSize, lightCount - lightOffset);
-            if (!dispatchBatch(paramsSsbo, params, dispatchesSinceSync, dispatchFailed)) {
+            params.lightBatch = std::min(dispatchConfig.lightBatch, lightCount - lightOffset);
+            if (!dispatchBatch(
+                    paramsSsbo,
+                    params,
+                    dispatchConfig.dispatchesPerSync,
+                    dispatchesSinceSync,
+                    dispatchFailed)) {
                 break;
             }
         }
 
         const int luxelsDone = std::min(luxelOffset + luxelBatch, luxelCount);
         if (!dispatchFailed
-            && (luxelsDone == luxelCount || luxelsDone / (kLuxelBatchSize * 4) != lastLoggedLuxels)) {
-            lastLoggedLuxels = luxelsDone / (kLuxelBatchSize * 4);
+            && (luxelsDone == luxelCount || luxelsDone / logLuxelStep != lastLoggedLuxels)) {
+            lastLoggedLuxels = luxelsDone / logLuxelStep;
             TraceLog(
                 LOG_INFO,
                 "sloprad: GPU direct %d/%d (%.0f%%)",

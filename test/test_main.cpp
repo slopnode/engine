@@ -22,6 +22,7 @@ void runBrushSplitTests();
 void runBrushRoleTests();
 void runBrushBlocksTests();
 void runLightmapTransparentTests();
+void runRadiosityEmitterTests();
 void runSightTests();
 
 }
@@ -51,6 +52,7 @@ const Suite kSuites[] = {
     {"brush_role", slopengine::runBrushRoleTests},
     {"brush_blocks", slopengine::runBrushBlocksTests},
     {"lightmap_transparent", slopengine::runLightmapTransparentTests},
+    {"radiosity_emitters", slopengine::runRadiosityEmitterTests},
     {"sight", slopengine::runSightTests},
 };
 
