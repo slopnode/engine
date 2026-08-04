@@ -17,24 +17,27 @@ Vector3 tonemapDisplay(Vector3 linear) {
     };
 }
 
-float displayLuminance(Vector3 display) {
-    return 0.2126f * display.x + 0.7152f * display.y + 0.0722f * display.z;
+float displayToLinearChannel(float display) {
+    return display / std::max(1.0f - display, 1e-4f);
 }
 
-Vector3 composeDisplayAdditiveOverlay(
-    Vector3 bakedDisplay,
-    Vector3 dynamicLinear,
-    float dynamicBoost) {
-    const Vector3 dynamicDisplay = tonemapDisplay({
-        dynamicLinear.x * dynamicBoost,
-        dynamicLinear.y * dynamicBoost,
-        dynamicLinear.z * dynamicBoost,
-    });
+Vector3 displayToLinearIrradiance(Vector3 display) {
     return {
-        std::clamp(bakedDisplay.x + dynamicDisplay.x, 0.0f, 1.0f),
-        std::clamp(bakedDisplay.y + dynamicDisplay.y, 0.0f, 1.0f),
-        std::clamp(bakedDisplay.z + dynamicDisplay.z, 0.0f, 1.0f),
+        displayToLinearChannel(display.x),
+        displayToLinearChannel(display.y),
+        displayToLinearChannel(display.z),
     };
+}
+
+Vector3 composeLinearLightingOverlay(
+    Vector3 bakedDisplay,
+    Vector3 dynamicLinear) {
+    const Vector3 irradiance = displayToLinearIrradiance(bakedDisplay);
+    return tonemapDisplay({
+        irradiance.x + dynamicLinear.x,
+        irradiance.y + dynamicLinear.y,
+        irradiance.z + dynamicLinear.z,
+    });
 }
 
 } // namespace slopengine

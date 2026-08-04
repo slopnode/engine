@@ -225,7 +225,7 @@ Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay) {
         return bakeTint;
     }
     const Vector3 bakedDisplay = colorToDisplay(bakeTint);
-    const Vector3 composed = composeDisplayAdditiveOverlay(bakedDisplay, overlay);
+    const Vector3 composed = composeLinearLightingOverlay(bakedDisplay, overlay);
     return displayToColor(composed, bakeTint.a);
 }
 

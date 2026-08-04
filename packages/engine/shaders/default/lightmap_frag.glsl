@@ -245,15 +245,12 @@ void main()
         emission = colSpecular.rgb * emitMask;
     }
     if (useLightmap != 0 && lightmapEncoding != 0) {
-        vec3 bakedLinear = albedoRgb * sampleBakedIrradiance(fragTexCoord2) + emission;
-        vec3 bakedDisplay = tonemapDisplay(bakedLinear);
-        vec3 dynamicDisplay = tonemapDisplay(dynamic);
-        finalColor = vec4(clamp(bakedDisplay + dynamicDisplay, 0.0, 1.0), albedoA);
+        vec3 irradiance = sampleBakedIrradiance(fragTexCoord2);
+        vec3 litLinear = albedoRgb * (irradiance + dynamic) + emission;
+        finalColor = vec4(tonemapDisplay(litLinear), albedoA);
         return;
     }
     vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;
-    vec3 bakedLinear = albedoRgb * baked + emission;
-    vec3 bakedDisplay = tonemapDisplay(bakedLinear);
-    vec3 dynamicDisplay = tonemapDisplay(dynamic);
-    finalColor = vec4(clamp(bakedDisplay + dynamicDisplay, 0.0, 1.0), albedoA);
+    vec3 lighting = baked + dynamic + emission;
+    finalColor = vec4(albedoRgb * lighting, albedoA);
 }
