@@ -265,6 +265,50 @@ LightmapPackResult packLightmapCharts(
     return result;
 }
 
+Color encodeRgbe(float r, float g, float b) {
+    const float maxc = std::max({r, g, b, 0.0f});
+    if (maxc < 1e-32f) {
+        return {0, 0, 0, 0};
+    }
+    const int exponent = static_cast<int>(std::floor(std::log2(maxc))) + 1;
+    const float scale = std::ldexp(256.0f, -exponent);
+    Color out;
+    out.r = static_cast<unsigned char>(std::clamp(r * scale, 0.0f, 255.0f));
+    out.g = static_cast<unsigned char>(std::clamp(g * scale, 0.0f, 255.0f));
+    out.b = static_cast<unsigned char>(std::clamp(b * scale, 0.0f, 255.0f));
+    out.a = static_cast<unsigned char>(exponent + 128);
+    return out;
+}
+
+Vector3 decodeRgbe(Color pixel) {
+    if (pixel.a == 0) {
+        return {0.0f, 0.0f, 0.0f};
+    }
+    const float scale = std::ldexp(1.0f / 256.0f, static_cast<int>(pixel.a) - 128);
+    return {
+        static_cast<float>(pixel.r) * scale,
+        static_cast<float>(pixel.g) * scale,
+        static_cast<float>(pixel.b) * scale,
+    };
+}
+
+Color linearIrradianceToDisplayColor(float r, float g, float b) {
+    const auto tonemap = [](float value) {
+        return static_cast<unsigned char>(
+            std::clamp(value / (1.0f + value) * 255.0f, 0.0f, 255.0f));
+    };
+    return {tonemap(r), tonemap(g), tonemap(b), 255};
+}
+
+LightmapEncoding primaryLightmapEncoding(const RadFile& rad) {
+    for (const LightmapAtlasInfo& atlas : rad.atlases) {
+        if (atlas.encoding == LightmapEncoding::Rgbe) {
+            return LightmapEncoding::Rgbe;
+        }
+    }
+    return LightmapEncoding::Ldr;
+}
+
 bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
     BinaryWriter writer;
     writer.writePod(kRadMagic);
@@ -275,6 +319,7 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
         writer.writeString(atlas.texturePath);
         writer.writePod(atlas.width);
         writer.writePod(atlas.height);
+        writer.writePod(static_cast<std::uint32_t>(atlas.encoding));
     }
     writer.writePod(static_cast<std::uint32_t>(rad.charts.size()));
     for (const LightmapChart& chart : rad.charts) {
@@ -309,7 +354,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     if (!reader.readPod(magic) || !reader.readPod(version)) {
         return std::nullopt;
     }
-    if (magic != kRadMagic || version != kRadVersion) {
+    if (magic != kRadMagic || (version != kRadVersionLegacy && version != kRadVersion)) {
         return std::nullopt;
     }
 
@@ -327,6 +372,17 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
         if (!reader.readString(atlas.texturePath) || !reader.readPod(atlas.width)
             || !reader.readPod(atlas.height)) {
             return std::nullopt;
+        }
+        if (version >= kRadVersion) {
+            std::uint32_t encoding = 0;
+            if (!reader.readPod(encoding)) {
+                return std::nullopt;
+            }
+            atlas.encoding = encoding == static_cast<std::uint32_t>(LightmapEncoding::Rgbe)
+                ? LightmapEncoding::Rgbe
+                : LightmapEncoding::Ldr;
+        } else {
+            atlas.encoding = LightmapEncoding::Ldr;
         }
     }
 
@@ -401,8 +457,21 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
         const int zero = 0;
         SetShaderValue(shader, lightCountLoc, &zero, SHADER_UNIFORM_INT);
     }
+    applyLightmapEncoding(shader, LightmapEncoding::Ldr);
     bindLightmapDummyShadowMaps(shader);
     return shader;
+}
+
+void applyLightmapEncoding(Shader shader, LightmapEncoding encoding) {
+    if (shader.id == 0) {
+        return;
+    }
+    const int loc = GetShaderLocation(shader, "lightmapEncoding");
+    if (loc < 0) {
+        return;
+    }
+    const int value = encoding == LightmapEncoding::Rgbe ? 1 : 0;
+    SetShaderValue(shader, loc, &value, SHADER_UNIFORM_INT);
 }
 
 namespace {

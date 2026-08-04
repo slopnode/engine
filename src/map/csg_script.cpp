@@ -1492,6 +1492,8 @@ std::optional<LoadedMap> loadAndCompileMap(
         result.lightmapShader = loadLightmapShader(assets, result.useLightmapLoc);
         if (result.lightmapShader.id == 0) {
             result.hasLightmaps = false;
+        } else {
+            applyLightmapEncoding(result.lightmapShader, primaryLightmapEncoding(rad));
         }
     }
 

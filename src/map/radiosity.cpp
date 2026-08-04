@@ -359,11 +359,6 @@ Vector3 cosineHemisphere(Vector3 normal, float u1, float u2) {
     return normalize3(add3(add3(scale3(tangent, x), scale3(bitangent, y)), scale3(normal, z)));
 }
 
-unsigned char tonemapByte(float value) {
-    const float mapped = value / (1.0f + value);
-    return static_cast<unsigned char>(std::clamp(mapped * 255.0f, 0.0f, 255.0f));
-}
-
 void logStage(const char* message) {
     TraceLog(LOG_INFO, "sloprad: %s", message);
     std::fflush(stdout);
@@ -1725,6 +1720,7 @@ RadiosityBakeResult bakeRadiosity(
 
     logStage("rasterizing lightmap atlases...");
     for (std::size_t atlas = 0; atlas < packed.atlasRgb.size(); ++atlas) {
+        result.rad.atlases[atlas].encoding = LightmapEncoding::Rgbe;
         Image image = GenImageColor(
             packed.rad.atlases[atlas].width,
             packed.rad.atlases[atlas].height,
@@ -1737,12 +1733,7 @@ RadiosityBakeResult bakeRadiosity(
             continue;
         }
         Image& image = result.atlasImages[static_cast<std::size_t>(luxel.atlasIndex)];
-        const Color pixel{
-            tonemapByte(luxel.irradiance.r),
-            tonemapByte(luxel.irradiance.g),
-            tonemapByte(luxel.irradiance.b),
-            255,
-        };
+        const Color pixel = encodeRgbe(luxel.irradiance.r, luxel.irradiance.g, luxel.irradiance.b);
         ImageDrawPixel(&image, luxel.atlasX, luxel.atlasY, pixel);
     }
 

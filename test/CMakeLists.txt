@@ -17,6 +17,7 @@ add_executable(sloptests
     test_brush_role.cpp
     test_brush_blocks.cpp
     test_lightmap_transparent.cpp
+    test_lightmap_rgbe.cpp
     test_radiosity_emitters.cpp
     test_sight.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
@@ -59,5 +60,6 @@ add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
 add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
 add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)
+add_test(NAME sloptests.lightmap_rgbe COMMAND sloptests lightmap_rgbe)
 add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
 add_test(NAME sloptests.sight COMMAND sloptests sight)

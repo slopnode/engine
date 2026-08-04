@@ -502,6 +502,7 @@ bool MapPreview::reloadBake(
         rad = {};
         return false;
     }
+    slopengine::applyLightmapEncoding(lightmapShader, slopengine::primaryLightmapEncoding(rad));
     skyShader = slopengine::loadSkyFaceShader(assets);
     solidLitLoc = GetShaderLocation(lightmapShader, "solidLit");
     if (solidLitLoc >= 0) {
