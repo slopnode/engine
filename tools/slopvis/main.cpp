@@ -37,13 +37,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath);
-    if (!facPath) {
-        std::cerr << "slopvis: missing maps/" << virtualPath << ".fac (run slopfac first)\n";
-        s7_quit(scheme);
-        return 1;
-    }
-
     auto tree = readBspFile(*bspPath);
     if (!tree) {
         std::cerr << "slopvis: failed to read " << *bspPath << "\n";

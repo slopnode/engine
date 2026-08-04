@@ -381,7 +381,7 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
                         }
                     })) {
                     result.changed = true;
-                    editor.markFacDirty();
+                    editor.markRadDirty();
                     editor.statusMessage = std::string("Set brush role: ") + slopengine::brushRoleName(next);
                 }
             }

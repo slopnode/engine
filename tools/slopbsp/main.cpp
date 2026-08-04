@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
         interiorEmpty,
         static_cast<int>(vis.fac.faces.size()),
         static_cast<int>(vis.inferredNodrawFaceIds.size()));
-    TraceLog(LOG_INFO, "slopbsp: run slopfac to write static.fac before sloprad");
+    TraceLog(LOG_INFO, "slopbsp: slopfac is optional (authored faces default; run slopfac to auto-cull)");
     for (const std::string& warning : analysis.detailOutsideWarnings) {
         TraceLog(LOG_WARNING, "slopbsp: %s", warning.c_str());
     }

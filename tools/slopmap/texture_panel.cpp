@@ -352,7 +352,7 @@ bool alignTargetsToActive(
         return false;
     }
     editor.markDirty();
-    editor.markFacDirty();
+    editor.markRadDirty();
     return true;
 }
 
@@ -376,7 +376,7 @@ bool forEachTarget(
         return false;
     }
     editor.markDirty();
-    editor.markFacDirty();
+    editor.markRadDirty();
     return true;
 }
 

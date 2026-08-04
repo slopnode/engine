@@ -8,7 +8,6 @@ namespace slopmap {
 
 enum class CompileStage {
     Bsp,
-    Fac,
     Vis,
     Rad,
 };

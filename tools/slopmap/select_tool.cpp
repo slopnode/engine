@@ -285,7 +285,7 @@ void refreshTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& came
 const char* translateTargetName(const Editor& editor) {
     const EditorDocument& d = editor.doc();
     if (d.selectionMode == SelectionMode::Entity) {
-        return "Entity";
+        return "Thing";
     }
     if (d.selectionMode == SelectionMode::Face) {
         return "Face";
@@ -1492,7 +1492,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
             return;
         }
         editor.markDirty();
-        editor.markFacDirty();
+        editor.markRadDirty();
         editor.endEdit();
         editor.statusMessage = lastLock ? "UV lock on " + lastId : "UV lock off " + lastId;
         return;
@@ -1539,7 +1539,7 @@ void SelectTool::toggleSelectedUvLock(Editor& editor) {
         lastId = brush.id;
     }
     editor.markDirty();
-    editor.markFacDirty();
+    editor.markRadDirty();
     editor.endEdit();
     editor.statusMessage = next ? "UV lock on " + lastId : "UV lock off " + lastId;
 }

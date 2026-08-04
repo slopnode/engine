@@ -335,22 +335,8 @@ int main(int argc, char* argv[]) {
         sunCount);
     std::fflush(stdout);
 
-    auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath);
-    if (!facPath) {
-        std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".fac (run slopfac first)\n";
-        CloseWindow();
-        return 1;
-    }
     if (!assets.hasMapVis(bspVirtualPath)) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
-        CloseWindow();
-        return 1;
-    }
-    TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
-    std::fflush(stdout);
-    auto vis = readFacFile(*facPath);
-    if (!vis) {
-        std::cerr << "sloprad: failed to read " << *facPath << "\n";
         CloseWindow();
         return 1;
     }
@@ -359,7 +345,7 @@ int main(int argc, char* argv[]) {
     if (!analysis.sealed) {
         TraceLog(
             LOG_WARNING,
-            "sloprad: map hull is not sealed; VIS faces used as authored");
+            "sloprad: map hull is not sealed; baking authored faces");
         for (const std::string& step : analysis.leakPathFaceIds) {
             TraceLog(LOG_WARNING, "sloprad: leak path %s", step.c_str());
         }
@@ -369,8 +355,31 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const std::vector<LightmapFace> faces = collectLightmapFaces(*vis);
-    TraceLog(LOG_INFO, "sloprad: lightmap faces=%d (from vis)", static_cast<int>(faces.size()));
+    std::vector<LightmapFace> faces;
+    if (assets.hasMapFac(bspVirtualPath)) {
+        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath)) {
+            TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
+            std::fflush(stdout);
+            if (auto vis = readFacFile(*facPath)) {
+                faces = collectLightmapFaces(*vis);
+                TraceLog(
+                    LOG_INFO,
+                    "sloprad: lightmap faces=%d (from opt-in fac)",
+                    static_cast<int>(faces.size()));
+            } else {
+                std::cerr << "sloprad: failed to read " << *facPath << "\n";
+                CloseWindow();
+                return 1;
+            }
+        }
+    }
+    if (faces.empty()) {
+        faces = collectLightmapFaces(*brushes);
+        TraceLog(
+            LOG_INFO,
+            "sloprad: lightmap faces=%d (from authored brushes)",
+            static_cast<int>(faces.size()));
+    }
     std::fflush(stdout);
 
     auto resolveMaterial = [&assets](std::string_view materialPath) {

@@ -501,6 +501,45 @@ void runFacBuildTests() {
         }
         CHECK_FALSE(glassFacePresent);
     }
+
+    {
+        // E1M1-style stacked tread under a coplanar ceiling slab: tread top must survive FAC.
+        Brush shell = makeBrushBox(
+            "shell",
+            {-10.0f, -1.0f, -12.0f},
+            {10.0f, 12.0f, 12.0f},
+            "mat/a",
+            {});
+        std::vector<Brush> brushes = hollowBrushBox(shell, 0.25f, mapfixtures::idAllocator("wall-"));
+        brushes.push_back(makeBrushBox(
+            "col",
+            {-5.0f, 5.0f, -10.0f},
+            {-3.0f, 7.0f, -8.5f},
+            "mat/a",
+            {},
+            BrushRole::Detail));
+        brushes.push_back(makeBrushBox(
+            "tread",
+            {-5.0f, 7.0f, -10.0f},
+            {-3.0f, 9.0f, -8.0f},
+            "mat/tread",
+            {},
+            BrushRole::Detail));
+        brushes.push_back(makeBrushBox(
+            "slab",
+            {-7.0f, 9.0f, -8.0f},
+            {7.0f, 10.0f, 10.0f},
+            "mat/ceil",
+            {},
+            BrushRole::Hull));
+
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+
+        CHECK(sourceFaceArea(result.fac, "tread/top") >= 3.5f);
+    }
 }
 
 }
