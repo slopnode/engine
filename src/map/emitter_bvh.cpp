@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace slopengine {
 
@@ -33,6 +32,10 @@ Vector3 sub3(Vector3 a, Vector3 b) {
 
 Vector3 add3(Vector3 a, Vector3 b) {
     return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Vector3 scale3(Vector3 a, float s) {
+    return {a.x * s, a.y * s, a.z * s};
 }
 
 bool aabbOverlapsSphere(Vector3 mins, Vector3 maxs, Vector3 center, float radius) {
@@ -119,31 +122,32 @@ float emitterInfluenceRadius(Vector3 radiance, float area, float minPad) {
     return std::max(minPad, std::sqrt(std::max(0.0f, radius2)));
 }
 
-float maxEmitterInfluenceRadius(const std::vector<EmitterPatch>& emitters, float minPad) {
+float maxEmitterInfluenceRadius(const std::vector<EmissiveFace>& faces, float minPad) {
     float maxRadius = minPad;
-    for (const EmitterPatch& emitter : emitters) {
+    for (const EmissiveFace& face : faces) {
         maxRadius = std::max(
             maxRadius,
-            emitterInfluenceRadius(emitter.radiance, emitter.area, minPad));
+            emitterInfluenceRadius(face.peakRadiance, face.area, minPad));
     }
     return maxRadius;
 }
 
-EmitterBvh buildEmitterBvh(const std::vector<EmitterPatch>& emitters, float minPad) {
+EmitterBvh buildEmitterBvh(const std::vector<EmissiveFace>& faces, float minPad) {
     EmitterBvh bvh;
-    if (emitters.empty()) {
+    if (faces.empty()) {
         return bvh;
     }
 
-    bvh.prims.resize(emitters.size());
-    std::vector<std::int32_t> buildIndices(emitters.size());
-    for (std::size_t i = 0; i < emitters.size(); ++i) {
-        const EmitterPatch& emitter = emitters[i];
-        const float radius = emitterInfluenceRadius(emitter.radiance, emitter.area, minPad);
+    bvh.prims.resize(faces.size());
+    std::vector<std::int32_t> buildIndices(faces.size());
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        const EmissiveFace& face = faces[i];
+        const float radius = emitterInfluenceRadius(face.peakRadiance, face.area, minPad);
+        const Vector3 expand{radius, radius, radius};
         EmitterBvh::Prim& prim = bvh.prims[i];
-        prim.mins = sub3(emitter.position, Vector3{radius, radius, radius});
-        prim.maxs = add3(emitter.position, Vector3{radius, radius, radius});
-        prim.centroid = emitter.position;
+        prim.mins = sub3(face.aabbMins, expand);
+        prim.maxs = add3(face.aabbMaxs, expand);
+        prim.centroid = scale3(add3(face.aabbMins, face.aabbMaxs), 0.5f);
         prim.emitterIndex = static_cast<std::int32_t>(i);
         buildIndices[i] = static_cast<std::int32_t>(i);
     }
@@ -152,10 +156,10 @@ EmitterBvh buildEmitterBvh(const std::vector<EmitterPatch>& emitters, float minP
         bvh,
         buildIndices,
         0,
-        static_cast<std::int32_t>(emitters.size()));
+        static_cast<std::int32_t>(faces.size()));
 
-    std::vector<EmitterBvh::Prim> packed(emitters.size());
-    for (std::size_t i = 0; i < emitters.size(); ++i) {
+    std::vector<EmitterBvh::Prim> packed(faces.size());
+    for (std::size_t i = 0; i < faces.size(); ++i) {
         packed[i] = bvh.prims[static_cast<std::size_t>(buildIndices[i])];
     }
     bvh.prims = std::move(packed);
@@ -200,4 +204,4 @@ void forEachEmitterNear(
     }
 }
 
-}
+} // namespace slopengine

@@ -6,6 +6,7 @@
 #include <raylib.h>
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -22,15 +23,29 @@ struct RadGpuLuxel {
     std::int32_t interiorLeaf = -1;
 };
 
-struct RadGpuEmitter {
-    Vector3 position{};
+struct RadGpuEmissiveFace {
+    Vector3 uAxis{};
+    float planeD = 0.0f;
+    float uMin = 0.0f;
+    float uMax = 0.0f;
+    Vector3 vAxis{};
+    float vMin = 0.0f;
+    float vMax = 0.0f;
+    float pad0 = 0.0f;
     Vector3 normal{};
-    float radianceR = 0.0f;
-    float radianceG = 0.0f;
-    float radianceB = 0.0f;
     float area = 0.0f;
     std::int32_t faceIndex = -1;
     std::int32_t interiorLeaf = -1;
+    std::int32_t gridWidth = 0;
+    std::int32_t gridHeight = 0;
+    std::int32_t gridOffset = 0;
+    std::int32_t pad1 = 0;
+    Vector3 peakRadiance{};
+    float pad2 = 0.0f;
+    Vector3 aabbMins{};
+    float pad3 = 0.0f;
+    Vector3 aabbMaxs{};
+    float pad4 = 0.0f;
 };
 
 struct RadGpuLight {
@@ -64,12 +79,15 @@ struct RadGpuDirectParams {
     float coplanarSoft = 0.25f;
     float minDist2 = 0.0025f;
     float emitterQueryRadius = 0.0f;
+    int emitterDirectSamples = 4;
+    int emissionGridFloats = 0;
     bool gpuSafeMode = false;
 };
 
 bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
-    const std::vector<RadGpuEmitter>& emitters,
+    const std::vector<RadGpuEmissiveFace>& emissiveFaces,
+    std::span<const Vector3> emissionGrid,
     const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
     const EmitterBvh& emitterBvh,

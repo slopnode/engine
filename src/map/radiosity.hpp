@@ -22,8 +22,14 @@ struct RadiositySettings {
     float coplanarFill = 0.15f;
     float ambientScale = 1.25f;
     bool preferGpu = true;
-    /** Conservative GPU dispatch + merge when set (auto-enabled on integrated GPUs). */
+    /** Conservative GPU dispatch when set (auto-enabled on integrated GPUs). */
     bool gpuSafeMode = false;
+    /** N×N stratified UV samples per receiver–emissive-face pair in direct lighting. */
+    int emitterDirectSamples = 4;
+    /** World-space resolution for pre-baked per-face emission cast grids. */
+    float emitterGridLuxelsPerMeter = 8.0f;
+    /** Maximum emission grid dimension per emissive face axis. */
+    int emitterGridMaxSize = 32;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
 };

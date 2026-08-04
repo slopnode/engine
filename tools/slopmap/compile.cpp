@@ -161,6 +161,12 @@ std::vector<std::string> CompileController::buildArgs(CompileStage stage) const 
         args.push_back(std::to_string(radOptions.bounces));
         args.emplace_back("--samples");
         args.push_back(std::to_string(radOptions.samples));
+        args.emplace_back("--emitter-direct-samples");
+        args.push_back(std::to_string(radOptions.emitterDirectSamples));
+        args.emplace_back("--emitter-grid-luxels-per-meter");
+        args.push_back(std::to_string(radOptions.emitterGridLuxelsPerMeter));
+        args.emplace_back("--emitter-grid-max-size");
+        args.push_back(std::to_string(radOptions.emitterGridMaxSize));
         if (radOptions.preferGpu) {
             args.emplace_back("--gpu");
             if (radOptions.forceDiscreteGpu) {

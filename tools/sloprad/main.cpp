@@ -7,7 +7,6 @@
 #include "map/lightmap.hpp"
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
-#include "map/radiosity_emitters.hpp"
 #include "map/radiosity_lights.hpp"
 #include "map/fac_io.hpp"
 
@@ -96,6 +95,39 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.samples = parsed;
+        } else if (arg == "--emitter-direct-samples") {
+            const char* value = needValue("--emitter-direct-samples");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 4;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.emitterDirectSamples = parsed;
+        } else if (arg == "--emitter-grid-luxels-per-meter") {
+            const char* value = needValue("--emitter-grid-luxels-per-meter");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 8.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.emitterGridLuxelsPerMeter = parsed;
+        } else if (arg == "--emitter-grid-max-size") {
+            const char* value = needValue("--emitter-grid-max-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 32;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.emitterGridMaxSize = parsed;
         } else if (arg == "--gpu") {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
@@ -124,7 +156,9 @@ int main(int argc, char* argv[]) {
     if (!cli) {
         std::cerr
             << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
-            << "       [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]\n"
+            << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n"
+            << "       [--emitter-direct-samples N] [--emitter-grid-luxels-per-meter N]\n"
+            << "       [--emitter-grid-max-size N] [--gpu|--cpu]\n"
             << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
     }
@@ -151,10 +185,7 @@ int main(int argc, char* argv[]) {
             std::fflush(stdout);
         }
         if (cli->settings.gpuSafeMode) {
-            TraceLog(
-                LOG_INFO,
-                "sloprad: GPU safe mode enabled (smaller batches, contrast merge, CPU fallback over %d emitters)",
-                kMaxGpuDirectEmitters);
+            TraceLog(LOG_INFO, "sloprad: GPU safe mode enabled (smaller batches)");
             std::fflush(stdout);
         }
     }

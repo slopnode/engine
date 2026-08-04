@@ -17,68 +17,72 @@ bool near3(Vector3 a, Vector3 b, float eps = 1e-5f) {
     return near(a.x, b.x, eps) && near(a.y, b.y, eps) && near(a.z, b.z, eps);
 }
 
+EmissiveFace makeTestFace() {
+    EmissiveFace face;
+    face.faceIndex = 0;
+    face.normal = {0.0f, 0.0f, 1.0f};
+    face.uAxis = {1.0f, 0.0f, 0.0f};
+    face.vAxis = {0.0f, 1.0f, 0.0f};
+    face.planeD = 0.0f;
+    face.uMin = 0.0f;
+    face.uMax = 2.0f;
+    face.vMin = 0.0f;
+    face.vMax = 2.0f;
+    face.area = 4.0f;
+    face.gridWidth = 2;
+    face.gridHeight = 2;
+    face.gridOffset = 0;
+    face.peakRadiance = {2.0f, 2.0f, 2.0f};
+    face.aabbMins = {0.0f, 0.0f, 0.0f};
+    face.aabbMaxs = {2.0f, 2.0f, 0.0f};
+    return face;
+}
+
 } // namespace
 
 void runRadiosityEmitterTests() {
     CHECK(passesCastGate({1.0f, 1.0f, 1.0f}));
     CHECK_FALSE(passesCastGate({0.01f, 0.01f, 0.01f}));
 
-    const std::vector<EmitterMergeCandidate> uniform = {
-        {{0.0f, 0.0f, 0.0f}, {2.0f, 2.0f, 2.0f}},
-        {{1.0f, 0.0f, 0.0f}, {2.0f, 2.0f, 2.0f}},
-    };
-    const std::vector<EmitterMergeCandidate> mixed = {
-        {{0.0f, 0.0f, 0.0f}, {0.1f, 0.1f, 0.1f}},
-        {{1.0f, 0.0f, 0.0f}, {5.0f, 5.0f, 5.0f}},
-    };
-    CHECK(blockIsUniform(uniform));
-    CHECK_FALSE(blockIsUniform(mixed));
-
-    CHECK_FALSE(shouldMergeChart(1000));
-    CHECK(shouldMergeChart(kMaxEmittersBeforeMerge + 1));
-    CHECK_FALSE(shouldMergeChart(kMaxEmittersBeforeGpuMerge, kMaxEmittersBeforeGpuMerge));
-    CHECK(shouldMergeChart(kMaxEmittersBeforeGpuMerge + 1, kMaxEmittersBeforeGpuMerge));
-    CHECK_EQ(emitterMergeThreshold(false), kMaxEmittersBeforeMerge);
-    CHECK_EQ(emitterMergeThreshold(true), kMaxEmittersBeforeGpuMerge);
-
-    const std::optional<EmitterPatch> merged =
-        mergeEmitterBlock(uniform, 0.25f, {0.0f, 0.0f, 1.0f}, 0.02f, 3, 7);
-    CHECK(merged.has_value());
-    CHECK(near(merged->area, 0.5f));
-    CHECK(near3(merged->radiance, {2.0f, 2.0f, 2.0f}));
-    CHECK_EQ(merged->faceIndex, 3);
-
     CHECK(emitterPairBelowThreshold({0.01f, 0.01f, 0.01f}, 0.1f, 100.0f, 0.0025f));
     CHECK_FALSE(emitterPairBelowThreshold({10.0f, 10.0f, 10.0f}, 1.0f, 0.1f, 0.0025f));
 
-    std::vector<EmitterPatch> emitters(2);
-    emitters[0].position = {0.0f, 0.0f, 0.0f};
-    emitters[0].normal = {0.0f, 0.0f, 1.0f};
-    emitters[0].radiance = {1e-4f, 1e-4f, 1e-4f};
-    emitters[0].area = 0.25f;
-    emitters[0].faceIndex = 0;
-    emitters[1].position = {100.0f, 0.0f, 0.0f};
-    emitters[1].normal = {0.0f, 0.0f, 1.0f};
-    emitters[1].radiance = {1e-4f, 1e-4f, 1e-4f};
-    emitters[1].area = 0.25f;
-    emitters[1].faceIndex = 1;
+    CHECK(near(dist2PointToAabb({0.5f, 0.5f, 1.0f}, {0.0f, 0.0f, 0.0f}, {2.0f, 2.0f, 0.0f}), 1.0f));
 
-    const EmitterBvh bvh = buildEmitterBvh(emitters, 0.05f);
+    const EmissiveFace face = makeTestFace();
+    const std::vector<Vector3> grid = {
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f},
+        {1.0f, 1.0f, 1.0f},
+    };
+    const Vector3 centerSample = sampleEmissionGridBilinear(face, grid, 1.0f, 1.0f);
+    CHECK(near3(centerSample, {0.5f, 0.5f, 0.5f}));
+
+    std::vector<EmissiveFace> faces(2);
+    faces[0] = face;
+    faces[1] = face;
+    faces[1].faceIndex = 1;
+    faces[1].aabbMins = {2000.0f, 0.0f, 0.0f};
+    faces[1].aabbMaxs = {2002.0f, 2.0f, 0.0f};
+    faces[1].peakRadiance = {1e-4f, 1e-4f, 1e-4f};
+
+    const EmitterBvh bvh = buildEmitterBvh(faces, 0.05f);
     CHECK_FALSE(bvh.empty());
 
     std::vector<std::int32_t> nearIndices;
-    forEachEmitterNear(bvh, {0.0f, 0.0f, 0.0f}, 0.15f, [&](std::int32_t index) {
+    forEachEmitterNear(bvh, {1.0f, 1.0f, 1.0f}, 2.0f, [&](std::int32_t index) {
         nearIndices.push_back(index);
     });
     CHECK_EQ(nearIndices.size(), 1u);
     CHECK_EQ(nearIndices[0], 0);
 
     nearIndices.clear();
-    forEachEmitterNear(bvh, {100.0f, 0.0f, 0.0f}, 0.15f, [&](std::int32_t index) {
+    forEachEmitterNear(bvh, {2001.0f, 1.0f, 1.0f}, 2.0f, [&](std::int32_t index) {
         nearIndices.push_back(index);
     });
     CHECK_EQ(nearIndices.size(), 1u);
     CHECK_EQ(nearIndices[0], 1);
 }
 
-}
+} // namespace slopengine

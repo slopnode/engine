@@ -4,10 +4,12 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const float kPi = 3.14159265358979323846;
 const float kMinEmitterContrib = 1e-5;
+const float kMinCastLuminance = 0.03;
 const int kLightKindPoint = 0;
 const int kLightKindSpot = 1;
 const int kLightKindSun = 2;
 const float kSunRayDistance = 1000.0;
+const float kEmitterNormalOffset = 0.02;
 
 struct Luxel {
     float px;
@@ -24,19 +26,47 @@ struct Luxel {
     int leafIndex;
 };
 
-struct Emitter {
-    float px;
-    float py;
-    float pz;
-    float area;
+struct EmissiveFace {
+    float uAxisX;
+    float uAxisY;
+    float uAxisZ;
+    float planeD;
+    float vAxisX;
+    float vAxisY;
+    float vAxisZ;
+    float uMin;
+    float uMax;
+    float vMin;
+    float vMax;
     float nx;
     float ny;
     float nz;
+    float area;
     int faceIndex;
-    float rr;
-    float rg;
-    float rb;
-    int leafIndex;
+    int interiorLeaf;
+    int gridWidth;
+    int gridHeight;
+    int gridOffset;
+    int pad1;
+    float peakR;
+    float peakG;
+    float peakB;
+    float pad2;
+    float aabbMinX;
+    float aabbMinY;
+    float aabbMinZ;
+    float pad3;
+    float aabbMaxX;
+    float aabbMaxY;
+    float aabbMaxZ;
+    float pad4;
+};
+
+struct GridSample {
+    float r;
+    float g;
+    float b;
+    float pad;
 };
 
 struct Light {
@@ -124,14 +154,16 @@ struct Params {
     float coplanarFill;
     float coplanarSoft;
     float minDist2;
+    int emitterDirectSamples;
+    int emissionGridFloats;
 };
 
 layout(std430, binding = 0) buffer LuxelBuffer {
     Luxel luxels[];
 };
 
-layout(std430, binding = 1) readonly buffer EmitterBuffer {
-    Emitter emitters[];
+layout(std430, binding = 1) readonly buffer EmissiveFaceBuffer {
+    EmissiveFace emissiveFaces[];
 };
 
 layout(std430, binding = 2) readonly buffer NodeBuffer {
@@ -170,6 +202,10 @@ layout(std430, binding = 10) readonly buffer EmitterPrimBuffer {
     EmitterBvhPrim emitterPrims[];
 };
 
+layout(std430, binding = 11) readonly buffer EmissionGridBuffer {
+    GridSample emissionGrid[];
+};
+
 bool isSkyFace(int faceIndex) {
     if (faceIndex < 0 || faceIndex >= faceSky.length()) {
         return false;
@@ -193,6 +229,26 @@ bool leavesReachable(int a, int b) {
     }
     uint word = reachBits[a * params.wordsPerRow + (b >> 5)];
     return (word & (1u << (b & 31))) != 0u;
+}
+
+float emitterLuminance(vec3 radiance) {
+    return dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+}
+
+bool passesCastGate(vec3 radiance) {
+    return emitterLuminance(radiance) >= kMinCastLuminance;
+}
+
+float dist2PointToAabb(vec3 point, vec3 mins, vec3 maxs) {
+    float dx = max(max(mins.x - point.x, 0.0), point.x - maxs.x);
+    float dy = max(max(mins.y - point.y, 0.0), point.y - maxs.y);
+    float dz = max(max(mins.z - point.z, 0.0), point.z - maxs.z);
+    return dx * dx + dy * dy + dz * dz;
+}
+
+bool emitterPairBelowThreshold(vec3 radiance, float area, float dist2, float minDist2) {
+    float maxForm = area / (max(dist2, minDist2) * kPi);
+    return emitterLuminance(radiance) * maxForm < kMinEmitterContrib;
 }
 
 bool aabbOverlapsSphere(vec3 mins, vec3 maxs, vec3 center, float radius) {
@@ -344,70 +400,153 @@ float wrapCosine(float cosine, float wrap) {
     return max(0.0, (cosine + w) / (1.0 + w));
 }
 
-void accumulateEmitter(int emitterIndex, vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int luxelLeaf,
-                       float wrap, float coplanarFill, float coplanarSoft, float minDist2,
-                       inout vec3 irradiance) {
-    if (emitterIndex < 0 || emitterIndex >= params.emitterCount) {
+vec3 sampleEmissionGridBilinear(EmissiveFace face, float u, float v) {
+    if (face.gridWidth <= 0 || face.gridHeight <= 0) {
+        return vec3(0.0);
+    }
+    float uSpan = face.uMax - face.uMin;
+    float vSpan = face.vMax - face.vMin;
+    if (uSpan < 1e-8 || vSpan < 1e-8) {
+        return vec3(0.0);
+    }
+    float fu = clamp((u - face.uMin) / uSpan, 0.0, 1.0);
+    float fv = clamp((v - face.vMin) / vSpan, 0.0, 1.0);
+    float gx = fu * float(max(face.gridWidth - 1, 0));
+    float gy = fv * float(max(face.gridHeight - 1, 0));
+    int x0 = int(floor(gx));
+    int y0 = int(floor(gy));
+    int x1 = min(x0 + 1, face.gridWidth - 1);
+    int y1 = min(y0 + 1, face.gridHeight - 1);
+    float tx = gx - float(x0);
+    float ty = gy - float(y0);
+
+    int idx00 = face.gridOffset + y0 * face.gridWidth + x0;
+    int idx10 = face.gridOffset + y0 * face.gridWidth + x1;
+    int idx01 = face.gridOffset + y1 * face.gridWidth + x0;
+    int idx11 = face.gridOffset + y1 * face.gridWidth + x1;
+    if (idx11 >= emissionGrid.length()) {
+        return vec3(0.0);
+    }
+
+    vec3 c00 = vec3(emissionGrid[idx00].r, emissionGrid[idx00].g, emissionGrid[idx00].b);
+    vec3 c10 = vec3(emissionGrid[idx10].r, emissionGrid[idx10].g, emissionGrid[idx10].b);
+    vec3 c01 = vec3(emissionGrid[idx01].r, emissionGrid[idx01].g, emissionGrid[idx01].b);
+    vec3 c11 = vec3(emissionGrid[idx11].r, emissionGrid[idx11].g, emissionGrid[idx11].b);
+    vec3 c0 = mix(c00, c10, tx);
+    vec3 c1 = mix(c01, c11, tx);
+    return mix(c0, c1, ty);
+}
+
+vec3 planePointFromUv(EmissiveFace face, float u, float v) {
+    vec3 uAxis = vec3(face.uAxisX, face.uAxisY, face.uAxisZ);
+    vec3 vAxis = vec3(face.vAxisX, face.vAxisY, face.vAxisZ);
+    vec3 normal = vec3(face.nx, face.ny, face.nz);
+    vec3 vCrossN = cross(vAxis, normal);
+    float det = dot(uAxis, vCrossN);
+    if (abs(det) < 1e-12) {
+        return uAxis * u + vAxis * v + normal * face.planeD;
+    }
+    float invDet = 1.0 / det;
+    return cross(vCrossN, u * invDet)
+        + cross(normal, uAxis) * (v * invDet)
+        + cross(uAxis, vAxis) * (face.planeD * invDet);
+}
+
+void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int luxelLeaf,
+                            float wrap, float coplanarFill, float coplanarSoft, float minDist2,
+                            inout vec3 irradiance) {
+    if (faceIndex < 0 || faceIndex >= params.emitterCount) {
         return;
     }
-    Emitter emitter = emitters[emitterIndex];
-    if (emitter.faceIndex == luxelFaceIndex) {
+    EmissiveFace face = emissiveFaces[faceIndex];
+    if (face.faceIndex == luxelFaceIndex) {
         return;
     }
-    if (!leavesReachable(luxelLeaf, emitter.leafIndex)) {
-        return;
-    }
-    vec3 emitterPos = vec3(emitter.px, emitter.py, emitter.pz);
-    vec3 emitterNormal = vec3(emitter.nx, emitter.ny, emitter.nz);
-    vec3 delta = emitterPos - luxelPos;
-    float dist2Raw = dot(delta, delta);
-    if (dist2Raw < 1e-6) {
-        return;
-    }
-    float dist = sqrt(dist2Raw);
-    vec3 toLight = delta / dist;
-    float dist2 = max(dist2Raw, minDist2);
-    float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
-    float nDotV = wrapCosine(-dot(emitterNormal, toLight), wrap);
-    bool formOk = nDotL > 0.0 && nDotV > 0.0;
-    float align = 0.0;
-    bool fillOk = false;
-    const float kCoplanarAlignMin = 0.85;
-    if (coplanarFill > 0.0) {
-        align = dot(luxelNormal, emitterNormal);
-        fillOk = align > kCoplanarAlignMin;
-    }
-    if (!formOk && !fillOk) {
-        return;
-    }
-    vec3 radiance = vec3(emitter.rr, emitter.rg, emitter.rb);
-    float lum = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
-    float maxDist2 = lum * emitter.area / (kMinEmitterContrib * kPi);
-    if (dist2Raw > maxDist2) {
-        return;
-    }
-    float maxForm = emitter.area / (max(dist2, minDist2) * kPi);
-    if (lum * maxForm < kMinEmitterContrib) {
-        return;
-    }
-    if (segmentOccluded(luxelPos, emitterPos, luxelFaceIndex, emitter.faceIndex)) {
+    if (!leavesReachable(luxelLeaf, face.interiorLeaf)) {
         return;
     }
 
-    if (formOk) {
-        float form = nDotL * nDotV * emitter.area / (dist2 * kPi);
-        if (!isnan(form) && !isinf(form)) {
-            irradiance += radiance * form;
+    vec3 peakRadiance = vec3(face.peakR, face.peakG, face.peakB);
+    vec3 aabbMins = vec3(face.aabbMinX, face.aabbMinY, face.aabbMinZ);
+    vec3 aabbMaxs = vec3(face.aabbMaxX, face.aabbMaxY, face.aabbMaxZ);
+    float dist2Raw = dist2PointToAabb(luxelPos, aabbMins, aabbMaxs);
+    if (emitterPairBelowThreshold(peakRadiance, face.area, dist2Raw, minDist2)) {
+        return;
+    }
+
+    int sampleCount = max(params.emitterDirectSamples, 1);
+    int validSamples = 0;
+    for (int sy = 0; sy < sampleCount; ++sy) {
+        for (int sx = 0; sx < sampleCount; ++sx) {
+            float fu = (float(sx) + 0.5) / float(sampleCount);
+            float fv = (float(sy) + 0.5) / float(sampleCount);
+            float u = face.uMin + (face.uMax - face.uMin) * fu;
+            float v = face.vMin + (face.vMax - face.vMin) * fv;
+            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
+            if (passesCastGate(radiance)) {
+                validSamples += 1;
+            }
         }
     }
+    if (validSamples <= 0) {
+        return;
+    }
 
-    if (fillOk) {
-        float planeSep = abs(dot(delta, luxelNormal));
-        float lateral2 = max(0.0, dist2Raw - planeSep * planeSep);
-        float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
-        float fill = emitter.area * coplanarFill * weight / (4.0 * kPi);
-        if (!isnan(fill) && !isinf(fill)) {
-            irradiance += radiance * fill;
+    float sampleArea = face.area / float(validSamples);
+    vec3 faceNormal = vec3(face.nx, face.ny, face.nz);
+    const float kCoplanarAlignMin = 0.85;
+
+    for (int sy = 0; sy < sampleCount; ++sy) {
+        for (int sx = 0; sx < sampleCount; ++sx) {
+            float fu = (float(sx) + 0.5) / float(sampleCount);
+            float fv = (float(sy) + 0.5) / float(sampleCount);
+            float u = face.uMin + (face.uMax - face.uMin) * fu;
+            float v = face.vMin + (face.vMax - face.vMin) * fv;
+            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
+            if (!passesCastGate(radiance)) {
+                continue;
+            }
+
+            vec3 samplePos = planePointFromUv(face, u, v) + faceNormal * kEmitterNormalOffset;
+            vec3 delta = samplePos - luxelPos;
+            float sampleDist2Raw = dot(delta, delta);
+            if (sampleDist2Raw < 1e-6) {
+                continue;
+            }
+            float sampleDist = sqrt(sampleDist2Raw);
+            vec3 toLight = delta / sampleDist;
+            float dist2 = max(sampleDist2Raw, minDist2);
+            float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+            float nDotV = wrapCosine(-dot(faceNormal, toLight), wrap);
+            bool formOk = nDotL > 0.0 && nDotV > 0.0;
+            float align = 0.0;
+            bool fillOk = false;
+            if (coplanarFill > 0.0) {
+                align = dot(luxelNormal, faceNormal);
+                fillOk = align > kCoplanarAlignMin;
+            }
+            if (!formOk && !fillOk) {
+                continue;
+            }
+            if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex)) {
+                continue;
+            }
+
+            if (formOk) {
+                float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
+                if (!isnan(form) && !isinf(form)) {
+                    irradiance += radiance * form;
+                }
+            }
+            if (fillOk) {
+                float planeSep = abs(dot(delta, luxelNormal));
+                float lateral2 = max(0.0, sampleDist2Raw - planeSep * planeSep);
+                float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
+                float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
+                if (!isnan(fill) && !isinf(fill)) {
+                    irradiance += radiance * fill;
+                }
+            }
         }
     }
 }
@@ -437,8 +576,8 @@ void traverseEmitterBvh(vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int
                 if (!aabbOverlapsSphere(primMins, primMaxs, luxelPos, params.emitterQueryRadius)) {
                     continue;
                 }
-                accumulateEmitter(prim.emitterIndex, luxelPos, luxelNormal, luxelFaceIndex, luxelLeaf,
-                                  wrap, coplanarFill, coplanarSoft, minDist2, irradiance);
+                accumulateEmissiveFace(prim.emitterIndex, luxelPos, luxelNormal, luxelFaceIndex, luxelLeaf,
+                                       wrap, coplanarFill, coplanarSoft, minDist2, irradiance);
             }
             continue;
         }
@@ -449,6 +588,14 @@ void traverseEmitterBvh(vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int
             stack[stackSize++] = node.left;
         }
     }
+}
+
+float smoothstep(float edge0, float edge1, float x) {
+    if (edge0 == edge1) {
+        return x < edge0 ? 0.0 : 1.0;
+    }
+    float t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
 }
 
 void main() {
