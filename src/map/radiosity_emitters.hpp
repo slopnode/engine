@@ -24,6 +24,7 @@ struct EmissiveFace {
     float vMin = 0.0f;
     float vMax = 0.0f;
     float area = 0.0f;
+    float castRange = 0.0f; /**< Max cast distance; 0 = unlimited. */
     Vector3 aabbMins{};
     Vector3 aabbMaxs{};
     Vector3 peakRadiance{};
@@ -38,7 +39,15 @@ float emitterLuminance(Vector3 radiance);
 bool passesCastGate(Vector3 radiance);
 
 /** True when even an optimistic form-factor upper bound is below the cutoff. */
-bool emitterPairBelowThreshold(Vector3 radiance, float area, float dist2, float minDist2);
+bool emitterPairBelowThreshold(
+    Vector3 radiance,
+    float area,
+    float dist2,
+    float minDist2,
+    float castRange = 0.0f);
+
+/** Point-light-style falloff; returns 1 when @p range <= 0 (unlimited). */
+float emitterRangeAttenuation(float dist, float range);
 
 /** Squared distance from @p point to the closest point on an axis-aligned box. */
 float dist2PointToAabb(Vector3 point, Vector3 mins, Vector3 maxs);

@@ -46,6 +46,19 @@ void runRadiosityEmitterTests() {
 
     CHECK(emitterPairBelowThreshold({0.01f, 0.01f, 0.01f}, 0.1f, 100.0f, 0.0025f));
     CHECK_FALSE(emitterPairBelowThreshold({10.0f, 10.0f, 10.0f}, 1.0f, 0.1f, 0.0025f));
+    CHECK(emitterPairBelowThreshold({10.0f, 10.0f, 10.0f}, 1.0f, 25.0f, 0.0025f, 4.0f));
+    CHECK_FALSE(emitterPairBelowThreshold({10.0f, 10.0f, 10.0f}, 1.0f, 4.0f, 0.0025f, 4.0f));
+
+    const float unlimitedRadius = emitterInfluenceRadius({10.0f, 10.0f, 10.0f}, 16.0f, 0.05f);
+    const float cappedRadius = emitterInfluenceRadius({10.0f, 10.0f, 10.0f}, 16.0f, 0.05f, 4.0f);
+    CHECK(cappedRadius < unlimitedRadius);
+    CHECK(near(cappedRadius, 4.0f));
+
+    CHECK(near(emitterRangeAttenuation(0.0f, 8.0f), 1.0f));
+    CHECK(near(emitterRangeAttenuation(4.0f, 0.0f), 1.0f));
+    CHECK(near(emitterRangeAttenuation(8.0f, 8.0f), 0.0f));
+    CHECK(emitterRangeAttenuation(4.0f, 8.0f) > 0.0f);
+    CHECK(emitterRangeAttenuation(4.0f, 8.0f) < 1.0f);
 
     CHECK(near(dist2PointToAabb({0.5f, 0.5f, 1.0f}, {0.0f, 0.0f, 0.0f}, {2.0f, 2.0f, 0.0f}), 1.0f));
 

@@ -580,7 +580,8 @@ void accumulateEmissiveFaceContribution(
     }
 
     const float dist2Raw = dist2PointToAabb(luxel.position, face.aabbMins, face.aabbMaxs);
-    if (emitterPairBelowThreshold(face.peakRadiance, face.area, dist2Raw, minDist2)) {
+    if (emitterPairBelowThreshold(
+            face.peakRadiance, face.area, dist2Raw, minDist2, face.castRange)) {
         return;
     }
 
@@ -649,6 +650,9 @@ void accumulateEmissiveFaceContribution(
                 continue;
             }
             const float sampleDist = std::sqrt(sampleDist2Raw);
+            if (face.castRange > 0.0f && sampleDist > face.castRange) {
+                continue;
+            }
             const Vector3 toLight = scale3(delta, 1.0f / sampleDist);
             const float dist2 = std::max(sampleDist2Raw, minDist2);
             const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
@@ -675,9 +679,10 @@ void accumulateEmissiveFaceContribution(
 
             if (formOk) {
                 const float form = nDotL * nDotV * sampleArea / (dist2 * PI);
-                accumulated.r += radiance.x * form;
-                accumulated.g += radiance.y * form;
-                accumulated.b += radiance.z * form;
+                const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+                accumulated.r += radiance.x * form * atten;
+                accumulated.g += radiance.y * form * atten;
+                accumulated.b += radiance.z * form * atten;
             }
             if (fillOk) {
                 const float planeSep = std::fabs(dot3(delta, luxel.normal));
@@ -685,9 +690,10 @@ void accumulateEmissiveFaceContribution(
                 const float weight =
                     align * std::exp(-planeSep / kCoplanarSoft) / (lateral2 + minDist2);
                 const float fill = sampleArea * coplanarFill * weight / (4.0f * PI);
-                accumulated.r += radiance.x * fill;
-                accumulated.g += radiance.y * fill;
-                accumulated.b += radiance.z * fill;
+                const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+                accumulated.r += radiance.x * fill * atten;
+                accumulated.g += radiance.y * fill * atten;
+                accumulated.b += radiance.z * fill * atten;
             }
         }
     }
@@ -1047,6 +1053,7 @@ bool accumulateDirectLighting(
             dst.gridHeight = src.gridHeight;
             dst.gridOffset = src.gridOffset;
             dst.peakRadiance = src.peakRadiance;
+            dst.castRange = src.castRange;
             dst.aabbMins = src.aabbMins;
             dst.aabbMaxs = src.aabbMaxs;
         }
@@ -1566,6 +1573,7 @@ RadiosityBakeResult bakeRadiosity(
         emissiveFace.vMin = basis.vMin;
         emissiveFace.vMax = basis.vMax;
         emissiveFace.area = widthMeters * heightMeters;
+        emissiveFace.castRange = material.asset.emissionRange;
         emissiveFace.gridWidth = gridWidth;
         emissiveFace.gridHeight = gridHeight;
         emissiveFace.gridOffset = static_cast<int>(emissionGridBuffer.size());

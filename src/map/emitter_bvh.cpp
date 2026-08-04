@@ -116,10 +116,14 @@ std::int32_t buildRecursive(
 
 } // namespace
 
-float emitterInfluenceRadius(Vector3 radiance, float area, float minPad) {
+float emitterInfluenceRadius(Vector3 radiance, float area, float minPad, float castRange) {
     const float lum = emitterLuminance(radiance);
     const float radius2 = lum * area / (kMinEmitterContrib * kPi);
-    return std::max(minPad, std::sqrt(std::max(0.0f, radius2)));
+    float radius = std::max(minPad, std::sqrt(std::max(0.0f, radius2)));
+    if (castRange > 0.0f) {
+        radius = std::min(radius, castRange);
+    }
+    return radius;
 }
 
 float maxEmitterInfluenceRadius(const std::vector<EmissiveFace>& faces, float minPad) {
@@ -127,7 +131,7 @@ float maxEmitterInfluenceRadius(const std::vector<EmissiveFace>& faces, float mi
     for (const EmissiveFace& face : faces) {
         maxRadius = std::max(
             maxRadius,
-            emitterInfluenceRadius(face.peakRadiance, face.area, minPad));
+            emitterInfluenceRadius(face.peakRadiance, face.area, minPad, face.castRange));
     }
     return maxRadius;
 }
@@ -142,7 +146,8 @@ EmitterBvh buildEmitterBvh(const std::vector<EmissiveFace>& faces, float minPad)
     std::vector<std::int32_t> buildIndices(faces.size());
     for (std::size_t i = 0; i < faces.size(); ++i) {
         const EmissiveFace& face = faces[i];
-        const float radius = emitterInfluenceRadius(face.peakRadiance, face.area, minPad);
+        const float radius = emitterInfluenceRadius(
+            face.peakRadiance, face.area, minPad, face.castRange);
         const Vector3 expand{radius, radius, radius};
         EmitterBvh::Prim& prim = bvh.prims[i];
         prim.mins = sub3(face.aabbMins, expand);

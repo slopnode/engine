@@ -20,6 +20,7 @@ struct MaterialAsset {
     std::string emissionTexture;
     Color emissionColor = {0, 0, 0, 255};
     float emissionPower = 0.0f;
+    float emissionRange = 0.0f; /**< Max cast distance in world units; 0 = unlimited. */
     bool sky = false; /**< Bake-time sun aperture; not a lightmap receiver. */
     SkyboxMode skyMode = SkyboxMode::Solid;
     bool haveSkyMode = false;

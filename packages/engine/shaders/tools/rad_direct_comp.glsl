@@ -55,7 +55,7 @@ struct EmissiveFace {
     float peakR;
     float peakG;
     float peakB;
-    float pad2;
+    float castRange;
     float aabbMinX;
     float aabbMinY;
     float aabbMinZ;
@@ -253,9 +253,21 @@ float dist2PointToAabb(vec3 point, vec3 mins, vec3 maxs) {
     return dx * dx + dy * dy + dz * dz;
 }
 
-bool emitterPairBelowThreshold(vec3 radiance, float area, float dist2, float minDist2) {
+bool emitterPairBelowThreshold(vec3 radiance, float area, float dist2, float minDist2, float castRange) {
+    if (castRange > 0.0 && dist2 > castRange * castRange) {
+        return true;
+    }
     float maxForm = area / (max(dist2, minDist2) * kPi);
     return emitterLuminance(radiance) * maxForm < kMinEmitterContrib;
+}
+
+float emitterRangeAttenuation(float dist, float range) {
+    if (range <= 0.0) {
+        return 1.0;
+    }
+    float t = dist / range;
+    float atten = max(0.0, 1.0 - t * t);
+    return atten * atten;
 }
 
 bool aabbOverlapsSphere(vec3 mins, vec3 maxs, vec3 center, float radius) {
@@ -477,7 +489,7 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
     vec3 aabbMins = vec3(face.aabbMinX, face.aabbMinY, face.aabbMinZ);
     vec3 aabbMaxs = vec3(face.aabbMaxX, face.aabbMaxY, face.aabbMaxZ);
     float dist2Raw = dist2PointToAabb(luxelPos, aabbMins, aabbMaxs);
-    if (emitterPairBelowThreshold(peakRadiance, face.area, dist2Raw, minDist2)) {
+    if (emitterPairBelowThreshold(peakRadiance, face.area, dist2Raw, minDist2, face.castRange)) {
         return;
     }
 
@@ -521,6 +533,9 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
                 continue;
             }
             float sampleDist = sqrt(sampleDist2Raw);
+            if (face.castRange > 0.0 && sampleDist > face.castRange) {
+                continue;
+            }
             vec3 toLight = delta / sampleDist;
             float dist2 = max(sampleDist2Raw, minDist2);
             float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
@@ -541,8 +556,9 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
 
             if (formOk) {
                 float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
+                float atten = emitterRangeAttenuation(sampleDist, face.castRange);
                 if (!isnan(form) && !isinf(form)) {
-                    irradiance += radiance * form;
+                    irradiance += radiance * form * atten;
                 }
             }
             if (fillOk) {
@@ -550,8 +566,9 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
                 float lateral2 = max(0.0, sampleDist2Raw - planeSep * planeSep);
                 float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
                 float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
+                float atten = emitterRangeAttenuation(sampleDist, face.castRange);
                 if (!isnan(fill) && !isinf(fill)) {
-                    irradiance += radiance * fill;
+                    irradiance += radiance * fill * atten;
                 }
             }
         }

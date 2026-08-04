@@ -102,7 +102,7 @@ struct GpuEmissiveFaceSSBO {
     float peakR = 0.0f;
     float peakG = 0.0f;
     float peakB = 0.0f;
-    float pad2 = 0.0f;
+    float castRange = 0.0f;
     float aabbMinX = 0.0f;
     float aabbMinY = 0.0f;
     float aabbMinZ = 0.0f;
@@ -608,6 +608,7 @@ bool accumulateDirectLightingGpu(
         dst.peakR = src.peakRadiance.x;
         dst.peakG = src.peakRadiance.y;
         dst.peakB = src.peakRadiance.z;
+        dst.castRange = src.castRange;
         dst.aabbMinX = src.aabbMins.x;
         dst.aabbMinY = src.aabbMins.y;
         dst.aabbMinZ = src.aabbMins.z;

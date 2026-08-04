@@ -35,7 +35,7 @@ struct EmitterBvh {
 };
 
 /** Influence radius used when building emissive-face BVH leaf bounds. */
-float emitterInfluenceRadius(Vector3 radiance, float area, float minPad);
+float emitterInfluenceRadius(Vector3 radiance, float area, float minPad, float castRange = 0.0f);
 
 /** Maximum influence radius across all emissive faces (for luxel query spheres). */
 float maxEmitterInfluenceRadius(

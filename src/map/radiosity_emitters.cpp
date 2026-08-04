@@ -23,9 +23,26 @@ bool passesCastGate(Vector3 radiance) {
     return emitterLuminance(radiance) >= kMinCastLuminance;
 }
 
-bool emitterPairBelowThreshold(Vector3 radiance, float area, float dist2, float minDist2) {
+bool emitterPairBelowThreshold(
+    Vector3 radiance,
+    float area,
+    float dist2,
+    float minDist2,
+    float castRange) {
+    if (castRange > 0.0f && dist2 > castRange * castRange) {
+        return true;
+    }
     const float maxForm = area / (std::max(dist2, minDist2) * kPi);
     return emitterLuminance(radiance) * maxForm < kMinEmitterContrib;
+}
+
+float emitterRangeAttenuation(float dist, float range) {
+    if (range <= 0.0f) {
+        return 1.0f;
+    }
+    const float t = dist / range;
+    float atten = std::max(0.0f, 1.0f - t * t);
+    return atten * atten;
 }
 
 float dist2PointToAabb(Vector3 point, Vector3 mins, Vector3 maxs) {

@@ -44,7 +44,7 @@ struct RadGpuEmissiveFace {
     std::int32_t gridOffset = 0;
     std::int32_t pad1 = 0;
     Vector3 peakRadiance{};
-    float pad2 = 0.0f;
+    float castRange = 0.0f;
     Vector3 aabbMins{};
     float pad3 = 0.0f;
     Vector3 aabbMaxs{};
