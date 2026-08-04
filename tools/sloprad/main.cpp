@@ -416,6 +416,7 @@ int main(int argc, char* argv[]) {
 
     for (std::size_t i = 0; i < baked.atlasImages.size(); ++i) {
         const auto pngPath = radDir / (baked.rad.atlases[i].texturePath + ".png");
+        ImageFormat(&baked.atlasImages[i], PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
         if (!ExportImage(baked.atlasImages[i], pngPath.string().c_str())) {
             std::cerr << "sloprad: failed to write " << pngPath << "\n";
             for (Image& image : baked.atlasImages) {

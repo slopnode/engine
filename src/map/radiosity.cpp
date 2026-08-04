@@ -1724,7 +1724,7 @@ RadiosityBakeResult bakeRadiosity(
         Image image = GenImageColor(
             packed.rad.atlases[atlas].width,
             packed.rad.atlases[atlas].height,
-            BLACK);
+            Color{0, 0, 0, 0});
         result.atlasImages.push_back(image);
     }
 

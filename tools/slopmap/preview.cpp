@@ -518,7 +518,10 @@ bool MapPreview::reloadBake(
         if (resolved) {
             texture = LoadTexture(resolved->string().c_str());
             if (texture.id != 0) {
-                SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+                const int filter = atlas.encoding == slopengine::LightmapEncoding::Rgbe
+                    ? TEXTURE_FILTER_POINT
+                    : TEXTURE_FILTER_BILINEAR;
+                SetTextureFilter(texture, filter);
                 SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
             }
         }

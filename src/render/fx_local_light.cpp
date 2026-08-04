@@ -35,16 +35,21 @@ float linearLuminance(Vector3 linearRgb) {
     return 0.2126f * linearRgb.x + 0.7152f * linearRgb.y + 0.0722f * linearRgb.z;
 }
 
+Color lightingMultiplierToColor(Vector3 lighting, unsigned char alpha = 255) {
+    const auto channel = [](float value) {
+        return static_cast<unsigned char>(
+            std::clamp(value / (1.0f + value) * 255.0f, 0.0f, 255.0f));
+    };
+    return {
+        channel(lighting.x),
+        channel(lighting.y),
+        channel(lighting.z),
+        alpha,
+    };
+}
+
 Vector3 composeReceiverLighting(Color bakeTint, Vector3 overlay) {
     Vector3 bake = colorToLinear(bakeTint);
-    const float overlayPeak = std::max({overlay.x, overlay.y, overlay.z, 0.0f});
-    if (overlayPeak > 1e-4f) {
-        const float bakePeak = std::max({bake.x, bake.y, bake.z, 0.0f});
-        if (overlayPeak > bakePeak) {
-            const float bakeLum = linearLuminance(bake);
-            bake = {bakeLum, bakeLum, bakeLum};
-        }
-    }
     return {
         bake.x + overlay.x,
         bake.y + overlay.y,
@@ -231,16 +236,7 @@ Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay) {
     if (overlayPeak <= 1e-4f) {
         return bakeTint;
     }
-    const Vector3 lighting = composeReceiverLighting(bakeTint, overlay);
-    const auto toByte = [](float value) {
-        return static_cast<unsigned char>(std::clamp(value * 255.0f, 0.0f, 255.0f));
-    };
-    return {
-        toByte(lighting.x),
-        toByte(lighting.y),
-        toByte(lighting.z),
-        bakeTint.a,
-    };
+    return lightingMultiplierToColor(composeReceiverLighting(bakeTint, overlay), bakeTint.a);
 }
 
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state) {

@@ -1,6 +1,8 @@
 #include "map/lightmap.hpp"
 #include "test_assert.hpp"
 
+#include <raylib.h>
+
 #include <cmath>
 #include <filesystem>
 #include <span>
@@ -56,11 +58,45 @@ void runLightmapRgbeTests() {
     CHECK(near(lowDecoded.y, 0.02f, 0.002f));
     CHECK(near(lowDecoded.z, 0.03f, 0.002f));
 
-    CHECK(primaryLightmapEncoding(makeSampleRad(LightmapEncoding::Ldr)) == LightmapEncoding::Ldr);
-    CHECK(primaryLightmapEncoding(makeSampleRad(LightmapEncoding::Rgbe)) == LightmapEncoding::Rgbe);
+    const Color sunRed = encodeRgbe(200.0f, 0.0f, 0.0f);
+    const Vector3 sunDecoded = decodeRgbe(sunRed);
+    CHECK(near3(sunDecoded, {200.0f, 0.0f, 0.0f}));
+    const Color sunDisplay = linearIrradianceToDisplayColor(sunDecoded.x, sunDecoded.y, sunDecoded.z);
+    CHECK(sunDisplay.r > sunDisplay.g + 20);
+    CHECK(sunDisplay.r > sunDisplay.b + 20);
+
+    const Color emptyPixel{0, 0, 0, 0};
+    const Vector3 emptyDecoded = decodeRgbe(emptyPixel);
+    CHECK(near3(emptyDecoded, {0.0f, 0.0f, 0.0f}));
+
+    Color corruptedAlpha = encodeRgbe(200.0f, 50.0f, 50.0f);
+    corruptedAlpha.a = 255;
+    const Vector3 corruptedDecoded = decodeRgbe(corruptedAlpha);
+    const Vector3 correctDecoded = decodeRgbe(encodeRgbe(200.0f, 50.0f, 50.0f));
+    CHECK(corruptedDecoded.x > correctDecoded.x * 100.0f);
 
     const auto tempDir = std::filesystem::temp_directory_path() / "sloptest_rad_v3";
     std::filesystem::create_directories(tempDir);
+
+    {
+        Image image = GenImageColor(1, 1, sunRed);
+        ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        const auto pngPath = tempDir / "atlas0.png";
+        CHECK(ExportImage(image, pngPath.string().c_str()));
+        UnloadImage(image);
+        Image loaded = LoadImage(pngPath.string().c_str());
+        CHECK(loaded.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        const Color reloaded = GetImageColor(loaded, 0, 0);
+        CHECK_EQ(reloaded.r, sunRed.r);
+        CHECK_EQ(reloaded.g, sunRed.g);
+        CHECK_EQ(reloaded.b, sunRed.b);
+        CHECK_EQ(reloaded.a, sunRed.a);
+        UnloadImage(loaded);
+    }
+
+    CHECK(primaryLightmapEncoding(makeSampleRad(LightmapEncoding::Ldr)) == LightmapEncoding::Ldr);
+    CHECK(primaryLightmapEncoding(makeSampleRad(LightmapEncoding::Rgbe)) == LightmapEncoding::Rgbe);
+
     const auto radPath = tempDir / "static.rad";
 
     const RadFile rgbeRad = makeSampleRad(LightmapEncoding::Rgbe);

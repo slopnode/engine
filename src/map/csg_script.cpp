@@ -1513,7 +1513,10 @@ std::optional<LoadedMap> loadAndCompileMap(
             if (resolved) {
                 texture = LoadTexture(resolved->string().c_str());
                 if (texture.id != 0) {
-                    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+                    const int filter = atlas.encoding == LightmapEncoding::Rgbe
+                        ? TEXTURE_FILTER_POINT
+                        : TEXTURE_FILTER_BILINEAR;
+                    SetTextureFilter(texture, filter);
                     SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
                 }
                 image = LoadImage(resolved->string().c_str());
