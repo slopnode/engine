@@ -3786,6 +3786,14 @@ int main(int argc, char* argv[]) {
             if (ImGui::RadioButton("CPU", !compile.radOptions.preferGpu)) {
                 compile.radOptions.preferGpu = false;
             }
+            if (compile.radOptions.preferGpu) {
+                ImGui::Checkbox("Discrete GPU", &compile.radOptions.forceDiscreteGpu);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Prefer the dedicated GPU on hybrid laptops (sets DRI_PRIME=1 on Linux). "
+                        "Disable to use integrated graphics with safe-mode throttling.");
+                }
+            }
             if (buttonWithIcon(assets, kIcons, "accept", "OK", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
