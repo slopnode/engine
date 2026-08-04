@@ -636,12 +636,12 @@ float sunSkyVisibility(
     vec3 toLight,
     vec3 tangent,
     vec3 bitangent) {
+    int centerHitFace = -1;
+    if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, centerHitFace)
+        || !isSkyFace(centerHitFace)) {
+        return 0.0;
+    }
     if (params.sunRayCount <= 1 || params.sunAngularSpread <= 0.0) {
-        int hitFace = -1;
-        if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace)
-            || !isSkyFace(hitFace)) {
-            return 0.0;
-        }
         return 1.0;
     }
 

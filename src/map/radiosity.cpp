@@ -750,15 +750,18 @@ float sunSkyVisibility(
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent) {
     constexpr float kSunRayDistance = 1000.0f;
+    const auto centerHit = raycastQuadBvh(
+        occlusionBvh,
+        luxelPos,
+        toLight,
+        kSunRayDistance,
+        luxelFaceIndex,
+        &faceTransparent);
+    if (!centerHit || !faceIsSky(faceSky, centerHit->faceIndex)) {
+        return 0.0f;
+    }
     if (sunParams.rayCount <= 1 || sunParams.angularSpreadRad <= 0.0f) {
-        const auto hit = raycastQuadBvh(
-            occlusionBvh,
-            luxelPos,
-            toLight,
-            kSunRayDistance,
-            luxelFaceIndex,
-            &faceTransparent);
-        return hit && faceIsSky(faceSky, hit->faceIndex) ? 1.0f : 0.0f;
+        return 1.0f;
     }
 
     float hits = 0.0f;
@@ -1348,9 +1351,6 @@ SunShadowSoftnessParams resolveSunShadowSoftness(float softness) {
     const float t = std::clamp(softness, 0.0f, 1.0f);
     params.rayCount = std::max(1, static_cast<int>(std::lround(1.0f + t * 15.0f)));
     params.angularSpreadRad = t * 0.07f;
-    params.denoiseRangeSigma = 0.35f + t * 0.85f;
-    params.denoiseSpatialSigma = t <= 0.5f ? 1.0f : 1.0f + (t - 0.5f) * 2.0f;
-    params.denoiseKernelRadius = t > 0.5f ? 2 : 1;
     return params;
 }
 
@@ -1393,12 +1393,9 @@ RadiosityBakeResult bakeRadiosity(
     const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
     TraceLog(
         LOG_INFO,
-        "sloprad: sun softness resolved rays=%d spread=%.4f denoiseRange=%.3f denoiseSpatial=%.3f kernel=%d",
+        "sloprad: sun softness resolved rays=%d spread=%.4f",
         sunParams.rayCount,
-        sunParams.angularSpreadRad,
-        sunParams.denoiseRangeSigma,
-        sunParams.denoiseSpatialSigma,
-        sunParams.denoiseKernelRadius);
+        sunParams.angularSpreadRad);
     std::fflush(stdout);
 
     LeafReachability reach;
@@ -1825,12 +1822,15 @@ RadiosityBakeResult bakeRadiosity(
     }
 
     logStage("denoising irradiance...");
+    constexpr float kDenoiseSpatialSigma = 1.0f;
+    constexpr float kDenoiseRangeSigma = 0.35f;
+    constexpr int kDenoiseKernelRadius = 1;
     bilateralDenoiseLuxels(
         luxels,
         faceGrids,
-        sunParams.denoiseSpatialSigma,
-        sunParams.denoiseRangeSigma,
-        sunParams.denoiseKernelRadius);
+        kDenoiseSpatialSigma,
+        kDenoiseRangeSigma,
+        kDenoiseKernelRadius);
 
     logStage("rasterizing lightmap atlases...");
     for (std::size_t atlas = 0; atlas < packed.atlasRgb.size(); ++atlas) {
