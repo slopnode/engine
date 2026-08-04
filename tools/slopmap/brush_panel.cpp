@@ -28,6 +28,7 @@ constexpr slopengine::BrushRole kRoles[] = {
     slopengine::BrushRole::Trigger,
     slopengine::BrushRole::Water,
     slopengine::BrushRole::Window,
+    slopengine::BrushRole::Transparent,
 };
 constexpr int kRoleCount = static_cast<int>(sizeof(kRoles) / sizeof(kRoles[0]));
 

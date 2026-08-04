@@ -717,6 +717,8 @@ slopengine::BrushRole nextBrushRole(slopengine::BrushRole role) {
     case slopengine::BrushRole::Water:
         return slopengine::BrushRole::Window;
     case slopengine::BrushRole::Window:
+        return slopengine::BrushRole::Transparent;
+    case slopengine::BrushRole::Transparent:
         return slopengine::BrushRole::Hull;
     }
     return slopengine::BrushRole::Hull;
@@ -742,6 +744,8 @@ const char* brushRoleToolbarIcon(slopengine::BrushRole role) {
         return "weather_rain";
     case slopengine::BrushRole::Window:
         return "contrast";
+    case slopengine::BrushRole::Transparent:
+        return "palette";
     }
     return "brick";
 }

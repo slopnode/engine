@@ -440,6 +440,67 @@ void runFacBuildTests() {
             CHECK_FALSE(faceIdBelongsToBrush(face.id, "door-1"));
         }
     }
+
+    {
+        std::vector<Brush> brushes = mapfixtures::sealedRoomWithTransparentPane();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+
+        bool glassFacePresent = false;
+        for (const VisibleFace& face : result.fac.faces) {
+            if (face.sourceFaceId.rfind("glass-east", 0) == 0) {
+                glassFacePresent = true;
+                CHECK(face.transparent);
+            }
+        }
+        CHECK(glassFacePresent);
+
+        const Vector3 openingCenter{2.04f, 1.25f, 0.0f};
+        const Vector3 eastInward{-1.0f, 0.0f, 0.0f};
+        bool openingCoveredByOpaque = false;
+        for (const VisibleFace& face : result.fac.faces) {
+            if (face.transparent) {
+                continue;
+            }
+            if (pointInPolygon3(openingCenter, face.vertices, eastInward)) {
+                openingCoveredByOpaque = true;
+                break;
+            }
+        }
+        CHECK_FALSE(openingCoveredByOpaque);
+    }
+
+    {
+        std::vector<Brush> brushes = mapfixtures::sealedRoomWithTransparentPane();
+        Brush detailGlass = makeBrushBox(
+            "glass-east",
+            {2.0f, 0.5f, -0.5f},
+            {2.08f, 2.0f, 0.5f},
+            "mat/glass",
+            {},
+            BrushRole::Detail);
+        for (Brush& brush : brushes) {
+            if (brush.id == "glass-east") {
+                brush = std::move(detailGlass);
+                break;
+            }
+        }
+
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+        const FacBuildResult result = buildVisibleFaces(tree, analysis, brushes);
+
+        bool glassFacePresent = false;
+        for (const VisibleFace& face : result.fac.faces) {
+            if (face.sourceFaceId.rfind("glass-east", 0) == 0) {
+                glassFacePresent = true;
+            }
+        }
+        CHECK_FALSE(glassFacePresent);
+    }
 }
 
 }

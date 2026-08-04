@@ -821,7 +821,7 @@ void occludeFragmentsByBrushes(
         if (skipBrushIds != nullptr && skipBrushIds->count(occluder.id) > 0) {
             continue;
         }
-        if (!brushRoleEmitsVisFaces(occluder.role)) {
+        if (!brushRoleOccludesVisFaces(occluder.role)) {
             continue;
         }
 
@@ -1118,6 +1118,9 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
                 if (!sameUvFrame(faces[i], faces[j])) {
                     continue;
                 }
+                if (faces[i].transparent != faces[j].transparent) {
+                    continue;
+                }
                 std::size_t aEdge = 0;
                 std::size_t bEdge = 0;
                 bool bReversed = false;
@@ -1221,7 +1224,9 @@ FacBuildResult buildVisibleFaces(
             }
 
             if (!canClip) {
-                result.fac.faces.push_back(makeVisibleFromBrushFace(face, face.id));
+                VisibleFace visible = makeVisibleFromBrushFace(face, face.id);
+                visible.transparent = brush.role == BrushRole::Transparent;
+                result.fac.faces.push_back(std::move(visible));
                 continue;
             }
 
@@ -1234,7 +1239,9 @@ FacBuildResult buildVisibleFaces(
             }
 
             fragments = microMergeFragments(std::move(fragments));
-            occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal, skipBrushIds);
+            if (brushRoleReceivesVisOcclusion(brush.role)) {
+                occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal, skipBrushIds);
+            }
 
             if (fragments.empty()) {
                 result.inferredNodrawFaceIds.push_back(face.id);
@@ -1257,6 +1264,7 @@ FacBuildResult buildVisibleFaces(
                 VisibleFace visible = makeVisibleFromBrushFace(face, face.id + "#" + std::to_string(i));
                 visible.vertices = std::move(fragments[i].vertices);
                 visible.interiorLeaf = fragments[i].interiorLeaf;
+                visible.transparent = brush.role == BrushRole::Transparent;
                 result.fac.faces.push_back(std::move(visible));
             }
         }

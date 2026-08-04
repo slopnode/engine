@@ -247,7 +247,6 @@ void drawParticleSystems(
             overlayItems.push_back(std::move(item));
         }
     }
-    drawParticleDrawItems(depthItems, camera, true);
     drawParticleDrawItems(overlayItems, camera, false);
 }
 

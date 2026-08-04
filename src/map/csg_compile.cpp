@@ -24,6 +24,7 @@ struct FaceCompileInput {
     Vector3 uvUAxis{};
     Vector3 uvVAxis{};
     bool uvLock = false;
+    bool transparent = false;
 };
 
 CsgCompileResult compileFacesToGeo(
@@ -53,6 +54,7 @@ CsgCompileResult compileFacesToGeo(
         GeoPrimitive primitive;
         primitive.name = face.id;
         primitive.material = face.material;
+        primitive.transparent = face.transparent;
         primitive.vertexOffset = result.buffer.positions.size();
         primitive.vertexCount = verts.size();
         primitive.indexOffset = result.buffer.indices.size();
@@ -211,6 +213,7 @@ CsgCompileResult compileBrushesToGeo(
             input.uvUAxis = face.uvUAxis;
             input.uvVAxis = face.uvVAxis;
             input.uvLock = face.uvLock;
+            input.transparent = brush.role == BrushRole::Transparent;
             faces.push_back(std::move(input));
         }
     }
@@ -237,6 +240,7 @@ CsgCompileResult compileVisibleFacesToGeo(
         input.uvUAxis = face.uvUAxis;
         input.uvVAxis = face.uvVAxis;
         input.uvLock = face.uvLock;
+        input.transparent = face.transparent;
         faces.push_back(std::move(input));
     }
     return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);

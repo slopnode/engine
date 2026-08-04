@@ -1438,6 +1438,14 @@ std::optional<LoadedMap> loadAndCompileMap(
         return std::nullopt;
     }
 
+    result.transparentMeshIndices.clear();
+    result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        if (compiled.asset.primitives[static_cast<std::size_t>(meshIndex)].transparent) {
+            result.transparentMeshIndices.push_back(meshIndex);
+        }
+    }
+
     TraceLog(
         LOG_INFO,
         "MAP: loaded '%s' (%d brushes, %d meshes, lightmaps=%s)",

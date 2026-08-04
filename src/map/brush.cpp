@@ -539,6 +539,7 @@ const char* brushRoleName(BrushRole role) {
     case BrushRole::Trigger: return "trigger";
     case BrushRole::Water: return "water";
     case BrushRole::Window: return "window";
+    case BrushRole::Transparent: return "transparent";
     }
     return "unknown";
 }
@@ -570,6 +571,10 @@ bool parseBrushRoleName(std::string_view name, BrushRole& out) {
     }
     if (name == "window") {
         out = BrushRole::Window;
+        return true;
+    }
+    if (name == "transparent") {
+        out = BrushRole::Transparent;
         return true;
     }
     return false;
@@ -613,6 +618,7 @@ bool brushRoleContributesSplits(BrushRole role) {
     case BrushRole::Detail:
     case BrushRole::Door:
     case BrushRole::Trigger:
+    case BrushRole::Transparent:
         return false;
     }
     return false;
@@ -629,12 +635,33 @@ bool brushRoleEmitsVisFaces(BrushRole role) {
     case BrushRole::Door:
     case BrushRole::Water:
     case BrushRole::Window:
+    case BrushRole::Transparent:
         return true;
     case BrushRole::Hint:
     case BrushRole::Trigger:
         return false;
     }
     return false;
+}
+
+bool brushRoleOccludesVisFaces(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull:
+    case BrushRole::Detail:
+    case BrushRole::Door:
+    case BrushRole::Water:
+    case BrushRole::Window:
+        return true;
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+    case BrushRole::Transparent:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleReceivesVisOcclusion(BrushRole role) {
+    return role != BrushRole::Transparent;
 }
 
 bool brushRoleDefaultNocollide(BrushRole role) {
@@ -647,6 +674,7 @@ bool brushRoleDefaultNocollide(BrushRole role) {
     case BrushRole::Detail:
     case BrushRole::Door:
     case BrushRole::Window:
+    case BrushRole::Transparent:
         return false;
     }
     return false;
@@ -659,6 +687,7 @@ bool brushRoleNeedsInteriorPlacement(BrushRole role) {
     case BrushRole::Hint:
     case BrushRole::Trigger:
     case BrushRole::Water:
+    case BrushRole::Transparent:
         return true;
     case BrushRole::Hull:
     case BrushRole::Window:

@@ -2040,6 +2040,9 @@ void Editor::toggleSelectedBrushRole() {
             brush.role = slopengine::BrushRole::Window;
             break;
         case slopengine::BrushRole::Window:
+            brush.role = slopengine::BrushRole::Transparent;
+            break;
+        case slopengine::BrushRole::Transparent:
             brush.role = slopengine::BrushRole::Hull;
             break;
         }

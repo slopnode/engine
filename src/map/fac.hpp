@@ -24,6 +24,7 @@ struct VisibleFace {
     Vector3 uvVAxis{};
     bool uvLock = false;
     std::int32_t interiorLeaf = -1;
+    bool transparent = false;
 };
 
 /** In-memory / on-disk face set (FAC1). */

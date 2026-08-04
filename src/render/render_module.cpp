@@ -196,7 +196,7 @@ void registerRenderSystems(flecs::world& world) {
             BeginMode3D(presentCam);
             drawWorldModels(world, context, lens, frustum, unlit);
             const std::string spriteAimStatus =
-                drawWorldSprites(world, context, lens, frustum, unlit);
+                drawWorldTransparentPass(world, context, lens, frustum, unlit);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);

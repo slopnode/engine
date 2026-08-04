@@ -53,6 +53,7 @@ struct MapPreview {
     int useLightmapLoc = -1;
     int solidLitLoc = -1;
     std::vector<Texture2D> lightmapAtlases;
+    std::vector<int> transparentMeshIndices;
 
     void clear();
     void clearVis();

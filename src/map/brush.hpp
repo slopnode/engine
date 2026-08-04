@@ -33,6 +33,7 @@ enum class BrushRole {
     Trigger,
     Water,
     Window,
+    Transparent,
 };
 
 /** Engine door motion on a detail brush leaf. */
@@ -97,6 +98,8 @@ bool parseDoorMotionName(std::string_view name, DoorMotion& out);
 bool brushRoleContributesSplits(BrushRole role);
 bool brushRoleSeals(BrushRole role);
 bool brushRoleEmitsVisFaces(BrushRole role);
+bool brushRoleOccludesVisFaces(BrushRole role);
+bool brushRoleReceivesVisOcclusion(BrushRole role);
 bool brushRoleDefaultNocollide(BrushRole role);
 bool brushRoleNeedsInteriorPlacement(BrushRole role);
 

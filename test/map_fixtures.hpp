@@ -108,6 +108,27 @@ inline std::vector<Brush> sealedRoomWithWindow() {
     return brushes;
 }
 
+/** Sealed room with nodraw window seal and a visible transparent glass pane in the opening. */
+inline std::vector<Brush> sealedRoomWithTransparentPane() {
+    std::vector<Brush> brushes = sealedRoomWithWindow();
+    for (Brush& brush : brushes) {
+        if (brush.id != "window-east") {
+            continue;
+        }
+        for (BrushFace& face : brush.faces) {
+            face.nodraw = true;
+        }
+    }
+    brushes.push_back(makeBrushBox(
+        "glass-east",
+        {2.0f, 0.5f, -0.5f},
+        {2.08f, 2.0f, 0.5f},
+        "mat/glass",
+        {},
+        BrushRole::Transparent));
+    return brushes;
+}
+
 inline Brush hintMidPlane() {
     return makeBrushBox(
         "hint-mid",
