@@ -1,10 +1,15 @@
 #include "map/radiosity_gpu.hpp"
 
+#include "map/emitter_bvh.hpp"
+
 #include <rlgl.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <span>
+#include <string_view>
 #include <vector>
 
 namespace slopengine {
@@ -14,9 +19,44 @@ namespace {
 constexpr unsigned int kShaderStorageBarrierBit = 0x00002000u;
 constexpr unsigned int kBufferUpdateBarrierBit = 0x00000200u;
 constexpr int kLuxelBatchSize = 1024;
-constexpr int kEmitterBatchSize = 512;
 constexpr int kLightBatchSize = 512;
 constexpr int kDispatchesPerSync = 4;
+constexpr int kLargeLuxelThreshold = 8192;
+
+struct DirectDispatchConfig {
+    int luxelBatch = kLuxelBatchSize;
+    int lightBatch = kLightBatchSize;
+    int dispatchesPerSync = kDispatchesPerSync;
+};
+
+DirectDispatchConfig directDispatchConfig(int luxelCount, int lightCount, bool gpuSafeMode) {
+    DirectDispatchConfig config;
+    if (gpuSafeMode) {
+        config.luxelBatch = 256;
+        config.lightBatch = 128;
+        config.dispatchesPerSync = 1;
+        return config;
+    }
+    if (luxelCount > kLargeLuxelThreshold) {
+        config.luxelBatch = 2048;
+        config.dispatchesPerSync = 32;
+    } else if (luxelCount > 2048) {
+        config.luxelBatch = 2048;
+        config.dispatchesPerSync = 16;
+    }
+
+    const int luxelBatches = (luxelCount + config.luxelBatch - 1) / config.luxelBatch;
+    const int lightBatches =
+        lightCount > 0 ? (lightCount + config.lightBatch - 1) / config.lightBatch : 0;
+    const int totalDispatches = luxelBatches * (1 + lightBatches);
+    if (totalDispatches > 4096 && config.dispatchesPerSync < 16) {
+        config.dispatchesPerSync = 16;
+    }
+    if (totalDispatches > 16384 && config.dispatchesPerSync < 32) {
+        config.dispatchesPerSync = 32;
+    }
+    return config;
+}
 
 struct GpuLuxelSSBO {
     float px = 0.0f;
@@ -31,21 +71,53 @@ struct GpuLuxelSSBO {
     float ig = 0.0f;
     float ib = 0.0f;
     std::int32_t leafIndex = -1;
+    float sunIr = 0.0f;
+    float sunIg = 0.0f;
+    float sunIb = 0.0f;
+    std::int32_t pad0 = 0;
 };
 
-struct GpuEmitterSSBO {
-    float px = 0.0f;
-    float py = 0.0f;
-    float pz = 0.0f;
-    float area = 0.0f;
+struct GpuEmissiveFaceSSBO {
+    float uAxisX = 0.0f;
+    float uAxisY = 0.0f;
+    float uAxisZ = 0.0f;
+    float planeD = 0.0f;
+    float vAxisX = 0.0f;
+    float vAxisY = 0.0f;
+    float vAxisZ = 0.0f;
+    float uMin = 0.0f;
+    float uMax = 0.0f;
+    float vMin = 0.0f;
+    float vMax = 0.0f;
     float nx = 0.0f;
     float ny = 0.0f;
     float nz = 0.0f;
+    float area = 0.0f;
     std::int32_t faceIndex = -1;
-    float rr = 0.0f;
-    float rg = 0.0f;
-    float rb = 0.0f;
-    std::int32_t leafIndex = -1;
+    std::int32_t interiorLeaf = -1;
+    std::int32_t gridWidth = 0;
+    std::int32_t gridHeight = 0;
+    std::int32_t gridOffset = 0;
+    std::int32_t pad1 = 0;
+    float peakR = 0.0f;
+    float peakG = 0.0f;
+    float peakB = 0.0f;
+    float castRange = 0.0f;
+    float aabbMinX = 0.0f;
+    float aabbMinY = 0.0f;
+    float aabbMinZ = 0.0f;
+    float pad3 = 0.0f;
+    float aabbMaxX = 0.0f;
+    float aabbMaxY = 0.0f;
+    float aabbMaxZ = 0.0f;
+    float pad4 = 0.0f;
+};
+
+struct GpuGridSampleSSBO {
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float pad = 0.0f;
 };
 
 struct GpuLightSSBO {
@@ -101,6 +173,21 @@ struct GpuBvhPrimSSBO {
     std::int32_t faceIndex = -1;
 };
 
+struct GpuEmitterBvhPrimSSBO {
+    float minx = 0.0f;
+    float miny = 0.0f;
+    float minz = 0.0f;
+    float pad0 = 0.0f;
+    float maxx = 0.0f;
+    float maxy = 0.0f;
+    float maxz = 0.0f;
+    std::int32_t emitterIndex = -1;
+    std::int32_t pad1 = 0;
+    std::int32_t pad2 = 0;
+    std::int32_t pad3 = 0;
+    float pad4 = 0.0f;
+};
+
 struct GpuParamsSSBO {
     std::int32_t luxelCount = 0;
     std::int32_t emitterCount = 0;
@@ -108,8 +195,8 @@ struct GpuParamsSSBO {
     std::int32_t bvhRoot = -1;
     std::int32_t luxelOffset = 0;
     std::int32_t luxelBatch = 0;
-    std::int32_t emitterOffset = 0;
-    std::int32_t emitterBatch = 0;
+    std::int32_t emitterBvhRoot = -1;
+    float emitterQueryRadius = 0.0f;
     std::int32_t lightOffset = 0;
     std::int32_t lightBatch = 0;
     std::int32_t leafCount = 0;
@@ -118,14 +205,21 @@ struct GpuParamsSSBO {
     float coplanarFill = 0.15f;
     float coplanarSoft = 0.25f;
     float minDist2 = 0.0025f;
+    std::int32_t emitterDirectSamples = 4;
+    std::int32_t emissionGridFloats = 0;
+    std::int32_t sunRayCount = 1;
+    float sunAngularSpread = 0.0f;
+    float sunLeakThreshold = 0.0f;
 };
 
-static_assert(sizeof(GpuLuxelSSBO) == 48);
-static_assert(sizeof(GpuEmitterSSBO) == 48);
+static_assert(sizeof(GpuLuxelSSBO) == 64);
+static_assert(sizeof(GpuEmissiveFaceSSBO) == 132);
+static_assert(sizeof(GpuGridSampleSSBO) == 16);
 static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
-static_assert(sizeof(GpuParamsSSBO) == 64);
+static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
+static_assert(sizeof(GpuParamsSSBO) == 84);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
@@ -257,20 +351,26 @@ bool validateGpuResults(
 
 void unloadDirectResources(
     unsigned int luxelSsbo,
-    unsigned int emitterSsbo,
+    unsigned int emissiveFaceSsbo,
+    unsigned int emissionGridSsbo,
     unsigned int lightSsbo,
     unsigned int nodeSsbo,
     unsigned int primSsbo,
+    unsigned int emitterNodeSsbo,
+    unsigned int emitterPrimSsbo,
     unsigned int paramsSsbo,
     unsigned int reachSsbo,
     unsigned int faceSkySsbo,
     unsigned int faceTransparentSsbo,
     unsigned int program) {
     unloadSsbo(luxelSsbo);
-    unloadSsbo(emitterSsbo);
+    unloadSsbo(emissiveFaceSsbo);
+    unloadSsbo(emissionGridSsbo);
     unloadSsbo(lightSsbo);
     unloadSsbo(nodeSsbo);
     unloadSsbo(primSsbo);
+    unloadSsbo(emitterNodeSsbo);
+    unloadSsbo(emitterPrimSsbo);
     unloadSsbo(paramsSsbo);
     unloadSsbo(reachSsbo);
     unloadSsbo(faceSkySsbo);
@@ -284,6 +384,7 @@ void fillBaseParams(
     int emitterCount,
     int lightCount,
     std::int32_t bvhRoot,
+    std::int32_t emitterBvhRoot,
     int luxelOffset,
     int luxelBatch,
     const RadGpuDirectParams& directParams,
@@ -294,8 +395,8 @@ void fillBaseParams(
     params.bvhRoot = bvhRoot;
     params.luxelOffset = luxelOffset;
     params.luxelBatch = luxelBatch;
-    params.emitterOffset = 0;
-    params.emitterBatch = 0;
+    params.emitterBvhRoot = emitterBvhRoot;
+    params.emitterQueryRadius = directParams.emitterQueryRadius;
     params.lightOffset = 0;
     params.lightBatch = 0;
     params.leafCount = reachability.leafCount;
@@ -304,11 +405,17 @@ void fillBaseParams(
     params.coplanarFill = directParams.coplanarFill;
     params.coplanarSoft = directParams.coplanarSoft;
     params.minDist2 = directParams.minDist2;
+    params.emitterDirectSamples = directParams.emitterDirectSamples;
+    params.emissionGridFloats = directParams.emissionGridFloats;
+    params.sunRayCount = directParams.sunRayCount;
+    params.sunAngularSpread = directParams.sunAngularSpread;
+    params.sunLeakThreshold = directParams.sunLeakThreshold;
 }
 
 bool dispatchBatch(
     unsigned int paramsSsbo,
     const GpuParamsSSBO& params,
+    int dispatchesPerSync,
     int& dispatchesSinceSync,
     bool& dispatchFailed) {
     rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
@@ -318,7 +425,7 @@ bool dispatchBatch(
     memoryBarrierBits(kShaderStorageBarrierBit);
 
     ++dispatchesSinceSync;
-    if (dispatchesSinceSync >= kDispatchesPerSync) {
+    if (dispatchesSinceSync >= dispatchesPerSync) {
         finishGpu();
         dispatchesSinceSync = 0;
         if (!checkGlError("compute dispatch")) {
@@ -330,6 +437,91 @@ bool dispatchBatch(
 }
 
 } // namespace
+
+namespace {
+
+constexpr unsigned int kGlRenderer = 0x1F01;
+
+using GetStringFn = const unsigned char* (*)(unsigned int);
+
+GetStringFn glGetStringFn() {
+    static GetStringFn fn = reinterpret_cast<GetStringFn>(rlGetProcAddress("glGetString"));
+    return fn;
+}
+
+bool stringContainsInsensitive(std::string_view haystack, std::string_view needle) {
+    if (needle.empty()) {
+        return true;
+    }
+    for (std::size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
+        bool match = true;
+        for (std::size_t j = 0; j < needle.size(); ++j) {
+            const char a = haystack[i + j];
+            const char b = needle[j];
+            if (std::tolower(static_cast<unsigned char>(a))
+                != std::tolower(static_cast<unsigned char>(b))) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+const char* radiosityGpuRenderer() {
+    if (!IsWindowReady()) {
+        return "";
+    }
+    GetStringFn fn = glGetStringFn();
+    if (fn == nullptr) {
+        return "";
+    }
+    const char* renderer = reinterpret_cast<const char*>(fn(kGlRenderer));
+    return renderer != nullptr ? renderer : "";
+}
+
+bool radiosityGpuIsIntegrated() {
+    const char* renderer = radiosityGpuRenderer();
+    if (renderer[0] == '\0') {
+        return false;
+    }
+    const std::string_view r(renderer);
+
+    if (stringContainsInsensitive(r, "llvmpipe") || stringContainsInsensitive(r, "softpipe")
+        || stringContainsInsensitive(r, "svga3d") || stringContainsInsensitive(r, "virgl")
+        || stringContainsInsensitive(r, "Microsoft Basic Render Driver")) {
+        return true;
+    }
+    if (stringContainsInsensitive(r, "Intel")) {
+        return true;
+    }
+    if (stringContainsInsensitive(r, "Apple M")) {
+        return true;
+    }
+
+    const bool amd =
+        stringContainsInsensitive(r, "AMD") || stringContainsInsensitive(r, "Radeon");
+    if (amd) {
+        if (stringContainsInsensitive(r, " RX ") || stringContainsInsensitive(r, " RX")
+            || stringContainsInsensitive(r, "Radeon Pro") || stringContainsInsensitive(r, "FirePro")
+            || stringContainsInsensitive(r, "Radeon VII")) {
+            return false;
+        }
+        if (stringContainsInsensitive(r, "Graphics") || stringContainsInsensitive(r, "Raven")
+            || stringContainsInsensitive(r, "Renoir") || stringContainsInsensitive(r, "Phoenix")
+            || stringContainsInsensitive(r, "Cezanne") || stringContainsInsensitive(r, "Rembrandt")
+            || stringContainsInsensitive(r, "Van Gogh") || stringContainsInsensitive(r, "Barcelo")) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 bool radiosityGpuContextReady() {
     if (!IsWindowReady()) {
@@ -343,9 +535,11 @@ bool radiosityGpuContextReady() {
 
 bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
-    const std::vector<RadGpuEmitter>& emitters,
+    const std::vector<RadGpuEmissiveFace>& emissiveFaces,
+    std::span<const Vector3> emissionGrid,
     const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
+    const EmitterBvh& emitterBvh,
     std::string_view computeShaderSource,
     const RadGpuDirectParams& directParams,
     const RadGpuReachability& reachability,
@@ -358,8 +552,8 @@ bool accumulateDirectLightingGpu(
     if (luxels.empty()) {
         return true;
     }
-    if (emitters.empty() && lights.empty()) {
-        TraceLog(LOG_INFO, "sloprad: GPU direct lighting skipped (no emitters or lights)");
+    if (emissiveFaces.empty() && lights.empty()) {
+        TraceLog(LOG_INFO, "sloprad: GPU direct lighting skipped (no emissive faces or lights)");
         return true;
     }
 
@@ -387,22 +581,47 @@ bool accumulateDirectLightingGpu(
     }
     const std::vector<GpuLuxelSSBO> gpuLuxelsBefore = gpuLuxels;
 
-    std::vector<GpuEmitterSSBO> gpuEmitters(std::max<std::size_t>(emitters.size(), 1));
-    for (std::size_t i = 0; i < emitters.size(); ++i) {
-        const RadGpuEmitter& src = emitters[i];
-        GpuEmitterSSBO& dst = gpuEmitters[i];
-        dst.px = src.position.x;
-        dst.py = src.position.y;
-        dst.pz = src.position.z;
-        dst.area = src.area;
+    std::vector<GpuEmissiveFaceSSBO> gpuEmissiveFaces(std::max<std::size_t>(emissiveFaces.size(), 1));
+    for (std::size_t i = 0; i < emissiveFaces.size(); ++i) {
+        const RadGpuEmissiveFace& src = emissiveFaces[i];
+        GpuEmissiveFaceSSBO& dst = gpuEmissiveFaces[i];
+        dst.uAxisX = src.uAxis.x;
+        dst.uAxisY = src.uAxis.y;
+        dst.uAxisZ = src.uAxis.z;
+        dst.planeD = src.planeD;
+        dst.vAxisX = src.vAxis.x;
+        dst.vAxisY = src.vAxis.y;
+        dst.vAxisZ = src.vAxis.z;
+        dst.uMin = src.uMin;
+        dst.uMax = src.uMax;
+        dst.vMin = src.vMin;
+        dst.vMax = src.vMax;
         dst.nx = src.normal.x;
         dst.ny = src.normal.y;
         dst.nz = src.normal.z;
+        dst.area = src.area;
         dst.faceIndex = src.faceIndex;
-        dst.rr = src.radianceR;
-        dst.rg = src.radianceG;
-        dst.rb = src.radianceB;
-        dst.leafIndex = src.interiorLeaf;
+        dst.interiorLeaf = src.interiorLeaf;
+        dst.gridWidth = src.gridWidth;
+        dst.gridHeight = src.gridHeight;
+        dst.gridOffset = src.gridOffset;
+        dst.peakR = src.peakRadiance.x;
+        dst.peakG = src.peakRadiance.y;
+        dst.peakB = src.peakRadiance.z;
+        dst.castRange = src.castRange;
+        dst.aabbMinX = src.aabbMins.x;
+        dst.aabbMinY = src.aabbMins.y;
+        dst.aabbMinZ = src.aabbMins.z;
+        dst.aabbMaxX = src.aabbMaxs.x;
+        dst.aabbMaxY = src.aabbMaxs.y;
+        dst.aabbMaxZ = src.aabbMaxs.z;
+    }
+
+    std::vector<GpuGridSampleSSBO> gpuGridSamples(std::max<std::size_t>(emissionGrid.size(), 1));
+    for (std::size_t i = 0; i < emissionGrid.size(); ++i) {
+        gpuGridSamples[i].r = emissionGrid[i].x;
+        gpuGridSamples[i].g = emissionGrid[i].y;
+        gpuGridSamples[i].b = emissionGrid[i].z;
     }
 
     std::vector<GpuLightSSBO> gpuLights(std::max<std::size_t>(lights.size(), 1));
@@ -468,6 +687,43 @@ bool accumulateDirectLightingGpu(
         gpuPrims.push_back({});
     }
 
+    std::vector<GpuBvhNodeSSBO> gpuEmitterNodes;
+    std::vector<GpuEmitterBvhPrimSSBO> gpuEmitterPrims;
+    std::int32_t emitterBvhRoot = -1;
+    if (!emitterBvh.empty()) {
+        emitterBvhRoot = emitterBvh.root;
+        gpuEmitterNodes.resize(emitterBvh.nodes.size());
+        for (std::size_t i = 0; i < emitterBvh.nodes.size(); ++i) {
+            const EmitterBvh::Node& src = emitterBvh.nodes[i];
+            GpuBvhNodeSSBO& dst = gpuEmitterNodes[i];
+            dst.minx = src.mins.x;
+            dst.miny = src.mins.y;
+            dst.minz = src.mins.z;
+            dst.left = src.left;
+            dst.maxx = src.maxs.x;
+            dst.maxy = src.maxs.y;
+            dst.maxz = src.maxs.z;
+            dst.right = src.right;
+            dst.firstPrim = src.firstPrim;
+            dst.primCount = src.primCount;
+        }
+        gpuEmitterPrims.resize(emitterBvh.prims.size());
+        for (std::size_t i = 0; i < emitterBvh.prims.size(); ++i) {
+            const EmitterBvh::Prim& src = emitterBvh.prims[i];
+            GpuEmitterBvhPrimSSBO& dst = gpuEmitterPrims[i];
+            dst.minx = src.mins.x;
+            dst.miny = src.mins.y;
+            dst.minz = src.mins.z;
+            dst.maxx = src.maxs.x;
+            dst.maxy = src.maxs.y;
+            dst.maxz = src.maxs.z;
+            dst.emitterIndex = src.emitterIndex;
+        }
+    } else {
+        gpuEmitterNodes.push_back({});
+        gpuEmitterPrims.push_back({});
+    }
+
     std::vector<std::uint32_t> reachBits = reachability.bits;
     if (reachBits.empty()) {
         reachBits.push_back(0);
@@ -485,9 +741,13 @@ bool accumulateDirectLightingGpu(
         static_cast<unsigned int>(gpuLuxels.size() * sizeof(GpuLuxelSSBO)),
         gpuLuxels.data(),
         RL_DYNAMIC_COPY);
-    const unsigned int emitterSsbo = rlLoadShaderBuffer(
-        static_cast<unsigned int>(gpuEmitters.size() * sizeof(GpuEmitterSSBO)),
-        gpuEmitters.data(),
+    const unsigned int emissiveFaceSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuEmissiveFaces.size() * sizeof(GpuEmissiveFaceSSBO)),
+        gpuEmissiveFaces.data(),
+        RL_DYNAMIC_COPY);
+    const unsigned int emissionGridSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuGridSamples.size() * sizeof(GpuGridSampleSSBO)),
+        gpuGridSamples.data(),
         RL_DYNAMIC_COPY);
     const unsigned int lightSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuLights.size() * sizeof(GpuLightSSBO)),
@@ -500,6 +760,14 @@ bool accumulateDirectLightingGpu(
     const unsigned int primSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuPrims.size() * sizeof(GpuBvhPrimSSBO)),
         gpuPrims.data(),
+        RL_DYNAMIC_COPY);
+    const unsigned int emitterNodeSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuEmitterNodes.size() * sizeof(GpuBvhNodeSSBO)),
+        gpuEmitterNodes.data(),
+        RL_DYNAMIC_COPY);
+    const unsigned int emitterPrimSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuEmitterPrims.size() * sizeof(GpuEmitterBvhPrimSSBO)),
+        gpuEmitterPrims.data(),
         RL_DYNAMIC_COPY);
     const unsigned int reachSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(reachBits.size() * sizeof(std::uint32_t)),
@@ -514,8 +782,10 @@ bool accumulateDirectLightingGpu(
         faceTransparentBits.data(),
         RL_DYNAMIC_COPY);
     const int luxelCount = static_cast<int>(gpuLuxels.size());
-    const int emitterCount = static_cast<int>(emitters.size());
+    const int emitterCount = static_cast<int>(emissiveFaces.size());
     const int lightCount = static_cast<int>(lights.size());
+    const DirectDispatchConfig dispatchConfig =
+        directDispatchConfig(luxelCount, lightCount, directParams.gpuSafeMode);
 
     GpuParamsSSBO initialParams{};
     fillBaseParams(
@@ -524,22 +794,27 @@ bool accumulateDirectLightingGpu(
         emitterCount,
         lightCount,
         bvhRoot,
+        emitterBvhRoot,
         0,
-        std::min(kLuxelBatchSize, luxelCount),
+        std::min(dispatchConfig.luxelBatch, luxelCount),
         directParams,
         reachability);
     const unsigned int paramsSsbo =
         rlLoadShaderBuffer(sizeof(GpuParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
 
-    if (luxelSsbo == 0 || emitterSsbo == 0 || lightSsbo == 0 || nodeSsbo == 0 || primSsbo == 0
+    if (luxelSsbo == 0 || emissiveFaceSsbo == 0 || emissionGridSsbo == 0 || lightSsbo == 0
+        || nodeSsbo == 0 || primSsbo == 0 || emitterNodeSsbo == 0 || emitterPrimSsbo == 0
         || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0 || faceTransparentSsbo == 0) {
         TraceLog(LOG_WARNING, "sloprad: failed to allocate GPU SSBOs for direct lighting");
         unloadDirectResources(
             luxelSsbo,
-            emitterSsbo,
+            emissiveFaceSsbo,
+            emissionGridSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
+            emitterNodeSsbo,
+            emitterPrimSsbo,
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
@@ -550,10 +825,13 @@ bool accumulateDirectLightingGpu(
     if (!checkGlError("ssbo allocate")) {
         unloadDirectResources(
             luxelSsbo,
-            emitterSsbo,
+            emissiveFaceSsbo,
+            emissionGridSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
+            emitterNodeSsbo,
+            emitterPrimSsbo,
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
@@ -564,21 +842,22 @@ bool accumulateDirectLightingGpu(
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU direct lighting luxels=%d emitters=%d lights=%d luxelBatch=%d emitterBatch=%d lightBatch=%d syncEvery=%d bvhRoot=%d leafCull=%d",
+        "sloprad: GPU direct lighting luxels=%d emissiveFaces=%d lights=%d luxelBatch=%d lightBatch=%d syncEvery=%d bvhRoot=%d emitterBvhRoot=%d leafCull=%d safeMode=%d",
         luxelCount,
         emitterCount,
         lightCount,
-        kLuxelBatchSize,
-        kEmitterBatchSize,
-        kLightBatchSize,
-        kDispatchesPerSync,
+        dispatchConfig.luxelBatch,
+        dispatchConfig.lightBatch,
+        dispatchConfig.dispatchesPerSync,
         bvhRoot,
-        reachability.leafCount > 0 ? 1 : 0);
+        emitterBvhRoot,
+        reachability.leafCount > 0 ? 1 : 0,
+        directParams.gpuSafeMode ? 1 : 0);
     std::fflush(stdout);
 
     rlEnableShader(program);
     rlBindShaderBuffer(luxelSsbo, 0);
-    rlBindShaderBuffer(emitterSsbo, 1);
+    rlBindShaderBuffer(emissiveFaceSsbo, 1);
     rlBindShaderBuffer(nodeSsbo, 2);
     rlBindShaderBuffer(primSsbo, 3);
     rlBindShaderBuffer(paramsSsbo, 4);
@@ -586,15 +865,19 @@ bool accumulateDirectLightingGpu(
     rlBindShaderBuffer(reachSsbo, 6);
     rlBindShaderBuffer(faceSkySsbo, 7);
     rlBindShaderBuffer(faceTransparentSsbo, 8);
+    rlBindShaderBuffer(emitterNodeSsbo, 9);
+    rlBindShaderBuffer(emitterPrimSsbo, 10);
+    rlBindShaderBuffer(emissionGridSsbo, 11);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
     int lastLoggedLuxels = -1;
-    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed; luxelOffset += kLuxelBatchSize) {
-        const int luxelBatch = std::min(kLuxelBatchSize, luxelCount - luxelOffset);
+    const int logLuxelStep = std::max(dispatchConfig.luxelBatch * 4, 1);
+    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;
+         luxelOffset += dispatchConfig.luxelBatch) {
+        const int luxelBatch = std::min(dispatchConfig.luxelBatch, luxelCount - luxelOffset);
 
-        for (int emitterOffset = 0; emitterOffset < emitterCount && !dispatchFailed;
-             emitterOffset += kEmitterBatchSize) {
+        if (emitterBvhRoot >= 0 && emitterCount > 0) {
             GpuParamsSSBO params{};
             fillBaseParams(
                 params,
@@ -602,19 +885,23 @@ bool accumulateDirectLightingGpu(
                 emitterCount,
                 lightCount,
                 bvhRoot,
+                emitterBvhRoot,
                 luxelOffset,
                 luxelBatch,
                 directParams,
                 reachability);
-            params.emitterOffset = emitterOffset;
-            params.emitterBatch = std::min(kEmitterBatchSize, emitterCount - emitterOffset);
-            if (!dispatchBatch(paramsSsbo, params, dispatchesSinceSync, dispatchFailed)) {
+            if (!dispatchBatch(
+                    paramsSsbo,
+                    params,
+                    dispatchConfig.dispatchesPerSync,
+                    dispatchesSinceSync,
+                    dispatchFailed)) {
                 break;
             }
         }
 
         for (int lightOffset = 0; lightOffset < lightCount && !dispatchFailed;
-             lightOffset += kLightBatchSize) {
+             lightOffset += dispatchConfig.lightBatch) {
             GpuParamsSSBO params{};
             fillBaseParams(
                 params,
@@ -622,21 +909,27 @@ bool accumulateDirectLightingGpu(
                 emitterCount,
                 lightCount,
                 bvhRoot,
+                -1,
                 luxelOffset,
                 luxelBatch,
                 directParams,
                 reachability);
             params.lightOffset = lightOffset;
-            params.lightBatch = std::min(kLightBatchSize, lightCount - lightOffset);
-            if (!dispatchBatch(paramsSsbo, params, dispatchesSinceSync, dispatchFailed)) {
+            params.lightBatch = std::min(dispatchConfig.lightBatch, lightCount - lightOffset);
+            if (!dispatchBatch(
+                    paramsSsbo,
+                    params,
+                    dispatchConfig.dispatchesPerSync,
+                    dispatchesSinceSync,
+                    dispatchFailed)) {
                 break;
             }
         }
 
         const int luxelsDone = std::min(luxelOffset + luxelBatch, luxelCount);
         if (!dispatchFailed
-            && (luxelsDone == luxelCount || luxelsDone / (kLuxelBatchSize * 4) != lastLoggedLuxels)) {
-            lastLoggedLuxels = luxelsDone / (kLuxelBatchSize * 4);
+            && (luxelsDone == luxelCount || luxelsDone / logLuxelStep != lastLoggedLuxels)) {
+            lastLoggedLuxels = luxelsDone / logLuxelStep;
             TraceLog(
                 LOG_INFO,
                 "sloprad: GPU direct %d/%d (%.0f%%)",
@@ -658,10 +951,13 @@ bool accumulateDirectLightingGpu(
     if (dispatchFailed) {
         unloadDirectResources(
             luxelSsbo,
-            emitterSsbo,
+            emissiveFaceSsbo,
+            emissionGridSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
+            emitterNodeSsbo,
+            emitterPrimSsbo,
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
@@ -678,10 +974,13 @@ bool accumulateDirectLightingGpu(
     if (!checkGlError("ssbo readback")) {
         unloadDirectResources(
             luxelSsbo,
-            emitterSsbo,
+            emissiveFaceSsbo,
+            emissionGridSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
+            emitterNodeSsbo,
+            emitterPrimSsbo,
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
@@ -692,10 +991,13 @@ bool accumulateDirectLightingGpu(
 
     unloadDirectResources(
         luxelSsbo,
-        emitterSsbo,
+        emissiveFaceSsbo,
+        emissionGridSsbo,
         lightSsbo,
         nodeSsbo,
         primSsbo,
+        emitterNodeSsbo,
+        emitterPrimSsbo,
         paramsSsbo,
         reachSsbo,
         faceSkySsbo,
@@ -710,6 +1012,9 @@ bool accumulateDirectLightingGpu(
         luxels[i].irradianceR = gpuLuxels[i].ir;
         luxels[i].irradianceG = gpuLuxels[i].ig;
         luxels[i].irradianceB = gpuLuxels[i].ib;
+        luxels[i].sunIrradianceR = gpuLuxels[i].sunIr;
+        luxels[i].sunIrradianceG = gpuLuxels[i].sunIg;
+        luxels[i].sunIrradianceB = gpuLuxels[i].sunIb;
     }
 
     TraceLog(LOG_INFO, "sloprad: GPU direct lighting complete");
@@ -941,13 +1246,16 @@ bool accumulateBounceLightingGpu(
         RL_DYNAMIC_COPY);
 
     const int luxelCount = static_cast<int>(gpuLuxels.size());
+    const int bounceLuxelBatch =
+        bounceParams.gpuSafeMode ? 256 : std::min(kLuxelBatchSize, luxelCount);
+    const int bounceDispatchesPerSync = bounceParams.gpuSafeMode ? 1 : kDispatchesPerSync;
     GpuBounceParamsSSBO initialParams{};
     initialParams.luxelCount = luxelCount;
     initialParams.faceCount = static_cast<std::int32_t>(faceGrids.size());
     initialParams.sampleCount = std::max(1, bounceParams.sampleCount);
     initialParams.bvhRoot = bvhRoot;
     initialParams.luxelOffset = 0;
-    initialParams.luxelBatch = std::min(kLuxelBatchSize, luxelCount);
+    initialParams.luxelBatch = std::min(bounceLuxelBatch, luxelCount);
     initialParams.seed = bounceParams.seed;
     initialParams.rayMaxDistance = bounceParams.rayMaxDistance;
     initialParams.ambientR = bounceParams.ambientR;
@@ -999,10 +1307,12 @@ bool accumulateBounceLightingGpu(
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d",
+        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d luxelBatch=%d safeMode=%d",
         luxelCount,
         initialParams.sampleCount,
-        bvhRoot);
+        bvhRoot,
+        bounceLuxelBatch,
+        bounceParams.gpuSafeMode ? 1 : 0);
     std::fflush(stdout);
 
     rlEnableShader(program);
@@ -1018,17 +1328,17 @@ bool accumulateBounceLightingGpu(
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
     for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;
-         luxelOffset += kLuxelBatchSize) {
+         luxelOffset += bounceLuxelBatch) {
         GpuBounceParamsSSBO params = initialParams;
         params.luxelOffset = luxelOffset;
-        params.luxelBatch = std::min(kLuxelBatchSize, luxelCount - luxelOffset);
+        params.luxelBatch = std::min(bounceLuxelBatch, luxelCount - luxelOffset);
         rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
         memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
         const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
         rlComputeShaderDispatch(groups, 1, 1);
         memoryBarrierBits(kShaderStorageBarrierBit);
         ++dispatchesSinceSync;
-        if (dispatchesSinceSync >= kDispatchesPerSync) {
+        if (dispatchesSinceSync >= bounceDispatchesPerSync) {
             finishGpu();
             dispatchesSinceSync = 0;
             if (!checkGlError("bounce compute dispatch")) {

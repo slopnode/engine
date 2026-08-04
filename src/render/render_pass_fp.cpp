@@ -87,7 +87,7 @@ Color sampleFirstPersonRadTint(
         (lighting != nullptr && lighting->available && !lighting->faceTransparentSkip.empty())
             ? &lighting->faceTransparentSkip
             : nullptr;
-    tint = addLinearRgbToColor(
+    tint = composeBakeTintWithOverlay(
         tint,
         evaluateOverlayLightsAtPoint(
             dynamicLights, fxLights, feetOrigin, {0.0f, 1.0f, 0.0f}, occlusionBvh, occlusionSkip));
@@ -115,6 +115,31 @@ Color smoothFirstPersonRadTint(FirstPersonScene& scene, Color target, float dt) 
         static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.y * 255.0f, 0.0f, 255.0f)),
         static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.z * 255.0f, 0.0f, 255.0f)),
         255,
+    };
+}
+
+Color firstPersonRadTintFromScene(const FirstPersonScene& scene) {
+    if (!scene.useRadTint || !scene.radTintInitialized) {
+        return WHITE;
+    }
+    return Color{
+        static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.x * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.y * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(scene.radTintSmoothed.z * 255.0f, 0.0f, 255.0f)),
+        255,
+    };
+}
+
+Color multiplySpriteTint(Color base, Color factor) {
+    return Color{
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.r) * static_cast<int>(factor.r) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.g) * static_cast<int>(factor.g) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.b) * static_cast<int>(factor.b) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.a) * static_cast<int>(factor.a) / 255, 0, 255)),
     };
 }
 
@@ -265,11 +290,21 @@ void drawFirstPersonPass(
     EndMode3D();
 }
 
-void drawViewSprites(flecs::world& world) {
+void drawViewSprites(flecs::world& world, bool unlit) {
     if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
         return;
     }
     AssetStore& viewAssets = *world.get_mut<AssetServices>().store;
+
+    Color fpRadTint = WHITE;
+    flecs::entity playerEntity{};
+    if (world.has<PlayerEntity>()) {
+        playerEntity = world.get<PlayerEntity>().entity;
+    }
+    if (!unlit && playerEntity.is_valid() && playerEntity.has<FirstPersonScene>()) {
+        fpRadTint = firstPersonRadTintFromScene(playerEntity.get<FirstPersonScene>());
+    }
+
     ViewCanvas viewCanvas{};
     if (world.has<ViewCanvas>()) {
         viewCanvas = world.get<ViewCanvas>();
@@ -366,6 +401,7 @@ void drawViewSprites(flecs::world& world) {
                 asset != nullptr) {
                 tint = asset->tint;
             }
+            tint = multiplySpriteTint(tint, fpRadTint);
             DrawTexturePro(
                 *frame->texture,
                 frame->source,

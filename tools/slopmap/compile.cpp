@@ -27,6 +27,47 @@ namespace slopmap {
 
 namespace {
 
+void upsertEnvVar(std::vector<std::string>& env, const char* key, const char* value) {
+    const std::string prefix = std::string(key) + "=";
+    for (std::string& entry : env) {
+        if (entry.rfind(prefix, 0) == 0) {
+            entry = prefix + value;
+            return;
+        }
+    }
+    env.push_back(prefix + value);
+}
+
+void copyEnviron(std::vector<std::string>& env) {
+#if defined(_WIN32)
+    extern char** _environ;
+    if (_environ == nullptr) {
+        return;
+    }
+    for (char** entry = _environ; *entry != nullptr; ++entry) {
+        env.emplace_back(*entry);
+    }
+#else
+    if (environ == nullptr) {
+        return;
+    }
+    for (char** entry = environ; *entry != nullptr; ++entry) {
+        env.emplace_back(*entry);
+    }
+#endif
+}
+
+void applyDiscreteGpuEnv(std::vector<std::string>& env) {
+#if defined(_WIN32)
+    upsertEnvVar(env, "SHIM_MCCOMPAT", "0x800000001");
+#else
+    upsertEnvVar(env, "DRI_PRIME", "1");
+    upsertEnvVar(env, "__NV_PRIME_RENDER_OFFLOAD", "1");
+    upsertEnvVar(env, "__GLX_VENDOR_LIBRARY_NAME", "nvidia");
+    upsertEnvVar(env, "__VK_LAYER_NV_optimus", "NVIDIA_only");
+#endif
+}
+
 #if defined(_WIN32)
 std::string quoteWinArg(const std::string& arg) {
     if (arg.empty()) {
@@ -53,6 +94,26 @@ std::string quoteWinArg(const std::string& arg) {
     out += "\"";
     return out;
 }
+
+std::string buildWindowsEnvBlock(const std::vector<std::string>& env) {
+    std::string block;
+    for (const std::string& entry : env) {
+        block += entry;
+        block.push_back('\0');
+    }
+    block.push_back('\0');
+    return block;
+}
+#else
+std::vector<char*> buildEnvPtrs(std::vector<std::string>& env) {
+    std::vector<char*> ptrs;
+    ptrs.reserve(env.size() + 1);
+    for (std::string& entry : env) {
+        ptrs.push_back(entry.data());
+    }
+    ptrs.push_back(nullptr);
+    return ptrs;
+}
 #endif
 
 } // namespace
@@ -61,8 +122,6 @@ const char* CompileController::stageToolName(CompileStage stage) {
     switch (stage) {
     case CompileStage::Bsp:
         return "slopbsp";
-    case CompileStage::Fac:
-        return "slopfac";
     case CompileStage::Vis:
         return "slopvis";
     case CompileStage::Rad:
@@ -100,7 +159,22 @@ std::vector<std::string> CompileController::buildArgs(CompileStage stage) const 
         args.push_back(std::to_string(radOptions.bounces));
         args.emplace_back("--samples");
         args.push_back(std::to_string(radOptions.samples));
-        args.emplace_back(radOptions.preferGpu ? "--gpu" : "--cpu");
+        args.emplace_back("--emitter-direct-samples");
+        args.push_back(std::to_string(radOptions.emitterDirectSamples));
+        args.emplace_back("--emitter-grid-luxels-per-meter");
+        args.push_back(std::to_string(radOptions.emitterGridLuxelsPerMeter));
+        args.emplace_back("--emitter-grid-max-size");
+        args.push_back(std::to_string(radOptions.emitterGridMaxSize));
+        args.emplace_back("--sun-shadow-softness");
+        args.push_back(std::to_string(radOptions.sunShadowSoftness));
+        if (radOptions.preferGpu) {
+            args.emplace_back("--gpu");
+            if (radOptions.forceDiscreteGpu) {
+                args.emplace_back("--gpu-fast");
+            }
+        } else {
+            args.emplace_back("--cpu");
+        }
     }
     return args;
 }
@@ -268,6 +342,22 @@ bool CompileController::spawnStage(CompileStage stage) {
         appendLine(std::string("$ ") + cmd.str());
     }
 
+    const bool useDiscreteGpu =
+        stage == CompileStage::Rad && radOptions.preferGpu && radOptions.forceDiscreteGpu;
+    std::vector<std::string> spawnEnvStorage;
+    std::vector<char*> spawnEnvPtrs;
+    std::string windowsEnvBlock;
+    if (useDiscreteGpu) {
+        copyEnviron(spawnEnvStorage);
+        applyDiscreteGpuEnv(spawnEnvStorage);
+        appendLine("note: requesting discrete GPU for sloprad");
+#if !defined(_WIN32)
+        spawnEnvPtrs = buildEnvPtrs(spawnEnvStorage);
+#else
+        windowsEnvBlock = buildWindowsEnvBlock(spawnEnvStorage);
+#endif
+    }
+
 #if defined(_WIN32)
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -298,6 +388,10 @@ bool CompileController::spawnStage(CompileStage stage) {
     si.hStdError = writePipe;
 
     PROCESS_INFORMATION pi{};
+    LPVOID processEnv = nullptr;
+    if (!windowsEnvBlock.empty()) {
+        processEnv = windowsEnvBlock.data();
+    }
     const BOOL ok = CreateProcessA(
         toolPath.string().c_str(),
         cmdlineMutable.data(),
@@ -305,7 +399,7 @@ bool CompileController::spawnStage(CompileStage stage) {
         nullptr,
         TRUE,
         CREATE_NO_WINDOW,
-        nullptr,
+        processEnv,
         nullptr,
         &si,
         &pi);
@@ -353,8 +447,9 @@ bool CompileController::spawnStage(CompileStage stage) {
     argv.push_back(nullptr);
 
     pid_t pid = -1;
+    char** spawnEnv = spawnEnvPtrs.empty() ? environ : spawnEnvPtrs.data();
     const int spawnRc = ::posix_spawn(
-        &pid, toolPath.string().c_str(), &actions, nullptr, argv.data(), environ);
+        &pid, toolPath.string().c_str(), &actions, nullptr, argv.data(), spawnEnv);
     posix_spawn_file_actions_destroy(&actions);
     ::close(pipefds[1]);
 

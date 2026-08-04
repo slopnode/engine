@@ -2,7 +2,9 @@
 
 #include "map/bsp.hpp"
 #include "map/bsp_ray.hpp"
+#include "map/emitter_bvh.hpp"
 #include "map/quad_bvh.hpp"
+#include "map/radiosity_emitters.hpp"
 #include "map/radiosity_gpu.hpp"
 #include "map/uv_math.hpp"
 
@@ -14,6 +16,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <random>
+#include <span>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -172,15 +175,6 @@ Vector3 luxelWorldPos(const FaceBasis& basis, const LightmapChart& chart, int x,
     const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
     return planePointFromUv(basis.uAxis, basis.vAxis, basis.normal, u, v, basis.planeD);
 }
-
-struct EmitterPatch {
-    Vector3 position{};
-    Vector3 normal{};
-    Color3 radiance{};
-    float area = 0.0f;
-    std::int32_t faceIndex = -1;
-    std::int32_t interiorLeaf = -1;
-};
 
 struct FaceLuxelGrid {
     bool valid = false;
@@ -363,11 +357,6 @@ Vector3 cosineHemisphere(Vector3 normal, float u1, float u2) {
     const float y = r * std::sin(theta);
     const float z = std::sqrt(std::max(0.0f, 1.0f - u1));
     return normalize3(add3(add3(scale3(tangent, x), scale3(bitangent, y)), scale3(normal, z)));
-}
-
-unsigned char tonemapByte(float value) {
-    const float mapped = value / (1.0f + value);
-    return static_cast<unsigned char>(std::clamp(mapped * 255.0f, 0.0f, 255.0f));
 }
 
 void logStage(const char* message) {
@@ -558,6 +547,7 @@ struct LuxelSample {
     Vector3 normal{};
     Color3 albedo{};
     Color3 irradiance{};
+    Color3 sunIrradiance{};
     Color3 emission{};
     std::int32_t faceIndex = -1;
     std::int32_t interiorLeaf = -1;
@@ -572,6 +562,142 @@ struct LuxelSample {
 float wrapCosine(float cosine, float wrap) {
     const float w = std::max(0.0f, wrap);
     return std::max(0.0f, (cosine + w) / (1.0f + w));
+}
+
+void accumulateEmissiveFaceContribution(
+    LuxelSample& luxel,
+    const EmissiveFace& face,
+    std::span<const Vector3> emissionGrid,
+    const LightmapFace& faceGeom,
+    int directSamples,
+    float wrap,
+    float coplanarFill,
+    float minDist2,
+    const QuadBvh& occlusionBvh,
+    const std::vector<char>& faceTransparent) {
+    if (face.faceIndex == luxel.faceIndex) {
+        return;
+    }
+
+    const float dist2Raw = dist2PointToAabb(luxel.position, face.aabbMins, face.aabbMaxs);
+    if (emitterPairBelowThreshold(
+            face.peakRadiance, face.area, dist2Raw, minDist2, face.castRange)) {
+        return;
+    }
+
+    FaceBasis basis;
+    basis.normal = face.normal;
+    basis.uAxis = face.uAxis;
+    basis.vAxis = face.vAxis;
+    basis.planeD = face.planeD;
+    basis.uMin = face.uMin;
+    basis.uMax = face.uMax;
+    basis.vMin = face.vMin;
+    basis.vMax = face.vMax;
+
+    const int sampleCount = std::max(1, directSamples);
+    int validSamples = 0;
+    for (int sy = 0; sy < sampleCount; ++sy) {
+        for (int sx = 0; sx < sampleCount; ++sx) {
+            const float fu =
+                (static_cast<float>(sx) + 0.5f) / static_cast<float>(sampleCount);
+            const float fv =
+                (static_cast<float>(sy) + 0.5f) / static_cast<float>(sampleCount);
+            const float u = face.uMin + (face.uMax - face.uMin) * fu;
+            const float v = face.vMin + (face.vMax - face.vMin) * fv;
+            if (!pointInFacePolygon(faceGeom, basis, u, v)) {
+                continue;
+            }
+            const Vector3 radiance = sampleEmissionGridBilinear(face, emissionGrid, u, v);
+            if (!passesCastGate(radiance)) {
+                continue;
+            }
+            ++validSamples;
+        }
+    }
+    if (validSamples <= 0) {
+        return;
+    }
+
+    const float sampleArea = face.area / static_cast<float>(validSamples);
+    constexpr float kCoplanarSoft = 0.25f;
+    constexpr float kCoplanarAlignMin = 0.85f;
+    constexpr float kEmitterNormalOffset = 0.02f;
+
+    Color3 accumulated{};
+    for (int sy = 0; sy < sampleCount; ++sy) {
+        for (int sx = 0; sx < sampleCount; ++sx) {
+            const float fu =
+                (static_cast<float>(sx) + 0.5f) / static_cast<float>(sampleCount);
+            const float fv =
+                (static_cast<float>(sy) + 0.5f) / static_cast<float>(sampleCount);
+            const float u = face.uMin + (face.uMax - face.uMin) * fu;
+            const float v = face.vMin + (face.vMax - face.vMin) * fv;
+            if (!pointInFacePolygon(faceGeom, basis, u, v)) {
+                continue;
+            }
+            const Vector3 radiance = sampleEmissionGridBilinear(face, emissionGrid, u, v);
+            if (!passesCastGate(radiance)) {
+                continue;
+            }
+
+            const Vector3 samplePos = add3(
+                planePointFromUv(face.uAxis, face.vAxis, face.normal, u, v, face.planeD),
+                scale3(face.normal, kEmitterNormalOffset));
+            Vector3 delta = sub3(samplePos, luxel.position);
+            const float sampleDist2Raw = dot3(delta, delta);
+            if (sampleDist2Raw < 1e-6f) {
+                continue;
+            }
+            const float sampleDist = std::sqrt(sampleDist2Raw);
+            if (face.castRange > 0.0f && sampleDist > face.castRange) {
+                continue;
+            }
+            const Vector3 toLight = scale3(delta, 1.0f / sampleDist);
+            const float dist2 = std::max(sampleDist2Raw, minDist2);
+            const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
+            const float nDotV = wrapCosine(-dot3(face.normal, toLight), wrap);
+            const bool formOk = nDotL > 0.0f && nDotV > 0.0f;
+            float align = 0.0f;
+            bool fillOk = false;
+            if (coplanarFill > 0.0f) {
+                align = dot3(luxel.normal, face.normal);
+                fillOk = align > kCoplanarAlignMin;
+            }
+            if (!formOk && !fillOk) {
+                continue;
+            }
+            if (bspSegmentOccluded(
+                    occlusionBvh,
+                    luxel.position,
+                    samplePos,
+                    luxel.faceIndex,
+                    face.faceIndex,
+                    &faceTransparent)) {
+                continue;
+            }
+
+            if (formOk) {
+                const float form = nDotL * nDotV * sampleArea / (dist2 * PI);
+                const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+                accumulated.r += radiance.x * form * atten;
+                accumulated.g += radiance.y * form * atten;
+                accumulated.b += radiance.z * form * atten;
+            }
+            if (fillOk) {
+                const float planeSep = std::fabs(dot3(delta, luxel.normal));
+                const float lateral2 = std::max(0.0f, sampleDist2Raw - planeSep * planeSep);
+                const float weight =
+                    align * std::exp(-planeSep / kCoplanarSoft) / (lateral2 + minDist2);
+                const float fill = sampleArea * coplanarFill * weight / (4.0f * PI);
+                const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+                accumulated.r += radiance.x * fill * atten;
+                accumulated.g += radiance.y * fill * atten;
+                accumulated.b += radiance.z * fill * atten;
+            }
+        }
+    }
+    luxel.irradiance += accumulated;
 }
 
 float smoothstep(float edge0, float edge1, float x) {
@@ -589,6 +715,87 @@ bool faceIsSky(
         && faceSky[static_cast<std::size_t>(faceIndex)] != 0;
 }
 
+void buildSunBasis(Vector3 toLight, Vector3& tangentOut, Vector3& bitangentOut) {
+    Vector3 helper = std::abs(toLight.y) < 0.999f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
+    tangentOut = normalize3(cross3(helper, toLight));
+    bitangentOut = normalize3(cross3(toLight, tangentOut));
+}
+
+Vector3 sampleSunRayDirection(
+    Vector3 toLight,
+    Vector3 tangent,
+    Vector3 bitangent,
+    float angularSpreadRad,
+    int rayIndex,
+    int rayCount) {
+    if (rayCount <= 1 || angularSpreadRad <= 0.0f) {
+        return toLight;
+    }
+    const int strataN = std::max(1, static_cast<int>(std::floor(std::sqrt(static_cast<float>(rayCount)))));
+    const int strataM = std::max(1, (rayCount + strataN - 1) / strataN);
+    const int sy = rayIndex / strataN;
+    const int sx = rayIndex % strataN;
+    const float fu = (static_cast<float>(sx) + 0.5f) / static_cast<float>(strataN);
+    const float fv = (static_cast<float>(sy) + 0.5f) / static_cast<float>(strataM);
+    const float r = std::sqrt(fu);
+    const float theta = fv * 6.28318530718f;
+    const float dx = r * std::cos(theta);
+    const float dy = r * std::sin(theta);
+    const float spread = std::tan(angularSpreadRad);
+    return normalize3(
+        add3(toLight, add3(scale3(tangent, dx * spread), scale3(bitangent, dy * spread))));
+}
+
+float sunSkyVisibility(
+    Vector3 luxelPos,
+    std::int32_t luxelFaceIndex,
+    Vector3 toLight,
+    Vector3 tangent,
+    Vector3 bitangent,
+    const SunShadowSoftnessParams& sunParams,
+    const QuadBvh& occlusionBvh,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent) {
+    constexpr float kSunRayDistance = 1000.0f;
+    if (sunParams.rayCount <= 1 || sunParams.angularSpreadRad <= 0.0f) {
+        const auto hit = raycastQuadBvh(
+            occlusionBvh,
+            luxelPos,
+            toLight,
+            kSunRayDistance,
+            luxelFaceIndex,
+            &faceTransparent);
+        return hit && faceIsSky(faceSky, hit->faceIndex) ? 1.0f : 0.0f;
+    }
+
+    float hits = 0.0f;
+    for (int ray = 0; ray < sunParams.rayCount; ++ray) {
+        const Vector3 rayDir = sampleSunRayDirection(
+            toLight,
+            tangent,
+            bitangent,
+            sunParams.angularSpreadRad,
+            ray,
+            sunParams.rayCount);
+        const auto hit = raycastQuadBvh(
+            occlusionBvh,
+            luxelPos,
+            rayDir,
+            kSunRayDistance,
+            luxelFaceIndex,
+            &faceTransparent);
+        if (hit && faceIsSky(faceSky, hit->faceIndex)) {
+            hits += 1.0f;
+        }
+    }
+    const float visibility = hits / static_cast<float>(sunParams.rayCount);
+    if (visibility <= sunParams.leakThreshold) {
+        return 0.0f;
+    }
+    const float leakThreshold = std::clamp(sunParams.leakThreshold, 0.0f, 0.999f);
+    return (visibility - leakThreshold) / (1.0f - leakThreshold);
+}
+
 void accumulateEntityLight(
     LuxelSample& luxel,
     const RadiosityLight& light,
@@ -598,7 +805,8 @@ void accumulateEntityLight(
     float wrap,
     float minDist2,
     const std::vector<char>& faceSky,
-    const std::vector<char>& faceTransparent) {
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams) {
     if (!reach.canSee(luxel.interiorLeaf, lightLeaf)) {
         return;
     }
@@ -619,18 +827,25 @@ void accumulateEntityLight(
         if (nDotL <= 0.0f) {
             return;
         }
-        constexpr float kSunRayDistance = 1000.0f;
-        const auto hit = raycastQuadBvh(
-            occlusionBvh,
+        Vector3 tangent{};
+        Vector3 bitangent{};
+        buildSunBasis(toLight, tangent, bitangent);
+        const float visibility = sunSkyVisibility(
             luxel.position,
-            toLight,
-            kSunRayDistance,
             luxel.faceIndex,
-            &faceTransparent);
-        if (!hit || !faceIsSky(faceSky, hit->faceIndex)) {
+            toLight,
+            tangent,
+            bitangent,
+            sunParams,
+            occlusionBvh,
+            faceSky,
+            faceTransparent);
+        if (visibility <= 0.0f) {
             return;
         }
-        luxel.irradiance += intensity * nDotL;
+        const Color3 contrib = intensity * (nDotL * visibility);
+        luxel.irradiance += contrib;
+        luxel.sunIrradiance += contrib;
         return;
     }
 
@@ -686,7 +901,11 @@ void accumulateEntityLight(
 
 void accumulateDirectLightingCpu(
     std::vector<LuxelSample>& luxels,
-    const std::vector<EmitterPatch>& emitters,
+    const std::vector<LightmapFace>& faces,
+    const std::vector<EmissiveFace>& emissiveFaces,
+    std::span<const Vector3> emissionGrid,
+    const EmitterBvh& emitterBvh,
+    float emitterQueryRadius,
     const std::vector<RadiosityLight>& lights,
     const std::vector<std::int32_t>& lightLeaves,
     const QuadBvh& occlusionBvh,
@@ -701,8 +920,8 @@ void accumulateDirectLightingCpu(
     const float coplanarFill = std::max(0.0f, settings.coplanarFill);
     const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
     const float minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
-    constexpr float kCoplanarSoft = 0.25f;
-    constexpr float kCoplanarAlignMin = 0.85f;
+    const int directSamples = std::max(1, settings.emitterDirectSamples);
+    const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
     parallelFor(luxelTotal, [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) {
             LuxelSample& luxel = luxels[i];
@@ -713,56 +932,39 @@ void accumulateDirectLightingCpu(
                 }
                 continue;
             }
-            for (const EmitterPatch& emitter : emitters) {
-                if (emitter.faceIndex == luxel.faceIndex) {
-                    continue;
-                }
-                if (!reach.canSee(luxel.interiorLeaf, emitter.interiorLeaf)) {
-                    continue;
-                }
-                Vector3 delta = sub3(emitter.position, luxel.position);
-                const float dist2Raw = dot3(delta, delta);
-                if (dist2Raw < 1e-6f) {
-                    continue;
-                }
-                const float dist = std::sqrt(dist2Raw);
-                const Vector3 toLight = scale3(delta, 1.0f / dist);
-                const float dist2 = std::max(dist2Raw, minDist2);
-                const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
-                const float nDotV = wrapCosine(-dot3(emitter.normal, toLight), wrap);
-                const bool formOk = nDotL > 0.0f && nDotV > 0.0f;
-                float align = 0.0f;
-                bool fillOk = false;
-                if (coplanarFill > 0.0f) {
-                    align = dot3(luxel.normal, emitter.normal);
-                    fillOk = align > kCoplanarAlignMin;
-                }
-                if (!formOk && !fillOk) {
-                    continue;
-                }
-                if (bspSegmentOccluded(
-                        occlusionBvh,
-                        luxel.position,
-                        emitter.position,
-                        luxel.faceIndex,
-                        emitter.faceIndex,
-                        &faceTransparent)) {
-                    continue;
-                }
-
-                if (formOk) {
-                    const float form = nDotL * nDotV * emitter.area / (dist2 * PI);
-                    luxel.irradiance += emitter.radiance * form;
-                }
-
-                if (fillOk) {
-                    const float planeSep = std::fabs(dot3(delta, luxel.normal));
-                    const float lateral2 = std::max(0.0f, dist2Raw - planeSep * planeSep);
-                    const float weight = align * std::exp(-planeSep / kCoplanarSoft)
-                        / (lateral2 + minDist2);
-                    const float fill = emitter.area * coplanarFill * weight / (4.0f * PI);
-                    luxel.irradiance += emitter.radiance * fill;
-                }
+            if (!emitterBvh.empty()) {
+                forEachEmitterNear(
+                    emitterBvh,
+                    luxel.position,
+                    emitterQueryRadius,
+                    [&](std::int32_t emissiveIndex) {
+                        if (emissiveIndex < 0
+                            || static_cast<std::size_t>(emissiveIndex) >= emissiveFaces.size()) {
+                            return;
+                        }
+                        const EmissiveFace& emissiveFace =
+                            emissiveFaces[static_cast<std::size_t>(emissiveIndex)];
+                        if (!reach.canSee(luxel.interiorLeaf, emissiveFace.interiorLeaf)) {
+                            return;
+                        }
+                        if (emissiveFace.faceIndex < 0
+                            || emissiveFace.faceIndex >= static_cast<std::int32_t>(faces.size())) {
+                            return;
+                        }
+                        const LightmapFace& faceGeom =
+                            faces[static_cast<std::size_t>(emissiveFace.faceIndex)];
+                        accumulateEmissiveFaceContribution(
+                            luxel,
+                            emissiveFace,
+                            emissionGrid,
+                            faceGeom,
+                            directSamples,
+                            wrap,
+                            coplanarFill,
+                            minDist2,
+                            occlusionBvh,
+                            faceTransparent);
+                    });
             }
             for (std::size_t li = 0; li < lights.size(); ++li) {
                 const std::int32_t lightLeaf =
@@ -776,7 +978,8 @@ void accumulateDirectLightingCpu(
                     wrap,
                     minDist2,
                     faceSky,
-                    faceTransparent);
+                    faceTransparent,
+                    sunParams);
             }
             const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
             if (done % directStep == 0 || done == luxelTotal) {
@@ -788,7 +991,9 @@ void accumulateDirectLightingCpu(
 
 bool accumulateDirectLighting(
     std::vector<LuxelSample>& luxels,
-    const std::vector<EmitterPatch>& emitters,
+    const std::vector<LightmapFace>& faces,
+    const std::vector<EmissiveFace>& emissiveFaces,
+    std::span<const Vector3> emissionGrid,
     const std::vector<RadiosityLight>& lights,
     const std::vector<std::int32_t>& lightLeaves,
     const QuadBvh& occlusionBvh,
@@ -796,6 +1001,11 @@ bool accumulateDirectLighting(
     const RadiositySettings& settings,
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent) {
+    const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
+    const float minPad = std::max(luxelPitch, 0.05f);
+    const EmitterBvh emitterBvh = buildEmitterBvh(emissiveFaces, minPad);
+    const float emitterQueryRadius = maxEmitterInfluenceRadius(emissiveFaces, minPad);
+
     RadGpuReachability gpuReach;
     if (reach.enabled) {
         gpuReach.leafCount = reach.leafCount;
@@ -824,18 +1034,28 @@ bool accumulateDirectLighting(
             gpuLuxels.push_back(dst);
             denseToSrc.push_back(i);
         }
-        std::vector<RadGpuEmitter> gpuEmitters(emitters.size());
-        for (std::size_t i = 0; i < emitters.size(); ++i) {
-            const EmitterPatch& src = emitters[i];
-            RadGpuEmitter& dst = gpuEmitters[i];
-            dst.position = src.position;
+        std::vector<RadGpuEmissiveFace> gpuEmissiveFaces(emissiveFaces.size());
+        for (std::size_t i = 0; i < emissiveFaces.size(); ++i) {
+            const EmissiveFace& src = emissiveFaces[i];
+            RadGpuEmissiveFace& dst = gpuEmissiveFaces[i];
+            dst.uAxis = src.uAxis;
+            dst.planeD = src.planeD;
+            dst.uMin = src.uMin;
+            dst.uMax = src.uMax;
+            dst.vAxis = src.vAxis;
+            dst.vMin = src.vMin;
+            dst.vMax = src.vMax;
             dst.normal = src.normal;
-            dst.radianceR = src.radiance.r;
-            dst.radianceG = src.radiance.g;
-            dst.radianceB = src.radiance.b;
             dst.area = src.area;
             dst.faceIndex = src.faceIndex;
             dst.interiorLeaf = src.interiorLeaf;
+            dst.gridWidth = src.gridWidth;
+            dst.gridHeight = src.gridHeight;
+            dst.gridOffset = src.gridOffset;
+            dst.peakRadiance = src.peakRadiance;
+            dst.castRange = src.castRange;
+            dst.aabbMins = src.aabbMins;
+            dst.aabbMaxs = src.aabbMaxs;
         }
         std::vector<RadGpuLight> gpuLights(lights.size());
         for (std::size_t i = 0; i < lights.size(); ++i) {
@@ -861,8 +1081,16 @@ bool accumulateDirectLighting(
         gpuParams.directWrap = settings.directWrap;
         gpuParams.coplanarFill = settings.coplanarFill;
         gpuParams.coplanarSoft = 0.25f;
-        const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
         gpuParams.minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
+        gpuParams.emitterQueryRadius = emitterQueryRadius;
+        gpuParams.emitterDirectSamples = std::max(1, settings.emitterDirectSamples);
+        gpuParams.emissionGridFloats =
+            static_cast<int>(emissionGrid.size() * 3);
+        gpuParams.gpuSafeMode = settings.gpuSafeMode;
+        const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
+        gpuParams.sunRayCount = sunParams.rayCount;
+        gpuParams.sunAngularSpread = sunParams.angularSpreadRad;
+        gpuParams.sunLeakThreshold = sunParams.leakThreshold;
         std::vector<std::int32_t> faceIsSky(faceSky.size(), 0);
         for (std::size_t i = 0; i < faceSky.size(); ++i) {
             faceIsSky[i] = faceSky[i] != 0 ? 1 : 0;
@@ -873,9 +1101,11 @@ bool accumulateDirectLighting(
         }
         if (accumulateDirectLightingGpu(
                 gpuLuxels,
-                gpuEmitters,
+                gpuEmissiveFaces,
+                emissionGrid,
                 gpuLights,
                 occlusionBvh,
+                emitterBvh,
                 settings.directComputeShaderSource,
                 gpuParams,
                 gpuReach,
@@ -886,6 +1116,9 @@ bool accumulateDirectLighting(
                 dst.irradiance.r = gpuLuxels[d].irradianceR;
                 dst.irradiance.g = gpuLuxels[d].irradianceG;
                 dst.irradiance.b = gpuLuxels[d].irradianceB;
+                dst.sunIrradiance.r = gpuLuxels[d].sunIrradianceR;
+                dst.sunIrradiance.g = gpuLuxels[d].sunIrradianceG;
+                dst.sunIrradiance.b = gpuLuxels[d].sunIrradianceB;
             }
             return true;
         }
@@ -900,7 +1133,11 @@ bool accumulateDirectLighting(
     std::fflush(stdout);
     accumulateDirectLightingCpu(
         luxels,
-        emitters,
+        faces,
+        emissiveFaces,
+        emissionGrid,
+        emitterBvh,
+        emitterQueryRadius,
         lights,
         lightLeaves,
         occlusionBvh,
@@ -977,15 +1214,17 @@ void inpaintCoveredLuxels(
     }
 }
 
-void bilateralDenoiseLuxels(
-    std::vector<LuxelSample>& luxels,
-    const std::vector<FaceLuxelGrid>& faceGrids) {
-    constexpr float kSpatialSigma = 1.0f;
-    constexpr float kRangeSigma = 0.35f;
-    const float invTwoSpatial = 1.0f / (2.0f * kSpatialSigma * kSpatialSigma);
-    const float invTwoRange = 1.0f / (2.0f * kRangeSigma * kRangeSigma);
-    std::vector<Color3> filtered(luxels.size());
-    std::vector<char> writeMask(luxels.size(), 0);
+void bilateralDenoiseColorGrid(
+    std::vector<Color3>& colors,
+    const std::vector<LuxelSample>& luxels,
+    const std::vector<FaceLuxelGrid>& faceGrids,
+    float spatialSigma,
+    float rangeSigma,
+    int kernelRadius) {
+    const float invTwoSpatial = 1.0f / (2.0f * spatialSigma * spatialSigma);
+    const float invTwoRange = 1.0f / (2.0f * rangeSigma * rangeSigma);
+    std::vector<Color3> filtered(colors.size());
+    std::vector<char> writeMask(colors.size(), 0);
     for (const FaceLuxelGrid& grid : faceGrids) {
         if (!grid.valid || grid.luxelWidth <= 0 || grid.luxelHeight <= 0) {
             continue;
@@ -995,14 +1234,14 @@ void bilateralDenoiseLuxels(
                 const std::size_t center =
                     grid.luxelBase + static_cast<std::size_t>(y) * static_cast<std::size_t>(grid.luxelWidth)
                     + static_cast<std::size_t>(x);
-                if (center >= luxels.size() || luxels[center].covered) {
+                if (center >= colors.size() || center >= luxels.size() || luxels[center].covered) {
                     continue;
                 }
-                const float centerLum = luminance(luxels[center].irradiance);
+                const float centerLum = luminance(colors[center]);
                 Color3 sum{};
                 float weightSum = 0.0f;
-                for (int oy = -1; oy <= 1; ++oy) {
-                    for (int ox = -1; ox <= 1; ++ox) {
+                for (int oy = -kernelRadius; oy <= kernelRadius; ++oy) {
+                    for (int ox = -kernelRadius; ox <= kernelRadius; ++ox) {
                         const int nx = x + ox;
                         const int ny = y + oy;
                         if (nx < 0 || ny < 0 || nx >= grid.luxelWidth || ny >= grid.luxelHeight) {
@@ -1012,13 +1251,13 @@ void bilateralDenoiseLuxels(
                             grid.luxelBase
                             + static_cast<std::size_t>(ny) * static_cast<std::size_t>(grid.luxelWidth)
                             + static_cast<std::size_t>(nx);
-                        if (ni >= luxels.size() || luxels[ni].covered) {
+                        if (ni >= colors.size() || ni >= luxels.size() || luxels[ni].covered) {
                             continue;
                         }
                         const float dist2 = static_cast<float>(ox * ox + oy * oy);
-                        const float lumDelta = luminance(luxels[ni].irradiance) - centerLum;
+                        const float lumDelta = luminance(colors[ni]) - centerLum;
                         const float w = std::exp(-dist2 * invTwoSpatial - lumDelta * lumDelta * invTwoRange);
-                        sum += luxels[ni].irradiance * w;
+                        sum += colors[ni] * w;
                         weightSum += w;
                     }
                 }
@@ -1029,10 +1268,26 @@ void bilateralDenoiseLuxels(
             }
         }
     }
-    for (std::size_t i = 0; i < luxels.size(); ++i) {
+    for (std::size_t i = 0; i < colors.size(); ++i) {
         if (writeMask[i] != 0) {
-            luxels[i].irradiance = filtered[i];
+            colors[i] = filtered[i];
         }
+    }
+}
+
+void bilateralDenoiseLuxels(
+    std::vector<LuxelSample>& luxels,
+    const std::vector<FaceLuxelGrid>& faceGrids,
+    float spatialSigma,
+    float rangeSigma,
+    int kernelRadius) {
+    std::vector<Color3> colors(luxels.size());
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        colors[i] = luxels[i].irradiance;
+    }
+    bilateralDenoiseColorGrid(colors, luxels, faceGrids, spatialSigma, rangeSigma, kernelRadius);
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        luxels[i].irradiance = colors[i];
     }
 }
 
@@ -1124,6 +1379,18 @@ void accumulateBounceLightingCpu(
 
 } // namespace
 
+SunShadowSoftnessParams resolveSunShadowSoftness(float softness) {
+    SunShadowSoftnessParams params;
+    const float t = std::clamp(softness, 0.0f, 1.0f);
+    params.rayCount = std::max(1, static_cast<int>(std::lround(1.0f + t * 15.0f)));
+    params.angularSpreadRad = t * 0.05f;
+    params.leakThreshold = t * 0.12f;
+    params.sunDenoiseRangeSigma = 0.35f + t * 0.85f;
+    params.sunDenoiseSpatialSigma = t <= 0.5f ? 1.0f : 1.0f + (t - 0.5f) * 2.0f;
+    params.sunDenoiseKernelRadius = t > 0.5f ? 2 : 1;
+    return params;
+}
+
 RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
     const MapMeta& meta,
@@ -1146,7 +1413,7 @@ RadiosityBakeResult bakeRadiosity(
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d sun=%d)",
+        "sloprad: bake start faces=%d luxels/m=%.1f bounces=%d samples=%d atlas=%d ambient=(%.3f %.3f %.3f) lights=%d (point=%d spot=%d sun=%d) sunSoftness=%.2f",
         static_cast<int>(faces.size()),
         settings.luxelsPerMeter,
         settings.bounces,
@@ -1158,7 +1425,18 @@ RadiosityBakeResult bakeRadiosity(
         static_cast<int>(lights.size()),
         pointCount,
         spotCount,
-        sunCount);
+        sunCount,
+        settings.sunShadowSoftness);
+    const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
+    TraceLog(
+        LOG_INFO,
+        "sloprad: sun softness resolved rays=%d spread=%.4f leak=%.3f sunDenoiseRange=%.3f sunDenoiseSpatial=%.3f kernel=%d",
+        sunParams.rayCount,
+        sunParams.angularSpreadRad,
+        sunParams.leakThreshold,
+        sunParams.sunDenoiseRangeSigma,
+        sunParams.sunDenoiseSpatialSigma,
+        sunParams.sunDenoiseKernelRadius);
     std::fflush(stdout);
 
     LeafReachability reach;
@@ -1253,9 +1531,11 @@ RadiosityBakeResult bakeRadiosity(
         std::max(1u, std::thread::hardware_concurrency()));
     std::fflush(stdout);
 
-    logStage("collecting emitter patches...");
-    std::vector<EmitterPatch> emitters;
-    int emitterCharts = 0;
+    logStage("collecting emissive faces...");
+    std::vector<EmissiveFace> emissiveFaces;
+    std::vector<Vector3> emissionGridBuffer;
+    int gridCellCount = 0;
+
     for (std::size_t chartIndex = 0; chartIndex < packed.rad.charts.size(); ++chartIndex) {
         const LightmapChart& chart = packed.rad.charts[chartIndex];
         if (chart.faceIndex < 0 || chart.faceIndex >= static_cast<std::int32_t>(faces.size())) {
@@ -1267,50 +1547,119 @@ RadiosityBakeResult bakeRadiosity(
             continue;
         }
         const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
-        const float luxelArea =
-            ((basis.uMax - basis.uMin) * (basis.vMax - basis.vMin))
-            / static_cast<float>(std::max(1, chart.luxelWidth * chart.luxelHeight));
+        const float widthMeters = std::max(basis.uMax - basis.uMin, 1e-4f);
+        const float heightMeters = std::max(basis.vMax - basis.vMin, 1e-4f);
+        int gridWidth = std::clamp(
+            static_cast<int>(std::ceil(widthMeters * settings.emitterGridLuxelsPerMeter)),
+            1,
+            settings.emitterGridMaxSize);
+        int gridHeight = std::clamp(
+            static_cast<int>(std::ceil(heightMeters * settings.emitterGridLuxelsPerMeter)),
+            1,
+            settings.emitterGridMaxSize);
+        if (!material.hasEmissionImage) {
+            gridWidth = 1;
+            gridHeight = 1;
+        }
 
-        const std::size_t emittersBefore = emitters.size();
-        for (int y = 0; y < chart.luxelHeight; ++y) {
-            for (int x = 0; x < chart.luxelWidth; ++x) {
-                const float fu = luxelFaceParam(x, chart.luxelWidth);
-                const float fv = luxelFaceParam(y, chart.luxelHeight);
+        EmissiveFace emissiveFace;
+        emissiveFace.faceIndex = chart.faceIndex;
+        emissiveFace.normal = face.normal;
+        emissiveFace.uAxis = basis.uAxis;
+        emissiveFace.vAxis = basis.vAxis;
+        emissiveFace.planeD = basis.planeD;
+        emissiveFace.uMin = basis.uMin;
+        emissiveFace.uMax = basis.uMax;
+        emissiveFace.vMin = basis.vMin;
+        emissiveFace.vMax = basis.vMax;
+        emissiveFace.area = widthMeters * heightMeters;
+        emissiveFace.castRange = material.asset.emissionRange;
+        emissiveFace.gridWidth = gridWidth;
+        emissiveFace.gridHeight = gridHeight;
+        emissiveFace.gridOffset = static_cast<int>(emissionGridBuffer.size());
+
+        Vector3 peakRadiance{};
+        float peakLuminance = 0.0f;
+        bool anyEmission = false;
+        for (int gy = 0; gy < gridHeight; ++gy) {
+            for (int gx = 0; gx < gridWidth; ++gx) {
+                const float fu =
+                    (static_cast<float>(gx) + 0.5f) / static_cast<float>(gridWidth);
+                const float fv =
+                    (static_cast<float>(gy) + 0.5f) / static_cast<float>(gridHeight);
                 const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
                 const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
-                if (!pointInFacePolygon(face, basis, u, v)) {
-                    continue;
+                Vector3 radiance{};
+                if (pointInFacePolygon(face, basis, u, v)) {
+                    const Vector3 pos = planePointFromUv(
+                        basis.uAxis,
+                        basis.vAxis,
+                        basis.normal,
+                        u,
+                        v,
+                        basis.planeD);
+                    const Color3 emit = emissionAt(face, material, pos);
+                    radiance = {emit.r, emit.g, emit.b};
+                    if (passesCastGate(radiance)) {
+                        anyEmission = true;
+                        const float lum = emitterLuminance(radiance);
+                        if (lum > peakLuminance) {
+                            peakLuminance = lum;
+                            peakRadiance = radiance;
+                        }
+                    }
                 }
-                const Vector3 pos = luxelWorldPos(basis, chart, x, y);
-                const Color3 emit = emissionAt(face, material, pos);
-                if (luminance(emit) <= 0.0f) {
-                    continue;
-                }
-                EmitterPatch patch;
-                patch.position = add3(pos, scale3(face.normal, 0.02f));
-                patch.normal = face.normal;
-                patch.radiance = emit;
-                patch.area = luxelArea;
-                patch.faceIndex = chart.faceIndex;
-                patch.interiorLeaf = face.interiorLeaf;
-                if (patch.interiorLeaf < 0 && tree != nullptr) {
-                    patch.interiorLeaf = pointLeaf(*tree, patch.position);
-                }
-                emitters.push_back(patch);
+                emissionGridBuffer.push_back(radiance);
+                ++gridCellCount;
             }
         }
-        if (emitters.size() > emittersBefore) {
-            ++emitterCharts;
+        if (!anyEmission) {
+            emissionGridBuffer.resize(static_cast<std::size_t>(emissiveFace.gridOffset));
+            gridCellCount -= gridWidth * gridHeight;
+            if ((chartIndex + 1) % 32 == 0 || chartIndex + 1 == packed.rad.charts.size()) {
+                logProgress("emissive faces from charts", chartIndex + 1, packed.rad.charts.size());
+            }
+            continue;
         }
+
+        emissiveFace.peakRadiance = peakRadiance;
+        emissiveFace.interiorLeaf = face.interiorLeaf;
+        if (emissiveFace.interiorLeaf < 0 && tree != nullptr) {
+            const float centerU = 0.5f * (basis.uMin + basis.uMax);
+            const float centerV = 0.5f * (basis.vMin + basis.vMax);
+            const Vector3 centerPos = planePointFromUv(
+                basis.uAxis,
+                basis.vAxis,
+                basis.normal,
+                centerU,
+                centerV,
+                basis.planeD);
+            emissiveFace.interiorLeaf = pointLeaf(*tree, centerPos);
+        }
+
+        if (!face.vertices.empty()) {
+            emissiveFace.aabbMins = face.vertices[0];
+            emissiveFace.aabbMaxs = face.vertices[0];
+            for (const Vector3& vertex : face.vertices) {
+                emissiveFace.aabbMins.x = std::min(emissiveFace.aabbMins.x, vertex.x);
+                emissiveFace.aabbMins.y = std::min(emissiveFace.aabbMins.y, vertex.y);
+                emissiveFace.aabbMins.z = std::min(emissiveFace.aabbMins.z, vertex.z);
+                emissiveFace.aabbMaxs.x = std::max(emissiveFace.aabbMaxs.x, vertex.x);
+                emissiveFace.aabbMaxs.y = std::max(emissiveFace.aabbMaxs.y, vertex.y);
+                emissiveFace.aabbMaxs.z = std::max(emissiveFace.aabbMaxs.z, vertex.z);
+            }
+        }
+
+        emissiveFaces.push_back(emissiveFace);
         if ((chartIndex + 1) % 32 == 0 || chartIndex + 1 == packed.rad.charts.size()) {
-            logProgress("emitters from charts", chartIndex + 1, packed.rad.charts.size());
+            logProgress("emissive faces from charts", chartIndex + 1, packed.rad.charts.size());
         }
     }
     TraceLog(
         LOG_INFO,
-        "sloprad: emitter patches=%d charts=%d",
-        static_cast<int>(emitters.size()),
-        emitterCharts);
+        "sloprad: emissive faces=%d grid cells=%d",
+        static_cast<int>(emissiveFaces.size()),
+        gridCellCount);
     std::fflush(stdout);
 
     std::vector<std::int32_t> lightLeaves(lights.size(), -1);
@@ -1390,13 +1739,15 @@ RadiosityBakeResult bakeRadiosity(
     logStage("direct lighting...");
     TraceLog(
         LOG_INFO,
-        "sloprad: direct contributors emitters=%d lights=%d",
-        static_cast<int>(emitters.size()),
+        "sloprad: direct contributors emissiveFaces=%d lights=%d",
+        static_cast<int>(emissiveFaces.size()),
         static_cast<int>(lights.size()));
     std::fflush(stdout);
     accumulateDirectLighting(
         luxels,
-        emitters,
+        faces,
+        emissiveFaces,
+        emissionGridBuffer,
         lights,
         lightLeaves,
         sceneBvh,
@@ -1457,6 +1808,7 @@ RadiosityBakeResult bakeRadiosity(
             bounceParams.ambientG = ambientRaw.g;
             bounceParams.ambientB = ambientRaw.b;
             bounceParams.seed = 0xA341316Cu ^ static_cast<std::uint32_t>(bounce * 0x9E3779B9u);
+            bounceParams.gpuSafeMode = settings.gpuSafeMode;
             if (accumulateBounceLightingGpu(
                     gpuLuxels,
                     gatheredRgb,
@@ -1512,14 +1864,49 @@ RadiosityBakeResult bakeRadiosity(
     }
 
     logStage("denoising irradiance...");
-    bilateralDenoiseLuxels(luxels, faceGrids);
+    constexpr float kRestDenoiseSpatialSigma = 1.0f;
+    constexpr float kRestDenoiseRangeSigma = 0.35f;
+    constexpr int kRestDenoiseKernelRadius = 1;
+    if (settings.sunShadowSoftness > 0.0f) {
+        std::vector<Color3> sunChannel(luxels.size());
+        std::vector<Color3> restChannel(luxels.size());
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            sunChannel[i] = luxels[i].sunIrradiance;
+            restChannel[i] = luxels[i].irradiance - luxels[i].sunIrradiance;
+        }
+        bilateralDenoiseColorGrid(
+            sunChannel,
+            luxels,
+            faceGrids,
+            sunParams.sunDenoiseSpatialSigma,
+            sunParams.sunDenoiseRangeSigma,
+            sunParams.sunDenoiseKernelRadius);
+        bilateralDenoiseColorGrid(
+            restChannel,
+            luxels,
+            faceGrids,
+            kRestDenoiseSpatialSigma,
+            kRestDenoiseRangeSigma,
+            kRestDenoiseKernelRadius);
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            luxels[i].irradiance = restChannel[i] + sunChannel[i];
+        }
+    } else {
+        bilateralDenoiseLuxels(
+            luxels,
+            faceGrids,
+            kRestDenoiseSpatialSigma,
+            kRestDenoiseRangeSigma,
+            kRestDenoiseKernelRadius);
+    }
 
     logStage("rasterizing lightmap atlases...");
     for (std::size_t atlas = 0; atlas < packed.atlasRgb.size(); ++atlas) {
+        result.rad.atlases[atlas].encoding = LightmapEncoding::Rgbe;
         Image image = GenImageColor(
             packed.rad.atlases[atlas].width,
             packed.rad.atlases[atlas].height,
-            BLACK);
+            Color{0, 0, 0, 0});
         result.atlasImages.push_back(image);
     }
 
@@ -1528,12 +1915,7 @@ RadiosityBakeResult bakeRadiosity(
             continue;
         }
         Image& image = result.atlasImages[static_cast<std::size_t>(luxel.atlasIndex)];
-        const Color pixel{
-            tonemapByte(luxel.irradiance.r),
-            tonemapByte(luxel.irradiance.g),
-            tonemapByte(luxel.irradiance.b),
-            255,
-        };
+        const Color pixel = encodeRgbe(luxel.irradiance.r, luxel.irradiance.g, luxel.irradiance.b);
         ImageDrawPixel(&image, luxel.atlasX, luxel.atlasY, pixel);
     }
 

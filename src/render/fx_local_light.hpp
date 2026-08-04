@@ -100,10 +100,13 @@ Vector3 evaluateOverlayLightsAtPoint(
     const QuadBvh* occlusionBvh = nullptr,
     const std::vector<char>* occlusionSkipFaces = nullptr);
 
-/** Adds linear RGB light contribution into an 8-bit color (clamped). */
-Color addLinearRgbToColor(Color base, Vector3 linearRgb);
+/** Composites baked tint with dyn/FX overlay in lighting-multiplier space. */
+Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay);
 
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state);
+
+/** Bake/ambient probe at a world point (no dyn/FX overlay). */
+Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit);
 
 /** Baked probe (when available) plus ranked dyn + FX overlay at @p origin.
  *  @p bakeMaxDistance is the downward bake ray length (sprites use ~2m; airborne FX need more). */

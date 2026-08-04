@@ -21,14 +21,32 @@ struct RadiositySettings {
     float directWrap = 0.35f;
     float coplanarFill = 0.15f;
     float ambientScale = 1.25f;
-#if defined(__APPLE__)
-    bool preferGpu = false;
-#else
     bool preferGpu = true;
-#endif
+    /** Conservative GPU dispatch when set (auto-enabled on integrated GPUs). */
+    bool gpuSafeMode = false;
+    /** N×N stratified UV samples per receiver–emissive-face pair in direct lighting. */
+    int emitterDirectSamples = 4;
+    /** World-space resolution for pre-baked per-face emission cast grids. */
+    float emitterGridLuxelsPerMeter = 8.0f;
+    /** Maximum emission grid dimension per emissive face axis. */
+    int emitterGridMaxSize = 32;
+    /** 0 = sharp sun/window shadows (legacy), 1 = fuzzy penumbra. */
+    float sunShadowSoftness = 0.0f;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
 };
+
+/** Resolved bake parameters derived from @ref RadiositySettings::sunShadowSoftness. */
+struct SunShadowSoftnessParams {
+    int rayCount = 1;
+    float angularSpreadRad = 0.0f;
+    float leakThreshold = 0.0f;
+    float sunDenoiseSpatialSigma = 1.0f;
+    float sunDenoiseRangeSigma = 0.35f;
+    int sunDenoiseKernelRadius = 1;
+};
+
+SunShadowSoftnessParams resolveSunShadowSoftness(float softness);
 
 /** Material + optional albedo/emission images for bake sampling. */
 struct MaterialBakeInfo {

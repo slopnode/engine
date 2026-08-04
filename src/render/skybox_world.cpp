@@ -68,9 +68,9 @@ void drawSkyMaterialFaces(
         if (skyMeshes.count(meshIndex) == 0) {
             continue;
         }
-        Material& material = model3d.model.materials[meshIndex];
-        material.shader = lightmaps.skyShader;
-        DrawMesh(model3d.model.meshes[meshIndex], material, MatrixIdentity());
+        Material drawMaterial = model3d.model.materials[meshIndex];
+        drawMaterial.shader = lightmaps.skyShader;
+        DrawMesh(model3d.model.meshes[meshIndex], drawMaterial, MatrixIdentity());
     }
     rlPopMatrix();
 }

@@ -201,6 +201,7 @@ bool registerMapScene(
     lightmapState.lightmapShader = loaded->lightmapShader;
     lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
     lightmapState.skyMeshIndices = std::move(loaded->skyMeshIndices);
+    lightmapState.detailMeshIndices = std::move(loaded->detailMeshIndices);
     lightmapState.skyShader = loaded->skyShader;
 
     world.entity("MapStatic")

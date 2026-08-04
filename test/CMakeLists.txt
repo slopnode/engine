@@ -12,11 +12,15 @@ add_executable(sloptests
     test_frustum.cpp
     test_transform.cpp
     test_dynamic_light.cpp
+    test_dynamic_light_compositing.cpp
     test_brush_door.cpp
     test_brush_split.cpp
     test_brush_role.cpp
     test_brush_blocks.cpp
     test_lightmap_transparent.cpp
+    test_lightmap_rgbe.cpp
+    test_radiosity_emitters.cpp
+    test_sun_shadow_softness.cpp
     test_sight.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
@@ -25,6 +29,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
 )
 
@@ -53,9 +58,13 @@ add_test(NAME sloptests.physics COMMAND sloptests physics)
 add_test(NAME sloptests.frustum COMMAND sloptests frustum)
 add_test(NAME sloptests.transform COMMAND sloptests transform)
 add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)
+add_test(NAME sloptests.dynamic_light_compositing COMMAND sloptests dynamic_light_compositing)
 add_test(NAME sloptests.brush_door COMMAND sloptests brush_door)
 add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
 add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
 add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)
+add_test(NAME sloptests.lightmap_rgbe COMMAND sloptests lightmap_rgbe)
+add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
+add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)

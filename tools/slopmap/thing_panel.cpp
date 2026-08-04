@@ -1641,7 +1641,7 @@ bool drawMoverSection(
                     thing.brush.clear();
                 })) {
                 changed = true;
-                editor.markFacDirty();
+                editor.markRadDirty();
                 editor.statusMessage = "Cleared mover brush";
             }
         }
@@ -1654,7 +1654,7 @@ bool drawMoverSection(
                         thing.sprite.clear();
                     })) {
                     changed = true;
-                    editor.markFacDirty();
+                    editor.markRadDirty();
                     editor.statusMessage = "Set mover brush";
                 }
             }

@@ -214,6 +214,15 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.emissionPower = power;
         return true;
     }
+    if (tag == "emission-range") {
+        float range = 0.0f;
+        if (!readNumberField(form, 1, &range)) {
+            error = {"(emission-range n)", form.line, form.column};
+            return false;
+        }
+        asset.emissionRange = range;
+        return true;
+    }
     if (tag == "sky") {
         if (form.list.size() == 1) {
             asset.sky = true;

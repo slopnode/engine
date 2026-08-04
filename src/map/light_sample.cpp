@@ -14,14 +14,34 @@ float dot3(Vector3 a, Vector3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-Color sampleAtlasNearest(const Image& image, float u, float v) {
+Color sampleAtlasNearest(
+    const MapLighting& lighting,
+    int atlasIndex,
+    float u,
+    float v) {
+    if (atlasIndex < 0 || atlasIndex >= static_cast<int>(lighting.atlasImages.size())) {
+        return WHITE;
+    }
+    const Image& image = lighting.atlasImages[static_cast<std::size_t>(atlasIndex)];
     if (image.data == nullptr || image.width <= 0 || image.height <= 0) {
         return WHITE;
     }
 
     const float x = std::clamp(u, 0.0f, 1.0f) * static_cast<float>(image.width - 1);
     const float y = std::clamp(v, 0.0f, 1.0f) * static_cast<float>(image.height - 1);
-    return GetImageColor(image, static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)));
+    const Color pixel = GetImageColor(image, static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)));
+
+    LightmapEncoding encoding = LightmapEncoding::Ldr;
+    if (atlasIndex >= 0 && static_cast<std::size_t>(atlasIndex) < lighting.rad.atlases.size()) {
+        encoding = lighting.rad.atlases[static_cast<std::size_t>(atlasIndex)].encoding;
+    }
+    if (encoding == LightmapEncoding::Rgbe) {
+        const Vector3 linear = decodeRgbe(pixel);
+        return linearIrradianceToDisplayColor(linear.x, linear.y, linear.z);
+    }
+    Color out = pixel;
+    out.a = 255;
+    return out;
 }
 
 std::optional<Color> sampleChartAtPoint(
@@ -69,10 +89,10 @@ std::optional<Color> sampleChartAtPoint(
     const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fv;
 
     Color color = sampleAtlasNearest(
-        lighting.atlasImages[static_cast<std::size_t>(chart.atlasIndex)],
+        lighting,
+        chart.atlasIndex,
         atlasU,
         atlasV);
-    color.a = 255;
     return color;
 }
 

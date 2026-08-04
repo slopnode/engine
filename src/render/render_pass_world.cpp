@@ -32,10 +32,16 @@
 #include <raylib.h>
 #include <raymath.h>
 #include <rlgl.h>
+#include "external/glad.h"
 
 namespace slopengine {
 
 namespace {
+
+constexpr float kDetailMeshPolygonOffsetFactor = 1.0f;
+constexpr float kDetailMeshPolygonOffsetUnits = 2.0f;
+constexpr float kTransparentMeshPolygonOffsetFactor = -1.0f;
+constexpr float kTransparentMeshPolygonOffsetUnits = -2.0f;
 
 const MapLightmapState* mapLightmapState(flecs::world& world) {
     flecs::entity mapEntity = world.lookup("MapStatic");
@@ -47,6 +53,24 @@ const MapLightmapState* mapLightmapState(flecs::world& world) {
         return nullptr;
     }
     return &lightmaps;
+}
+
+void uploadLightmapDynamicLights(flecs::world& world, Shader shader) {
+    if (shader.id == 0 || !world.has<DynamicLightFrameState>()) {
+        return;
+    }
+    const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
+    if (!frame.bindings.resolved) {
+        return;
+    }
+    const DynamicLightShadowState* shadows = nullptr;
+    if (frame.shadowMapsActive && world.has<DynamicLightShadowState>()) {
+        const DynamicLightShadowState& shadowState = world.get<DynamicLightShadowState>();
+        if (shadowState.ready) {
+            shadows = &shadowState;
+        }
+    }
+    uploadDynamicLightsToShader(shader, frame.bindings, frame.lights, shadows);
 }
 
 void prepareLightmapShaderDraw(
@@ -64,11 +88,19 @@ void prepareLightmapShaderDraw(
     if (useLightmapLoc >= 0) {
         SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
     }
-    if (world.has<DynamicLightFrameState>() && world.has<DynamicLightShadowState>()) {
+    if (world.has<DynamicLightFrameState>()) {
         const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
-        const DynamicLightShadowState& shadows = world.get<DynamicLightShadowState>();
-        if (frame.bindings.resolved && shadows.ready) {
-            bindDynamicLightShadowMaps(shader, frame.bindings, shadows);
+        if (frame.bindings.resolved) {
+            const DynamicLightShadowState* shadowState = nullptr;
+            if (frame.shadowMapsActive && world.has<DynamicLightShadowState>()) {
+                const DynamicLightShadowState& state = world.get<DynamicLightShadowState>();
+                if (state.ready) {
+                    shadowState = &state;
+                }
+            }
+            bindLightmapShadowMapsForDraw(
+                shader, frame.bindings, frame.shadowMapsActive, shadowState);
+            uploadLightmapDynamicLights(world, shader);
         }
     }
 }
@@ -76,7 +108,8 @@ void prepareLightmapShaderDraw(
 void drawModelMeshes(
     const Model& model,
     const std::unordered_set<int>* skipMeshIndices,
-    const std::unordered_set<int>* onlyMeshIndices) {
+    const std::unordered_set<int>* onlyMeshIndices,
+    const std::unordered_set<int>* polygonOffsetBackMeshIndices) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -84,25 +117,18 @@ void drawModelMeshes(
         if (onlyMeshIndices != nullptr && onlyMeshIndices->count(meshIndex) == 0) {
             continue;
         }
+        const bool offsetBack =
+            polygonOffsetBackMeshIndices != nullptr &&
+            polygonOffsetBackMeshIndices->count(meshIndex) > 0;
+        if (offsetBack) {
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(kDetailMeshPolygonOffsetFactor, kDetailMeshPolygonOffsetUnits);
+        }
         DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+        if (offsetBack) {
+            glDisable(GL_POLYGON_OFFSET_FILL);
+        }
     }
-}
-
-Vector3 meshWorldCentroid(const Mesh& mesh, const Matrix& worldMatrix) {
-    if (mesh.vertexCount <= 0 || mesh.vertices == nullptr) {
-        return {worldMatrix.m12, worldMatrix.m13, worldMatrix.m14};
-    }
-    Vector3 sum{};
-    for (int i = 0; i < mesh.vertexCount; ++i) {
-        const Vector3 local{
-            mesh.vertices[i * 3 + 0],
-            mesh.vertices[i * 3 + 1],
-            mesh.vertices[i * 3 + 2],
-        };
-        sum = Vector3Add(sum, Vector3Transform(local, worldMatrix));
-    }
-    const float inv = 1.0f / static_cast<float>(mesh.vertexCount);
-    return Vector3Scale(sum, inv);
 }
 
 Vector3 cameraForwardDir(const Camera3D& camera) {
@@ -186,16 +212,13 @@ void renderWorldModel(
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
-        if (lightmaps.available && model.model.materialCount > 0) {
-            Shader shader = model.model.materials[0].shader;
-            if (shader.id != 0) {
-                prepareLightmapShaderDraw(
-                    shader,
-                    lightmaps.useLightmapLoc,
-                    mapUseLightmap,
-                    globalTransform.matrix,
-                    world);
-            }
+        if (lightmaps.available && lightmaps.lightmapShader.id != 0) {
+            prepareLightmapShaderDraw(
+                lightmaps.lightmapShader,
+                lightmaps.useLightmapLoc,
+                mapUseLightmap,
+                globalTransform.matrix,
+                world);
         }
     } else if (model.model.materialCount > 0) {
         mapLightmaps = mapLightmapState(world);
@@ -236,9 +259,35 @@ void renderWorldModel(
     }
 
     if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
-        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices);
+        const std::unordered_set<int>* polygonOffsetBack = nullptr;
+        std::unordered_set<int> detailOffset;
+        if (entity.has<MapLightmapState>()) {
+            const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
+            if (!lightmaps.detailMeshIndices.empty()) {
+                detailOffset.insert(
+                    lightmaps.detailMeshIndices.begin(),
+                    lightmaps.detailMeshIndices.end());
+                polygonOffsetBack = &detailOffset;
+            }
+        }
+        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack);
     } else {
-        DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+        const std::unordered_set<int>* polygonOffsetBack = nullptr;
+        std::unordered_set<int> detailOffset;
+        if (entity.has<MapLightmapState>()) {
+            const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
+            if (!lightmaps.detailMeshIndices.empty()) {
+                detailOffset.insert(
+                    lightmaps.detailMeshIndices.begin(),
+                    lightmaps.detailMeshIndices.end());
+                polygonOffsetBack = &detailOffset;
+            }
+        }
+        if (polygonOffsetBack != nullptr) {
+            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack);
+        } else {
+            DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+        }
     }
 
     if (swappedPropShader) {
@@ -401,11 +450,11 @@ void drawWorldSprite(
             (lighting != nullptr && lighting->available && !lighting->faceTransparentSkip.empty())
                 ? &lighting->faceTransparentSkip
                 : nullptr;
-        colorFeet = addLinearRgbToColor(
+        colorFeet = composeBakeTintWithOverlay(
             colorFeet,
             evaluateOverlayLightsAtPoint(
                 dynamicLights, fxLights, feetPoint, normal, occlusionBvh, occlusionSkip));
-        colorHead = addLinearRgbToColor(
+        colorHead = composeBakeTintWithOverlay(
             colorHead,
             evaluateOverlayLightsAtPoint(
                 dynamicLights, fxLights, headPoint, normal, occlusionBvh, occlusionSkip));
@@ -548,24 +597,6 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         lens.camera.position,
         kMaxDynamicLights,
         maxShadowed);
-    static int sLastDynCount = -1;
-    if (static_cast<int>(rankedLights.size()) != sLastDynCount) {
-        sLastDynCount = static_cast<int>(rankedLights.size());
-        TraceLog(LOG_INFO, "MAP: active dynamic lights=%d", sLastDynCount);
-        for (const RankedDynamicLight& light : rankedLights) {
-            TraceLog(
-                LOG_INFO,
-                "MAP: dyn light pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) intensity=%.2f kind=%s",
-                light.position.x,
-                light.position.y,
-                light.position.z,
-                light.direction.x,
-                light.direction.y,
-                light.direction.z,
-                light.light.intensity,
-                light.light.kind == DynamicLightKind::Spot ? "spot" : "point");
-        }
-    }
     return rankedLights;
 }
 
@@ -582,25 +613,34 @@ void uploadMapDynamicLights(
     const std::vector<RankedDynamicLight>& rankedLights,
     bool unlit,
     const DynamicLightShadowState* shadowState) {
+    if (unlit) {
+        return;
+    }
     flecs::entity mapEntity = world.lookup("MapStatic");
-    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>() || !mapEntity.has<Model3D>()) {
+    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>()) {
         return;
     }
-    const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
-    Model3D& model = mapEntity.get_mut<Model3D>();
-    if (!lightmaps.available || model.model.materialCount <= 0) {
+    MapLightmapState& lightmaps = mapEntity.get_mut<MapLightmapState>();
+    if (!lightmaps.available || lightmaps.lightmapShader.id == 0) {
         return;
     }
-    Shader& mapShader = model.model.materials[0].shader;
-    if (mapShader.id == 0) {
-        return;
-    }
+    Shader& mapShader = lightmaps.lightmapShader;
     if (world.has<DynamicLightFrameState>()) {
         DynamicLightFrameState& frameState = world.get_mut<DynamicLightFrameState>();
         if (!frameState.bindings.resolved || frameState.bindings.shadowMapsLoc < 0) {
             resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
         }
-        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, shadowState);
+        if (frameState.bindings.resolved) {
+            const DynamicLightShadowState* activeShadows =
+                frameState.shadowMapsActive ? shadowState : nullptr;
+            bindLightmapShadowMapsForDraw(
+                mapShader,
+                frameState.bindings,
+                frameState.shadowMapsActive,
+                activeShadows);
+            uploadDynamicLightsToShader(
+                mapShader, frameState.bindings, rankedLights, activeShadows);
+        }
     }
     if (lightmaps.useLightmapLoc >= 0) {
         const int useLightmap = (!unlit) ? 1 : 0;
@@ -896,16 +936,13 @@ std::string drawWorldTransparentPass(
         mapDrawGlobal = &mapEntity.get_mut<GlobalTransformation>();
         mapDrawLightmaps = &mapEntity.get<MapLightmapState>();
         const int mapUseLightmap = unlit ? 0 : 1;
-        if (mapDrawLightmaps->available && mapDrawModel->model.materialCount > 0) {
-            Shader shader = mapDrawModel->model.materials[0].shader;
-            if (shader.id != 0) {
-                prepareLightmapShaderDraw(
-                    shader,
-                    mapDrawLightmaps->useLightmapLoc,
-                    mapUseLightmap,
-                    mapDrawGlobal->matrix,
-                    world);
-            }
+        if (mapDrawLightmaps->available && mapDrawLightmaps->lightmapShader.id != 0) {
+            prepareLightmapShaderDraw(
+                mapDrawLightmaps->lightmapShader,
+                mapDrawLightmaps->useLightmapLoc,
+                mapUseLightmap,
+                mapDrawGlobal->matrix,
+                world);
         }
     }
 
@@ -922,12 +959,20 @@ std::string drawWorldTransparentPass(
                 activeBlend = BLEND_ALPHA;
                 BeginBlendMode(activeBlend);
             }
+            if (mapDrawLightmaps != nullptr && mapDrawLightmaps->lightmapShader.id != 0 && !unlit) {
+                uploadLightmapDynamicLights(world, mapDrawLightmaps->lightmapShader);
+            }
             rlPushMatrix();
             rlMultMatrixf(MatrixToFloatV(mapDrawGlobal->matrix).v);
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(
+                kTransparentMeshPolygonOffsetFactor,
+                kTransparentMeshPolygonOffsetUnits);
             DrawMesh(
                 mapDrawModel->model.meshes[item.mapMeshIndex],
                 mapDrawModel->model.materials[item.mapMeshIndex],
                 MatrixIdentity());
+            glDisable(GL_POLYGON_OFFSET_FILL);
             rlPopMatrix();
         } else if (item.kind == TransparentDrawKind::Sprite) {
             BlendMode want = BLEND_ALPHA;

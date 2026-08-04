@@ -82,6 +82,8 @@ set(SLOPLIB_SOURCES
     src/map/prefab.cpp
     src/map/quad_bvh.cpp
     src/map/radiosity.cpp
+    src/map/radiosity_emitters.cpp
+    src/map/emitter_bvh.cpp
     src/map/radiosity_gpu.cpp
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
@@ -147,6 +149,7 @@ add_executable(slopengine
     src/render/sprite_animator_system.cpp
     src/render/animation_systems.cpp
     src/render/dynamic_light.cpp
+    src/render/dynamic_light_compositing.cpp
     src/render/dynamic_light_shadow_math.cpp
     src/render/dynamic_light_shadows.cpp
     src/render/fx_local_light.cpp

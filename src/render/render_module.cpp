@@ -172,6 +172,9 @@ void registerRenderSystems(flecs::world& world) {
                     shadowState = &shadows;
                 }
             }
+            if (world.has<DynamicLightFrameState>()) {
+                world.get_mut<DynamicLightFrameState>().shadowMapsActive = shadowState != nullptr;
+            }
 
             uploadMapDynamicLights(world, rankedLights, unlit, shadowState);
 
@@ -224,7 +227,7 @@ void registerRenderSystems(flecs::world& world) {
                     EndMode3D();
                 }
                 drawFirstPersonPass(world, context, lens, unlit);
-                drawViewSprites(world);
+                drawViewSprites(world, unlit);
                 if (sceneToTexture) {
                     EndTextureMode();
                     presentPostProcess(*postState);

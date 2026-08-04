@@ -61,7 +61,6 @@ enum class PlacePresentation {
 
 struct CompileDirty {
     bool bsp = false;
-    bool fac = false;
     bool vis = false;
     bool rad = false;
 };
@@ -156,7 +155,6 @@ struct Editor {
     bool redo(slopengine::AssetStore& assets);
     void markDirty();
     void markBspDirty();
-    void markFacDirty();
     void markVisDirty();
     void markRadDirty();
     void markBrushCompileDirty(slopengine::BrushRole role);
@@ -165,6 +163,8 @@ struct Editor {
     bool cleanCompileData(
         slopengine::AssetStore& assets,
         const std::vector<CompileStage>& stages);
+    /** Remove static.fac so authored brush faces are used (silent if already absent). */
+    void dropOptInFacArtifact(slopengine::AssetStore& assets);
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);

@@ -716,6 +716,22 @@ struct CuttingEdge {
     Vector3 b{};
 };
 
+bool isCoplanarSharedContact(
+    const std::vector<Vector3>& subject,
+    const std::vector<Vector3>& covered) {
+    if (subject.size() < 3 || covered.size() < 3) {
+        return false;
+    }
+    for (std::size_t i = 0; i < covered.size(); ++i) {
+        const Vector3& e0 = covered[i];
+        const Vector3& e1 = covered[(i + 1) % covered.size()];
+        if (!edgeOnPolygonBoundary(e0, e1, subject, kWeldEps)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::vector<std::vector<Vector3>> subtractConvexHole(
     const std::vector<Vector3>& subject,
     const std::vector<Vector3>& hole,
@@ -731,6 +747,9 @@ std::vector<std::vector<Vector3>> subtractConvexHole(
         return empty;
     }
     if (holeArea >= subjectArea - kMinFaceArea) {
+        if (isCoplanarSharedContact(subject, hole)) {
+            return {subject};
+        }
         return empty;
     }
 
@@ -838,6 +857,13 @@ void occludeFragmentsByBrushes(
 
             auto covered = clipPolygonInsideBrush(fragment.vertices, occluder);
             if (covered.size() < 3 || polygonArea(covered) < kMinFaceArea) {
+                next.push_back(std::move(fragment));
+                continue;
+            }
+
+            if (isCoplanarSharedContact(fragment.vertices, covered)
+                && sourceBrushIndex > bi
+                && brushes[sourceBrushIndex].role == occluder.role) {
                 next.push_back(std::move(fragment));
                 continue;
             }
@@ -1051,9 +1077,29 @@ std::vector<ClippedFragment> clipFaceToInteriorLeaves(
             continue;
         }
         orientToNormal(clipped, face.normal);
-        const Vector3 probe = add3(polygonCentroid(clipped), scale3(face.normal, kNudge));
-        const std::int32_t probeLeaf = pointLeaf(tree, probe);
-        if (!isInteriorEmpty(tree, analysis.exteriorEmpty, probeLeaf)) {
+        const Vector3 clipCenter = polygonCentroid(clipped);
+        auto probeHitsInterior = [&](Vector3 dir) -> std::int32_t {
+            const float dirLen = length3(dir);
+            if (dirLen <= 1e-8f) {
+                return -1;
+            }
+            dir = scale3(dir, 1.0f / dirLen);
+            const Vector3 probe = add3(clipCenter, scale3(dir, kNudge));
+            const std::int32_t probeLeaf = pointLeaf(tree, probe);
+            if (isInteriorEmpty(tree, analysis.exteriorEmpty, probeLeaf)) {
+                return probeLeaf;
+            }
+            return -1;
+        };
+
+        std::int32_t probeLeaf = probeHitsInterior(face.normal);
+        if (probeLeaf < 0) {
+            probeLeaf = probeHitsInterior(sub3(leafCentroid(leaf), clipCenter));
+        }
+        if (probeLeaf < 0) {
+            probeLeaf = probeHitsInterior(scale3(face.normal, -1.0f));
+        }
+        if (probeLeaf < 0) {
             continue;
         }
         if (polygonArea(clipped) < kMinFaceArea) {

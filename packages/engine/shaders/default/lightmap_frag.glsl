@@ -12,6 +12,7 @@ uniform vec4 colDiffuse;
 uniform vec4 colSpecular;
 uniform int useLightmap;
 uniform int solidLit;
+uniform int lightmapEncoding;
 
 const int MAX_DYN_LIGHTS = 8;
 const int MAX_SHADOW_SLOTS = 2;
@@ -196,18 +197,60 @@ vec3 evalDynamicLights(vec3 worldPos)
     return total;
 }
 
+vec3 decodeRgbe(vec4 rgbe)
+{
+    if (rgbe.a <= 0.0) {
+        return vec3(0.0);
+    }
+    return rgbe.rgb * exp2(rgbe.a * 255.0 - 136.0) * 255.0;
+}
+
+vec3 sampleBakedIrradiance(vec2 uv)
+{
+    if (lightmapEncoding != 0) {
+        vec2 texSize = vec2(textureSize(texture1, 0));
+        vec2 px = uv * texSize - 0.5;
+        vec2 base = floor(px);
+        vec2 f = px - base;
+        vec2 uv00 = (base + vec2(0.5, 0.5)) / texSize;
+        vec2 uv10 = (base + vec2(1.5, 0.5)) / texSize;
+        vec2 uv01 = (base + vec2(0.5, 1.5)) / texSize;
+        vec2 uv11 = (base + vec2(1.5, 1.5)) / texSize;
+        vec3 c00 = decodeRgbe(texture(texture1, uv00));
+        vec3 c10 = decodeRgbe(texture(texture1, uv10));
+        vec3 c01 = decodeRgbe(texture(texture1, uv01));
+        vec3 c11 = decodeRgbe(texture(texture1, uv11));
+        vec3 c0 = mix(c00, c10, f.x);
+        vec3 c1 = mix(c01, c11, f.x);
+        return mix(c0, c1, f.y);
+    }
+    return texture(texture1, uv).rgb;
+}
+
+vec3 tonemapDisplay(vec3 linear)
+{
+    return linear / (1.0 + max(linear, vec3(0.0)));
+}
+
 void main()
 {
     vec4 tex = solidLit != 0 ? vec4(1.0) : texture(texture0, fragTexCoord) * colDiffuse;
     vec3 albedoRgb = tex.rgb;
     float albedoA = tex.a;
-    vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;
     vec3 dynamic = evalDynamicLights(fragPosition);
-    vec3 lighting = baked + dynamic;
+    vec3 emission = vec3(0.0);
     if (solidLit == 0 && useLightmap != 0) {
         vec3 emitMap = texture(texture5, fragTexCoord).rgb;
         float emitMask = dot(emitMap, vec3(0.2126, 0.7152, 0.0722));
-        lighting += colSpecular.rgb * emitMask;
+        emission = colSpecular.rgb * emitMask;
     }
+    if (useLightmap != 0 && lightmapEncoding != 0) {
+        vec3 irradiance = sampleBakedIrradiance(fragTexCoord2);
+        vec3 litLinear = albedoRgb * (irradiance + dynamic) + emission;
+        finalColor = vec4(tonemapDisplay(litLinear), albedoA);
+        return;
+    }
+    vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;
+    vec3 lighting = baked + dynamic + emission;
     finalColor = vec4(albedoRgb * lighting, albedoA);
 }

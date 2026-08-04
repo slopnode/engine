@@ -2,6 +2,7 @@
 
 #include "render/dynamic_light_shadow_math.hpp"
 #include "map/bsp.hpp"
+#include "map/lightmap.hpp"
 #include "render/render_frustum.hpp"
 
 #include <rlgl.h>
@@ -321,17 +322,6 @@ void resolveDynamicLightShaderBindings(Shader shader, DynamicLightShaderBindings
     }
     bindings.resolved = bindings.lightCountLoc >= 0 && bindings.lightPosRangeLoc >= 0 &&
         bindings.lightColorIntensityLoc >= 0;
-    TraceLog(
-        LOG_INFO,
-        "MAP: dynamic light uniforms resolved=%s count=%d pos=%d color=%d dir=%d meta=%d bias=%d maps=%d",
-        bindings.resolved ? "yes" : "no",
-        bindings.lightCountLoc,
-        bindings.lightPosRangeLoc,
-        bindings.lightColorIntensityLoc,
-        bindings.lightDirConeLoc,
-        bindings.lightMetaLoc,
-        bindings.shadowBiasLoc,
-        bindings.shadowMapsLoc);
 }
 
 void uploadDynamicLightsToShader(
@@ -357,9 +347,6 @@ void uploadDynamicLightsToShader(
     for (const RankedDynamicLight& light : lights) {
         if (count >= kMaxDynamicLights) {
             break;
-        }
-        if (shadowsActive && light.light.castShadows && light.shadowSlot < 0) {
-            continue;
         }
         posRange[count] = {
             light.position.x,
@@ -444,13 +431,25 @@ void bindDynamicLightShadowMaps(
     }
 
     rlDrawRenderBatchActive();
-    rlEnableShader(shader.id);
     const int unit = kDynamicShadowTextureUnit;
     rlActiveTextureSlot(unit);
     glBindTexture(GL_TEXTURE_2D_ARRAY, shadowState.depthArrayId);
-    rlSetUniform(bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT, 1);
+    SetShaderValue(shader, bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
     rlActiveTextureSlot(0);
-    rlDisableShader();
+}
+
+void bindLightmapShadowMapsForDraw(
+    Shader shader,
+    const DynamicLightShaderBindings& bindings,
+    bool useRealShadowMaps,
+    const DynamicLightShadowState* shadowState) {
+    if (useRealShadowMaps && shadowState != nullptr && shadowState->ready &&
+        bindings.shadowMapsLoc >= 0) {
+        bindDynamicLightShadowMaps(shader, bindings, *shadowState);
+        return;
+    }
+    bindLightmapDummyShadowMaps(shader);
 }
 
 }

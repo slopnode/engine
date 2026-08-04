@@ -8,7 +8,6 @@ namespace slopmap {
 
 enum class CompileStage {
     Bsp,
-    Fac,
     Vis,
     Rad,
 };
@@ -17,11 +16,13 @@ struct RadCompileOptions {
     float luxelsPerMeter = 16.0f;
     int bounces = 2;
     int samples = 16;
-#if defined(__APPLE__)
-    bool preferGpu = false;
-#else
+    int emitterDirectSamples = 4;
+    float emitterGridLuxelsPerMeter = 8.0f;
+    int emitterGridMaxSize = 32;
+    float sunShadowSoftness = 0.0f;
     bool preferGpu = true;
-#endif
+    /** On hybrid systems, request the discrete GPU for sloprad (Linux DRI_PRIME / Windows shim). */
+    bool forceDiscreteGpu = true;
 };
 
 struct CompileMountArgs {

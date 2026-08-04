@@ -196,7 +196,7 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
             return false;
         }
         editor.markDirty();
-        editor.markFacDirty();
+        editor.markRadDirty();
         editor.endEdit();
         editor.statusMessage =
             "Applied " + materialPath + " to " + std::to_string(count) + " face(s)";
@@ -223,7 +223,7 @@ bool applyMaterialToSelection(Editor& editor, const std::string& materialPath) {
         ++count;
     }
     editor.markDirty();
-    editor.markFacDirty();
+    editor.markRadDirty();
     editor.endEdit();
     editor.statusMessage =
         "Applied " + materialPath + " to " + std::to_string(count) + " brush(es)";
@@ -291,7 +291,7 @@ MaterialBrowserResult MaterialBrowser::drawSection(
     if (editor.doc().selectionMode == SelectionMode::Face) {
         scopeLabel = "face";
     } else if (editor.doc().selectionMode == SelectionMode::Entity) {
-        scopeLabel = "entity";
+        scopeLabel = "thing";
     }
     ImGui::Text(
         "Selection (%s): %s",

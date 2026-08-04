@@ -1329,7 +1329,11 @@ std::optional<LoadedMap> loadAndCompileMap(
             if (auto loadedFac = readFacFile(*facPath)) {
                 fac = std::move(*loadedFac);
                 haveFac = true;
-                TraceLog(LOG_INFO, "MAP: loaded fac faces=%d", static_cast<int>(fac.faces.size()));
+                eraseFacFacesForMoverBrushes(fac, moverBrushIds);
+                TraceLog(
+                    LOG_INFO,
+                    "MAP: loaded opt-in fac faces=%d",
+                    static_cast<int>(fac.faces.size()));
             } else {
                 TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.fac", virtualPath.c_str());
             }
@@ -1337,66 +1341,8 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
     if (!haveFac) {
         TraceLog(
-            LOG_WARNING,
-            "MAP: missing maps/%s.fac; building visible faces in-memory (run slopfac)",
-            virtualPath.c_str());
-        if (analysis.sealed) {
-            FacBuildResult built = buildVisibleFaces(
-                *bsp,
-                analysis,
-                *brushes,
-                moverBrushIds.empty() ? nullptr : &moverBrushIds);
-            MapHullAnalysis nodrawAnalysis = analysis;
-            nodrawAnalysis.inferredNodrawFaceIds = std::move(built.inferredNodrawFaceIds);
-            applyInferredNodraw(*brushes, nodrawAnalysis);
-            fac = std::move(built.fac);
-            haveFac = true;
-            TraceLog(
-                LOG_INFO,
-                "MAP: in-memory fac faces=%d inferredNodraw=%d",
-                static_cast<int>(fac.faces.size()),
-                static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
-        } else {
-            TraceLog(
-                LOG_WARNING,
-                "MAP: hull is not sealed; falling back to authored brush faces");
-        }
-    } else {
-        eraseFacFacesForMoverBrushes(fac, moverBrushIds);
-        std::unordered_set<std::string> visibleSources;
-        for (const VisibleFace& face : fac.faces) {
-            std::string remaining = face.sourceFaceId;
-            while (!remaining.empty()) {
-                const auto plus = remaining.find('+');
-                if (plus == std::string::npos) {
-                    visibleSources.insert(remaining);
-                    break;
-                }
-                visibleSources.insert(remaining.substr(0, plus));
-                remaining = remaining.substr(plus + 1);
-            }
-        }
-        std::vector<std::string> inferred;
-        for (const Brush& brush : *brushes) {
-            if (!brushRoleSeals(brush.role)) {
-                continue;
-            }
-            for (const BrushFace& face : brush.faces) {
-                if (face.nodraw || face.id.empty()) {
-                    continue;
-                }
-                if (!visibleSources.contains(face.id)) {
-                    inferred.push_back(face.id);
-                }
-            }
-        }
-        MapHullAnalysis nodrawAnalysis = analysis;
-        nodrawAnalysis.inferredNodrawFaceIds = std::move(inferred);
-        applyInferredNodraw(*brushes, nodrawAnalysis);
-        TraceLog(
             LOG_INFO,
-            "MAP: auto-nodraw faces=%d (from fac)",
-            static_cast<int>(nodrawAnalysis.inferredNodrawFaceIds.size()));
+            "MAP: using authored brush faces (explicit nodraw only; run slopfac for auto-cull)");
     }
 
     PvsFile pvs{};
@@ -1492,6 +1438,8 @@ std::optional<LoadedMap> loadAndCompileMap(
         result.lightmapShader = loadLightmapShader(assets, result.useLightmapLoc);
         if (result.lightmapShader.id == 0) {
             result.hasLightmaps = false;
+        } else {
+            applyLightmapEncoding(result.lightmapShader, primaryLightmapEncoding(rad));
         }
     }
 
@@ -1511,7 +1459,10 @@ std::optional<LoadedMap> loadAndCompileMap(
             if (resolved) {
                 texture = LoadTexture(resolved->string().c_str());
                 if (texture.id != 0) {
-                    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+                    const int filter = atlas.encoding == LightmapEncoding::Rgbe
+                        ? TEXTURE_FILTER_POINT
+                        : TEXTURE_FILTER_BILINEAR;
+                    SetTextureFilter(texture, filter);
                     SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
                 }
                 image = LoadImage(resolved->string().c_str());
@@ -1588,11 +1539,22 @@ std::optional<LoadedMap> loadAndCompileMap(
     result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
     result.skyMeshIndices.clear();
     result.skyMeshIndices.reserve(compiled.asset.primitives.size());
+    result.detailMeshIndices.clear();
+    result.detailMeshIndices.reserve(compiled.asset.primitives.size());
+    std::unordered_set<std::string> detailBrushIds;
+    for (const Brush& brush : *brushes) {
+        if (brush.role == BrushRole::Detail && !brush.id.empty()) {
+            detailBrushIds.insert(brush.id);
+        }
+    }
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         const GeoPrimitive& primitive =
             compiled.asset.primitives[static_cast<std::size_t>(meshIndex)];
         if (primitive.transparent) {
             result.transparentMeshIndices.push_back(meshIndex);
+        }
+        if (faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds)) {
+            result.detailMeshIndices.push_back(meshIndex);
         }
         const MaterialAsset* materialAsset = assets.getMaterialAsset(primitive.material);
         if (materialAsset != nullptr && materialAsset->sky) {

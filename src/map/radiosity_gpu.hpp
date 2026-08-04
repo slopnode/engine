@@ -1,10 +1,12 @@
 #pragma once
 
+#include "map/emitter_bvh.hpp"
 #include "map/quad_bvh.hpp"
 
 #include <raylib.h>
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -16,20 +18,37 @@ struct RadGpuLuxel {
     float irradianceR = 0.0f;
     float irradianceG = 0.0f;
     float irradianceB = 0.0f;
+    float sunIrradianceR = 0.0f;
+    float sunIrradianceG = 0.0f;
+    float sunIrradianceB = 0.0f;
     std::int32_t faceIndex = -1;
     std::int32_t covered = 0;
     std::int32_t interiorLeaf = -1;
 };
 
-struct RadGpuEmitter {
-    Vector3 position{};
+struct RadGpuEmissiveFace {
+    Vector3 uAxis{};
+    float planeD = 0.0f;
+    float uMin = 0.0f;
+    float uMax = 0.0f;
+    Vector3 vAxis{};
+    float vMin = 0.0f;
+    float vMax = 0.0f;
+    float pad0 = 0.0f;
     Vector3 normal{};
-    float radianceR = 0.0f;
-    float radianceG = 0.0f;
-    float radianceB = 0.0f;
     float area = 0.0f;
     std::int32_t faceIndex = -1;
     std::int32_t interiorLeaf = -1;
+    std::int32_t gridWidth = 0;
+    std::int32_t gridHeight = 0;
+    std::int32_t gridOffset = 0;
+    std::int32_t pad1 = 0;
+    Vector3 peakRadiance{};
+    float castRange = 0.0f;
+    Vector3 aabbMins{};
+    float pad3 = 0.0f;
+    Vector3 aabbMaxs{};
+    float pad4 = 0.0f;
 };
 
 struct RadGpuLight {
@@ -51,18 +70,33 @@ struct RadGpuReachability {
 
 bool radiosityGpuContextReady();
 
+/** OpenGL GL_RENDERER string, or empty when unavailable. */
+const char* radiosityGpuRenderer();
+
+/** True for integrated / software renderers that need conservative GPU lighting. */
+bool radiosityGpuIsIntegrated();
+
 struct RadGpuDirectParams {
     float directWrap = 0.35f;
     float coplanarFill = 0.15f;
     float coplanarSoft = 0.25f;
     float minDist2 = 0.0025f;
+    float emitterQueryRadius = 0.0f;
+    int emitterDirectSamples = 4;
+    int emissionGridFloats = 0;
+    int sunRayCount = 1;
+    float sunAngularSpread = 0.0f;
+    float sunLeakThreshold = 0.0f;
+    bool gpuSafeMode = false;
 };
 
 bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
-    const std::vector<RadGpuEmitter>& emitters,
+    const std::vector<RadGpuEmissiveFace>& emissiveFaces,
+    std::span<const Vector3> emissionGrid,
     const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
+    const EmitterBvh& emitterBvh,
     std::string_view computeShaderSource,
     const RadGpuDirectParams& params = {},
     const RadGpuReachability& reachability = {},
@@ -100,6 +134,7 @@ struct RadGpuBounceParams {
     float ambientG = 0.0f;
     float ambientB = 0.0f;
     std::uint32_t seed = 1;
+    bool gpuSafeMode = false;
 };
 
 bool accumulateBounceLightingGpu(

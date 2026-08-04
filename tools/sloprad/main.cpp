@@ -29,6 +29,7 @@ namespace {
 struct RadCli {
     slopengine::AppConfig config;
     slopengine::RadiositySettings settings;
+    std::optional<bool> gpuSafeOverride;
 };
 
 std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
@@ -94,10 +95,58 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.samples = parsed;
+        } else if (arg == "--emitter-direct-samples") {
+            const char* value = needValue("--emitter-direct-samples");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 4;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.emitterDirectSamples = parsed;
+        } else if (arg == "--emitter-grid-luxels-per-meter") {
+            const char* value = needValue("--emitter-grid-luxels-per-meter");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 8.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.emitterGridLuxelsPerMeter = parsed;
+        } else if (arg == "--emitter-grid-max-size") {
+            const char* value = needValue("--emitter-grid-max-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 32;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.emitterGridMaxSize = parsed;
+        } else if (arg == "--sun-shadow-softness") {
+            const char* value = needValue("--sun-shadow-softness");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 0.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.sunShadowSoftness = parsed;
         } else if (arg == "--gpu") {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
             cli.settings.preferGpu = false;
+        } else if (arg == "--gpu-safe") {
+            cli.gpuSafeOverride = true;
+        } else if (arg == "--gpu-fast") {
+            cli.gpuSafeOverride = false;
         } else {
             return std::nullopt;
         }
@@ -118,7 +167,11 @@ int main(int argc, char* argv[]) {
     if (!cli) {
         std::cerr
             << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
-            << "       [--luxels-per-meter N] [--bounces N] [--samples N] [--gpu|--cpu]\n";
+            << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n"
+            << "       [--emitter-direct-samples N] [--emitter-grid-luxels-per-meter N]\n"
+            << "       [--emitter-grid-max-size N] [--sun-shadow-softness N]\n"
+            << "       [--gpu|--cpu]\n"
+            << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
     }
 
@@ -131,6 +184,23 @@ int main(int argc, char* argv[]) {
     }
 
     AssetStore assets(cli->config);
+
+    if (cli->gpuSafeOverride.has_value()) {
+        cli->settings.gpuSafeMode = *cli->gpuSafeOverride;
+    } else if (cli->settings.preferGpu && radiosityGpuIsIntegrated()) {
+        cli->settings.gpuSafeMode = true;
+    }
+    if (cli->settings.preferGpu) {
+        const char* renderer = radiosityGpuRenderer();
+        if (renderer[0] != '\0') {
+            TraceLog(LOG_INFO, "sloprad: GL renderer '%s'", renderer);
+            std::fflush(stdout);
+        }
+        if (cli->settings.gpuSafeMode) {
+            TraceLog(LOG_INFO, "sloprad: GPU safe mode enabled (smaller batches)");
+            std::fflush(stdout);
+        }
+    }
 
     if (cli->settings.preferGpu) {
         cli->settings.directComputeShaderSource = assets.getShaderSource("tools/rad_direct_comp");
@@ -265,22 +335,8 @@ int main(int argc, char* argv[]) {
         sunCount);
     std::fflush(stdout);
 
-    auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath);
-    if (!facPath) {
-        std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".fac (run slopfac first)\n";
-        CloseWindow();
-        return 1;
-    }
     if (!assets.hasMapVis(bspVirtualPath)) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
-        CloseWindow();
-        return 1;
-    }
-    TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
-    std::fflush(stdout);
-    auto vis = readFacFile(*facPath);
-    if (!vis) {
-        std::cerr << "sloprad: failed to read " << *facPath << "\n";
         CloseWindow();
         return 1;
     }
@@ -289,7 +345,7 @@ int main(int argc, char* argv[]) {
     if (!analysis.sealed) {
         TraceLog(
             LOG_WARNING,
-            "sloprad: map hull is not sealed; VIS faces used as authored");
+            "sloprad: map hull is not sealed; baking authored faces");
         for (const std::string& step : analysis.leakPathFaceIds) {
             TraceLog(LOG_WARNING, "sloprad: leak path %s", step.c_str());
         }
@@ -299,8 +355,31 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const std::vector<LightmapFace> faces = collectLightmapFaces(*vis);
-    TraceLog(LOG_INFO, "sloprad: lightmap faces=%d (from vis)", static_cast<int>(faces.size()));
+    std::vector<LightmapFace> faces;
+    if (assets.hasMapFac(bspVirtualPath)) {
+        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath)) {
+            TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
+            std::fflush(stdout);
+            if (auto vis = readFacFile(*facPath)) {
+                faces = collectLightmapFaces(*vis);
+                TraceLog(
+                    LOG_INFO,
+                    "sloprad: lightmap faces=%d (from opt-in fac)",
+                    static_cast<int>(faces.size()));
+            } else {
+                std::cerr << "sloprad: failed to read " << *facPath << "\n";
+                CloseWindow();
+                return 1;
+            }
+        }
+    }
+    if (faces.empty()) {
+        faces = collectLightmapFaces(*brushes);
+        TraceLog(
+            LOG_INFO,
+            "sloprad: lightmap faces=%d (from authored brushes)",
+            static_cast<int>(faces.size()));
+    }
     std::fflush(stdout);
 
     auto resolveMaterial = [&assets](std::string_view materialPath) {
@@ -358,6 +437,7 @@ int main(int argc, char* argv[]) {
 
     for (std::size_t i = 0; i < baked.atlasImages.size(); ++i) {
         const auto pngPath = radDir / (baked.rad.atlases[i].texturePath + ".png");
+        ImageFormat(&baked.atlasImages[i], PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
         if (!ExportImage(baked.atlasImages[i], pngPath.string().c_str())) {
             std::cerr << "sloprad: failed to write " << pngPath << "\n";
             for (Image& image : baked.atlasImages) {

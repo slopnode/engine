@@ -16,7 +16,14 @@
 namespace slopengine {
 
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
-constexpr std::uint32_t kRadVersion = 2;
+constexpr std::uint32_t kRadVersion = 3;
+constexpr std::uint32_t kRadVersionLegacy = 2;
+
+/** Atlas pixel encoding recorded in rad v3+. */
+enum class LightmapEncoding : std::uint32_t {
+    Ldr = 0,  /**< Legacy Reinhard-baked RGB irradiance. */
+    Rgbe = 1, /**< HDR shared-exponent linear irradiance. */
+};
 
 /** Brush face prepared for lightmap chart packing. */
 struct LightmapFace {
@@ -53,6 +60,7 @@ struct LightmapAtlasInfo {
     std::string texturePath;
     std::int32_t width = 0;
     std::int32_t height = 0;
+    LightmapEncoding encoding = LightmapEncoding::Ldr;
 };
 
 /** Parsed rad/static.rad sidecar (charts + atlas metadata). */
@@ -86,13 +94,25 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad);
 std::optional<RadFile> readRadFile(const std::filesystem::path& path);
 std::optional<RadFile> readRadBytes(std::span<const std::byte> data);
 
+/** Ward-style shared-exponent RGBE for linear irradiance atlases. */
+Color encodeRgbe(float r, float g, float b);
+Vector3 decodeRgbe(Color pixel);
+Color linearIrradianceToDisplayColor(float r, float g, float b);
+
+/** Primary encoding for a map (Rgbe if any atlas uses it). */
+LightmapEncoding primaryLightmapEncoding(const RadFile& rad);
+
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc);
+void applyLightmapEncoding(Shader shader, LightmapEncoding encoding);
 
 /** Loads the infinite-sky background shader. */
 Shader loadSkyboxBackgroundShader(AssetStore& assets);
 
 /** Loads the sky-face shader used by map sky brush materials. */
 Shader loadSkyFaceShader(AssetStore& assets);
+
+struct DynamicLightShaderBindings;
+struct DynamicLightShadowState;
 
 /** Binds a dummy sampler2DArray so lit preview/map draw does not conflict with albedo. */
 void bindLightmapDummyShadowMaps(Shader shader);

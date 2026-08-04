@@ -307,6 +307,13 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     body.ignoreId = std::move(ignoreId);
     entity.set<MotoredBody>(body);
 
+    if (entity.has<LocalTransformation>() && entity.has<GlobalTransformation>()) {
+        updateTransform(
+            entity,
+            entity.get_mut<LocalTransformation>(),
+            entity.get_mut<GlobalTransformation>());
+    }
+
     return s7_t(sc);
 }
 
@@ -325,7 +332,7 @@ DynamicLight makePointDynamicLight(float r, float g, float b, float intensity, f
     setDynamicLightRgb(light, {r, g, b});
     light.intensity = intensity;
     light.range = range;
-    light.castShadows = true;
+    light.castShadows = false;
     return light;
 }
 
@@ -403,7 +410,8 @@ s7_pointer g_dyn_light_attach(s7_scheme* sc, s7_pointer args) {
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
-    entity.set<DynamicLight>(makePointDynamicLight(r, g, b, intensity, range));
+    const DynamicLight light = makePointDynamicLight(r, g, b, intensity, range);
+    entity.set<DynamicLight>(light);
     return s7_t(sc);
 }
 
@@ -2155,7 +2163,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "dyn-light-attach",
         g_dyn_light_attach,
         6,
-        0,
+        3,
         false,
         "(dyn-light-attach id r g b intensity range)");
     s7_define_function(

@@ -585,7 +585,7 @@ void Editor::setSelectionMode(SelectionMode mode) {
         statusMessage = "Selection mode: Vert";
         break;
     case SelectionMode::Entity:
-        statusMessage = "Selection mode: Entity";
+        statusMessage = "Selection mode: Thing";
         break;
     }
 }
@@ -1126,16 +1126,6 @@ void Editor::markBspDirty() {
         return;
     }
     compileDirty.bsp = true;
-    compileDirty.fac = true;
-    compileDirty.vis = true;
-    compileDirty.rad = true;
-}
-
-void Editor::markFacDirty() {
-    if (scene != EditorScene::Level) {
-        return;
-    }
-    compileDirty.fac = true;
     compileDirty.vis = true;
     compileDirty.rad = true;
 }
@@ -1159,7 +1149,7 @@ void Editor::markBrushCompileDirty(slopengine::BrushRole role) {
     if (slopengine::brushRoleContributesSplits(role)) {
         markBspDirty();
     } else {
-        markFacDirty();
+        markRadDirty();
     }
 }
 
@@ -1174,9 +1164,6 @@ void Editor::clearCompileStage(CompileStage stage) {
     switch (stage) {
     case CompileStage::Bsp:
         compileDirty.bsp = false;
-        break;
-    case CompileStage::Fac:
-        compileDirty.fac = false;
         break;
     case CompileStage::Vis:
         compileDirty.vis = false;
@@ -1218,16 +1205,12 @@ bool Editor::cleanCompileData(
     const std::filesystem::path mapDir = packageRoot / "maps" / mapName;
     bool removedAny = false;
     bool cleanBsp = false;
-    bool cleanFac = false;
     bool cleanVis = false;
     bool cleanRad = false;
     for (const CompileStage stage : stages) {
         switch (stage) {
         case CompileStage::Bsp:
             cleanBsp = true;
-            break;
-        case CompileStage::Fac:
-            cleanFac = true;
             break;
         case CompileStage::Vis:
             cleanVis = true;
@@ -1257,15 +1240,10 @@ bool Editor::cleanCompileData(
         removePath(mapDir / "static.bsp", false);
         compileDirty.bsp = true;
     }
-    if (cleanFac) {
-        removePath(mapDir / "static.fac", false);
-        preview.clearVis();
-        compileDirty.fac = true;
-        compileDirty.vis = true;
-        compileDirty.rad = true;
-    }
     if (cleanVis) {
+        removePath(mapDir / "static.fac", false);
         removePath(mapDir / "static.vis", false);
+        preview.clearVis();
         compileDirty.vis = true;
         compileDirty.rad = true;
     }
@@ -1306,6 +1284,33 @@ bool Editor::cleanCompileData(
     }
     statusMessage = "Cleaned " + cleaned + " for " + mapName;
     return true;
+}
+
+void Editor::dropOptInFacArtifact(slopengine::AssetStore& assets) {
+    if (scene != EditorScene::Level) {
+        return;
+    }
+    const std::string& mapName = levelDoc.assetPath;
+    if (mapName.empty() || mapName == "untitled") {
+        return;
+    }
+
+    std::filesystem::path packageRoot = writePackageRoot;
+    auto existing = assets.resolveOwned(slopengine::AssetKind::MapCsg, mapName + "/static");
+    if (existing && existing->package != nullptr) {
+        packageRoot = existing->package->root();
+    }
+    if (packageRoot.empty()) {
+        return;
+    }
+
+    std::error_code ec;
+    const std::filesystem::path facPath = packageRoot / "maps" / mapName / "static.fac";
+    if (std::filesystem::exists(facPath, ec)) {
+        std::filesystem::remove(facPath, ec);
+        preview.clearVis();
+        compileDirty.vis = true;
+    }
 }
 
 void Editor::rebuildPreview(slopengine::AssetStore& assets) {
@@ -1623,7 +1628,7 @@ bool Editor::renameBrush(int index, std::string_view newId) {
     }
 
     markDirty();
-    markFacDirty();
+    markRadDirty();
     markBrushCompileDirty(brush.role);
     statusMessage = "Renamed brush " + oldId + " -> " + id;
     return true;
@@ -1929,7 +1934,7 @@ void Editor::convertSelectedBrushesToMovers() {
         selectEntity(created[i], i > 0);
     }
     markDirty();
-    markFacDirty();
+    markRadDirty();
     markThingCompileDirty(slopengine::ThingKind::Mover);
     endEdit();
     statusMessage = created.size() == 1
@@ -1998,7 +2003,7 @@ void Editor::setSelectedBrushesAsDoors() {
     }
 
     markDirty();
-    markFacDirty();
+    markRadDirty();
     endEdit();
     statusMessage = updated == 1
         ? "Set 1 brush as door"
@@ -2058,7 +2063,7 @@ void Editor::toggleSelectedBrushRole() {
     if (anySplit) {
         markBspDirty();
     } else {
-        markFacDirty();
+        markRadDirty();
     }
     endEdit();
     statusMessage = std::string("Role: ") + slopengine::brushRoleName(lastRole) + " (" + lastId + ")";

@@ -17,11 +17,15 @@ void runPhysicsTests();
 void runFrustumTests();
 void runTransformTests();
 void runDynamicLightTests();
+void runDynamicLightCompositingTests();
 void runBrushDoorTests();
 void runBrushSplitTests();
 void runBrushRoleTests();
 void runBrushBlocksTests();
 void runLightmapTransparentTests();
+void runLightmapRgbeTests();
+void runRadiosityEmitterTests();
+void runSunShadowSoftnessTests();
 void runSightTests();
 
 }
@@ -46,11 +50,15 @@ const Suite kSuites[] = {
     {"frustum", slopengine::runFrustumTests},
     {"transform", slopengine::runTransformTests},
     {"dynamic_light", slopengine::runDynamicLightTests},
+    {"dynamic_light_compositing", slopengine::runDynamicLightCompositingTests},
     {"brush_door", slopengine::runBrushDoorTests},
     {"brush_split", slopengine::runBrushSplitTests},
     {"brush_role", slopengine::runBrushRoleTests},
     {"brush_blocks", slopengine::runBrushBlocksTests},
     {"lightmap_transparent", slopengine::runLightmapTransparentTests},
+    {"lightmap_rgbe", slopengine::runLightmapRgbeTests},
+    {"radiosity_emitters", slopengine::runRadiosityEmitterTests},
+    {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
     {"sight", slopengine::runSightTests},
 };
 

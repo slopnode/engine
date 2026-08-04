@@ -5,6 +5,7 @@
 #include "map/csg_compile.hpp"
 #include "map/fac_io.hpp"
 #include "map/lightmap.hpp"
+#include "map/mover_brushes.hpp"
 #include "render/skybox.hpp"
 #include "render/skybox_render.hpp"
 
@@ -22,6 +23,22 @@
 namespace slopmap {
 
 namespace {
+
+std::vector<slopengine::Brush> staticBrushesForPreview(
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds) {
+    if (moverBrushIds.empty()) {
+        return brushes;
+    }
+    std::vector<slopengine::Brush> out;
+    out.reserve(brushes.size());
+    for (const slopengine::Brush& brush : brushes) {
+        if (moverBrushIds.count(brush.id) == 0) {
+            out.push_back(brush);
+        }
+    }
+    return out;
+}
 
 Vector3 normalizeOrDefault(Vector3 v, Vector3 fallback) {
     const float lenSq = v.x * v.x + v.y * v.y + v.z * v.z;
@@ -439,24 +456,29 @@ bool MapPreview::reloadVisPreview(
         return false;
     }
 
-    const std::string visVirtualPath = mapName + "/static";
-    if (!assets.hasMapFac(visVirtualPath)) {
-        return false;
-    }
-    const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath);
-    if (!visPath) {
-        return false;
-    }
-    auto loadedFac = slopengine::readFacFile(*visPath);
-    if (!loadedFac || loadedFac->faces.empty()) {
-        return false;
-    }
-
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
-    pickFac = std::move(*loadedFac);
-    const slopengine::CsgCompileResult compiled =
-        slopengine::compileVisibleFacesToGeo(pickFac, resolveUv, nullptr);
+
+    const std::string visVirtualPath = mapName + "/static";
+    slopengine::CsgCompileResult compiled{};
+    if (assets.hasMapFac(visVirtualPath)) {
+        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
+            if (auto loadedFac = slopengine::readFacFile(*visPath)) {
+                if (!loadedFac->faces.empty()) {
+                    pickFac = *loadedFac;
+                    slopengine::eraseFacFacesForMoverBrushes(pickFac, moverBrushIds);
+                    compiled = slopengine::compileVisibleFacesToGeo(pickFac, resolveUv, nullptr);
+                }
+            }
+        }
+    }
+    if (compiled.asset.primitives.empty()) {
+        pickFac = {};
+        compiled = slopengine::compileBrushesToGeo(
+            staticBrushesForPreview(brushes, moverBrushIds),
+            resolveUv,
+            nullptr);
+    }
 
     visModel = slopengine::buildModelFromGeo(
         compiled.asset,
@@ -502,6 +524,7 @@ bool MapPreview::reloadBake(
         rad = {};
         return false;
     }
+    slopengine::applyLightmapEncoding(lightmapShader, slopengine::primaryLightmapEncoding(rad));
     skyShader = slopengine::loadSkyFaceShader(assets);
     solidLitLoc = GetShaderLocation(lightmapShader, "solidLit");
     if (solidLitLoc >= 0) {
@@ -517,7 +540,10 @@ bool MapPreview::reloadBake(
         if (resolved) {
             texture = LoadTexture(resolved->string().c_str());
             if (texture.id != 0) {
-                SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+                const int filter = atlas.encoding == slopengine::LightmapEncoding::Rgbe
+                    ? TEXTURE_FILTER_POINT
+                    : TEXTURE_FILTER_BILINEAR;
+                SetTextureFilter(texture, filter);
                 SetTextureWrap(texture, TEXTURE_WRAP_CLAMP);
             }
         }
@@ -546,7 +572,10 @@ bool MapPreview::reloadBake(
     }
     const slopengine::CsgCompileResult compiled = haveVis
         ? slopengine::compileVisibleFacesToGeo(vis, resolveUv, &rad)
-        : slopengine::compileBrushesToGeo(brushes, resolveUv, &rad);
+        : slopengine::compileBrushesToGeo(
+              staticBrushesForPreview(brushes, moverBrushIds),
+              resolveUv,
+              &rad);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const slopengine::LightmapChart& chart : rad.charts) {
