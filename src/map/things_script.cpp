@@ -1111,6 +1111,63 @@ s7_pointer g_ambient_light(s7_scheme* sc, s7_pointer args) {
     return appendThing(sc, std::move(placement), "ambient-light requires id", false);
 }
 
+s7_pointer g_sky_material(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "material", 1, args, "path");
+    }
+    return makeTaggedList(sc, "material", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_gradient(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "gradient", args);
+}
+
+s7_pointer g_cube(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "cube", args);
+}
+
+s7_pointer g_stop(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args)) ||
+        !s7_is_pair(s7_cdddr(args))) {
+        return s7_wrong_type_arg_error(sc, "stop", 0, args, "position r g b");
+    }
+    return makeTaggedList(
+        sc,
+        "stop",
+        s7_list(sc, 4, s7_car(args), s7_cadr(args), s7_caddr(args), s7_cadddr(args)));
+}
+
+s7_pointer g_cube_face(s7_scheme* sc, s7_pointer args, const char* tag) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, tag, 1, args, "path");
+    }
+    return makeTaggedList(sc, tag, s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_px(s7_scheme* sc, s7_pointer args) {
+    return g_cube_face(sc, args, "px");
+}
+
+s7_pointer g_nx(s7_scheme* sc, s7_pointer args) {
+    return g_cube_face(sc, args, "nx");
+}
+
+s7_pointer g_py(s7_scheme* sc, s7_pointer args) {
+    return g_cube_face(sc, args, "py");
+}
+
+s7_pointer g_ny(s7_scheme* sc, s7_pointer args) {
+    return g_cube_face(sc, args, "ny");
+}
+
+s7_pointer g_pz(s7_scheme* sc, s7_pointer args) {
+    return g_cube_face(sc, args, "pz");
+}
+
+s7_pointer g_nz(s7_scheme* sc, s7_pointer args) {
+    return g_cube_face(sc, args, "nz");
+}
+
 bool parseSkyboxClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
     int modeCount = 0;
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -1420,6 +1477,16 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
     s7_define_function(sc, "ambient-light", g_ambient_light, 0, 0, true, "(ambient-light clauses...)");
+    s7_define_function(sc, "material", g_sky_material, 1, 0, false, "(material path)");
+    s7_define_function(sc, "gradient", g_gradient, 0, 0, true, "(gradient (stop ...)...)");
+    s7_define_function(sc, "cube", g_cube, 0, 0, true, "(cube (px ...)... (nz ...))");
+    s7_define_function(sc, "stop", g_stop, 4, 0, false, "(stop position r g b)");
+    s7_define_function(sc, "px", g_px, 1, 0, false, "(px path)");
+    s7_define_function(sc, "nx", g_nx, 1, 0, false, "(nx path)");
+    s7_define_function(sc, "py", g_py, 1, 0, false, "(py path)");
+    s7_define_function(sc, "ny", g_ny, 1, 0, false, "(ny path)");
+    s7_define_function(sc, "pz", g_pz, 1, 0, false, "(pz path)");
+    s7_define_function(sc, "nz", g_nz, 1, 0, false, "(nz path)");
     s7_define_function(sc, "skybox", g_skybox, 0, 0, true, "(skybox clauses...)");
     s7_define_function(sc, "sound-source", g_sound_source, 0, 0, true, "(sound-source clauses...)");
     s7_define_function(sc, "marker", g_marker, 0, 0, true, "(marker clauses...)");
