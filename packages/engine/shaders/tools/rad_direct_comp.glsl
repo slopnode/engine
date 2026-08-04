@@ -447,7 +447,7 @@ vec3 planePointFromUv(EmissiveFace face, float u, float v) {
         return uAxis * u + vAxis * v + normal * face.planeD;
     }
     float invDet = 1.0 / det;
-    return cross(vCrossN, u * invDet)
+    return vCrossN * (u * invDet)
         + cross(normal, uAxis) * (v * invDet)
         + cross(uAxis, vAxis) * (face.planeD * invDet);
 }
