@@ -100,8 +100,8 @@ Vector3 evaluateOverlayLightsAtPoint(
     const QuadBvh* occlusionBvh = nullptr,
     const std::vector<char>* occlusionSkipFaces = nullptr);
 
-/** Adds linear RGB light contribution into an 8-bit color (clamped). */
-Color addLinearRgbToColor(Color base, Vector3 linearRgb);
+/** Composites baked tint with dyn/FX overlay in lighting-multiplier space. */
+Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay);
 
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state);
 

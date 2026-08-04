@@ -401,11 +401,11 @@ void drawWorldSprite(
             (lighting != nullptr && lighting->available && !lighting->faceTransparentSkip.empty())
                 ? &lighting->faceTransparentSkip
                 : nullptr;
-        colorFeet = addLinearRgbToColor(
+        colorFeet = composeBakeTintWithOverlay(
             colorFeet,
             evaluateOverlayLightsAtPoint(
                 dynamicLights, fxLights, feetPoint, normal, occlusionBvh, occlusionSkip));
-        colorHead = addLinearRgbToColor(
+        colorHead = composeBakeTintWithOverlay(
             colorHead,
             evaluateOverlayLightsAtPoint(
                 dynamicLights, fxLights, headPoint, normal, occlusionBvh, occlusionSkip));

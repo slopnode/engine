@@ -233,8 +233,9 @@ void main()
     }
     if (useLightmap != 0 && lightmapEncoding != 0) {
         vec3 irradiance = sampleBakedIrradiance(fragTexCoord2);
-        vec3 litLinear = albedoRgb * (irradiance + dynamic) + emission;
-        finalColor = vec4(tonemapDisplay(litLinear), albedoA);
+        vec3 bakedLighting = tonemapDisplay(irradiance);
+        vec3 lighting = bakedLighting + dynamic + emission;
+        finalColor = vec4(albedoRgb * lighting, albedoA);
         return;
     }
     vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;

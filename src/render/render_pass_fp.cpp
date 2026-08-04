@@ -87,7 +87,7 @@ Color sampleFirstPersonRadTint(
         (lighting != nullptr && lighting->available && !lighting->faceTransparentSkip.empty())
             ? &lighting->faceTransparentSkip
             : nullptr;
-    tint = addLinearRgbToColor(
+    tint = composeBakeTintWithOverlay(
         tint,
         evaluateOverlayLightsAtPoint(
             dynamicLights, fxLights, feetOrigin, {0.0f, 1.0f, 0.0f}, occlusionBvh, occlusionSkip));

@@ -358,9 +358,6 @@ void uploadDynamicLightsToShader(
         if (count >= kMaxDynamicLights) {
             break;
         }
-        if (shadowsActive && light.light.castShadows && light.shadowSlot < 0) {
-            continue;
-        }
         posRange[count] = {
             light.position.x,
             light.position.y,

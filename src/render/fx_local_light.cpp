@@ -31,37 +31,38 @@ Vector3 colorToLinear(Color color) {
     };
 }
 
-Color linearToColor(Vector3 linearRgb, unsigned char alpha = 255) {
-    return Color{
-        static_cast<unsigned char>(std::clamp(static_cast<int>(linearRgb.x * 255.0f), 0, 255)),
-        static_cast<unsigned char>(std::clamp(static_cast<int>(linearRgb.y * 255.0f), 0, 255)),
-        static_cast<unsigned char>(std::clamp(static_cast<int>(linearRgb.z * 255.0f), 0, 255)),
-        alpha,
-    };
-}
-
 float linearLuminance(Vector3 linearRgb) {
     return 0.2126f * linearRgb.x + 0.7152f * linearRgb.y + 0.0722f * linearRgb.z;
+}
+
+Color lightingMultiplierToColor(Vector3 lighting, unsigned char alpha = 255) {
+    const auto channel = [](float value) {
+        return static_cast<unsigned char>(
+            std::clamp(value / (1.0f + value) * 255.0f, 0.0f, 255.0f));
+    };
+    return {
+        channel(lighting.x),
+        channel(lighting.y),
+        channel(lighting.z),
+        alpha,
+    };
 }
 
 Vector3 composeReceiverLighting(Color bakeTint, Vector3 overlay) {
     Vector3 bake = colorToLinear(bakeTint);
     const float overlayPeak = std::max({overlay.x, overlay.y, overlay.z, 0.0f});
-    const float bakePeak = std::max({bake.x, bake.y, bake.z, 0.0f});
-    if (overlayPeak > bakePeak && overlayPeak > 1e-4f) {
-        const float bakeLum = linearLuminance(bake);
-        bake = {bakeLum, bakeLum, bakeLum};
+    if (overlayPeak > 1e-4f) {
+        const float bakePeak = std::max({bake.x, bake.y, bake.z, 0.0f});
+        if (overlayPeak > bakePeak) {
+            const float bakeLum = linearLuminance(bake);
+            bake = {bakeLum, bakeLum, bakeLum};
+        }
     }
-    Vector3 lighting{
+    return {
         bake.x + overlay.x,
         bake.y + overlay.y,
         bake.z + overlay.z,
     };
-    const float peak = std::max({lighting.x, lighting.y, lighting.z, 1.0f});
-    lighting.x /= peak;
-    lighting.y /= peak;
-    lighting.z /= peak;
-    return lighting;
 }
 
 float overlayStrength(Vector3 overlay) {
@@ -235,22 +236,8 @@ Vector3 evaluateOverlayLightsAtPoint(
     return total;
 }
 
-Color addLinearRgbToColor(Color base, Vector3 linearRgb) {
-    return Color{
-        static_cast<unsigned char>(std::clamp(
-            static_cast<int>(base.r) + static_cast<int>(linearRgb.x * 255.0f),
-            0,
-            255)),
-        static_cast<unsigned char>(std::clamp(
-            static_cast<int>(base.g) + static_cast<int>(linearRgb.y * 255.0f),
-            0,
-            255)),
-        static_cast<unsigned char>(std::clamp(
-            static_cast<int>(base.b) + static_cast<int>(linearRgb.z * 255.0f),
-            0,
-            255)),
-        base.a,
-    };
+Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay) {
+    return lightingMultiplierToColor(composeReceiverLighting(bakeTint, overlay), bakeTint.a);
 }
 
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state) {
@@ -296,7 +283,7 @@ Color sampleReceiverTintAtOrigin(
         {0.0f, 1.0f, 0.0f},
         occlusionBvhFromLighting(lighting),
         occlusionSkipFromLighting(lighting));
-    return linearToColor(composeReceiverLighting(tint, overlay));
+    return composeBakeTintWithOverlay(tint, overlay);
 }
 
 Color sampleReceiverTintColor(
