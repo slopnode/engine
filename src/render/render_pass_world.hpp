@@ -10,6 +10,7 @@
 #include <raylib.h>
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace slopengine {
@@ -19,7 +20,9 @@ void renderWorldModel(
     Model3D& model,
     GlobalTransformation& globalTransform,
     const Lens& lens,
-    bool unlit = false);
+    bool unlit = false,
+    const std::unordered_set<int>* skipMeshIndices = nullptr,
+    const std::unordered_set<int>* onlyMeshIndices = nullptr);
 
 std::vector<RankedDynamicLight> gatherDynamicLights(
     flecs::world& world,
@@ -41,6 +44,13 @@ void uploadMapDynamicLights(
     const DynamicLightShadowState* shadowState = nullptr);
 
 void drawWorldModels(
+    flecs::world& world,
+    RenderContext& context,
+    const Lens& lens,
+    const Frustum& frustum,
+    bool unlit);
+
+std::string drawWorldTransparentPass(
     flecs::world& world,
     RenderContext& context,
     const Lens& lens,

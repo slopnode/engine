@@ -180,6 +180,62 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     out << "  )\n";
 }
 
+void writeBrushBlockClauses(std::ostringstream& out, const Brush& brush) {
+    const std::uint8_t roleDefault = brushRoleDefaultBlocks(brush.role);
+    if (!brushBlocksAny(brush.blocks) && brushBlocksAny(roleDefault)) {
+        out << "  (nocollide)\n";
+        return;
+    }
+    if (!brushBlocksAny(roleDefault) && brushBlocksAny(brush.blocks)) {
+        if (brush.blocks & BrushBlock::Los) {
+            out << "  (block-los)\n";
+        }
+        if (brush.blocks & BrushBlock::Linescan) {
+            out << "  (block-linescan)\n";
+        }
+        if (brush.blocks & BrushBlock::Projectile) {
+            out << "  (block-projectile)\n";
+        }
+        if (brush.blocks & BrushBlock::Player) {
+            out << "  (block-player)\n";
+        }
+        if (brush.blocks & BrushBlock::Actor) {
+            out << "  (block-actor)\n";
+        }
+        return;
+    }
+    if ((roleDefault & BrushBlock::Los) && !(brush.blocks & BrushBlock::Los)) {
+        out << "  (no-block-los)\n";
+    }
+    if ((roleDefault & BrushBlock::Linescan) && !(brush.blocks & BrushBlock::Linescan)) {
+        out << "  (no-block-linescan)\n";
+    }
+    if ((roleDefault & BrushBlock::Projectile) && !(brush.blocks & BrushBlock::Projectile)) {
+        out << "  (no-block-projectile)\n";
+    }
+    if ((roleDefault & BrushBlock::Player) && !(brush.blocks & BrushBlock::Player)) {
+        out << "  (no-block-player)\n";
+    }
+    if ((roleDefault & BrushBlock::Actor) && !(brush.blocks & BrushBlock::Actor)) {
+        out << "  (no-block-actor)\n";
+    }
+    if (!(roleDefault & BrushBlock::Los) && (brush.blocks & BrushBlock::Los)) {
+        out << "  (block-los)\n";
+    }
+    if (!(roleDefault & BrushBlock::Linescan) && (brush.blocks & BrushBlock::Linescan)) {
+        out << "  (block-linescan)\n";
+    }
+    if (!(roleDefault & BrushBlock::Projectile) && (brush.blocks & BrushBlock::Projectile)) {
+        out << "  (block-projectile)\n";
+    }
+    if (!(roleDefault & BrushBlock::Player) && (brush.blocks & BrushBlock::Player)) {
+        out << "  (block-player)\n";
+    }
+    if (!(roleDefault & BrushBlock::Actor) && (brush.blocks & BrushBlock::Actor)) {
+        out << "  (block-actor)\n";
+    }
+}
+
 void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     const std::string material = defaultMaterialForBrush(brush);
     out << "(brush-box\n";
@@ -190,9 +246,7 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     if (brush.role != BrushRole::Hull) {
         out << "  (role \"" << brushRoleName(brush.role) << "\")\n";
     }
-    if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
-        out << "  (nocollide)\n";
-    }
+    writeBrushBlockClauses(out, brush);
     if (brush.role == BrushRole::Door) {
         writeBrushDoor(out, brush.door);
     }
@@ -236,9 +290,7 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     if (brush.role != BrushRole::Hull) {
         out << "  (role \"" << brushRoleName(brush.role) << "\")\n";
     }
-    if (brush.nocollide && !brushRoleDefaultNocollide(brush.role)) {
-        out << "  (nocollide)\n";
-    }
+    writeBrushBlockClauses(out, brush);
     if (brush.role == BrushRole::Door) {
         writeBrushDoor(out, brush.door);
     }

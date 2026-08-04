@@ -8,6 +8,7 @@
 #include "map/light_sample.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
+#include "particles/particle_sim.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
@@ -23,7 +24,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <raylib.h>
@@ -70,6 +73,98 @@ void prepareLightmapShaderDraw(
     }
 }
 
+void drawModelMeshes(
+    const Model& model,
+    const std::unordered_set<int>* skipMeshIndices,
+    const std::unordered_set<int>* onlyMeshIndices) {
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
+            continue;
+        }
+        if (onlyMeshIndices != nullptr && onlyMeshIndices->count(meshIndex) == 0) {
+            continue;
+        }
+        DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+    }
+}
+
+Vector3 meshWorldCentroid(const Mesh& mesh, const Matrix& worldMatrix) {
+    if (mesh.vertexCount <= 0 || mesh.vertices == nullptr) {
+        return {worldMatrix.m12, worldMatrix.m13, worldMatrix.m14};
+    }
+    Vector3 sum{};
+    for (int i = 0; i < mesh.vertexCount; ++i) {
+        const Vector3 local{
+            mesh.vertices[i * 3 + 0],
+            mesh.vertices[i * 3 + 1],
+            mesh.vertices[i * 3 + 2],
+        };
+        sum = Vector3Add(sum, Vector3Transform(local, worldMatrix));
+    }
+    const float inv = 1.0f / static_cast<float>(mesh.vertexCount);
+    return Vector3Scale(sum, inv);
+}
+
+Vector3 cameraForwardDir(const Camera3D& camera) {
+    const Vector3 forward = Vector3Subtract(camera.target, camera.position);
+    const float lenSq = Vector3LengthSqr(forward);
+    if (lenSq < 1e-8f) {
+        return {0.0f, 0.0f, 1.0f};
+    }
+    return Vector3Scale(forward, 1.0f / std::sqrt(lenSq));
+}
+
+float viewDepthAlongAxis(Vector3 point, Vector3 cameraPos, Vector3 cameraForward) {
+    return Vector3DotProduct(Vector3Subtract(point, cameraPos), cameraForward);
+}
+
+float meshMinViewDepth(
+    const Mesh& mesh,
+    const Matrix& worldMatrix,
+    Vector3 cameraPos,
+    Vector3 cameraForward) {
+    const BoundingBox bounds = GetMeshBoundingBox(mesh);
+    const Vector3 localCorners[8] = {
+        {bounds.min.x, bounds.min.y, bounds.min.z},
+        {bounds.max.x, bounds.min.y, bounds.min.z},
+        {bounds.min.x, bounds.max.y, bounds.min.z},
+        {bounds.max.x, bounds.max.y, bounds.min.z},
+        {bounds.min.x, bounds.min.y, bounds.max.z},
+        {bounds.max.x, bounds.min.y, bounds.max.z},
+        {bounds.min.x, bounds.max.y, bounds.max.z},
+        {bounds.max.x, bounds.max.y, bounds.max.z},
+    };
+    float minDepth = std::numeric_limits<float>::max();
+    for (const Vector3& local : localCorners) {
+        const Vector3 world = Vector3Transform(local, worldMatrix);
+        minDepth = std::min(minDepth, viewDepthAlongAxis(world, cameraPos, cameraForward));
+    }
+    return minDepth;
+}
+
+struct SpriteDrawItem {
+    const SpriteInstance* sprite = nullptr;
+    const GlobalTransformation* global = nullptr;
+    const SpriteAnimator* animator = nullptr;
+    float viewDepth = 0.0f;
+    int layer = 0;
+};
+
+enum class TransparentDrawKind {
+    MapMesh,
+    Sprite,
+    Particle,
+};
+
+struct TransparentDrawItem {
+    float viewDepth = 0.0f;
+    int sortLayer = 0;
+    TransparentDrawKind kind = TransparentDrawKind::MapMesh;
+    int mapMeshIndex = -1;
+    SpriteDrawItem sprite{};
+    ParticleDrawItem particle{};
+};
+
 } // namespace
 
 void renderWorldModel(
@@ -77,7 +172,9 @@ void renderWorldModel(
     Model3D& model,
     GlobalTransformation& globalTransform,
     const Lens& lens,
-    bool unlit) {
+    bool unlit,
+    const std::unordered_set<int>* skipMeshIndices,
+    const std::unordered_set<int>* onlyMeshIndices) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
@@ -138,7 +235,11 @@ void renderWorldModel(
                 100.0f));
     }
 
-    DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+    if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
+        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices);
+    } else {
+        DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+    }
 
     if (swappedPropShader) {
         for (int i = 0; i < model.model.materialCount; ++i) {
@@ -296,14 +397,18 @@ void drawWorldSprite(
             (lighting != nullptr && lighting->available && !lighting->surfaceBvh.empty())
                 ? &lighting->surfaceBvh
                 : nullptr;
+        const std::vector<char>* occlusionSkip =
+            (lighting != nullptr && lighting->available && !lighting->faceTransparentSkip.empty())
+                ? &lighting->faceTransparentSkip
+                : nullptr;
         colorFeet = addLinearRgbToColor(
             colorFeet,
             evaluateOverlayLightsAtPoint(
-                dynamicLights, fxLights, feetPoint, normal, occlusionBvh));
+                dynamicLights, fxLights, feetPoint, normal, occlusionBvh, occlusionSkip));
         colorHead = addLinearRgbToColor(
             colorHead,
             evaluateOverlayLightsAtPoint(
-                dynamicLights, fxLights, headPoint, normal, occlusionBvh));
+                dynamicLights, fxLights, headPoint, normal, occlusionBvh, occlusionSkip));
     }
     if (billboard->fullbright && useBrightmap) {
         colorFeet = WHITE;
@@ -547,7 +652,18 @@ void drawWorldModels(
                     world, model.model, global.matrix, unlit, closedMatrix);
             }
         }
-        renderWorldModel(modelEntity, model, global, lens, unlit);
+        const std::unordered_set<int>* skipMeshes = nullptr;
+        std::unordered_set<int> transparentSkip;
+        if (modelEntity.has<MapLightmapState>()) {
+            const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
+            if (!lightmaps.transparentMeshIndices.empty()) {
+                transparentSkip = std::unordered_set<int>(
+                    lightmaps.transparentMeshIndices.begin(),
+                    lightmaps.transparentMeshIndices.end());
+                skipMeshes = &transparentSkip;
+            }
+        }
+        renderWorldModel(modelEntity, model, global, lens, unlit, skipMeshes, nullptr);
     });
     rlDisableShader();
     context.animOverlayQuery.each(
@@ -574,34 +690,15 @@ void drawWorldModels(
         });
 }
 
-std::string drawWorldSprites(
+namespace {
+
+void collectWorldSpriteDrawItems(
     flecs::world& world,
     RenderContext& context,
     const Lens& lens,
     const Frustum& frustum,
-    bool unlit) {
-    std::string spriteAimStatus;
-    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
-        return spriteAimStatus;
-    }
-    AssetStore& assets = *world.get_mut<AssetServices>().store;
-    const MapLighting* lighting =
-        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
-    const std::vector<RankedDynamicLight>* dynamicLights =
-        (!unlit && world.has<DynamicLightFrameState>())
-            ? &world.get<DynamicLightFrameState>().lights
-            : nullptr;
-    const FxLightFrameState* fxLights =
-        (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
-
-    struct SpriteDrawItem {
-        const SpriteInstance* sprite = nullptr;
-        const GlobalTransformation* global = nullptr;
-        const SpriteAnimator* animator = nullptr;
-        float distSq = 0.0f;
-        int layer = 0;
-    };
-    std::vector<SpriteDrawItem> spriteDrawList;
+    std::vector<SpriteDrawItem>& spriteDrawList) {
+    spriteDrawList.clear();
     spriteDrawList.reserve(32);
     context.worldSpriteQuery.each(
         [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
@@ -621,55 +718,279 @@ std::string drawWorldSprites(
             if (!pvsVisibleFromCamera(world, lens.camera.position, position)) {
                 return;
             }
-            const float dx = position.x - lens.camera.position.x;
-            const float dy = position.y - lens.camera.position.y;
-            const float dz = position.z - lens.camera.position.z;
+            const Vector3 camForward = cameraForwardDir(lens.camera);
             spriteDrawList.push_back(SpriteDrawItem{
                 &sprite,
                 &global,
                 spriteEntity.has<SpriteAnimator>() ? &spriteEntity.get<SpriteAnimator>()
                                                    : nullptr,
-                dx * dx + dy * dy + dz * dz,
+                viewDepthAlongAxis(position, lens.camera.position, camForward),
                 spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
             });
         });
-    std::sort(
-        spriteDrawList.begin(),
-        spriteDrawList.end(),
-        [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
-            if (std::fabs(a.distSq - b.distSq) > 1.0e-3f) {
-                return a.distSq > b.distSq;
+}
+
+Color multiplyParticleTintLocal(Color particle, Color scene) {
+    return {
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.r) * static_cast<int>(scene.r) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.g) * static_cast<int>(scene.g) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
+        particle.a,
+    };
+}
+
+void collectWorldDepthParticleDrawItems(
+    flecs::world& world,
+    AssetStore& assets,
+    const Camera3D& camera,
+    bool unlit,
+    std::vector<ParticleDrawItem>& out) {
+    out.clear();
+    out.reserve(256);
+    world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
+        if (entity.has<ParticleFollowViewMuzzle>()) {
+            return;
+        }
+        appendParticleDrawItems(instance, assets, camera, out);
+    });
+    if (!unlit) {
+        for (ParticleDrawItem& item : out) {
+            if (item.unlit || !item.depthTest) {
+                continue;
             }
-            return a.layer < b.layer;
+            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
+            item.color = multiplyParticleTintLocal(item.color, scene);
+        }
+    }
+    out.erase(
+        std::remove_if(
+            out.begin(),
+            out.end(),
+            [](const ParticleDrawItem& item) { return !item.depthTest; }),
+        out.end());
+}
+
+} // namespace
+
+std::string drawWorldTransparentPass(
+    flecs::world& world,
+    RenderContext& context,
+    const Lens& lens,
+    const Frustum& frustum,
+    bool unlit) {
+    std::string spriteAimStatus;
+    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr) {
+        return spriteAimStatus;
+    }
+    AssetStore& assets = *world.get_mut<AssetServices>().store;
+    const MapLighting* lighting =
+        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+    const std::vector<RankedDynamicLight>* dynamicLights =
+        (!unlit && world.has<DynamicLightFrameState>())
+            ? &world.get<DynamicLightFrameState>().lights
+            : nullptr;
+    const FxLightFrameState* fxLights =
+        (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
+
+    const Vector3 camForward = cameraForwardDir(lens.camera);
+    std::vector<TransparentDrawItem> drawList;
+    drawList.reserve(128);
+
+    flecs::entity mapEntity = world.lookup("MapStatic");
+    if (mapEntity.is_valid() && mapEntity.has<MapLightmapState>() && mapEntity.has<Model3D>()) {
+        const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
+        Model3D& mapModel = mapEntity.get_mut<Model3D>();
+        const GlobalTransformation& mapGlobal = mapEntity.get<GlobalTransformation>();
+        if (!lightmaps.transparentMeshIndices.empty()) {
+            for (int meshIndex : lightmaps.transparentMeshIndices) {
+                if (meshIndex < 0 || meshIndex >= mapModel.model.meshCount) {
+                    continue;
+                }
+                TransparentDrawItem item{};
+                item.kind = TransparentDrawKind::MapMesh;
+                item.mapMeshIndex = meshIndex;
+                item.viewDepth = meshMinViewDepth(
+                    mapModel.model.meshes[meshIndex],
+                    mapGlobal.matrix,
+                    lens.camera.position,
+                    camForward);
+                drawList.push_back(item);
+            }
+        }
+    }
+
+    std::vector<SpriteDrawItem> spriteDrawList;
+    collectWorldSpriteDrawItems(world, context, lens, frustum, spriteDrawList);
+    for (const SpriteDrawItem& sprite : spriteDrawList) {
+        TransparentDrawItem item{};
+        item.kind = TransparentDrawKind::Sprite;
+        item.sprite = sprite;
+        item.viewDepth = sprite.viewDepth;
+        item.sortLayer = sprite.layer;
+        drawList.push_back(item);
+    }
+
+    std::vector<ParticleDrawItem> particleDrawList;
+    collectWorldDepthParticleDrawItems(world, assets, lens.camera, unlit, particleDrawList);
+    for (const ParticleDrawItem& particle : particleDrawList) {
+        TransparentDrawItem item{};
+        item.kind = TransparentDrawKind::Particle;
+        item.particle = particle;
+        item.viewDepth =
+            viewDepthAlongAxis(particle.position, lens.camera.position, camForward);
+        drawList.push_back(item);
+    }
+
+    if (drawList.empty()) {
+        if (world.has<DebugUiState>()) {
+            spriteAimStatus = drawSpriteDebugOverlays(
+                lens,
+                assets,
+                world.get<DebugUiState>(),
+                context.worldSpriteQuery);
+        }
+        return spriteAimStatus;
+    }
+
+    std::sort(
+        drawList.begin(),
+        drawList.end(),
+        [](const TransparentDrawItem& a, const TransparentDrawItem& b) {
+            if (a.viewDepth > b.viewDepth) {
+                return true;
+            }
+            if (b.viewDepth > a.viewDepth) {
+                return false;
+            }
+            return a.sortLayer < b.sortLayer;
         });
 
-    BeginBlendMode(BLEND_ALPHA);
+    rlDrawRenderBatchActive();
+    rlDisableDepthMask();
     BlendMode activeBlend = BLEND_ALPHA;
-    rlEnableDepthMask();
-    for (const SpriteDrawItem& item : spriteDrawList) {
-        BlendMode want = BLEND_ALPHA;
-        if (const SpriteAsset* asset = assets.getSpriteAsset(item.sprite->sprite);
-            asset != nullptr && asset->blend == SpriteBlendMode::Additive) {
-            want = BLEND_ADD_COLORS;
+    BeginBlendMode(activeBlend);
+
+    const Matrix matView = MatrixLookAt(lens.camera.position, lens.camera.target, lens.camera.up);
+    const Vector3 screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
+    const Vector3 worldUp{0.0f, 1.0f, 0.0f};
+    const Texture2D* particleFilterTex = nullptr;
+    Model3D* mapDrawModel = nullptr;
+    GlobalTransformation* mapDrawGlobal = nullptr;
+    const MapLightmapState* mapDrawLightmaps = nullptr;
+    if (mapEntity.is_valid() && mapEntity.has<MapLightmapState>() && mapEntity.has<Model3D>()) {
+        mapDrawModel = &mapEntity.get_mut<Model3D>();
+        mapDrawGlobal = &mapEntity.get_mut<GlobalTransformation>();
+        mapDrawLightmaps = &mapEntity.get<MapLightmapState>();
+        const int mapUseLightmap = unlit ? 0 : 1;
+        if (mapDrawLightmaps->available && mapDrawModel->model.materialCount > 0) {
+            Shader shader = mapDrawModel->model.materials[0].shader;
+            if (shader.id != 0) {
+                prepareLightmapShaderDraw(
+                    shader,
+                    mapDrawLightmaps->useLightmapLoc,
+                    mapUseLightmap,
+                    mapDrawGlobal->matrix,
+                    world);
+            }
         }
-        if (want != activeBlend) {
-            EndBlendMode();
-            activeBlend = want;
-            BeginBlendMode(activeBlend);
+    }
+
+    for (const TransparentDrawItem& item : drawList) {
+        if (item.kind == TransparentDrawKind::MapMesh) {
+            if (mapDrawModel == nullptr || mapDrawGlobal == nullptr) {
+                continue;
+            }
+            if (item.mapMeshIndex < 0 || item.mapMeshIndex >= mapDrawModel->model.meshCount) {
+                continue;
+            }
+            if (activeBlend != BLEND_ALPHA) {
+                EndBlendMode();
+                activeBlend = BLEND_ALPHA;
+                BeginBlendMode(activeBlend);
+            }
+            rlPushMatrix();
+            rlMultMatrixf(MatrixToFloatV(mapDrawGlobal->matrix).v);
+            DrawMesh(
+                mapDrawModel->model.meshes[item.mapMeshIndex],
+                mapDrawModel->model.materials[item.mapMeshIndex],
+                MatrixIdentity());
+            rlPopMatrix();
+        } else if (item.kind == TransparentDrawKind::Sprite) {
+            BlendMode want = BLEND_ALPHA;
+            if (const SpriteAsset* asset = assets.getSpriteAsset(item.sprite.sprite->sprite);
+                asset != nullptr && asset->blend == SpriteBlendMode::Additive) {
+                want = BLEND_ADD_COLORS;
+            }
+            if (want != activeBlend) {
+                EndBlendMode();
+                activeBlend = want;
+                BeginBlendMode(activeBlend);
+            }
+            drawWorldSprite(
+                *item.sprite.sprite,
+                *item.sprite.global,
+                lens,
+                assets,
+                lighting,
+                dynamicLights,
+                fxLights,
+                unlit,
+                item.sprite.animator);
+        } else if (item.kind == TransparentDrawKind::Particle) {
+            const ParticleDrawItem& particle = item.particle;
+            if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {
+                continue;
+            }
+            if (particleFilterTex != particle.texture) {
+                if (particleFilterTex != nullptr) {
+                    SetTextureFilter(*particleFilterTex, TEXTURE_FILTER_POINT);
+                }
+                SetTextureFilter(*particle.texture, TEXTURE_FILTER_BILINEAR);
+                particleFilterTex = particle.texture;
+            }
+            const bool additive = particle.blend == ParticleBlendMode::Additive;
+            const BlendMode want = additive ? BLEND_ADD_COLORS : BLEND_ALPHA_PREMULTIPLY;
+            if (want != activeBlend) {
+                EndBlendMode();
+                activeBlend = want;
+                BeginBlendMode(activeBlend);
+            }
+            const float alpha = static_cast<float>(particle.color.a) / 255.0f;
+            const Color tint{
+                static_cast<unsigned char>(
+                    std::clamp(static_cast<float>(particle.color.r) * alpha, 0.0f, 255.0f)),
+                static_cast<unsigned char>(
+                    std::clamp(static_cast<float>(particle.color.g) * alpha, 0.0f, 255.0f)),
+                static_cast<unsigned char>(
+                    std::clamp(static_cast<float>(particle.color.b) * alpha, 0.0f, 255.0f)),
+                particle.color.a,
+            };
+            const Vector2 size{particle.size, particle.size};
+            const Vector2 origin = Vector2Scale(size, 0.5f);
+            const Vector3 up =
+                particle.billboard == SpriteBillboardMode::Screen ? screenUp : worldUp;
+            DrawBillboardPro(
+                lens.camera,
+                *particle.texture,
+                particle.source,
+                particle.position,
+                up,
+                size,
+                origin,
+                0.0f,
+                tint);
         }
-        drawWorldSprite(
-            *item.sprite,
-            *item.global,
-            lens,
-            assets,
-            lighting,
-            dynamicLights,
-            fxLights,
-            unlit,
-            item.animator);
+    }
+
+    if (particleFilterTex != nullptr) {
+        SetTextureFilter(*particleFilterTex, TEXTURE_FILTER_POINT);
     }
     rlDrawRenderBatchActive();
     EndBlendMode();
+    rlEnableDepthMask();
 
     if (world.has<DebugUiState>()) {
         spriteAimStatus = drawSpriteDebugOverlays(
@@ -679,6 +1000,15 @@ std::string drawWorldSprites(
             context.worldSpriteQuery);
     }
     return spriteAimStatus;
+}
+
+std::string drawWorldSprites(
+    flecs::world& world,
+    RenderContext& context,
+    const Lens& lens,
+    const Frustum& frustum,
+    bool unlit) {
+    return drawWorldTransparentPass(world, context, lens, frustum, unlit);
 }
 
 void drawWorldDebugOverlays(flecs::world& world) {

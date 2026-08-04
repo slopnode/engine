@@ -506,6 +506,7 @@ Brush finalizeBrushFaces(std::string id, std::vector<BrushFace> faces, BrushRole
     brush.id = std::move(id);
     brush.role = role;
     brush.faces = std::move(faces);
+    setBrushBlocks(brush, brushRoleDefaultBlocks(role));
     for (std::size_t i = 0; i < brush.faces.size(); ++i) {
         BrushFace& face = brush.faces[i];
         if (face.id.empty()) {
@@ -539,6 +540,7 @@ const char* brushRoleName(BrushRole role) {
     case BrushRole::Trigger: return "trigger";
     case BrushRole::Water: return "water";
     case BrushRole::Window: return "window";
+    case BrushRole::Transparent: return "transparent";
     }
     return "unknown";
 }
@@ -570,6 +572,10 @@ bool parseBrushRoleName(std::string_view name, BrushRole& out) {
     }
     if (name == "window") {
         out = BrushRole::Window;
+        return true;
+    }
+    if (name == "transparent") {
+        out = BrushRole::Transparent;
         return true;
     }
     return false;
@@ -613,6 +619,7 @@ bool brushRoleContributesSplits(BrushRole role) {
     case BrushRole::Detail:
     case BrushRole::Door:
     case BrushRole::Trigger:
+    case BrushRole::Transparent:
         return false;
     }
     return false;
@@ -629,6 +636,7 @@ bool brushRoleEmitsVisFaces(BrushRole role) {
     case BrushRole::Door:
     case BrushRole::Water:
     case BrushRole::Window:
+    case BrushRole::Transparent:
         return true;
     case BrushRole::Hint:
     case BrushRole::Trigger:
@@ -637,19 +645,57 @@ bool brushRoleEmitsVisFaces(BrushRole role) {
     return false;
 }
 
+bool brushRoleOccludesVisFaces(BrushRole role) {
+    switch (role) {
+    case BrushRole::Hull:
+    case BrushRole::Detail:
+    case BrushRole::Door:
+    case BrushRole::Water:
+    case BrushRole::Window:
+        return true;
+    case BrushRole::Hint:
+    case BrushRole::Trigger:
+    case BrushRole::Transparent:
+        return false;
+    }
+    return false;
+}
+
+bool brushRoleReceivesVisOcclusion(BrushRole role) {
+    return role != BrushRole::Transparent;
+}
+
 bool brushRoleDefaultNocollide(BrushRole role) {
+    return brushRoleDefaultBlocks(role) == 0;
+}
+
+std::uint8_t brushRoleDefaultBlocks(BrushRole role) {
     switch (role) {
     case BrushRole::Hint:
     case BrushRole::Trigger:
     case BrushRole::Water:
-        return true;
+        return 0;
     case BrushRole::Hull:
     case BrushRole::Detail:
     case BrushRole::Door:
     case BrushRole::Window:
-        return false;
+    case BrushRole::Transparent:
+        return BrushBlock::All;
     }
-    return false;
+    return 0;
+}
+
+bool brushBlocksAny(std::uint8_t blocks) {
+    return blocks != 0;
+}
+
+void syncBrushNocollide(Brush& brush) {
+    brush.nocollide = !brushBlocksAny(brush.blocks);
+}
+
+void setBrushBlocks(Brush& brush, std::uint8_t blocks) {
+    brush.blocks = blocks;
+    syncBrushNocollide(brush);
 }
 
 bool brushRoleNeedsInteriorPlacement(BrushRole role) {
@@ -659,6 +705,7 @@ bool brushRoleNeedsInteriorPlacement(BrushRole role) {
     case BrushRole::Hint:
     case BrushRole::Trigger:
     case BrushRole::Water:
+    case BrushRole::Transparent:
         return true;
     case BrushRole::Hull:
     case BrushRole::Window:
@@ -680,6 +727,7 @@ Brush makeBrushBox(
     brush.mins = mins;
     brush.maxs = maxs;
     brush.box = true;
+    setBrushBlocks(brush, brushRoleDefaultBlocks(role));
 
     constexpr BrushBoxSide kSides[] = {
         BrushBoxSide::Top,
@@ -1108,7 +1156,8 @@ std::vector<Brush> hollowBrushBox(
 
     auto addSlab = [&](Vector3 slabMins, Vector3 slabMaxs) {
         Brush brush = makeBrushBox(allocateId(), slabMins, slabMaxs, material, {}, source.role);
-        brush.nocollide = source.nocollide;
+        brush.blocks = source.blocks;
+        syncBrushNocollide(brush);
         out.push_back(std::move(brush));
     };
 
@@ -1214,7 +1263,8 @@ void addPunchSlab(
         return;
     }
     Brush brush = makeBrushBox(allocateId(), mins, maxs, material, {}, source.role);
-    brush.nocollide = source.nocollide;
+    brush.blocks = source.blocks;
+    syncBrushNocollide(brush);
     out.push_back(std::move(brush));
 }
 
@@ -1456,7 +1506,8 @@ std::optional<BrushSplitResult> splitBrushByPlane(
         Brush brush;
         brush.id = allocateId();
         brush.role = source.role;
-        brush.nocollide = source.nocollide;
+        brush.blocks = source.blocks;
+        syncBrushNocollide(brush);
         brush.box = false;
         brush.faces = std::move(faces);
         for (std::size_t i = 0; i < brush.faces.size(); ++i) {

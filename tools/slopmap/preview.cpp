@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -19,6 +20,43 @@
 namespace slopmap {
 
 namespace {
+
+Vector3 normalizeOrDefault(Vector3 v, Vector3 fallback) {
+    const float lenSq = v.x * v.x + v.y * v.y + v.z * v.z;
+    if (lenSq < 1e-8f) {
+        return fallback;
+    }
+    const float inv = 1.0f / std::sqrt(lenSq);
+    return {v.x * inv, v.y * inv, v.z * inv};
+}
+
+float viewDepthAlongAxis(Vector3 point, Vector3 cameraPos, Vector3 cameraForward) {
+    return Vector3DotProduct(
+        Vector3Subtract(point, cameraPos),
+        cameraForward);
+}
+
+float meshMinViewDepth(
+    const Mesh& mesh,
+    Vector3 cameraPos,
+    Vector3 cameraForward) {
+    const BoundingBox bounds = GetMeshBoundingBox(mesh);
+    const Vector3 corners[8] = {
+        {bounds.min.x, bounds.min.y, bounds.min.z},
+        {bounds.max.x, bounds.min.y, bounds.min.z},
+        {bounds.min.x, bounds.max.y, bounds.min.z},
+        {bounds.max.x, bounds.max.y, bounds.min.z},
+        {bounds.min.x, bounds.min.y, bounds.max.z},
+        {bounds.max.x, bounds.min.y, bounds.max.z},
+        {bounds.min.x, bounds.max.y, bounds.max.z},
+        {bounds.max.x, bounds.max.y, bounds.max.z},
+    };
+    float minDepth = std::numeric_limits<float>::max();
+    for (const Vector3& corner : corners) {
+        minDepth = std::min(minDepth, viewDepthAlongAxis(corner, cameraPos, cameraForward));
+    }
+    return minDepth;
+}
 
 slopengine::MaterialUvInfo resolveMaterialUv(slopengine::AssetStore& assets, std::string_view materialPath) {
     slopengine::MaterialUvInfo info{};
@@ -99,11 +137,74 @@ unsigned char mixChannel(unsigned char base, std::uint32_t hash, int shift, int 
     return static_cast<unsigned char>(value);
 }
 
-void drawEditModelTextured(const Model& model) {
+void collectTransparentMeshIndices(
+    const slopengine::GeoAsset& asset,
+    std::vector<int>& out) {
+    out.clear();
+    for (std::size_t meshIndex = 0; meshIndex < asset.primitives.size(); ++meshIndex) {
+        if (asset.primitives[meshIndex].transparent) {
+            out.push_back(static_cast<int>(meshIndex));
+        }
+    }
+}
+
+void drawModelMeshesSplit(
+    const Model& model,
+    const std::vector<int>& transparentMeshIndices,
+    bool transparentPass) {
     if (model.meshCount <= 0) {
         return;
     }
-    DrawModel(model, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+    std::unordered_set<int> transparentSet(
+        transparentMeshIndices.begin(),
+        transparentMeshIndices.end());
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        const bool isTransparent = transparentSet.count(meshIndex) > 0;
+        if (isTransparent != transparentPass) {
+            continue;
+        }
+        DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+    }
+}
+
+void drawPreviewModelTextured(
+    const Model& model,
+    const std::vector<int>& transparentMeshIndices,
+    Vector3 cameraPos,
+    Vector3 cameraForward) {
+    drawModelMeshesSplit(model, transparentMeshIndices, false);
+    if (transparentMeshIndices.empty()) {
+        return;
+    }
+    const Vector3 camForward = normalizeOrDefault(cameraForward, {0.0f, 0.0f, 1.0f});
+    struct SortItem {
+        int meshIndex = 0;
+        float viewDepth = 0.0f;
+    };
+    std::vector<SortItem> sorted;
+    sorted.reserve(transparentMeshIndices.size());
+    for (int meshIndex : transparentMeshIndices) {
+        if (meshIndex < 0 || meshIndex >= model.meshCount) {
+            continue;
+        }
+        sorted.push_back(SortItem{
+            meshIndex,
+            meshMinViewDepth(model.meshes[meshIndex], cameraPos, camForward),
+        });
+    }
+    std::sort(sorted.begin(), sorted.end(), [](const SortItem& a, const SortItem& b) {
+        return a.viewDepth > b.viewDepth;
+    });
+    rlDisableDepthMask();
+    BeginBlendMode(BLEND_ALPHA);
+    for (const SortItem& item : sorted) {
+        DrawMesh(
+            model.meshes[item.meshIndex],
+            model.materials[item.meshIndex],
+            MatrixIdentity());
+    }
+    EndBlendMode();
+    rlEnableDepthMask();
 }
 
 struct FaceSolidInfo {
@@ -127,6 +228,14 @@ Color solidBaseColor(const FaceSolidInfo& info) {
             mixChannel(200, hash, 8, 40),
             mixChannel(220, hash, 16, 35),
             255,
+        };
+    }
+    if (info.role == slopengine::BrushRole::Transparent) {
+        return Color{
+            mixChannel(200, hash, 0, 35),
+            mixChannel(90, hash, 8, 40),
+            mixChannel(210, hash, 16, 35),
+            180,
         };
     }
     return Color{
@@ -232,6 +341,7 @@ void MapPreview::clearLit() {
     }
     useLightmapLoc = -1;
     solidLitLoc = -1;
+    transparentMeshIndices.clear();
     rad = {};
     if (!visValid) {
         pickFac = {};
@@ -244,6 +354,7 @@ void MapPreview::clearVis() {
     }
     visModel = {};
     visValid = false;
+    transparentMeshIndices.clear();
     if (!litValid) {
         pickFac = {};
     }
@@ -286,6 +397,7 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
 
+    collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
     valid = model.meshCount > 0;
 }
 
@@ -322,6 +434,7 @@ bool MapPreview::reloadVisPreview(
         compiled.asset,
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+    collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
@@ -440,6 +553,7 @@ bool MapPreview::reloadBake(
             }
             litModel.materials[meshIndex].shader = lightmapShader;
         }
+        collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
         litValid = true;
     } else {
         clearLit();
@@ -460,7 +574,9 @@ Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
     }
 
     const std::uint32_t hash = hashString(brush.id);
-    if (brush.role != slopengine::BrushRole::Hull && brush.role != slopengine::BrushRole::Window) {
+    if (brush.role != slopengine::BrushRole::Hull &&
+        brush.role != slopengine::BrushRole::Window &&
+        brush.role != slopengine::BrushRole::Transparent) {
         return Color{
             mixChannel(70, hash, 0, 35),
             mixChannel(120, hash, 8, 40),
@@ -474,6 +590,15 @@ Color brushOutlineColor(const slopengine::Brush& brush, bool selected) {
             mixChannel(140, hash, 0, 35),
             mixChannel(200, hash, 8, 40),
             mixChannel(220, hash, 16, 35),
+            255,
+        };
+    }
+
+    if (brush.role == slopengine::BrushRole::Transparent) {
+        return Color{
+            mixChannel(220, hash, 0, 35),
+            mixChannel(100, hash, 8, 40),
+            mixChannel(230, hash, 16, 35),
             255,
         };
     }
@@ -591,6 +716,7 @@ void MapPreview::draw(
     const std::vector<slopengine::Brush>& instanceBrushes,
     const std::vector<int>& selectedBrushes,
     Vector3 eye,
+    Vector3 cameraForward,
     float lineWidth) const {
     auto outlineBrush = [&](const slopengine::Brush& brush, bool selected) {
         drawBrushFaceOutlines(brush, brushOutlineColor(brush, selected), eye, lineWidth);
@@ -613,7 +739,8 @@ void MapPreview::draw(
                 SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
-            DrawModel(litModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            drawModelMeshesSplit(litModel, transparentMeshIndices, false);
+            drawPreviewModelTextured(litModel, transparentMeshIndices, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
@@ -622,7 +749,8 @@ void MapPreview::draw(
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
-            DrawModel(visModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            drawModelMeshesSplit(visModel, transparentMeshIndices, false);
+            drawPreviewModelTextured(visModel, transparentMeshIndices, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
@@ -631,7 +759,8 @@ void MapPreview::draw(
         [[fallthrough]];
     case PreviewFill::Textures:
         if (valid) {
-            drawEditModelTextured(model);
+            drawModelMeshesSplit(model, transparentMeshIndices, false);
+            drawPreviewModelTextured(model, transparentMeshIndices, eye, cameraForward);
         }
         break;
     case PreviewFill::Solid:

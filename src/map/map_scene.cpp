@@ -194,6 +194,7 @@ bool registerMapScene(
     lightmapState.available = loaded->hasLightmaps;
     lightmapState.useLightmapLoc = loaded->useLightmapLoc;
     lightmapState.lightmapShader = loaded->lightmapShader;
+    lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
 
     world.entity("MapStatic")
         .add<MapOwned>()

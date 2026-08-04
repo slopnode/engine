@@ -23,7 +23,8 @@ std::optional<BspRayHit> raycastBspSurfaces(
     Vector3 origin,
     Vector3 direction,
     float maxDistance,
-    std::int32_t ignoreFaceIndex = -1);
+    std::int32_t ignoreFaceIndex = -1,
+    const std::vector<char>* skipFaces = nullptr);
 
 /** True if the segment from @p from to @p to is occluded by a surface. */
 bool bspSegmentOccluded(
@@ -31,6 +32,7 @@ bool bspSegmentOccluded(
     Vector3 from,
     Vector3 to,
     std::int32_t ignoreFaceA = -1,
-    std::int32_t ignoreFaceB = -1);
+    std::int32_t ignoreFaceB = -1,
+    const std::vector<char>* skipFaces = nullptr);
 
 }

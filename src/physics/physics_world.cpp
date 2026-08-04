@@ -5,6 +5,7 @@
 
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
@@ -128,6 +129,21 @@ public:
 
 } // namespace
 
+void populateBrushBlockIgnoreFilter(
+    JPH::IgnoreMultipleBodiesFilter& filter,
+    const std::vector<JPH::BodyID>& staticBodies,
+    const std::unordered_map<JPH::uint32, std::uint8_t>& staticBodyBlocks,
+    std::uint8_t blockMask) {
+    filter.Clear();
+    filter.Reserve(static_cast<JPH::uint>(staticBodies.size()));
+    for (JPH::BodyID id : staticBodies) {
+        const auto it = staticBodyBlocks.find(id.GetIndex());
+        if (it != staticBodyBlocks.end() && (it->second & blockMask) == 0) {
+            filter.IgnoreBody(id);
+        }
+    }
+}
+
 PhysicsWorld::PhysicsWorld() {
     JPH::RegisterDefaultAllocator();
     JPH::Trace = TraceImpl;
@@ -202,11 +218,11 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
     JPH::BodyInterface& bodies = system_->GetBodyInterface();
     int boxCount = 0;
     int hullShapeCount = 0;
-    int skippedNocollide = 0;
+    int skippedNoBlocks = 0;
 
     for (const Brush& brush : brushes) {
-        if (brush.nocollide) {
-            ++skippedNocollide;
+        if (!brushBlocksAny(brush.blocks)) {
+            ++skippedNoBlocks;
             continue;
         }
 
@@ -274,16 +290,17 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
 
         const JPH::BodyID id = bodies.CreateAndAddBody(settings, JPH::EActivation::DontActivate);
         staticBodies_.push_back(id);
+        staticBodyBlocks_[id.GetIndex()] = brush.blocks;
     }
 
     system_->OptimizeBroadPhase();
     TraceLog(
         LOG_INFO,
-        "PHYSICS: added %d static brush bodies (box=%d hull=%d skipped %d nocollide)",
+        "PHYSICS: added %d static brush bodies (box=%d hull=%d skipped %d no-blocks)",
         static_cast<int>(staticBodies_.size()),
         boxCount,
         hullShapeCount,
-        skippedNocollide);
+        skippedNoBlocks);
 }
 
 void PhysicsWorld::clearStaticBrushes() {
@@ -296,6 +313,7 @@ void PhysicsWorld::clearStaticBrushes() {
         bodies.DestroyBody(id);
     }
     staticBodies_.clear();
+    staticBodyBlocks_.clear();
 }
 
 namespace {
@@ -659,12 +677,16 @@ void PhysicsWorld::applyCharacterInput(
 
 void PhysicsWorld::stepCharacterTryMove(
     JPH::CharacterVirtual& character,
-    const CharacterMotor& motor) {
+    const CharacterMotor& motor,
+    std::uint64_t characterId) {
     applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, false);
 
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
-    const JPH::BodyFilter bodyFilter{};
+    const std::uint8_t blockMask =
+        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
     const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
     const JPH::Vec3 up = character.GetUp();
@@ -748,7 +770,8 @@ void PhysicsWorld::stepCharacterTryMove(
 void PhysicsWorld::stepCharacter(
     JPH::CharacterVirtual& character,
     const CharacterMotor& motor,
-    bool noclip) {
+    bool noclip,
+    std::uint64_t characterId) {
     if (noclip) {
         applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, true);
         const JPH::RVec3 pos = character.GetPosition();
@@ -761,7 +784,7 @@ void PhysicsWorld::stepCharacter(
     }
 
     if (motor.moveMode == CharacterMoveMode::TryMove) {
-        stepCharacterTryMove(character, motor);
+        stepCharacterTryMove(character, motor, characterId);
         return;
     }
 
@@ -770,13 +793,17 @@ void PhysicsWorld::stepCharacter(
     JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
     const float stepHeight = motor.stepHeight > 0.0f ? motor.stepHeight : 0.4f;
     updateSettings.mWalkStairsStepUp = character.GetUp() * stepHeight;
+    const std::uint8_t blockMask =
+        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
     character.ExtendedUpdate(
         kFixedDt,
         -character.GetUp() * system_->GetGravity().Length(),
         updateSettings,
         system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
         system_->GetDefaultLayerFilter(Layers::MOVING),
-        {},
+        bodyFilter,
         {},
         *tempAllocator_);
 }
@@ -989,7 +1016,7 @@ void PhysicsWorld::update(float frameDt, const std::vector<CharacterStep>& steps
             if (it == characters_.end() || it->second.character == nullptr) {
                 continue;
             }
-            stepCharacter(*it->second.character, *step.motor, step.noclip);
+            stepCharacter(*it->second.character, *step.motor, step.noclip, step.id);
         }
 
         system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
@@ -1058,7 +1085,8 @@ std::optional<SphereCastHit> PhysicsWorld::castSphere(
     Vector3 origin,
     Vector3 direction,
     float distance,
-    float radius) const {
+    float radius,
+    std::uint8_t blockMask) const {
     if (system_ == nullptr || distance <= 1.0e-8f || radius <= 0.0f) {
         return std::nullopt;
     }
@@ -1079,13 +1107,16 @@ std::optional<SphereCastHit> PhysicsWorld::castSphere(
     settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
 
     JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
     system_->GetNarrowPhaseQuery().CastShape(
         shapeCast,
         settings,
         shapeCast.mCenterOfMassStart.GetTranslation(),
         collector,
         system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
-        system_->GetDefaultLayerFilter(Layers::MOVING));
+        system_->GetDefaultLayerFilter(Layers::MOVING),
+        bodyFilter);
 
     if (!collector.HadHit()) {
         return std::nullopt;
@@ -1115,7 +1146,8 @@ std::optional<SphereCastHit> PhysicsWorld::castSphere(
 std::optional<RayCastHit> PhysicsWorld::castRay(
     Vector3 origin,
     Vector3 direction,
-    float distance) const {
+    float distance,
+    std::uint8_t blockMask) const {
     if (system_ == nullptr || distance <= 1.0e-8f) {
         return std::nullopt;
     }
@@ -1135,12 +1167,15 @@ std::optional<RayCastHit> PhysicsWorld::castRay(
     settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
 
     JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
     system_->GetNarrowPhaseQuery().CastRay(
         ray,
         settings,
         collector,
         system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
-        system_->GetDefaultLayerFilter(Layers::MOVING));
+        system_->GetDefaultLayerFilter(Layers::MOVING),
+        bodyFilter);
 
     if (!collector.HadHit()) {
         return std::nullopt;

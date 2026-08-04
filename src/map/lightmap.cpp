@@ -114,6 +114,7 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
             face.uvUAxis = brushFace.uvUAxis;
             face.uvVAxis = brushFace.uvVAxis;
             face.uvLock = brushFace.uvLock;
+            face.transparent = brush.role == BrushRole::Transparent;
             faces.push_back(std::move(face));
         }
     }
@@ -138,6 +139,7 @@ std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis) {
         face.uvVAxis = visible.uvVAxis;
         face.uvLock = visible.uvLock;
         face.interiorLeaf = visible.interiorLeaf;
+        face.transparent = visible.transparent;
         faces.push_back(std::move(face));
     }
     return faces;

@@ -36,6 +36,7 @@ struct LoadedMap {
     std::vector<Texture2D> lightmapAtlases;
     std::vector<Image> lightmapAtlasImages;
     int useLightmapLoc = -1;
+    std::vector<int> transparentMeshIndices;
 };
 
 /** Parsed static.csg: local brushes plus prefab instances. */

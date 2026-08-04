@@ -66,7 +66,8 @@ bool accumulateDirectLightingGpu(
     std::string_view computeShaderSource,
     const RadGpuDirectParams& params = {},
     const RadGpuReachability& reachability = {},
-    const std::vector<std::int32_t>& faceIsSky = {});
+    const std::vector<std::int32_t>& faceIsSky = {},
+    const std::vector<std::int32_t>& faceIsTransparent = {});
 
 struct RadGpuBounceLuxel {
     Vector3 position{};
@@ -108,6 +109,7 @@ bool accumulateBounceLightingGpu(
     const std::vector<RadGpuFaceGrid>& faceGrids,
     const QuadBvh& sceneBvh,
     std::string_view computeShaderSource,
-    const RadGpuBounceParams& params);
+    const RadGpuBounceParams& params,
+    const std::vector<char>& faceTransparent = {});
 
 }

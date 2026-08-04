@@ -597,7 +597,8 @@ void accumulateEntityLight(
     const LeafReachability& reach,
     float wrap,
     float minDist2,
-    const std::vector<char>& faceSky) {
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent) {
     if (!reach.canSee(luxel.interiorLeaf, lightLeaf)) {
         return;
     }
@@ -620,7 +621,12 @@ void accumulateEntityLight(
         }
         constexpr float kSunRayDistance = 1000.0f;
         const auto hit = raycastQuadBvh(
-            occlusionBvh, luxel.position, toLight, kSunRayDistance, luxel.faceIndex);
+            occlusionBvh,
+            luxel.position,
+            toLight,
+            kSunRayDistance,
+            luxel.faceIndex,
+            &faceTransparent);
         if (!hit || !faceIsSky(faceSky, hit->faceIndex)) {
             return;
         }
@@ -661,7 +667,13 @@ void accumulateEntityLight(
         }
     }
 
-    if (bspSegmentOccluded(occlusionBvh, luxel.position, light.position, luxel.faceIndex, -1)) {
+    if (bspSegmentOccluded(
+            occlusionBvh,
+            luxel.position,
+            light.position,
+            luxel.faceIndex,
+            -1,
+            &faceTransparent)) {
         return;
     }
 
@@ -680,7 +692,8 @@ void accumulateDirectLightingCpu(
     const QuadBvh& occlusionBvh,
     const LeafReachability& reach,
     const RadiositySettings& settings,
-    const std::vector<char>& faceSky) {
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent) {
     const std::size_t luxelTotal = luxels.size();
     std::atomic<std::size_t> directDone{0};
     const std::size_t directStep = std::max<std::size_t>(1, luxelTotal / 20);
@@ -732,7 +745,8 @@ void accumulateDirectLightingCpu(
                         luxel.position,
                         emitter.position,
                         luxel.faceIndex,
-                        emitter.faceIndex)) {
+                        emitter.faceIndex,
+                        &faceTransparent)) {
                     continue;
                 }
 
@@ -754,7 +768,15 @@ void accumulateDirectLightingCpu(
                 const std::int32_t lightLeaf =
                     li < lightLeaves.size() ? lightLeaves[li] : static_cast<std::int32_t>(-1);
                 accumulateEntityLight(
-                    luxel, lights[li], lightLeaf, occlusionBvh, reach, wrap, minDist2, faceSky);
+                    luxel,
+                    lights[li],
+                    lightLeaf,
+                    occlusionBvh,
+                    reach,
+                    wrap,
+                    minDist2,
+                    faceSky,
+                    faceTransparent);
             }
             const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
             if (done % directStep == 0 || done == luxelTotal) {
@@ -772,7 +794,8 @@ bool accumulateDirectLighting(
     const QuadBvh& occlusionBvh,
     const LeafReachability& reach,
     const RadiositySettings& settings,
-    const std::vector<char>& faceSky) {
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent) {
     RadGpuReachability gpuReach;
     if (reach.enabled) {
         gpuReach.leafCount = reach.leafCount;
@@ -844,6 +867,10 @@ bool accumulateDirectLighting(
         for (std::size_t i = 0; i < faceSky.size(); ++i) {
             faceIsSky[i] = faceSky[i] != 0 ? 1 : 0;
         }
+        std::vector<std::int32_t> faceIsTransparent(faceTransparent.size(), 0);
+        for (std::size_t i = 0; i < faceTransparent.size(); ++i) {
+            faceIsTransparent[i] = faceTransparent[i] != 0 ? 1 : 0;
+        }
         if (accumulateDirectLightingGpu(
                 gpuLuxels,
                 gpuEmitters,
@@ -852,7 +879,8 @@ bool accumulateDirectLighting(
                 settings.directComputeShaderSource,
                 gpuParams,
                 gpuReach,
-                faceIsSky)) {
+                faceIsSky,
+                faceIsTransparent)) {
             for (std::size_t d = 0; d < gpuLuxels.size(); ++d) {
                 LuxelSample& dst = luxels[denseToSrc[d]];
                 dst.irradiance.r = gpuLuxels[d].irradianceR;
@@ -871,7 +899,15 @@ bool accumulateDirectLighting(
     TraceLog(LOG_INFO, "sloprad: CPU direct lighting");
     std::fflush(stdout);
     accumulateDirectLightingCpu(
-        luxels, emitters, lights, lightLeaves, occlusionBvh, reach, settings, faceSky);
+        luxels,
+        emitters,
+        lights,
+        lightLeaves,
+        occlusionBvh,
+        reach,
+        settings,
+        faceSky,
+        faceTransparent);
     return false;
 }
 
@@ -1010,7 +1046,8 @@ void accumulateBounceLightingCpu(
     const Color3& ambientRaw,
     int sampleCount,
     int bounceIndex,
-    int bounceTotal) {
+    int bounceTotal,
+    const std::vector<char>& faceTransparent) {
     std::atomic<std::size_t> bounceDone{0};
     const std::size_t bounceStep = std::max<std::size_t>(1, luxels.size() / 20);
     const int strataN = std::max(1, static_cast<int>(std::floor(std::sqrt(static_cast<float>(sampleCount)))));
@@ -1042,8 +1079,13 @@ void accumulateBounceLightingCpu(
                     const float u1 = (static_cast<float>(sx) + unit(rng)) / static_cast<float>(strataN);
                     const float u2 = (static_cast<float>(sy) + unit(rng)) / static_cast<float>(strataM);
                     const Vector3 dir = cosineHemisphere(luxel.normal, u1, u2);
-                    const auto hit =
-                        raycastQuadBvh(sceneBvh, luxel.position, dir, 1000.0f, luxel.faceIndex);
+                    const auto hit = raycastQuadBvh(
+                        sceneBvh,
+                        luxel.position,
+                        dir,
+                        1000.0f,
+                        luxel.faceIndex,
+                        &faceTransparent);
                     ++fired;
                     if (!hit) {
                         continue;
@@ -1158,7 +1200,15 @@ RadiosityBakeResult bakeRadiosity(
             ++skyFaceCount;
         }
     }
-    TraceLog(LOG_INFO, "sloprad: sky faces=%d", skyFaceCount);
+    std::vector<char> faceTransparent(faces.size(), 0);
+    int transparentFaceCount = 0;
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+        if (faces[i].transparent) {
+            faceTransparent[i] = 1;
+            ++transparentFaceCount;
+        }
+    }
+    TraceLog(LOG_INFO, "sloprad: sky faces=%d transparent faces=%d", skyFaceCount, transparentFaceCount);
     std::fflush(stdout);
     const bool hasSunLight = std::any_of(
         lights.begin(),
@@ -1345,7 +1395,15 @@ RadiosityBakeResult bakeRadiosity(
         static_cast<int>(lights.size()));
     std::fflush(stdout);
     accumulateDirectLighting(
-        luxels, emitters, lights, lightLeaves, sceneBvh, reach, settings, faceSky);
+        luxels,
+        emitters,
+        lights,
+        lightLeaves,
+        sceneBvh,
+        reach,
+        settings,
+        faceSky,
+        faceTransparent);
 
     logStage("inpainting covered luxels...");
     inpaintCoveredLuxels(luxels, faceGrids);
@@ -1406,7 +1464,8 @@ RadiosityBakeResult bakeRadiosity(
                     gpuGrids,
                     sceneBvh,
                     settings.bounceComputeShaderSource,
-                    bounceParams)) {
+                    bounceParams,
+                    faceTransparent)) {
                 usedGpuBounce = true;
                 for (std::size_t i = 0; i < luxels.size(); ++i) {
                     if (luxels[i].covered) {
@@ -1433,7 +1492,8 @@ RadiosityBakeResult bakeRadiosity(
                 ambientRaw,
                 sampleCount,
                 bounce,
-                settings.bounces);
+                settings.bounces,
+                faceTransparent);
         }
 
         for (std::size_t i = 0; i < luxels.size(); ++i) {

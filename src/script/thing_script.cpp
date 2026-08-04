@@ -1231,7 +1231,7 @@ s7_pointer g_los(s7_scheme* sc, s7_pointer args) {
         return s7_t(sc);
     }
     const Vector3 dir = Vector3Scale(delta, 1.0f / distance);
-    const auto hit = physics->castRay(origin, dir, distance);
+    const auto hit = physics->castRay(origin, dir, distance, BrushBlock::Los);
     return hit.has_value() ? s7_f(sc) : s7_t(sc);
 }
 
@@ -1274,7 +1274,7 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
 
     float range = maxDistance;
     if (PhysicsWorld* physics = physicsWorld()) {
-        if (const auto wall = physics->castRay(origin, dir, range)) {
+        if (const auto wall = physics->castRay(origin, dir, range, BrushBlock::Linescan)) {
             range = wall->fraction * range;
         }
     }

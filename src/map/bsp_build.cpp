@@ -1079,6 +1079,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             break;
         case BrushRole::Detail:
         case BrushRole::Door:
+        case BrushRole::Transparent:
             ++detailCount;
             break;
         }

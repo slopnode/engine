@@ -102,7 +102,7 @@ void registerMotoredBodySystem(flecs::world& world) {
             Vector3 bestPoint = local.position;
             std::string bestHitTarget;
 
-            if (const auto wall = physics->castSphere(local.position, dir, distance, radius)) {
+            if (const auto wall = physics->castSphere(local.position, dir, distance, radius, BrushBlock::Projectile)) {
                 bestFraction = wall->fraction;
                 bestPoint = impactEffectPosition(wall->point, wall->normal);
                 bestHitTarget.clear();

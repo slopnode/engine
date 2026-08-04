@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -37,6 +38,17 @@ void drawShadowCasters(
         if (shouldSkipShadowCaster(entity.has<MapLightmapState>(), worldBounds, lightPosition)) {
             return;
         }
+        const std::unordered_set<int>* skipMeshes = nullptr;
+        std::unordered_set<int> transparentSkip;
+        if (entity.has<MapLightmapState>()) {
+            const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
+            if (!lightmaps.transparentMeshIndices.empty()) {
+                transparentSkip = std::unordered_set<int>(
+                    lightmaps.transparentMeshIndices.begin(),
+                    lightmaps.transparentMeshIndices.end());
+                skipMeshes = &transparentSkip;
+            }
+        }
         std::vector<Shader> previous;
         previous.reserve(static_cast<std::size_t>(std::max(0, model.model.materialCount)));
         for (int i = 0; i < model.model.materialCount; ++i) {
@@ -45,7 +57,19 @@ void drawShadowCasters(
         }
         rlPushMatrix();
         rlMultMatrixf(MatrixToFloatV(global.matrix).v);
-        DrawModel(model.model, Vector3Zero(), 1.0f, WHITE);
+        if (skipMeshes != nullptr) {
+            for (int meshIndex = 0; meshIndex < model.model.meshCount; ++meshIndex) {
+                if (skipMeshes->count(meshIndex) > 0) {
+                    continue;
+                }
+                DrawMesh(
+                    model.model.meshes[meshIndex],
+                    model.model.materials[meshIndex],
+                    MatrixIdentity());
+            }
+        } else {
+            DrawModel(model.model, Vector3Zero(), 1.0f, WHITE);
+        }
         rlPopMatrix();
         for (int i = 0; i < model.model.materialCount; ++i) {
             model.model.materials[i].shader = previous[static_cast<std::size_t>(i)];

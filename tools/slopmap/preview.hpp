@@ -53,6 +53,7 @@ struct MapPreview {
     int useLightmapLoc = -1;
     int solidLitLoc = -1;
     std::vector<Texture2D> lightmapAtlases;
+    std::vector<int> transparentMeshIndices;
 
     void clear();
     void clearVis();
@@ -75,6 +76,7 @@ struct MapPreview {
         const std::vector<slopengine::Brush>& instanceBrushes,
         const std::vector<int>& selectedBrushes,
         Vector3 eye,
+        Vector3 cameraForward,
         float lineWidth) const;
 };
 

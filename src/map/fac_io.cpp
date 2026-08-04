@@ -131,6 +131,7 @@ bool writeFacFile(const std::filesystem::path& path, const FacFile& fac) {
         writer.writePod(face.uvVAxis);
         writer.writePod(static_cast<std::uint8_t>(face.uvLock ? 1 : 0));
         writer.writePod(face.interiorLeaf);
+        writer.writePod(static_cast<std::uint8_t>(face.transparent ? 1 : 0));
         writer.writePod(internString(stringTable, strings, face.id));
         writer.writePod(internString(stringTable, strings, face.sourceFaceId));
         writer.writePod(internString(stringTable, strings, face.material));
@@ -158,10 +159,11 @@ std::optional<FacFile> readFacBytes(std::span<const std::byte> data) {
     if (!reader.readPod(magic) || !reader.readPod(version)) {
         return std::nullopt;
     }
-    if (magic != kFacMagic || (version != 1 && version != kFacVersion)) {
+    if (magic != kFacMagic || (version != 1 && version != 2 && version != kFacVersion)) {
         return std::nullopt;
     }
     const bool hasUvScale = version >= 2;
+    const bool hasTransparent = version >= 3;
 
     std::uint32_t faceCount = 0;
     if (!reader.readPod(faceCount)) {
@@ -177,6 +179,7 @@ std::optional<FacFile> readFacBytes(std::span<const std::byte> data) {
         Vector3 uvVAxis{};
         std::uint8_t uvLock = 0;
         std::int32_t interiorLeaf = -1;
+        std::uint8_t transparent = 0;
         std::uint32_t idIndex = 0;
         std::uint32_t sourceIndex = 0;
         std::uint32_t materialIndex = 0;
@@ -195,8 +198,13 @@ std::optional<FacFile> readFacBytes(std::span<const std::byte> data) {
         if (!reader.readPod(record.uvUAxis)
             || !reader.readPod(record.uvVAxis)
             || !reader.readPod(record.uvLock)
-            || !reader.readPod(record.interiorLeaf)
-            || !reader.readPod(record.idIndex)
+            || !reader.readPod(record.interiorLeaf)) {
+            return std::nullopt;
+        }
+        if (hasTransparent && !reader.readPod(record.transparent)) {
+            return std::nullopt;
+        }
+        if (!reader.readPod(record.idIndex)
             || !reader.readPod(record.sourceIndex)
             || !reader.readPod(record.materialIndex)) {
             return std::nullopt;
@@ -233,6 +241,7 @@ std::optional<FacFile> readFacBytes(std::span<const std::byte> data) {
         face.uvVAxis = record.uvVAxis;
         face.uvLock = record.uvLock != 0;
         face.interiorLeaf = record.interiorLeaf;
+        face.transparent = record.transparent != 0;
         face.id = resolve(record.idIndex);
         face.sourceFaceId = resolve(record.sourceIndex);
         face.material = resolve(record.materialIndex);

@@ -247,12 +247,25 @@ QuadBvh buildLightmapFaceBvh(const std::vector<LightmapFace>& faces) {
     return buildTriangleBvh(tris.data(), normals.data(), faceIndices.data(), tris.size());
 }
 
+namespace {
+
+bool faceShouldSkip(std::int32_t faceIndex, const std::vector<char>* skipFaces) {
+    if (skipFaces == nullptr || faceIndex < 0) {
+        return false;
+    }
+    return static_cast<std::size_t>(faceIndex) < skipFaces->size()
+        && (*skipFaces)[static_cast<std::size_t>(faceIndex)] != 0;
+}
+
+} // namespace
+
 std::optional<QuadBvhHit> raycastQuadBvh(
     const QuadBvh& bvh,
     Vector3 origin,
     Vector3 direction,
     float maxDistance,
-    std::int32_t ignoreFaceIndex) {
+    std::int32_t ignoreFaceIndex,
+    const std::vector<char>* skipFaces) {
     if (bvh.empty()) {
         return std::nullopt;
     }
@@ -284,6 +297,9 @@ std::optional<QuadBvhHit> raycastQuadBvh(
                 const QuadBvh::Prim& prim =
                     bvh.prims[static_cast<std::size_t>(node.firstPrim + i)];
                 if (prim.faceIndex == ignoreFaceIndex) {
+                    continue;
+                }
+                if (faceShouldSkip(prim.faceIndex, skipFaces)) {
                     continue;
                 }
                 float t = 0.0f;
@@ -318,13 +334,15 @@ bool quadSegmentOccluded(
     Vector3 from,
     Vector3 to,
     std::int32_t ignoreFaceA,
-    std::int32_t ignoreFaceB) {
+    std::int32_t ignoreFaceB,
+    const std::vector<char>* skipFaces) {
     const Vector3 delta = sub3(to, from);
     const float distance = std::sqrt(dot3(delta, delta));
     if (distance < 1e-5f) {
         return false;
     }
-    const auto hit = raycastQuadBvh(bvh, from, delta, distance * 0.999f, ignoreFaceA);
+    const auto hit =
+        raycastQuadBvh(bvh, from, delta, distance * 0.999f, ignoreFaceA, skipFaces);
     if (!hit) {
         return false;
     }

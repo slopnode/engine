@@ -142,11 +142,22 @@ layout(std430, binding = 7) readonly buffer FaceSkyBuffer {
     int faceSky[];
 };
 
+layout(std430, binding = 8) readonly buffer FaceTransparentBuffer {
+    int faceTransparent[];
+};
+
 bool isSkyFace(int faceIndex) {
     if (faceIndex < 0 || faceIndex >= faceSky.length()) {
         return false;
     }
     return faceSky[faceIndex] != 0;
+}
+
+bool isTransparentFace(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= faceTransparent.length()) {
+        return false;
+    }
+    return faceTransparent[faceIndex] != 0;
 }
 
 bool leavesReachable(int a, int b) {
@@ -251,6 +262,9 @@ bool raycastAny(
             for (int i = 0; i < node.primCount; ++i) {
                 BvhPrim prim = prims[node.firstPrim + i];
                 if (prim.faceIndex == ignoreFaceA || prim.faceIndex == ignoreFaceB) {
+                    continue;
+                }
+                if (isTransparentFace(prim.faceIndex)) {
                     continue;
                 }
                 float t = 0.0;

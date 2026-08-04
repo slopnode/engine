@@ -388,6 +388,139 @@ s7_pointer g_nocollide(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "nocollide", s7_nil(sc));
 }
 
+s7_pointer g_no_block_los(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "no-block-los", s7_nil(sc));
+}
+
+s7_pointer g_no_block_linescan(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "no-block-linescan", s7_nil(sc));
+}
+
+s7_pointer g_no_block_projectile(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "no-block-projectile", s7_nil(sc));
+}
+
+s7_pointer g_no_block_player(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "no-block-player", s7_nil(sc));
+}
+
+s7_pointer g_no_block_actor(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "no-block-actor", s7_nil(sc));
+}
+
+s7_pointer g_block_los(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "block-los", s7_nil(sc));
+}
+
+s7_pointer g_block_linescan(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "block-linescan", s7_nil(sc));
+}
+
+s7_pointer g_block_projectile(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "block-projectile", s7_nil(sc));
+}
+
+s7_pointer g_block_player(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "block-player", s7_nil(sc));
+}
+
+s7_pointer g_block_actor(s7_scheme* sc, s7_pointer args) {
+    (void)args;
+    return makeTaggedList(sc, "block-actor", s7_nil(sc));
+}
+
+enum class BlockTagTriState {
+    Default,
+    Clear,
+    Set,
+};
+
+struct BrushBlockParseState {
+    bool nocollide = false;
+    BlockTagTriState los = BlockTagTriState::Default;
+    BlockTagTriState linescan = BlockTagTriState::Default;
+    BlockTagTriState projectile = BlockTagTriState::Default;
+    BlockTagTriState player = BlockTagTriState::Default;
+    BlockTagTriState actor = BlockTagTriState::Default;
+
+    bool applyTag(const char* tag) {
+        if (std::strcmp(tag, "nocollide") == 0) {
+            nocollide = true;
+            return true;
+        }
+        if (std::strcmp(tag, "no-block-los") == 0) {
+            los = BlockTagTriState::Clear;
+            return true;
+        }
+        if (std::strcmp(tag, "no-block-linescan") == 0) {
+            linescan = BlockTagTriState::Clear;
+            return true;
+        }
+        if (std::strcmp(tag, "no-block-projectile") == 0) {
+            projectile = BlockTagTriState::Clear;
+            return true;
+        }
+        if (std::strcmp(tag, "no-block-player") == 0) {
+            player = BlockTagTriState::Clear;
+            return true;
+        }
+        if (std::strcmp(tag, "no-block-actor") == 0) {
+            actor = BlockTagTriState::Clear;
+            return true;
+        }
+        if (std::strcmp(tag, "block-los") == 0) {
+            los = BlockTagTriState::Set;
+            return true;
+        }
+        if (std::strcmp(tag, "block-linescan") == 0) {
+            linescan = BlockTagTriState::Set;
+            return true;
+        }
+        if (std::strcmp(tag, "block-projectile") == 0) {
+            projectile = BlockTagTriState::Set;
+            return true;
+        }
+        if (std::strcmp(tag, "block-player") == 0) {
+            player = BlockTagTriState::Set;
+            return true;
+        }
+        if (std::strcmp(tag, "block-actor") == 0) {
+            actor = BlockTagTriState::Set;
+            return true;
+        }
+        return false;
+    }
+
+    std::uint8_t resolve(BrushRole role) const {
+        std::uint8_t blocks = brushRoleDefaultBlocks(role);
+        if (nocollide) {
+            blocks = 0;
+        }
+        auto apply = [&](BlockTagTriState state, std::uint8_t bit) {
+            if (state == BlockTagTriState::Clear) {
+                blocks &= static_cast<std::uint8_t>(~bit);
+            } else if (state == BlockTagTriState::Set) {
+                blocks |= bit;
+            }
+        };
+        apply(los, BrushBlock::Los);
+        apply(linescan, BrushBlock::Linescan);
+        apply(projectile, BrushBlock::Projectile);
+        apply(player, BrushBlock::Player);
+        apply(actor, BrushBlock::Actor);
+        return blocks;
+    }
+};
+
 s7_pointer g_faces(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "faces", args);
 }
@@ -611,7 +744,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     Vector3 maxs{};
     bool haveMins = false;
     bool haveMaxs = false;
-    bool nocollide = false;
+    BrushBlockParseState blockState{};
     bool haveDoorClause = false;
     BrushDoor door{};
     std::vector<std::pair<BrushBoxSide, BrushFace>> overrides;
@@ -637,8 +770,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
                     role = parsed;
                 }
             }
-        } else if (std::strcmp(tag, "nocollide") == 0) {
-            nocollide = true;
+        } else if (blockState.applyTag(tag)) {
         } else if (std::strcmp(tag, "door") == 0) {
             if (parseBrushDoor(sc, rest, door)) {
                 haveDoorClause = true;
@@ -675,7 +807,7 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
         role = BrushRole::Door;
     }
     Brush brush = makeBrushBox(std::move(id), mins, maxs, material, overrides, role);
-    brush.nocollide = nocollide || brushRoleDefaultNocollide(role);
+    setBrushBlocks(brush, blockState.resolve(role));
     if (role == BrushRole::Door) {
         brush.door = haveDoorClause ? std::move(door) : BrushDoor{};
     }
@@ -764,7 +896,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     std::string id;
     std::string defaultMaterial = "default/cube";
     BrushRole role = BrushRole::Hull;
-    bool nocollide = false;
+    BrushBlockParseState blockState{};
     bool haveDoorClause = false;
     BrushDoor door{};
     std::vector<BrushFace> faces;
@@ -788,8 +920,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
                     role = parsed;
                 }
             }
-        } else if (std::strcmp(tag, "nocollide") == 0) {
-            nocollide = true;
+        } else if (blockState.applyTag(tag)) {
         } else if (std::strcmp(tag, "door") == 0) {
             if (parseBrushDoor(sc, rest, door)) {
                 haveDoorClause = true;
@@ -818,7 +949,7 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
         role = BrushRole::Door;
     }
     Brush brush = finalizeBrushFaces(std::move(id), std::move(faces), role);
-    brush.nocollide = nocollide || brushRoleDefaultNocollide(role);
+    setBrushBlocks(brush, blockState.resolve(role));
     if (role == BrushRole::Door) {
         brush.door = haveDoorClause ? std::move(door) : BrushDoor{};
     }
@@ -850,6 +981,16 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
     s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
+    s7_define_function(sc, "no-block-los", g_no_block_los, 0, 0, false, "(no-block-los)");
+    s7_define_function(sc, "no-block-linescan", g_no_block_linescan, 0, 0, false, "(no-block-linescan)");
+    s7_define_function(sc, "no-block-projectile", g_no_block_projectile, 0, 0, false, "(no-block-projectile)");
+    s7_define_function(sc, "no-block-player", g_no_block_player, 0, 0, false, "(no-block-player)");
+    s7_define_function(sc, "no-block-actor", g_no_block_actor, 0, 0, false, "(no-block-actor)");
+    s7_define_function(sc, "block-los", g_block_los, 0, 0, false, "(block-los)");
+    s7_define_function(sc, "block-linescan", g_block_linescan, 0, 0, false, "(block-linescan)");
+    s7_define_function(sc, "block-projectile", g_block_projectile, 0, 0, false, "(block-projectile)");
+    s7_define_function(sc, "block-player", g_block_player, 0, 0, false, "(block-player)");
+    s7_define_function(sc, "block-actor", g_block_actor, 0, 0, false, "(block-actor)");
     s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
     s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
     s7_define_function(sc, "faces", g_faces, 0, 0, true, "(faces face...)");
@@ -1436,6 +1577,14 @@ std::optional<LoadedMap> loadAndCompileMap(
     if (model.meshCount <= 0) {
         TraceLog(LOG_WARNING, "MAP: compile produced empty model for '%s'", virtualPath.c_str());
         return std::nullopt;
+    }
+
+    result.transparentMeshIndices.clear();
+    result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        if (compiled.asset.primitives[static_cast<std::size_t>(meshIndex)].transparent) {
+            result.transparentMeshIndices.push_back(meshIndex);
+        }
     }
 
     TraceLog(

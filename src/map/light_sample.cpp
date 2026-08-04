@@ -112,6 +112,12 @@ MapLighting buildMapLighting(
     } else {
         lighting.probeFaces = probeFacesFromBsp(bsp);
     }
+    lighting.faceTransparentSkip.assign(lighting.probeFaces.size(), 0);
+    for (std::size_t i = 0; i < lighting.probeFaces.size(); ++i) {
+        if (lighting.probeFaces[i].transparent) {
+            lighting.faceTransparentSkip[i] = 1;
+        }
+    }
     lighting.surfaceBvh = buildLightmapFaceBvh(lighting.probeFaces);
 
     for (std::size_t index = 0; index < lighting.rad.charts.size(); ++index) {

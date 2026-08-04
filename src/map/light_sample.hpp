@@ -20,6 +20,7 @@ struct MapLighting {
     bool available = false;
     RadFile rad{};
     std::vector<LightmapFace> probeFaces{};
+    std::vector<char> faceTransparentSkip{};
     QuadBvh surfaceBvh{};
     std::unordered_map<std::string, std::size_t> chartIndexByFaceId;
     std::vector<Image> atlasImages;
@@ -33,6 +34,7 @@ struct MapLighting {
         : available(other.available)
         , rad(std::move(other.rad))
         , probeFaces(std::move(other.probeFaces))
+        , faceTransparentSkip(std::move(other.faceTransparentSkip))
         , surfaceBvh(std::move(other.surfaceBvh))
         , chartIndexByFaceId(std::move(other.chartIndexByFaceId))
         , atlasImages(std::move(other.atlasImages))
@@ -49,6 +51,7 @@ struct MapLighting {
         available = other.available;
         rad = std::move(other.rad);
         probeFaces = std::move(other.probeFaces);
+        faceTransparentSkip = std::move(other.faceTransparentSkip);
         surfaceBvh = std::move(other.surfaceBvh);
         chartIndexByFaceId = std::move(other.chartIndexByFaceId);
         atlasImages = std::move(other.atlasImages);
@@ -71,6 +74,7 @@ struct MapLighting {
         }
         atlasImages.clear();
         probeFaces.clear();
+        faceTransparentSkip.clear();
         available = false;
     }
 };

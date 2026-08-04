@@ -401,6 +401,76 @@ void runMoverPushSlideTests() {
     }
 }
 
+void runBrushBlockFilterTests() {
+    constexpr std::uint64_t kCharId = 3;
+
+    {
+        PhysicsWorld world;
+        Brush wall = makeBrushBox(
+            "los-only",
+            {-0.5f, 0.0f, 2.0f},
+            {0.5f, 2.0f, 2.2f},
+            "mat/a",
+            {});
+        wall.blocks = BrushBlock::Los;
+        syncBrushNocollide(wall);
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-4.0f, -0.25f, -6.0f},
+            {4.0f, 0.0f, 6.0f},
+            "mat/a",
+            {});
+        world.addStaticBrushes({floor, wall});
+
+        CHECK(world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, BrushBlock::Los).has_value());
+        CHECK_FALSE(
+            world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, BrushBlock::Player).has_value());
+
+        world.setPlayerId(kCharId);
+        CharacterMotor motor{};
+        motor.wishZ = 6.0f;
+        world.createCharacter(kCharId, 0.0f, 0.1f, 0.0f, motor);
+        for (int i = 0; i < 120; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        CHECK(static_cast<float>(world.characterPosition(kCharId).GetZ()) > 3.0f);
+    }
+
+    {
+        PhysicsWorld world;
+        Brush wall = makeBrushBox(
+            "player-only",
+            {-0.5f, 0.0f, 2.0f},
+            {0.5f, 2.0f, 2.2f},
+            "mat/a",
+            {});
+        wall.blocks = BrushBlock::Player;
+        syncBrushNocollide(wall);
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-4.0f, -0.25f, -6.0f},
+            {4.0f, 0.0f, 6.0f},
+            "mat/a",
+            {});
+        world.addStaticBrushes({floor, wall});
+
+        CHECK_FALSE(
+            world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, BrushBlock::Los).has_value());
+        CHECK_FALSE(
+            world.castSphere({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, 0.15f, BrushBlock::Projectile)
+                .has_value());
+
+        world.setPlayerId(kCharId);
+        CharacterMotor motor{};
+        motor.wishZ = 6.0f;
+        world.createCharacter(kCharId, 0.0f, 0.1f, 0.0f, motor);
+        for (int i = 0; i < 120; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        CHECK(static_cast<float>(world.characterPosition(kCharId).GetZ()) < 1.85f);
+    }
+}
+
 } // namespace
 
 void runPhysicsTests() {
@@ -409,6 +479,7 @@ void runPhysicsTests() {
     runCastScanTests();
     runMotoredSweepTests();
     runMoverPushSlideTests();
+    runBrushBlockFilterTests();
 }
 
 }
