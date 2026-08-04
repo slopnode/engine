@@ -4,6 +4,7 @@
 #include "map/bsp_ray.hpp"
 #include "map/light_sample.hpp"
 #include "render/components.hpp"
+#include "render/dynamic_light_compositing.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/render_frustum.hpp"
 
@@ -23,7 +24,7 @@ Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
 }
 
-Vector3 colorToLinear(Color color) {
+Vector3 colorToDisplay(Color color) {
     return {
         static_cast<float>(color.r) / 255.0f,
         static_cast<float>(color.g) / 255.0f,
@@ -31,30 +32,17 @@ Vector3 colorToLinear(Color color) {
     };
 }
 
-float linearLuminance(Vector3 linearRgb) {
-    return 0.2126f * linearRgb.x + 0.7152f * linearRgb.y + 0.0722f * linearRgb.z;
-}
-
-Color lightingMultiplierToColor(Vector3 lighting, unsigned char alpha = 255) {
-    const auto channel = [](float value) {
-        return static_cast<unsigned char>(
-            std::clamp(value / (1.0f + value) * 255.0f, 0.0f, 255.0f));
-    };
+Color displayToColor(Vector3 display, unsigned char alpha = 255) {
     return {
-        channel(lighting.x),
-        channel(lighting.y),
-        channel(lighting.z),
+        static_cast<unsigned char>(std::clamp(display.x * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(display.y * 255.0f, 0.0f, 255.0f)),
+        static_cast<unsigned char>(std::clamp(display.z * 255.0f, 0.0f, 255.0f)),
         alpha,
     };
 }
 
-Vector3 composeReceiverLighting(Color bakeTint, Vector3 overlay) {
-    Vector3 bake = colorToLinear(bakeTint);
-    return {
-        bake.x + overlay.x,
-        bake.y + overlay.y,
-        bake.z + overlay.z,
-    };
+float linearLuminance(Vector3 linearRgb) {
+    return 0.2126f * linearRgb.x + 0.7152f * linearRgb.y + 0.0722f * linearRgb.z;
 }
 
 float overlayStrength(Vector3 overlay) {
@@ -236,7 +224,8 @@ Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay) {
     if (overlayPeak <= 1e-4f) {
         return bakeTint;
     }
-    return lightingMultiplierToColor(composeReceiverLighting(bakeTint, overlay), bakeTint.a);
+    const Vector3 composed = composeLumaAwareOverlay(colorToDisplay(bakeTint), overlay);
+    return displayToColor(composed, bakeTint.a);
 }
 
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state) {
@@ -392,7 +381,7 @@ Color sampleReceiverTintColorForModel(
         {0.0f, 1.0f, 0.0f},
         occlusionBvh,
         occlusionSkip));
-    float bestLum = linearLuminance(colorToLinear(best));
+    float bestLum = linearLuminance(colorToDisplay(best));
     for (int i = 1; i < sampleCount; ++i) {
         const float strength = overlayStrength(evaluateOverlayLightsAtPoint(
             dynLights,
@@ -402,7 +391,7 @@ Color sampleReceiverTintColorForModel(
             occlusionBvh,
             occlusionSkip));
         const Color candidate = sampleReceiverTintAtOrigin(world, samples[i], false, false, 2.0f);
-        const float lum = linearLuminance(colorToLinear(candidate));
+        const float lum = linearLuminance(colorToDisplay(candidate));
         if (strength > bestStrength + 1e-6f ||
             (std::fabs(strength - bestStrength) <= 1e-6f && lum > bestLum)) {
             best = candidate;
@@ -431,10 +420,10 @@ Color sampleBakeTintColorForModel(
     }
 
     Color best = sampleBakeTintAtOrigin(world, samples[0], false);
-    float bestLum = linearLuminance(colorToLinear(best));
+    float bestLum = linearLuminance(colorToDisplay(best));
     for (int i = 1; i < sampleCount; ++i) {
         const Color candidate = sampleBakeTintAtOrigin(world, samples[i], false);
-        const float lum = linearLuminance(colorToLinear(candidate));
+        const float lum = linearLuminance(colorToDisplay(candidate));
         if (lum > bestLum) {
             best = candidate;
             bestLum = lum;

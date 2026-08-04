@@ -12,6 +12,7 @@ add_executable(sloptests
     test_frustum.cpp
     test_transform.cpp
     test_dynamic_light.cpp
+    test_dynamic_light_compositing.cpp
     test_brush_door.cpp
     test_brush_split.cpp
     test_brush_role.cpp
@@ -28,6 +29,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
 )
 
@@ -56,6 +58,7 @@ add_test(NAME sloptests.physics COMMAND sloptests physics)
 add_test(NAME sloptests.frustum COMMAND sloptests frustum)
 add_test(NAME sloptests.transform COMMAND sloptests transform)
 add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)
+add_test(NAME sloptests.dynamic_light_compositing COMMAND sloptests dynamic_light_compositing)
 add_test(NAME sloptests.brush_door COMMAND sloptests brush_door)
 add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
 add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
