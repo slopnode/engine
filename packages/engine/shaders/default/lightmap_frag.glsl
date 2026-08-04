@@ -20,10 +20,6 @@ const int SHADOW_FACES = 6;
 const int MAX_SHADOW_MAPS = MAX_SHADOW_SLOTS * SHADOW_FACES;
 const float SHADOW_MAP_TEXEL = 1.0 / 512.0;
 
-const float kDynamicOverlayMinScale = 0.25;
-const float kDynamicOverlayLumaStart = 0.70;
-const float kDynamicOverlayLumaEnd = 0.95;
-
 uniform int dynLightCount;
 uniform vec4 dynLightPosRange[MAX_DYN_LIGHTS];
 uniform vec4 dynLightColorIntensity[MAX_DYN_LIGHTS];
@@ -236,19 +232,6 @@ vec3 tonemapDisplay(vec3 linear)
     return linear / (1.0 + max(linear, vec3(0.0)));
 }
 
-float dynamicOverlayScale(float bakedDisplayLuma)
-{
-    float t = smoothstep2(kDynamicOverlayLumaStart, kDynamicOverlayLumaEnd, bakedDisplayLuma);
-    return mix(1.0, kDynamicOverlayMinScale, t);
-}
-
-vec3 composeLumaAwareOverlay(vec3 bakedDisplay, vec3 dynamicLinear)
-{
-    vec3 dynamicDisplay = tonemapDisplay(dynamicLinear);
-    float dynScale = dynamicOverlayScale(dot(bakedDisplay, vec3(0.2126, 0.7152, 0.0722)));
-    return clamp(bakedDisplay + dynamicDisplay * dynScale, 0.0, 1.0);
-}
-
 void main()
 {
     vec4 tex = solidLit != 0 ? vec4(1.0) : texture(texture0, fragTexCoord) * colDiffuse;
@@ -263,14 +246,14 @@ void main()
     }
     if (useLightmap != 0 && lightmapEncoding != 0) {
         vec3 bakedLinear = albedoRgb * sampleBakedIrradiance(fragTexCoord2) + emission;
-        vec3 dynamicLinear = albedoRgb * dynamic;
         vec3 bakedDisplay = tonemapDisplay(bakedLinear);
-        finalColor = vec4(composeLumaAwareOverlay(bakedDisplay, dynamicLinear), albedoA);
+        vec3 dynamicDisplay = tonemapDisplay(dynamic);
+        finalColor = vec4(clamp(bakedDisplay + dynamicDisplay, 0.0, 1.0), albedoA);
         return;
     }
     vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;
     vec3 bakedLinear = albedoRgb * baked + emission;
-    vec3 dynamicLinear = albedoRgb * dynamic;
     vec3 bakedDisplay = tonemapDisplay(bakedLinear);
-    finalColor = vec4(composeLumaAwareOverlay(bakedDisplay, dynamicLinear), albedoA);
+    vec3 dynamicDisplay = tonemapDisplay(dynamic);
+    finalColor = vec4(clamp(bakedDisplay + dynamicDisplay, 0.0, 1.0), albedoA);
 }

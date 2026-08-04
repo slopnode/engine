@@ -224,7 +224,8 @@ Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay) {
     if (overlayPeak <= 1e-4f) {
         return bakeTint;
     }
-    const Vector3 composed = composeLumaAwareOverlay(colorToDisplay(bakeTint), overlay);
+    const Vector3 bakedDisplay = colorToDisplay(bakeTint);
+    const Vector3 composed = composeDisplayAdditiveOverlay(bakedDisplay, overlay);
     return displayToColor(composed, bakeTint.a);
 }
 
@@ -328,6 +329,8 @@ void collectModelTintSamplePoints(
     }
 }
 
+} // namespace
+
 Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
     if (unlit) {
         return WHITE;
@@ -345,8 +348,6 @@ Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
     }
     return tint;
 }
-
-} // namespace
 
 Color sampleReceiverTintColorForModel(
     flecs::world& world,

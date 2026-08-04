@@ -321,17 +321,6 @@ void resolveDynamicLightShaderBindings(Shader shader, DynamicLightShaderBindings
     }
     bindings.resolved = bindings.lightCountLoc >= 0 && bindings.lightPosRangeLoc >= 0 &&
         bindings.lightColorIntensityLoc >= 0;
-    TraceLog(
-        LOG_INFO,
-        "MAP: dynamic light uniforms resolved=%s count=%d pos=%d color=%d dir=%d meta=%d bias=%d maps=%d",
-        bindings.resolved ? "yes" : "no",
-        bindings.lightCountLoc,
-        bindings.lightPosRangeLoc,
-        bindings.lightColorIntensityLoc,
-        bindings.lightDirConeLoc,
-        bindings.lightMetaLoc,
-        bindings.shadowBiasLoc,
-        bindings.shadowMapsLoc);
 }
 
 void uploadDynamicLightsToShader(

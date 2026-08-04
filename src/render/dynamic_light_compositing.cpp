@@ -5,19 +5,6 @@
 
 namespace slopengine {
 
-namespace {
-
-float saturate(float value) {
-    return std::clamp(value, 0.0f, 1.0f);
-}
-
-float smoothstep(float edge0, float edge1, float x) {
-    const float t = saturate((x - edge0) / (edge1 - edge0));
-    return t * t * (3.0f - 2.0f * t);
-}
-
-} // namespace
-
 float tonemapDisplayChannel(float linear) {
     return linear / (1.0f + std::max(linear, 0.0f));
 }
@@ -34,21 +21,19 @@ float displayLuminance(Vector3 display) {
     return 0.2126f * display.x + 0.7152f * display.y + 0.0722f * display.z;
 }
 
-float dynamicOverlayScale(float bakedDisplayLuma) {
-    const float t = smoothstep(
-        kDynamicOverlayLumaStart,
-        kDynamicOverlayLumaEnd,
-        bakedDisplayLuma);
-    return 1.0f + (kDynamicOverlayMinScale - 1.0f) * t;
-}
-
-Vector3 composeLumaAwareOverlay(Vector3 bakedDisplay, Vector3 dynamicLinear) {
-    const Vector3 dynamicDisplay = tonemapDisplay(dynamicLinear);
-    const float dynScale = dynamicOverlayScale(displayLuminance(bakedDisplay));
+Vector3 composeDisplayAdditiveOverlay(
+    Vector3 bakedDisplay,
+    Vector3 dynamicLinear,
+    float dynamicBoost) {
+    const Vector3 dynamicDisplay = tonemapDisplay({
+        dynamicLinear.x * dynamicBoost,
+        dynamicLinear.y * dynamicBoost,
+        dynamicLinear.z * dynamicBoost,
+    });
     return {
-        saturate(bakedDisplay.x + dynamicDisplay.x * dynScale),
-        saturate(bakedDisplay.y + dynamicDisplay.y * dynScale),
-        saturate(bakedDisplay.z + dynamicDisplay.z * dynScale),
+        std::clamp(bakedDisplay.x + dynamicDisplay.x, 0.0f, 1.0f),
+        std::clamp(bakedDisplay.y + dynamicDisplay.y, 0.0f, 1.0f),
+        std::clamp(bakedDisplay.z + dynamicDisplay.z, 0.0f, 1.0f),
     };
 }
 

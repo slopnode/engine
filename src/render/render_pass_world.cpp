@@ -95,23 +95,6 @@ void drawModelMeshes(
     }
 }
 
-Vector3 meshWorldCentroid(const Mesh& mesh, const Matrix& worldMatrix) {
-    if (mesh.vertexCount <= 0 || mesh.vertices == nullptr) {
-        return {worldMatrix.m12, worldMatrix.m13, worldMatrix.m14};
-    }
-    Vector3 sum{};
-    for (int i = 0; i < mesh.vertexCount; ++i) {
-        const Vector3 local{
-            mesh.vertices[i * 3 + 0],
-            mesh.vertices[i * 3 + 1],
-            mesh.vertices[i * 3 + 2],
-        };
-        sum = Vector3Add(sum, Vector3Transform(local, worldMatrix));
-    }
-    const float inv = 1.0f / static_cast<float>(mesh.vertexCount);
-    return Vector3Scale(sum, inv);
-}
-
 Vector3 cameraForwardDir(const Camera3D& camera) {
     const Vector3 forward = Vector3Subtract(camera.target, camera.position);
     const float lenSq = Vector3LengthSqr(forward);
@@ -193,16 +176,13 @@ void renderWorldModel(
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
-        if (lightmaps.available && model.model.materialCount > 0) {
-            Shader shader = model.model.materials[0].shader;
-            if (shader.id != 0) {
-                prepareLightmapShaderDraw(
-                    shader,
-                    lightmaps.useLightmapLoc,
-                    mapUseLightmap,
-                    globalTransform.matrix,
-                    world);
-            }
+        if (lightmaps.available && lightmaps.lightmapShader.id != 0) {
+            prepareLightmapShaderDraw(
+                lightmaps.lightmapShader,
+                lightmaps.useLightmapLoc,
+                mapUseLightmap,
+                globalTransform.matrix,
+                world);
         }
     } else if (model.model.materialCount > 0) {
         mapLightmaps = mapLightmapState(world);
@@ -555,24 +535,6 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         lens.camera.position,
         kMaxDynamicLights,
         maxShadowed);
-    static int sLastDynCount = -1;
-    if (static_cast<int>(rankedLights.size()) != sLastDynCount) {
-        sLastDynCount = static_cast<int>(rankedLights.size());
-        TraceLog(LOG_INFO, "MAP: active dynamic lights=%d", sLastDynCount);
-        for (const RankedDynamicLight& light : rankedLights) {
-            TraceLog(
-                LOG_INFO,
-                "MAP: dyn light pos=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) intensity=%.2f kind=%s",
-                light.position.x,
-                light.position.y,
-                light.position.z,
-                light.direction.x,
-                light.direction.y,
-                light.direction.z,
-                light.light.intensity,
-                light.light.kind == DynamicLightKind::Spot ? "spot" : "point");
-        }
-    }
     return rankedLights;
 }
 
@@ -589,25 +551,26 @@ void uploadMapDynamicLights(
     const std::vector<RankedDynamicLight>& rankedLights,
     bool unlit,
     const DynamicLightShadowState* shadowState) {
+    if (unlit) {
+        return;
+    }
     flecs::entity mapEntity = world.lookup("MapStatic");
-    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>() || !mapEntity.has<Model3D>()) {
+    if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>()) {
         return;
     }
-    const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
-    Model3D& model = mapEntity.get_mut<Model3D>();
-    if (!lightmaps.available || model.model.materialCount <= 0) {
+    MapLightmapState& lightmaps = mapEntity.get_mut<MapLightmapState>();
+    if (!lightmaps.available || lightmaps.lightmapShader.id == 0) {
         return;
     }
-    Shader& mapShader = model.model.materials[0].shader;
-    if (mapShader.id == 0) {
-        return;
-    }
+    Shader& mapShader = lightmaps.lightmapShader;
     if (world.has<DynamicLightFrameState>()) {
         DynamicLightFrameState& frameState = world.get_mut<DynamicLightFrameState>();
         if (!frameState.bindings.resolved || frameState.bindings.shadowMapsLoc < 0) {
             resolveDynamicLightShaderBindings(mapShader, frameState.bindings);
         }
-        uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, shadowState);
+        if (frameState.bindings.resolved) {
+            uploadDynamicLightsToShader(mapShader, frameState.bindings, rankedLights, shadowState);
+        }
     }
     if (lightmaps.useLightmapLoc >= 0) {
         const int useLightmap = (!unlit) ? 1 : 0;
@@ -903,16 +866,13 @@ std::string drawWorldTransparentPass(
         mapDrawGlobal = &mapEntity.get_mut<GlobalTransformation>();
         mapDrawLightmaps = &mapEntity.get<MapLightmapState>();
         const int mapUseLightmap = unlit ? 0 : 1;
-        if (mapDrawLightmaps->available && mapDrawModel->model.materialCount > 0) {
-            Shader shader = mapDrawModel->model.materials[0].shader;
-            if (shader.id != 0) {
-                prepareLightmapShaderDraw(
-                    shader,
-                    mapDrawLightmaps->useLightmapLoc,
-                    mapUseLightmap,
-                    mapDrawGlobal->matrix,
-                    world);
-            }
+        if (mapDrawLightmaps->available && mapDrawLightmaps->lightmapShader.id != 0) {
+            prepareLightmapShaderDraw(
+                mapDrawLightmaps->lightmapShader,
+                mapDrawLightmaps->useLightmapLoc,
+                mapUseLightmap,
+                mapDrawGlobal->matrix,
+                world);
         }
     }
 
