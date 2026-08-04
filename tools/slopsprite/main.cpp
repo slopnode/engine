@@ -1129,6 +1129,10 @@ int main(int argc, char* argv[]) {
     SetTraceLogLevel(LOG_INFO);
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1600, 900, "slopsprite");
+    if (!IsWindowReady()) {
+        std::cerr << "slopsprite: failed to initialize window\n";
+        return 1;
+    }
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 

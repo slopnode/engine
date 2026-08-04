@@ -17,7 +17,11 @@ struct RadCompileOptions {
     float luxelsPerMeter = 16.0f;
     int bounces = 2;
     int samples = 16;
+#if defined(__APPLE__)
+    bool preferGpu = false;
+#else
     bool preferGpu = true;
+#endif
 };
 
 struct CompileMountArgs {

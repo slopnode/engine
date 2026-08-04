@@ -21,7 +21,11 @@ struct RadiositySettings {
     float directWrap = 0.35f;
     float coplanarFill = 0.15f;
     float ambientScale = 1.25f;
+#if defined(__APPLE__)
+    bool preferGpu = false;
+#else
     bool preferGpu = true;
+#endif
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
 };

@@ -5,7 +5,11 @@ add_subdirectory(flecs)
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(OPENGL_VERSION "4.3" CACHE STRING "Force a specific OpenGL Version?" FORCE)
+if(APPLE)
+    set(OPENGL_VERSION "3.3" CACHE STRING "Force a specific OpenGL Version?" FORCE)
+else()
+    set(OPENGL_VERSION "4.3" CACHE STRING "Force a specific OpenGL Version?" FORCE)
+endif()
 set(SUPPORT_MODULE_RAUDIO OFF CACHE BOOL "" FORCE)
 
 if(UNIX AND NOT APPLE)
