@@ -172,6 +172,9 @@ void registerRenderSystems(flecs::world& world) {
                     shadowState = &shadows;
                 }
             }
+            if (world.has<DynamicLightFrameState>()) {
+                world.get_mut<DynamicLightFrameState>().shadowMapsActive = shadowState != nullptr;
+            }
 
             uploadMapDynamicLights(world, rankedLights, unlit, shadowState);
 

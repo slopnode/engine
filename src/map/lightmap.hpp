@@ -111,6 +111,9 @@ Shader loadSkyboxBackgroundShader(AssetStore& assets);
 /** Loads the sky-face shader used by map sky brush materials. */
 Shader loadSkyFaceShader(AssetStore& assets);
 
+struct DynamicLightShaderBindings;
+struct DynamicLightShadowState;
+
 /** Binds a dummy sampler2DArray so lit preview/map draw does not conflict with albedo. */
 void bindLightmapDummyShadowMaps(Shader shader);
 

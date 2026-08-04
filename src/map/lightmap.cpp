@@ -550,12 +550,11 @@ void bindLightmapDummyShadowMaps(Shader shader) {
 
     const int unit = 12;
     rlDrawRenderBatchActive();
-    rlEnableShader(shader.id);
     rlActiveTextureSlot(unit);
     glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArrayId);
-    rlSetUniform(loc, &unit, SHADER_UNIFORM_INT, 1);
+    SetShaderValue(shader, loc, &unit, SHADER_UNIFORM_INT);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
     rlActiveTextureSlot(0);
-    rlDisableShader();
 }
 
 }

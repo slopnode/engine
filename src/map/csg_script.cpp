@@ -1593,11 +1593,27 @@ std::optional<LoadedMap> loadAndCompileMap(
     result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
     result.skyMeshIndices.clear();
     result.skyMeshIndices.reserve(compiled.asset.primitives.size());
+    result.detailMeshIndices.clear();
+    result.detailMeshIndices.reserve(compiled.asset.primitives.size());
+    std::unordered_set<std::string> detailFaceIds;
+    for (const Brush& brush : *brushes) {
+        if (brush.role != BrushRole::Detail) {
+            continue;
+        }
+        for (const BrushFace& face : brush.faces) {
+            if (!face.id.empty()) {
+                detailFaceIds.insert(face.id);
+            }
+        }
+    }
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         const GeoPrimitive& primitive =
             compiled.asset.primitives[static_cast<std::size_t>(meshIndex)];
         if (primitive.transparent) {
             result.transparentMeshIndices.push_back(meshIndex);
+        }
+        if (detailFaceIds.count(primitive.name) > 0) {
+            result.detailMeshIndices.push_back(meshIndex);
         }
         const MaterialAsset* materialAsset = assets.getMaterialAsset(primitive.material);
         if (materialAsset != nullptr && materialAsset->sky) {

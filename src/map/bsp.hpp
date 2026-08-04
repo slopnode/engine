@@ -102,6 +102,7 @@ struct MapLightmapState {
     Shader skyShader{};
     std::vector<int> transparentMeshIndices;
     std::vector<int> skyMeshIndices;
+    std::vector<int> detailMeshIndices;
 };
 
 /** Tag on entities spawned as part of the active map scene. */

@@ -2,6 +2,7 @@
 
 #include "render/dynamic_light_shadow_math.hpp"
 #include "map/bsp.hpp"
+#include "map/lightmap.hpp"
 #include "render/render_frustum.hpp"
 
 #include <rlgl.h>
@@ -430,13 +431,25 @@ void bindDynamicLightShadowMaps(
     }
 
     rlDrawRenderBatchActive();
-    rlEnableShader(shader.id);
     const int unit = kDynamicShadowTextureUnit;
     rlActiveTextureSlot(unit);
     glBindTexture(GL_TEXTURE_2D_ARRAY, shadowState.depthArrayId);
-    rlSetUniform(bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT, 1);
+    SetShaderValue(shader, bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
     rlActiveTextureSlot(0);
-    rlDisableShader();
+}
+
+void bindLightmapShadowMapsForDraw(
+    Shader shader,
+    const DynamicLightShaderBindings& bindings,
+    bool useRealShadowMaps,
+    const DynamicLightShadowState* shadowState) {
+    if (useRealShadowMaps && shadowState != nullptr && shadowState->ready &&
+        bindings.shadowMapsLoc >= 0) {
+        bindDynamicLightShadowMaps(shader, bindings, *shadowState);
+        return;
+    }
+    bindLightmapDummyShadowMaps(shader);
 }
 
 }

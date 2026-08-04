@@ -62,6 +62,8 @@ struct DynamicLightShaderBindings {
 struct DynamicLightFrameState {
     std::vector<RankedDynamicLight> lights;
     DynamicLightShaderBindings bindings{};
+    /** True when shadow maps were rendered this frame and may be sampled. */
+    bool shadowMapsActive = false;
 };
 
 /** Creates shadow render targets and the depth shader. */
@@ -89,5 +91,12 @@ void bindDynamicLightShadowMaps(
     Shader shader,
     const DynamicLightShaderBindings& bindings,
     const DynamicLightShadowState& shadowState);
+
+/** Binds real shadow maps when @p useRealShadowMaps, otherwise the dummy 1x1 array. */
+void bindLightmapShadowMapsForDraw(
+    Shader shader,
+    const DynamicLightShaderBindings& bindings,
+    bool useRealShadowMaps,
+    const DynamicLightShadowState* shadowState);
 
 }

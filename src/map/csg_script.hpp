@@ -38,6 +38,7 @@ struct LoadedMap {
     int useLightmapLoc = -1;
     std::vector<int> transparentMeshIndices;
     std::vector<int> skyMeshIndices;
+    std::vector<int> detailMeshIndices;
     Shader skyShader{};
 };
 
