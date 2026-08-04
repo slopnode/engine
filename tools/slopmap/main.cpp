@@ -379,6 +379,14 @@ void drawScene(
         camera.target.y - camera.position.y,
         camera.target.z - camera.position.z,
     };
+    const Vector3 cameraForward = [&viewDir]() {
+        const float lenSq = viewDir.x * viewDir.x + viewDir.y * viewDir.y + viewDir.z * viewDir.z;
+        if (lenSq < 1e-8f) {
+            return Vector3{0.0f, 0.0f, 1.0f};
+        }
+        const float inv = 1.0f / std::sqrt(lenSq);
+        return Vector3{viewDir.x * inv, viewDir.y * inv, viewDir.z * inv};
+    }();
     const Vector3 lineViewDir = ortho ? viewDir : Vector3{0.0f, 0.0f, 0.0f};
     const slopmap::GridPlane drawPlane =
         slopmap::gridPlaneForView(editor.viewPlane, editor.gridPlane);
@@ -438,6 +446,7 @@ void drawScene(
         editor.expandedInstanceBrushes,
         selectedBrushes,
         eye,
+        cameraForward,
         lineWidth);
 
     if (fillWire) {

@@ -120,6 +120,10 @@ layout(std430, binding = 6) readonly buffer ParamsBuffer {
     Params params;
 };
 
+layout(std430, binding = 7) readonly buffer FaceTransparentBuffer {
+    int faceTransparent[];
+};
+
 uint hashU(uint x) {
     x ^= x >> 16;
     x *= 0x7feb352du;
@@ -185,6 +189,13 @@ bool rayTriangle(vec3 origin, vec3 direction, vec3 v0, vec3 v1, vec3 v2, float m
     return true;
 }
 
+bool isTransparentFace(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= faceTransparent.length()) {
+        return false;
+    }
+    return faceTransparent[faceIndex] != 0;
+}
+
 bool raycastClosest(
     vec3 origin,
     vec3 direction,
@@ -226,6 +237,9 @@ bool raycastClosest(
             for (int i = 0; i < node.primCount; ++i) {
                 BvhPrim prim = prims[node.firstPrim + i];
                 if (prim.faceIndex == ignoreFace) {
+                    continue;
+                }
+                if (isTransparentFace(prim.faceIndex)) {
                     continue;
                 }
                 float t = 0.0;

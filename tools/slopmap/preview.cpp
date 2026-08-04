@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -19,6 +20,43 @@
 namespace slopmap {
 
 namespace {
+
+Vector3 normalizeOrDefault(Vector3 v, Vector3 fallback) {
+    const float lenSq = v.x * v.x + v.y * v.y + v.z * v.z;
+    if (lenSq < 1e-8f) {
+        return fallback;
+    }
+    const float inv = 1.0f / std::sqrt(lenSq);
+    return {v.x * inv, v.y * inv, v.z * inv};
+}
+
+float viewDepthAlongAxis(Vector3 point, Vector3 cameraPos, Vector3 cameraForward) {
+    return Vector3DotProduct(
+        Vector3Subtract(point, cameraPos),
+        cameraForward);
+}
+
+float meshMinViewDepth(
+    const Mesh& mesh,
+    Vector3 cameraPos,
+    Vector3 cameraForward) {
+    const BoundingBox bounds = GetMeshBoundingBox(mesh);
+    const Vector3 corners[8] = {
+        {bounds.min.x, bounds.min.y, bounds.min.z},
+        {bounds.max.x, bounds.min.y, bounds.min.z},
+        {bounds.min.x, bounds.max.y, bounds.min.z},
+        {bounds.max.x, bounds.max.y, bounds.min.z},
+        {bounds.min.x, bounds.min.y, bounds.max.z},
+        {bounds.max.x, bounds.min.y, bounds.max.z},
+        {bounds.min.x, bounds.max.y, bounds.max.z},
+        {bounds.max.x, bounds.max.y, bounds.max.z},
+    };
+    float minDepth = std::numeric_limits<float>::max();
+    for (const Vector3& corner : corners) {
+        minDepth = std::min(minDepth, viewDepthAlongAxis(corner, cameraPos, cameraForward));
+    }
+    return minDepth;
+}
 
 slopengine::MaterialUvInfo resolveMaterialUv(slopengine::AssetStore& assets, std::string_view materialPath) {
     slopengine::MaterialUvInfo info{};
@@ -132,14 +170,16 @@ void drawModelMeshesSplit(
 void drawPreviewModelTextured(
     const Model& model,
     const std::vector<int>& transparentMeshIndices,
-    Vector3 cameraPos) {
+    Vector3 cameraPos,
+    Vector3 cameraForward) {
     drawModelMeshesSplit(model, transparentMeshIndices, false);
     if (transparentMeshIndices.empty()) {
         return;
     }
+    const Vector3 camForward = normalizeOrDefault(cameraForward, {0.0f, 0.0f, 1.0f});
     struct SortItem {
         int meshIndex = 0;
-        float distSq = 0.0f;
+        float viewDepth = 0.0f;
     };
     std::vector<SortItem> sorted;
     sorted.reserve(transparentMeshIndices.size());
@@ -147,19 +187,13 @@ void drawPreviewModelTextured(
         if (meshIndex < 0 || meshIndex >= model.meshCount) {
             continue;
         }
-        const BoundingBox bounds = GetMeshBoundingBox(model.meshes[meshIndex]);
-        const Vector3 center{
-            (bounds.min.x + bounds.max.x) * 0.5f,
-            (bounds.min.y + bounds.max.y) * 0.5f,
-            (bounds.min.z + bounds.max.z) * 0.5f,
-        };
-        const float dx = center.x - cameraPos.x;
-        const float dy = center.y - cameraPos.y;
-        const float dz = center.z - cameraPos.z;
-        sorted.push_back(SortItem{meshIndex, dx * dx + dy * dy + dz * dz});
+        sorted.push_back(SortItem{
+            meshIndex,
+            meshMinViewDepth(model.meshes[meshIndex], cameraPos, camForward),
+        });
     }
     std::sort(sorted.begin(), sorted.end(), [](const SortItem& a, const SortItem& b) {
-        return a.distSq > b.distSq;
+        return a.viewDepth > b.viewDepth;
     });
     rlDisableDepthMask();
     BeginBlendMode(BLEND_ALPHA);
@@ -682,6 +716,7 @@ void MapPreview::draw(
     const std::vector<slopengine::Brush>& instanceBrushes,
     const std::vector<int>& selectedBrushes,
     Vector3 eye,
+    Vector3 cameraForward,
     float lineWidth) const {
     auto outlineBrush = [&](const slopengine::Brush& brush, bool selected) {
         drawBrushFaceOutlines(brush, brushOutlineColor(brush, selected), eye, lineWidth);
@@ -705,7 +740,7 @@ void MapPreview::draw(
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
             drawModelMeshesSplit(litModel, transparentMeshIndices, false);
-            drawPreviewModelTextured(litModel, transparentMeshIndices, eye);
+            drawPreviewModelTextured(litModel, transparentMeshIndices, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
@@ -715,7 +750,7 @@ void MapPreview::draw(
     case PreviewFill::Unlit:
         if (visValid) {
             drawModelMeshesSplit(visModel, transparentMeshIndices, false);
-            drawPreviewModelTextured(visModel, transparentMeshIndices, eye);
+            drawPreviewModelTextured(visModel, transparentMeshIndices, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
@@ -725,7 +760,7 @@ void MapPreview::draw(
     case PreviewFill::Textures:
         if (valid) {
             drawModelMeshesSplit(model, transparentMeshIndices, false);
-            drawPreviewModelTextured(model, transparentMeshIndices, eye);
+            drawPreviewModelTextured(model, transparentMeshIndices, eye, cameraForward);
         }
         break;
     case PreviewFill::Solid:

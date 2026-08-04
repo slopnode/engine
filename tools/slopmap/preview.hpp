@@ -76,6 +76,7 @@ struct MapPreview {
         const std::vector<slopengine::Brush>& instanceBrushes,
         const std::vector<int>& selectedBrushes,
         Vector3 eye,
+        Vector3 cameraForward,
         float lineWidth) const;
 };
 

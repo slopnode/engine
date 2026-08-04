@@ -264,6 +264,7 @@ void unloadDirectResources(
     unsigned int paramsSsbo,
     unsigned int reachSsbo,
     unsigned int faceSkySsbo,
+    unsigned int faceTransparentSsbo,
     unsigned int program) {
     unloadSsbo(luxelSsbo);
     unloadSsbo(emitterSsbo);
@@ -273,6 +274,7 @@ void unloadDirectResources(
     unloadSsbo(paramsSsbo);
     unloadSsbo(reachSsbo);
     unloadSsbo(faceSkySsbo);
+    unloadSsbo(faceTransparentSsbo);
     rlUnloadShaderProgram(program);
 }
 
@@ -347,7 +349,8 @@ bool accumulateDirectLightingGpu(
     std::string_view computeShaderSource,
     const RadGpuDirectParams& directParams,
     const RadGpuReachability& reachability,
-    const std::vector<std::int32_t>& faceIsSky) {
+    const std::vector<std::int32_t>& faceIsSky,
+    const std::vector<std::int32_t>& faceIsTransparent) {
     if (!radiosityGpuContextReady()) {
         TraceLog(LOG_WARNING, "sloprad: GPU direct lighting unavailable (no GL 4.3 context)");
         return false;
@@ -473,6 +476,10 @@ bool accumulateDirectLightingGpu(
     if (faceSkyBits.empty()) {
         faceSkyBits.push_back(0);
     }
+    std::vector<std::int32_t> faceTransparentBits = faceIsTransparent;
+    if (faceTransparentBits.empty()) {
+        faceTransparentBits.push_back(0);
+    }
 
     const unsigned int luxelSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuLuxels.size() * sizeof(GpuLuxelSSBO)),
@@ -502,6 +509,10 @@ bool accumulateDirectLightingGpu(
         static_cast<unsigned int>(faceSkyBits.size() * sizeof(std::int32_t)),
         faceSkyBits.data(),
         RL_DYNAMIC_COPY);
+    const unsigned int faceTransparentSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(faceTransparentBits.size() * sizeof(std::int32_t)),
+        faceTransparentBits.data(),
+        RL_DYNAMIC_COPY);
     const int luxelCount = static_cast<int>(gpuLuxels.size());
     const int emitterCount = static_cast<int>(emitters.size());
     const int lightCount = static_cast<int>(lights.size());
@@ -521,7 +532,7 @@ bool accumulateDirectLightingGpu(
         rlLoadShaderBuffer(sizeof(GpuParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
 
     if (luxelSsbo == 0 || emitterSsbo == 0 || lightSsbo == 0 || nodeSsbo == 0 || primSsbo == 0
-        || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0) {
+        || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0 || faceTransparentSsbo == 0) {
         TraceLog(LOG_WARNING, "sloprad: failed to allocate GPU SSBOs for direct lighting");
         unloadDirectResources(
             luxelSsbo,
@@ -532,6 +543,7 @@ bool accumulateDirectLightingGpu(
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
+            faceTransparentSsbo,
             program);
         return false;
     }
@@ -545,6 +557,7 @@ bool accumulateDirectLightingGpu(
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
+            faceTransparentSsbo,
             program);
         return false;
     }
@@ -572,6 +585,7 @@ bool accumulateDirectLightingGpu(
     rlBindShaderBuffer(lightSsbo, 5);
     rlBindShaderBuffer(reachSsbo, 6);
     rlBindShaderBuffer(faceSkySsbo, 7);
+    rlBindShaderBuffer(faceTransparentSsbo, 8);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -651,6 +665,7 @@ bool accumulateDirectLightingGpu(
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
+            faceTransparentSsbo,
             program);
         return false;
     }
@@ -670,6 +685,7 @@ bool accumulateDirectLightingGpu(
             paramsSsbo,
             reachSsbo,
             faceSkySsbo,
+            faceTransparentSsbo,
             program);
         return false;
     }
@@ -683,6 +699,7 @@ bool accumulateDirectLightingGpu(
         paramsSsbo,
         reachSsbo,
         faceSkySsbo,
+        faceTransparentSsbo,
         program);
 
     if (!validateGpuResults(gpuLuxelsBefore, gpuLuxels)) {
@@ -771,6 +788,7 @@ void unloadBounceResources(
     unsigned int nodeSsbo,
     unsigned int primSsbo,
     unsigned int paramsSsbo,
+    unsigned int faceTransparentSsbo,
     unsigned int program) {
     unloadSsbo(luxelSsbo);
     unloadSsbo(gatherSsbo);
@@ -779,6 +797,7 @@ void unloadBounceResources(
     unloadSsbo(nodeSsbo);
     unloadSsbo(primSsbo);
     unloadSsbo(paramsSsbo);
+    unloadSsbo(faceTransparentSsbo);
     if (program != 0) {
         rlUnloadShaderProgram(program);
     }
@@ -793,7 +812,8 @@ bool accumulateBounceLightingGpu(
     const std::vector<RadGpuFaceGrid>& faceGrids,
     const QuadBvh& sceneBvh,
     std::string_view computeShaderSource,
-    const RadGpuBounceParams& bounceParams) {
+    const RadGpuBounceParams& bounceParams,
+    const std::vector<char>& faceTransparent) {
     if (!radiosityGpuContextReady()) {
         TraceLog(LOG_WARNING, "sloprad: GPU bounce lighting unavailable (no GL 4.3 context)");
         return false;
@@ -936,16 +956,44 @@ bool accumulateBounceLightingGpu(
     const unsigned int paramsSsbo =
         rlLoadShaderBuffer(sizeof(GpuBounceParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
 
+    std::vector<std::int32_t> faceTransparentBits(faceTransparent.size(), 0);
+    for (std::size_t i = 0; i < faceTransparent.size(); ++i) {
+        faceTransparentBits[i] = faceTransparent[i] != 0 ? 1 : 0;
+    }
+    if (faceTransparentBits.empty()) {
+        faceTransparentBits.push_back(0);
+    }
+    const unsigned int faceTransparentSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(faceTransparentBits.size() * sizeof(std::int32_t)),
+        faceTransparentBits.data(),
+        RL_DYNAMIC_COPY);
+
     if (luxelSsbo == 0 || gatherSsbo == 0 || shootSsbo == 0 || faceSsbo == 0 || nodeSsbo == 0
-        || primSsbo == 0 || paramsSsbo == 0) {
+        || primSsbo == 0 || paramsSsbo == 0 || faceTransparentSsbo == 0) {
         TraceLog(LOG_WARNING, "sloprad: failed to allocate GPU SSBOs for bounce lighting");
         unloadBounceResources(
-            luxelSsbo, gatherSsbo, shootSsbo, faceSsbo, nodeSsbo, primSsbo, paramsSsbo, program);
+            luxelSsbo,
+            gatherSsbo,
+            shootSsbo,
+            faceSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            faceTransparentSsbo,
+            program);
         return false;
     }
     if (!checkGlError("bounce ssbo allocate")) {
         unloadBounceResources(
-            luxelSsbo, gatherSsbo, shootSsbo, faceSsbo, nodeSsbo, primSsbo, paramsSsbo, program);
+            luxelSsbo,
+            gatherSsbo,
+            shootSsbo,
+            faceSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            faceTransparentSsbo,
+            program);
         return false;
     }
 
@@ -965,6 +1013,7 @@ bool accumulateBounceLightingGpu(
     rlBindShaderBuffer(nodeSsbo, 4);
     rlBindShaderBuffer(primSsbo, 5);
     rlBindShaderBuffer(paramsSsbo, 6);
+    rlBindShaderBuffer(faceTransparentSsbo, 7);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -998,7 +1047,15 @@ bool accumulateBounceLightingGpu(
     rlDisableShader();
     if (dispatchFailed) {
         unloadBounceResources(
-            luxelSsbo, gatherSsbo, shootSsbo, faceSsbo, nodeSsbo, primSsbo, paramsSsbo, program);
+            luxelSsbo,
+            gatherSsbo,
+            shootSsbo,
+            faceSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            faceTransparentSsbo,
+            program);
         return false;
     }
 
@@ -1009,12 +1066,28 @@ bool accumulateBounceLightingGpu(
         0);
     if (!checkGlError("bounce ssbo readback")) {
         unloadBounceResources(
-            luxelSsbo, gatherSsbo, shootSsbo, faceSsbo, nodeSsbo, primSsbo, paramsSsbo, program);
+            luxelSsbo,
+            gatherSsbo,
+            shootSsbo,
+            faceSsbo,
+            nodeSsbo,
+            primSsbo,
+            paramsSsbo,
+            faceTransparentSsbo,
+            program);
         return false;
     }
 
     unloadBounceResources(
-        luxelSsbo, gatherSsbo, shootSsbo, faceSsbo, nodeSsbo, primSsbo, paramsSsbo, program);
+        luxelSsbo,
+        gatherSsbo,
+        shootSsbo,
+        faceSsbo,
+        nodeSsbo,
+        primSsbo,
+        paramsSsbo,
+        faceTransparentSsbo,
+        program);
 
     gatheredRgb.resize(luxels.size());
     for (std::size_t i = 0; i < luxels.size(); ++i) {

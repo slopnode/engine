@@ -77,13 +77,18 @@ void buildFxLightFrameState(
     FxLightFrameState& out);
 
 /** True if world geo blocks the segment from light to receiver (nudged endpoints). */
-bool lightSegmentOccluded(const QuadBvh* bvh, Vector3 lightPos, Vector3 point);
+bool lightSegmentOccluded(
+    const QuadBvh* bvh,
+    Vector3 lightPos,
+    Vector3 point,
+    const std::vector<char>* skipFaces = nullptr);
 
 Vector3 evaluateFxLightsAtPoint(
     const FxLightFrameState& state,
     Vector3 point,
     Vector3 normal,
     const QuadBvh* occlusionBvh = nullptr,
+    const std::vector<char>* occlusionSkipFaces = nullptr,
     int maxLights = kMaxFxLightsPerReceiver);
 
 /** Sums ranked DynamicLights and FX local lights at @p point. */
@@ -92,7 +97,8 @@ Vector3 evaluateOverlayLightsAtPoint(
     const FxLightFrameState* fxLights,
     Vector3 point,
     Vector3 normal,
-    const QuadBvh* occlusionBvh = nullptr);
+    const QuadBvh* occlusionBvh = nullptr,
+    const std::vector<char>* occlusionSkipFaces = nullptr);
 
 /** Adds linear RGB light contribution into an 8-bit color (clamped). */
 Color addLinearRgbToColor(Color base, Vector3 linearRgb);

@@ -75,6 +75,13 @@ const QuadBvh* occlusionBvhFromLighting(const MapLighting* lighting) {
     return &lighting->surfaceBvh;
 }
 
+const std::vector<char>* occlusionSkipFromLighting(const MapLighting* lighting) {
+    if (lighting == nullptr || !lighting->available || lighting->faceTransparentSkip.empty()) {
+        return nullptr;
+    }
+    return &lighting->faceTransparentSkip;
+}
+
 FxLightGridCell cellCoords(Vector3 point, float cellSize) {
     const float inv = 1.0f / std::max(cellSize, 1e-4f);
     return {
@@ -178,7 +185,11 @@ void buildFxLightFrameState(
     });
 }
 
-bool lightSegmentOccluded(const QuadBvh* bvh, Vector3 lightPos, Vector3 point) {
+bool lightSegmentOccluded(
+    const QuadBvh* bvh,
+    Vector3 lightPos,
+    Vector3 point,
+    const std::vector<char>* skipFaces) {
     if (bvh == nullptr || bvh->empty()) {
         return false;
     }
@@ -192,7 +203,7 @@ bool lightSegmentOccluded(const QuadBvh* bvh, Vector3 lightPos, Vector3 point) {
     const float nudge = std::min(kLightLosNudge, dist * 0.45f);
     const Vector3 from = Vector3Add(lightPos, Vector3Scale(dir, nudge));
     const Vector3 to = Vector3Subtract(point, Vector3Scale(dir, nudge));
-    return bspSegmentOccluded(*bvh, from, to);
+    return bspSegmentOccluded(*bvh, from, to, -1, -1, skipFaces);
 }
 
 Vector3 evaluateOverlayLightsAtPoint(
@@ -200,11 +211,12 @@ Vector3 evaluateOverlayLightsAtPoint(
     const FxLightFrameState* fxLights,
     Vector3 point,
     Vector3 normal,
-    const QuadBvh* occlusionBvh) {
+    const QuadBvh* occlusionBvh,
+    const std::vector<char>* occlusionSkipFaces) {
     Vector3 total{};
     if (dynLights != nullptr && !dynLights->empty()) {
         for (const RankedDynamicLight& light : *dynLights) {
-            if (lightSegmentOccluded(occlusionBvh, light.position, point)) {
+            if (lightSegmentOccluded(occlusionBvh, light.position, point, occlusionSkipFaces)) {
                 continue;
             }
             const Vector3 dyn = evaluateDynamicLightAtPoint(light, point, normal);
@@ -214,8 +226,8 @@ Vector3 evaluateOverlayLightsAtPoint(
         }
     }
     if (fxLights != nullptr && !fxLights->lights.empty()) {
-        const Vector3 fx =
-            evaluateFxLightsAtPoint(*fxLights, point, normal, occlusionBvh);
+        const Vector3 fx = evaluateFxLightsAtPoint(
+            *fxLights, point, normal, occlusionBvh, occlusionSkipFaces);
         total.x += fx.x;
         total.y += fx.y;
         total.z += fx.z;
@@ -282,7 +294,8 @@ Color sampleReceiverTintAtOrigin(
         fxLights,
         origin,
         {0.0f, 1.0f, 0.0f},
-        occlusionBvhFromLighting(lighting));
+        occlusionBvhFromLighting(lighting),
+        occlusionSkipFromLighting(lighting));
     return linearToColor(composeReceiverLighting(tint, overlay));
 }
 
@@ -383,6 +396,7 @@ Color sampleReceiverTintColorForModel(
     const MapLighting* lighting =
         world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
     const QuadBvh* occlusionBvh = occlusionBvhFromLighting(lighting);
+    const std::vector<char>* occlusionSkip = occlusionSkipFromLighting(lighting);
 
     Color best = sampleReceiverTintAtOrigin(world, samples[0], false, false, 2.0f);
     float bestStrength = overlayStrength(evaluateOverlayLightsAtPoint(
@@ -390,7 +404,8 @@ Color sampleReceiverTintColorForModel(
         nullptr,
         samples[0],
         {0.0f, 1.0f, 0.0f},
-        occlusionBvh));
+        occlusionBvh,
+        occlusionSkip));
     float bestLum = linearLuminance(colorToLinear(best));
     for (int i = 1; i < sampleCount; ++i) {
         const float strength = overlayStrength(evaluateOverlayLightsAtPoint(
@@ -398,7 +413,8 @@ Color sampleReceiverTintColorForModel(
             nullptr,
             samples[i],
             {0.0f, 1.0f, 0.0f},
-            occlusionBvh));
+            occlusionBvh,
+            occlusionSkip));
         const Color candidate = sampleReceiverTintAtOrigin(world, samples[i], false, false, 2.0f);
         const float lum = linearLuminance(colorToLinear(candidate));
         if (strength > bestStrength + 1e-6f ||
@@ -446,6 +462,7 @@ Vector3 evaluateFxLightsAtPoint(
     Vector3 point,
     Vector3 normal,
     const QuadBvh* occlusionBvh,
+    const std::vector<char>* occlusionSkipFaces,
     int maxLights) {
     if (state.lights.empty() || maxLights <= 0) {
         return {};
@@ -473,7 +490,7 @@ Vector3 evaluateFxLightsAtPoint(
         if (distSq > range * range) {
             continue;
         }
-        if (lightSegmentOccluded(occlusionBvh, light.position, point)) {
+        if (lightSegmentOccluded(occlusionBvh, light.position, point, occlusionSkipFaces)) {
             continue;
         }
         candidates.push_back({index, distSq});

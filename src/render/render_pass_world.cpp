@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -104,18 +105,48 @@ Vector3 meshWorldCentroid(const Mesh& mesh, const Matrix& worldMatrix) {
     return Vector3Scale(sum, inv);
 }
 
-float distSqToCamera(Vector3 point, Vector3 cameraPos) {
-    const float dx = point.x - cameraPos.x;
-    const float dy = point.y - cameraPos.y;
-    const float dz = point.z - cameraPos.z;
-    return dx * dx + dy * dy + dz * dz;
+Vector3 cameraForwardDir(const Camera3D& camera) {
+    const Vector3 forward = Vector3Subtract(camera.target, camera.position);
+    const float lenSq = Vector3LengthSqr(forward);
+    if (lenSq < 1e-8f) {
+        return {0.0f, 0.0f, 1.0f};
+    }
+    return Vector3Scale(forward, 1.0f / std::sqrt(lenSq));
+}
+
+float viewDepthAlongAxis(Vector3 point, Vector3 cameraPos, Vector3 cameraForward) {
+    return Vector3DotProduct(Vector3Subtract(point, cameraPos), cameraForward);
+}
+
+float meshMinViewDepth(
+    const Mesh& mesh,
+    const Matrix& worldMatrix,
+    Vector3 cameraPos,
+    Vector3 cameraForward) {
+    const BoundingBox bounds = GetMeshBoundingBox(mesh);
+    const Vector3 localCorners[8] = {
+        {bounds.min.x, bounds.min.y, bounds.min.z},
+        {bounds.max.x, bounds.min.y, bounds.min.z},
+        {bounds.min.x, bounds.max.y, bounds.min.z},
+        {bounds.max.x, bounds.max.y, bounds.min.z},
+        {bounds.min.x, bounds.min.y, bounds.max.z},
+        {bounds.max.x, bounds.min.y, bounds.max.z},
+        {bounds.min.x, bounds.max.y, bounds.max.z},
+        {bounds.max.x, bounds.max.y, bounds.max.z},
+    };
+    float minDepth = std::numeric_limits<float>::max();
+    for (const Vector3& local : localCorners) {
+        const Vector3 world = Vector3Transform(local, worldMatrix);
+        minDepth = std::min(minDepth, viewDepthAlongAxis(world, cameraPos, cameraForward));
+    }
+    return minDepth;
 }
 
 struct SpriteDrawItem {
     const SpriteInstance* sprite = nullptr;
     const GlobalTransformation* global = nullptr;
     const SpriteAnimator* animator = nullptr;
-    float distSq = 0.0f;
+    float viewDepth = 0.0f;
     int layer = 0;
 };
 
@@ -126,7 +157,7 @@ enum class TransparentDrawKind {
 };
 
 struct TransparentDrawItem {
-    float distSq = 0.0f;
+    float viewDepth = 0.0f;
     int sortLayer = 0;
     TransparentDrawKind kind = TransparentDrawKind::MapMesh;
     int mapMeshIndex = -1;
@@ -366,14 +397,18 @@ void drawWorldSprite(
             (lighting != nullptr && lighting->available && !lighting->surfaceBvh.empty())
                 ? &lighting->surfaceBvh
                 : nullptr;
+        const std::vector<char>* occlusionSkip =
+            (lighting != nullptr && lighting->available && !lighting->faceTransparentSkip.empty())
+                ? &lighting->faceTransparentSkip
+                : nullptr;
         colorFeet = addLinearRgbToColor(
             colorFeet,
             evaluateOverlayLightsAtPoint(
-                dynamicLights, fxLights, feetPoint, normal, occlusionBvh));
+                dynamicLights, fxLights, feetPoint, normal, occlusionBvh, occlusionSkip));
         colorHead = addLinearRgbToColor(
             colorHead,
             evaluateOverlayLightsAtPoint(
-                dynamicLights, fxLights, headPoint, normal, occlusionBvh));
+                dynamicLights, fxLights, headPoint, normal, occlusionBvh, occlusionSkip));
     }
     if (billboard->fullbright && useBrightmap) {
         colorFeet = WHITE;
@@ -683,15 +718,13 @@ void collectWorldSpriteDrawItems(
             if (!pvsVisibleFromCamera(world, lens.camera.position, position)) {
                 return;
             }
-            const float dx = position.x - lens.camera.position.x;
-            const float dy = position.y - lens.camera.position.y;
-            const float dz = position.z - lens.camera.position.z;
+            const Vector3 camForward = cameraForwardDir(lens.camera);
             spriteDrawList.push_back(SpriteDrawItem{
                 &sprite,
                 &global,
                 spriteEntity.has<SpriteAnimator>() ? &spriteEntity.get<SpriteAnimator>()
                                                    : nullptr,
-                dx * dx + dy * dy + dz * dz,
+                viewDepthAlongAxis(position, lens.camera.position, camForward),
                 spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
             });
         });
@@ -762,6 +795,7 @@ std::string drawWorldTransparentPass(
     const FxLightFrameState* fxLights =
         (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
 
+    const Vector3 camForward = cameraForwardDir(lens.camera);
     std::vector<TransparentDrawItem> drawList;
     drawList.reserve(128);
 
@@ -775,13 +809,14 @@ std::string drawWorldTransparentPass(
                 if (meshIndex < 0 || meshIndex >= mapModel.model.meshCount) {
                     continue;
                 }
-                const Vector3 centroid = meshWorldCentroid(
-                    mapModel.model.meshes[meshIndex],
-                    mapGlobal.matrix);
                 TransparentDrawItem item{};
                 item.kind = TransparentDrawKind::MapMesh;
                 item.mapMeshIndex = meshIndex;
-                item.distSq = distSqToCamera(centroid, lens.camera.position);
+                item.viewDepth = meshMinViewDepth(
+                    mapModel.model.meshes[meshIndex],
+                    mapGlobal.matrix,
+                    lens.camera.position,
+                    camForward);
                 drawList.push_back(item);
             }
         }
@@ -793,7 +828,7 @@ std::string drawWorldTransparentPass(
         TransparentDrawItem item{};
         item.kind = TransparentDrawKind::Sprite;
         item.sprite = sprite;
-        item.distSq = sprite.distSq;
+        item.viewDepth = sprite.viewDepth;
         item.sortLayer = sprite.layer;
         drawList.push_back(item);
     }
@@ -804,7 +839,8 @@ std::string drawWorldTransparentPass(
         TransparentDrawItem item{};
         item.kind = TransparentDrawKind::Particle;
         item.particle = particle;
-        item.distSq = particle.distSq;
+        item.viewDepth =
+            viewDepthAlongAxis(particle.position, lens.camera.position, camForward);
         drawList.push_back(item);
     }
 
@@ -823,13 +859,13 @@ std::string drawWorldTransparentPass(
         drawList.begin(),
         drawList.end(),
         [](const TransparentDrawItem& a, const TransparentDrawItem& b) {
-            if (std::fabs(a.distSq - b.distSq) > 1.0e-3f) {
-                return a.distSq > b.distSq;
+            if (a.viewDepth > b.viewDepth) {
+                return true;
             }
-            if (a.sortLayer != b.sortLayer) {
-                return a.sortLayer < b.sortLayer;
+            if (b.viewDepth > a.viewDepth) {
+                return false;
             }
-            return static_cast<int>(a.kind) < static_cast<int>(b.kind);
+            return a.sortLayer < b.sortLayer;
         });
 
     rlDrawRenderBatchActive();
