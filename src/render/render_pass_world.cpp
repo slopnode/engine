@@ -64,11 +64,18 @@ void prepareLightmapShaderDraw(
     if (useLightmapLoc >= 0) {
         SetShaderValue(shader, useLightmapLoc, &useLightmap, SHADER_UNIFORM_INT);
     }
-    if (world.has<DynamicLightFrameState>() && world.has<DynamicLightShadowState>()) {
+    if (world.has<DynamicLightFrameState>()) {
         const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
-        const DynamicLightShadowState& shadows = world.get<DynamicLightShadowState>();
-        if (frame.bindings.resolved && shadows.ready) {
-            bindDynamicLightShadowMaps(shader, frame.bindings, shadows);
+        if (frame.bindings.resolved) {
+            const DynamicLightShadowState* shadows = nullptr;
+            if (world.has<DynamicLightShadowState>()) {
+                const DynamicLightShadowState& shadowState = world.get<DynamicLightShadowState>();
+                if (shadowState.ready) {
+                    shadows = &shadowState;
+                    bindDynamicLightShadowMaps(shader, frame.bindings, shadowState);
+                }
+            }
+            uploadDynamicLightsToShader(shader, frame.bindings, frame.lights, shadows);
         }
     }
 }
