@@ -16,7 +16,7 @@ void drawFirstPersonPass(
     const Lens& lens,
     bool unlit);
 
-void drawViewSprites(flecs::world& world);
+void drawViewSprites(flecs::world& world, bool unlit = false);
 
 void drawHud(flecs::world& world);
 

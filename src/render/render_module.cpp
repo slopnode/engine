@@ -224,7 +224,7 @@ void registerRenderSystems(flecs::world& world) {
                     EndMode3D();
                 }
                 drawFirstPersonPass(world, context, lens, unlit);
-                drawViewSprites(world);
+                drawViewSprites(world, unlit);
                 if (sceneToTexture) {
                     EndTextureMode();
                     presentPostProcess(*postState);
