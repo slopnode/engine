@@ -196,7 +196,7 @@ struct MaterialRect {
     float baseColorAlpha;
     float textureWidth;
     float textureHeight;
-    float pad0;
+    int yPixelOffset;
 };
 
 const float kLightOcclusionAlphaThreshold = 0.5;
@@ -405,7 +405,7 @@ float sampleFaceOcclusionAlpha(int faceIndex, vec3 worldPos) {
     int px = clamp(int(u * width), 0, int(width) - 1);
     int py = clamp(int(v * height), 0, int(height) - 1);
     int atlasX = px;
-    int atlasY = int(rect.v0 * float(params.alphaAtlasHeight)) + py;
+    int atlasY = rect.yPixelOffset + py;
     float texAlpha = texelFetch(materialAlphaAtlas, ivec2(atlasX, atlasY), 0).a;
     return texAlpha * face.baseColorAlpha;
 }

@@ -149,7 +149,7 @@ struct GpuMaterialRectSSBO {
     float baseColorAlpha = 1.0f;
     float textureWidth = 1.0f;
     float textureHeight = 1.0f;
-    float pad0 = 0.0f;
+    std::int32_t yPixelOffset = 0;
 };
 
 struct GpuFaceOcclusionSSBO {
@@ -403,19 +403,140 @@ void bindAlphaAtlas(unsigned int program, const RadGpuOcclusionResources& resour
     if (!resources.valid || resources.alphaAtlas.id == 0) {
         return;
     }
-    constexpr int kAlphaAtlasTextureUnit = 0;
-    int textureUnit = kAlphaAtlasTextureUnit;
-    rlDrawRenderBatchActive();
-    rlActiveTextureSlot(kAlphaAtlasTextureUnit);
-    glBindTexture(GL_TEXTURE_2D, resources.alphaAtlas.id);
     Shader shader{};
     shader.id = program;
     const int loc = GetShaderLocation(shader, "materialAlphaAtlas");
     if (loc >= 0) {
-        SetShaderValue(shader, loc, &textureUnit, SHADER_UNIFORM_INT);
+        SetShaderValueTexture(shader, loc, resources.alphaAtlas);
     }
-    glBindTexture(GL_TEXTURE_2D, 0);
+    rlDrawRenderBatchActive();
     rlActiveTextureSlot(0);
+    glBindTexture(GL_TEXTURE_2D, resources.alphaAtlas.id);
+}
+
+void unbindAlphaAtlas() {
+    rlActiveTextureSlot(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+float wrapCosine(float cosine, float wrap) {
+    const float w = std::max(wrap, 0.0f);
+    return std::max(0.0f, (cosine + w) / (1.0f + w));
+}
+
+Vector3 normalize3(Vector3 v) {
+    const float len = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (len < 1e-8f) {
+        return {0.0f, 1.0f, 0.0f};
+    }
+    return {v.x / len, v.y / len, v.z / len};
+}
+
+Vector3 cross3(Vector3 a, Vector3 b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+void buildSunBasis(Vector3 toLight, Vector3& tangentOut, Vector3& bitangentOut) {
+    const Vector3 helper =
+        std::abs(toLight.y) < 0.999f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
+    tangentOut = normalize3(cross3(helper, toLight));
+    bitangentOut = normalize3(cross3(toLight, tangentOut));
+}
+
+bool validateGpuSunParity(
+    const std::vector<GpuLuxelSSBO>& gpuLuxels,
+    const std::vector<RadGpuLight>& lights,
+    const QuadBvh& occlusionBvh,
+    const RadGpuDirectCpuReference& cpuReference) {
+    const RadGpuLight* sunLight = nullptr;
+    for (const RadGpuLight& light : lights) {
+        if (light.kind == 2) {
+            sunLight = &light;
+            break;
+        }
+    }
+    if (sunLight == nullptr) {
+        return true;
+    }
+
+    const float forwardLen = std::sqrt(
+        sunLight->direction.x * sunLight->direction.x
+        + sunLight->direction.y * sunLight->direction.y
+        + sunLight->direction.z * sunLight->direction.z);
+    if (forwardLen < 1e-6f) {
+        return true;
+    }
+    const Vector3 toLight{
+        -sunLight->direction.x / forwardLen,
+        -sunLight->direction.y / forwardLen,
+        -sunLight->direction.z / forwardLen,
+    };
+    const Vector3 intensity{
+        sunLight->color.x * sunLight->intensity,
+        sunLight->color.y * sunLight->intensity,
+        sunLight->color.z * sunLight->intensity,
+    };
+
+    Vector3 tangent{};
+    Vector3 bitangent{};
+    buildSunBasis(toLight, tangent, bitangent);
+
+    constexpr std::size_t kMaxProbes = 512;
+    constexpr float kRelTol = 0.05f;
+    constexpr float kAbsTol = 1e-3f;
+    const std::size_t stride = std::max(gpuLuxels.size() / kMaxProbes, std::size_t{1});
+
+    std::size_t probes = 0;
+    std::size_t mismatches = 0;
+    for (std::size_t i = 0; i < gpuLuxels.size() && probes < kMaxProbes; i += stride) {
+        const GpuLuxelSSBO& luxel = gpuLuxels[i];
+        if (luxel.covered != 0) {
+            continue;
+        }
+        const Vector3 normal{luxel.nx, luxel.ny, luxel.nz};
+        const Vector3 position{luxel.px, luxel.py, luxel.pz};
+        const float nDotL = wrapCosine(
+            normal.x * toLight.x + normal.y * toLight.y + normal.z * toLight.z,
+            cpuReference.directWrap);
+        if (nDotL <= 0.0f) {
+            continue;
+        }
+
+        const float cpuVisibility = sunSkyVisibilityWithAlphaOcclusion(
+            position,
+            luxel.faceIndex,
+            toLight,
+            tangent,
+            bitangent,
+            cpuReference.sunParams,
+            occlusionBvh,
+            cpuReference.faceSky,
+            cpuReference.faceTransparent,
+            cpuReference.faces,
+            cpuReference.materialCache);
+        const float cpuSun = (intensity.x + intensity.y + intensity.z) * nDotL * cpuVisibility;
+        const float gpuSun = luxel.sunIr + luxel.sunIg + luxel.sunIb;
+        const float ref = std::max({cpuSun, gpuSun, 1e-4f});
+        ++probes;
+        if (std::fabs(cpuSun - gpuSun) > kAbsTol + kRelTol * ref) {
+            ++mismatches;
+        }
+    }
+
+    if (probes == 0) {
+        return true;
+    }
+    TraceLog(
+        LOG_INFO,
+        "sloprad: GPU sun parity probes=%zu mismatches=%zu",
+        probes,
+        mismatches);
+    std::fflush(stdout);
+    return mismatches == 0;
 }
 
 void unloadDirectResources(
@@ -625,9 +746,15 @@ bool accumulateDirectLightingGpu(
     const RadGpuReachability& reachability,
     const std::vector<std::int32_t>& faceIsSky,
     const std::vector<std::int32_t>& faceIsTransparent,
-    const RadGpuOcclusionResources& occlusionResources) {
+    const RadGpuOcclusionResources& occlusionResources,
+    const RadGpuDirectCpuReference* cpuReference) {
     if (!occlusionResources.valid) {
         TraceLog(LOG_WARNING, "sloprad: GPU direct lighting requires alpha occlusion resources");
+        return false;
+    }
+    if (cpuReference != nullptr
+        && !verifyRadGpuOcclusionAtlas(occlusionResources, cpuReference->materialCache)) {
+        TraceLog(LOG_WARNING, "sloprad: GPU alpha atlas verification failed; using CPU direct lighting");
         return false;
     }
     if (!radiosityGpuContextReady()) {
@@ -901,6 +1028,7 @@ bool accumulateDirectLightingGpu(
         dst.baseColorAlpha = src.baseColorAlpha;
         dst.textureWidth = src.textureWidth;
         dst.textureHeight = src.textureHeight;
+        dst.yPixelOffset = src.yPixelOffset;
     }
     if (gpuMaterialRects.empty()) {
         gpuMaterialRects.push_back({});
@@ -1052,6 +1180,7 @@ bool accumulateDirectLightingGpu(
                     dispatchFailed)) {
                 break;
             }
+            bindAlphaAtlas(program, occlusionResources);
         }
 
         for (int lightOffset = 0; lightOffset < lightCount && !dispatchFailed;
@@ -1080,6 +1209,7 @@ bool accumulateDirectLightingGpu(
                     dispatchFailed)) {
                 break;
             }
+            bindAlphaAtlas(program, occlusionResources);
         }
 
         const int luxelsDone = std::min(luxelOffset + luxelBatch, luxelCount);
@@ -1104,6 +1234,7 @@ bool accumulateDirectLightingGpu(
     }
 
     rlDisableShader();
+    unbindAlphaAtlas();
     if (dispatchFailed) {
         unloadDirectResources(
             luxelSsbo,
@@ -1167,6 +1298,14 @@ bool accumulateDirectLightingGpu(
         program);
 
     if (!validateGpuResults(gpuLuxelsBefore, gpuLuxels, requireSunContribution)) {
+        return false;
+    }
+    if (cpuReference != nullptr
+        && !validateGpuSunParity(gpuLuxels, lights, occlusionBvh, *cpuReference)) {
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: GPU sun results diverged from CPU; using CPU direct lighting");
+        std::fflush(stdout);
         return false;
     }
 
@@ -1487,6 +1626,7 @@ bool accumulateBounceLightingGpu(
         dst.baseColorAlpha = src.baseColorAlpha;
         dst.textureWidth = src.textureWidth;
         dst.textureHeight = src.textureHeight;
+        dst.yPixelOffset = src.yPixelOffset;
     }
     if (gpuMaterialRects.empty()) {
         gpuMaterialRects.push_back({});
@@ -1578,6 +1718,7 @@ bool accumulateBounceLightingGpu(
                 dispatchFailed = true;
             }
         }
+        bindAlphaAtlas(program, occlusionResources);
     }
 
     if (!dispatchFailed && dispatchesSinceSync > 0) {
@@ -1588,6 +1729,7 @@ bool accumulateBounceLightingGpu(
     }
 
     rlDisableShader();
+    unbindAlphaAtlas();
     if (dispatchFailed) {
         unloadBounceResources(
             luxelSsbo,

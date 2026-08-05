@@ -254,6 +254,36 @@ void testSunSkyVisibilityBlockedByHighAlphaTransparentFace() {
     UnloadImage(postMaterial.albedoImage);
 }
 
+void testRadGpuAtlasMatchesSourceImage() {
+    RadGpuOcclusionResources resources{};
+    resources.valid = true;
+    resources.atlasWidth = 2;
+    resources.atlasHeight = 2;
+    resources.alphaAtlasImage = GenImageColor(2, 2, BLANK);
+    ImageDrawPixel(&resources.alphaAtlasImage, 0, 0, Color{0, 0, 0, 0});
+    ImageDrawPixel(&resources.alphaAtlasImage, 1, 0, Color{0, 0, 0, 255});
+    resources.materialRects.push_back({});
+    resources.materialPaths.emplace_back();
+    resources.materialRects.push_back(
+        RadGpuMaterialRect{.textureWidth = 2.0f, .textureHeight = 1.0f, .yPixelOffset = 0});
+    resources.materialPaths.push_back("mat/grate");
+
+    MaterialBakeInfo material = makeAlphaMaterial(0);
+    material.albedoImage = GenImageColor(2, 1, BLANK);
+    ImageDrawPixel(&material.albedoImage, 0, 0, Color{0, 0, 0, 0});
+    ImageDrawPixel(&material.albedoImage, 1, 0, Color{0, 0, 0, 255});
+
+    std::unordered_map<std::string, MaterialBakeInfo> cache;
+    cache.emplace("mat/grate", material);
+
+    CHECK(verifyRadGpuOcclusionAtlas(resources, cache));
+    CHECK(sampleRadGpuAtlasAlpha(resources, 1, 0.25f, 0.5f) < kLightOcclusionAlphaThreshold);
+    CHECK(sampleRadGpuAtlasAlpha(resources, 1, 0.75f, 0.5f) >= kLightOcclusionAlphaThreshold);
+
+    UnloadImage(material.albedoImage);
+    UnloadImage(resources.alphaAtlasImage);
+}
+
 } // namespace
 
 void runLightmapTransparentTests() {
@@ -265,6 +295,7 @@ void runLightmapTransparentTests() {
     testHighAlphaTransparentFaceBlocksBeforeOpaqueBehind();
     testSunSkyVisibilityThroughLowAlphaTransparentFace();
     testSunSkyVisibilityBlockedByHighAlphaTransparentFace();
+    testRadGpuAtlasMatchesSourceImage();
 }
 
 } // namespace slopengine

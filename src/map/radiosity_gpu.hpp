@@ -91,6 +91,16 @@ struct RadGpuDirectParams {
     bool gpuSafeMode = false;
 };
 
+/** CPU reference data used to validate/fallback GPU direct lighting. */
+struct RadGpuDirectCpuReference {
+    const std::vector<LightmapFace>& faces;
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache;
+    const std::vector<char>& faceSky;
+    const std::vector<char>& faceTransparent;
+    SunShadowSoftnessParams sunParams{};
+    float directWrap = 0.35f;
+};
+
 bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
     const std::vector<RadGpuEmissiveFace>& emissiveFaces,
@@ -103,7 +113,8 @@ bool accumulateDirectLightingGpu(
     const RadGpuReachability& reachability = {},
     const std::vector<std::int32_t>& faceIsSky = {},
     const std::vector<std::int32_t>& faceIsTransparent = {},
-    const RadGpuOcclusionResources& occlusionResources = {});
+    const RadGpuOcclusionResources& occlusionResources = {},
+    const RadGpuDirectCpuReference* cpuReference = nullptr);
 
 struct RadGpuBounceLuxel {
     Vector3 position{};

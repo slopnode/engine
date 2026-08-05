@@ -290,6 +290,7 @@ bool buildRadGpuOcclusionResources(
             .baseColorAlpha = 1.0f,
             .textureWidth = 1.0f,
             .textureHeight = 1.0f});
+    out.materialPaths.emplace_back();
 
     std::unordered_map<std::string, int> materialIndexByPath;
     materialIndexByPath.emplace(std::string{}, 0);
@@ -321,6 +322,7 @@ bool buildRadGpuOcclusionResources(
         rect.textureHeight = static_cast<float>(image.height);
         rect.baseColorAlpha = static_cast<float>(material.asset.baseColor.a) / 255.0f;
         out.materialRects.push_back(rect);
+        out.materialPaths.push_back(materialPath);
         atlasLayers.push_back({index, image});
         materialIndexByPath.emplace(materialPath, index);
         return index;
@@ -394,6 +396,7 @@ bool buildRadGpuOcclusionResources(
         rect.v0 = static_cast<float>(yOffset) / static_cast<float>(atlasHeight);
         rect.u1 = static_cast<float>(src.width) / static_cast<float>(atlasWidth);
         rect.v1 = static_cast<float>(yOffset + src.height) / static_cast<float>(atlasHeight);
+        rect.yPixelOffset = yOffset;
         yOffset += src.height;
         if (index != 0) {
             UnloadImage(const_cast<Image&>(src));
@@ -423,7 +426,81 @@ void unloadRadGpuOcclusionResources(RadGpuOcclusionResources& resources) {
     }
     resources.faceOcclusion.clear();
     resources.materialRects.clear();
+    resources.materialPaths.clear();
     resources.valid = false;
+}
+
+float sampleRadGpuAtlasAlpha(
+    const RadGpuOcclusionResources& resources,
+    std::int32_t materialIndex,
+    float u,
+    float v) {
+    if (materialIndex < 0
+        || materialIndex >= static_cast<std::int32_t>(resources.materialRects.size())
+        || resources.alphaAtlasImage.data == nullptr) {
+        return 1.0f;
+    }
+    const RadGpuMaterialRect& rect = resources.materialRects[static_cast<std::size_t>(materialIndex)];
+    const int width = std::max(1, static_cast<int>(rect.textureWidth));
+    const int height = std::max(1, static_cast<int>(rect.textureHeight));
+    u = u - std::floor(u);
+    v = v - std::floor(v);
+    const int px = std::clamp(static_cast<int>(u * static_cast<float>(width)), 0, width - 1);
+    const int py = std::clamp(static_cast<int>(v * static_cast<float>(height)), 0, height - 1);
+    const int atlasX = px;
+    const int atlasY = rect.yPixelOffset + py;
+    if (atlasX < 0 || atlasY < 0 || atlasX >= resources.atlasWidth || atlasY >= resources.atlasHeight) {
+        return 1.0f;
+    }
+    return static_cast<float>(GetImageColor(resources.alphaAtlasImage, atlasX, atlasY).a) / 255.0f;
+}
+
+bool verifyRadGpuOcclusionAtlas(
+    const RadGpuOcclusionResources& resources,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
+    if (!resources.valid || resources.alphaAtlasImage.data == nullptr) {
+        return false;
+    }
+    if (resources.materialRects.size() != resources.materialPaths.size()) {
+        return false;
+    }
+
+    constexpr int kGrid = 4;
+    std::size_t mismatches = 0;
+    std::size_t samples = 0;
+    for (std::size_t matIndex = 1; matIndex < resources.materialRects.size(); ++matIndex) {
+        const std::string& materialPath = resources.materialPaths[matIndex];
+        const auto matIt = materialCache.find(materialPath);
+        if (matIt == materialCache.end() || !matIt->second.hasAlbedoImage) {
+            continue;
+        }
+        const MaterialBakeInfo& material = matIt->second;
+        for (int sy = 0; sy < kGrid; ++sy) {
+            for (int sx = 0; sx < kGrid; ++sx) {
+                const float u = (static_cast<float>(sx) + 0.5f) / static_cast<float>(kGrid);
+                const float v = (static_cast<float>(sy) + 0.5f) / static_cast<float>(kGrid);
+                const float cpuAlpha = sampleImageAlpha(material.albedoImage, u, v);
+                const float atlasAlpha =
+                    sampleRadGpuAtlasAlpha(resources, static_cast<std::int32_t>(matIndex), u, v);
+                ++samples;
+                if (std::fabs(cpuAlpha - atlasAlpha) > 1.0f / 255.0f) {
+                    ++mismatches;
+                }
+            }
+        }
+    }
+
+    if (samples == 0) {
+        return true;
+    }
+    if (mismatches > 0) {
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: GPU alpha atlas mismatch samples=%zu mismatches=%zu",
+            samples,
+            mismatches);
+    }
+    return mismatches == 0;
 }
 
 }

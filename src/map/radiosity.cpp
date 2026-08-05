@@ -1061,6 +1061,14 @@ bool accumulateDirectLighting(
         for (std::size_t i = 0; i < faceTransparent.size(); ++i) {
             faceIsTransparent[i] = faceTransparent[i] != 0 ? 1 : 0;
         }
+        const RadGpuDirectCpuReference cpuReference{
+            faces,
+            materialCache,
+            faceSky,
+            faceTransparent,
+            sunParams,
+            settings.directWrap,
+        };
         if (accumulateDirectLightingGpu(
                 gpuLuxels,
                 gpuEmissiveFaces,
@@ -1073,7 +1081,8 @@ bool accumulateDirectLighting(
                 gpuReach,
                 faceIsSky,
                 faceIsTransparent,
-                occlusionResources)) {
+                occlusionResources,
+                &cpuReference)) {
             for (std::size_t d = 0; d < gpuLuxels.size(); ++d) {
                 LuxelSample& dst = luxels[denseToSrc[d]];
                 dst.irradiance.r = gpuLuxels[d].irradianceR;

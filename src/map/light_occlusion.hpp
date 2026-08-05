@@ -65,7 +65,7 @@ struct RadGpuMaterialRect {
     float baseColorAlpha = 1.0f;
     float textureWidth = 1.0f;
     float textureHeight = 1.0f;
-    float pad0 = 0.0f;
+    std::int32_t yPixelOffset = 0;
 };
 
 struct RadGpuFaceOcclusion {
@@ -90,6 +90,7 @@ struct RadGpuOcclusionResources {
     Image alphaAtlasImage{};
     std::vector<RadGpuFaceOcclusion> faceOcclusion;
     std::vector<RadGpuMaterialRect> materialRects;
+    std::vector<std::string> materialPaths;
     int atlasWidth = 1;
     int atlasHeight = 1;
     bool valid = false;
@@ -103,5 +104,16 @@ bool buildRadGpuOcclusionResources(
     RadGpuOcclusionResources& out);
 
 void unloadRadGpuOcclusionResources(RadGpuOcclusionResources& resources);
+
+/** Returns false when stacked atlas alpha differs from source albedo images. */
+bool verifyRadGpuOcclusionAtlas(
+    const RadGpuOcclusionResources& resources,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache);
+
+float sampleRadGpuAtlasAlpha(
+    const RadGpuOcclusionResources& resources,
+    std::int32_t materialIndex,
+    float u,
+    float v);
 
 }
