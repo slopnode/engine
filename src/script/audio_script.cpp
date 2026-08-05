@@ -4,6 +4,7 @@
 #include "assets/audio_def.hpp"
 #include "audio/audio_module.hpp"
 #include "audio/audio_world.hpp"
+#include "audio/components.hpp"
 
 #include <s7.h>
 
@@ -166,6 +167,59 @@ s7_pointer g_play_audio(s7_scheme* sc, s7_pointer args) {
     }
 
     const SoLoud::handle voice = audio->playAudioDef(*assets, path, *def, volumeOverride);
+    return s7_make_integer(sc, static_cast<s7_int>(voice));
+}
+
+s7_pointer g_play_audio_3d(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
+    AudioWorld* audio = audioWorld();
+    AssetStore* assets = audioAssets();
+    if (audio == nullptr || assets == nullptr || !audio->ready()) {
+        return s7_make_integer(sc, 0);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "play-audio-3d", 1, s7_car(args), "string");
+    }
+
+    const char* path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "play-audio-3d", 2, args, "x y z numbers");
+    }
+    x = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    args = s7_cdr(args);
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "play-audio-3d", 3, args, "y number");
+    }
+    y = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    args = s7_cdr(args);
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "play-audio-3d", 4, args, "z number");
+    }
+    z = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    args = s7_cdr(args);
+
+    float volumeOverride = -1.0f;
+    if (!s7_is_null(sc, args)) {
+        if (!s7_is_real(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "play-audio-3d", 5, s7_car(args), "real");
+        }
+        volumeOverride = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    }
+
+    const AudioDef* def = assets->getAudioDef(sc, path);
+    if (def == nullptr) {
+        return s7_make_integer(sc, 0);
+    }
+
+    const SoLoud::handle voice =
+        audio->playAudioDef3d(*assets, path, *def, x, y, z, volumeOverride);
     return s7_make_integer(sc, static_cast<s7_int>(voice));
 }
 
@@ -332,6 +386,51 @@ s7_pointer g_audio_filter_attach(s7_scheme* sc, s7_pointer args) {
     return ok ? s7_t(sc) : s7_f(sc);
 }
 
+s7_pointer g_audio_attach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_audioWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-attach", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-attach", 2, args, "audio path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+
+    flecs::entity entity = g_audioWorld->lookup(id.c_str());
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+
+    AssetStore* assets = audioAssets();
+    if (assets == nullptr) {
+        return s7_f(sc);
+    }
+    const AudioDef* def = assets->getAudioDef(sc, path);
+    if (def == nullptr) {
+        return s7_f(sc);
+    }
+
+    entity.set<AudioSource>({
+        .audio = path,
+        .volume = def->volume,
+        .minDistance = def->minDistance,
+        .maxDistance = def->maxDistance,
+        .looping = def->loop,
+        .spatial = def->spatial,
+        .autoplay = true,
+        .playing = false,
+        .voice = 0,
+    });
+    return s7_t(sc);
+}
+
 s7_pointer g_register_audio_filter(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::Audio)) {
         return s7_f(sc);
@@ -366,6 +465,10 @@ void bindAudioApi(flecs::world& world, s7_scheme* scheme) {
                     "(register-audio field ...)");
     s7_define_function(scheme, "play-audio", g_play_audio, 1, 1, false,
                        "(play-audio path [volume])");
+    s7_define_function(scheme, "play-audio-3d", g_play_audio_3d, 4, 1, false,
+                       "(play-audio-3d path x y z [volume])");
+    s7_define_function(scheme, "audio-attach", g_audio_attach, 2, 0, false,
+                       "(audio-attach id path)");
     s7_define_function(scheme, "play-sound", g_play_sound, 1, 2, false,
                        "(play-sound path [volume] [loop?])");
     s7_define_function(scheme, "stop-sound", g_stop_sound, 1, 0, false, "(stop-sound handle)");
