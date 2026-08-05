@@ -224,20 +224,30 @@ void registerRenderSystems(flecs::world& world) {
             EndMode3D();
 
             if (playing) {
-                if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                const DebugUiState* debugUi =
+                    world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
+                const bool hideFp = debugUi != nullptr && debugUi->hideFpScene;
+                const bool hideHud = debugUi != nullptr && debugUi->hideHud;
+
+                if (!hideFp && world.has<AssetServices>() &&
+                    world.get<AssetServices>().store != nullptr) {
                     BeginMode3D(presentCam);
                     drawMuzzleParticleSystems(
                         world, *world.get_mut<AssetServices>().store, presentCam, unlit);
                     EndMode3D();
                 }
-                drawFirstPersonPass(world, context, lens, unlit);
-                drawViewSprites(world, unlit);
+                if (!hideFp) {
+                    drawFirstPersonPass(world, context, lens, unlit);
+                    drawViewSprites(world, unlit);
+                }
                 if (sceneToTexture) {
                     EndTextureMode();
                     presentPostProcess(*postState);
                 }
-                drawHud(world);
-                drawSpriteAimHudText(spriteAimStatus);
+                if (!hideHud) {
+                    drawHud(world);
+                    drawSpriteAimHudText(spriteAimStatus);
+                }
             }
 
             if (world.has<FramePerfStats>()) {
