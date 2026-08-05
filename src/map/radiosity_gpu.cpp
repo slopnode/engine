@@ -2,6 +2,7 @@
 
 #include "map/emitter_bvh.hpp"
 
+#include <raylib.h>
 #include <rlgl.h>
 
 #include <algorithm>
@@ -138,6 +139,39 @@ struct GpuLightSSBO {
     float pad1 = 0.0f;
     float pad2 = 0.0f;
 };
+
+struct GpuMaterialRectSSBO {
+    float u0 = 0.0f;
+    float v0 = 0.0f;
+    float u1 = 1.0f;
+    float v1 = 1.0f;
+    float baseColorAlpha = 1.0f;
+    float textureWidth = 1.0f;
+    float textureHeight = 1.0f;
+    float pad0 = 0.0f;
+};
+
+struct GpuFaceOcclusionSSBO {
+    float uvUAxisX = 0.0f;
+    float uvUAxisY = 0.0f;
+    float uvUAxisZ = 0.0f;
+    float isTransparent = 0.0f;
+    float uvVAxisX = 0.0f;
+    float uvVAxisY = 0.0f;
+    float uvVAxisZ = 0.0f;
+    float materialIndex = 0.0f;
+    float uvShiftX = 0.0f;
+    float uvShiftY = 0.0f;
+    float uvScaleX = 1.0f;
+    float uvScaleY = 1.0f;
+    float pixelsPerMeter = 64.0f;
+    float baseColorAlpha = 1.0f;
+    float pad0 = 0.0f;
+    float pad1 = 0.0f;
+};
+
+static_assert(sizeof(GpuMaterialRectSSBO) == 32);
+static_assert(sizeof(GpuFaceOcclusionSSBO) == 64);
 
 struct GpuBvhNodeSSBO {
     float minx = 0.0f;
@@ -349,6 +383,18 @@ bool validateGpuResults(
     return true;
 }
 
+void bindAlphaAtlas(unsigned int program, const RadGpuOcclusionResources& resources) {
+    if (!resources.valid || resources.alphaAtlas.id == 0) {
+        return;
+    }
+    Shader shader{};
+    shader.id = program;
+    const int loc = GetShaderLocation(shader, "materialAlphaAtlas");
+    if (loc >= 0) {
+        SetShaderValueTexture(shader, loc, resources.alphaAtlas);
+    }
+}
+
 void unloadDirectResources(
     unsigned int luxelSsbo,
     unsigned int emissiveFaceSsbo,
@@ -362,6 +408,8 @@ void unloadDirectResources(
     unsigned int reachSsbo,
     unsigned int faceSkySsbo,
     unsigned int faceTransparentSsbo,
+    unsigned int faceOcclusionSsbo,
+    unsigned int materialRectSsbo,
     unsigned int program) {
     unloadSsbo(luxelSsbo);
     unloadSsbo(emissiveFaceSsbo);
@@ -375,6 +423,8 @@ void unloadDirectResources(
     unloadSsbo(reachSsbo);
     unloadSsbo(faceSkySsbo);
     unloadSsbo(faceTransparentSsbo);
+    unloadSsbo(faceOcclusionSsbo);
+    unloadSsbo(materialRectSsbo);
     rlUnloadShaderProgram(program);
 }
 
@@ -544,7 +594,12 @@ bool accumulateDirectLightingGpu(
     const RadGpuDirectParams& directParams,
     const RadGpuReachability& reachability,
     const std::vector<std::int32_t>& faceIsSky,
-    const std::vector<std::int32_t>& faceIsTransparent) {
+    const std::vector<std::int32_t>& faceIsTransparent,
+    const RadGpuOcclusionResources& occlusionResources) {
+    if (!occlusionResources.valid) {
+        TraceLog(LOG_WARNING, "sloprad: GPU direct lighting requires alpha occlusion resources");
+        return false;
+    }
     if (!radiosityGpuContextReady()) {
         TraceLog(LOG_WARNING, "sloprad: GPU direct lighting unavailable (no GL 4.3 context)");
         return false;
@@ -781,6 +836,55 @@ bool accumulateDirectLightingGpu(
         static_cast<unsigned int>(faceTransparentBits.size() * sizeof(std::int32_t)),
         faceTransparentBits.data(),
         RL_DYNAMIC_COPY);
+
+    std::vector<GpuFaceOcclusionSSBO> gpuFaceOcclusion(occlusionResources.faceOcclusion.size());
+    for (std::size_t i = 0; i < occlusionResources.faceOcclusion.size(); ++i) {
+        const RadGpuFaceOcclusion& src = occlusionResources.faceOcclusion[i];
+        GpuFaceOcclusionSSBO& dst = gpuFaceOcclusion[i];
+        dst.uvUAxisX = src.uvUAxisX;
+        dst.uvUAxisY = src.uvUAxisY;
+        dst.uvUAxisZ = src.uvUAxisZ;
+        dst.isTransparent = src.isTransparent;
+        dst.uvVAxisX = src.uvVAxisX;
+        dst.uvVAxisY = src.uvVAxisY;
+        dst.uvVAxisZ = src.uvVAxisZ;
+        dst.materialIndex = src.materialIndex;
+        dst.uvShiftX = src.uvShiftX;
+        dst.uvShiftY = src.uvShiftY;
+        dst.uvScaleX = src.uvScaleX;
+        dst.uvScaleY = src.uvScaleY;
+        dst.pixelsPerMeter = src.pixelsPerMeter;
+        dst.baseColorAlpha = src.baseColorAlpha;
+    }
+    if (gpuFaceOcclusion.empty()) {
+        gpuFaceOcclusion.push_back({});
+    }
+
+    std::vector<GpuMaterialRectSSBO> gpuMaterialRects(occlusionResources.materialRects.size());
+    for (std::size_t i = 0; i < occlusionResources.materialRects.size(); ++i) {
+        const RadGpuMaterialRect& src = occlusionResources.materialRects[i];
+        GpuMaterialRectSSBO& dst = gpuMaterialRects[i];
+        dst.u0 = src.u0;
+        dst.v0 = src.v0;
+        dst.u1 = src.u1;
+        dst.v1 = src.v1;
+        dst.baseColorAlpha = src.baseColorAlpha;
+        dst.textureWidth = src.textureWidth;
+        dst.textureHeight = src.textureHeight;
+    }
+    if (gpuMaterialRects.empty()) {
+        gpuMaterialRects.push_back({});
+    }
+
+    const unsigned int faceOcclusionSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuFaceOcclusion.size() * sizeof(GpuFaceOcclusionSSBO)),
+        gpuFaceOcclusion.data(),
+        RL_DYNAMIC_COPY);
+    const unsigned int materialRectSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuMaterialRects.size() * sizeof(GpuMaterialRectSSBO)),
+        gpuMaterialRects.data(),
+        RL_DYNAMIC_COPY);
+
     const int luxelCount = static_cast<int>(gpuLuxels.size());
     const int emitterCount = static_cast<int>(emissiveFaces.size());
     const int lightCount = static_cast<int>(lights.size());
@@ -804,7 +908,8 @@ bool accumulateDirectLightingGpu(
 
     if (luxelSsbo == 0 || emissiveFaceSsbo == 0 || emissionGridSsbo == 0 || lightSsbo == 0
         || nodeSsbo == 0 || primSsbo == 0 || emitterNodeSsbo == 0 || emitterPrimSsbo == 0
-        || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0 || faceTransparentSsbo == 0) {
+        || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0 || faceTransparentSsbo == 0
+        || faceOcclusionSsbo == 0 || materialRectSsbo == 0) {
         TraceLog(LOG_WARNING, "sloprad: failed to allocate GPU SSBOs for direct lighting");
         unloadDirectResources(
             luxelSsbo,
@@ -819,6 +924,8 @@ bool accumulateDirectLightingGpu(
             reachSsbo,
             faceSkySsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -836,6 +943,8 @@ bool accumulateDirectLightingGpu(
             reachSsbo,
             faceSkySsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -868,6 +977,9 @@ bool accumulateDirectLightingGpu(
     rlBindShaderBuffer(emitterNodeSsbo, 9);
     rlBindShaderBuffer(emitterPrimSsbo, 10);
     rlBindShaderBuffer(emissionGridSsbo, 11);
+    rlBindShaderBuffer(faceOcclusionSsbo, 12);
+    rlBindShaderBuffer(materialRectSsbo, 13);
+    bindAlphaAtlas(program, occlusionResources);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -962,6 +1074,8 @@ bool accumulateDirectLightingGpu(
             reachSsbo,
             faceSkySsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -985,6 +1099,8 @@ bool accumulateDirectLightingGpu(
             reachSsbo,
             faceSkySsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -1002,6 +1118,8 @@ bool accumulateDirectLightingGpu(
         reachSsbo,
         faceSkySsbo,
         faceTransparentSsbo,
+        faceOcclusionSsbo,
+        materialRectSsbo,
         program);
 
     if (!validateGpuResults(gpuLuxelsBefore, gpuLuxels)) {
@@ -1094,6 +1212,8 @@ void unloadBounceResources(
     unsigned int primSsbo,
     unsigned int paramsSsbo,
     unsigned int faceTransparentSsbo,
+    unsigned int faceOcclusionSsbo,
+    unsigned int materialRectSsbo,
     unsigned int program) {
     unloadSsbo(luxelSsbo);
     unloadSsbo(gatherSsbo);
@@ -1103,6 +1223,8 @@ void unloadBounceResources(
     unloadSsbo(primSsbo);
     unloadSsbo(paramsSsbo);
     unloadSsbo(faceTransparentSsbo);
+    unloadSsbo(faceOcclusionSsbo);
+    unloadSsbo(materialRectSsbo);
     if (program != 0) {
         rlUnloadShaderProgram(program);
     }
@@ -1118,7 +1240,12 @@ bool accumulateBounceLightingGpu(
     const QuadBvh& sceneBvh,
     std::string_view computeShaderSource,
     const RadGpuBounceParams& bounceParams,
-    const std::vector<char>& faceTransparent) {
+    const std::vector<char>& faceTransparent,
+    const RadGpuOcclusionResources& occlusionResources) {
+    if (!occlusionResources.valid) {
+        TraceLog(LOG_WARNING, "sloprad: GPU bounce lighting requires alpha occlusion resources");
+        return false;
+    }
     if (!radiosityGpuContextReady()) {
         TraceLog(LOG_WARNING, "sloprad: GPU bounce lighting unavailable (no GL 4.3 context)");
         return false;
@@ -1276,8 +1403,57 @@ bool accumulateBounceLightingGpu(
         faceTransparentBits.data(),
         RL_DYNAMIC_COPY);
 
+    std::vector<GpuFaceOcclusionSSBO> gpuFaceOcclusion(occlusionResources.faceOcclusion.size());
+    for (std::size_t i = 0; i < occlusionResources.faceOcclusion.size(); ++i) {
+        const RadGpuFaceOcclusion& src = occlusionResources.faceOcclusion[i];
+        GpuFaceOcclusionSSBO& dst = gpuFaceOcclusion[i];
+        dst.uvUAxisX = src.uvUAxisX;
+        dst.uvUAxisY = src.uvUAxisY;
+        dst.uvUAxisZ = src.uvUAxisZ;
+        dst.isTransparent = src.isTransparent;
+        dst.uvVAxisX = src.uvVAxisX;
+        dst.uvVAxisY = src.uvVAxisY;
+        dst.uvVAxisZ = src.uvVAxisZ;
+        dst.materialIndex = src.materialIndex;
+        dst.uvShiftX = src.uvShiftX;
+        dst.uvShiftY = src.uvShiftY;
+        dst.uvScaleX = src.uvScaleX;
+        dst.uvScaleY = src.uvScaleY;
+        dst.pixelsPerMeter = src.pixelsPerMeter;
+        dst.baseColorAlpha = src.baseColorAlpha;
+    }
+    if (gpuFaceOcclusion.empty()) {
+        gpuFaceOcclusion.push_back({});
+    }
+
+    std::vector<GpuMaterialRectSSBO> gpuMaterialRects(occlusionResources.materialRects.size());
+    for (std::size_t i = 0; i < occlusionResources.materialRects.size(); ++i) {
+        const RadGpuMaterialRect& src = occlusionResources.materialRects[i];
+        GpuMaterialRectSSBO& dst = gpuMaterialRects[i];
+        dst.u0 = src.u0;
+        dst.v0 = src.v0;
+        dst.u1 = src.u1;
+        dst.v1 = src.v1;
+        dst.baseColorAlpha = src.baseColorAlpha;
+        dst.textureWidth = src.textureWidth;
+        dst.textureHeight = src.textureHeight;
+    }
+    if (gpuMaterialRects.empty()) {
+        gpuMaterialRects.push_back({});
+    }
+
+    const unsigned int faceOcclusionSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuFaceOcclusion.size() * sizeof(GpuFaceOcclusionSSBO)),
+        gpuFaceOcclusion.data(),
+        RL_DYNAMIC_COPY);
+    const unsigned int materialRectSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuMaterialRects.size() * sizeof(GpuMaterialRectSSBO)),
+        gpuMaterialRects.data(),
+        RL_DYNAMIC_COPY);
+
     if (luxelSsbo == 0 || gatherSsbo == 0 || shootSsbo == 0 || faceSsbo == 0 || nodeSsbo == 0
-        || primSsbo == 0 || paramsSsbo == 0 || faceTransparentSsbo == 0) {
+        || primSsbo == 0 || paramsSsbo == 0 || faceTransparentSsbo == 0 || faceOcclusionSsbo == 0
+        || materialRectSsbo == 0) {
         TraceLog(LOG_WARNING, "sloprad: failed to allocate GPU SSBOs for bounce lighting");
         unloadBounceResources(
             luxelSsbo,
@@ -1288,6 +1464,8 @@ bool accumulateBounceLightingGpu(
             primSsbo,
             paramsSsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -1301,6 +1479,8 @@ bool accumulateBounceLightingGpu(
             primSsbo,
             paramsSsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -1324,6 +1504,9 @@ bool accumulateBounceLightingGpu(
     rlBindShaderBuffer(primSsbo, 5);
     rlBindShaderBuffer(paramsSsbo, 6);
     rlBindShaderBuffer(faceTransparentSsbo, 7);
+    rlBindShaderBuffer(faceOcclusionSsbo, 8);
+    rlBindShaderBuffer(materialRectSsbo, 9);
+    bindAlphaAtlas(program, occlusionResources);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -1365,6 +1548,8 @@ bool accumulateBounceLightingGpu(
             primSsbo,
             paramsSsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -1384,6 +1569,8 @@ bool accumulateBounceLightingGpu(
             primSsbo,
             paramsSsbo,
             faceTransparentSsbo,
+            faceOcclusionSsbo,
+            materialRectSsbo,
             program);
         return false;
     }
@@ -1397,6 +1584,8 @@ bool accumulateBounceLightingGpu(
         primSsbo,
         paramsSsbo,
         faceTransparentSsbo,
+        faceOcclusionSsbo,
+        materialRectSsbo,
         program);
 
     gatheredRgb.resize(luxels.size());

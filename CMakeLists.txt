@@ -78,6 +78,7 @@ set(SLOPLIB_SOURCES
     src/map/thing_def_registry.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
+    src/map/light_occlusion.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp
     src/map/prefab.cpp

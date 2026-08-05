@@ -49,3 +49,26 @@ Each chart:
 | v0 | f32 |  |
 | u1 | f32 |  |
 | v1 | f32 |  |
+
+# Transparent alpha occlusion (sloprad)
+
+Transparent brush faces participate in baked light occlusion using albedo alpha:
+
+- `effectiveAlpha = textureAlpha * material.baseColor.a`
+- alpha >= 0.5 blocks light; lower alpha lets rays continue
+
+CPU reference bake:
+
+```bash
+cmake --build build --target sloprad sloptests
+./build/sloptests lightmap_transparent
+./build/sloprad /path/to/maps/E1M1/static.bsp --cpu
+```
+
+GPU validation (requires OpenGL 4.3 + discrete GPU):
+
+```bash
+./build/sloprad /path/to/maps/E1M1/static.bsp --gpu --gpu-fast
+```
+
+Confirm sloprad logs `GPU direct lighting` without CPU fallback, then inspect `maps/E1M1/rad/atlas*.png` near fence geometry for post/grate sun shadows.
