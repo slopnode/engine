@@ -4,6 +4,8 @@
 
 #include <raylib.h>
 
+#include <cstddef>
+
 namespace slopmap {
 
 enum class CreatePhase {
@@ -28,12 +30,13 @@ struct CreateTool {
 
     void reset();
     void update(Editor& editor, const Camera3D& camera, bool uiWantsMouse, bool uiWantsKeyboard);
-    void drawPreview() const;
+    void drawPreview(Vector3 eye, float lineWidth) const;
     bool active() const {
         return phase != CreatePhase::Idle && phase != CreatePhase::AwaitingParams;
     }
     void commitPending(Editor& editor);
     void setStatus(Editor& editor) const;
+    bool formatCreateMetrics(char* buf, std::size_t bufSize) const;
 
 private:
     bool footprintBounds(Vector3& mins, Vector3& maxs) const;

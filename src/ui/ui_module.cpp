@@ -288,13 +288,13 @@ void drawMainMenuBar(
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
     const UserSettings& settings) {
-    if (!ImGui::BeginMainMenuBar()) {
+    if (!beginMainMenuBar()) {
         return;
     }
 
     constexpr const char* kIcons = kDefaultIconSet;
 
-    if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+    if (beginMenuWithIcon(assets, kIcons, "folder", "File", true)) {
         callDrawFileMenu(world);
         if (menuItemWithIcon(assets, kIcons, "door", "Quit")) {
             quit.requested = true;
@@ -302,7 +302,7 @@ void drawMainMenuBar(
         ImGui::EndMenu();
     }
 
-    if (beginMenuWithIcon(assets, kIcons, "cog", "Config")) {
+    if (beginMenuWithIcon(assets, kIcons, "cog", "Config", true)) {
         if (menuItemWithIcon(assets, kIcons, "monitor", "Graphics")) {
             openGraphicsSettings(settingsUi, settings);
         }
@@ -312,7 +312,7 @@ void drawMainMenuBar(
         ImGui::EndMenu();
     }
 
-    if (beginMenuWithIcon(assets, kIcons, "bug", "Debug")) {
+    if (beginMenuWithIcon(assets, kIcons, "bug", "Debug", true)) {
         if (beginMenuWithIcon(assets, kIcons, "map", "Map")) {
             const std::string currentId =
                 world.has<CurrentMap>() ? world.get<CurrentMap>().id : std::string{};
@@ -363,7 +363,7 @@ void drawMainMenuBar(
         ImGui::EndMenu();
     }
 
-    if (beginMenuWithIcon(assets, kIcons, "information", "Help")) {
+    if (beginMenuWithIcon(assets, kIcons, "information", "Help", true)) {
         menuItemWithIcon(assets, kIcons, "information", "About", nullptr, false, false);
         ImGui::EndMenu();
     }
@@ -374,7 +374,7 @@ void drawMainMenuBar(
     ImGui::SameLine(ImGui::GetWindowWidth() - fpsWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
     ImGui::TextUnformatted(fpsLabel);
 
-    ImGui::EndMainMenuBar();
+    endMainMenuBar();
 }
 
 const char* entityKindLabel(flecs::entity entity) {
@@ -1086,7 +1086,7 @@ void drawScriptingErrorBanner(AssetStore& assets) {
     constexpr float kPad = 8.0f;
     ImGui::SetNextWindowBgAlpha(0.55f);
     ImGui::SetNextWindowPos(
-        {ImGui::GetIO().DisplaySize.x - kPad, ImGui::GetFrameHeight() + kPad},
+        {ImGui::GetIO().DisplaySize.x - kPad, mainMenuBarHeight() + kPad},
         ImGuiCond_Always,
         {1.0f, 0.0f});
     ImGui::Begin(

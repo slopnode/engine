@@ -10,6 +10,14 @@
 
 namespace slopmap {
 
+bool drawBillboardIcon(
+    slopengine::AssetStore& assets,
+    const Camera3D& camera,
+    Vector3 pos,
+    const char* iconId,
+    Color tint,
+    float size = 0.4f);
+
 void drawThings(
     slopengine::AssetStore& assets,
     const std::vector<slopengine::Thing>& things,

@@ -132,6 +132,11 @@ struct Editor {
     std::vector<int> expandedInstanceOwners;
     CompileDirty compileDirty{};
 
+    struct ToolMouseCapture {
+        bool active = false;
+    };
+    ToolMouseCapture toolMouseCapture;
+
     EditorDocument& doc();
     const EditorDocument& doc() const;
     DocumentHistory& history();
@@ -202,11 +207,18 @@ struct Editor {
     void setSelectedBrushesAsDoors();
 };
 
+void beginToolMouseCapture(Editor& editor, Vector2 anchor);
+void beginToolMouseCapture(Editor& editor);
+void endToolMouseCapture(Editor& editor);
+Vector2 toolMouseScreen(const Editor& editor);
+
 float snapToGrid(float value, float grid);
 Vector3 snapToGrid(Vector3 value, float grid);
 
 bool rayPlaneIntersection(Ray ray, Vector3 planePoint, Vector3 planeNormal, Vector3& outHit);
 Ray mouseRay(const Camera3D& camera, Rectangle viewport);
+Ray mouseRay(const Camera3D& camera, Rectangle viewport, Vector2 mouseScreen);
+Ray toolMouseRay(const Editor& editor, const Camera3D& camera, Rectangle viewport);
 Vector2 worldToViewportScreen(Vector3 world, const Camera3D& camera, Rectangle viewport);
 
 float length3(Vector3 v);
@@ -218,12 +230,6 @@ Vector3 cross3(Vector3 a, Vector3 b);
 Vector3 normalize3(Vector3 v);
 Vector3 cameraForward(const Camera3D& camera);
 Vector3 dragPlaneNormalForAxis(Vector3 axis, Vector3 viewForward);
-float screenDeltaAlongAxis(
-    Vector3 axis,
-    Vector3 origin,
-    Vector2 mouseGrabScreen,
-    const Camera3D& camera,
-    Rectangle viewport);
 
 struct ConstructionPlane {
     Vector3 origin{};
@@ -231,6 +237,15 @@ struct ConstructionPlane {
     Vector3 axisU{};
     Vector3 axisV{};
 };
+
+float screenDeltaAlongAxis(
+    Vector3 axis,
+    Vector3 origin,
+    Vector2 mouseGrabScreen,
+    const Editor& editor,
+    const Camera3D& camera,
+    Rectangle viewport,
+    const ConstructionPlane* fallbackPlane = nullptr);
 
 ConstructionPlane constructionPlaneForView(ViewPlane view, GridPlane gridPlane = GridPlane::XZ);
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane);
@@ -243,5 +258,10 @@ void snapPickOnFace(
     ConstructionPlane& outPlane,
     Vector3& outHit);
 Vector3 snapOnConstructionPlane(Vector3 point, const ConstructionPlane& plane, float grid);
+bool pickConstructionPlane(
+    const Editor& editor,
+    Ray ray,
+    ConstructionPlane& outPlane,
+    Vector3& outHit);
 
 }

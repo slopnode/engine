@@ -221,7 +221,9 @@ void PunchTool::beginFromSelection(Editor& editor) {
     plane.axisV = axes.vAxis;
     maxDepth = axes.depthExtent;
     depth = maxDepth;
+    const Vector2 grabScreen = GetMousePosition();
     phase = PunchPhase::DrawingRect;
+    beginToolMouseCapture(editor, grabScreen);
     editor.mode = EditorMode::Select;
     editor.setSelectionMode(SelectionMode::Brush);
     editor.selectBrush(brushIdx, false);
@@ -364,7 +366,7 @@ void PunchTool::update(
                 depth = maxDepth;
                 depthFromNumeric = false;
                 editor.numericBuffer.clear();
-                depthGrabScreen = GetMousePosition();
+                depthGrabScreen = toolMouseScreen(editor);
                 depthAtGrab = depth;
                 phase = PunchPhase::ExtrudingDepth;
                 setDepthStatus(editor);
@@ -378,7 +380,7 @@ void PunchTool::update(
             const Vector3 mid = combineAxes(axes, 0.5f * (u0 + u1), 0.5f * (v0 + v1), 0.0f);
             const Vector3 inward = scale3(plane.normal, -1.0f);
             const float amount = screenDeltaAlongAxis(
-                inward, mid, depthGrabScreen, camera, editor.contentViewport);
+                inward, mid, depthGrabScreen, editor, camera, editor.contentViewport);
             depth = std::clamp(
                 snapToGrid(depthAtGrab + amount, editor.gridSize),
                 editor.gridSize,

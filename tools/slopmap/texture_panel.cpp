@@ -469,8 +469,24 @@ TexturePanelResult TexturePanel::drawSection(
     Editor& editor,
     slopengine::AssetStore& assets,
     float bodyHeight) {
-    TexturePanelResult result{};
     if (!ImGui::BeginChild("##texturesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+        ImGui::EndChild();
+        return {};
+    }
+    const TexturePanelResult result = drawUvSection(editor, assets, bodyHeight, false);
+    ImGui::EndChild();
+    return result;
+}
+
+TexturePanelResult TexturePanel::drawUvSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    float bodyHeight,
+    bool skipMaterialHeader) {
+    TexturePanelResult result{};
+    const bool ownChild = !skipMaterialHeader;
+    if (ownChild &&
+        !ImGui::BeginChild("##texturesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }
@@ -479,16 +495,22 @@ TexturePanelResult TexturePanel::drawSection(
     const std::vector<FaceTarget> targets = collectTargets(doc);
     if (targets.empty()) {
         ImGui::TextDisabled("Select faces or brushes to edit UVs");
-        ImGui::EndChild();
+        if (ownChild) {
+            ImGui::EndChild();
+        }
         return result;
     }
 
-    constexpr float kMaterialPreviewSize = 128.0f;
-    const std::string materialLabel = selectionMaterialLabel(doc);
-    drawMaterialPreview(assets, materialLabel, kMaterialPreviewSize);
-    ImGui::Text("Material: %s", materialLabel.c_str());
-    ImGui::Text("%d face(s)", static_cast<int>(targets.size()));
-    ImGui::Separator();
+    if (!skipMaterialHeader) {
+        constexpr float kMaterialPreviewSize = 128.0f;
+        const std::string materialLabel = selectionMaterialLabel(doc);
+        drawMaterialPreview(assets, materialLabel, kMaterialPreviewSize);
+        ImGui::Text("Material: %s", materialLabel.c_str());
+        ImGui::Text("%d face(s)", static_cast<int>(targets.size()));
+        ImGui::Separator();
+    } else {
+        ImGui::Text("%d face(s)", static_cast<int>(targets.size()));
+    }
 
     const auto nodrawCommon = commonValue<bool>(doc, targets, [](const slopengine::BrushFace& f) {
         return f.nodraw;
@@ -681,7 +703,9 @@ TexturePanelResult TexturePanel::drawSection(
         ImGui::EndDisabled();
     }
 
-    ImGui::EndChild();
+    if (ownChild) {
+        ImGui::EndChild();
+    }
     return result;
 }
 

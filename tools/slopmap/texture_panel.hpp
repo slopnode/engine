@@ -16,6 +16,12 @@ struct TexturePanel {
         Editor& editor,
         slopengine::AssetStore& assets,
         float bodyHeight);
+
+    TexturePanelResult drawUvSection(
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        float bodyHeight,
+        bool skipMaterialHeader = false);
 };
 
 }

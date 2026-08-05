@@ -241,9 +241,7 @@ void runBrushSplitTests() {
         }
         CHECK(hadDrift);
 
-        const Brush* neighbors[] = {&neighbor};
-        std::vector<const Brush*> neighborList(neighbors, neighbors + 1);
-        cleanupBrushGeometry(subject, 0.1f, neighborList);
+        cleanupBrushGeometry(subject, 0.1f);
 
         bool matchedNeighbor = false;
         bool keptDrift = false;
@@ -257,8 +255,8 @@ void runBrushSplitTests() {
                 }
             }
         }
-        CHECK(matchedNeighbor);
-        CHECK(!keptDrift);
+        CHECK(!matchedNeighbor);
+        CHECK(keptDrift);
     }
 }
 

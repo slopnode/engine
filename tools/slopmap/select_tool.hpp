@@ -35,7 +35,6 @@ struct SelectTool {
     std::vector<Vector3> entityAnglesSnapshots;
     std::vector<bool> entityHaveAnglesSnapshots;
     std::vector<EntityRef> entitySnapshotRefs;
-    FaceRef faceTranslate{};
     bool numericActive = false;
 
     void update(

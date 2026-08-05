@@ -117,6 +117,36 @@ void drawBrushFaceOutlines(
 void drawBrushAabbWires(const slopengine::Brush& brush, Color color);
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color);
 void drawAabbSolid(Vector3 mins, Vector3 maxs, Color color);
+void drawPlaneCrosshair(
+    Vector3 center,
+    Vector3 axisU,
+    Vector3 axisV,
+    float halfLength,
+    Color uColor,
+    Color vColor,
+    Vector3 eye,
+    float lineWidth);
+void drawPlaneQuad(
+    Vector3 center,
+    Vector3 axisU,
+    Vector3 axisV,
+    float halfExtent,
+    Color fill);
+void drawDirectionArrow(
+    Vector3 origin,
+    Vector3 direction,
+    float length,
+    Color color,
+    Vector3 eye,
+    float lineWidth);
+void drawConstructionPlaneGizmo(
+    Vector3 point,
+    Vector3 axisU,
+    Vector3 axisV,
+    Vector3 normal,
+    Vector3 eye,
+    float lineWidth,
+    float normalArrowLength = 0.0f);
 float gridMetersPerPixel(
     bool orthographic,
     float orthoHalfHeight,

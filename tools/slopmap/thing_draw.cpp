@@ -209,25 +209,6 @@ Color lightColor(const slopengine::Thing& thing, bool selected) {
     return color;
 }
 
-bool drawThingIcon(
-    slopengine::AssetStore& assets,
-    const Camera3D& camera,
-    Vector3 pos,
-    const char* iconId,
-    Color tint,
-    float size = 0.4f) {
-    const slopengine::IconAtlas* atlas = assets.getIconAtlas(slopengine::kDefaultIconSet);
-    if (atlas == nullptr || atlas->texture.id == 0) {
-        return false;
-    }
-    const auto rect = slopengine::findIconRect(*atlas, iconId);
-    if (!rect.has_value()) {
-        return false;
-    }
-    DrawBillboardRec(camera, atlas->texture, *rect, pos, {size, size}, tint);
-    return true;
-}
-
 void drawLightGizmo(
     slopengine::AssetStore& assets,
     const Camera3D& camera,
@@ -238,7 +219,7 @@ void drawLightGizmo(
     const Color color = lightColor(thing, selected);
     const char* iconId =
         thing.kind == slopengine::ThingKind::AmbientLight ? "weather_sun" : "lightbulb";
-    if (!drawThingIcon(assets, camera, pos, iconId, color)) {
+    if (!drawBillboardIcon(assets, camera, pos, iconId, color)) {
         DrawSphere(pos, 0.12f, color);
     }
     if (!showGizmos) {
@@ -295,6 +276,25 @@ void drawLightGizmo(
 
 } // namespace
 
+bool drawBillboardIcon(
+    slopengine::AssetStore& assets,
+    const Camera3D& camera,
+    Vector3 pos,
+    const char* iconId,
+    Color tint,
+    float size) {
+    const slopengine::IconAtlas* atlas = assets.getIconAtlas(slopengine::kDefaultIconSet);
+    if (atlas == nullptr || atlas->texture.id == 0) {
+        return false;
+    }
+    const auto rect = slopengine::findIconRect(*atlas, iconId);
+    if (!rect.has_value()) {
+        return false;
+    }
+    DrawBillboardRec(camera, atlas->texture, *rect, pos, {size, size}, tint);
+    return true;
+}
+
 void drawThings(
     slopengine::AssetStore& assets,
     const std::vector<slopengine::Thing>& things,
@@ -314,7 +314,7 @@ void drawThings(
             const slopengine::CharacterMotor motor{};
             drawMotorCollider(pos, motor, color);
             const Vector3 iconPos = motorColliderCenter(pos, motor);
-            if (!drawThingIcon(assets, camera, iconPos, "user", color)) {
+            if (!drawBillboardIcon(assets, camera, iconPos, "user", color)) {
                 DrawCube(iconPos, 0.25f, 0.5f, 0.25f, color);
             }
             if (showGizmos) {
@@ -355,7 +355,7 @@ void drawThings(
                 const Vector3 size =
                     thing.haveTriggerSize ? thing.triggerSize : Vector3{1.0f, 1.0f, 1.0f};
                 DrawCubeWires(pos, size.x, size.y, size.z, color);
-            } else if (!drawThingIcon(assets, camera, pos, "shape_square", color)) {
+            } else if (!drawBillboardIcon(assets, camera, pos, "shape_square", color)) {
                 DrawSphere(pos, 0.12f, color);
             }
             break;
@@ -368,7 +368,7 @@ void drawThings(
             drawLightGizmo(assets, camera, thing, selected, showGizmos);
             break;
         case slopengine::ThingKind::Skybox: {
-            if (!drawThingIcon(assets, camera, pos, "image", color)) {
+            if (!drawBillboardIcon(assets, camera, pos, "image", color)) {
                 DrawCubeWires(pos, 0.5f, 0.5f, 0.5f, color);
             }
             break;
@@ -377,7 +377,7 @@ void drawThings(
             DrawCubeWires(pos, 0.4f, 0.4f, 0.4f, color);
             break;
         case slopengine::ThingKind::SoundSource: {
-            if (!drawThingIcon(assets, camera, pos, "sound", color)) {
+            if (!drawBillboardIcon(assets, camera, pos, "sound", color)) {
                 DrawSphere(pos, 0.18f, color);
             }
             if (showGizmos) {
@@ -409,7 +409,7 @@ void drawThings(
             break;
         }
         case slopengine::ThingKind::Particle: {
-            if (!drawThingIcon(assets, camera, pos, "weather_clouds", color)) {
+            if (!drawBillboardIcon(assets, camera, pos, "weather_clouds", color)) {
                 DrawSphere(pos, 0.14f, color);
             }
             if (showGizmos) {

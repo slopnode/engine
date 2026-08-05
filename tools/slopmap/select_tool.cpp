@@ -98,13 +98,19 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
             return sub3(thing.haveAt ? thing.at : Vector3{}, tool.entityAtSnapshots[0]);
         }
     }
-    if (d.selectionMode == SelectionMode::Face && tool.faceTranslate.valid() &&
+    if (d.selectionMode == SelectionMode::Face && d.activeFace.valid() &&
         !tool.brushSnapshot.empty() && !tool.brushSnapshotIndices.empty()) {
-        const slopengine::Brush& src = tool.brushSnapshot[0];
-        const int faceIndex = tool.faceTranslate.face;
-        if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
+        for (std::size_t i = 0; i < tool.brushSnapshotIndices.size(); ++i) {
+            if (tool.brushSnapshotIndices[i] != d.activeFace.brush) {
+                continue;
+            }
+            const slopengine::Brush& src = tool.brushSnapshot[i];
+            const int faceIndex = d.activeFace.face;
+            if (faceIndex < 0 || faceIndex >= static_cast<int>(src.faces.size())) {
+                break;
+            }
             const auto& oldFace = src.faces[static_cast<std::size_t>(faceIndex)];
-            const int brushIndex = tool.brushSnapshotIndices[0];
+            const int brushIndex = tool.brushSnapshotIndices[i];
             if (brushIndex >= 0 && brushIndex < static_cast<int>(d.brushes.size()) &&
                 faceIndex < static_cast<int>(
                     d.brushes[static_cast<std::size_t>(brushIndex)].faces.size()) &&
@@ -116,6 +122,7 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
                     return sub3(newFace.vertices[0], oldFace.vertices[0]);
                 }
             }
+            break;
         }
     }
     if ((d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) &&
@@ -191,12 +198,18 @@ std::optional<Vector3> constrainedTranslateAxis(
     const Editor& editor,
     const SelectTool& tool) {
     if (editor.doc().selectionMode == SelectionMode::Face &&
-        editor.transformSpace == TransformSpace::Relative && tool.faceTranslate.valid() &&
+        editor.transformSpace == TransformSpace::Relative && editor.doc().activeFace.valid() &&
         !tool.brushSnapshot.empty()) {
-        const int faceIndex = tool.faceTranslate.face;
-        const slopengine::Brush& src = tool.brushSnapshot[0];
-        if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
-            return normalize3(src.faces[static_cast<std::size_t>(faceIndex)].normal);
+        for (std::size_t i = 0; i < tool.brushSnapshotIndices.size(); ++i) {
+            if (tool.brushSnapshotIndices[i] != editor.doc().activeFace.brush) {
+                continue;
+            }
+            const int faceIndex = editor.doc().activeFace.face;
+            const slopengine::Brush& src = tool.brushSnapshot[i];
+            if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
+                return normalize3(src.faces[static_cast<std::size_t>(faceIndex)].normal);
+            }
+            break;
         }
     }
     switch (tool.axisLock) {
@@ -222,18 +235,73 @@ Vector2 screenAxisForWorldAxis(
     return {s1.x - s0.x, s1.y - s0.y};
 }
 
+Vector3 orientAxisForScreen(
+    Vector3 axis,
+    Vector3 origin,
+    const Camera3D& camera,
+    Rectangle viewport) {
+    const Vector2 axisScreen = screenAxisForWorldAxis(origin, axis, camera, viewport);
+    const float lenSq = axisScreen.x * axisScreen.x + axisScreen.y * axisScreen.y;
+    if (lenSq < 4.0f) {
+        return axis;
+    }
+    if (std::fabs(axisScreen.x) >= std::fabs(axisScreen.y)) {
+        if (axisScreen.x < 0.0f) {
+            return scale3(axis, -1.0f);
+        }
+    } else if (axisScreen.y < 0.0f) {
+        return scale3(axis, -1.0f);
+    }
+    return axis;
+}
+
+Vector3 computePlaneTranslateDelta(
+    Vector3 origin,
+    Vector2 mouseGrabScreen,
+    const Editor& editor,
+    const Camera3D& camera,
+    Rectangle viewport,
+    const ConstructionPlane& plane) {
+    const Vector2 mouse = toolMouseScreen(editor);
+    const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
+    const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
+    const float scale = dist * 0.0025f;
+
+    const Vector2 uScreen = screenAxisForWorldAxis(origin, plane.axisU, camera, viewport);
+    const Vector2 vScreen = screenAxisForWorldAxis(origin, plane.axisV, camera, viewport);
+    float uAmount = 0.0f;
+    float vAmount = 0.0f;
+    const float uLenSq = uScreen.x * uScreen.x + uScreen.y * uScreen.y;
+    const float vLenSq = vScreen.x * vScreen.x + vScreen.y * vScreen.y;
+    if (uLenSq >= 1.0f) {
+        uAmount = (mouseDelta.x * uScreen.x + mouseDelta.y * uScreen.y) / uLenSq;
+    }
+    if (vLenSq >= 1.0f) {
+        vAmount = (mouseDelta.x * vScreen.x + mouseDelta.y * vScreen.y) / vLenSq;
+    }
+    return add3(scale3(plane.axisU, uAmount * scale), scale3(plane.axisV, vAmount * scale));
+}
+
 Vector3 computeAxisTranslateDelta(
     Vector3 axis,
     Vector3 origin,
     Vector2 mouseGrabScreen,
+    const Editor& editor,
     const Camera3D& camera,
-    Rectangle viewport) {
-    const Vector2 mouse = GetMousePosition();
+    Rectangle viewport,
+    const ConstructionPlane* fallbackPlane) {
+    axis = orientAxisForScreen(axis, origin, camera, viewport);
+    const Vector2 mouse = toolMouseScreen(editor);
     const Vector2 axisScreen = screenAxisForWorldAxis(origin, axis, camera, viewport);
     const float lenSq = axisScreen.x * axisScreen.x + axisScreen.y * axisScreen.y;
     const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
     float amount = 0.0f;
     if (lenSq < 4.0f) {
+        if (fallbackPlane != nullptr) {
+            const Vector3 planeDelta = computePlaneTranslateDelta(
+                origin, mouseGrabScreen, editor, camera, viewport, *fallbackPlane);
+            return scale3(axis, dot3(planeDelta, axis));
+        }
         const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
         amount = -mouseDelta.y * dist * 0.0025f;
     } else {
@@ -249,8 +317,15 @@ Vector3 cameraRight(const Camera3D& camera) {
 Vector3 computeFreeTranslateDelta(
     Vector3 origin,
     Vector2 mouseGrabScreen,
+    const Editor& editor,
     const Camera3D& camera) {
-    const Vector2 mouse = GetMousePosition();
+    if (editor.viewPlane != ViewPlane::PerspectiveY0) {
+        const ConstructionPlane plane =
+            constructionPlaneForView(editor.viewPlane, editor.gridPlane);
+        return computePlaneTranslateDelta(
+            origin, mouseGrabScreen, editor, camera, editor.contentViewport, plane);
+    }
+    const Vector2 mouse = toolMouseScreen(editor);
     const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
     const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
     const float scale = dist * 0.0025f;
@@ -260,13 +335,15 @@ Vector3 computeFreeTranslateDelta(
 }
 
 void captureTranslateGrab(SelectTool& tool, Editor& editor, const Camera3D& camera) {
-    tool.mouseGrabScreen = GetMousePosition();
+    tool.mouseGrabScreen = toolMouseScreen(editor);
     const Vector3 applied = currentTranslateDelta(editor, tool);
 
     if (const auto axis = constrainedTranslateAxis(editor, tool)) {
+        const Vector3 oriented =
+            orientAxisForScreen(*axis, tool.translateOrigin, camera, editor.contentViewport);
         const Vector2 axisScreen = screenAxisForWorldAxis(
-            tool.translateOrigin, *axis, camera, editor.contentViewport);
-        const float appliedAmount = dot3(applied, *axis);
+            tool.translateOrigin, oriented, camera, editor.contentViewport);
+        const float appliedAmount = dot3(applied, oriented);
         const Vector2 mouse = tool.mouseGrabScreen;
         tool.mouseGrabScreen = {
             mouse.x - axisScreen.x * appliedAmount,
@@ -598,6 +675,25 @@ void collectEdgeSeeds(
         appendUniqueSeed(seeds, verts[static_cast<std::size_t>(ref.edge)]);
         appendUniqueSeed(
             seeds, verts[static_cast<std::size_t>((ref.edge + 1) % verts.size())]);
+    }
+}
+
+void collectFaceSeeds(
+    const slopengine::Brush& brush,
+    const std::vector<FaceRef>& refs,
+    int brushIndex,
+    std::vector<Vector3>& seeds) {
+    for (const FaceRef& ref : refs) {
+        if (ref.brush != brushIndex || !ref.valid()) {
+            continue;
+        }
+        if (ref.face >= static_cast<int>(brush.faces.size())) {
+            continue;
+        }
+        const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+        for (const Vector3& v : verts) {
+            appendUniqueSeed(seeds, v);
+        }
     }
 }
 
@@ -1059,7 +1155,6 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
     entityAnglesSnapshots.clear();
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
 
     if (d.selectionMode == SelectionMode::Entity) {
         if (d.selectedEntities.empty()) {
@@ -1091,17 +1186,30 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
         }
         translateOrigin = editor.selectionCenter();
     } else if (d.selectionMode == SelectionMode::Face) {
-        if (!d.activeFace.valid() ||
-            d.activeFace.brush >= static_cast<int>(d.brushes.size())) {
+        if (d.selectedFaces.empty()) {
             return;
         }
-        faceTranslate = d.activeFace;
+        std::unordered_set<int> brushSet;
+        for (const FaceRef& ref : d.selectedFaces) {
+            if (ref.brush >= 0) {
+                brushSet.insert(ref.brush);
+            }
+        }
         translating = true;
         axisLock = TranslateAxis::None;
         numericActive = false;
         editor.numericBuffer.clear();
-        brushSnapshotIndices.push_back(faceTranslate.brush);
-        brushSnapshot.push_back(d.brushes[static_cast<std::size_t>(faceTranslate.brush)]);
+        for (int index : brushSet) {
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            brushSnapshotIndices.push_back(index);
+            brushSnapshot.push_back(d.brushes[static_cast<std::size_t>(index)]);
+        }
+        if (brushSnapshot.empty()) {
+            translating = false;
+            return;
+        }
         translateOrigin = editor.selectionCenter();
     } else if (
         d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) {
@@ -1167,6 +1275,8 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
     }
 
     editor.prepareEdit();
+    const Vector2 grabScreen = GetMousePosition();
+    beginToolMouseCapture(editor, grabScreen);
     captureTranslateGrab(*this, editor, camera);
     updateTranslateStatus(editor, *this);
 }
@@ -1200,39 +1310,50 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
         return;
     }
 
-    if (d.selectionMode == SelectionMode::Face && faceTranslate.valid()) {
-        const slopengine::Brush& src = brushSnapshot[0];
-        if (faceTranslate.face < 0 ||
-            faceTranslate.face >= static_cast<int>(src.faces.size())) {
-            return;
-        }
-        const slopengine::BrushFace& face =
-            src.faces[static_cast<std::size_t>(faceTranslate.face)];
-        if (editor.transformSpace == TransformSpace::Relative) {
-            const float rawDistance = dot3(delta, face.normal);
-            float distance = rawDistance;
-            if (!exact) {
-                const Vector3 originPoint =
-                    face.vertices.empty() ? translateOrigin : face.vertices[0];
-                const float originAlong = dot3(originPoint, face.normal);
-                distance = snapTranslateDistance(
-                    rawDistance, originAlong, editor.gridSize, editor.translateSnapMode);
-            }
-            d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-                pushFace(src, faceTranslate.face, distance, assets);
-            return;
-        }
-        if (!exact) {
-            delta = snapTranslateDelta(
+    if (d.selectionMode == SelectionMode::Face && !d.selectedFaces.empty()) {
+        Vector3 snappedDelta = delta;
+        if (editor.transformSpace != TransformSpace::Relative && !exact) {
+            snappedDelta = snapTranslateDelta(
                 delta, translateOrigin, editor.gridSize, editor.translateSnapMode);
         }
-        std::vector<Vector3> seeds;
-        seeds.reserve(face.vertices.size());
-        for (const Vector3& v : face.vertices) {
-            appendUniqueSeed(seeds, v);
+        for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
+            const int index = brushSnapshotIndices[i];
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            if (editor.transformSpace == TransformSpace::Relative) {
+                slopengine::Brush brush = brushSnapshot[i];
+                for (const FaceRef& ref : d.selectedFaces) {
+                    if (ref.brush != index || !ref.valid()) {
+                        continue;
+                    }
+                    if (ref.face < 0 || ref.face >= static_cast<int>(brush.faces.size())) {
+                        continue;
+                    }
+                    const slopengine::BrushFace& face =
+                        brush.faces[static_cast<std::size_t>(ref.face)];
+                    const float rawDistance = dot3(delta, face.normal);
+                    float distance = rawDistance;
+                    if (!exact) {
+                        const Vector3 originPoint =
+                            face.vertices.empty() ? translateOrigin : face.vertices[0];
+                        const float originAlong = dot3(originPoint, face.normal);
+                        distance = snapTranslateDistance(
+                            rawDistance,
+                            originAlong,
+                            editor.gridSize,
+                            editor.translateSnapMode);
+                    }
+                    brush = pushFace(brush, ref.face, distance, assets);
+                }
+                d.brushes[static_cast<std::size_t>(index)] = brush;
+            } else {
+                std::vector<Vector3> seeds;
+                collectFaceSeeds(brushSnapshot[i], d.selectedFaces, index, seeds);
+                d.brushes[static_cast<std::size_t>(index)] =
+                    moveWeldedVerts(brushSnapshot[i], seeds, snappedDelta, assets);
+            }
         }
-            d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-            moveWeldedVerts(src, seeds, delta, assets);
         return;
     }
 
@@ -1289,15 +1410,7 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
                 continue;
             }
             slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
-            std::vector<const slopengine::Brush*> neighbors;
-            neighbors.reserve(d.brushes.size());
-            for (std::size_t bi = 0; bi < d.brushes.size(); ++bi) {
-                if (static_cast<int>(bi) == index) {
-                    continue;
-                }
-                neighbors.push_back(&d.brushes[bi]);
-            }
-            slopengine::cleanupBrushGeometry(brush, editor.gridSize, neighbors);
+            slopengine::cleanupBrushGeometry(brush, editor.gridSize);
             brush = promoteToBoxIfPossible(brush, assets);
         }
     }
@@ -1330,7 +1443,6 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
     brushSnapshotIndices.clear();
     entityAtSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
     editor.markDirty();
     if (anyInstance) {
         editor.markBspDirty();
@@ -1341,6 +1453,7 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
         editor.markThingCompileDirty(thingKind);
     }
     editor.endEdit();
+    endToolMouseCapture(editor);
     editor.statusMessage = "Translate confirmed";
 }
 
@@ -1356,8 +1469,8 @@ void SelectTool::cancelTranslate(Editor& editor) {
     brushSnapshotIndices.clear();
     entityAtSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
     editor.abortEdit();
+    endToolMouseCapture(editor);
     editor.statusMessage = "Translate cancelled";
 }
 
@@ -1439,13 +1552,22 @@ void SelectTool::handleNumeric(
     }
 
     Vector3 delta{};
-    if (editor.doc().selectionMode == SelectionMode::Face &&
-        editor.transformSpace == TransformSpace::Relative && faceTranslate.valid() &&
-        !brushSnapshot.empty() &&
-        faceTranslate.face < static_cast<int>(brushSnapshot[0].faces.size())) {
-        const auto& face =
-            brushSnapshot[0].faces[static_cast<std::size_t>(faceTranslate.face)];
-        delta = scale3(face.normal, value);
+    const EditorDocument& d = editor.doc();
+    if (d.selectionMode == SelectionMode::Face &&
+        editor.transformSpace == TransformSpace::Relative && d.activeFace.valid() &&
+        !brushSnapshot.empty()) {
+        for (std::size_t i = 0; i < brushSnapshotIndices.size(); ++i) {
+            if (brushSnapshotIndices[i] != d.activeFace.brush) {
+                continue;
+            }
+            if (d.activeFace.face >= 0 &&
+                d.activeFace.face < static_cast<int>(brushSnapshot[i].faces.size())) {
+                const auto& face =
+                    brushSnapshot[i].faces[static_cast<std::size_t>(d.activeFace.face)];
+                delta = scale3(face.normal, value);
+            }
+            break;
+        }
     } else if (axisLock == TranslateAxis::X) {
         delta = {value, 0.0f, 0.0f};
     } else if (axisLock == TranslateAxis::Y) {
@@ -2303,7 +2425,6 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
     entityAnglesSnapshots.clear();
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
     rotateAngle = 0.0f;
     rotateAxisLock = TranslateAxis::Y;
 
@@ -2358,7 +2479,9 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
     editor.numericBuffer.clear();
     editor.prepareEdit();
     rotateOrigin = editor.selectionCenter();
-    mouseGrabScreen = GetMousePosition();
+    const Vector2 grabScreen = GetMousePosition();
+    beginToolMouseCapture(editor, grabScreen);
+    mouseGrabScreen = toolMouseScreen(editor);
     const Vector2 originScreen =
         worldToViewportScreen(rotateOrigin, camera, editor.contentViewport);
     rotateGrabAngle = screenAngleAround(originScreen, mouseGrabScreen);
@@ -2474,6 +2597,7 @@ void SelectTool::confirmRotate(Editor& editor, slopengine::AssetStore& assets) {
     }
     editor.rebuildPreview(assets);
     editor.endEdit();
+    endToolMouseCapture(editor);
     editor.statusMessage = "Rotate confirmed";
 }
 
@@ -2494,6 +2618,7 @@ void SelectTool::cancelRotate(Editor& editor) {
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
     editor.abortEdit();
+    endToolMouseCapture(editor);
     editor.statusMessage = "Rotate cancelled";
 }
 
@@ -2553,7 +2678,9 @@ void SelectTool::update(
                 const Vector3 applied = currentTranslateDelta(editor, *this);
                 refreshTranslateGrab(*this, editor, camera);
                 if (const auto axis = constrainedTranslateAxis(editor, *this)) {
-                    applyTranslate(editor, assets, scale3(*axis, dot3(applied, *axis)));
+                    const Vector3 oriented = orientAxisForScreen(
+                        *axis, translateOrigin, camera, editor.contentViewport);
+                    applyTranslate(editor, assets, scale3(oriented, dot3(applied, oriented)));
                 }
                 updateTranslateStatus(editor, *this);
             }
@@ -2570,17 +2697,26 @@ void SelectTool::update(
         if (canDrag) {
             Vector3 delta{};
             bool haveDelta = false;
+            const ConstructionPlane translatePlane =
+                constructionPlaneForView(editor.viewPlane, editor.gridPlane);
+            const ConstructionPlane* fallbackPlane =
+                editor.viewPlane != ViewPlane::PerspectiveY0 ? &translatePlane : nullptr;
             if (const auto axis = constrainedTranslateAxis(editor, *this)) {
+                const Vector3 oriented = orientAxisForScreen(
+                    *axis, translateOrigin, camera, editor.contentViewport);
                 delta = computeAxisTranslateDelta(
-                    *axis,
+                    oriented,
                     translateOrigin,
                     mouseGrabScreen,
+                    editor,
                     camera,
-                    editor.contentViewport);
+                    editor.contentViewport,
+                    fallbackPlane);
                 haveDelta = true;
             } else {
                 delta = add3(
-                    computeFreeTranslateDelta(translateOrigin, mouseGrabScreen, camera),
+                    computeFreeTranslateDelta(
+                        translateOrigin, mouseGrabScreen, editor, camera),
                     mouseGrabWorld);
                 haveDelta = true;
             }
@@ -2624,7 +2760,7 @@ void SelectTool::update(
                 editor.numericBuffer.clear();
             }
             if (rotateAxisLock != previousLock) {
-                mouseGrabScreen = GetMousePosition();
+                mouseGrabScreen = toolMouseScreen(editor);
                 const Vector2 originScreen =
                     worldToViewportScreen(rotateOrigin, camera, editor.contentViewport);
                 rotateGrabAngle = screenAngleAround(originScreen, mouseGrabScreen);
@@ -2642,7 +2778,7 @@ void SelectTool::update(
             (!entitySnapshotRefs.empty() || !brushSnapshot.empty())) {
             const Vector2 originScreen =
                 worldToViewportScreen(rotateOrigin, camera, editor.contentViewport);
-            const float current = screenAngleAround(originScreen, GetMousePosition());
+            const float current = screenAngleAround(originScreen, toolMouseScreen(editor));
             float angle = wrapAngle(rotateGrabAngle - current);
             if (editor.numericBuffer == "-") {
                 angle = -angle;

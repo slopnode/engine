@@ -375,21 +375,6 @@ std::optional<BrushConvexError> validateBrushConvex(const Brush& brush) {
 
 namespace {
 
-float snapCoordLocal(float value, float grid) {
-    if (grid <= 0.0f) {
-        return value;
-    }
-    return std::round(value / grid) * grid;
-}
-
-Vector3 snapVertLocal(Vector3 v, float grid) {
-    return {
-        snapCoordLocal(v.x, grid),
-        snapCoordLocal(v.y, grid),
-        snapCoordLocal(v.z, grid),
-    };
-}
-
 struct Vec3ExactLess {
     bool operator()(Vector3 a, Vector3 b) const {
         if (a.x != b.x) {
@@ -408,37 +393,9 @@ bool vertsExactEqual(Vector3 a, Vector3 b) {
 
 } // namespace
 
-void cleanupBrushGeometry(
-    Brush& brush,
-    float grid,
-    const std::vector<const Brush*>& neighbors) {
+void cleanupBrushGeometry(Brush& brush, float grid) {
     bool changed = false;
-
-    std::map<Vector3, Vector3, Vec3ExactLess> neighborByCell;
-    for (const Brush* other : neighbors) {
-        if (other == nullptr || other == &brush) {
-            continue;
-        }
-        for (const BrushFace& face : other->faces) {
-            for (const Vector3& v : face.vertices) {
-                neighborByCell.emplace(snapVertLocal(v, grid), v);
-            }
-        }
-    }
-
-    for (BrushFace& face : brush.faces) {
-        for (Vector3& v : face.vertices) {
-            const Vector3 cell = snapVertLocal(v, grid);
-            const auto neighbor = neighborByCell.find(cell);
-            if (neighbor == neighborByCell.end()) {
-                continue;
-            }
-            if (!vertsExactEqual(v, neighbor->second)) {
-                v = neighbor->second;
-                changed = true;
-            }
-        }
-    }
+    (void)grid;
 
     std::map<Vector3, Vector3, Vec3ExactLess> reps;
     for (BrushFace& face : brush.faces) {

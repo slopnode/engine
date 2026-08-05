@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -11,6 +12,24 @@ enum class CompileStage {
     Vis,
     Rad,
 };
+
+inline int compileStageIndex(CompileStage stage) {
+    return static_cast<int>(stage);
+}
+
+inline const char* compileStageLabel(CompileStage stage) {
+    switch (stage) {
+    case CompileStage::Bsp:
+        return "BSP";
+    case CompileStage::Vis:
+        return "VIS";
+    case CompileStage::Rad:
+        return "RAD";
+    }
+    return "?";
+}
+
+inline constexpr int kCompileStageCount = 3;
 
 struct RadCompileOptions {
     float luxelsPerMeter = 16.0f;
@@ -37,23 +56,38 @@ public:
     bool showOptionsModal = false;
     bool showOutputWindow = false;
 
-    const std::vector<std::string>& logLines() const {
-        return logLines_;
+    const std::vector<std::string>& logLines(CompileStage stage) const {
+        return stageLogs_[static_cast<std::size_t>(compileStageIndex(stage))];
+    }
+    std::string& logText(CompileStage stage) {
+        return stageLogText_[static_cast<std::size_t>(compileStageIndex(stage))];
     }
     bool running() const {
         return running_;
     }
-    bool logAutoScroll() const {
-        return logAutoScroll_;
+    CompileStage selectedOutputTab() const {
+        return selectedOutputTab_;
     }
-    void setLogAutoScroll(bool enabled) {
-        logAutoScroll_ = enabled;
+    void setSelectedOutputTab(CompileStage tab) {
+        selectedOutputTab_ = tab;
     }
-    bool logDirty() const {
-        return logDirty_;
+    bool outputTabFocusPending() const {
+        return outputTabFocusPending_;
     }
-    void clearLogDirty() {
-        logDirty_ = false;
+    void clearOutputTabFocusPending() {
+        outputTabFocusPending_ = false;
+    }
+    bool logAutoScroll(CompileStage stage) const {
+        return stageLogAutoScroll_[static_cast<std::size_t>(compileStageIndex(stage))];
+    }
+    void setLogAutoScroll(CompileStage stage, bool enabled) {
+        stageLogAutoScroll_[static_cast<std::size_t>(compileStageIndex(stage))] = enabled;
+    }
+    bool logDirty(CompileStage stage) const {
+        return stageLogDirty_[static_cast<std::size_t>(compileStageIndex(stage))];
+    }
+    void clearLogDirty(CompileStage stage) {
+        stageLogDirty_[static_cast<std::size_t>(compileStageIndex(stage))] = false;
     }
     const std::string& statusSummary() const {
         return statusSummary_;
@@ -95,19 +129,23 @@ private:
     std::vector<CompileStage> queue_;
     CompileMountArgs mounts_{};
     ChildProcess child_{};
-    std::vector<std::string> logLines_;
+    std::array<std::vector<std::string>, kCompileStageCount> stageLogs_{};
+    std::array<std::string, kCompileStageCount> stageLogText_{};
+    std::array<bool, kCompileStageCount> stageLogDirty_{};
+    std::array<bool, kCompileStageCount> stageLogAutoScroll_{true, true, true};
     std::string lineBuffer_;
     std::string statusSummary_;
     bool running_ = false;
-    bool logAutoScroll_ = true;
-    bool logDirty_ = false;
     bool statusDirty_ = false;
     CompileStage currentStage_ = CompileStage::Bsp;
+    CompileStage selectedOutputTab_ = CompileStage::Bsp;
+    bool outputTabFocusPending_ = false;
     CompileStage completedStage_ = CompileStage::Bsp;
     bool completedStagePending_ = false;
 
     void setStatus(std::string status);
     void appendLine(std::string line);
+    void appendLine(std::string line, CompileStage stage);
     void appendOutput(const char* data, std::size_t size);
     void flushLineBuffer();
     void clearLog();

@@ -6,6 +6,7 @@
 #include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
+#include "select_tool.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -253,16 +254,52 @@ bool rayPlaneIntersection(Ray ray, Vector3 planePoint, Vector3 planeNormal, Vect
 }
 
 Ray mouseRay(const Camera3D& camera, Rectangle viewport) {
-    const Vector2 mouse = GetMousePosition();
+    return mouseRay(camera, viewport, GetMousePosition());
+}
+
+Ray mouseRay(const Camera3D& camera, Rectangle viewport, Vector2 mouseScreen) {
     const Vector2 local{
-        mouse.x - viewport.x,
-        mouse.y - viewport.y,
+        mouseScreen.x - viewport.x,
+        mouseScreen.y - viewport.y,
     };
     return GetScreenToWorldRayEx(
         local,
         camera,
         static_cast<int>(viewport.width),
         static_cast<int>(viewport.height));
+}
+
+Ray toolMouseRay(const Editor& editor, const Camera3D& camera, Rectangle viewport) {
+    return mouseRay(camera, viewport, toolMouseScreen(editor));
+}
+
+void beginToolMouseCapture(Editor& editor, Vector2 /*anchor*/) {
+    if (editor.toolMouseCapture.active) {
+        return;
+    }
+    if (IsCursorHidden()) {
+        EnableCursor();
+    }
+    HideCursor();
+    editor.toolMouseCapture.active = true;
+}
+
+void beginToolMouseCapture(Editor& editor) {
+    beginToolMouseCapture(editor, GetMousePosition());
+}
+
+void endToolMouseCapture(Editor& editor) {
+    if (!editor.toolMouseCapture.active) {
+        return;
+    }
+    editor.toolMouseCapture.active = false;
+    if (IsCursorHidden() && !IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        ShowCursor();
+    }
+}
+
+Vector2 toolMouseScreen(const Editor& /*editor*/) {
+    return GetMousePosition();
 }
 
 Vector2 worldToViewportScreen(Vector3 world, const Camera3D& camera, Rectangle viewport) {
@@ -328,23 +365,66 @@ Vector3 dragPlaneNormalForAxis(Vector3 axis, Vector3 viewForward) {
     return normalize3(n);
 }
 
+Vector2 screenAxisForWorldAxisLocal(
+    Vector3 origin,
+    Vector3 axis,
+    const Camera3D& camera,
+    Rectangle viewport) {
+    const Vector2 s0 = worldToViewportScreen(origin, camera, viewport);
+    const Vector2 s1 = worldToViewportScreen(add3(origin, axis), camera, viewport);
+    return {s1.x - s0.x, s1.y - s0.y};
+}
+
 float screenDeltaAlongAxis(
     Vector3 axis,
     Vector3 origin,
     Vector2 mouseGrabScreen,
+    const Editor& editor,
     const Camera3D& camera,
-    Rectangle viewport) {
-    const Vector2 mouse = GetMousePosition();
-    const Vector2 s0 = worldToViewportScreen(origin, camera, viewport);
-    const Vector2 s1 = worldToViewportScreen(add3(origin, axis), camera, viewport);
-    const Vector2 axisScreen{s1.x - s0.x, s1.y - s0.y};
+    Rectangle viewport,
+    const ConstructionPlane* fallbackPlane) {
+    const Vector2 mouse = toolMouseScreen(editor);
+    Vector2 axisScreen = screenAxisForWorldAxisLocal(origin, axis, camera, viewport);
     const float lenSq = axisScreen.x * axisScreen.x + axisScreen.y * axisScreen.y;
     const Vector2 mouseDelta{mouse.x - mouseGrabScreen.x, mouse.y - mouseGrabScreen.y};
-    if (lenSq < 4.0f) {
-        const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
-        return -mouseDelta.y * dist * 0.0025f;
+    if (lenSq >= 4.0f) {
+        if (std::fabs(axisScreen.x) >= std::fabs(axisScreen.y)) {
+            if (axisScreen.x < 0.0f) {
+                axisScreen.x = -axisScreen.x;
+                axisScreen.y = -axisScreen.y;
+                axis = scale3(axis, -1.0f);
+            }
+        } else if (axisScreen.y < 0.0f) {
+            axisScreen.x = -axisScreen.x;
+            axisScreen.y = -axisScreen.y;
+            axis = scale3(axis, -1.0f);
+        }
+        return (mouseDelta.x * axisScreen.x + mouseDelta.y * axisScreen.y) / lenSq;
     }
-    return (mouseDelta.x * axisScreen.x + mouseDelta.y * axisScreen.y) / lenSq;
+    if (fallbackPlane != nullptr) {
+        const Vector2 uScreen =
+            screenAxisForWorldAxisLocal(origin, fallbackPlane->axisU, camera, viewport);
+        const Vector2 vScreen =
+            screenAxisForWorldAxisLocal(origin, fallbackPlane->axisV, camera, viewport);
+        const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
+        const float scale = dist * 0.0025f;
+        float uAmount = 0.0f;
+        float vAmount = 0.0f;
+        const float uLenSq = uScreen.x * uScreen.x + uScreen.y * uScreen.y;
+        const float vLenSq = vScreen.x * vScreen.x + vScreen.y * vScreen.y;
+        if (uLenSq >= 1.0f) {
+            uAmount = (mouseDelta.x * uScreen.x + mouseDelta.y * uScreen.y) / uLenSq;
+        }
+        if (vLenSq >= 1.0f) {
+            vAmount = (mouseDelta.x * vScreen.x + mouseDelta.y * vScreen.y) / vLenSq;
+        }
+        const Vector3 planeDelta = add3(
+            scale3(fallbackPlane->axisU, uAmount * scale),
+            scale3(fallbackPlane->axisV, vAmount * scale));
+        return dot3(planeDelta, axis);
+    }
+    const float dist = std::max(length3(sub3(camera.position, origin)), 0.25f);
+    return -mouseDelta.y * dist * 0.0025f;
 }
 
 ConstructionPlane constructionPlaneForGrid(GridPlane gridPlane) {
@@ -495,6 +575,47 @@ void snapPickOnFace(
     outPlane.origin = sub3(gridOrigin, scale3(normal, originOff));
     outHit = snapOnConstructionPlane(snapped, outPlane, grid);
     outPlane.origin = outHit;
+}
+
+bool pickConstructionPlane(
+    const Editor& editor,
+    Ray ray,
+    ConstructionPlane& outPlane,
+    Vector3& outHit) {
+    float bestFaceT = std::numeric_limits<float>::max();
+    int bestBrush = -1;
+    int bestFace = -1;
+    const EditorDocument& d = editor.doc();
+    for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+        float faceT = 0.0f;
+        const auto face =
+            rayBrushFaceIndex(ray, d.brushes[i], &faceT, editor.ignoreBackfaces);
+        if (face && faceT < bestFaceT) {
+            bestFaceT = faceT;
+            bestBrush = static_cast<int>(i);
+            bestFace = *face;
+        }
+    }
+
+    if (bestBrush >= 0 && bestFace >= 0) {
+        const slopengine::BrushFace& face =
+            d.brushes[static_cast<std::size_t>(bestBrush)].faces[static_cast<std::size_t>(bestFace)];
+        const Vector3 hit{
+            ray.position.x + ray.direction.x * bestFaceT,
+            ray.position.y + ray.direction.y * bestFaceT,
+            ray.position.z + ray.direction.z * bestFaceT,
+        };
+        snapPickOnFace(face, hit, editor.gridSize, outPlane, outHit);
+        return true;
+    }
+
+    outPlane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
+    if (!rayPlaneIntersection(ray, outPlane.origin, outPlane.normal, outHit)) {
+        return false;
+    }
+    outHit = snapOnConstructionPlane(outHit, outPlane, editor.gridSize);
+    outPlane.origin = outHit;
+    return true;
 }
 
 EditorDocument& Editor::doc() {
@@ -1659,20 +1780,26 @@ Vector3 Editor::selectionCenter() const {
             return d.instances[static_cast<std::size_t>(d.activeEntity.index)].at;
         }
     }
-    if (d.selectionMode == SelectionMode::Face && d.activeFace.valid() &&
-        d.activeFace.brush < static_cast<int>(d.brushes.size())) {
-        const slopengine::Brush& brush =
-            d.brushes[static_cast<std::size_t>(d.activeFace.brush)];
-        if (d.activeFace.face < static_cast<int>(brush.faces.size())) {
-            const auto& verts = brush.faces[static_cast<std::size_t>(d.activeFace.face)].vertices;
-            if (!verts.empty()) {
-                Vector3 sum{};
-                for (const Vector3& v : verts) {
-                    sum = {sum.x + v.x, sum.y + v.y, sum.z + v.z};
-                }
-                const float inv = 1.0f / static_cast<float>(verts.size());
-                return {sum.x * inv, sum.y * inv, sum.z * inv};
+    if (d.selectionMode == SelectionMode::Face && !d.selectedFaces.empty()) {
+        Vector3 sum{};
+        int count = 0;
+        for (const FaceRef& ref : d.selectedFaces) {
+            if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                continue;
             }
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+            if (ref.face >= static_cast<int>(brush.faces.size())) {
+                continue;
+            }
+            const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+            for (const Vector3& v : verts) {
+                sum = {sum.x + v.x, sum.y + v.y, sum.z + v.z};
+                ++count;
+            }
+        }
+        if (count > 0) {
+            const float inv = 1.0f / static_cast<float>(count);
+            return {sum.x * inv, sum.y * inv, sum.z * inv};
         }
     }
     if (d.selectionMode == SelectionMode::Vert && !d.selectedVerts.empty()) {

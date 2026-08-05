@@ -24,19 +24,27 @@ std::string trim(std::string_view value) {
 
 const char* materialViewModeId(MaterialViewMode mode) {
     switch (mode) {
+    case MaterialViewMode::Grid:
+        return "grid";
     case MaterialViewMode::List:
         return "list";
-    case MaterialViewMode::Icons:
-        return "icons";
+    case MaterialViewMode::Folder:
+        return "folder";
     }
-    return "icons";
+    return "grid";
 }
 
 MaterialViewMode materialViewModeFromId(std::string_view id) {
     if (id == "list") {
         return MaterialViewMode::List;
     }
-    return MaterialViewMode::Icons;
+    if (id == "folder") {
+        return MaterialViewMode::Folder;
+    }
+    if (id == "icons") {
+        return MaterialViewMode::Grid;
+    }
+    return MaterialViewMode::Grid;
 }
 
 EditorSettings EditorSettings::loadOrDefault() {

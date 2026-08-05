@@ -1,7 +1,10 @@
 #include "create_tool.hpp"
 
 #include "map/brush.hpp"
+#include "preview.hpp"
 #include "select_tool.hpp"
+
+#include <cstddef>
 
 #include <algorithm>
 #include <cmath>
@@ -29,45 +32,15 @@ Vector3 snapOnPlane(Vector3 point, const ConstructionPlane& plane, float grid) {
     return snapOnConstructionPlane(point, plane, grid);
 }
 
-bool pickCreatePlane(Editor& editor, const Ray& ray, ConstructionPlane& outPlane, Vector3& outHit) {
-    float bestFaceT = std::numeric_limits<float>::max();
-    int bestBrush = -1;
-    int bestFace = -1;
-    const EditorDocument& d = editor.doc();
-    for (std::size_t i = 0; i < d.brushes.size(); ++i) {
-        float faceT = 0.0f;
-        const auto face =
-            rayBrushFaceIndex(ray, d.brushes[i], &faceT, editor.ignoreBackfaces);
-        if (face && faceT < bestFaceT) {
-            bestFaceT = faceT;
-            bestBrush = static_cast<int>(i);
-            bestFace = *face;
-        }
-    }
-
-    if (bestBrush >= 0 && bestFace >= 0) {
-        const slopengine::BrushFace& face =
-            d.brushes[static_cast<std::size_t>(bestBrush)].faces[static_cast<std::size_t>(bestFace)];
-        const Vector3 hit{
-            ray.position.x + ray.direction.x * bestFaceT,
-            ray.position.y + ray.direction.y * bestFaceT,
-            ray.position.z + ray.direction.z * bestFaceT,
-        };
-        snapPickOnFace(face, hit, editor.gridSize, outPlane, outHit);
-        return true;
-    }
-
-    outPlane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
-    if (!rayPlaneIntersection(ray, outPlane.origin, outPlane.normal, outHit)) {
-        return false;
-    }
-    outHit = snapOnPlane(outHit, outPlane, editor.gridSize);
-    outPlane.origin = outHit;
-    return true;
-}
-
 bool enterPressed() {
     return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
+}
+
+bool enterOrClick(bool uiWantsMouse) {
+    if (enterPressed()) {
+        return true;
+    }
+    return !uiWantsMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
 } // namespace
@@ -88,10 +61,10 @@ void CreateTool::reset() {
 void CreateTool::setStatus(Editor& editor) const {
     switch (phase) {
     case CreatePhase::Idle:
-        editor.statusMessage = "Create: set first corner (Enter)";
+        editor.statusMessage = "Create: set first corner (click or Enter)";
         break;
     case CreatePhase::DrawingBase:
-        editor.statusMessage = "Create: set opposite corner (Enter)";
+        editor.statusMessage = "Create: set opposite corner (click or Enter)";
         break;
     case CreatePhase::Extruding: {
         char buf[96];
@@ -99,13 +72,13 @@ void CreateTool::setStatus(Editor& editor) const {
             std::snprintf(
                 buf,
                 sizeof(buf),
-                "Create: height %s (Enter commit)",
+                "Create: height %s (click or Enter commit)",
                 editor.numericBuffer.c_str());
         } else {
             std::snprintf(
                 buf,
                 sizeof(buf),
-                "Create: height %.3f (Enter commit)",
+                "Create: height %.3f (click or Enter commit)",
                 thickness);
         }
         editor.statusMessage = buf;
@@ -114,6 +87,68 @@ void CreateTool::setStatus(Editor& editor) const {
     case CreatePhase::AwaitingParams:
         break;
     }
+}
+
+bool CreateTool::formatCreateMetrics(char* buf, std::size_t bufSize) const {
+    if (buf == nullptr || bufSize == 0) {
+        return false;
+    }
+    buf[0] = '\0';
+
+    if (phase == CreatePhase::Idle) {
+        if (!hoverValid) {
+            return false;
+        }
+        std::snprintf(
+            buf,
+            bufSize,
+            "P1: %.3f, %.3f, %.3f",
+            corner0.x,
+            corner0.y,
+            corner0.z);
+        return true;
+    }
+
+    if (phase == CreatePhase::DrawingBase || phase == CreatePhase::Extruding) {
+        Vector3 mins{};
+        Vector3 maxs{};
+        const bool haveBounds = phase == CreatePhase::Extruding ? finalBounds(mins, maxs)
+                                                                : footprintBounds(mins, maxs);
+        if (haveBounds) {
+            const Vector3 size{
+                maxs.x - mins.x,
+                maxs.y - mins.y,
+                maxs.z - mins.z,
+            };
+            std::snprintf(
+                buf,
+                bufSize,
+                "P1: %.3f, %.3f, %.3f  P2: %.3f, %.3f, %.3f  Size: %.3f, %.3f, %.3f",
+                corner0.x,
+                corner0.y,
+                corner0.z,
+                corner1.x,
+                corner1.y,
+                corner1.z,
+                size.x,
+                size.y,
+                size.z);
+        } else {
+            std::snprintf(
+                buf,
+                bufSize,
+                "P1: %.3f, %.3f, %.3f  P2: %.3f, %.3f, %.3f",
+                corner0.x,
+                corner0.y,
+                corner0.z,
+                corner1.x,
+                corner1.y,
+                corner1.z);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 bool CreateTool::footprintBounds(Vector3& mins, Vector3& maxs) const {
@@ -347,26 +382,28 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
         return;
     }
 
-    const Ray ray = mouseRay(camera, editor.contentViewport);
+    const Ray ray = toolMouseRay(editor, camera, editor.contentViewport);
 
     if (phase == CreatePhase::Idle) {
         hoverValid = false;
         if (!uiWantsMouse) {
             Vector3 hit{};
             ConstructionPlane hoverPlane{};
-            if (pickCreatePlane(editor, ray, hoverPlane, hit)) {
+            if (pickConstructionPlane(editor, ray, hoverPlane, hit)) {
                 plane = hoverPlane;
                 corner0 = hit;
                 corner1 = hit;
                 hoverValid = true;
             }
         }
-        if (!uiWantsKeyboard && enterPressed()) {
+        if (!uiWantsKeyboard && enterOrClick(uiWantsMouse)) {
             if (!hoverValid) {
                 editor.statusMessage = "Create: aim at the grid or a brush face";
                 return;
             }
+            const Vector2 grabScreen = GetMousePosition();
             phase = CreatePhase::DrawingBase;
+            beginToolMouseCapture(editor, grabScreen);
             setStatus(editor);
         }
         return;
@@ -379,17 +416,17 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
                 corner1 = snapOnPlane(hit, plane, editor.gridSize);
             }
         }
-        if (!uiWantsKeyboard && enterPressed()) {
+        if (!uiWantsKeyboard && enterOrClick(uiWantsMouse)) {
             Vector3 mins{};
             Vector3 maxs{};
             if (!footprintBounds(mins, maxs)) {
-                editor.statusMessage = "Create: opposite corner too close (Enter)";
+                editor.statusMessage = "Create: opposite corner too close (click or Enter)";
                 return;
             }
             thickness = editor.gridSize;
             thicknessFromNumeric = false;
             editor.numericBuffer.clear();
-            thicknessGrabScreen = GetMousePosition();
+            thicknessGrabScreen = toolMouseScreen(editor);
             thicknessAtGrab = thickness;
             phase = CreatePhase::Extruding;
             setStatus(editor);
@@ -405,28 +442,41 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
                 0.5f * (corner0.z + corner1.z),
             };
             const float amount = screenDeltaAlongAxis(
-                plane.normal, mid, thicknessGrabScreen, camera, editor.contentViewport);
-            thickness = snapToGrid(thicknessAtGrab + amount, editor.gridSize);
+                plane.normal,
+                mid,
+                thicknessGrabScreen,
+                editor,
+                camera,
+                editor.contentViewport,
+                &plane);
+            thickness = snapToGrid(thicknessAtGrab - amount, editor.gridSize);
             if (std::fabs(thickness) < editor.gridSize * 0.5f) {
                 thickness = thickness < 0.0f ? -editor.gridSize : editor.gridSize;
             }
             setStatus(editor);
         }
 
-        if (!uiWantsKeyboard && enterPressed()) {
+        if (!uiWantsKeyboard && enterOrClick(uiWantsMouse)) {
             beginCommit(editor);
         }
     }
 }
 
-void CreateTool::drawPreview() const {
+void CreateTool::drawPreview(Vector3 eye, float lineWidth) const {
     if (phase == CreatePhase::AwaitingParams) {
         return;
     }
 
+    constexpr Color kUCross{255, 90, 90, 255};
+    constexpr Color kVCross{90, 255, 90, 255};
+    constexpr Color kNormalArrow{80, 160, 255, 255};
+    const float crossHalf = std::max(0.12f, lineWidth * 10.0f);
+    const float normalStub = std::max(0.25f, lineWidth * 14.0f);
+
     if (phase == CreatePhase::Idle) {
         if (hoverValid) {
-            DrawSphere(corner0, 0.08f, Color{255, 220, 80, 255});
+            drawConstructionPlaneGizmo(
+                corner0, plane.axisU, plane.axisV, plane.normal, eye, lineWidth, normalStub);
         }
         return;
     }
@@ -434,8 +484,9 @@ void CreateTool::drawPreview() const {
     Vector3 mins{};
     Vector3 maxs{};
     if (phase == CreatePhase::DrawingBase) {
-        DrawSphere(corner0, 0.08f, Color{255, 220, 80, 255});
-        DrawSphere(corner1, 0.08f, Color{255, 180, 60, 255});
+        drawConstructionPlaneGizmo(
+            corner0, plane.axisU, plane.axisV, plane.normal, eye, lineWidth, normalStub);
+        drawPlaneCrosshair(corner1, plane.axisU, plane.axisV, crossHalf, kUCross, kVCross, eye, lineWidth);
         if (footprintBounds(mins, maxs)) {
             maxs.x = std::max(maxs.x, mins.x + 0.01f);
             maxs.y = std::max(maxs.y, mins.y + 0.01f);
@@ -449,6 +500,16 @@ void CreateTool::drawPreview() const {
     if (phase == CreatePhase::Extruding && finalBounds(mins, maxs)) {
         drawAabbWires(mins, maxs, Color{80, 200, 255, 255});
         drawAabbSolid(mins, maxs, Color{80, 200, 255, 50});
+
+        const Vector3 baseCenter{
+            0.5f * (corner0.x + corner1.x),
+            0.5f * (corner0.y + corner1.y),
+            0.5f * (corner0.z + corner1.z),
+        };
+        const float arrowLen = std::max(std::fabs(thickness), normalStub);
+        const Vector3 extrudeDir =
+            thickness >= 0.0f ? plane.normal : scale3(plane.normal, -1.0f);
+        drawDirectionArrow(baseCenter, extrudeDir, arrowLen, kNormalArrow, eye, lineWidth);
     }
 }
 
