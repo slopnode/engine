@@ -14,6 +14,7 @@ namespace slopengine {
 /** Asset categories mapped to package subdirectories and file extensions. */
 enum class AssetKind {
     Texture,       /**< PNG under textures/ */
+    TextureAnim,   /**< .texanim under textures/ */
     Material,      /**< .mat under materials/ */
     Mesh,          /**< .glb under meshes/ */
     Shader,        /**< .glsl under shaders/ */

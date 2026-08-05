@@ -12,11 +12,13 @@
 #include "render/animation_player.hpp"
 #include "render/animation_systems.hpp"
 #include "render/components.hpp"
+#include "render/material_anim_types.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
 #include "render/render_context.hpp"
+#include "render/material_anim.hpp"
 #include "render/post_process.hpp"
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
@@ -62,6 +64,8 @@ void registerComponents(flecs::world& world) {
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
     world.component<AnimationClipFlipTest>();
+    world.component<MaterialAnimTargets>();
+    world.component<MaterialAnimClocks>();
     world.component<PointLight>();
     world.component<SpotLight>();
     world.component<AreaLight>();
@@ -220,20 +224,30 @@ void registerRenderSystems(flecs::world& world) {
             EndMode3D();
 
             if (playing) {
-                if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                const DebugUiState* debugUi =
+                    world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
+                const bool hideFp = debugUi != nullptr && debugUi->hideFpScene;
+                const bool hideHud = debugUi != nullptr && debugUi->hideHud;
+
+                if (!hideFp && world.has<AssetServices>() &&
+                    world.get<AssetServices>().store != nullptr) {
                     BeginMode3D(presentCam);
                     drawMuzzleParticleSystems(
                         world, *world.get_mut<AssetServices>().store, presentCam, unlit);
                     EndMode3D();
                 }
-                drawFirstPersonPass(world, context, lens, unlit);
-                drawViewSprites(world, unlit);
+                if (!hideFp) {
+                    drawFirstPersonPass(world, context, lens, unlit);
+                    drawViewSprites(world, unlit);
+                }
                 if (sceneToTexture) {
                     EndTextureMode();
                     presentPostProcess(*postState);
                 }
-                drawHud(world);
-                drawSpriteAimHudText(spriteAimStatus);
+                if (!hideHud) {
+                    drawHud(world);
+                    drawSpriteAimHudText(spriteAimStatus);
+                }
             }
 
             if (world.has<FramePerfStats>()) {
@@ -339,6 +353,7 @@ void registerRenderModule(
     registerAnimationClipFlipTestSystem(world);
     registerTransformSystems(world);
     registerSpriteAnimatorSystem(world);
+    registerMaterialAnimSystem(world);
     registerRenderSystems(world);
 
     (void)config;

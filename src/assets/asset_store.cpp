@@ -422,6 +422,10 @@ bool AssetStore::hasSpriteAnim(std::string_view path) const {
     return vfs_.exists(AssetKind::SpriteAnim, path);
 }
 
+bool AssetStore::hasTextureAnim(std::string_view path) const {
+    return vfs_.exists(AssetKind::TextureAnim, path);
+}
+
 bool AssetStore::hasParticle(std::string_view path) const {
     return vfs_.exists(AssetKind::Particle, path);
 }
@@ -756,12 +760,15 @@ Material AssetStore::resolveMaterial(std::string_view path) {
     const TextureResolver resolveTexture = [this](std::string_view texturePath) {
         return getTexture(texturePath);
     };
+    const TextureAnimFrameResolver resolveAnimFrame = [this](std::string_view animPath, int frameIndex) {
+        return resolveTextureAnimFrame(animPath, "default", frameIndex);
+    };
 
     const MaterialAsset* asset = getMaterialAsset(path);
     if (asset == nullptr) {
-        return createRaylibMaterial({}, resolveTexture);
+        return createRaylibMaterial({}, resolveTexture, resolveAnimFrame);
     }
-    return createRaylibMaterial(*asset, resolveTexture);
+    return createRaylibMaterial(*asset, resolveTexture, resolveAnimFrame);
 }
 
 const MaterialAsset* AssetStore::getMaterialAsset(std::string_view path) {
@@ -1025,6 +1032,53 @@ const SpriteAnimBank* AssetStore::getSpriteAnimBank(std::string_view path) {
     }
 
     return &spriteAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+std::string AssetStore::getTextureAnimSource(std::string_view path) {
+    return vfs_.readText(AssetKind::TextureAnim, path);
+}
+
+const TextureAnimBank* AssetStore::getTextureAnimBank(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto existing = textureAnimBanks_.find(key);
+    if (existing != textureAnimBanks_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasTextureAnim(path)) {
+        TraceLog(LOG_WARNING, "Texture anim not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    TextureAnimBank bank{};
+    if (!parseTextureAnimBank(getTextureAnimSource(path), bank)) {
+        TraceLog(LOG_WARNING, "Failed to parse texture anim: %s", key.c_str());
+        return nullptr;
+    }
+
+    return &textureAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+Texture2D AssetStore::resolveTextureAnimFrame(
+    std::string_view animPath,
+    std::string_view clipName,
+    int frameIndex) {
+    const TextureAnimBank* bank = getTextureAnimBank(animPath);
+    if (bank == nullptr) {
+        return {};
+    }
+
+    const auto clipIt = bank->clipIndexByName.find(std::string{clipName});
+    if (clipIt == bank->clipIndexByName.end() || clipIt->second >= bank->clips.size()) {
+        return {};
+    }
+
+    const TextureAnimClip& clip = bank->clips[clipIt->second];
+    const std::string_view texturePath = textureAnimFrameTexture(clip, frameIndex);
+    if (texturePath.empty()) {
+        return {};
+    }
+    return getTexture(texturePath);
 }
 
 const ParticleSystemAsset* AssetStore::getParticleAsset(std::string_view path) {

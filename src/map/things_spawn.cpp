@@ -20,6 +20,7 @@
 #include "physics/sight_components.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
+#include "render/material_anim.hpp"
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
 #include "particles/components.hpp"
@@ -61,6 +62,12 @@ MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view mater
         info.pixelsPerMeter = asset->pixelsPerMeter;
         if (!asset->albedoTexture.empty()) {
             const Texture2D texture = assets.getTexture(asset->albedoTexture);
+            if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
+                info.textureWidth = static_cast<float>(texture.width);
+                info.textureHeight = static_cast<float>(texture.height);
+            }
+        } else if (!asset->textureAnimPath.empty()) {
+            const Texture2D texture = assets.resolveTextureAnimFrame(asset->textureAnimPath, "default", 0);
             if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
                 info.textureWidth = static_cast<float>(texture.width);
                 info.textureHeight = static_cast<float>(texture.height);
@@ -223,6 +230,7 @@ bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnC
 
     entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
     entity.set<Model3D>({model, WHITE, true});
+    attachMaterialAnimTargetsFromGeo(entity, compiled.asset, *ctx.assets);
     return true;
 }
 
@@ -302,6 +310,11 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
     }
 
     entity.set<Model3D>({model, WHITE});
+
+    GeoAsset geoAsset{};
+    if (parseGeoAsset(ctx.assets->getGeoSource(placement.geo), geoAsset)) {
+        attachMaterialAnimTargetsFromGeo(entity, geoAsset, *ctx.assets);
+    }
     return true;
 }
 

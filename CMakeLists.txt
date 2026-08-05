@@ -57,6 +57,7 @@ set(SLOPLIB_SOURCES
     src/assets/saudio_loader.cpp
     src/assets/sprite_loader.cpp
     src/assets/sprite_anim_loader.cpp
+    src/assets/texture_anim_loader.cpp
     src/assets/skeleton_loader.cpp
     src/assets/anim_loader.cpp
     src/particles/particle_sim.cpp
@@ -147,6 +148,7 @@ add_executable(slopengine
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
     src/render/sprite_animator_system.cpp
+    src/render/material_anim.cpp
     src/render/animation_systems.cpp
     src/render/dynamic_light.cpp
     src/render/dynamic_light_compositing.cpp

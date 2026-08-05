@@ -242,7 +242,8 @@ void main()
     if (solidLit == 0 && useLightmap != 0) {
         vec3 emitMap = texture(texture5, fragTexCoord).rgb;
         float emitMask = dot(emitMap, vec3(0.2126, 0.7152, 0.0722));
-        emission = colSpecular.rgb * emitMask;
+        float albedoLuma = dot(albedoRgb, vec3(0.2126, 0.7152, 0.0722));
+        emission = colSpecular.rgb * emitMask * albedoLuma;
     }
     if (useLightmap != 0 && lightmapEncoding != 0) {
         vec3 irradiance = sampleBakedIrradiance(fragTexCoord2);

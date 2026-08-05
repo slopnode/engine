@@ -3,6 +3,7 @@
 #include "assets/material_loader.hpp"
 #include "assets/prt_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
+#include "assets/texture_anim_loader.hpp"
 
 namespace slopengine {
 
@@ -251,6 +252,71 @@ void runAssetTests() {
             "  )\n"
             ")\n",
             bank);
+        CHECK_FALSE(ok);
+    }
+
+    {
+        TextureAnimBank bank{};
+        const bool ok = parseTextureAnimBank(
+            "(texture-anim\n"
+            "  (clip \"default\"\n"
+            "    (loop 1)\n"
+            "    (frame \"freedom/COMP02_1\" 0.15)\n"
+            "    (frame \"freedom/COMP02_2\" 0.15)\n"
+            "  )\n"
+            ")\n",
+            bank);
+        CHECK(ok);
+        CHECK_EQ(bank.clips.size(), 1u);
+        CHECK_EQ(bank.clips[0].name, std::string("default"));
+        CHECK_EQ(bank.clips[0].frames.size(), 2u);
+        CHECK_EQ(bank.clips[0].frames[0].texture, std::string("freedom/COMP02_1"));
+        CHECK_EQ(bank.clips[0].frames[0].duration, 0.15f);
+        CHECK(textureAnimFrameIndexAt(bank.clips[0], 0.0f) == 0);
+        CHECK(textureAnimFrameIndexAt(bank.clips[0], 0.15f) == 1);
+        CHECK(textureAnimFrameIndexAt(bank.clips[0], 0.30f) == 0);
+
+        const std::string serialized = serializeTextureAnimBank(bank);
+        TextureAnimBank roundTrip{};
+        CHECK(parseTextureAnimBank(serialized, roundTrip));
+        CHECK_EQ(roundTrip.clips[0].frames[1].texture, std::string("freedom/COMP02_2"));
+    }
+
+    {
+        TextureAnimBank bank{};
+        const bool ok = parseTextureAnimBank(
+            "(texture-anim\n"
+            "  (clip \"default\"\n"
+            "    (frame \"freedom/COMP02_1\" 0)\n"
+            "  )\n"
+            ")\n",
+            bank);
+        CHECK_FALSE(ok);
+    }
+
+    {
+        MaterialAsset asset{};
+        const bool ok = parseMaterialAsset(
+            "(material\n"
+            "  (shader \"default\")\n"
+            "  (texture-anim \"freedom/COMP02\")\n"
+            "  (texel-size 32)\n"
+            "  (base-color 1 1 1 1))\n",
+            asset);
+        CHECK(ok);
+        CHECK_EQ(asset.textureAnimPath, std::string("freedom/COMP02"));
+        CHECK(asset.albedoTexture.empty());
+    }
+
+    {
+        MaterialAsset asset{};
+        const bool ok = parseMaterialAsset(
+            "(material\n"
+            "  (shader \"default\")\n"
+            "  (texture \"freedom/WALL\")\n"
+            "  (texture-anim \"freedom/COMP02\")\n"
+            "  (base-color 1 1 1 1))\n",
+            asset);
         CHECK_FALSE(ok);
     }
 }

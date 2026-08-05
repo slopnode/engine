@@ -394,6 +394,12 @@ int main(int argc, char* argv[]) {
                 info.albedoImage = LoadImage(path->string().c_str());
                 info.hasAlbedoImage = info.albedoImage.data != nullptr;
             }
+        } else if (!info.asset.textureAnimPath.empty()) {
+            const Texture2D texture = assets.resolveTextureAnimFrame(info.asset.textureAnimPath, "default", 0);
+            if (texture.id != 0) {
+                info.albedoImage = LoadImageFromTexture(texture);
+                info.hasAlbedoImage = info.albedoImage.data != nullptr;
+            }
         }
         if (!info.asset.emissionTexture.empty()) {
             const auto path = assets.resolvePath(AssetKind::Texture, info.asset.emissionTexture);
