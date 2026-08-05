@@ -13,6 +13,14 @@
 namespace slopengine {
 
 inline constexpr const char* kDefaultIconSet = "silk";
+inline constexpr ImVec2 kMainMenuBarFramePadding{6.0f, 6.0f};
+
+inline float mainMenuBarHeight() {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, kMainMenuBarFramePadding);
+    const float height = ImGui::GetFrameHeight();
+    ImGui::PopStyleVar();
+    return height;
+}
 
 inline bool drawIconImGui(
     AssetStore& assets,
@@ -29,6 +37,48 @@ inline bool drawIconImGui(
     }
     rlImGuiImageRect(&atlas->texture, static_cast<int>(size), static_cast<int>(size), *rect);
     return true;
+}
+
+inline void drawMainMenuBarIcon(
+    AssetStore& assets,
+    std::string_view set,
+    std::string_view id,
+    float size = 16.0f) {
+    const IconAtlas* atlas = assets.getIconAtlas(set);
+    if (atlas == nullptr || atlas->texture.id == 0) {
+        return;
+    }
+    const auto rect = findIconRect(*atlas, id);
+    if (!rect) {
+        return;
+    }
+
+    const float rowHeight = ImGui::GetFrameHeight();
+    const ImVec2 cursor = ImGui::GetCursorScreenPos();
+    const float y = cursor.y + (rowHeight - size) * 0.5f;
+
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float tw = static_cast<float>(atlas->texture.width);
+    const float th = static_cast<float>(atlas->texture.height);
+    draw->AddImage(
+        (ImTextureID)(intptr_t)atlas->texture.id,
+        ImVec2(cursor.x, y),
+        ImVec2(cursor.x + size, y + size),
+        ImVec2(rect->x / tw, rect->y / th),
+        ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th),
+        ImGui::GetColorU32(ImGuiCol_Text));
+
+    ImGui::Dummy(ImVec2(size, rowHeight));
+}
+
+inline bool beginMainMenuBar() {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, kMainMenuBarFramePadding);
+    return ImGui::BeginMainMenuBar();
+}
+
+inline void endMainMenuBar() {
+    ImGui::EndMainMenuBar();
+    ImGui::PopStyleVar();
 }
 
 inline void drawIconInButton(
@@ -162,9 +212,14 @@ inline bool beginMenuWithIcon(
     std::string_view set,
     std::string_view iconId,
     const char* label,
+    bool mainMenuBar = false,
     bool enabled = true,
     float size = 16.0f) {
-    drawIconImGui(assets, set, iconId, size);
+    if (mainMenuBar) {
+        drawMainMenuBarIcon(assets, set, iconId, size);
+    } else {
+        drawIconImGui(assets, set, iconId, size);
+    }
     ImGui::SameLine();
     return ImGui::BeginMenu(label, enabled);
 }

@@ -184,12 +184,21 @@ void CompileController::setStatus(std::string status) {
     statusDirty_ = true;
 }
 
-void CompileController::appendLine(std::string line) {
+void CompileController::appendLine(std::string line, CompileStage stage) {
     if (!line.empty() && line.back() == '\r') {
         line.pop_back();
     }
-    logLines_.push_back(std::move(line));
-    logDirty_ = true;
+    const std::size_t index = static_cast<std::size_t>(compileStageIndex(stage));
+    if (!stageLogText_[index].empty()) {
+        stageLogText_[index].push_back('\n');
+    }
+    stageLogText_[index] += line;
+    stageLogs_[index].push_back(std::move(line));
+    stageLogDirty_[index] = true;
+}
+
+void CompileController::appendLine(std::string line) {
+    appendLine(std::move(line), currentStage_);
 }
 
 void CompileController::appendOutput(const char* data, std::size_t size) {
@@ -217,10 +226,17 @@ void CompileController::flushLineBuffer() {
 }
 
 void CompileController::clearLog() {
-    logLines_.clear();
+    for (std::vector<std::string>& lines : stageLogs_) {
+        lines.clear();
+    }
+    for (std::string& text : stageLogText_) {
+        text.clear();
+    }
+    stageLogDirty_.fill(true);
+    stageLogAutoScroll_.fill(true);
     lineBuffer_.clear();
-    logDirty_ = true;
-    logAutoScroll_ = true;
+    selectedOutputTab_ = CompileStage::Bsp;
+    outputTabFocusPending_ = false;
 }
 
 void CompileController::closeChildPipes() {
@@ -476,7 +492,6 @@ void CompileController::abortQueue(const std::string& reason) {
 void CompileController::finishQueueSuccess() {
     running_ = false;
     setStatus("Compile finished");
-    appendLine("=== compile finished ===");
 }
 
 void CompileController::startNextStage() {
@@ -487,8 +502,9 @@ void CompileController::startNextStage() {
 
     currentStage_ = queue_.front();
     queue_.erase(queue_.begin());
+    selectedOutputTab_ = currentStage_;
+    outputTabFocusPending_ = true;
     const char* tool = stageToolName(currentStage_);
-    appendLine(std::string("=== ") + tool + " ===");
     setStatus(std::string("Compile: ") + tool + " running…");
 
     if (!spawnStage(currentStage_)) {
@@ -598,9 +614,8 @@ void CompileController::tick() {
     flushLineBuffer();
 
     const char* tool = stageToolName(currentStage_);
-    appendLine(std::string("=== exit ") + std::to_string(exitCode) + " ===");
-
     if (exitCode != 0) {
+        appendLine(std::string("exit ") + std::to_string(exitCode));
         abortQueue(std::string("Compile failed (") + tool + " exit " + std::to_string(exitCode) + ")");
         return;
     }

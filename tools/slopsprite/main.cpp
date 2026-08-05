@@ -32,10 +32,12 @@
 #include <utility>
 #include <vector>
 
+using slopengine::beginMainMenuBar;
 using slopengine::beginMenuWithIcon;
 using slopengine::buttonWithIcon;
 using slopengine::collapsingHeaderWithIcon;
 using slopengine::drawIconImGui;
+using slopengine::endMainMenuBar;
 using slopengine::kDefaultIconSet;
 using slopengine::menuItemWithIcon;
 
@@ -1187,7 +1189,7 @@ int main(int argc, char* argv[]) {
         const bool uiWantsMouse = io.WantCaptureMouse;
         const bool uiWantsKeyboard = io.WantCaptureKeyboard;
 
-        const float chromeHeight = ImGui::GetFrameHeight();
+        const float chromeHeight = slopengine::mainMenuBarHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
         const float animHeight =
             editor.mode == slopsprite::PreviewMode::Align ? 0.0f : 72.0f;
@@ -1208,9 +1210,9 @@ int main(int argc, char* argv[]) {
             editor.mode = mode;
         };
 
-        if (ImGui::BeginMainMenuBar()) {
+        if (beginMainMenuBar()) {
             constexpr const char* kIcons = kDefaultIconSet;
-            if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+            if (beginMenuWithIcon(assets, kIcons, "folder", "File", true)) {
                 if (menuItemWithIcon(assets, kIcons, "page_add", "New Sprite...", "Ctrl+N")) {
                     editor.showNewSpriteModal = true;
                 }
@@ -1227,7 +1229,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (beginMenuWithIcon(assets, kIcons, "eye", "View")) {
+            if (beginMenuWithIcon(assets, kIcons, "eye", "View", true)) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
@@ -1257,7 +1259,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (beginMenuWithIcon(assets, kIcons, "bug", "Debug")) {
+            if (beginMenuWithIcon(assets, kIcons, "bug", "Debug", true)) {
                 if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
                     menuItemWithIcon(
                         assets, kIcons, "color_swatch", "Masks", nullptr, &editor.showSpriteMasks);
@@ -1265,7 +1267,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            ImGui::EndMainMenuBar();
+            endMainMenuBar();
         }
 
         if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S) && editor.doc.open) {

@@ -116,6 +116,34 @@ float snapIconMenuWidth(const char* label, float iconSize) {
         ImGui::CalcTextSize(label).x;
 }
 
+bool startsWithIgnoreCase(std::string_view text, std::string_view prefix) {
+    if (text.size() < prefix.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < prefix.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(text[i])) !=
+            std::tolower(static_cast<unsigned char>(prefix[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+ImVec4 compileLogLineColor(std::string_view line) {
+    if (startsWithIgnoreCase(line, "error:") || startsWithIgnoreCase(line, "ERROR:") ||
+        containsIgnoreCase(line, ": ERROR:") || containsIgnoreCase(line, ": ERROR ")) {
+        return ImVec4(1.0f, 0.38f, 0.38f, 1.0f);
+    }
+    if (startsWithIgnoreCase(line, "WARNING:") || startsWithIgnoreCase(line, "WARN:") ||
+        containsIgnoreCase(line, ": WARNING:") || containsIgnoreCase(line, ": WARN:")) {
+        return ImVec4(1.0f, 0.82f, 0.2f, 1.0f);
+    }
+    if (startsWithIgnoreCase(line, "INFO:") || containsIgnoreCase(line, ": INFO:")) {
+        return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    }
+    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+}
+
 struct ToolConfig {
     slopengine::AppConfig mount;
     std::filesystem::path target;
@@ -318,7 +346,7 @@ MapStats gatherMapStats(const slopmap::Editor& editor) {
 
 void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets) {
     constexpr const char* kIcons = slopengine::kDefaultIconSet;
-    if (!slopengine::beginMenuWithIcon(assets, kIcons, "chart_bar", "Diagnostics")) {
+    if (!slopengine::beginMenuWithIcon(assets, kIcons, "chart_bar", "Diagnostics", true)) {
         return;
     }
 
@@ -1126,7 +1154,7 @@ int main(int argc, char* argv[]) {
             slopmap::endToolMouseCapture(editor);
         }
 
-        const float chromeHeight = ImGui::GetFrameHeight();
+        const float chromeHeight = mainMenuBarHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
         const float toolbarRowH = ImGui::GetFrameHeight() + 8.0f;
         const float toolbarHeight = toolbarRowH * 2.0f;
@@ -1164,9 +1192,9 @@ int main(int argc, char* argv[]) {
         }
         editor.syncActiveCameraFromBank();
 
-        if (ImGui::BeginMainMenuBar()) {
+        if (beginMainMenuBar()) {
             constexpr const char* kIcons = kDefaultIconSet;
-            if (beginMenuWithIcon(assets, kIcons, "folder", "File")) {
+            if (beginMenuWithIcon(assets, kIcons, "folder", "File", true)) {
                 if (menuItemWithIcon(assets, kIcons, "page_add", "New Map", "Ctrl+N")) {
                     if (editor.scene != slopmap::EditorScene::Level) {
                         editor.switchScene(slopmap::EditorScene::Level);
@@ -1219,7 +1247,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (beginMenuWithIcon(assets, kIcons, "pencil", "Edit")) {
+            if (beginMenuWithIcon(assets, kIcons, "pencil", "Edit", true)) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
@@ -1479,7 +1507,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (beginMenuWithIcon(assets, kIcons, "package", "Prefab")) {
+            if (beginMenuWithIcon(assets, kIcons, "package", "Prefab", true)) {
                 if (menuItemWithIcon(assets, kIcons, "page_add", "New Prefab")) {
                     editor.modalPrefabPath.clear();
                     if (editor.prefabDoc.dirty && editor.scene == slopmap::EditorScene::Prefab) {
@@ -1548,7 +1576,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (beginMenuWithIcon(assets, kIcons, "eye", "View")) {
+            if (beginMenuWithIcon(assets, kIcons, "eye", "View", true)) {
                 if (menuItemWithIcon(
                         assets,
                         kIcons,
@@ -1842,7 +1870,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::EndMenu();
             }
-            if (beginMenuWithIcon(assets, kIcons, "cog", "Compile")) {
+            if (beginMenuWithIcon(assets, kIcons, "cog", "Compile", true)) {
                 const bool canRun = !compile.running();
                 const char* runBspLabel =
                     editor.compileDirty.bsp ? "Run BSP *" : "Run BSP";
@@ -1942,7 +1970,7 @@ int main(int argc, char* argv[]) {
                 ImGui::EndMenu();
             }
             drawDiagnosticsMenu(editor, assets);
-            ImGui::EndMainMenuBar();
+            endMainMenuBar();
         }
 
         compile.tick();
@@ -4187,30 +4215,65 @@ int main(int argc, char* argv[]) {
         if (compile.showOutputWindow) {
             ImGui::SetNextWindowSize(ImVec2(720.0f, 360.0f), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Compile Output", &compile.showOutputWindow)) {
-                if (monoFont != nullptr) {
-                    ImGui::PushFont(monoFont, 0.0f);
-                }
-                if (ImGui::BeginChild(
-                        "##compile_log",
-                        ImVec2(0.0f, 0.0f),
-                        ImGuiChildFlags_Borders,
-                        ImGuiWindowFlags_HorizontalScrollbar)) {
-                    for (const std::string& line : compile.logLines()) {
-                        ImGui::TextUnformatted(line.c_str());
-                    }
-                    if (compile.logDirty()) {
-                        if (compile.logAutoScroll()) {
-                            ImGui::SetScrollHereY(1.0f);
+                if (ImGui::BeginTabBar("##compile_tabs")) {
+                    auto drawStageLog =
+                        [&](slopmap::CompileStage stage, const char* label, const char* childId) {
+                        ImGuiTabItemFlags flags = 0;
+                        if (compile.outputTabFocusPending() && compile.selectedOutputTab() == stage) {
+                            flags |= ImGuiTabItemFlags_SetSelected;
                         }
-                        compile.clearLogDirty();
-                    } else {
-                        const float maxY = ImGui::GetScrollMaxY();
-                        compile.setLogAutoScroll(ImGui::GetScrollY() >= maxY - 1.0f);
+                        if (ImGui::BeginTabItem(label, nullptr, flags)) {
+                            compile.setSelectedOutputTab(stage);
+                            if (ImGui::SmallButton("Copy")) {
+                                ImGui::SetClipboardText(compile.logText(stage).c_str());
+                            }
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                                ImGui::SetTooltip("Copy full log to clipboard");
+                            }
+                            if (ImGui::BeginChild(
+                                    childId,
+                                    ImVec2(0.0f, 0.0f),
+                                    ImGuiChildFlags_Borders)) {
+                                if (monoFont != nullptr) {
+                                    ImGui::PushFont(monoFont, 0.0f);
+                                }
+                                ImGui::PushTextWrapPos(0.0f);
+                                for (const std::string& line : compile.logLines(stage)) {
+                                    const ImVec4 color = compileLogLineColor(line);
+                                    ImGui::PushStyleColor(ImGuiCol_Text, color);
+                                    ImGui::TextWrapped("%s", line.c_str());
+                                    ImGui::PopStyleColor();
+                                }
+                                ImGui::PopTextWrapPos();
+                                if (compile.logDirty(stage)) {
+                                    if (compile.logAutoScroll(stage)) {
+                                        ImGui::SetScrollHereY(1.0f);
+                                    }
+                                    compile.clearLogDirty(stage);
+                                } else if (ImGui::IsWindowHovered() &&
+                                    ImGui::GetIO().MouseWheel != 0.0f) {
+                                    compile.setLogAutoScroll(stage, false);
+                                } else {
+                                    const float maxY = ImGui::GetScrollMaxY();
+                                    compile.setLogAutoScroll(
+                                        stage,
+                                        maxY <= 0.0f || ImGui::GetScrollY() >= maxY - 1.0f);
+                                }
+                                if (monoFont != nullptr) {
+                                    ImGui::PopFont();
+                                }
+                            }
+                            ImGui::EndChild();
+                            ImGui::EndTabItem();
+                        }
+                    };
+                    drawStageLog(slopmap::CompileStage::Bsp, "BSP", "##compile_log_bsp");
+                    drawStageLog(slopmap::CompileStage::Vis, "VIS", "##compile_log_vis");
+                    drawStageLog(slopmap::CompileStage::Rad, "RAD", "##compile_log_rad");
+                    ImGui::EndTabBar();
+                    if (compile.outputTabFocusPending()) {
+                        compile.clearOutputTabFocusPending();
                     }
-                }
-                ImGui::EndChild();
-                if (monoFont != nullptr) {
-                    ImGui::PopFont();
                 }
             }
             ImGui::End();
