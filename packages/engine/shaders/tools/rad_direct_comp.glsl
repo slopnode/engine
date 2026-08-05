@@ -165,6 +165,42 @@ struct Params {
     float sunLeakThreshold;
 };
 
+struct FaceOcclusion {
+    float uvUAxisX;
+    float uvUAxisY;
+    float uvUAxisZ;
+    float isTransparent;
+    float uvVAxisX;
+    float uvVAxisY;
+    float uvVAxisZ;
+    float materialIndex;
+    float uvShiftX;
+    float uvShiftY;
+    float uvScaleX;
+    float uvScaleY;
+    float pixelsPerMeter;
+    float baseColorAlpha;
+    float pad0;
+    float pad1;
+};
+
+struct MaterialRect {
+    float u0;
+    float v0;
+    float u1;
+    float v1;
+    float baseColorAlpha;
+    float textureWidth;
+    float textureHeight;
+    float pad0;
+};
+
+const float kLightOcclusionAlphaThreshold = 0.5;
+const int kMaxAlphaOcclusionSteps = 8;
+const float kRayAdvanceEpsilon = 0.001;
+
+uniform sampler2D materialAlphaAtlas;
+
 layout(std430, binding = 0) buffer LuxelBuffer {
     Luxel luxels[];
 };
@@ -199,6 +235,14 @@ layout(std430, binding = 7) readonly buffer FaceSkyBuffer {
 
 layout(std430, binding = 8) readonly buffer FaceTransparentBuffer {
     int faceTransparent[];
+};
+
+layout(std430, binding = 12) readonly buffer FaceOcclusionBuffer {
+    FaceOcclusion faceOcclusion[];
+};
+
+layout(std430, binding = 13) readonly buffer MaterialRectBuffer {
+    MaterialRect materialRects[];
 };
 
 layout(std430, binding = 9) readonly buffer EmitterNodeBuffer {
@@ -329,21 +373,54 @@ bool rayTriangle(vec3 origin, vec3 direction, vec3 v0, vec3 v1, vec3 v2, float m
     return true;
 }
 
-bool raycastAny(
+float axisScale(float scale) {
+    return scale > 1e-8 ? scale : 1.0;
+}
+
+float sampleFaceOcclusionAlpha(int faceIndex, vec3 worldPos) {
+    if (faceIndex < 0 || faceIndex >= faceOcclusion.length()) {
+        return 1.0;
+    }
+    FaceOcclusion face = faceOcclusion[faceIndex];
+    int matIndex = int(face.materialIndex);
+    if (matIndex < 0 || matIndex >= materialRects.length()) {
+        return face.baseColorAlpha;
+    }
+    MaterialRect rect = materialRects[matIndex];
+    vec3 uAxis = vec3(face.uvUAxisX, face.uvUAxisY, face.uvUAxisZ);
+    vec3 vAxis = vec3(face.uvVAxisX, face.uvVAxisY, face.uvVAxisZ);
+    float width = max(rect.textureWidth, 1.0);
+    float height = max(rect.textureHeight, 1.0);
+    float ppm = max(face.pixelsPerMeter, 1.0);
+    float metersU = dot(worldPos, uAxis);
+    float metersV = dot(worldPos, vAxis);
+    float u = (metersU * ppm * axisScale(face.uvScaleX) + face.uvShiftX) / width;
+    float v = (metersV * ppm * axisScale(face.uvScaleY) + face.uvShiftY) / height;
+    u = fract(u);
+    v = fract(v);
+    vec2 atlasUv = mix(vec2(rect.u0, rect.v0), vec2(rect.u1, rect.v1), vec2(u, v));
+    float texAlpha = texture(materialAlphaAtlas, atlasUv).a;
+    return texAlpha * face.baseColorAlpha;
+}
+
+bool hitBlocksLight(int faceIndex, vec3 hitPoint) {
+    if (!isTransparentFace(faceIndex)) {
+        return true;
+    }
+    return sampleFaceOcclusionAlpha(faceIndex, hitPoint) >= kLightOcclusionAlphaThreshold;
+}
+
+bool raycastClosestSegment(
     vec3 origin,
-    vec3 direction,
+    vec3 dir,
     float maxDistance,
-    int ignoreFaceA,
-    int ignoreFaceB,
-    out int hitFaceIndex) {
+    out int hitFaceIndex,
+    out float hitDistance) {
+    hitFaceIndex = -1;
+    hitDistance = 0.0;
     if (params.bvhRoot < 0 || maxDistance <= 0.0) {
         return false;
     }
-    float dirLen = length(direction);
-    if (dirLen < 1e-8) {
-        return false;
-    }
-    vec3 dir = direction / dirLen;
     vec3 invDir = vec3(
         abs(dir.x) < 1e-20 ? (dir.x >= 0.0 ? 1e20 : -1e20) : 1.0 / dir.x,
         abs(dir.y) < 1e-20 ? (dir.y >= 0.0 ? 1e20 : -1e20) : 1.0 / dir.y,
@@ -367,12 +444,6 @@ bool raycastAny(
         if (node.primCount > 0) {
             for (int i = 0; i < node.primCount; ++i) {
                 BvhPrim prim = prims[node.firstPrim + i];
-                if (prim.faceIndex == ignoreFaceA || prim.faceIndex == ignoreFaceB) {
-                    continue;
-                }
-                if (isTransparentFace(prim.faceIndex)) {
-                    continue;
-                }
                 float t = 0.0;
                 vec3 v0 = vec3(prim.v0x, prim.v0y, prim.v0z);
                 vec3 v1 = vec3(prim.v1x, prim.v1y, prim.v1z);
@@ -397,8 +468,55 @@ bool raycastAny(
         }
     }
 
+    if (!found) {
+        return false;
+    }
     hitFaceIndex = hitFace;
-    return found;
+    hitDistance = bestT;
+    return true;
+}
+
+bool raycastAny(
+    vec3 origin,
+    vec3 direction,
+    float maxDistance,
+    int ignoreFaceA,
+    int ignoreFaceB,
+    out int hitFaceIndex) {
+    hitFaceIndex = -1;
+    if (params.bvhRoot < 0 || maxDistance <= 0.0) {
+        return false;
+    }
+    float dirLen = length(direction);
+    if (dirLen < 1e-8) {
+        return false;
+    }
+    vec3 dir = direction / dirLen;
+    float traveled = 0.0;
+
+    for (int step = 0; step < kMaxAlphaOcclusionSteps; ++step) {
+        if (traveled >= maxDistance) {
+            return false;
+        }
+        vec3 rayOrigin = origin + dir * traveled;
+        float remaining = maxDistance - traveled;
+        int hitFace = -1;
+        float hitT = 0.0;
+        if (!raycastClosestSegment(rayOrigin, dir, remaining, hitFace, hitT)) {
+            return false;
+        }
+        if (hitFace == ignoreFaceA || hitFace == ignoreFaceB) {
+            traveled += hitT + kRayAdvanceEpsilon;
+            continue;
+        }
+        vec3 hitPoint = rayOrigin + dir * hitT;
+        if (hitBlocksLight(hitFace, hitPoint)) {
+            hitFaceIndex = hitFace;
+            return true;
+        }
+        traveled += hitT + kRayAdvanceEpsilon;
+    }
+    return false;
 }
 
 bool segmentOccluded(vec3 from, vec3 to, int ignoreFaceA, int ignoreFaceB) {

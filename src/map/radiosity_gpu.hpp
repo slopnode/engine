@@ -1,6 +1,7 @@
 #pragma once
 
 #include "map/emitter_bvh.hpp"
+#include "map/light_occlusion.hpp"
 #include "map/quad_bvh.hpp"
 
 #include <raylib.h>
@@ -101,7 +102,8 @@ bool accumulateDirectLightingGpu(
     const RadGpuDirectParams& params = {},
     const RadGpuReachability& reachability = {},
     const std::vector<std::int32_t>& faceIsSky = {},
-    const std::vector<std::int32_t>& faceIsTransparent = {});
+    const std::vector<std::int32_t>& faceIsTransparent = {},
+    const RadGpuOcclusionResources& occlusionResources = {});
 
 struct RadGpuBounceLuxel {
     Vector3 position{};
@@ -145,6 +147,7 @@ bool accumulateBounceLightingGpu(
     const QuadBvh& sceneBvh,
     std::string_view computeShaderSource,
     const RadGpuBounceParams& params,
-    const std::vector<char>& faceTransparent = {});
+    const std::vector<char>& faceTransparent = {},
+    const RadGpuOcclusionResources& occlusionResources = {});
 
 }

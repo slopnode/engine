@@ -3,6 +3,7 @@
 #include "map/bsp.hpp"
 #include "map/bsp_ray.hpp"
 #include "map/emitter_bvh.hpp"
+#include "map/light_occlusion.hpp"
 #include "map/quad_bvh.hpp"
 #include "map/radiosity_emitters.hpp"
 #include "map/radiosity_gpu.hpp"
@@ -574,6 +575,8 @@ void accumulateEmissiveFaceContribution(
     float coplanarFill,
     float minDist2,
     const QuadBvh& occlusionBvh,
+    const std::vector<LightmapFace>& faces,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
     const std::vector<char>& faceTransparent) {
     if (face.faceIndex == luxel.faceIndex) {
         return;
@@ -667,13 +670,15 @@ void accumulateEmissiveFaceContribution(
             if (!formOk && !fillOk) {
                 continue;
             }
-            if (bspSegmentOccluded(
+            if (segmentOccludedWithAlphaOcclusion(
                     occlusionBvh,
                     luxel.position,
                     samplePos,
                     luxel.faceIndex,
                     face.faceIndex,
-                    &faceTransparent)) {
+                    faces,
+                    materialCache,
+                    faceTransparent)) {
                 continue;
             }
 
@@ -708,42 +713,10 @@ float smoothstep(float edge0, float edge1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-bool faceIsSky(
-    const std::vector<char>& faceSky,
-    std::int32_t faceIndex) {
-    return faceIndex >= 0 && static_cast<std::size_t>(faceIndex) < faceSky.size()
-        && faceSky[static_cast<std::size_t>(faceIndex)] != 0;
-}
-
 void buildSunBasis(Vector3 toLight, Vector3& tangentOut, Vector3& bitangentOut) {
     Vector3 helper = std::abs(toLight.y) < 0.999f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
     tangentOut = normalize3(cross3(helper, toLight));
     bitangentOut = normalize3(cross3(toLight, tangentOut));
-}
-
-Vector3 sampleSunRayDirection(
-    Vector3 toLight,
-    Vector3 tangent,
-    Vector3 bitangent,
-    float angularSpreadRad,
-    int rayIndex,
-    int rayCount) {
-    if (rayCount <= 1 || angularSpreadRad <= 0.0f) {
-        return toLight;
-    }
-    const int strataN = std::max(1, static_cast<int>(std::floor(std::sqrt(static_cast<float>(rayCount)))));
-    const int strataM = std::max(1, (rayCount + strataN - 1) / strataN);
-    const int sy = rayIndex / strataN;
-    const int sx = rayIndex % strataN;
-    const float fu = (static_cast<float>(sx) + 0.5f) / static_cast<float>(strataN);
-    const float fv = (static_cast<float>(sy) + 0.5f) / static_cast<float>(strataM);
-    const float r = std::sqrt(fu);
-    const float theta = fv * 6.28318530718f;
-    const float dx = r * std::cos(theta);
-    const float dy = r * std::sin(theta);
-    const float spread = std::tan(angularSpreadRad);
-    return normalize3(
-        add3(toLight, add3(scale3(tangent, dx * spread), scale3(bitangent, dy * spread))));
 }
 
 float sunSkyVisibility(
@@ -755,45 +728,21 @@ float sunSkyVisibility(
     const SunShadowSoftnessParams& sunParams,
     const QuadBvh& occlusionBvh,
     const std::vector<char>& faceSky,
-    const std::vector<char>& faceTransparent) {
-    constexpr float kSunRayDistance = 1000.0f;
-    if (sunParams.rayCount <= 1 || sunParams.angularSpreadRad <= 0.0f) {
-        const auto hit = raycastQuadBvh(
-            occlusionBvh,
-            luxelPos,
-            toLight,
-            kSunRayDistance,
-            luxelFaceIndex,
-            &faceTransparent);
-        return hit && faceIsSky(faceSky, hit->faceIndex) ? 1.0f : 0.0f;
-    }
-
-    float hits = 0.0f;
-    for (int ray = 0; ray < sunParams.rayCount; ++ray) {
-        const Vector3 rayDir = sampleSunRayDirection(
-            toLight,
-            tangent,
-            bitangent,
-            sunParams.angularSpreadRad,
-            ray,
-            sunParams.rayCount);
-        const auto hit = raycastQuadBvh(
-            occlusionBvh,
-            luxelPos,
-            rayDir,
-            kSunRayDistance,
-            luxelFaceIndex,
-            &faceTransparent);
-        if (hit && faceIsSky(faceSky, hit->faceIndex)) {
-            hits += 1.0f;
-        }
-    }
-    const float visibility = hits / static_cast<float>(sunParams.rayCount);
-    if (visibility <= sunParams.leakThreshold) {
-        return 0.0f;
-    }
-    const float leakThreshold = std::clamp(sunParams.leakThreshold, 0.0f, 0.999f);
-    return (visibility - leakThreshold) / (1.0f - leakThreshold);
+    const std::vector<char>& faceTransparent,
+    const std::vector<LightmapFace>& faces,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
+    return sunSkyVisibilityWithAlphaOcclusion(
+        luxelPos,
+        luxelFaceIndex,
+        toLight,
+        tangent,
+        bitangent,
+        sunParams,
+        occlusionBvh,
+        faceSky,
+        faceTransparent,
+        faces,
+        materialCache);
 }
 
 void accumulateEntityLight(
@@ -806,7 +755,9 @@ void accumulateEntityLight(
     float minDist2,
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent,
-    const SunShadowSoftnessParams& sunParams) {
+    const SunShadowSoftnessParams& sunParams,
+    const std::vector<LightmapFace>& faces,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
     if (!reach.canSee(luxel.interiorLeaf, lightLeaf)) {
         return;
     }
@@ -839,7 +790,9 @@ void accumulateEntityLight(
             sunParams,
             occlusionBvh,
             faceSky,
-            faceTransparent);
+            faceTransparent,
+            faces,
+            materialCache);
         if (visibility <= 0.0f) {
             return;
         }
@@ -882,13 +835,15 @@ void accumulateEntityLight(
         }
     }
 
-    if (bspSegmentOccluded(
+    if (segmentOccludedWithAlphaOcclusion(
             occlusionBvh,
             luxel.position,
             light.position,
             luxel.faceIndex,
             -1,
-            &faceTransparent)) {
+            faces,
+            materialCache,
+            faceTransparent)) {
         return;
     }
 
@@ -912,7 +867,8 @@ void accumulateDirectLightingCpu(
     const LeafReachability& reach,
     const RadiositySettings& settings,
     const std::vector<char>& faceSky,
-    const std::vector<char>& faceTransparent) {
+    const std::vector<char>& faceTransparent,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
     const std::size_t luxelTotal = luxels.size();
     std::atomic<std::size_t> directDone{0};
     const std::size_t directStep = std::max<std::size_t>(1, luxelTotal / 20);
@@ -963,6 +919,8 @@ void accumulateDirectLightingCpu(
                             coplanarFill,
                             minDist2,
                             occlusionBvh,
+                            faces,
+                            materialCache,
                             faceTransparent);
                     });
             }
@@ -979,7 +937,9 @@ void accumulateDirectLightingCpu(
                     minDist2,
                     faceSky,
                     faceTransparent,
-                    sunParams);
+                    sunParams,
+                    faces,
+                    materialCache);
             }
             const std::size_t done = directDone.fetch_add(1, std::memory_order_relaxed) + 1;
             if (done % directStep == 0 || done == luxelTotal) {
@@ -1000,7 +960,9 @@ bool accumulateDirectLighting(
     const LeafReachability& reach,
     const RadiositySettings& settings,
     const std::vector<char>& faceSky,
-    const std::vector<char>& faceTransparent) {
+    const std::vector<char>& faceTransparent,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
+    const RadGpuOcclusionResources& occlusionResources) {
     const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
     const float minPad = std::max(luxelPitch, 0.05f);
     const EmitterBvh emitterBvh = buildEmitterBvh(emissiveFaces, minPad);
@@ -1110,7 +1072,8 @@ bool accumulateDirectLighting(
                 gpuParams,
                 gpuReach,
                 faceIsSky,
-                faceIsTransparent)) {
+                faceIsTransparent,
+                occlusionResources)) {
             for (std::size_t d = 0; d < gpuLuxels.size(); ++d) {
                 LuxelSample& dst = luxels[denseToSrc[d]];
                 dst.irradiance.r = gpuLuxels[d].irradianceR;
@@ -1144,7 +1107,8 @@ bool accumulateDirectLighting(
         reach,
         settings,
         faceSky,
-        faceTransparent);
+        faceTransparent,
+        materialCache);
     return false;
 }
 
@@ -1297,11 +1261,13 @@ void accumulateBounceLightingCpu(
     const std::vector<Color3>& shoot,
     const std::vector<FaceLuxelGrid>& faceGrids,
     const std::vector<FaceBasis>& bases,
+    const std::vector<LightmapFace>& faces,
     const QuadBvh& sceneBvh,
     const Color3& ambientRaw,
     int sampleCount,
     int bounceIndex,
     int bounceTotal,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
     const std::vector<char>& faceTransparent) {
     std::atomic<std::size_t> bounceDone{0};
     const std::size_t bounceStep = std::max<std::size_t>(1, luxels.size() / 20);
@@ -1334,13 +1300,16 @@ void accumulateBounceLightingCpu(
                     const float u1 = (static_cast<float>(sx) + unit(rng)) / static_cast<float>(strataN);
                     const float u2 = (static_cast<float>(sy) + unit(rng)) / static_cast<float>(strataM);
                     const Vector3 dir = cosineHemisphere(luxel.normal, u1, u2);
-                    const auto hit = raycastQuadBvh(
+                    const auto hit = raycastWithAlphaOcclusion(
                         sceneBvh,
                         luxel.position,
                         dir,
                         1000.0f,
                         luxel.faceIndex,
-                        &faceTransparent);
+                        -1,
+                        faces,
+                        materialCache,
+                        faceTransparent);
                     ++fired;
                     if (!hit) {
                         continue;
@@ -1743,6 +1712,15 @@ RadiosityBakeResult bakeRadiosity(
         static_cast<int>(emissiveFaces.size()),
         static_cast<int>(lights.size()));
     std::fflush(stdout);
+
+    RadGpuOcclusionResources gpuOcclusion{};
+    if (!buildRadGpuOcclusionResources(faces, materialCache, faceTransparent, gpuOcclusion)) {
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: GPU alpha occlusion resources unavailable; GPU path may fall back to CPU");
+        std::fflush(stdout);
+    }
+
     accumulateDirectLighting(
         luxels,
         faces,
@@ -1754,7 +1732,9 @@ RadiosityBakeResult bakeRadiosity(
         reach,
         settings,
         faceSky,
-        faceTransparent);
+        faceTransparent,
+        materialCache,
+        gpuOcclusion);
 
     logStage("inpainting covered luxels...");
     inpaintCoveredLuxels(luxels, faceGrids);
@@ -1817,7 +1797,8 @@ RadiosityBakeResult bakeRadiosity(
                     sceneBvh,
                     settings.bounceComputeShaderSource,
                     bounceParams,
-                    faceTransparent)) {
+                    faceTransparent,
+                    gpuOcclusion)) {
                 usedGpuBounce = true;
                 for (std::size_t i = 0; i < luxels.size(); ++i) {
                     if (luxels[i].covered) {
@@ -1840,11 +1821,13 @@ RadiosityBakeResult bakeRadiosity(
                 shoot,
                 faceGrids,
                 bases,
+                faces,
                 sceneBvh,
                 ambientRaw,
                 sampleCount,
                 bounce,
                 settings.bounces,
+                materialCache,
                 faceTransparent);
         }
 
@@ -1928,6 +1911,7 @@ RadiosityBakeResult bakeRadiosity(
             UnloadImage(info.emissionImage);
         }
     }
+    unloadRadGpuOcclusionResources(gpuOcclusion);
 
     logStage("bake complete");
     return result;
