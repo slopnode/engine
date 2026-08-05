@@ -58,6 +58,29 @@
 
 namespace {
 
+bool containsIgnoreCase(std::string_view haystack, std::string_view needle) {
+    if (needle.empty()) {
+        return true;
+    }
+    const auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+    std::string h(haystack.size(), '\0');
+    std::string n(needle.size(), '\0');
+    std::transform(haystack.begin(), haystack.end(), h.begin(), lower);
+    std::transform(needle.begin(), needle.end(), n.begin(), lower);
+    return h.find(n) != std::string::npos;
+}
+
+void applySharpImGuiStyle() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 0.0f;
+    style.ChildRounding = 0.0f;
+    style.FrameRounding = 0.0f;
+    style.PopupRounding = 0.0f;
+    style.ScrollbarRounding = 0.0f;
+    style.GrabRounding = 0.0f;
+    style.TabRounding = 0.0f;
+}
+
 struct ToolConfig {
     slopengine::AppConfig mount;
     std::filesystem::path target;
@@ -906,6 +929,7 @@ int main(int argc, char* argv[]) {
     }
     ImFont* monoFont = setupImGuiWithUiAndMonoFont(
         assets, kDefaultUiFontPath, kMonoUiFontPath, true);
+    applySharpImGuiStyle();
 
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
@@ -1034,6 +1058,10 @@ int main(int argc, char* argv[]) {
         }
         editor.statusMessage = "Playing " + mapName;
     };
+
+    static char sceneBrushFilter[128]{};
+    static char scenePrefabFilter[128]{};
+    static char sceneThingFilter[128]{};
 
     while (!editor.quitConfirmed) {
         if (WindowShouldClose()) {
@@ -2702,18 +2730,42 @@ int main(int argc, char* argv[]) {
                 const float avail = ImGui::GetContentRegionAvail().y;
                 const float frameH = ImGui::GetFrameHeight();
                 const float spacing = style.ItemSpacing.y;
-                const float listH = std::max(
-                    frameH * 4.0f,
-                    (avail - frameH * 2.0f - spacing * 3.0f) * 0.55f);
+                const float propsLabelH = ImGui::GetTextLineHeight() + spacing;
+                const float separatorH = spacing * 2.0f + 1.0f;
+                const float tabBarH = frameH + spacing;
+                const float filterH = frameH + spacing;
+                const float listMinH = frameH * 3.0f;
+                const float propsMinH = frameH * 8.0f;
+                const float listOverhead = separatorH + tabBarH + filterH;
+                const float splitAvail = std::max(0.0f, avail - propsLabelH - listOverhead);
+                float propsH = std::max(propsMinH, splitAvail * 0.62f);
+                if (propsH > splitAvail - listMinH) {
+                    propsH = std::max(0.0f, splitAvail - listMinH);
+                }
+
+                ImGui::TextUnformatted("Properties");
+                if (d.selectionMode == slopmap::SelectionMode::Entity) {
+                    thingPanel.drawSection(editor, assets, materialBrowser, propsH);
+                } else {
+                    brushPanel.drawSection(editor, propsH);
+                }
+
+                ImGui::Separator();
 
                 if (ImGui::BeginTabBar("##sceneTabs", ImGuiTabBarFlags_None)) {
                     if (ImGui::BeginTabItem("Brushes")) {
+                        ImGui::InputTextWithHint(
+                            "##sceneBrushFilter", "Filter…", sceneBrushFilter, sizeof(sceneBrushFilter));
+                        const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
                         if (ImGui::BeginChild(
                                 "##brushes", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
-                            if (d.brushes.empty()) {
-                                ImGui::TextDisabled("No brushes");
-                            }
+                            const std::string_view brushFilter = sceneBrushFilter;
+                            bool anyVisible = false;
                             for (std::size_t i = 0; i < d.brushes.size(); ++i) {
+                                if (!containsIgnoreCase(d.brushes[i].id, brushFilter)) {
+                                    continue;
+                                }
+                                anyVisible = true;
                                 ImGui::PushID(static_cast<int>(i));
                                 const bool selected = d.isBrushSelected(static_cast<int>(i));
                                 if (selectableWithIcon(
@@ -2726,22 +2778,36 @@ int main(int argc, char* argv[]) {
                                 }
                                 ImGui::PopID();
                             }
+                            if (d.brushes.empty()) {
+                                ImGui::TextDisabled("No brushes");
+                            } else if (!anyVisible) {
+                                ImGui::TextDisabled("No matching brushes");
+                            }
                         }
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Prefabs")) {
+                        ImGui::InputTextWithHint(
+                            "##scenePrefabFilter",
+                            "Filter…",
+                            scenePrefabFilter,
+                            sizeof(scenePrefabFilter));
+                        const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
                         if (ImGui::BeginChild(
                                 "##instances", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
-                            if (d.instances.empty()) {
-                                ImGui::TextDisabled("No prefab instances");
-                            }
+                            const std::string_view prefabFilter = scenePrefabFilter;
+                            bool anyVisible = false;
                             for (std::size_t i = 0; i < d.instances.size(); ++i) {
+                                const std::string label =
+                                    d.instances[i].id + " (" + d.instances[i].path + ")";
+                                if (!containsIgnoreCase(label, prefabFilter)) {
+                                    continue;
+                                }
+                                anyVisible = true;
                                 ImGui::PushID(static_cast<int>(i) + 100000);
                                 const bool selected = d.isEntitySelected(
                                     {slopmap::EntityRef::Kind::Instance, static_cast<int>(i)});
-                                const std::string label =
-                                    d.instances[i].id + " (" + d.instances[i].path + ")";
                                 if (selectableWithIcon(
                                         assets, kIconSet, "package", label.c_str(), selected)) {
                                     editor.selectEntity(
@@ -2750,22 +2816,33 @@ int main(int argc, char* argv[]) {
                                 }
                                 ImGui::PopID();
                             }
+                            if (d.instances.empty()) {
+                                ImGui::TextDisabled("No prefab instances");
+                            } else if (!anyVisible) {
+                                ImGui::TextDisabled("No matching prefab instances");
+                            }
                         }
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Things")) {
+                        ImGui::InputTextWithHint(
+                            "##sceneThingFilter", "Filter…", sceneThingFilter, sizeof(sceneThingFilter));
+                        const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
                         if (ImGui::BeginChild(
                                 "##things", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
-                            if (d.things.empty()) {
-                                ImGui::TextDisabled("No things");
-                            }
+                            const std::string_view thingFilter = sceneThingFilter;
+                            bool anyVisible = false;
                             for (std::size_t i = 0; i < d.things.size(); ++i) {
+                                const std::string label = d.things[i].id + " (" +
+                                    slopengine::thingKindName(d.things[i].kind) + ")";
+                                if (!containsIgnoreCase(label, thingFilter)) {
+                                    continue;
+                                }
+                                anyVisible = true;
                                 ImGui::PushID(static_cast<int>(i) + 200000);
                                 const bool selected = d.isEntitySelected(
                                     {slopmap::EntityRef::Kind::Thing, static_cast<int>(i)});
-                                const std::string label = d.things[i].id + " (" +
-                                    slopengine::thingKindName(d.things[i].kind) + ")";
                                 const char* icon = slopengine::thingKindIsLight(d.things[i].kind)
                                     ? (d.things[i].kind == slopengine::ThingKind::AmbientLight
                                            ? "weather_sun"
@@ -2793,20 +2870,16 @@ int main(int argc, char* argv[]) {
                                 }
                                 ImGui::PopID();
                             }
+                            if (d.things.empty()) {
+                                ImGui::TextDisabled("No things");
+                            } else if (!anyVisible) {
+                                ImGui::TextDisabled("No matching things");
+                            }
                         }
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
                     ImGui::EndTabBar();
-                }
-
-                ImGui::Separator();
-                ImGui::TextUnformatted("Properties");
-                const float propsH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
-                if (d.selectionMode == slopmap::SelectionMode::Entity) {
-                    thingPanel.drawSection(editor, assets, materialBrowser, propsH);
-                } else {
-                    brushPanel.drawSection(editor, propsH);
                 }
             }
             ImGui::End();
@@ -3327,7 +3400,13 @@ int main(int argc, char* argv[]) {
                 const float gridLabelW = 72.0f;
                 const float planeW = 28.0f;
                 const float gap = 10.0f;
-                const float controlsW = btn + planeW + gridLabelW + btn * 2.0f + gap;
+                const float viewBtnW = 30.0f;
+                const float viewGap = 2.0f;
+                const bool singleView = editor.viewportLayout == slopmap::ViewportLayout::Single;
+                const float viewSectionW =
+                    singleView ? viewBtnW * 4.0f + viewGap * 3.0f + btn : btn;
+                const float gridControlsW = btn + planeW + gridLabelW + btn * 2.0f;
+                const float controlsW = viewSectionW + gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
                 const float stageChipW = 180.0f;
@@ -3400,6 +3479,101 @@ int main(int argc, char* argv[]) {
                         ImGui::PopID();
                         return pressed;
                     };
+
+                    auto labeledToggleButton =
+                        [&](const char* id,
+                            const char* label,
+                            float width,
+                            bool active,
+                            ImU32 activeColor = 0) -> bool {
+                        ImGui::PushID(id);
+                        if (active) {
+                            ImGui::PushStyleColor(
+                                ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        }
+                        const bool pressed = ImGui::InvisibleButton("##lbl", ImVec2(width, btn));
+                        const ImVec2 min = ImGui::GetItemRectMin();
+                        const float textW = ImGui::CalcTextSize(label).x;
+                        const float textY = min.y + (btn - ImGui::GetTextLineHeight()) * 0.5f;
+                        ImU32 tint = active
+                            ? (activeColor != 0 ? activeColor : ImGui::GetColorU32(ImGuiCol_CheckMark))
+                            : ImGui::GetColorU32(ImGuiCol_Text);
+                        ImGui::GetWindowDrawList()->AddText(
+                            ImVec2(min.x + (width - textW) * 0.5f, textY), tint, label);
+                        if (active) {
+                            ImGui::PopStyleColor();
+                        }
+                        ImGui::PopID();
+                        return pressed;
+                    };
+
+                    if (singleView) {
+                        if (labeledToggleButton(
+                                "persp",
+                                "3D",
+                                viewBtnW,
+                                editor.viewPlane == slopmap::ViewPlane::PerspectiveY0)) {
+                            editor.setViewPlane(slopmap::ViewPlane::PerspectiveY0);
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip("Perspective");
+                        }
+                        ImGui::SameLine(0.0f, viewGap);
+                        if (labeledToggleButton(
+                                "top",
+                                "Top",
+                                viewBtnW,
+                                editor.viewPlane == slopmap::ViewPlane::Top)) {
+                            editor.setViewPlane(slopmap::ViewPlane::Top);
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip("Top ortho");
+                        }
+                        ImGui::SameLine(0.0f, viewGap);
+                        if (labeledToggleButton(
+                                "front",
+                                "Fr",
+                                viewBtnW,
+                                editor.viewPlane == slopmap::ViewPlane::Front)) {
+                            editor.setViewPlane(slopmap::ViewPlane::Front);
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip("Front ortho");
+                        }
+                        ImGui::SameLine(0.0f, viewGap);
+                        if (labeledToggleButton(
+                                "side",
+                                "Sd",
+                                viewBtnW,
+                                editor.viewPlane == slopmap::ViewPlane::Side)) {
+                            editor.setViewPlane(slopmap::ViewPlane::Side);
+                        }
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                            ImGui::SetTooltip("Side ortho");
+                        }
+                        ImGui::SameLine(0.0f, viewGap);
+                    }
+
+                    if (iconButton(
+                            "quad-view",
+                            "application_view_tile",
+                            gridBtnIcon)) {
+                        editor.toggleViewportLayout();
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            singleView ? "Quad view (Ctrl+Alt+Q)" : "Single view (Ctrl+Alt+Q)");
+                    }
+                    if (!singleView) {
+                        const ImVec2 min = ImGui::GetItemRectMin();
+                        const ImVec2 max = ImGui::GetItemRectMax();
+                        ImGui::GetWindowDrawList()->AddRect(
+                            ImVec2(min.x + 1.0f, min.y + 1.0f),
+                            ImVec2(max.x - 1.0f, max.y - 1.0f),
+                            ImGui::GetColorU32(ImGuiCol_CheckMark));
+                    }
+
+                    ImGui::SameLine(0.0f, gap);
 
                     if (iconButton("grid-toggle", "table")) {
                         editor.showGrid = !editor.showGrid;

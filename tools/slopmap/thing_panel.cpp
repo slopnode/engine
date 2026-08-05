@@ -1814,6 +1814,7 @@ bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
 
 bool drawSkyTextureField(
     Editor& editor,
+    slopengine::AssetStore& assets,
     MaterialBrowser& materialBrowser,
     const std::vector<int>& targets,
     const char* label,
@@ -1827,7 +1828,8 @@ bool drawSkyTextureField(
     ImGui::SameLine();
     ImGui::TextUnformatted(preview);
     ImGui::SameLine();
-    if (ImGui::SmallButton("Browse…")) {
+    if (slopengine::buttonWithIcon(
+            assets, slopengine::kDefaultIconSet, "folder_page", "Browse…")) {
         ImGui::PushID(label);
         materialBrowser.openPicker(
             AssetPickerKind::Texture,
@@ -1877,7 +1879,9 @@ bool drawSkyboxSection(
     ImGui::SameLine();
     ImGui::TextUnformatted(materialPreview);
     ImGui::SameLine();
-    if (ImGui::SmallButton("Browse…##skymat")) {
+    ImGui::PushID("skymat");
+    if (slopengine::buttonWithIcon(
+            assets, slopengine::kDefaultIconSet, "folder_page", "Browse…")) {
         materialBrowser.openPicker(
             AssetPickerKind::Material,
             [&editor, targets](const std::string& path) {
@@ -1891,6 +1895,7 @@ bool drawSkyboxSection(
             },
             AssetPickerOptions{.skyMaterialsOnly = true, .allowNone = true});
     }
+    ImGui::PopID();
 
     if (!targets.empty()) {
         const slopengine::Thing* previewThing = thingAt(doc, targets.front());
@@ -2046,6 +2051,7 @@ bool drawSkyboxSection(
                 for (const FaceBinding& face : faces) {
                     drawSkyTextureField(
                         editor,
+                        assets,
                         materialBrowser,
                         targets,
                         face.label,

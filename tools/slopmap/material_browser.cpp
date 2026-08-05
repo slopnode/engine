@@ -123,15 +123,14 @@ void drawViewModeToggle(
     slopengine::AssetStore& assets,
     EditorSettings& settings) {
     const float sz = ImGui::GetFrameHeight();
-    auto modeButton = [&](const char* iconId, MaterialViewMode mode, const char* tooltip) {
-        ImGui::PushID(iconId);
+    auto modeButton = [&](const char* id, const char* iconId, MaterialViewMode mode, const char* tooltip) {
+        ImGui::PushID(id);
         const bool active = settings.materialViewMode == mode;
         if (active) {
             ImGui::PushStyleColor(
                 ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
         }
-        const ImVec2 pos = ImGui::GetCursorScreenPos();
-        if (ImGui::Button("##mode", ImVec2(sz, 0.0f))) {
+        if (slopengine::iconButton(assets, slopengine::kDefaultIconSet, iconId, ImVec2(sz, 0.0f))) {
             if (settings.materialViewMode != mode) {
                 settings.materialViewMode = mode;
                 settings.save();
@@ -143,18 +142,13 @@ void drawViewModeToggle(
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("%s", tooltip);
         }
-        const ImVec2 restore = ImGui::GetCursorScreenPos();
-        ImGui::SetCursorScreenPos(
-            ImVec2(pos.x + (sz - 16.0f) * 0.5f, pos.y + (sz - 16.0f) * 0.5f));
-        slopengine::drawIconImGui(assets, slopengine::kDefaultIconSet, iconId, 16.0f);
-        ImGui::SetCursorScreenPos(restore);
         ImGui::PopID();
     };
-    modeButton("application_view_icons", MaterialViewMode::Grid, "Grid view");
+    modeButton("application_view_icons", "application_view_icons", MaterialViewMode::Grid, "Grid view");
     ImGui::SameLine();
-    modeButton("application_view_list", MaterialViewMode::List, "List view");
+    modeButton("application_view_list", "application_view_list", MaterialViewMode::List, "List view");
     ImGui::SameLine();
-    modeButton("folder", MaterialViewMode::Folder, "Folder view");
+    modeButton("folder", "folder", MaterialViewMode::Folder, "Folder view");
 }
 
 bool drawPickerListView(
@@ -433,46 +427,6 @@ bool assetPassesFilter(
         return false;
     }
     return containsIgnoreCase(path, filterStr);
-}
-
-bool fullWidthIconButton(
-    slopengine::AssetStore& assets,
-    const char* id,
-    const char* iconId,
-    const char* label) {
-    ImGui::PushID(id);
-    constexpr float kIcon = 16.0f;
-    const ImGuiStyle& style = ImGui::GetStyle();
-    const ImVec2 textSize = ImGui::CalcTextSize(label);
-    const float width = ImGui::GetContentRegionAvail().x;
-    const float height = ImGui::GetFrameHeight();
-
-    const bool pressed = ImGui::Button("##btn", ImVec2(width, height));
-    const ImVec2 min = ImGui::GetItemRectMin();
-    const float x = min.x + style.FramePadding.x;
-    const float yIcon = min.y + (height - kIcon) * 0.5f;
-    const float yText = min.y + (height - textSize.y) * 0.5f;
-
-    ImDrawList* draw = ImGui::GetWindowDrawList();
-    const slopengine::IconAtlas* atlas = assets.getIconAtlas(slopengine::kDefaultIconSet);
-    if (atlas != nullptr && atlas->texture.id != 0) {
-        if (const auto rect = slopengine::findIconRect(*atlas, iconId)) {
-            const float tw = static_cast<float>(atlas->texture.width);
-            const float th = static_cast<float>(atlas->texture.height);
-            draw->AddImage(
-                (ImTextureID)(intptr_t)atlas->texture.id,
-                ImVec2(x, yIcon),
-                ImVec2(x + kIcon, yIcon + kIcon),
-                ImVec2(rect->x / tw, rect->y / th),
-                ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th));
-        }
-    }
-    draw->AddText(
-        ImVec2(x + kIcon + style.ItemInnerSpacing.x, yText),
-        ImGui::GetColorU32(ImGuiCol_Text),
-        label);
-    ImGui::PopID();
-    return pressed;
 }
 
 void drawMaterialPreviewBox(float size) {
@@ -756,7 +710,12 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
         ImGui::Spacing();
         ImGui::TextUnformatted(activeMaterial.c_str());
         ImGui::Spacing();
-        if (fullWidthIconButton(assets, "browse", "folder_page", "Browse…")) {
+        if (slopengine::buttonWithIcon(
+                assets,
+                slopengine::kDefaultIconSet,
+                "folder_page",
+                "Browse…",
+                ImVec2(-1.0f, 0.0f))) {
             openPicker(
                 AssetPickerKind::Material,
                 [&editor](const std::string& path) {
@@ -783,7 +742,12 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
         ImGui::Spacing();
         ImGui::TextUnformatted(selectionMaterial.c_str());
         ImGui::Spacing();
-        if (fullWidthIconButton(assets, "browse_selection", "folder_page", "Browse…")) {
+        if (slopengine::buttonWithIcon(
+                assets,
+                slopengine::kDefaultIconSet,
+                "folder_page",
+                "Browse…",
+                ImVec2(-1.0f, 0.0f))) {
             openPicker(
                 AssetPickerKind::Material,
                 [&editor](const std::string& path) {
@@ -791,7 +755,12 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
                 });
         }
         if (canUseSelectionAsActive) {
-            if (fullWidthIconButton(assets, "set_active", "accept", "Set as Active")) {
+            if (slopengine::buttonWithIcon(
+                    assets,
+                    slopengine::kDefaultIconSet,
+                    "accept",
+                    "Set as Active",
+                    ImVec2(-1.0f, 0.0f))) {
                 editor.doc().defaultMaterial = selectionMaterial;
                 editor.markDirty();
                 editor.statusMessage = "Active material: " + selectionMaterial;
