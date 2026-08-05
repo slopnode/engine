@@ -4,6 +4,7 @@
 
 #include <raylib.h>
 #include <rlgl.h>
+#include "external/glad.h"
 
 #include <algorithm>
 #include <cctype>
@@ -245,6 +246,9 @@ struct GpuParamsSSBO {
     float sunAngularSpread = 0.0f;
     float sunLeakThreshold = 0.0f;
     std::int32_t faceCount = 0;
+    std::int32_t materialRectCount = 0;
+    std::int32_t alphaAtlasWidth = 1;
+    std::int32_t alphaAtlasHeight = 1;
 };
 
 static_assert(sizeof(GpuLuxelSSBO) == 64);
@@ -254,7 +258,7 @@ static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
 static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
-static_assert(sizeof(GpuParamsSSBO) == 88);
+static_assert(sizeof(GpuParamsSSBO) == 100);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
@@ -399,12 +403,19 @@ void bindAlphaAtlas(unsigned int program, const RadGpuOcclusionResources& resour
     if (!resources.valid || resources.alphaAtlas.id == 0) {
         return;
     }
+    constexpr int kAlphaAtlasTextureUnit = 0;
+    int textureUnit = kAlphaAtlasTextureUnit;
+    rlDrawRenderBatchActive();
+    rlActiveTextureSlot(kAlphaAtlasTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, resources.alphaAtlas.id);
     Shader shader{};
     shader.id = program;
     const int loc = GetShaderLocation(shader, "materialAlphaAtlas");
     if (loc >= 0) {
-        SetShaderValueTexture(shader, loc, resources.alphaAtlas);
+        SetShaderValue(shader, loc, &textureUnit, SHADER_UNIFORM_INT);
     }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    rlActiveTextureSlot(0);
 }
 
 void unloadDirectResources(
@@ -450,6 +461,7 @@ void fillBaseParams(
     int luxelOffset,
     int luxelBatch,
     int faceCount,
+    const RadGpuOcclusionResources& occlusionResources,
     const RadGpuDirectParams& directParams,
     const RadGpuReachability& reachability) {
     params.luxelCount = luxelCount;
@@ -474,6 +486,10 @@ void fillBaseParams(
     params.sunAngularSpread = directParams.sunAngularSpread;
     params.sunLeakThreshold = directParams.sunLeakThreshold;
     params.faceCount = faceCount;
+    params.materialRectCount =
+        static_cast<std::int32_t>(occlusionResources.materialRects.size());
+    params.alphaAtlasWidth = occlusionResources.atlasWidth;
+    params.alphaAtlasHeight = occlusionResources.atlasHeight;
 }
 
 bool dispatchBatch(
@@ -924,6 +940,7 @@ bool accumulateDirectLightingGpu(
         0,
         std::min(dispatchConfig.luxelBatch, luxelCount),
         faceCount,
+        occlusionResources,
         directParams,
         reachability);
     const unsigned int paramsSsbo =
@@ -1024,6 +1041,7 @@ bool accumulateDirectLightingGpu(
                 luxelOffset,
                 luxelBatch,
                 faceCount,
+                occlusionResources,
                 directParams,
                 reachability);
             if (!dispatchBatch(
@@ -1049,6 +1067,7 @@ bool accumulateDirectLightingGpu(
                 luxelOffset,
                 luxelBatch,
                 faceCount,
+                occlusionResources,
                 directParams,
                 reachability);
             params.lightOffset = lightOffset;
@@ -1220,13 +1239,15 @@ struct GpuBounceParamsSSBO {
     float ambientR = 0.0f;
     float ambientG = 0.0f;
     float ambientB = 0.0f;
-    float pad = 0.0f;
+    std::int32_t materialRectCount = 0;
+    std::int32_t alphaAtlasWidth = 1;
+    std::int32_t alphaAtlasHeight = 1;
 };
 
 static_assert(sizeof(GpuBounceLuxelSSBO) == 48);
 static_assert(sizeof(GpuRgbSSBO) == 16);
 static_assert(sizeof(GpuFaceGridSSBO) == 64);
-static_assert(sizeof(GpuBounceParamsSSBO) == 48);
+static_assert(sizeof(GpuBounceParamsSSBO) == 56);
 
 void unloadBounceResources(
     unsigned int luxelSsbo,
@@ -1413,6 +1434,10 @@ bool accumulateBounceLightingGpu(
     initialParams.ambientR = bounceParams.ambientR;
     initialParams.ambientG = bounceParams.ambientG;
     initialParams.ambientB = bounceParams.ambientB;
+    initialParams.materialRectCount =
+        static_cast<std::int32_t>(occlusionResources.materialRects.size());
+    initialParams.alphaAtlasWidth = occlusionResources.atlasWidth;
+    initialParams.alphaAtlasHeight = occlusionResources.atlasHeight;
     const unsigned int paramsSsbo =
         rlLoadShaderBuffer(sizeof(GpuBounceParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
 

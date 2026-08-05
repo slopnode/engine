@@ -90,6 +90,8 @@ struct RadGpuOcclusionResources {
     Image alphaAtlasImage{};
     std::vector<RadGpuFaceOcclusion> faceOcclusion;
     std::vector<RadGpuMaterialRect> materialRects;
+    int atlasWidth = 1;
+    int atlasHeight = 1;
     bool valid = false;
 };
 

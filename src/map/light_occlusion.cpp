@@ -402,6 +402,12 @@ bool buildRadGpuOcclusionResources(
     UnloadImage(atlasLayers[0].second);
 
     out.alphaAtlas = LoadTextureFromImage(out.alphaAtlasImage);
+    if (out.alphaAtlas.id != 0) {
+        SetTextureFilter(out.alphaAtlas, TEXTURE_FILTER_POINT);
+        SetTextureWrap(out.alphaAtlas, TEXTURE_WRAP_CLAMP);
+    }
+    out.atlasWidth = atlasWidth;
+    out.atlasHeight = atlasHeight;
     out.valid = out.alphaAtlas.id != 0;
     return out.valid;
 }

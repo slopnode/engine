@@ -89,7 +89,9 @@ struct Params {
     float ambientR;
     float ambientG;
     float ambientB;
-    float pad;
+    int materialRectCount;
+    int alphaAtlasWidth;
+    int alphaAtlasHeight;
 };
 
 struct FaceOcclusion {
@@ -250,7 +252,7 @@ float sampleFaceOcclusionAlpha(int faceIndex, vec3 worldPos) {
     }
     FaceOcclusion face = faceOcclusion[faceIndex];
     int matIndex = int(face.materialIndex);
-    if (matIndex < 0 || matIndex >= materialRects.length()) {
+    if (matIndex < 0 || matIndex >= params.materialRectCount) {
         return face.baseColorAlpha;
     }
     MaterialRect rect = materialRects[matIndex];
@@ -265,8 +267,11 @@ float sampleFaceOcclusionAlpha(int faceIndex, vec3 worldPos) {
     float v = (metersV * ppm * axisScale(face.uvScaleY) + face.uvShiftY) / height;
     u = fract(u);
     v = fract(v);
-    vec2 atlasUv = mix(vec2(rect.u0, rect.v0), vec2(rect.u1, rect.v1), vec2(u, v));
-    float texAlpha = texture(materialAlphaAtlas, atlasUv).a;
+    int px = clamp(int(u * width), 0, int(width) - 1);
+    int py = clamp(int(v * height), 0, int(height) - 1);
+    int atlasX = px;
+    int atlasY = int(rect.v0 * float(params.alphaAtlasHeight)) + py;
+    float texAlpha = texelFetch(materialAlphaAtlas, ivec2(atlasX, atlasY), 0).a;
     return texAlpha * face.baseColorAlpha;
 }
 
