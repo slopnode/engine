@@ -6,7 +6,7 @@
 
 namespace slopengine {
 
-struct AssetStore;
+class AssetStore;
 struct GeoAsset;
 
 /** Attaches @p targets to @p entity when non-empty. */
