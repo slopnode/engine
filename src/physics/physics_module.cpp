@@ -154,6 +154,7 @@ bool capsuleTouchesFace(
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CharacterMotor>();
     world.component<Actor>();
+    world.component<ActorCorpse>();
     world.component<CollisionTags>();
     world.component<TriggerVolume>();
     world.set<PhysicsContext>(PhysicsContext{physics});
@@ -420,7 +421,6 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             });
         });
 
-    registerMotoredBodySystem(world);
 }
 
 void unregisterPhysicsModule(flecs::world& world) {

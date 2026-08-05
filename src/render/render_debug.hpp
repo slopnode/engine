@@ -6,6 +6,7 @@
 #include "map/fac.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
+#include "render/debug_line_pool.hpp"
 #include "ui/ui_state.hpp"
 
 #include <flecs.h>

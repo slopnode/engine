@@ -98,6 +98,23 @@ struct PhysicsWorld {
     JPH::Vec3 characterVelocity(std::uint64_t id) const;
     bool characterSupported(std::uint64_t id) const;
 
+    template<typename Fn>
+    void forEachCharacter(Fn&& fn) const {
+        for (const auto& entry : characters_) {
+            if (entry.second.character == nullptr) {
+                continue;
+            }
+            const JPH::RVec3 feet = entry.second.character->GetPosition();
+            fn(
+                entry.first,
+                Vector3{
+                    static_cast<float>(feet.GetX()),
+                    static_cast<float>(feet.GetY()),
+                    static_cast<float>(feet.GetZ()),
+                });
+        }
+    }
+
     JPH::RVec3 playerPosition() const;
     void setPlayerPosition(float x, float y, float z);
     JPH::Vec3 playerVelocity() const;

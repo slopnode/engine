@@ -34,7 +34,7 @@ void runSightTests() {
     }
 
     {
-        CHECK(std::fabs(sightEyeOffset(1.0f, 0.3f, 0.75f) - 0.975f) < 1e-5f);
+        CHECK(std::fabs(sightEyeOffset(1.0f, 0.3f, 0.75f) - 1.05f) < 1e-5f);
         CHECK(std::fabs(sightAngleDeltaRad(0.0f, 3.14159265358979323846f) - 3.14159265358979323846f) <
               1e-5f);
         CHECK(std::fabs(sightAngleDeltaRad(3.0f, -3.0f)) < 1.0f);

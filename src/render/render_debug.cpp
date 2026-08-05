@@ -1,5 +1,6 @@
 #include "render/render_debug.hpp"
 
+#include "render/debug_line_pool.hpp"
 #include "render/sprite_billboard.hpp"
 
 #include <rlgl.h>
@@ -383,6 +384,26 @@ std::string drawSpriteDebugOverlays(
     rlEnableDepthTest();
     EndBlendMode();
     return aimStatus;
+}
+
+void drawDebugLinePool(const DebugLinePool& pool) {
+    if (pool.lines.empty()) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthTest();
+    rlDisableDepthMask();
+
+    for (const DebugLine& line : pool.lines) {
+        DrawLine3D(line.from, line.to, line.color);
+        DrawSphereWires(line.from, 0.04f, 4, 4, line.color);
+        DrawSphereWires(line.to, 0.04f, 4, 4, line.color);
+    }
+
+    rlEnableDepthMask();
+    rlEnableDepthTest();
+    EndBlendMode();
 }
 
 }

@@ -10,7 +10,7 @@ struct ActorSight {
     bool enabled = false;
     float range = 32.0f;
     float fovDegrees = 180.0f;
-    float eyeLift = 0.75f;
+    float eyeLift = 0.85f;
     std::vector<std::string> seeTags;
     std::vector<std::string> ignoreTags;
     std::string filterProc;

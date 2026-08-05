@@ -16,6 +16,7 @@
 #include "map/csg_script.hpp"
 #include "map/map_scene.hpp"
 #include "physics/physics_module.hpp"
+#include "physics/motored_body.hpp"
 #include "physics/sight_module.hpp"
 #include "particles/particle_module.hpp"
 #include "render/components.hpp"
@@ -66,6 +67,7 @@ App::App(AppConfig config)
     registerInteractModule(world_);
     registerParticleModule(world_, assetStore_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
+    registerMotoredBodySystem(world_);
     registerScriptBoot(world_, assetStore_, scheme_);
     callOnStartup(world_);
     running_ = true;

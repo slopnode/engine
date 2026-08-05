@@ -84,6 +84,21 @@ bool readAssocInt(s7_scheme* scheme, s7_pointer alist, const char* key, int& out
     return true;
 }
 
+bool readAssocFloat(s7_scheme* scheme, s7_pointer alist, const char* key, float& out) {
+    s7_pointer value = nullptr;
+    if (!readAssoc(scheme, alist, key, value)) {
+        return false;
+    }
+    if (s7_is_pair(value)) {
+        value = s7_car(value);
+    }
+    if (!s7_is_number(value)) {
+        return false;
+    }
+    out = static_cast<float>(s7_number_to_real(scheme, value));
+    return true;
+}
+
 bool parseKindName(std::string_view name, ThingKind& out) {
     if (name == "prop") {
         out = ThingKind::Prop;
@@ -616,6 +631,15 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
         }
         readAssocString(scheme, props, "idle-anim", def.idleAnim);
         readAssocString(scheme, props, "behavior", def.behavior);
+
+        float painChance = 0.0f;
+        if (readAssocFloat(scheme, props, "pain-chance", painChance)) {
+            def.painChance = painChance;
+        }
+        float painThreshold = 0.0f;
+        if (readAssocFloat(scheme, props, "pain-threshold", painThreshold)) {
+            def.painThreshold = painThreshold;
+        }
 
         s7_pointer meleeVal = nullptr;
         if (readAssoc(scheme, props, "melee", meleeVal)) {

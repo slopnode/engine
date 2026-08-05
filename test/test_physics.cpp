@@ -324,6 +324,24 @@ void runMotoredSweepTests() {
     }
 
     {
+        CharacterMotor playerMotor{};
+        playerMotor.radius = 0.3f;
+        playerMotor.height = 0.88f;
+        const Vector3 playerFeet{2.0f, 0.0f, 0.0f};
+        constexpr float fireballR = 0.12f;
+        const auto hit = sweepSphereActorCapsule(
+            {0.0f, 0.8f, 0.0f},
+            {1.0f, 0.0f, 0.0f},
+            4.0f,
+            fireballR,
+            playerFeet,
+            playerMotor);
+        CHECK(hit.has_value());
+        CHECK(*hit > 0.0f);
+        CHECK(*hit < 1.0f);
+    }
+
+    {
         CharacterMotor nearMotor = motor;
         const Vector3 nearFeet{0.0f, 0.0f, 2.0f};
         const Vector3 farFeet{0.0f, 0.0f, 8.0f};

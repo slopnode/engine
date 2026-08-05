@@ -68,7 +68,7 @@ inline bool sightInFov(
 }
 
 inline float sightEyeOffset(float motorHeight, float motorRadius, float eyeLift) {
-    return (motorHeight + motorRadius) * eyeLift;
+    return motorRadius + motorHeight * eyeLift;
 }
 
 }

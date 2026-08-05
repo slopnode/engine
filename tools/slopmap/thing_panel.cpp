@@ -1489,7 +1489,7 @@ bool drawActorSection(
         }
     }
 
-    float eyeLift = eyeLiftCommon.value_or(0.75f);
+    float eyeLift = eyeLiftCommon.value_or(0.85f);
     if (dragFloatMixed("Eye lift", &eyeLift, !eyeLiftCommon.has_value(), 0.01f, 0.0f, 2.0f)) {
         if (forEachActor(editor, targets, [eyeLift](slopengine::Thing& thing) {
                 thing.haveSight = true;

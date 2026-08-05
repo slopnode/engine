@@ -55,6 +55,9 @@ struct ThingDef {
     std::string idleAnim;
     std::string behavior;
 
+    std::optional<float> painChance;
+    std::optional<float> painThreshold;
+
     bool haveMelee = false;
     float meleeDamage = 0.0f;
     float meleeRange = 1.2f;
@@ -71,7 +74,7 @@ struct ThingDef {
     bool sightEnabled = true;
     float sightRange = 32.0f;
     float sightFovDegrees = 180.0f;
-    float sightEyeLift = 0.75f;
+    float sightEyeLift = 0.85f;
     std::vector<std::string> sightSeeTags;
     std::vector<std::string> sightIgnoreTags;
     std::string sightFilterProc;

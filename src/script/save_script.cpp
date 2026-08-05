@@ -401,8 +401,14 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
     const float h = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
     FirstPersonController& controller = player.get_mut<FirstPersonController>();
     controller.eyeHeight = h;
+    bool motorResized = false;
     if (player.has<CharacterMotor>()) {
-        player.get_mut<CharacterMotor>().eyeHeight = h;
+        CharacterMotor& motor = player.get_mut<CharacterMotor>();
+        motor.eyeHeight = h;
+        const float radius = motor.radius > 0.0f ? motor.radius : 0.3f;
+        const float bodyHeight = std::max(motor.height, h - 2.0f * radius);
+        motorResized = bodyHeight > motor.height + 1.0e-4f;
+        motor.height = bodyHeight;
     }
     if (player.has<Lens>()) {
         Lens& lens = player.get_mut<Lens>();
@@ -413,6 +419,13 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
                 lens.camera.position.x = static_cast<float>(feet.GetX());
                 lens.camera.position.y = static_cast<float>(feet.GetY()) + h;
                 lens.camera.position.z = static_cast<float>(feet.GetZ());
+                if (motorResized && player.has<CharacterMotor>()) {
+                    physics->createPlayerCharacter(
+                        static_cast<float>(feet.GetX()),
+                        static_cast<float>(feet.GetY()),
+                        static_cast<float>(feet.GetZ()),
+                        player.get<CharacterMotor>());
+                }
             } else {
                 lens.camera.position.y = h;
             }

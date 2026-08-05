@@ -48,10 +48,18 @@ Vector3 characterFeet(flecs::entity entity, const CharacterMotor& motor) {
 }
 
 Vector3 characterEye(flecs::entity entity, const CharacterMotor& motor, float eyeLift) {
+    const Vector3 feet = characterFeet(entity, motor);
+    if (entity.has<Lens>() && entity.has<PlayerCamera>()) {
+        constexpr float kPlayerAimRatio = 0.6f;
+        return {
+            feet.x,
+            feet.y + motor.eyeHeight * kPlayerAimRatio,
+            feet.z,
+        };
+    }
     if (entity.has<Lens>()) {
         return entity.get<Lens>().camera.position;
     }
-    const Vector3 feet = characterFeet(entity, motor);
     return {
         feet.x,
         feet.y + sightEyeOffset(motor.height, motor.radius, eyeLift),
@@ -185,7 +193,7 @@ void scanObserver(
     std::unordered_set<std::string> next = sight.visible;
 
     world.each([&](flecs::entity target, const CharacterMotor& targetMotor, const CollisionTags& tags) {
-        if (target == observer) {
+        if (target == observer || target.has<ActorCorpse>()) {
             return;
         }
         const std::string targetId = entityIdString(target);

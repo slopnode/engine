@@ -18,6 +18,7 @@
 #include "physics/sight_module.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/components.hpp"
+#include "render/debug_line_pool.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/sprite_animator.hpp"
@@ -31,6 +32,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -1051,6 +1053,39 @@ s7_pointer g_thing_yaw(s7_scheme* sc, s7_pointer args) {
     return s7_f(sc);
 }
 
+s7_pointer g_actor_set_corpse(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-set-corpse!", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<ActorCorpse>()) {
+        return s7_t(sc);
+    }
+
+    if (PhysicsWorld* physics = physicsWorld()) {
+        const std::uint64_t eid = static_cast<std::uint64_t>(entity.id());
+        if (physics->hasCharacter(eid)) {
+            physics->destroyCharacter(eid);
+        }
+    }
+    if (entity.has<CharacterMotor>()) {
+        CharacterMotor& motor = entity.get_mut<CharacterMotor>();
+        motor.wishX = 0.0f;
+        motor.wishZ = 0.0f;
+    }
+    if (entity.has<ActorSight>()) {
+        entity.remove<ActorSight>();
+    }
+    entity.add<ActorCorpse>();
+    return s7_t(sc);
+}
+
 s7_pointer g_actor_set_wish(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -1216,6 +1251,74 @@ s7_pointer g_actors_in_radius(s7_scheme* sc, s7_pointer args) {
     return list;
 }
 
+constexpr std::size_t kMaxDebugLines = 2048;
+
+DebugLinePool& debugLinePoolMut() {
+    if (!g_thingWorld->has<DebugLinePool>()) {
+        g_thingWorld->set<DebugLinePool>({});
+    }
+    return g_thingWorld->get_mut<DebugLinePool>();
+}
+
+s7_pointer g_debug_line_add(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+
+    float x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+    float r = 255.0f;
+    float g = 255.0f;
+    float b = 255.0f;
+    float a = 255.0f;
+    if (!readNumberArg(sc, args, x0, "debug-line-add!", 1) ||
+        !readNumberArg(sc, args, y0, "debug-line-add!", 2) ||
+        !readNumberArg(sc, args, z0, "debug-line-add!", 3) ||
+        !readNumberArg(sc, args, x1, "debug-line-add!", 4) ||
+        !readNumberArg(sc, args, y1, "debug-line-add!", 5) ||
+        !readNumberArg(sc, args, z1, "debug-line-add!", 6) ||
+        !readNumberArg(sc, args, r, "debug-line-add!", 7) ||
+        !readNumberArg(sc, args, g, "debug-line-add!", 8) ||
+        !readNumberArg(sc, args, b, "debug-line-add!", 9)) {
+        return s7_wrong_type_arg_error(
+            sc, "debug-line-add!", 1, args, "x0 y0 z0 x1 y1 z1 r g b [a] numbers");
+    }
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        a = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    }
+
+    DebugLinePool& pool = debugLinePoolMut();
+    if (pool.lines.size() >= kMaxDebugLines) {
+        pool.lines.erase(pool.lines.begin());
+    }
+    pool.lines.push_back({
+        .from = {x0, y0, z0},
+        .to = {x1, y1, z1},
+        .color = {
+            static_cast<std::uint8_t>(std::clamp(r, 0.0f, 255.0f)),
+            static_cast<std::uint8_t>(std::clamp(g, 0.0f, 255.0f)),
+            static_cast<std::uint8_t>(std::clamp(b, 0.0f, 255.0f)),
+            static_cast<std::uint8_t>(std::clamp(a, 0.0f, 255.0f)),
+        },
+    });
+    return s7_t(sc);
+}
+
+s7_pointer g_debug_lines_clear(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->has<DebugLinePool>()) {
+        g_thingWorld->get_mut<DebugLinePool>().lines.clear();
+    }
+    return s7_t(sc);
+}
+
 s7_pointer g_los(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1307,7 +1410,7 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
                            Actor,
                            SpriteInstance& sprite,
                            GlobalTransformation& global) {
-        if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {
+        if (!entity.has<WorldSpace>() || entity.has<ViewSprite>() || entity.has<ActorCorpse>()) {
             return;
         }
         if (!tagFilter.empty()) {
@@ -1975,10 +2078,42 @@ s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->rangedAnim.c_str());
 }
 
+s7_pointer g_thing_def_pain_chance(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-pain-chance", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->painChance.has_value()) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(*def->painChance));
+}
+
+s7_pointer g_thing_def_pain_threshold(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-pain-threshold", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->painThreshold.has_value()) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(*def->painThreshold));
+}
+
 void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     g_thingWorld = &world;
     if (!world.has<ThingDespawnQueue>()) {
         world.set<ThingDespawnQueue>({});
+    }
+    world.component<DebugLinePool>();
+    if (!world.has<DebugLinePool>()) {
+        world.set<DebugLinePool>({});
     }
     registerFlushThingDespawns(world);
     registerTimedDespawnSystem(world);
@@ -2078,6 +2213,22 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(thing-def-ranged-anim type)");
+    s7_define_function(
+        scheme,
+        "thing-def-pain-chance",
+        g_thing_def_pain_chance,
+        1,
+        0,
+        false,
+        "(thing-def-pain-chance type)");
+    s7_define_function(
+        scheme,
+        "thing-def-pain-threshold",
+        g_thing_def_pain_threshold,
+        1,
+        0,
+        false,
+        "(thing-def-pain-threshold type)");
     s7_define_function(
         scheme,
         "motored-spawn",
@@ -2187,6 +2338,8 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(actor-set-wish id wx wz)");
     s7_define_function(
+        scheme, "actor-set-corpse!", g_actor_set_corpse, 1, 0, false, "(actor-set-corpse! id)");
+    s7_define_function(
         scheme, "actor-grounded?", g_actor_grounded, 1, 0, false, "(actor-grounded? id)");
     s7_define_function(
         scheme,
@@ -2208,6 +2361,16 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(actors-in-radius x y z r [tag])");
     s7_define_function(scheme, "los?", g_los, 6, 0, false, "(los? x0 y0 z0 x1 y1 z1)");
+    s7_define_function(
+        scheme,
+        "debug-line-add!",
+        g_debug_line_add,
+        9,
+        1,
+        false,
+        "(debug-line-add! x0 y0 z0 x1 y1 z1 r g b [a])");
+    s7_define_function(
+        scheme, "debug-lines-clear!", g_debug_lines_clear, 0, 0, false, "(debug-lines-clear!)");
     s7_define_function(
         scheme,
         "pvs-can-see",

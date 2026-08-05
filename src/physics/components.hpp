@@ -31,4 +31,7 @@ struct CharacterMotor {
 /** Tag: package-driven world actor (not the first-person player). */
 struct Actor {};
 
+/** Tag: dead actor kept for visuals; no physics or combat collision. */
+struct ActorCorpse {};
+
 }
