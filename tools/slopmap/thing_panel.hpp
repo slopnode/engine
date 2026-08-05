@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor.hpp"
+#include "material_browser.hpp"
 
 #include "assets/asset_store.hpp"
 
@@ -12,7 +13,10 @@ struct ThingPanelResult {
 
 struct ThingPanel {
     ThingPanelResult drawSection(
-        Editor& editor, slopengine::AssetStore& assets, float bodyHeight);
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        MaterialBrowser& materialBrowser,
+        float bodyHeight);
 };
 
 }

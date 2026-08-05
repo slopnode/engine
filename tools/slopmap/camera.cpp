@@ -55,7 +55,7 @@ Camera3D FlyCamera::toRaylib() const {
     return camera;
 }
 
-void FlyCamera::update(bool allowInput) {
+void FlyCamera::update(bool allowInput, bool retainCursorHidden) {
     const bool flying = allowInput && IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
 
     if (flying) {
@@ -173,8 +173,15 @@ void FlyCamera::update(bool allowInput) {
         if (!IsCursorHidden()) {
             DisableCursor();
         }
-    } else if (IsCursorHidden()) {
-        EnableCursor();
+        wasFlying = true;
+    } else {
+        if (wasFlying && retainCursorHidden) {
+            EnableCursor();
+            HideCursor();
+        } else if (IsCursorHidden() && !retainCursorHidden) {
+            EnableCursor();
+        }
+        wasFlying = false;
     }
 
     if (allowInput) {

@@ -1,6 +1,8 @@
 #include "thing_panel.hpp"
 
 #include "handler_ui.hpp"
+#include "material_browser.hpp"
+#include "ui/icon_ui.hpp"
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
@@ -1809,22 +1811,37 @@ bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
-std::vector<std::string> scanSkyMaterials(slopengine::AssetStore& assets) {
-    std::vector<std::string> allMaterials = scanPackageAssets(assets, "materials", ".mat");
-    std::vector<std::string> skyMaterials;
-    skyMaterials.reserve(allMaterials.size());
-    for (const std::string& path : allMaterials) {
-        const slopengine::MaterialAsset* asset = assets.getMaterialAsset(path);
-        if (asset != nullptr && asset->sky) {
-            skyMaterials.push_back(path);
-        }
+
+bool drawSkyTextureField(
+    Editor& editor,
+    MaterialBrowser& materialBrowser,
+    const std::vector<int>& targets,
+    const char* label,
+    const std::function<std::string(const slopengine::Thing&)>& getter,
+    const std::function<void(slopengine::Thing&, const std::string&)>& setter) {
+    const EditorDocument& doc = editor.doc();
+    const auto pathCommon = commonValue<std::string>(doc, targets, getter);
+    const char* preview =
+        !pathCommon.has_value() ? "(mixed)" : (pathCommon->empty() ? "(none)" : pathCommon->c_str());
+    ImGui::Text("%s", label);
+    ImGui::SameLine();
+    ImGui::TextUnformatted(preview);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse…")) {
+        ImGui::PushID(label);
+        materialBrowser.openPicker(
+            AssetPickerKind::Texture,
+            [&editor, targets, setter](const std::string& path) {
+                if (forEachSkybox(editor, targets, [&](slopengine::Thing& thing) {
+                        setter(thing, path);
+                    })) {
+                    editor.statusMessage = path.empty() ? "Cleared sky cube face" : "Set sky cube face";
+                }
+            },
+            AssetPickerOptions{.allowNone = true});
+        ImGui::PopID();
     }
-    std::sort(skyMaterials.begin(), skyMaterials.end());
-    const auto defaultIt = std::find(skyMaterials.begin(), skyMaterials.end(), "engine/sky");
-    if (defaultIt != skyMaterials.end() && defaultIt != skyMaterials.begin()) {
-        std::rotate(skyMaterials.begin(), defaultIt, defaultIt + 1);
-    }
-    return skyMaterials;
+    return false;
 }
 
 const char* skyModeLabel(slopengine::SkyboxMode mode) {
@@ -1839,47 +1856,10 @@ const char* skyModeLabel(slopengine::SkyboxMode mode) {
     return "Unknown";
 }
 
-bool drawSkyTextureCombo(
-    Editor& editor,
-    slopengine::AssetStore& assets,
-    const std::vector<int>& targets,
-    const char* label,
-    const std::function<std::string(const slopengine::Thing&)>& getter,
-    const std::function<void(slopengine::Thing&, const std::string&)>& setter) {
-    bool changed = false;
-    const EditorDocument& doc = editor.doc();
-    const auto pathCommon = commonValue<std::string>(doc, targets, getter);
-    const std::vector<std::string> texturePaths = scanPackageAssets(assets, "textures", ".png");
-    const char* preview =
-        !pathCommon.has_value() ? "(mixed)" : (pathCommon->empty() ? "(none)" : pathCommon->c_str());
-    if (ImGui::BeginCombo(label, preview)) {
-        if (ImGui::Selectable("(none)", pathCommon.has_value() && pathCommon->empty())) {
-            if (forEachSkybox(editor, targets, [&](slopengine::Thing& thing) {
-                    setter(thing, {});
-                })) {
-                changed = true;
-                editor.statusMessage = "Cleared sky cube face";
-            }
-        }
-        for (const std::string& path : texturePaths) {
-            const bool selected = pathCommon.has_value() && *pathCommon == path;
-            if (ImGui::Selectable(path.c_str(), selected)) {
-                if (forEachSkybox(editor, targets, [&](slopengine::Thing& thing) {
-                        setter(thing, path);
-                    })) {
-                    changed = true;
-                    editor.statusMessage = "Set sky cube face";
-                }
-            }
-        }
-        ImGui::EndCombo();
-    }
-    return changed;
-}
-
 bool drawSkyboxSection(
     Editor& editor,
     slopengine::AssetStore& assets,
+    MaterialBrowser& materialBrowser,
     const std::vector<int>& targets) {
     bool changed = false;
     const EditorDocument& doc = editor.doc();
@@ -1890,33 +1870,26 @@ bool drawSkyboxSection(
 
     const auto materialCommon = commonValue<std::string>(
         doc, targets, [](const slopengine::Thing& t) { return t.skyMaterial; });
-    const std::vector<std::string> skyMaterials = scanSkyMaterials(assets);
     const char* materialPreview = !materialCommon.has_value()
         ? "(mixed)"
         : (materialCommon->empty() ? "(none)" : materialCommon->c_str());
-    if (ImGui::BeginCombo("Sky material##skybox", materialPreview)) {
-        if (ImGui::Selectable("(none)", materialCommon.has_value() && materialCommon->empty())) {
-            if (forEachSkybox(editor, targets, [](slopengine::Thing& thing) {
-                    thing.skyMaterial.clear();
-                    thing.haveSkyboxMode = false;
-                })) {
-                changed = true;
-                editor.statusMessage = "Cleared sky material";
-            }
-        }
-        for (const std::string& path : skyMaterials) {
-            const bool selected = materialCommon.has_value() && *materialCommon == path;
-            if (ImGui::Selectable(path.c_str(), selected)) {
+    ImGui::Text("Sky material");
+    ImGui::SameLine();
+    ImGui::TextUnformatted(materialPreview);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Browse…##skymat")) {
+        materialBrowser.openPicker(
+            AssetPickerKind::Material,
+            [&editor, targets](const std::string& path) {
                 if (forEachSkybox(editor, targets, [&path](slopengine::Thing& thing) {
                         thing.skyMaterial = path;
                         thing.haveSkyboxMode = false;
                     })) {
-                    changed = true;
-                    editor.statusMessage = "Set sky material";
+                    editor.statusMessage =
+                        path.empty() ? "Cleared sky material" : "Set sky material";
                 }
-            }
-        }
-        ImGui::EndCombo();
+            },
+            AssetPickerOptions{.skyMaterialsOnly = true, .allowNone = true});
     }
 
     if (!targets.empty()) {
@@ -2071,21 +2044,19 @@ bool drawSkyboxSection(
                     {"-Z (nz)", &slopengine::Thing::skyCubeNz},
                 };
                 for (const FaceBinding& face : faces) {
-                    if (drawSkyTextureCombo(
-                            editor,
-                            assets,
-                            targets,
-                            face.label,
-                            [field = face.field](const slopengine::Thing& thing) {
-                                return thing.*field;
-                            },
-                            [field = face.field](slopengine::Thing& thing, const std::string& path) {
-                                thing.*field = path;
-                                thing.haveSkyboxMode = true;
-                                thing.skyboxMode = slopengine::SkyboxMode::Cube;
-                            })) {
-                        changed = true;
-                    }
+                    drawSkyTextureField(
+                        editor,
+                        materialBrowser,
+                        targets,
+                        face.label,
+                        [field = face.field](const slopengine::Thing& thing) {
+                            return thing.*field;
+                        },
+                        [field = face.field](slopengine::Thing& thing, const std::string& path) {
+                            thing.*field = path;
+                            thing.haveSkyboxMode = true;
+                            thing.skyboxMode = slopengine::SkyboxMode::Cube;
+                        });
                 }
             }
         }
@@ -2185,6 +2156,7 @@ bool drawPickupSection(
 ThingPanelResult ThingPanel::drawSection(
     Editor& editor,
     slopengine::AssetStore& assets,
+    MaterialBrowser& materialBrowser,
     float bodyHeight) {
     ThingPanelResult result{};
     if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
@@ -2229,7 +2201,7 @@ ThingPanelResult ThingPanel::drawSection(
     } else if (editKind == ThingEditKind::Particle) {
         result.changed = drawParticleSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Skybox) {
-        result.changed = drawSkyboxSection(editor, assets, targets) || result.changed;
+        result.changed = drawSkyboxSection(editor, assets, materialBrowser, targets) || result.changed;
     }
 
     ImGui::EndChild();

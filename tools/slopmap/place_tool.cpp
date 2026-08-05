@@ -2,6 +2,7 @@
 
 #include "map/prefab.hpp"
 #include "map/thing_def_registry.hpp"
+#include "preview.hpp"
 
 namespace slopmap {
 
@@ -61,6 +62,53 @@ const char* placeKindLabel(const Editor& editor, slopengine::ThingKind kind) {
 
 } // namespace
 
+void PlaceTool::resetHover() {
+    hoverValid = false;
+    hoverPlane = {};
+    hoverPoint = {};
+}
+
+bool PlaceTool::needsPosition(const Editor& editor) const {
+    if (editor.mode != EditorMode::Place) {
+        return false;
+    }
+    if (editor.placeTarget == PlaceTarget::PrefabInstance) {
+        return true;
+    }
+    if (!editor.placeThingKind.has_value()) {
+        return false;
+    }
+    const slopengine::ThingKind kind = *editor.placeThingKind;
+    return kind != slopengine::ThingKind::Skybox && kind != slopengine::ThingKind::Sun &&
+        kind != slopengine::ThingKind::AmbientLight;
+}
+
+void PlaceTool::updateHover(Editor& editor, const Camera3D& camera) {
+    hoverValid = false;
+    if (!needsPosition(editor)) {
+        return;
+    }
+    const Ray ray = mouseRay(camera, editor.contentViewport);
+    if (pickConstructionPlane(editor, ray, hoverPlane, hoverPoint)) {
+        hoverValid = true;
+    }
+}
+
+void PlaceTool::drawPreview(Vector3 eye, float lineWidth) const {
+    if (!hoverValid) {
+        return;
+    }
+    const float normalStub = std::max(0.25f, lineWidth * 14.0f);
+    drawConstructionPlaneGizmo(
+        hoverPoint,
+        hoverPlane.axisU,
+        hoverPlane.axisV,
+        hoverPlane.normal,
+        eye,
+        lineWidth,
+        normalStub);
+}
+
 void PlaceTool::update(
     Editor& editor,
     slopengine::AssetStore& assets,
@@ -69,8 +117,14 @@ void PlaceTool::update(
     bool uiWantsKeyboard) {
     (void)uiWantsKeyboard;
     if (editor.mode != EditorMode::Place) {
+        resetHover();
         return;
     }
+
+    if (!uiWantsMouse) {
+        updateHover(editor, camera);
+    }
+
     if (uiWantsMouse) {
         return;
     }
@@ -90,17 +144,16 @@ void PlaceTool::update(
         }
 
         if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (hoverValid) {
+                editor.statusMessage = "Place prefab: click to confirm";
+            } else {
+                editor.statusMessage = "Place prefab: aim at the grid or a brush face";
+            }
             return;
         }
 
-        const ConstructionPlane plane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
-        Vector3 hit{};
-        if (!rayPlaneIntersection(
-                mouseRay(camera, editor.contentViewport),
-                plane.origin,
-                plane.normal,
-                hit)) {
-            editor.statusMessage = "Place: click the ground grid";
+        if (!hoverValid) {
+            editor.statusMessage = "Place: aim at the grid or a brush face";
             return;
         }
 
@@ -108,7 +161,7 @@ void PlaceTool::update(
         slopengine::PrefabInstance instance;
         instance.path = editor.placePrefabPath;
         instance.id = editor.allocatePrefabId();
-        instance.at = snapToGrid(hit, editor.gridSize);
+        instance.at = hoverPoint;
         instance.angles = {};
         editor.doc().instances.push_back(std::move(instance));
         const int index = static_cast<int>(editor.doc().instances.size()) - 1;
@@ -118,6 +171,7 @@ void PlaceTool::update(
         editor.rebuildPreview(assets);
         editor.endEdit();
         editor.mode = EditorMode::Select;
+        resetHover();
         editor.statusMessage = "Placed " + editor.doc().instances.back().id + " (" +
             editor.placePrefabPath + ") — G move, R rotate";
         return;
@@ -130,9 +184,16 @@ void PlaceTool::update(
 
     const slopengine::ThingKind kind = *editor.placeThingKind;
     const char* label = placeKindLabel(editor, kind);
+    const bool positioned = needsPosition(editor);
 
     if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        if (slopengine::thingKindNeedsPresentation(kind)) {
+        if (positioned) {
+            if (hoverValid) {
+                editor.statusMessage = std::string("Place ") + label + ": click to confirm";
+            } else {
+                editor.statusMessage = std::string("Place ") + label + ": aim at the grid or a brush face";
+            }
+        } else if (slopengine::thingKindNeedsPresentation(kind)) {
             editor.statusMessage =
                 std::string("Place ") + label + ": click viewport, then set asset in Properties";
         } else {
@@ -141,15 +202,24 @@ void PlaceTool::update(
         return;
     }
 
-    const ConstructionPlane plane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
     Vector3 hit{};
-    if (!rayPlaneIntersection(
-            mouseRay(camera, editor.contentViewport),
-            plane.origin,
-            plane.normal,
-            hit)) {
-        editor.statusMessage = "Place: click the ground grid";
-        return;
+    if (positioned) {
+        if (!hoverValid) {
+            editor.statusMessage = "Place: aim at the grid or a brush face";
+            return;
+        }
+        hit = hoverPoint;
+    } else {
+        const ConstructionPlane plane = constructionPlaneForView(editor.viewPlane, editor.gridPlane);
+        if (!rayPlaneIntersection(
+                mouseRay(camera, editor.contentViewport),
+                plane.origin,
+                plane.normal,
+                hit)) {
+            editor.statusMessage = "Place: click the viewport";
+            return;
+        }
+        hit = snapOnConstructionPlane(hit, plane, editor.gridSize);
     }
 
     slopengine::Thing thing{};
@@ -161,7 +231,7 @@ void PlaceTool::update(
         editor.prepareEdit();
         slopengine::applyThingDef(*catalogDef, thing);
         thing.id = editor.allocateThingId(catalogDef->id.c_str());
-        thing.at = snapToGrid(hit, editor.gridSize);
+        thing.at = hit;
         thing.haveAt = true;
         editor.doc().things.push_back(std::move(thing));
         const int index = static_cast<int>(editor.doc().things.size()) - 1;
@@ -170,6 +240,7 @@ void PlaceTool::update(
         editor.markThingCompileDirty(catalogDef->kind);
         editor.endEdit();
         editor.mode = EditorMode::Select;
+        resetHover();
         editor.statusMessage =
             "Placed " + editor.doc().things.back().id + " (" + catalogDef->id + ")";
         return;
@@ -200,7 +271,7 @@ void PlaceTool::update(
         kind == slopengine::ThingKind::AmbientLight) {
         thing.haveAt = false;
     } else {
-        thing.at = snapToGrid(hit, editor.gridSize);
+        thing.at = hit;
         thing.haveAt = true;
     }
     if (kind == slopengine::ThingKind::PlayerStart) {
@@ -250,6 +321,7 @@ void PlaceTool::update(
     editor.markThingCompileDirty(kind);
     editor.endEdit();
     editor.mode = EditorMode::Select;
+    resetHover();
     if (kind == slopengine::ThingKind::Prop &&
         editor.placePresentation == PlacePresentation::Sprite) {
         editor.statusMessage =

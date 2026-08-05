@@ -87,7 +87,7 @@ bool ClipTool::hitSelectedFace(
     const Camera3D& camera,
     Vector3& outHit,
     ConstructionPlane& outPlane) const {
-    const Ray ray = mouseRay(camera, editor.contentViewport);
+    const Ray ray = toolMouseRay(editor, camera, editor.contentViewport);
     const EditorDocument& d = editor.doc();
     float bestT = std::numeric_limits<float>::max();
     int bestBrush = -1;
@@ -125,7 +125,7 @@ bool ClipTool::hitSelectedFace(
 bool ClipTool::hitLockedFacePlane(Editor& editor, const Camera3D& camera, Vector3& outHit) const {
     Vector3 hit{};
     if (!rayPlaneIntersection(
-            mouseRay(camera, editor.contentViewport),
+            toolMouseRay(editor, camera, editor.contentViewport),
             construction.origin,
             construction.normal,
             hit)) {
@@ -152,7 +152,9 @@ void ClipTool::beginFromSelection(Editor& editor) {
             return;
         }
     }
+    const Vector2 grabScreen = GetMousePosition();
     phase = ClipPhase::PickingP0;
+    beginToolMouseCapture(editor, grabScreen);
     editor.mode = EditorMode::Select;
     editor.setSelectionMode(SelectionMode::Brush);
     setStatus(editor);
@@ -195,12 +197,7 @@ void ClipTool::commit(Editor& editor) {
         d.brushes.erase(d.brushes.begin() + index);
 
         auto pushKept = [&](slopengine::Brush brush) {
-            std::vector<const slopengine::Brush*> neighbors;
-            neighbors.reserve(d.brushes.size());
-            for (const slopengine::Brush& existing : d.brushes) {
-                neighbors.push_back(&existing);
-            }
-            slopengine::cleanupBrushGeometry(brush, editor.gridSize, neighbors);
+            slopengine::cleanupBrushGeometry(brush, editor.gridSize);
             d.brushes.push_back(std::move(brush));
             created.push_back(static_cast<int>(d.brushes.size()) - 1);
             ++keptCount;

@@ -28,9 +28,10 @@ struct FlyCamera {
     float moveSpeed = 10.0f;
     float fastMultiplier = 2.5f;
     float lookSensitivity = 0.003f;
+    bool wasFlying = false;
 
     Camera3D toRaylib() const;
-    void update(bool allowInput);
+    void update(bool allowInput, bool retainCursorHidden = false);
     Vector3 forward() const;
     Vector3 forwardFlat() const;
     Vector3 rightFlat() const;

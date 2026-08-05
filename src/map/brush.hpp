@@ -131,11 +131,8 @@ struct BrushConvexError {
 
 std::optional<BrushConvexError> validateBrushConvex(const Brush& brush);
 
-/** Weld verts to neighbor verts in the same grid cell, merge exact overlaps, drop degenerates. */
-void cleanupBrushGeometry(
-    Brush& brush,
-    float grid,
-    const std::vector<const Brush*>& neighbors = {});
+/** Weld verts within brush, merge exact overlaps, drop degenerates. */
+void cleanupBrushGeometry(Brush& brush, float grid);
 
 /** Assign face ids/normals/UV axes and bounds; does not require convexity. */
 Brush finalizeBrushFaces(

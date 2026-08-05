@@ -7,13 +7,14 @@
 namespace slopmap {
 
 enum class MaterialViewMode {
+    Grid,
     List,
-    Icons,
+    Folder,
 };
 
 struct EditorSettings {
     std::string thumbnailCachePath;
-    MaterialViewMode materialViewMode = MaterialViewMode::Icons;
+    MaterialViewMode materialViewMode = MaterialViewMode::Grid;
 
     static EditorSettings loadOrDefault();
     bool save() const;

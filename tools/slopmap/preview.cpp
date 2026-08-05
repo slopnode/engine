@@ -919,6 +919,97 @@ void MapPreview::draw(
     }
 }
 
+void drawPlaneCrosshair(
+    Vector3 center,
+    Vector3 axisU,
+    Vector3 axisV,
+    float halfLength,
+    Color uColor,
+    Color vColor,
+    Vector3 eye,
+    float lineWidth) {
+    if (halfLength <= 0.0f || lineWidth <= 0.0f) {
+        return;
+    }
+    const Vector3 u = Vector3Scale(axisU, halfLength);
+    const Vector3 v = Vector3Scale(axisV, halfLength);
+    drawThickLine3D(Vector3Subtract(center, u), Vector3Add(center, u), uColor, lineWidth, eye);
+    drawThickLine3D(Vector3Subtract(center, v), Vector3Add(center, v), vColor, lineWidth, eye);
+}
+
+void drawPlaneQuad(
+    Vector3 center,
+    Vector3 axisU,
+    Vector3 axisV,
+    float halfExtent,
+    Color fill) {
+    if (halfExtent <= 0.0f) {
+        return;
+    }
+    const Vector3 u = Vector3Scale(axisU, halfExtent);
+    const Vector3 v = Vector3Scale(axisV, halfExtent);
+    const Vector3 c0 = Vector3Subtract(Vector3Subtract(center, u), v);
+    const Vector3 c1 = Vector3Add(Vector3Subtract(center, u), v);
+    const Vector3 c2 = Vector3Add(Vector3Add(center, u), v);
+    const Vector3 c3 = Vector3Add(Vector3Subtract(center, u), v);
+    DrawTriangle3D(c0, c1, c2, fill);
+    DrawTriangle3D(c0, c2, c3, fill);
+    DrawTriangle3D(c0, c2, c1, fill);
+    DrawTriangle3D(c0, c3, c2, fill);
+}
+
+void drawDirectionArrow(
+    Vector3 origin,
+    Vector3 direction,
+    float length,
+    Color color,
+    Vector3 eye,
+    float lineWidth) {
+    const float dirLen = Vector3Length(direction);
+    if (dirLen < 1e-6f || length <= 0.0f || lineWidth <= 0.0f) {
+        return;
+    }
+    const Vector3 dir = Vector3Scale(direction, 1.0f / dirLen);
+    const Vector3 tip = Vector3Add(origin, Vector3Scale(dir, length));
+    const float shaftWidth = lineWidth * 1.35f;
+    drawThickLine3D(origin, tip, color, shaftWidth, eye);
+
+    const float headLen = std::clamp(length * 0.18f, lineWidth * 4.0f, length * 0.45f);
+    const Vector3 back = Vector3Scale(dir, -headLen);
+    Vector3 side = Vector3CrossProduct(
+        dir,
+        std::fabs(dir.y) < 0.9f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f});
+    const float sideLen = Vector3Length(side);
+    if (sideLen < 1e-6f) {
+        return;
+    }
+    side = Vector3Scale(side, headLen * 0.45f / sideLen);
+    const Vector3 wingA = Vector3Add(tip, Vector3Add(back, side));
+    const Vector3 wingB = Vector3Add(tip, Vector3Subtract(back, side));
+    drawThickLine3D(tip, wingA, color, shaftWidth * 0.85f, eye);
+    drawThickLine3D(tip, wingB, color, shaftWidth * 0.85f, eye);
+}
+
+void drawConstructionPlaneGizmo(
+    Vector3 point,
+    Vector3 axisU,
+    Vector3 axisV,
+    Vector3 normal,
+    Vector3 eye,
+    float lineWidth,
+    float normalArrowLength) {
+    constexpr Color kUCross{255, 90, 90, 255};
+    constexpr Color kVCross{90, 255, 90, 255};
+    constexpr Color kNormalArrow{80, 160, 255, 255};
+    const float crossHalf = std::max(0.12f, lineWidth * 10.0f);
+    const float planeHalf = std::max(crossHalf * 1.8f, 0.18f);
+    drawPlaneQuad(point, axisU, axisV, planeHalf, Color{255, 255, 255, 22});
+    drawPlaneCrosshair(point, axisU, axisV, crossHalf, kUCross, kVCross, eye, lineWidth);
+    if (normalArrowLength > 0.0f) {
+        drawDirectionArrow(point, normal, normalArrowLength, kNormalArrow, eye, lineWidth);
+    }
+}
+
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color) {
     const Vector3 center{
         0.5f * (mins.x + maxs.x),

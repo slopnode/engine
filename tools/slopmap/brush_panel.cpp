@@ -14,6 +14,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace slopmap {
@@ -51,15 +52,47 @@ bool vec3Equal(Vector3 a, Vector3 b) {
 
 std::vector<int> collectBrushTargets(const EditorDocument& doc) {
     std::vector<int> targets;
-    if (doc.selectionMode != SelectionMode::Brush) {
-        return targets;
-    }
-    for (int index : doc.selectedBrushes) {
+    std::unordered_set<int> seen;
+    auto add = [&](int index) {
         if (index < 0 || index >= static_cast<int>(doc.brushes.size())) {
-            continue;
+            return;
         }
-        targets.push_back(index);
+        if (seen.insert(index).second) {
+            targets.push_back(index);
+        }
+    };
+
+    switch (doc.selectionMode) {
+    case SelectionMode::Brush:
+        for (int index : doc.selectedBrushes) {
+            add(index);
+        }
+        break;
+    case SelectionMode::Face:
+        for (const FaceRef& ref : doc.selectedFaces) {
+            if (ref.valid()) {
+                add(ref.brush);
+            }
+        }
+        break;
+    case SelectionMode::Vert:
+        for (const VertRef& ref : doc.selectedVerts) {
+            if (ref.valid()) {
+                add(ref.brush);
+            }
+        }
+        break;
+    case SelectionMode::Edge:
+        for (const EdgeRef& ref : doc.selectedEdges) {
+            if (ref.valid()) {
+                add(ref.brush);
+            }
+        }
+        break;
+    case SelectionMode::Entity:
+        break;
     }
+    std::sort(targets.begin(), targets.end());
     return targets;
 }
 
@@ -232,71 +265,6 @@ bool checkboxMixed(const char* label, bool* value, bool mixed) {
     return changed;
 }
 
-BrushPanelResult drawFaceSection(Editor& editor, float bodyHeight) {
-    BrushPanelResult result{};
-    if (!ImGui::BeginChild("##brushsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
-        ImGui::EndChild();
-        return result;
-    }
-
-    const EditorDocument& doc = editor.doc();
-    const std::vector<FaceTarget> targets = collectFaceTargets(doc);
-    if (targets.empty()) {
-        ImGui::TextDisabled("Select face(s) to edit");
-        ImGui::EndChild();
-        return result;
-    }
-
-    const int count = static_cast<int>(targets.size());
-    if (count == 1) {
-        const slopengine::BrushFace* face = faceAt(doc, targets.front());
-        const slopengine::Brush* brush = brushAt(doc, targets.front().brush);
-        if (face != nullptr && brush != nullptr) {
-            ImGui::Text("Brush: %s", brush->id.c_str());
-            ImGui::Text("Face: %s", face->id.empty() ? "(unnamed)" : face->id.c_str());
-        }
-    } else {
-        ImGui::Text("%d faces selected", count);
-    }
-    ImGui::Separator();
-
-    const auto onUseCommon = commonFaceValue<slopengine::HandlerBinding>(
-        doc, targets, [](const slopengine::BrushFace& f) { return f.onUse; });
-    const auto onTouchCommon = commonFaceValue<slopengine::HandlerBinding>(
-        doc, targets, [](const slopengine::BrushFace& f) { return f.onTouch; });
-
-    if (drawHandlerBindingEditor(
-            editor,
-            "On use",
-            "onuse",
-            slopengine::MapHandlerKind::Use,
-            onUseCommon,
-            [&](slopengine::HandlerBinding& next) {
-                forEachFace(editor, targets, [&](slopengine::BrushFace& face) {
-                    face.onUse = next;
-                });
-            })) {
-        result.changed = true;
-    }
-
-    if (drawHandlerBindingEditor(
-            editor,
-            "On touch",
-            "ontouch",
-            slopengine::MapHandlerKind::Touch,
-            onTouchCommon,
-            [&](slopengine::HandlerBinding& next) {
-                forEachFace(editor, targets, [&](slopengine::BrushFace& face) {
-                    face.onTouch = next;
-                });
-            })) {
-        result.changed = true;
-    }
-
-    ImGui::EndChild();
-    return result;
-}
-
 BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
     BrushPanelResult result{};
     if (!ImGui::BeginChild("##brushsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
@@ -307,7 +275,7 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
     const EditorDocument& doc = editor.doc();
     const std::vector<int> targets = collectBrushTargets(doc);
     if (targets.empty()) {
-        ImGui::TextDisabled("Select brush(es) to edit");
+        ImGui::TextDisabled("Select brush, face, edge, or vert");
         ImGui::EndChild();
         return result;
     }
@@ -341,10 +309,6 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
         doc,
         targets,
         [](const slopengine::Brush& b) { return b.role; });
-    const auto nocollideCommon = commonValue<bool>(
-        doc,
-        targets,
-        [](const slopengine::Brush& b) { return b.nocollide; });
     const auto boxCommon = commonValue<bool>(
         doc,
         targets,
@@ -393,20 +357,6 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
     }
     if (!roleCommon.has_value() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
         ImGui::SetTooltip("mixed values");
-    }
-
-    bool nocollide = nocollideCommon.value_or(false);
-    if (checkboxMixed("Nocollide", &nocollide, !nocollideCommon.has_value())) {
-        if (forEachBrush(editor, targets, [nocollide](slopengine::Brush& brush, slopengine::BrushRole) {
-                if (nocollide) {
-                    slopengine::setBrushBlocks(brush, 0);
-                } else {
-                    slopengine::setBrushBlocks(brush, slopengine::brushRoleDefaultBlocks(brush.role));
-                }
-            })) {
-            result.changed = true;
-            editor.statusMessage = nocollide ? "Set brush nocollide" : "Cleared brush nocollide";
-        }
     }
 
     ImGui::TextUnformatted("Blocking");
@@ -484,21 +434,12 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
         "Cleared brush block actor");
 
     ImGui::Separator();
+    ImGui::TextUnformatted("Brush");
+
     if (boxCommon.has_value()) {
         ImGui::Text("Shape: %s", *boxCommon ? "box" : "convex");
     } else {
         ImGui::TextDisabled("Shape: mixed");
-    }
-
-    if (minsCommon.has_value() && maxsCommon.has_value()) {
-        const Vector3 size = {
-            maxsCommon->x - minsCommon->x,
-            maxsCommon->y - minsCommon->y,
-            maxsCommon->z - minsCommon->z,
-        };
-        ImGui::Text("Size: %.2f × %.2f × %.2f", size.x, size.y, size.z);
-    } else {
-        ImGui::TextDisabled("Size: mixed");
     }
 
     if (count == 1) {
@@ -506,6 +447,59 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
         if (brush != nullptr) {
             ImGui::Text("Faces: %d", static_cast<int>(brush->faces.size()));
         }
+    } else {
+        ImGui::Text("%d brushes", count);
+    }
+
+    const bool boundsMixed = !minsCommon.has_value() || !maxsCommon.has_value();
+    constexpr float kLabelW = 48.0f;
+    auto drawVec3Line = [&](const char* label, float x, float y, float z) {
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float colW = (avail - kLabelW) / 3.0f;
+        ImGui::TextUnformatted(label);
+        const float values[] = {x, y, z};
+        for (int i = 0; i < 3; ++i) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.4f", values[i]);
+            ImGui::SameLine(kLabelW + static_cast<float>(i) * colW);
+            const float textW = ImGui::CalcTextSize(buf).x;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + colW - textW);
+            ImGui::TextUnformatted(buf);
+        }
+    };
+    auto drawVec3LineMixed = [&](const char* label) {
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float colW = (avail - kLabelW) / 3.0f;
+        ImGui::TextUnformatted(label);
+        for (int i = 0; i < 3; ++i) {
+            ImGui::SameLine(kLabelW + static_cast<float>(i) * colW);
+            const char* dash = "—";
+            const float textW = ImGui::CalcTextSize(dash).x;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + colW - textW);
+            ImGui::TextDisabled("%s", dash);
+        }
+    };
+
+    if (boundsMixed) {
+        drawVec3LineMixed("Size");
+        drawVec3LineMixed("Origin");
+        drawVec3LineMixed("Mins");
+        drawVec3LineMixed("Maxs");
+    } else {
+        const Vector3 size = {
+            maxsCommon->x - minsCommon->x,
+            maxsCommon->y - minsCommon->y,
+            maxsCommon->z - minsCommon->z,
+        };
+        const Vector3 origin = {
+            0.5f * (minsCommon->x + maxsCommon->x),
+            0.5f * (minsCommon->y + maxsCommon->y),
+            0.5f * (minsCommon->z + maxsCommon->z),
+        };
+        drawVec3Line("Size", size.x, size.y, size.z);
+        drawVec3Line("Origin", origin.x, origin.y, origin.z);
+        drawVec3Line("Mins", minsCommon->x, minsCommon->y, minsCommon->z);
+        drawVec3Line("Maxs", maxsCommon->x, maxsCommon->y, maxsCommon->z);
     }
 
     const auto roleIsDoor = commonValue<bool>(
@@ -730,12 +724,56 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
     return result;
 }
 
+bool drawFaceHandlerSectionImpl(Editor& editor) {
+    const EditorDocument& doc = editor.doc();
+    const std::vector<FaceTarget> targets = collectFaceTargets(doc);
+    if (targets.empty()) {
+        return false;
+    }
+
+    bool changed = false;
+    const auto onUseCommon = commonFaceValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::BrushFace& f) { return f.onUse; });
+    const auto onTouchCommon = commonFaceValue<slopengine::HandlerBinding>(
+        doc, targets, [](const slopengine::BrushFace& f) { return f.onTouch; });
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On use",
+            "surfaceonuse",
+            slopengine::MapHandlerKind::Use,
+            onUseCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachFace(editor, targets, [&](slopengine::BrushFace& face) {
+                    face.onUse = next;
+                });
+            })) {
+        changed = true;
+    }
+
+    if (drawHandlerBindingEditor(
+            editor,
+            "On touch",
+            "surfaceontouch",
+            slopengine::MapHandlerKind::Touch,
+            onTouchCommon,
+            [&](slopengine::HandlerBinding& next) {
+                forEachFace(editor, targets, [&](slopengine::BrushFace& face) {
+                    face.onTouch = next;
+                });
+            })) {
+        changed = true;
+    }
+    return changed;
+}
+
 } // namespace
 
+bool drawFaceHandlerSection(Editor& editor) {
+    return drawFaceHandlerSectionImpl(editor);
+}
+
 BrushPanelResult BrushPanel::drawSection(Editor& editor, float bodyHeight) {
-    if (editor.doc().selectionMode == SelectionMode::Face) {
-        return drawFaceSection(editor, bodyHeight);
-    }
     return drawBrushSection(editor, bodyHeight);
 }
 

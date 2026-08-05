@@ -360,6 +360,7 @@ void drawScene(
     slopengine::AssetStore& assets,
     const Camera3D& camera,
     const slopmap::CreateTool& createTool,
+    const slopmap::PlaceTool& placeTool,
     const slopmap::PunchTool& punchTool,
     const slopmap::ClipTool& clipTool,
     const slopmap::InfiniteGrid& infiniteGrid,
@@ -648,9 +649,16 @@ void drawScene(
         slopmap::drawParticlePreview(particlePreview, assets, d.things, camera);
     }
 
-    createTool.drawPreview();
+    rlDrawRenderBatchActive();
+    rlDisableDepthTest();
+    rlDisableDepthMask();
+    createTool.drawPreview(eye, lineWidth);
+    placeTool.drawPreview(eye, lineWidth);
     punchTool.drawPreview();
     clipTool.drawPreview(editor, eye, lineWidth);
+    rlDrawRenderBatchActive();
+    rlEnableDepthMask();
+    rlEnableDepthTest();
     if (ortho) {
         rlEnableBackfaceCulling();
     }
@@ -723,6 +731,7 @@ void cancelTools(
     createTool.reset();
     punchTool.reset();
     clipTool.reset();
+    slopmap::endToolMouseCapture(editor);
     editor.showPrimitiveParamsModal = false;
     editor.showHollowModal = false;
     selectTool.cancelTranslate(editor);
@@ -1039,9 +1048,20 @@ int main(int argc, char* argv[]) {
 
         rlImGuiBegin();
         ImGuiIO& io = ImGui::GetIO();
-        const bool uiWantsMouse = io.WantCaptureMouse;
-        const bool uiWantsKeyboard = io.WantCaptureKeyboard;
+        const bool createCapturesMouse = createTool.active();
+        const bool toolCapturesMouse = selectTool.active() || createCapturesMouse ||
+            punchTool.active() || clipTool.active();
+        if (toolCapturesMouse) {
+            io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+        }
+        const bool uiWantsMouse = toolCapturesMouse ? false : io.WantCaptureMouse;
+        const bool uiWantsKeyboard = toolCapturesMouse ? false : io.WantCaptureKeyboard;
         const bool rmbFly = IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
+        const bool captureMouse = toolCapturesMouse && !rmbFly;
+
+        if (!captureMouse && editor.toolMouseCapture.active) {
+            slopmap::endToolMouseCapture(editor);
+        }
 
         const float chromeHeight = ImGui::GetFrameHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
@@ -1069,10 +1089,15 @@ int main(int argc, char* argv[]) {
         }
         const bool allowFly =
             !uiWantsKeyboard && !uiWantsMouse && (mouseInContent || IsCursorHidden());
+        if (captureMouse && !editor.toolMouseCapture.active) {
+            slopmap::beginToolMouseCapture(editor);
+        }
+        const bool retainCursorHidden = editor.toolMouseCapture.active && !rmbFly;
         if (flyPane >= 0 && allowFly) {
-            editor.viewports[static_cast<std::size_t>(flyPane)].camera.update(true);
+            editor.viewports[static_cast<std::size_t>(flyPane)].camera.update(true, retainCursorHidden);
         } else {
-            editor.viewports[static_cast<std::size_t>(editor.activeViewport)].camera.update(false);
+            editor.viewports[static_cast<std::size_t>(editor.activeViewport)].camera.update(
+                false, retainCursorHidden);
         }
         editor.syncActiveCameraFromBank();
 
@@ -2059,8 +2084,7 @@ int main(int argc, char* argv[]) {
         const std::size_t instanceCountBefore = editor.doc().instances.size();
         const bool dirtyBefore = editor.doc().dirty;
 
-        const bool toolActive = selectTool.active() || createTool.active() ||
-            punchTool.active() || clipTool.active();
+        const bool toolActive = toolCapturesMouse;
         const bool blockTools = rmbFly || uiWantsMouse || (!mouseInContent && !toolActive);
         if (clipTool.active()) {
             clipTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
@@ -2119,6 +2143,7 @@ int main(int argc, char* argv[]) {
                     assets,
                     paneCamera,
                     createTool,
+                    placeTool,
                     punchTool,
                     clipTool,
                     infiniteGrid,
@@ -2474,8 +2499,9 @@ int main(int argc, char* argv[]) {
                     }
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
                         ImGui::SetTooltip(
-                            "Transform space. Relative: face move along normal. "
-                            "Global: world axes.");
+                            "Transform space for face translate/rotate. "
+                            "Relative: along face normal or brush-local axes. "
+                            "Global: world X/Y/Z.");
                     }
                 }
 
@@ -2778,7 +2804,7 @@ int main(int argc, char* argv[]) {
                 ImGui::TextUnformatted("Properties");
                 const float propsH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
                 if (d.selectionMode == slopmap::SelectionMode::Entity) {
-                    thingPanel.drawSection(editor, assets, propsH);
+                    thingPanel.drawSection(editor, assets, materialBrowser, propsH);
                 } else {
                     brushPanel.drawSection(editor, propsH);
                 }
@@ -2801,21 +2827,14 @@ int main(int argc, char* argv[]) {
                     ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.y);
 
                 if (ImGui::BeginTabBar("##libraryTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
-                    if (ImGui::BeginTabItem("Materials")) {
+                    if (ImGui::BeginTabItem("Surface")) {
                         const slopmap::MaterialBrowserResult matResult =
-                            materialBrowser.drawSection(editor, assets, editorSettings, bodyH);
+                            materialBrowser.drawSurfaceSection(
+                                editor, assets, editorSettings, texturePanel, bodyH);
                         if (matResult.requestRescan) {
                             materialBrowser.rescan(assets);
                         }
                         if (matResult.applied) {
-                            editor.rebuildPreview(assets);
-                        }
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("UV")) {
-                        const slopmap::TexturePanelResult texResult =
-                            texturePanel.drawSection(editor, assets, bodyH);
-                        if (texResult.changed) {
                             editor.rebuildPreview(assets);
                         }
                         ImGui::EndTabItem();
@@ -3304,17 +3323,26 @@ int main(int argc, char* argv[]) {
                 constexpr const char* kIcons = kDefaultIconSet;
                 const float pad = ImGui::GetStyle().WindowPadding.x;
                 const float btn = ImGui::GetFrameHeight();
+                const float gridBtnIcon = btn - 2.0f;
                 const float gridLabelW = 72.0f;
                 const float planeW = 28.0f;
-                const float roleW = 108.0f;
                 const float gap = 10.0f;
-                const float controlsW = btn + planeW + gridLabelW + btn * 2.0f + gap + roleW;
+                const float controlsW = btn + planeW + gridLabelW + btn * 2.0f + gap;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
                 const float stageChipW = 180.0f;
                 ImGui::PushTextWrapPos(controlsX - stageChipW - 12.0f);
                 ImGui::TextUnformatted(
                     editor.statusMessage.empty() ? "Ready" : editor.statusMessage.c_str());
+                if (editor.mode == slopmap::EditorMode::Create) {
+                    char createMetrics[160];
+                    if (createTool.formatCreateMetrics(createMetrics, sizeof(createMetrics))) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("|");
+                        ImGui::SameLine();
+                        ImGui::TextUnformatted(createMetrics);
+                    }
+                }
                 ImGui::PopTextWrapPos();
 
                 ImGui::SameLine(controlsX - stageChipW);
@@ -3339,7 +3367,8 @@ int main(int argc, char* argv[]) {
                 ImGui::SameLine(controlsX);
                 ImGui::BeginGroup();
                 {
-                    auto iconButton = [&](const char* id, const char* icon) -> bool {
+                    auto iconButton =
+                        [&](const char* id, const char* icon, float iconSize = 16.0f) -> bool {
                         ImGui::PushID(id);
                         const bool pressed = ImGui::InvisibleButton("##", ImVec2(btn, btn));
                         const IconAtlas* atlas = assets.getIconAtlas(kIcons);
@@ -3347,8 +3376,8 @@ int main(int argc, char* argv[]) {
                             if (const auto rect = findIconRect(*atlas, icon)) {
                                 const ImVec2 min = ImGui::GetItemRectMin();
                                 const ImVec2 max = ImGui::GetItemRectMax();
-                                const float x = min.x + (max.x - min.x - 16.0f) * 0.5f;
-                                const float y = min.y + (max.y - min.y - 16.0f) * 0.5f;
+                                const float x = min.x + (max.x - min.x - iconSize) * 0.5f;
+                                const float y = min.y + (max.y - min.y - iconSize) * 0.5f;
                                 const float tw = static_cast<float>(atlas->texture.width);
                                 const float th = static_cast<float>(atlas->texture.height);
                                 const float u0 = rect->x / tw;
@@ -3362,7 +3391,7 @@ int main(int argc, char* argv[]) {
                                 ImGui::GetWindowDrawList()->AddImage(
                                     (ImTextureID)(intptr_t)atlas->texture.id,
                                     ImVec2(x, y),
-                                    ImVec2(x + 16.0f, y + 16.0f),
+                                    ImVec2(x + iconSize, y + iconSize),
                                     ImVec2(u0, v0),
                                     ImVec2(u1, v1),
                                     tint);
@@ -3407,29 +3436,29 @@ int main(int argc, char* argv[]) {
                     }
 
                     ImGui::SameLine(0.0f, 0.0f);
-                    if (iconButton("grid-finer", "bullet_toggle_minus")) {
+                    if (iconButton("grid-finer", "bullet_toggle_minus", gridBtnIcon)) {
                         editor.cycleGrid(1);
                     }
                     ImGui::SameLine(0.0f, 0.0f);
-                    if (iconButton("grid-coarser", "bullet_toggle_plus")) {
+                    if (iconButton("grid-coarser", "bullet_toggle_plus", gridBtnIcon)) {
                         editor.cycleGrid(-1);
-                    }
-
-                    ImGui::SameLine(0.0f, gap);
-                    if (editor.mode == slopmap::EditorMode::Create) {
-                        if (ImGui::SmallButton(brushRoleToolbarLabel(editor.createBrushRole))) {
-                            editor.createBrushRole = nextBrushRole(editor.createBrushRole);
-                            editor.statusMessage = std::string("Create role: ") +
-                                brushRoleToolbarLabel(editor.createBrushRole);
-                        }
-                    } else {
-                        ImGui::Dummy(ImVec2(roleW, btn));
                     }
                 }
                 ImGui::EndGroup();
             }
             ImGui::End();
             ImGui::PopStyleVar();
+        }
+
+        {
+            const slopmap::MaterialBrowserResult pickerResult =
+                materialBrowser.drawPopup(assets, editorSettings);
+            if (pickerResult.requestRescan) {
+                materialBrowser.rescan(assets);
+            }
+            if (pickerResult.applied) {
+                editor.rebuildPreview(assets);
+            }
         }
 
         if (editor.showHollowModal) {
@@ -3830,6 +3859,10 @@ int main(int argc, char* argv[]) {
 
         if (!selectTool.active() && !ImGui::IsAnyItemActive()) {
             editor.endEdit();
+        }
+
+        if (toolCapturesMouse) {
+            io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
         }
 
         rlImGuiEnd();
