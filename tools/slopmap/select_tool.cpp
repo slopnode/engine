@@ -98,13 +98,19 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
             return sub3(thing.haveAt ? thing.at : Vector3{}, tool.entityAtSnapshots[0]);
         }
     }
-    if (d.selectionMode == SelectionMode::Face && tool.faceTranslate.valid() &&
+    if (d.selectionMode == SelectionMode::Face && d.activeFace.valid() &&
         !tool.brushSnapshot.empty() && !tool.brushSnapshotIndices.empty()) {
-        const slopengine::Brush& src = tool.brushSnapshot[0];
-        const int faceIndex = tool.faceTranslate.face;
-        if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
+        for (std::size_t i = 0; i < tool.brushSnapshotIndices.size(); ++i) {
+            if (tool.brushSnapshotIndices[i] != d.activeFace.brush) {
+                continue;
+            }
+            const slopengine::Brush& src = tool.brushSnapshot[i];
+            const int faceIndex = d.activeFace.face;
+            if (faceIndex < 0 || faceIndex >= static_cast<int>(src.faces.size())) {
+                break;
+            }
             const auto& oldFace = src.faces[static_cast<std::size_t>(faceIndex)];
-            const int brushIndex = tool.brushSnapshotIndices[0];
+            const int brushIndex = tool.brushSnapshotIndices[i];
             if (brushIndex >= 0 && brushIndex < static_cast<int>(d.brushes.size()) &&
                 faceIndex < static_cast<int>(
                     d.brushes[static_cast<std::size_t>(brushIndex)].faces.size()) &&
@@ -116,6 +122,7 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
                     return sub3(newFace.vertices[0], oldFace.vertices[0]);
                 }
             }
+            break;
         }
     }
     if ((d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) &&
@@ -191,12 +198,18 @@ std::optional<Vector3> constrainedTranslateAxis(
     const Editor& editor,
     const SelectTool& tool) {
     if (editor.doc().selectionMode == SelectionMode::Face &&
-        editor.transformSpace == TransformSpace::Relative && tool.faceTranslate.valid() &&
+        editor.transformSpace == TransformSpace::Relative && editor.doc().activeFace.valid() &&
         !tool.brushSnapshot.empty()) {
-        const int faceIndex = tool.faceTranslate.face;
-        const slopengine::Brush& src = tool.brushSnapshot[0];
-        if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
-            return normalize3(src.faces[static_cast<std::size_t>(faceIndex)].normal);
+        for (std::size_t i = 0; i < tool.brushSnapshotIndices.size(); ++i) {
+            if (tool.brushSnapshotIndices[i] != editor.doc().activeFace.brush) {
+                continue;
+            }
+            const int faceIndex = editor.doc().activeFace.face;
+            const slopengine::Brush& src = tool.brushSnapshot[i];
+            if (faceIndex >= 0 && faceIndex < static_cast<int>(src.faces.size())) {
+                return normalize3(src.faces[static_cast<std::size_t>(faceIndex)].normal);
+            }
+            break;
         }
     }
     switch (tool.axisLock) {
@@ -665,6 +678,25 @@ void collectEdgeSeeds(
     }
 }
 
+void collectFaceSeeds(
+    const slopengine::Brush& brush,
+    const std::vector<FaceRef>& refs,
+    int brushIndex,
+    std::vector<Vector3>& seeds) {
+    for (const FaceRef& ref : refs) {
+        if (ref.brush != brushIndex || !ref.valid()) {
+            continue;
+        }
+        if (ref.face >= static_cast<int>(brush.faces.size())) {
+            continue;
+        }
+        const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+        for (const Vector3& v : verts) {
+            appendUniqueSeed(seeds, v);
+        }
+    }
+}
+
 bool seedMatches(const std::vector<Vector3>& seeds, Vector3 pos) {
     for (const Vector3& seed : seeds) {
         if (vertsNear(seed, pos)) {
@@ -1123,7 +1155,6 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
     entityAnglesSnapshots.clear();
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
 
     if (d.selectionMode == SelectionMode::Entity) {
         if (d.selectedEntities.empty()) {
@@ -1155,17 +1186,30 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
         }
         translateOrigin = editor.selectionCenter();
     } else if (d.selectionMode == SelectionMode::Face) {
-        if (!d.activeFace.valid() ||
-            d.activeFace.brush >= static_cast<int>(d.brushes.size())) {
+        if (d.selectedFaces.empty()) {
             return;
         }
-        faceTranslate = d.activeFace;
+        std::unordered_set<int> brushSet;
+        for (const FaceRef& ref : d.selectedFaces) {
+            if (ref.brush >= 0) {
+                brushSet.insert(ref.brush);
+            }
+        }
         translating = true;
         axisLock = TranslateAxis::None;
         numericActive = false;
         editor.numericBuffer.clear();
-        brushSnapshotIndices.push_back(faceTranslate.brush);
-        brushSnapshot.push_back(d.brushes[static_cast<std::size_t>(faceTranslate.brush)]);
+        for (int index : brushSet) {
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            brushSnapshotIndices.push_back(index);
+            brushSnapshot.push_back(d.brushes[static_cast<std::size_t>(index)]);
+        }
+        if (brushSnapshot.empty()) {
+            translating = false;
+            return;
+        }
         translateOrigin = editor.selectionCenter();
     } else if (
         d.selectionMode == SelectionMode::Vert || d.selectionMode == SelectionMode::Edge) {
@@ -1266,39 +1310,50 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
         return;
     }
 
-    if (d.selectionMode == SelectionMode::Face && faceTranslate.valid()) {
-        const slopengine::Brush& src = brushSnapshot[0];
-        if (faceTranslate.face < 0 ||
-            faceTranslate.face >= static_cast<int>(src.faces.size())) {
-            return;
-        }
-        const slopengine::BrushFace& face =
-            src.faces[static_cast<std::size_t>(faceTranslate.face)];
-        if (editor.transformSpace == TransformSpace::Relative) {
-            const float rawDistance = dot3(delta, face.normal);
-            float distance = rawDistance;
-            if (!exact) {
-                const Vector3 originPoint =
-                    face.vertices.empty() ? translateOrigin : face.vertices[0];
-                const float originAlong = dot3(originPoint, face.normal);
-                distance = snapTranslateDistance(
-                    rawDistance, originAlong, editor.gridSize, editor.translateSnapMode);
-            }
-            d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-                pushFace(src, faceTranslate.face, distance, assets);
-            return;
-        }
-        if (!exact) {
-            delta = snapTranslateDelta(
+    if (d.selectionMode == SelectionMode::Face && !d.selectedFaces.empty()) {
+        Vector3 snappedDelta = delta;
+        if (editor.transformSpace != TransformSpace::Relative && !exact) {
+            snappedDelta = snapTranslateDelta(
                 delta, translateOrigin, editor.gridSize, editor.translateSnapMode);
         }
-        std::vector<Vector3> seeds;
-        seeds.reserve(face.vertices.size());
-        for (const Vector3& v : face.vertices) {
-            appendUniqueSeed(seeds, v);
+        for (std::size_t i = 0; i < brushSnapshot.size(); ++i) {
+            const int index = brushSnapshotIndices[i];
+            if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+                continue;
+            }
+            if (editor.transformSpace == TransformSpace::Relative) {
+                slopengine::Brush brush = brushSnapshot[i];
+                for (const FaceRef& ref : d.selectedFaces) {
+                    if (ref.brush != index || !ref.valid()) {
+                        continue;
+                    }
+                    if (ref.face < 0 || ref.face >= static_cast<int>(brush.faces.size())) {
+                        continue;
+                    }
+                    const slopengine::BrushFace& face =
+                        brush.faces[static_cast<std::size_t>(ref.face)];
+                    const float rawDistance = dot3(delta, face.normal);
+                    float distance = rawDistance;
+                    if (!exact) {
+                        const Vector3 originPoint =
+                            face.vertices.empty() ? translateOrigin : face.vertices[0];
+                        const float originAlong = dot3(originPoint, face.normal);
+                        distance = snapTranslateDistance(
+                            rawDistance,
+                            originAlong,
+                            editor.gridSize,
+                            editor.translateSnapMode);
+                    }
+                    brush = pushFace(brush, ref.face, distance, assets);
+                }
+                d.brushes[static_cast<std::size_t>(index)] = brush;
+            } else {
+                std::vector<Vector3> seeds;
+                collectFaceSeeds(brushSnapshot[i], d.selectedFaces, index, seeds);
+                d.brushes[static_cast<std::size_t>(index)] =
+                    moveWeldedVerts(brushSnapshot[i], seeds, snappedDelta, assets);
+            }
         }
-            d.brushes[static_cast<std::size_t>(brushSnapshotIndices[0])] =
-            moveWeldedVerts(src, seeds, delta, assets);
         return;
     }
 
@@ -1388,7 +1443,6 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
     brushSnapshotIndices.clear();
     entityAtSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
     editor.markDirty();
     if (anyInstance) {
         editor.markBspDirty();
@@ -1415,7 +1469,6 @@ void SelectTool::cancelTranslate(Editor& editor) {
     brushSnapshotIndices.clear();
     entityAtSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
     editor.abortEdit();
     endToolMouseCapture(editor);
     editor.statusMessage = "Translate cancelled";
@@ -1499,13 +1552,22 @@ void SelectTool::handleNumeric(
     }
 
     Vector3 delta{};
-    if (editor.doc().selectionMode == SelectionMode::Face &&
-        editor.transformSpace == TransformSpace::Relative && faceTranslate.valid() &&
-        !brushSnapshot.empty() &&
-        faceTranslate.face < static_cast<int>(brushSnapshot[0].faces.size())) {
-        const auto& face =
-            brushSnapshot[0].faces[static_cast<std::size_t>(faceTranslate.face)];
-        delta = scale3(face.normal, value);
+    const EditorDocument& d = editor.doc();
+    if (d.selectionMode == SelectionMode::Face &&
+        editor.transformSpace == TransformSpace::Relative && d.activeFace.valid() &&
+        !brushSnapshot.empty()) {
+        for (std::size_t i = 0; i < brushSnapshotIndices.size(); ++i) {
+            if (brushSnapshotIndices[i] != d.activeFace.brush) {
+                continue;
+            }
+            if (d.activeFace.face >= 0 &&
+                d.activeFace.face < static_cast<int>(brushSnapshot[i].faces.size())) {
+                const auto& face =
+                    brushSnapshot[i].faces[static_cast<std::size_t>(d.activeFace.face)];
+                delta = scale3(face.normal, value);
+            }
+            break;
+        }
     } else if (axisLock == TranslateAxis::X) {
         delta = {value, 0.0f, 0.0f};
     } else if (axisLock == TranslateAxis::Y) {
@@ -2363,7 +2425,6 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
     entityAnglesSnapshots.clear();
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
-    faceTranslate = {};
     rotateAngle = 0.0f;
     rotateAxisLock = TranslateAxis::Y;
 

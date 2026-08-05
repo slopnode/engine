@@ -1780,20 +1780,26 @@ Vector3 Editor::selectionCenter() const {
             return d.instances[static_cast<std::size_t>(d.activeEntity.index)].at;
         }
     }
-    if (d.selectionMode == SelectionMode::Face && d.activeFace.valid() &&
-        d.activeFace.brush < static_cast<int>(d.brushes.size())) {
-        const slopengine::Brush& brush =
-            d.brushes[static_cast<std::size_t>(d.activeFace.brush)];
-        if (d.activeFace.face < static_cast<int>(brush.faces.size())) {
-            const auto& verts = brush.faces[static_cast<std::size_t>(d.activeFace.face)].vertices;
-            if (!verts.empty()) {
-                Vector3 sum{};
-                for (const Vector3& v : verts) {
-                    sum = {sum.x + v.x, sum.y + v.y, sum.z + v.z};
-                }
-                const float inv = 1.0f / static_cast<float>(verts.size());
-                return {sum.x * inv, sum.y * inv, sum.z * inv};
+    if (d.selectionMode == SelectionMode::Face && !d.selectedFaces.empty()) {
+        Vector3 sum{};
+        int count = 0;
+        for (const FaceRef& ref : d.selectedFaces) {
+            if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+                continue;
             }
+            const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+            if (ref.face >= static_cast<int>(brush.faces.size())) {
+                continue;
+            }
+            const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+            for (const Vector3& v : verts) {
+                sum = {sum.x + v.x, sum.y + v.y, sum.z + v.z};
+                ++count;
+            }
+        }
+        if (count > 0) {
+            const float inv = 1.0f / static_cast<float>(count);
+            return {sum.x * inv, sum.y * inv, sum.z * inv};
         }
     }
     if (d.selectionMode == SelectionMode::Vert && !d.selectedVerts.empty()) {

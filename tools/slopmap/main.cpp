@@ -81,6 +81,41 @@ void applySharpImGuiStyle() {
     style.TabRounding = 0.0f;
 }
 
+constexpr float kRotateSnaps[] = {0.0f, 1.0f, 5.0f, 15.0f, 45.0f, 90.0f};
+constexpr const char* kRotateSnapLabels[] = {
+    "Off", "1 deg", "5 deg", "15 deg", "45 deg", "90 deg"};
+constexpr int kRotateSnapCount = static_cast<int>(sizeof(kRotateSnaps) / sizeof(kRotateSnaps[0]));
+
+void formatTranslateSnapStatusLabel(char* buf, std::size_t bufSize, slopmap::TranslateSnapMode mode) {
+    std::snprintf(
+        buf,
+        bufSize,
+        "T:%s",
+        mode == slopmap::TranslateSnapMode::Offset ? "Of" : "Abs");
+}
+
+void formatTransformSpaceStatusLabel(char* buf, std::size_t bufSize, slopmap::TransformSpace space) {
+    std::snprintf(
+        buf,
+        bufSize,
+        "S:%s",
+        space == slopmap::TransformSpace::Global ? "Gl" : "Rel");
+}
+
+void formatRotateSnapStatusLabel(char* buf, std::size_t bufSize, float degrees) {
+    if (degrees <= 0.0f) {
+        std::snprintf(buf, bufSize, "R:Off");
+    } else {
+        std::snprintf(buf, bufSize, "R:%.0f", static_cast<double>(degrees));
+    }
+}
+
+float snapIconMenuWidth(const char* label, float iconSize) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    return style.FramePadding.x * 2.0f + iconSize + style.ItemInnerSpacing.x +
+        ImGui::CalcTextSize(label).x;
+}
+
 struct ToolConfig {
     slopengine::AppConfig mount;
     std::filesystem::path target;
@@ -1639,10 +1674,7 @@ int main(int argc, char* argv[]) {
                     ImGui::EndMenu();
                 }
                 if (beginMenuWithIcon(assets, kIcons, "arrow_rotate_clockwise", "Rotate Snap")) {
-                    constexpr float kRotateSnaps[] = {0.0f, 1.0f, 5.0f, 15.0f, 45.0f, 90.0f};
-                    constexpr const char* kRotateSnapLabels[] = {
-                        "Off", "1 deg", "5 deg", "15 deg", "45 deg", "90 deg"};
-                    for (std::size_t i = 0; i < sizeof(kRotateSnaps) / sizeof(kRotateSnaps[0]); ++i) {
+                    for (int i = 0; i < kRotateSnapCount; ++i) {
                         const float snap = kRotateSnaps[i];
                         if (menuItemWithIcon(
                                 assets,
@@ -3400,13 +3432,34 @@ int main(int argc, char* argv[]) {
                 const float gridLabelW = 72.0f;
                 const float planeW = 28.0f;
                 const float gap = 10.0f;
-                const float viewBtnW = 30.0f;
                 const float viewGap = 2.0f;
+                constexpr float viewIcon = 14.0f;
+                const float perspViewW = snapIconMenuWidth("3D", viewIcon);
+                const float topViewW = snapIconMenuWidth("Top", viewIcon);
+                const float frontViewW = snapIconMenuWidth("Front", viewIcon);
+                const float sideViewW = snapIconMenuWidth("Side", viewIcon);
                 const bool singleView = editor.viewportLayout == slopmap::ViewportLayout::Single;
-                const float viewSectionW =
-                    singleView ? viewBtnW * 4.0f + viewGap * 3.0f + btn : btn;
+                const float viewSectionW = singleView
+                    ? perspViewW + topViewW + frontViewW + sideViewW + viewGap * 3.0f + btn
+                    : btn;
+                constexpr float snapIcon = 14.0f;
+                const float snapGap = 2.0f;
+                char translateSnapLabel[16];
+                char transformSpaceLabel[16];
+                char rotateSnapLabel[16];
+                formatTranslateSnapStatusLabel(
+                    translateSnapLabel, sizeof(translateSnapLabel), editor.translateSnapMode);
+                formatTransformSpaceStatusLabel(
+                    transformSpaceLabel, sizeof(transformSpaceLabel), editor.transformSpace);
+                formatRotateSnapStatusLabel(
+                    rotateSnapLabel, sizeof(rotateSnapLabel), editor.rotateSnapDegrees);
+                const float translateSnapW = snapIconMenuWidth(translateSnapLabel, snapIcon);
+                const float transformSnapW = snapIconMenuWidth(transformSpaceLabel, snapIcon);
+                const float rotateSnapW = snapIconMenuWidth(rotateSnapLabel, snapIcon);
+                const float snapSectionW =
+                    translateSnapW + transformSnapW + rotateSnapW + snapGap * 2.0f;
                 const float gridControlsW = btn + planeW + gridLabelW + btn * 2.0f;
-                const float controlsW = viewSectionW + gap + gridControlsW;
+                const float controlsW = viewSectionW + gap + snapSectionW + gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
                 const float stageChipW = 180.0f;
@@ -3480,38 +3533,42 @@ int main(int argc, char* argv[]) {
                         return pressed;
                     };
 
-                    auto labeledToggleButton =
+                    auto viewToggleButton =
                         [&](const char* id,
+                            const char* icon,
                             const char* label,
                             float width,
-                            bool active,
-                            ImU32 activeColor = 0) -> bool {
+                            bool active) -> bool {
                         ImGui::PushID(id);
                         if (active) {
                             ImGui::PushStyleColor(
                                 ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                            ImGui::PushStyleColor(
+                                ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
                         }
-                        const bool pressed = ImGui::InvisibleButton("##lbl", ImVec2(width, btn));
-                        const ImVec2 min = ImGui::GetItemRectMin();
-                        const float textW = ImGui::CalcTextSize(label).x;
-                        const float textY = min.y + (btn - ImGui::GetTextLineHeight()) * 0.5f;
-                        ImU32 tint = active
-                            ? (activeColor != 0 ? activeColor : ImGui::GetColorU32(ImGuiCol_CheckMark))
-                            : ImGui::GetColorU32(ImGuiCol_Text);
-                        ImGui::GetWindowDrawList()->AddText(
-                            ImVec2(min.x + (width - textW) * 0.5f, textY), tint, label);
+                        const bool pressed =
+                            ImGui::InvisibleButton("##view", ImVec2(width, btn));
+                        slopengine::drawIconInButton(
+                            assets,
+                            kIcons,
+                            icon,
+                            label,
+                            ImGui::GetItemRectMin(),
+                            ImGui::GetItemRectMax(),
+                            viewIcon);
                         if (active) {
-                            ImGui::PopStyleColor();
+                            ImGui::PopStyleColor(2);
                         }
                         ImGui::PopID();
                         return pressed;
                     };
 
                     if (singleView) {
-                        if (labeledToggleButton(
+                        if (viewToggleButton(
                                 "persp",
+                                "world",
                                 "3D",
-                                viewBtnW,
+                                perspViewW,
                                 editor.viewPlane == slopmap::ViewPlane::PerspectiveY0)) {
                             editor.setViewPlane(slopmap::ViewPlane::PerspectiveY0);
                         }
@@ -3519,10 +3576,11 @@ int main(int argc, char* argv[]) {
                             ImGui::SetTooltip("Perspective");
                         }
                         ImGui::SameLine(0.0f, viewGap);
-                        if (labeledToggleButton(
+                        if (viewToggleButton(
                                 "top",
+                                "shape_align_top",
                                 "Top",
-                                viewBtnW,
+                                topViewW,
                                 editor.viewPlane == slopmap::ViewPlane::Top)) {
                             editor.setViewPlane(slopmap::ViewPlane::Top);
                         }
@@ -3530,10 +3588,11 @@ int main(int argc, char* argv[]) {
                             ImGui::SetTooltip("Top ortho");
                         }
                         ImGui::SameLine(0.0f, viewGap);
-                        if (labeledToggleButton(
+                        if (viewToggleButton(
                                 "front",
-                                "Fr",
-                                viewBtnW,
+                                "shape_move_front",
+                                "Front",
+                                frontViewW,
                                 editor.viewPlane == slopmap::ViewPlane::Front)) {
                             editor.setViewPlane(slopmap::ViewPlane::Front);
                         }
@@ -3541,10 +3600,11 @@ int main(int argc, char* argv[]) {
                             ImGui::SetTooltip("Front ortho");
                         }
                         ImGui::SameLine(0.0f, viewGap);
-                        if (labeledToggleButton(
+                        if (viewToggleButton(
                                 "side",
-                                "Sd",
-                                viewBtnW,
+                                "layout_sidebar",
+                                "Side",
+                                sideViewW,
                                 editor.viewPlane == slopmap::ViewPlane::Side)) {
                             editor.setViewPlane(slopmap::ViewPlane::Side);
                         }
@@ -3572,6 +3632,131 @@ int main(int argc, char* argv[]) {
                             ImVec2(max.x - 1.0f, max.y - 1.0f),
                             ImGui::GetColorU32(ImGuiCol_CheckMark));
                     }
+
+                    ImGui::SameLine(0.0f, gap);
+
+                    auto snapMenuButton =
+                        [&](const char* popupId,
+                            const char* icon,
+                            const char* label,
+                            float width,
+                            const char* tooltip,
+                            auto&& drawPopup) {
+                            ImGui::PushID(popupId);
+                            const bool pressed =
+                                ImGui::InvisibleButton("##snap", ImVec2(width, btn));
+                            slopengine::drawIconInButton(
+                                assets,
+                                kIcons,
+                                icon,
+                                label,
+                                ImGui::GetItemRectMin(),
+                                ImGui::GetItemRectMax(),
+                                snapIcon);
+                            if (pressed) {
+                                ImGui::OpenPopup(popupId);
+                            }
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                                ImGui::SetTooltip("%s", tooltip);
+                            }
+                            if (ImGui::BeginPopup(popupId)) {
+                                drawPopup();
+                                ImGui::EndPopup();
+                            }
+                            ImGui::PopID();
+                        };
+
+                    const char* translateSnapIcon =
+                        editor.translateSnapMode == slopmap::TranslateSnapMode::Offset
+                        ? "arrow_right"
+                        : "anchor";
+                    snapMenuButton(
+                        "translate-snap-popup",
+                        translateSnapIcon,
+                        translateSnapLabel,
+                        translateSnapW,
+                        "Translate snap",
+                        [&] {
+                            if (slopengine::menuItemWithIcon(
+                                    assets,
+                                    kIcons,
+                                    "arrow_right",
+                                    "Offset",
+                                    "O",
+                                    editor.translateSnapMode ==
+                                        slopmap::TranslateSnapMode::Offset)) {
+                                editor.translateSnapMode = slopmap::TranslateSnapMode::Offset;
+                                editor.statusMessage = "Translate snap: Offset";
+                            }
+                            if (slopengine::menuItemWithIcon(
+                                    assets,
+                                    kIcons,
+                                    "anchor",
+                                    "Absolute",
+                                    "O",
+                                    editor.translateSnapMode ==
+                                        slopmap::TranslateSnapMode::Absolute)) {
+                                editor.translateSnapMode = slopmap::TranslateSnapMode::Absolute;
+                                editor.statusMessage = "Translate snap: Absolute";
+                            }
+                        });
+                    ImGui::SameLine(0.0f, snapGap);
+
+                    const char* transformSpaceIcon =
+                        editor.transformSpace == slopmap::TransformSpace::Global ? "world" : "vector";
+                    snapMenuButton(
+                        "transform-space-popup",
+                        transformSpaceIcon,
+                        transformSpaceLabel,
+                        transformSnapW,
+                        "Transform space",
+                        [&] {
+                            if (slopengine::menuItemWithIcon(
+                                    assets,
+                                    kIcons,
+                                    "world",
+                                    "Global",
+                                    nullptr,
+                                    editor.transformSpace == slopmap::TransformSpace::Global)) {
+                                editor.transformSpace = slopmap::TransformSpace::Global;
+                                editor.statusMessage = "Transform space: Global";
+                            }
+                            if (slopengine::menuItemWithIcon(
+                                    assets,
+                                    kIcons,
+                                    "vector",
+                                    "Relative",
+                                    nullptr,
+                                    editor.transformSpace == slopmap::TransformSpace::Relative)) {
+                                editor.transformSpace = slopmap::TransformSpace::Relative;
+                                editor.statusMessage = "Transform space: Relative";
+                            }
+                        });
+                    ImGui::SameLine(0.0f, snapGap);
+
+                    snapMenuButton(
+                        "rotate-snap-popup",
+                        "arrow_rotate_clockwise",
+                        rotateSnapLabel,
+                        rotateSnapW,
+                        "Rotate snap",
+                        [&] {
+                            for (int i = 0; i < kRotateSnapCount; ++i) {
+                                const float snap = kRotateSnaps[i];
+                                if (slopengine::menuItemWithIcon(
+                                        assets,
+                                        kIcons,
+                                        "arrow_rotate_clockwise",
+                                        kRotateSnapLabels[i],
+                                        nullptr,
+                                        editor.rotateSnapDegrees == snap)) {
+                                    editor.rotateSnapDegrees = snap;
+                                    editor.statusMessage = snap <= 0.0f
+                                        ? "Rotate snap: off"
+                                        : std::string("Rotate snap: ") + kRotateSnapLabels[i];
+                                }
+                            }
+                        });
 
                     ImGui::SameLine(0.0f, gap);
 

@@ -36,6 +36,41 @@ Vector3 FlyCamera::rightFlat() const {
     return normalizeSafe({-std::cos(yaw), 0.0f, std::sin(yaw)});
 }
 
+namespace {
+
+struct OrthoPanAxes {
+    Vector3 right{};
+    Vector3 planeUp{};
+    Vector3 normal{};
+};
+
+OrthoPanAxes orthoPanAxes(ViewPlane plane, Vector3 rightFlatAxis) {
+    OrthoPanAxes axes{};
+    axes.right = rightFlatAxis;
+    switch (plane) {
+    case ViewPlane::Top:
+        axes.planeUp = {0.0f, 0.0f, 1.0f};
+        axes.normal = {0.0f, 1.0f, 0.0f};
+        break;
+    case ViewPlane::Front:
+        axes.planeUp = {0.0f, 1.0f, 0.0f};
+        axes.normal = {0.0f, 0.0f, 1.0f};
+        break;
+    case ViewPlane::Side:
+        axes.planeUp = {0.0f, 1.0f, 0.0f};
+        axes.normal = {1.0f, 0.0f, 0.0f};
+        break;
+    case ViewPlane::PerspectiveY0:
+    default:
+        axes.planeUp = {0.0f, 1.0f, 0.0f};
+        axes.normal = {0.0f, 1.0f, 0.0f};
+        break;
+    }
+    return axes;
+}
+
+} // namespace
+
 Camera3D FlyCamera::toRaylib() const {
     Camera3D camera{};
     camera.position = position;
@@ -82,57 +117,46 @@ void FlyCamera::update(bool allowInput, bool retainCursorHidden) {
 
         Vector3 move{};
         if (orthographic) {
-            const Vector3 right = rightFlat();
-            Vector3 planeUp{};
-            Vector3 normal{};
-            switch (viewPlane) {
-            case ViewPlane::Top:
-                planeUp = {0.0f, 0.0f, 1.0f};
-                normal = {0.0f, 1.0f, 0.0f};
-                break;
-            case ViewPlane::Front:
-                planeUp = {0.0f, 1.0f, 0.0f};
-                normal = {0.0f, 0.0f, 1.0f};
-                break;
-            case ViewPlane::Side:
-                planeUp = {0.0f, 1.0f, 0.0f};
-                normal = {1.0f, 0.0f, 0.0f};
-                break;
-            case ViewPlane::PerspectiveY0:
-            default:
-                planeUp = {0.0f, 1.0f, 0.0f};
-                normal = {0.0f, 1.0f, 0.0f};
-                break;
+            const OrthoPanAxes axes = orthoPanAxes(viewPlane, rightFlat());
+            const Vector2 mouseDelta = GetMouseDelta();
+            if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
+                const float panScale = orthoHalfHeight * orthoPanSensitivity;
+                position.x +=
+                    (axes.right.x * mouseDelta.x - axes.planeUp.x * mouseDelta.y) * panScale;
+                position.y +=
+                    (axes.right.y * mouseDelta.x - axes.planeUp.y * mouseDelta.y) * panScale;
+                position.z +=
+                    (axes.right.z * mouseDelta.x - axes.planeUp.z * mouseDelta.y) * panScale;
             }
             if (IsKeyDown(KEY_W)) {
-                move.x += planeUp.x;
-                move.y += planeUp.y;
-                move.z += planeUp.z;
+                move.x += axes.planeUp.x;
+                move.y += axes.planeUp.y;
+                move.z += axes.planeUp.z;
             }
             if (IsKeyDown(KEY_S)) {
-                move.x -= planeUp.x;
-                move.y -= planeUp.y;
-                move.z -= planeUp.z;
+                move.x -= axes.planeUp.x;
+                move.y -= axes.planeUp.y;
+                move.z -= axes.planeUp.z;
             }
             if (IsKeyDown(KEY_D)) {
-                move.x += right.x;
-                move.y += right.y;
-                move.z += right.z;
+                move.x += axes.right.x;
+                move.y += axes.right.y;
+                move.z += axes.right.z;
             }
             if (IsKeyDown(KEY_A)) {
-                move.x -= right.x;
-                move.y -= right.y;
-                move.z -= right.z;
+                move.x -= axes.right.x;
+                move.y -= axes.right.y;
+                move.z -= axes.right.z;
             }
             if (IsKeyDown(KEY_E) || IsKeyDown(KEY_SPACE)) {
-                move.x += normal.x;
-                move.y += normal.y;
-                move.z += normal.z;
+                move.x += axes.normal.x;
+                move.y += axes.normal.y;
+                move.z += axes.normal.z;
             }
             if (IsKeyDown(KEY_Q) || IsKeyDown(KEY_LEFT_CONTROL)) {
-                move.x -= normal.x;
-                move.y -= normal.y;
-                move.z -= normal.z;
+                move.x -= axes.normal.x;
+                move.y -= axes.normal.y;
+                move.z -= axes.normal.z;
             }
         } else {
             const Vector3 fwd = forward();
@@ -171,7 +195,11 @@ void FlyCamera::update(bool allowInput, bool retainCursorHidden) {
         }
 
         if (!IsCursorHidden()) {
-            DisableCursor();
+            if (orthographic) {
+                HideCursor();
+            } else {
+                DisableCursor();
+            }
         }
         wasFlying = true;
     } else {
@@ -179,7 +207,11 @@ void FlyCamera::update(bool allowInput, bool retainCursorHidden) {
             EnableCursor();
             HideCursor();
         } else if (IsCursorHidden() && !retainCursorHidden) {
-            EnableCursor();
+            if (orthographic) {
+                ShowCursor();
+            } else {
+                EnableCursor();
+            }
         }
         wasFlying = false;
     }
