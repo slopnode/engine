@@ -399,23 +399,31 @@ bool validateGpuResults(
     return true;
 }
 
-void bindAlphaAtlas(unsigned int program, const RadGpuOcclusionResources& resources) {
+constexpr unsigned int kAlphaAtlasTextureUnit = 0;
+
+void bindAlphaAtlasForCompute(unsigned int program, const RadGpuOcclusionResources& resources) {
     if (!resources.valid || resources.alphaAtlas.id == 0) {
         return;
     }
-    Shader shader{};
-    shader.id = program;
-    const int loc = GetShaderLocation(shader, "materialAlphaAtlas");
+    const int loc = glGetUniformLocation(program, "materialAlphaAtlas");
     if (loc >= 0) {
-        SetShaderValueTexture(shader, loc, resources.alphaAtlas);
+        const int unit = static_cast<int>(kAlphaAtlasTextureUnit);
+        glUniform1i(loc, unit);
     }
-    rlDrawRenderBatchActive();
-    rlActiveTextureSlot(0);
+    glActiveTexture(GL_TEXTURE0 + kAlphaAtlasTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, resources.alphaAtlas.id);
+}
+
+void rebindAlphaAtlasTexture(const RadGpuOcclusionResources& resources) {
+    if (!resources.valid || resources.alphaAtlas.id == 0) {
+        return;
+    }
+    glActiveTexture(GL_TEXTURE0 + kAlphaAtlasTextureUnit);
     glBindTexture(GL_TEXTURE_2D, resources.alphaAtlas.id);
 }
 
 void unbindAlphaAtlas() {
-    rlActiveTextureSlot(0);
+    glActiveTexture(GL_TEXTURE0 + kAlphaAtlasTextureUnit);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
@@ -614,11 +622,15 @@ void fillBaseParams(
 }
 
 bool dispatchBatch(
+    unsigned int program,
     unsigned int paramsSsbo,
     const GpuParamsSSBO& params,
     int dispatchesPerSync,
     int& dispatchesSinceSync,
-    bool& dispatchFailed) {
+    bool& dispatchFailed,
+    const RadGpuOcclusionResources& occlusionResources) {
+    rlEnableShader(program);
+    rebindAlphaAtlasTexture(occlusionResources);
     rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
     memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
     const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
@@ -1147,7 +1159,7 @@ bool accumulateDirectLightingGpu(
     rlBindShaderBuffer(emissionGridSsbo, 11);
     rlBindShaderBuffer(faceOcclusionSsbo, 12);
     rlBindShaderBuffer(materialRectSsbo, 13);
-    bindAlphaAtlas(program, occlusionResources);
+    bindAlphaAtlasForCompute(program, occlusionResources);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -1173,14 +1185,15 @@ bool accumulateDirectLightingGpu(
                 directParams,
                 reachability);
             if (!dispatchBatch(
+                    program,
                     paramsSsbo,
                     params,
                     dispatchConfig.dispatchesPerSync,
                     dispatchesSinceSync,
-                    dispatchFailed)) {
+                    dispatchFailed,
+                    occlusionResources)) {
                 break;
             }
-            bindAlphaAtlas(program, occlusionResources);
         }
 
         for (int lightOffset = 0; lightOffset < lightCount && !dispatchFailed;
@@ -1202,14 +1215,15 @@ bool accumulateDirectLightingGpu(
             params.lightOffset = lightOffset;
             params.lightBatch = std::min(dispatchConfig.lightBatch, lightCount - lightOffset);
             if (!dispatchBatch(
+                    program,
                     paramsSsbo,
                     params,
                     dispatchConfig.dispatchesPerSync,
                     dispatchesSinceSync,
-                    dispatchFailed)) {
+                    dispatchFailed,
+                    occlusionResources)) {
                 break;
             }
-            bindAlphaAtlas(program, occlusionResources);
         }
 
         const int luxelsDone = std::min(luxelOffset + luxelBatch, luxelCount);
@@ -1696,7 +1710,7 @@ bool accumulateBounceLightingGpu(
     rlBindShaderBuffer(faceTransparentSsbo, 7);
     rlBindShaderBuffer(faceOcclusionSsbo, 8);
     rlBindShaderBuffer(materialRectSsbo, 9);
-    bindAlphaAtlas(program, occlusionResources);
+    bindAlphaAtlasForCompute(program, occlusionResources);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
@@ -1705,6 +1719,8 @@ bool accumulateBounceLightingGpu(
         GpuBounceParamsSSBO params = initialParams;
         params.luxelOffset = luxelOffset;
         params.luxelBatch = std::min(bounceLuxelBatch, luxelCount - luxelOffset);
+        rlEnableShader(program);
+        rebindAlphaAtlasTexture(occlusionResources);
         rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
         memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
         const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
@@ -1718,7 +1734,6 @@ bool accumulateBounceLightingGpu(
                 dispatchFailed = true;
             }
         }
-        bindAlphaAtlas(program, occlusionResources);
     }
 
     if (!dispatchFailed && dispatchesSinceSync > 0) {
