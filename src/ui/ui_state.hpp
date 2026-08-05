@@ -60,6 +60,8 @@ struct DebugUiState {
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;
+    bool hideHud = false;
+    bool hideFpScene = false;
     bool entityListOpen = false;
     bool entityDetailOpen = false;
     flecs::entity inspectedEntity{};

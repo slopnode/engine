@@ -171,6 +171,13 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         }
         return true;
     }
+    if (tag == "texture-anim") {
+        if (!readStringField(form, asset.textureAnimPath)) {
+            error = {"(texture-anim \"path\")", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
     if (tag == "emission") {
         if (!readStringField(form, asset.emissionTexture)) {
             error = {"(emission \"path\")", form.line, form.column};
@@ -287,13 +294,25 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
     if (skyAppearanceCount > 1) {
         return false;
     }
+    if (!asset.albedoTexture.empty() && !asset.textureAnimPath.empty()) {
+        return false;
+    }
     return true;
 }
 
-Material createRaylibMaterial(const MaterialAsset& asset, const TextureResolver& resolveTexture) {
+Material createRaylibMaterial(
+    const MaterialAsset& asset,
+    const TextureResolver& resolveTexture,
+    const TextureAnimFrameResolver& resolveAnimFrame) {
     Material material = LoadMaterialDefault();
     material.maps[MATERIAL_MAP_ALBEDO].color = asset.baseColor;
-    if (!asset.albedoTexture.empty() && resolveTexture) {
+    if (!asset.textureAnimPath.empty() && resolveAnimFrame) {
+        const Texture2D texture = resolveAnimFrame(asset.textureAnimPath, 0);
+        if (texture.id != 0) {
+            SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
+            SetMaterialTexture(&material, MATERIAL_MAP_ALBEDO, texture);
+        }
+    } else if (!asset.albedoTexture.empty() && resolveTexture) {
         const Texture2D texture = resolveTexture(asset.albedoTexture);
         if (texture.id != 0) {
             SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);

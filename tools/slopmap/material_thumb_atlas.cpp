@@ -1,5 +1,6 @@
 #include "material_thumb_atlas.hpp"
 
+#include "assets/texture_anim_loader.hpp"
 #include "core/user_paths.hpp"
 #include "core/vfs.hpp"
 
@@ -43,6 +44,38 @@ bool writeTextFile(const std::filesystem::path& path, const std::string& body) {
     return static_cast<bool>(out);
 }
 
+Image imageFromPath(const std::filesystem::path& path) {
+    Image image = LoadImage(path.string().c_str());
+    if (image.data == nullptr) {
+        return {};
+    }
+    ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    return image;
+}
+
+Image letterboxThumbImage(Image image, int cell) {
+    if (image.data == nullptr) {
+        return {};
+    }
+    int dstW = cell;
+    int dstH = cell;
+    if (image.width > 0 && image.height > 0) {
+        if (image.width >= image.height) {
+            dstW = cell;
+            dstH = std::max(1, (cell * image.height) / image.width);
+        } else {
+            dstH = cell;
+            dstW = std::max(1, (cell * image.width) / image.height);
+        }
+    }
+    ImageResizeNN(&image, dstW, dstH);
+    Image canvas = GenImageColor(cell, cell, BLANK);
+    ImageFormat(&canvas, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    ImageDrawImage(&canvas, image, (cell - dstW) / 2, (cell - dstH) / 2, WHITE);
+    UnloadImage(image);
+    return canvas;
+}
+
 Image makeThumbImage(slopengine::AssetStore& assets, const std::string& materialPath) {
     constexpr int cell = MaterialThumbAtlas::kThumbSize;
     const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialPath);
@@ -52,31 +85,36 @@ Image makeThumbImage(slopengine::AssetStore& assets, const std::string& material
         if (!asset->albedoTexture.empty()) {
             const auto disk = assets.resolvePath(slopengine::AssetKind::Texture, asset->albedoTexture);
             if (disk) {
-                Image image = LoadImage(disk->string().c_str());
-                if (image.data != nullptr) {
-                    ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-                    int dstW = cell;
-                    int dstH = cell;
-                    if (image.width > 0 && image.height > 0) {
-                        if (image.width >= image.height) {
-                            dstW = cell;
-                            dstH = std::max(1, (cell * image.height) / image.width);
-                        } else {
-                            dstH = cell;
-                            dstW = std::max(1, (cell * image.width) / image.height);
+                Image canvas = letterboxThumbImage(imageFromPath(*disk), cell);
+                if (canvas.data != nullptr) {
+                    return canvas;
+                }
+            }
+        } else if (!asset->textureAnimPath.empty()) {
+            const Texture2D frame =
+                assets.resolveTextureAnimFrame(asset->textureAnimPath, "default", 0);
+            if (frame.id != 0) {
+                Image source = LoadImageFromTexture(frame);
+                Image canvas = letterboxThumbImage(source, cell);
+                if (canvas.data != nullptr) {
+                    return canvas;
+                }
+            }
+            const auto animDisk =
+                assets.resolvePath(slopengine::AssetKind::TextureAnim, asset->textureAnimPath);
+            if (animDisk) {
+                slopengine::TextureAnimBank bank{};
+                if (slopengine::parseTextureAnimBank(readTextFile(*animDisk), bank) &&
+                    !bank.clips.empty() && !bank.clips[0].frames.empty()) {
+                    const auto frameDisk = assets.resolvePath(
+                        slopengine::AssetKind::Texture,
+                        bank.clips[0].frames[0].texture);
+                    if (frameDisk) {
+                        Image canvas = letterboxThumbImage(imageFromPath(*frameDisk), cell);
+                        if (canvas.data != nullptr) {
+                            return canvas;
                         }
                     }
-                    ImageResizeNN(&image, dstW, dstH);
-                    Image canvas = GenImageColor(cell, cell, BLANK);
-                    ImageFormat(&canvas, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-                    ImageDrawImage(
-                        &canvas,
-                        image,
-                        (cell - dstW) / 2,
-                        (cell - dstH) / 2,
-                        WHITE);
-                    UnloadImage(image);
-                    return canvas;
                 }
             }
         }
@@ -135,6 +173,19 @@ std::string MaterialThumbAtlas::buildFingerprint(
                 assets.resolvePath(slopengine::AssetKind::Texture, asset->albedoTexture);
             out << '\t' << asset->albedoTexture;
             out << '\t' << (texDisk ? fileMtimeNs(*texDisk) : 0ULL);
+        } else if (asset != nullptr && !asset->textureAnimPath.empty()) {
+            const auto animDisk =
+                assets.resolvePath(slopengine::AssetKind::TextureAnim, asset->textureAnimPath);
+            out << '\t' << asset->textureAnimPath;
+            out << '\t' << (animDisk ? fileMtimeNs(*animDisk) : 0ULL);
+            const slopengine::TextureAnimBank* bank = assets.getTextureAnimBank(asset->textureAnimPath);
+            if (bank != nullptr && !bank->clips.empty() && !bank->clips[0].frames.empty()) {
+                const std::string& framePath = bank->clips[0].frames[0].texture;
+                const auto texDisk =
+                    assets.resolvePath(slopengine::AssetKind::Texture, framePath);
+                out << '\t' << framePath;
+                out << '\t' << (texDisk ? fileMtimeNs(*texDisk) : 0ULL);
+            }
         } else if (asset != nullptr) {
             out << "\t#color\t" << static_cast<int>(asset->baseColor.r) << ','
                 << static_cast<int>(asset->baseColor.g) << ','

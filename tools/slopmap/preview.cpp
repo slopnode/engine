@@ -88,6 +88,12 @@ slopengine::MaterialUvInfo resolveMaterialUv(slopengine::AssetStore& assets, std
                 info.textureWidth = static_cast<float>(texture.width);
                 info.textureHeight = static_cast<float>(texture.height);
             }
+        } else if (!asset->textureAnimPath.empty()) {
+            const Texture2D texture = assets.resolveTextureAnimFrame(asset->textureAnimPath, "default", 0);
+            if (texture.id != 0 && texture.width > 0 && texture.height > 0) {
+                info.textureWidth = static_cast<float>(texture.width);
+                info.textureHeight = static_cast<float>(texture.height);
+            }
         }
     }
     return info;

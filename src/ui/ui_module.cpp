@@ -354,6 +354,9 @@ void drawMainMenuBar(
         menuItemWithIcon(
             assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
+        menuItemWithIcon(assets, kIcons, "picture_empty", "Hide HUD", nullptr, &debugUi.hideHud);
+        menuItemWithIcon(
+            assets, kIcons, "user", "Hide FP View", nullptr, &debugUi.hideFpScene);
         menuItemWithIcon(
             assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
         callDrawDebugMenu(world);
