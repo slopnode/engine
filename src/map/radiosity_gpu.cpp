@@ -244,6 +244,7 @@ struct GpuParamsSSBO {
     std::int32_t sunRayCount = 1;
     float sunAngularSpread = 0.0f;
     float sunLeakThreshold = 0.0f;
+    std::int32_t faceCount = 0;
 };
 
 static_assert(sizeof(GpuLuxelSSBO) == 64);
@@ -253,7 +254,7 @@ static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
 static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
-static_assert(sizeof(GpuParamsSSBO) == 84);
+static_assert(sizeof(GpuParamsSSBO) == 88);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
@@ -329,11 +330,13 @@ void unloadSsbo(unsigned int id) {
 
 bool validateGpuResults(
     const std::vector<GpuLuxelSSBO>& before,
-    const std::vector<GpuLuxelSSBO>& after) {
+    const std::vector<GpuLuxelSSBO>& after,
+    bool requireSunContribution) {
     std::size_t nonFinite = 0;
     std::size_t improved = 0;
     float maxDelta = 0.0f;
     float maxAfterSum = 0.0f;
+    float maxSunSum = 0.0f;
 
     for (std::size_t i = 0; i < after.size(); ++i) {
         const GpuLuxelSSBO& a = after[i];
@@ -344,6 +347,7 @@ bool validateGpuResults(
         }
         const float afterSum = a.ir + a.ig + a.ib;
         maxAfterSum = std::max(maxAfterSum, afterSum);
+        maxSunSum = std::max(maxSunSum, a.sunIr + a.sunIg + a.sunIb);
         const float beforeSum = b.ir + b.ig + b.ib;
         const float delta = afterSum - beforeSum;
         maxDelta = std::max(maxDelta, delta);
@@ -354,11 +358,12 @@ bool validateGpuResults(
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU direct diagnostics luxels=%zu improved=%zu maxDelta=%.6f maxSum=%.6f",
+        "sloprad: GPU direct diagnostics luxels=%zu improved=%zu maxDelta=%.6f maxSum=%.6f maxSun=%.6f",
         after.size(),
         improved,
         maxDelta,
-        maxAfterSum);
+        maxAfterSum,
+        maxSunSum);
     std::fflush(stdout);
 
     if (nonFinite > 0) {
@@ -373,6 +378,13 @@ bool validateGpuResults(
             LOG_WARNING,
             "sloprad: GPU direct lighting made no irradiance progress (%zu luxels)",
             after.size());
+        return false;
+    }
+    if (requireSunContribution && maxSunSum < 1e-3f) {
+        TraceLog(
+            LOG_WARNING,
+            "sloprad: GPU direct lighting produced no sun irradiance (maxSun=%.6f)",
+            maxSunSum);
         return false;
     }
     TraceLog(
@@ -437,6 +449,7 @@ void fillBaseParams(
     std::int32_t emitterBvhRoot,
     int luxelOffset,
     int luxelBatch,
+    int faceCount,
     const RadGpuDirectParams& directParams,
     const RadGpuReachability& reachability) {
     params.luxelCount = luxelCount;
@@ -460,6 +473,7 @@ void fillBaseParams(
     params.sunRayCount = directParams.sunRayCount;
     params.sunAngularSpread = directParams.sunAngularSpread;
     params.sunLeakThreshold = directParams.sunLeakThreshold;
+    params.faceCount = faceCount;
 }
 
 bool dispatchBatch(
@@ -888,6 +902,14 @@ bool accumulateDirectLightingGpu(
     const int luxelCount = static_cast<int>(gpuLuxels.size());
     const int emitterCount = static_cast<int>(emissiveFaces.size());
     const int lightCount = static_cast<int>(lights.size());
+    const int faceCount = static_cast<int>(faceIsSky.size());
+    bool requireSunContribution = false;
+    for (const RadGpuLight& light : lights) {
+        if (light.kind == 2) {
+            requireSunContribution = true;
+            break;
+        }
+    }
     const DirectDispatchConfig dispatchConfig =
         directDispatchConfig(luxelCount, lightCount, directParams.gpuSafeMode);
 
@@ -901,6 +923,7 @@ bool accumulateDirectLightingGpu(
         emitterBvhRoot,
         0,
         std::min(dispatchConfig.luxelBatch, luxelCount),
+        faceCount,
         directParams,
         reachability);
     const unsigned int paramsSsbo =
@@ -1000,6 +1023,7 @@ bool accumulateDirectLightingGpu(
                 emitterBvhRoot,
                 luxelOffset,
                 luxelBatch,
+                faceCount,
                 directParams,
                 reachability);
             if (!dispatchBatch(
@@ -1024,6 +1048,7 @@ bool accumulateDirectLightingGpu(
                 -1,
                 luxelOffset,
                 luxelBatch,
+                faceCount,
                 directParams,
                 reachability);
             params.lightOffset = lightOffset;
@@ -1122,7 +1147,7 @@ bool accumulateDirectLightingGpu(
         materialRectSsbo,
         program);
 
-    if (!validateGpuResults(gpuLuxelsBefore, gpuLuxels)) {
+    if (!validateGpuResults(gpuLuxelsBefore, gpuLuxels, requireSunContribution)) {
         return false;
     }
 

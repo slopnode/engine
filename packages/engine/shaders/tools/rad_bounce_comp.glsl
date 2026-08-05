@@ -234,7 +234,7 @@ bool rayTriangle(vec3 origin, vec3 direction, vec3 v0, vec3 v1, vec3 v2, float m
 }
 
 bool isTransparentFace(int faceIndex) {
-    if (faceIndex < 0 || faceIndex >= faceTransparent.length()) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
         return false;
     }
     return faceTransparent[faceIndex] != 0;
@@ -245,7 +245,7 @@ float axisScale(float scale) {
 }
 
 float sampleFaceOcclusionAlpha(int faceIndex, vec3 worldPos) {
-    if (faceIndex < 0 || faceIndex >= faceOcclusion.length()) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
         return 1.0;
     }
     FaceOcclusion face = faceOcclusion[faceIndex];

@@ -163,6 +163,7 @@ struct Params {
     int sunRayCount;
     float sunAngularSpread;
     float sunLeakThreshold;
+    int faceCount;
 };
 
 struct FaceOcclusion {
@@ -258,14 +259,14 @@ layout(std430, binding = 11) readonly buffer EmissionGridBuffer {
 };
 
 bool isSkyFace(int faceIndex) {
-    if (faceIndex < 0 || faceIndex >= faceSky.length()) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
         return false;
     }
     return faceSky[faceIndex] != 0;
 }
 
 bool isTransparentFace(int faceIndex) {
-    if (faceIndex < 0 || faceIndex >= faceTransparent.length()) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
         return false;
     }
     return faceTransparent[faceIndex] != 0;
@@ -378,7 +379,7 @@ float axisScale(float scale) {
 }
 
 float sampleFaceOcclusionAlpha(int faceIndex, vec3 worldPos) {
-    if (faceIndex < 0 || faceIndex >= faceOcclusion.length()) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
         return 1.0;
     }
     FaceOcclusion face = faceOcclusion[faceIndex];
