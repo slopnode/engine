@@ -11,12 +11,15 @@
 #include <raylib.h>
 #include <raymath.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 
 namespace slopengine {
 
 namespace {
+
+constexpr float kStuckDistEps = 0.02f;
 
 Vector3 actorFeet(flecs::entity entity, const CharacterMotor& motor) {
     if (entity.has<Lens>()) {
@@ -53,14 +56,23 @@ bool goalMovedEnough(const NavigationAgent& agent, Vector3 goalPos) {
     return navHorizontalDist(agent.lastGoalPos, goalPos) >= agent.goalMoveThreshold;
 }
 
+void clearNavPath(NavigationAgent& agent) {
+    agent.waypoints.clear();
+    agent.leafPath.clear();
+    agent.waypointToLeaf.clear();
+    agent.waypointIndex = 0;
+    agent.stuckTimer = 0.0f;
+    agent.lastWpHorizDist = -1.0f;
+}
+
 void replanAgent(
     flecs::world& world,
     NavigationAgent& agent,
     Vector3 agentPos,
-    Vector3 goalPos) {
+    Vector3 goalPos,
+    bool preserveProgress) {
     if (!world.has<MapNavigation>() || !world.has<MapBsp>()) {
-        agent.waypoints.clear();
-        agent.waypointIndex = 0;
+        clearNavPath(agent);
         return;
     }
 
@@ -72,39 +84,112 @@ void replanAgent(
     agent.goalLeaf = toLeaf;
 
     if (fromLeaf < 0 || toLeaf < 0) {
-        agent.waypoints.clear();
-        agent.waypointIndex = 0;
+        clearNavPath(agent);
         return;
     }
+
+    const std::vector<int> oldLeafPath = agent.leafPath;
+    const int oldWaypointIndex = agent.waypointIndex;
+    const float oldStuckTimer = agent.stuckTimer;
+    const float oldLastWpHorizDist = agent.lastWpHorizDist;
 
     const std::vector<int> leafPath = findLeafPath(nav, fromLeaf, toLeaf);
     if (leafPath.empty()) {
-        agent.waypoints.clear();
-        agent.waypointIndex = 0;
+        clearNavPath(agent);
         return;
     }
 
-    agent.waypoints = leafPathToWaypoints(nav, leafPath, goalPos);
-    agent.waypointIndex = 0;
+    const std::vector<Vector3> waypoints = leafPathToWaypoints(nav, leafPath, goalPos);
+    std::vector<int> waypointToLeaf;
+    buildWaypointToLeaf(leafPath, toLeaf, waypointToLeaf);
+    const int resumeIndex = findResumeWaypointIndex(
+        waypoints,
+        waypointToLeaf,
+        leafPath,
+        agentPos,
+        fromLeaf,
+        agent.arriveRadius);
+
+    agent.leafPath = leafPath;
+    agent.waypoints = waypoints;
+    agent.waypointToLeaf = std::move(waypointToLeaf);
+
+    const bool routeUnchanged =
+        preserveProgress &&
+        navLeafPathRouteUnchanged(oldLeafPath, fromLeaf, leafPath);
+
+    if (preserveProgress && !oldLeafPath.empty()) {
+        agent.waypointIndex = std::max(oldWaypointIndex, resumeIndex);
+        if (routeUnchanged) {
+            agent.stuckTimer = oldStuckTimer;
+            agent.lastWpHorizDist = oldLastWpHorizDist;
+        } else {
+            agent.stuckTimer = 0.0f;
+            agent.lastWpHorizDist = -1.0f;
+        }
+    } else {
+        agent.waypointIndex = resumeIndex;
+        agent.stuckTimer = 0.0f;
+        agent.lastWpHorizDist = -1.0f;
+    }
+
     agent.lastGoalPos = goalPos;
     agent.haveLastGoalPos = true;
     agent.forceReplan = false;
 }
 
-void advanceWaypoints(NavigationAgent& agent, Vector3 agentPos) {
-    while (agent.waypointIndex < static_cast<int>(agent.waypoints.size())) {
-        const Vector3& wp = agent.waypoints[static_cast<std::size_t>(agent.waypointIndex)];
-        if (navHorizontalDist(agentPos, wp) > agent.arriveRadius) {
-            break;
-        }
+void advanceWaypoints(
+    NavigationAgent& agent,
+    Vector3 agentPos,
+    int agentLeaf) {
+    while (agent.waypointIndex < static_cast<int>(agent.waypoints.size()) &&
+           navWaypointCompleted(
+               agent.waypoints,
+               agent.waypointToLeaf,
+               agent.leafPath,
+               agentPos,
+               agentLeaf,
+               agent.waypointIndex,
+               agent.arriveRadius)) {
         ++agent.waypointIndex;
     }
 }
 
+void updateStuckSkip(NavigationAgent& agent, Vector3 agentPos, float dt) {
+    if (agent.waypointIndex < 0 ||
+        agent.waypointIndex >= static_cast<int>(agent.waypoints.size())) {
+        agent.stuckTimer = 0.0f;
+        agent.lastWpHorizDist = -1.0f;
+        return;
+    }
+
+    const Vector3& wp = agent.waypoints[static_cast<std::size_t>(agent.waypointIndex)];
+    const float dist = navHorizontalDist(agentPos, wp);
+    if (agent.lastWpHorizDist >= 0.0f && dist >= agent.lastWpHorizDist - kStuckDistEps) {
+        agent.stuckTimer += dt;
+    } else {
+        agent.stuckTimer = 0.0f;
+    }
+    agent.lastWpHorizDist = dist;
+
+    const int last = static_cast<int>(agent.waypoints.size()) - 1;
+    if (agent.stuckTimer >= agent.stuckSkipTime) {
+        if (agent.waypointIndex < last) {
+            ++agent.waypointIndex;
+        } else {
+            agent.forceReplan = true;
+        }
+        agent.stuckTimer = 0.0f;
+        agent.lastWpHorizDist = -1.0f;
+    }
+}
+
 bool needsReplan(
+    const MapNavigation& nav,
     NavigationAgent& agent,
     Vector3 goalPos,
     int agentLeaf,
+    int goalLeaf,
     float dt) {
     if (agent.forceReplan) {
         return true;
@@ -113,6 +198,13 @@ bool needsReplan(
         return true;
     }
     if (agentLeaf >= 0 && agentLeaf != agent.agentLeaf) {
+        if (goalLeaf >= 0) {
+            const std::vector<int> newPath = findLeafPath(nav, agentLeaf, goalLeaf);
+            if (navLeafPathRouteUnchanged(agent.leafPath, agentLeaf, newPath)) {
+                agent.agentLeaf = agentLeaf;
+                return false;
+            }
+        }
         return true;
     }
     if (goalMovedEnough(agent, goalPos)) {
@@ -142,7 +234,7 @@ void replanNavigationAgent(flecs::world& world, flecs::entity entity) {
     const CharacterMotor& motor = entity.get<CharacterMotor>();
     const Vector3 agentPos = actorFeet(entity, motor);
     const Vector3 goalPos = resolveGoalPos(world, agent);
-    replanAgent(world, agent, agentPos, goalPos);
+    replanAgent(world, agent, agentPos, goalPos, false);
     agent.replanTimer = agent.replanInterval;
     agent.agentLeaf = sampleNavLeaf(world.get<MapBsp>().tree, agentPos);
 }
@@ -171,15 +263,20 @@ void registerNavModule(flecs::world& world) {
                 return;
             }
 
+            const MapNavigation& nav = worldRef.get<MapNavigation>();
             const Vector3 agentPos = actorFeet(entity, motor);
             const Vector3 goalPos = resolveGoalPos(worldRef, agent);
             const BspTree& tree = worldRef.get<MapBsp>().tree;
             const int agentLeaf = sampleNavLeaf(tree, agentPos);
+            const int goalLeaf = sampleNavLeaf(tree, goalPos);
 
-            advanceWaypoints(agent, agentPos);
+            updateStuckSkip(agent, agentPos, dt);
+            advanceWaypoints(agent, agentPos, agentLeaf);
 
-            if (needsReplan(agent, goalPos, agentLeaf, dt)) {
-                replanAgent(worldRef, agent, agentPos, goalPos);
+            if (needsReplan(nav, agent, goalPos, agentLeaf, goalLeaf, dt)) {
+                const bool preserveProgress =
+                    !agent.forceReplan && !agent.waypoints.empty();
+                replanAgent(worldRef, agent, agentPos, goalPos, preserveProgress);
                 agent.replanTimer = agent.replanInterval;
                 agent.agentLeaf = agentLeaf;
             }

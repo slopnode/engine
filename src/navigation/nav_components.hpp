@@ -13,6 +13,8 @@ struct NavigationAgent {
     bool hasGoal = false;
     std::string goalEntityId;
     std::vector<Vector3> waypoints;
+    std::vector<int> leafPath;
+    std::vector<int> waypointToLeaf;
     int waypointIndex = 0;
     int agentLeaf = -1;
     int goalLeaf = -1;
@@ -23,6 +25,9 @@ struct NavigationAgent {
     bool forceReplan = false;
     Vector3 lastGoalPos{};
     bool haveLastGoalPos = false;
+    float stuckTimer = 0.0f;
+    float lastWpHorizDist = -1.0f;
+    float stuckSkipTime = 0.45f;
 };
 
 }

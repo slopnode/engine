@@ -136,7 +136,11 @@ s7_pointer g_nav_clear_goal(s7_scheme* sc, s7_pointer args) {
     agent.hasGoal = false;
     agent.goalEntityId.clear();
     agent.waypoints.clear();
+    agent.leafPath.clear();
+    agent.waypointToLeaf.clear();
     agent.waypointIndex = 0;
+    agent.stuckTimer = 0.0f;
+    agent.lastWpHorizDist = -1.0f;
     agent.haveLastGoalPos = false;
     agent.forceReplan = false;
     return s7_t(sc);
@@ -183,6 +187,62 @@ s7_pointer g_nav_has_path_p(s7_scheme* sc, s7_pointer args) {
             agent.waypointIndex < static_cast<int>(agent.waypoints.size()))
                ? s7_t(sc)
                : s7_f(sc);
+}
+
+s7_pointer g_nav_path_direction(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "nav-path-direction", 1, args, "id string");
+    }
+    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    const NavigationAgent& agent = entity.get<NavigationAgent>();
+    if (!agent.hasGoal || agent.waypoints.empty()) {
+        return s7_f(sc);
+    }
+
+    const Vector3 agentPos = navActorFeet(entity);
+    const int idx = agent.waypointIndex;
+    Vector3 seg{};
+
+    if (idx < 0) {
+        return s7_f(sc);
+    }
+
+    if (idx >= static_cast<int>(agent.waypoints.size())) {
+        const Vector3& goal = agent.waypoints.back();
+        seg = {goal.x - agentPos.x, 0.0f, goal.z - agentPos.z};
+    } else {
+        const Vector3& wp = agent.waypoints[static_cast<std::size_t>(idx)];
+        const float dist = navHorizontalDist(agentPos, wp);
+        if (idx + 1 < static_cast<int>(agent.waypoints.size())) {
+            const Vector3& next = agent.waypoints[static_cast<std::size_t>(idx + 1)];
+            if (dist > agent.arriveRadius) {
+                seg = {wp.x - agentPos.x, 0.0f, wp.z - agentPos.z};
+            } else {
+                seg = {next.x - wp.x, 0.0f, next.z - wp.z};
+            }
+        } else if (dist > agent.arriveRadius || idx == 0) {
+            seg = {wp.x - agentPos.x, 0.0f, wp.z - agentPos.z};
+        } else {
+            const Vector3& prev = agent.waypoints[static_cast<std::size_t>(idx - 1)];
+            seg = {wp.x - prev.x, 0.0f, wp.z - prev.z};
+        }
+    }
+
+    const float len = std::sqrt(seg.x * seg.x + seg.z * seg.z);
+    if (len < 1.0e-4f) {
+        return s7_f(sc);
+    }
+    return s7_list(
+        sc,
+        2,
+        s7_make_real(sc, seg.x / len),
+        s7_make_real(sc, seg.z / len));
 }
 
 s7_pointer g_nav_at_goal_p(s7_scheme* sc, s7_pointer args) {
@@ -255,6 +315,14 @@ void bindNavApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(nav-has-path? id)");
+    s7_define_function(
+        scheme,
+        "nav-path-direction",
+        g_nav_path_direction,
+        1,
+        0,
+        false,
+        "(nav-path-direction id)");
     s7_define_function(
         scheme,
         "nav-at-goal?",

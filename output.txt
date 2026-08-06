@@ -1,0 +1,980 @@
+INFO: Initializing raylib 6.1-dev
+INFO: Platform backend: DESKTOP (GLFW)
+INFO: Supported raylib modules:
+INFO:     > rcore:..... loaded (mandatory)
+INFO:     > rlgl:...... loaded (mandatory)
+INFO:     > rshapes:... loaded (optional)
+INFO:     > rtextures:. loaded (optional)
+INFO:     > rtext:..... loaded (optional)
+INFO:     > rmodels:... loaded (optional)
+INFO:     > raudio:.... loaded (optional)
+INFO: DISPLAY: Trying to enable VSYNC
+INFO: DISPLAY: Device initialized successfully 
+INFO:     > Display size: 1800 x 1169
+INFO:     > Screen size:  1280 x 720
+INFO:     > Render size:  1280 x 720
+INFO:     > Viewport offsets: 0, 0
+INFO: GLAD: OpenGL extensions loaded successfully
+INFO: GL: Supported extensions count: 43
+INFO: GL: OpenGL device information:
+INFO:     > Vendor:   Apple
+INFO:     > Renderer: Apple M3 Pro
+INFO:     > Version:  4.1 Metal - 90.5
+INFO:     > GLSL:     4.10
+INFO: GL: VAO extension detected, VAO functions loaded successfully
+INFO: GL: NPOT textures extension detected, full NPOT textures supported
+INFO: GL: DXT compressed textures supported
+INFO: PLATFORM: DESKTOP (GLFW - Cocoa): Initialized successfully
+INFO: TEXTURE: [ID 1] Texture loaded successfully (1x1 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 1] Default texture loaded successfully
+INFO: SHADER: [ID 1] Vertex shader compiled successfully
+INFO: SHADER: [ID 2] Fragment shader compiled successfully
+INFO: SHADER: [ID 3] Program shader loaded successfully
+INFO: SHADER: [ID 3] Default shader loaded successfully
+INFO: RLGL: Render batch vertex buffers loaded successfully in RAM (CPU)
+INFO: RLGL: Render batch vertex buffers loaded successfully in VRAM (GPU)
+INFO: RLGL: Default OpenGL state initialized successfully
+INFO: TEXTURE: [ID 2] Texture loaded successfully (128x128 | GRAY_ALPHA | 1 mipmaps)
+INFO: FONT: Default font loaded successfully (224 glyphs)
+INFO: SYSTEM: Working Directory: /Users/bryanabrams/repos/engine
+ERROR: AUDIO: SoLoud init failed (7)
+WARNING: AUDIO: continuing without audio device
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 6] Program shader loaded successfully
+INFO: RENDER: entering menu (package on-startup / Debug → Map)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/TITLEPIC.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (320x200 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 3] Texture loaded successfully (320x200 | R8G8B8A8 | 1 mipmaps)
+INFO: MAP: meta id='E1M1' name='E1M1' author='' package='slopdoom' depends=0 ambient=(0.000 0.000 0.000) sun=no
+INFO: MAP: loaded brushes 'E1M1/static' total=73 hull=63 detail=6 other=4 box=70 nocollide=0 instances=0
+INFO: BSP: read '/Users/bryanabrams/repos/slopdoom/maps/E1M1/static.bsp' bytes=2085069 nodes=4029 leaves=4030 portals=8092 surfaces=372 root=0
+INFO: BSP: analyze start leaves=4030 surfaces=372 brushes=73
+INFO: BSP: flood exteriorEmpty=2521 interiorEmpty=734 blocked=775 portals=8092 sealed=yes
+INFO: BSP: analyze done detailWarnings=0 (nodraw via slopfac)
+INFO: MAP: using authored brush faces (explicit nodraw only; run slopfac for auto-cull)
+INFO: MAP: loaded pvs leaves=4030
+INFO: MAP: BSP hull=67 detail=6 box=70 nocollide=0 nodes=4029 emptyLeaves=3255 solidLeaves=775 portals=8092 surfaceFaces=372 charts=420
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 7] Program shader loaded successfully
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 8] Program shader loaded successfully
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/maps/E1M1/rad/atlas0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (1024x1024 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 5] Texture loaded successfully (1024x1024 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/maps/E1M1/rad/atlas0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (1024x1024 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF074.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 6] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQTILE01.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 7] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF051.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 8] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQPIPE13.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 9] Texture loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/FLOOR4_8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 10] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQPANL06.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (128x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 11] Texture loaded successfully (128x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/W31_1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 12] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/W32_1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 13] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/W32_5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 14] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/W33_5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 15] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/W31_2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 16] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQPANL03.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 17] Texture loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/CEIL3_5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 18] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/W33_7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 19] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 20] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP03_4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (32x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 21] Texture loaded successfully (32x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 22] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 23] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQMETL31.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 24] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/RAILING.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x32 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 25] Texture loaded successfully (64x32 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/RROCK14.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 26] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQMETL26.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x128 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 27] Texture loaded successfully (64x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AMOD1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x128 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 28] Texture loaded successfully (64x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/CEIL5_1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 29] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQCONC14.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 30] Texture loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/WALL54_2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 31] Texture loaded successfully (128x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 32] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP03_8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (32x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 33] Texture loaded successfully (32x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP04_8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 34] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF034.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 35] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF039.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 36] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF033.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 37] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF037.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 38] Texture loaded successfully (64x64 | R8G8B8A8 | 1 mipmaps)
+WARNING: MAP: 18 drawn face(s) missing lightmap charts (e.g. 'brush-17/top'); rebake with sloprad
+INFO: VAO: [ID 2] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 3] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 4] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 5] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 6] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 7] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 8] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 9] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 10] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 11] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 12] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 13] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 14] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 15] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 16] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 17] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 18] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 19] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 20] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 21] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 22] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 23] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 24] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 25] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 26] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 27] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 28] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 29] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 30] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 31] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 32] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 33] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 34] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 35] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 36] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 37] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 38] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 39] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 40] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 41] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 42] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 43] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 44] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 45] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 46] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 47] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 48] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 49] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 50] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 51] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 52] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 53] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 54] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 55] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 56] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 57] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 58] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 59] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 60] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 61] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 62] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 63] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 64] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 65] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 66] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 67] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 68] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 69] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 70] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 71] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 72] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 73] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 74] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 75] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 76] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 77] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 78] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 79] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 80] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 81] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 82] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 83] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 84] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 85] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 86] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 87] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 88] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 89] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 90] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 91] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 92] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 93] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 94] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 95] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 96] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 97] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 98] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 99] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 100] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 101] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 102] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 103] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 104] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 105] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 106] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 107] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 108] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 109] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 110] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 111] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 112] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 113] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 114] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 115] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 116] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 117] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 118] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 119] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 120] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 121] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 122] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 123] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 124] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 125] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 126] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 127] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 128] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 129] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 130] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 131] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 132] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 133] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 134] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 135] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 136] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 137] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 138] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 139] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 140] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 141] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 142] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 143] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 144] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 145] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 146] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 147] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 148] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 149] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 150] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 151] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 152] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 153] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 154] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 155] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 156] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 157] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 158] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 159] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 160] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 161] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 162] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 163] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 164] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 165] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 166] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 167] Mesh uploaded successfully to VRAM (GPU)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/masks/COMP02_6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 39] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: VAO: [ID 168] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 169] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 170] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 171] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 172] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 173] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 174] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 175] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 176] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 177] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 178] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 179] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 180] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 181] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 182] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 183] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 184] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 185] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 186] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 187] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 188] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 189] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 190] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 191] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 192] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 193] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 194] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 195] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 196] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 197] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 198] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 199] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 200] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 201] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 202] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 203] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 204] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 205] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 206] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 207] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 208] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 209] Mesh uploaded successfully to VRAM (GPU)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/masks/COMP02_4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 40] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: VAO: [ID 210] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 211] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 212] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 213] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 214] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 215] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 216] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 217] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 218] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 219] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 220] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 221] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 222] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 223] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 224] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 225] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 226] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 227] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 228] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 229] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 230] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 231] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 232] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 233] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 234] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 235] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 236] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 237] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 238] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 239] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 240] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 241] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 242] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 243] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 244] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 245] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 246] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 247] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 248] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 249] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 250] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 251] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 252] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 253] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 254] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 255] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 256] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 257] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 258] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 259] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 260] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 261] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 262] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 263] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 264] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 265] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 266] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 267] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 268] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 269] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 270] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 271] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 272] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 273] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 274] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 275] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 276] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 277] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 278] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 279] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 280] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 281] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 282] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 283] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 284] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 285] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 286] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 287] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 288] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 289] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 290] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 291] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 292] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 293] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 294] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 295] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 296] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 297] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 298] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 299] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 300] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 301] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 302] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 303] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 304] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 305] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 306] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 307] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 308] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 309] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 310] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 311] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 312] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 313] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 314] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 315] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 316] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 317] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 318] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 319] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 320] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 321] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 322] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 323] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 324] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 325] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 326] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 327] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 328] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 329] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 330] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 331] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 332] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 333] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 334] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 335] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 336] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 337] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 338] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 339] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 340] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 341] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 342] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 343] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 344] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 345] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 346] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 347] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 348] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 349] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 350] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 351] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 352] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 353] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 354] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 355] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 356] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 357] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 358] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 359] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 360] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 361] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 362] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 363] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 364] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 365] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 366] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 367] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 368] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 369] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 370] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 371] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 372] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 373] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 374] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 375] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 376] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 377] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 378] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 379] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 380] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 381] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 382] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 383] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 384] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 385] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 386] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 387] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 388] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 389] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 390] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 391] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 392] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 393] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 394] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 395] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 396] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 397] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 398] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 399] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 400] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 401] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 402] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 403] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 404] Mesh uploaded successfully to VRAM (GPU)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/masks/COMP02_8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 41] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: VAO: [ID 405] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 406] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 407] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 408] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 409] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 410] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 411] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 412] Mesh uploaded successfully to VRAM (GPU)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF039_e.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8 | 1 mipmaps)
+INFO: TEXTURE: [ID 42] Texture loaded successfully (64x64 | R8G8B8 | 1 mipmaps)
+INFO: VAO: [ID 413] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 414] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 415] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 416] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 417] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 418] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 419] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 420] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 421] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 422] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 423] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 424] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 425] Mesh uploaded successfully to VRAM (GPU)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AQF037_e.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x64 | R8G8B8 | 1 mipmaps)
+INFO: TEXTURE: [ID 43] Texture loaded successfully (64x64 | R8G8B8 | 1 mipmaps)
+INFO: VAO: [ID 426] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 427] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 428] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 429] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 430] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 431] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 432] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 433] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 434] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 435] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 436] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 437] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 438] Mesh uploaded successfully to VRAM (GPU)
+INFO: VAO: [ID 439] Mesh uploaded successfully to VRAM (GPU)
+INFO: MAP: loaded 'E1M1/static' (73 brushes, 438 meshes, lightmaps=yes)
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 9] Program shader loaded successfully
+INFO: TEXTURE: [ID 45] Texture loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 1] Depth renderbuffer loaded successfully (32 bits)
+INFO: FBO: [ID 2] Framebuffer object created successfully
+INFO: BSP: analyze start leaves=4030 surfaces=372 brushes=73
+INFO: BSP: flood exteriorEmpty=2521 interiorEmpty=734 blocked=775 portals=8092 sealed=yes
+INFO: BSP: analyze done detailWarnings=0 (nodraw via slopfac)
+INFO: NAV: built graph leaves=4030 walkable=734 portals=8092
+INFO: PHYSICS: added 73 static brush bodies (box=70 hull=3 skipped 0 no-blocks)
+INFO: PHYSICS: character 544 at (5.30, 0.00, 8.40) hull=box move=slide
+INFO: PHYSICS: character 545 at (-13.35, 5.75, -0.75) hull=capsule move=slide
+INFO: PHYSICS: character 545 at (-13.35, 5.75, -0.75) hull=capsule move=slide
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 10] Program shader loaded successfully
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PISGA0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (82x92 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PISGB0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (82x96 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PISGC0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (84x100 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PISGD0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (84x106 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PISGE0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (86x120 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 46] Texture loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 47] Texture loaded successfully (1280x720 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 2] Depth renderbuffer loaded successfully (32 bits)
+INFO: FBO: [ID 3] Framebuffer object created successfully
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 11] Program shader loaded successfully
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 12] Program shader loaded successfully
+INFO: VAO: [ID 440] Mesh uploaded successfully to VRAM (GPU)
+WARNING: VAO: [ID 440] Trying to re-load an already loaded mesh
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STBAR.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (320x32 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 48] Texture loaded successfully (320x32 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STTNUM0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 49] Texture loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STTNUM2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 50] Texture loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STTPRCNT.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 51] Texture loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STTNUM1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 52] Texture loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STARMS.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x32 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 53] Texture loaded successfully (38x32 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STYSNUM1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 54] Texture loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STYSNUM2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 55] Texture loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STYSNUM3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 56] Texture loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STYSNUM4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 57] Texture loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STYSNUM5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 58] Texture loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STYSNUM6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 59] Texture loaded successfully (4x6 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STFB0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (35x31 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 60] Texture loaded successfully (35x31 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STFST00.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (24x29 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 61] Texture loaded successfully (24x29 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AMMNUM0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 62] Texture loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AMMNUM2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 63] Texture loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AMMNUM8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 64] Texture loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AMMNUM5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 65] Texture loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/AMMNUM3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 66] Texture loaded successfully (3x5 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 67] Texture loaded successfully (512x128 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 68] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STFST02.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (24x29 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 69] Texture loaded successfully (24x29 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 70] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 71] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/COMP02_7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 72] Texture loaded successfully (64x56 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (49x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (48x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (49x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (49x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (52x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSA8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (48x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (53x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (43x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (41x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (51x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (40x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (46x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSB8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (50x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (48x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (54x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (48x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (48x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSC8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (51x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (54x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (46x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (41x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (51x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (40x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (43x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSD8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (54x74 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (54x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (67x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (59x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (59x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSE8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (67x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (63x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (54x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (67x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (59x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (59x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSF8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (67x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (64x74 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (54x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (67x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (59x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (38x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (59x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSG8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (67x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH1.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (56x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH2.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (53x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH3.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (44x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH4.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (44x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (46x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH6.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (49x72 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH7.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (47x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSH8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (53x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSI0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (63x73 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSJ0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (78x69 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSK0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (83x67 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSL0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (80x52 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSM0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (82x46 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSN0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (82x38 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/BOSSO0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (90x24 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 73] Texture loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 74] Texture loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: SHADER: [ID 4] Vertex shader compiled successfully
+INFO: SHADER: [ID 5] Fragment shader compiled successfully
+INFO: SHADER: [ID 13] Program shader loaded successfully
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PLSSA0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (19x16 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/PLSSB0.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (19x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 75] Texture loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STFST01.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (24x29 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 76] Texture loaded successfully (24x29 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/engine/packages/engine/icons/silk.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 77] Texture loaded successfully (512x512 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STTNUM5.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 78] Texture loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: FILEIO: [/Users/bryanabrams/repos/slopdoom/textures/freedom/STTNUM8.png] File loaded successfully
+INFO: IMAGE: Data loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 79] Texture loaded successfully (13x16 | R8G8B8A8 | 1 mipmaps)
+INFO: TEXTURE: [ID 67] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 2] Unloaded texture data from VRAM (GPU)
+INFO: SHADER: [ID 3] Default shader unloaded successfully
+INFO: TEXTURE: [ID 1] Default texture unloaded successfully
+INFO: Window closed successfully
+INFO: SHADER: [ID 6] Unloaded shader program data from VRAM (GPU)
+INFO: SHADER: [ID 10] Unloaded shader program data from VRAM (GPU)
+INFO: FBO: [ID 3] Unloaded framebuffer from VRAM (GPU)
+INFO: FBO: [ID 1] Unloaded framebuffer from VRAM (GPU)
+INFO: FBO: [ID 2] Unloaded framebuffer from VRAM (GPU)
+INFO: SHADER: [ID 9] Unloaded shader program data from VRAM (GPU)
+INFO: TEXTURE: [ID 75] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 73] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 74] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 46] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 77] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 79] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 76] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 70] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 68] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 66] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 62] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 61] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 60] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 59] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 56] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 55] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 9] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 15] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 54] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 50] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 51] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 72] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 58] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 49] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 48] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 57] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 25] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 40] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 41] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 39] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 37] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 28] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 3] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 36] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 33] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 78] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 35] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 64] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 22] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 29] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 43] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 69] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 30] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 23] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 21] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 63] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 14] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 31] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 27] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 20] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 32] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 65] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 13] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 19] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 12] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 18] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 42] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 17] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 52] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 16] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 71] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 11] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 38] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 26] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 24] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 34] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 8] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 7] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 10] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 53] Unloaded texture data from VRAM (GPU)
+INFO: TEXTURE: [ID 6] Unloaded texture data from VRAM (GPU)

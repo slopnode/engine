@@ -60,11 +60,14 @@ MapNavigation buildMapNavigation(
 
     nav.walkable.assign(static_cast<std::size_t>(n), false);
     nav.leafCentroids.resize(static_cast<std::size_t>(n));
+    nav.leafFloorY.resize(static_cast<std::size_t>(n));
     nav.adjacency.resize(static_cast<std::size_t>(n));
 
     for (int i = 0; i < n; ++i) {
         nav.leafCentroids[static_cast<std::size_t>(i)] =
             leafCentroid(tree.leaves[static_cast<std::size_t>(i)]);
+        nav.leafFloorY[static_cast<std::size_t>(i)] =
+            tree.leaves[static_cast<std::size_t>(i)].mins.y;
         nav.walkable[static_cast<std::size_t>(i)] = isNavWalkableLeaf(tree, i, exteriorEmpty);
     }
 
@@ -193,12 +196,19 @@ std::vector<Vector3> leafPathToWaypoints(
     std::vector<Vector3> waypoints;
     waypoints.reserve(leafPath.size());
     for (std::size_t i = 0; i + 1 < leafPath.size(); ++i) {
-        const std::optional<Vector3> center =
-            portalCenterBetween(nav, leafPath[i], leafPath[i + 1]);
+        const int fromLeaf = leafPath[i];
+        const int toLeaf = leafPath[i + 1];
+        const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];
+        const std::optional<Vector3> center = portalCenterBetween(nav, fromLeaf, toLeaf);
         if (center.has_value()) {
-            waypoints.push_back(*center);
+            waypoints.push_back({center->x, floorY, center->z});
         } else {
-            waypoints.push_back(nav.leafCentroids[static_cast<std::size_t>(leafPath[i + 1])]);
+            const Vector3& fromCentroid = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
+            const Vector3& toCentroid = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];
+            waypoints.push_back({
+                0.5f * (fromCentroid.x + toCentroid.x),
+                floorY,
+                0.5f * (fromCentroid.z + toCentroid.z)});
         }
     }
     waypoints.push_back(goalPos);
