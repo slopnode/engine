@@ -457,6 +457,12 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         } else if (placement.haveAngles) {
             ctx.playerStart.pitch = placement.angles.x;
         }
+        if (placement.haveMotor) {
+            ctx.playerStart.haveMotor = true;
+            ctx.playerStart.motorRadius = placement.motorRadius;
+            ctx.playerStart.motorHeight = placement.motorHeight;
+            ctx.playerStart.motorEyeHeight = placement.motorEyeHeight;
+        }
         ctx.playerStart.found = true;
         return;
     }

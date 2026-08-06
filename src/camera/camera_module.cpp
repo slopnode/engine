@@ -86,14 +86,19 @@ void registerSystems(flecs::world& world) {
 
             if (controller.allowLook) {
                 controller.yaw -= input.mouseDelta.x * controller.lookSensitivity;
-                controller.pitch -= input.mouseDelta.y * controller.lookSensitivity;
 
-                constexpr float kMaxPitch = 1.4f;
-                if (controller.pitch > kMaxPitch) {
-                    controller.pitch = kMaxPitch;
-                }
-                if (controller.pitch < -kMaxPitch) {
-                    controller.pitch = -kMaxPitch;
+                if (controller.allowPitch) {
+                    controller.pitch -= input.mouseDelta.y * controller.lookSensitivity;
+
+                    constexpr float kMaxPitch = 1.4f;
+                    if (controller.pitch > kMaxPitch) {
+                        controller.pitch = kMaxPitch;
+                    }
+                    if (controller.pitch < -kMaxPitch) {
+                        controller.pitch = -kMaxPitch;
+                    }
+                } else {
+                    controller.pitch = 0.0f;
                 }
             }
 

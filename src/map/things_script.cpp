@@ -404,6 +404,13 @@ s7_pointer g_motor_hover_height(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "hover-height", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_motor_eye_height(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "eye-height", 1, args, "value");
+    }
+    return makeTaggedList(sc, "eye-height", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_motor_hull(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "hull", 1, args, "capsule|box");
@@ -751,6 +758,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorVerticalSpeed = value;
                 } else if (std::strcmp(motorTag, "hover-height") == 0) {
                     out.motorHoverHeight = value;
+                } else if (std::strcmp(motorTag, "eye-height") == 0) {
+                    out.motorEyeHeight = value;
                 } else {
                     TraceLog(LOG_WARNING, "THING: unknown motor clause '%s'", motorTag);
                     return false;
@@ -1469,6 +1478,8 @@ void bindThingApi(s7_scheme* sc) {
         sc, "vertical-speed", g_motor_vertical_speed, 1, 0, false, "(vertical-speed value)");
     s7_define_function(
         sc, "hover-height", g_motor_hover_height, 1, 0, false, "(hover-height value)");
+    s7_define_function(
+        sc, "eye-height", g_motor_eye_height, 1, 0, false, "(eye-height value)");
     s7_define_function(sc, "hull", g_motor_hull, 1, 0, false, "(hull capsule|box|sphere)");
     s7_define_function(sc, "move", g_motor_move, 1, 0, false, "(move slide|try-move)");
     s7_define_variable(sc, "capsule", s7_make_symbol(sc, "capsule"));

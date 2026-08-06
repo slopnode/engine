@@ -32,6 +32,7 @@
 #include "render/render_context.hpp"
 #include "script/first_person_script.hpp"
 #include "script/save_script.hpp"
+#include "script/scheme_call.hpp"
 #include "ui/ui_state.hpp"
 
 #include <algorithm>
@@ -358,6 +359,21 @@ bool registerMapScene(
     }
 
     CharacterMotor motor{};
+    const PlayerMotorDefaults packageMotor = parsePlayerMotorFromScheme(scheme);
+    if (packageMotor.haveRadius) {
+        motor.radius = packageMotor.radius;
+    }
+    if (packageMotor.haveHeight) {
+        motor.height = packageMotor.height;
+    }
+    if (packageMotor.haveEyeHeight) {
+        motor.eyeHeight = packageMotor.eyeHeight;
+    }
+    if (playerStart.haveMotor) {
+        motor.radius = playerStart.motorRadius;
+        motor.height = playerStart.motorHeight;
+        motor.eyeHeight = playerStart.motorEyeHeight;
+    }
     controller.eyeHeight = motor.eyeHeight;
     controller.moveSpeed = motor.moveSpeed;
     player.set<FirstPersonController>(controller);

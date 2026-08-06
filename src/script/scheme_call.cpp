@@ -5,6 +5,8 @@
 
 #include <s7.h>
 
+#include <cstring>
+
 namespace slopengine {
 
 namespace {
@@ -396,6 +398,36 @@ ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme) {
         canvas.height = height;
     }
     return canvas;
+}
+
+PlayerMotorDefaults parsePlayerMotorFromScheme(s7_scheme* scheme) {
+    PlayerMotorDefaults out{};
+    if (scheme == nullptr) {
+        return out;
+    }
+    const s7_pointer value = s7_name_to_value(scheme, "*player-motor*");
+    if (!s7_is_pair(value)) {
+        return out;
+    }
+    for (s7_pointer cursor = value; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry)) || !s7_is_number(s7_cdr(entry))) {
+            continue;
+        }
+        const char* key = s7_symbol_name(s7_car(entry));
+        const float f = static_cast<float>(s7_number_to_real(scheme, s7_cdr(entry)));
+        if (std::strcmp(key, "radius") == 0) {
+            out.radius = f;
+            out.haveRadius = true;
+        } else if (std::strcmp(key, "height") == 0) {
+            out.height = f;
+            out.haveHeight = true;
+        } else if (std::strcmp(key, "eye-height") == 0) {
+            out.eyeHeight = f;
+            out.haveEyeHeight = true;
+        }
+    }
+    return out;
 }
 
 HudCanvas parseHudCanvasFromScheme(s7_scheme* scheme) {

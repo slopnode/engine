@@ -95,4 +95,15 @@ bool tryCallSchemeProc1String3Reals1OptString(
 ViewCanvas parseViewCanvasFromScheme(s7_scheme* scheme);
 HudCanvas parseHudCanvasFromScheme(s7_scheme* scheme);
 
+struct PlayerMotorDefaults {
+    float radius = 0.0f;
+    float height = 0.0f;
+    float eyeHeight = 0.0f;
+    bool haveRadius = false;
+    bool haveHeight = false;
+    bool haveEyeHeight = false;
+};
+
+PlayerMotorDefaults parsePlayerMotorFromScheme(s7_scheme* scheme);
+
 }

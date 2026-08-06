@@ -1141,6 +1141,28 @@ s7_pointer g_actor_set_wish_3d(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_actor_set_move_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-set-move-speed!", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    float speed = 0.0f;
+    if (!readNumberArg(sc, rest, speed, "actor-set-move-speed!", 2)) {
+        return s7_wrong_type_arg_error(sc, "actor-set-move-speed!", 2, rest, "speed number");
+    }
+    flecs::entity entity = lookupActor(id);
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    CharacterMotor& motor = entity.get_mut<CharacterMotor>();
+    motor.moveSpeed = speed;
+    return s7_t(sc);
+}
+
 s7_pointer g_actor_grounded(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -2288,6 +2310,76 @@ s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->rangedAnim.c_str());
 }
 
+s7_pointer g_thing_def_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-speed", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->motorSpeed));
+}
+
+s7_pointer g_thing_def_lunge_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeRange));
+}
+
+s7_pointer g_thing_def_lunge_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-speed", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeSpeed));
+}
+
+s7_pointer g_thing_def_lunge_cooldown(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-cooldown", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeCooldown));
+}
+
+s7_pointer g_thing_def_lunge_duration(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-duration", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeDuration));
+}
+
 s7_pointer g_thing_def_pain_chance(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -2458,6 +2550,40 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(thing-def-ranged-anim type)");
     s7_define_function(
+        scheme, "thing-def-speed", g_thing_def_speed, 1, 0, false, "(thing-def-speed type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-range",
+        g_thing_def_lunge_range,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-speed",
+        g_thing_def_lunge_speed,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-speed type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-cooldown",
+        g_thing_def_lunge_cooldown,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-duration",
+        g_thing_def_lunge_duration,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-duration type)");
+    s7_define_function(
         scheme,
         "thing-def-pain-chance",
         g_thing_def_pain_chance,
@@ -2589,6 +2715,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(actor-set-wish-3d id wx wy wz)");
+    s7_define_function(
+        scheme,
+        "actor-set-move-speed!",
+        g_actor_set_move_speed,
+        2,
+        0,
+        false,
+        "(actor-set-move-speed! id speed)");
     s7_define_function(
         scheme, "actor-set-corpse!", g_actor_set_corpse, 1, 0, false, "(actor-set-corpse! id)");
     s7_define_function(

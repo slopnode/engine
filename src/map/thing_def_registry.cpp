@@ -286,6 +286,34 @@ bool parseRangedClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
     return true;
 }
 
+bool parseLungeClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
+    def.haveLunge = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (!s7_is_pair(values) || !s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "range") == 0) {
+            def.lungeRange = value;
+        } else if (std::strcmp(tag, "speed") == 0) {
+            def.lungeSpeed = value;
+        } else if (std::strcmp(tag, "cooldown") == 0) {
+            def.lungeCooldown = value;
+        } else if (std::strcmp(tag, "duration") == 0) {
+            def.lungeDuration = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 template <typename SightOwner>
 bool parseSightClauses(s7_scheme* scheme, s7_pointer rest, SightOwner& out) {
     out.haveSight = true;
@@ -675,6 +703,17 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
                 TraceLog(
                     LOG_WARNING,
                     "THINGDEFS: '%s' has invalid ranged; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+
+        s7_pointer lungeVal = nullptr;
+        if (readAssoc(scheme, props, "lunge", lungeVal)) {
+            if (!parseLungeClauses(scheme, lungeVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid lunge; ignored",
                     def.id.c_str());
                 continue;
             }

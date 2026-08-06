@@ -19,6 +19,11 @@ struct PlayerStart {
     float yaw = 3.14159265358979323846f;
     float pitch = -0.05f;
     bool found = false;
+
+    bool haveMotor = false;
+    float motorRadius = 0.3f;
+    float motorHeight = 0.88f;
+    float motorEyeHeight = 0.8f;
 };
 
 void spawnThings(

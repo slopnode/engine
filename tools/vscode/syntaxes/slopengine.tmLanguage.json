@@ -4,9 +4,16 @@
   "patterns": [
     { "include": "#comment" },
     { "include": "#string" },
+    { "include": "#character" },
+    { "include": "#boolean" },
     { "include": "#number" },
-    { "include": "#keyword" },
+    { "include": "#quote" },
+    { "include": "#literal-keyword" },
+    { "include": "#special-variable" },
     { "include": "#paren" },
+    { "include": "#head-keyword" },
+    { "include": "#head-builtin" },
+    { "include": "#head-function" },
     { "include": "#symbol" }
   ],
   "repository": {
@@ -20,6 +27,10 @@
           "name": "comment.block.slopengine",
           "begin": "#\\|",
           "end": "\\|#"
+        },
+        {
+          "name": "comment.block.datum.slopengine",
+          "match": "#;"
         }
       ]
     },
@@ -34,13 +45,29 @@
         }
       ]
     },
+    "character": {
+      "name": "constant.character.slopengine",
+      "match": "#\\\\([a-zA-Z][a-zA-Z0-9-]*|.)"
+    },
+    "boolean": {
+      "name": "constant.language.boolean.slopengine",
+      "match": "#(t(rue)?|f(alse)?|unspecified|eof|default|<unspecified>|<eof>)\\b"
+    },
     "number": {
       "name": "constant.numeric.slopengine",
-      "match": "(?<![\\w.-])-?(?:\\d+\\.\\d+|\\.\\d+|\\d+)(?![\\w.])"
+      "match": "(?<![\\w.-])(?:#[xXoObBeEiI])*-?(?:\\d+/\\d+|\\d+\\.\\d+|\\.\\d+|\\d+)(?:[eE][+-]?\\d+)?(?![\\w.])"
     },
-    "keyword": {
+    "quote": {
+      "name": "keyword.operator.quote.slopengine",
+      "match": "'|`|,@|,"
+    },
+    "literal-keyword": {
       "name": "keyword.control.slopengine",
-      "match": "(?<=\\()(?:brush-box|package|map|material|geo|anim|skeleton|id|name|version|depends|mins|maxs|role|faces|uv-shift|top|bottom|north|south|east|west|hull|detail|shader|texture|texel-size|base-color|vertices|primitives|vertex-offset|vertex-count|index-offset|index-count|clips|skeleton|fps|duration|tracks|bones|parent|bind|define|lambda|if|cond|let|let\\*|begin|quote|set!|t|r|s)\\b"
+      "match": "(?<![-\\w./!?+*<>=])(else|=>|\\.\\.\\.)(?![-\\w./!?+*<>=])"
+    },
+    "special-variable": {
+      "name": "variable.other.constant.slopengine",
+      "match": "\\*[-A-Za-z0-9_./!?+<>=]+\\*"
     },
     "paren": {
       "patterns": [
@@ -53,6 +80,18 @@
           "match": "\\)"
         }
       ]
+    },
+    "head-keyword": {
+      "name": "keyword.control.slopengine",
+      "match": "(?<=\\()(define\\*?|define-macro\\*?|define-bacro\\*?|define-constant|define-expansion|define-syntax|define-record-type|define-module|define-class|define-animal|define-values|lambda\\*?|dilambda|let\\*?|let-values|let\\*-values|letrec\\*?|named-lambda|do|if|cond|case|when|unless|and|or|begin|set!|quote|quasiquote|unquote|unquote-splicing|delay|delay-force|force|dynamic-wind|call/cc|call-with-current-continuation|call-with-values|call-with-exit|with-let|with-baffle|catch|syntax-rules)(?=[\\s)]|$)"
+    },
+    "head-builtin": {
+      "name": "support.function.builtin.slopengine",
+      "match": "(?<=\\()(car|cdr|caar|cadr|cdar|cddr|caddr|cdddr|cons|cons\\*|list|list\\?|list-ref|list-tail|append|append!|reverse|reverse!|length|map|filter|reduce|apply|assoc|assq|assv|member|memq|memv|eq\\?|eqv\\?|equal\\?|null\\?|pair\\?|number\\?|integer\\?|real\\?|rational\\?|string\\?|symbol\\?|procedure\\?|boolean\\?|vector\\?|char\\?|zero\\?|positive\\?|negative\\?|odd\\?|even\\?|not|min|max|abs|floor|ceiling|round|truncate|sqrt|expt|modulo|remainder|quotient|gcd|lcm|sin|cos|tan|asin|acos|atan|exp|log|format|display|display\\*|write|write-string|newline|read|read-line|string|string-length|string-append|string-ref|string-set!|substring|string=\\?|string<\\?|string>\\?|string<=\\?|string>=\\?|string-ci=\\?|string->symbol|symbol->string|string->number|number->string|string->list|list->string|string-upcase|string-downcase|char->integer|integer->char|vector|vector-ref|vector-set!|vector-length|make-vector|vector->list|list->vector|vector-fill!|vector-map|vector-for-each|for-each|hash-table|hash-table\\*|make-hash-table|hash-table-ref|hash-table-set!|hash-table->list|sort|sort!|error|exit|eval|eval-string|load|values|dynamic-wind|1\\+|1-|gensym|copy|fill!)(?=[\\s)]|$)"
+    },
+    "head-function": {
+      "name": "entity.name.function.slopengine",
+      "match": "(?<=\\()[-A-Za-z0-9_./!?+*<>=]+"
     },
     "symbol": {
       "name": "variable.other.slopengine",

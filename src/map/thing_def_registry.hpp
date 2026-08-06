@@ -72,6 +72,12 @@ struct ThingDef {
     float rangedCooldown = 2.0f;
     std::string rangedAnim;
 
+    bool haveLunge = false;
+    float lungeRange = 14.0f;
+    float lungeSpeed = 16.0f;
+    float lungeCooldown = 2.5f;
+    float lungeDuration = 0.9f;
+
     bool haveSight = false;
     bool sightEnabled = true;
     float sightRange = 32.0f;

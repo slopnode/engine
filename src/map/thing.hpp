@@ -98,6 +98,7 @@ struct Thing {
     float motorStepHeight = 0.4f;
     float motorVerticalSpeed = 3.0f;
     float motorHoverHeight = 0.0f;
+    float motorEyeHeight = 0.8f;
     CharacterHull motorHull = CharacterHull::Capsule;
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;
