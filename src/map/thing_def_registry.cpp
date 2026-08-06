@@ -153,20 +153,31 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
         if (std::strcmp(tag, "hull") == 0) {
             std::string hull;
             if (!readStringValue(scheme, s7_car(values), hull) ||
-                (hull != "box" && hull != "capsule")) {
+                (hull != "box" && hull != "capsule" && hull != "sphere")) {
                 return false;
             }
-            def.motorHull = (hull == "box") ? CharacterHull::Box : CharacterHull::Capsule;
+            if (hull == "box") {
+                def.motorHull = CharacterHull::Box;
+            } else if (hull == "sphere") {
+                def.motorHull = CharacterHull::Sphere;
+            } else {
+                def.motorHull = CharacterHull::Capsule;
+            }
             continue;
         }
         if (std::strcmp(tag, "move") == 0) {
             std::string move;
             if (!readStringValue(scheme, s7_car(values), move) ||
-                (move != "try-move" && move != "slide")) {
+                (move != "try-move" && move != "slide" && move != "fly")) {
                 return false;
             }
-            def.motorMoveMode =
-                (move == "try-move") ? CharacterMoveMode::TryMove : CharacterMoveMode::Slide;
+            if (move == "try-move") {
+                def.motorMoveMode = CharacterMoveMode::TryMove;
+            } else if (move == "fly") {
+                def.motorMoveMode = CharacterMoveMode::Fly;
+            } else {
+                def.motorMoveMode = CharacterMoveMode::Slide;
+            }
             continue;
         }
         if (!s7_is_number(s7_car(values))) {
@@ -183,6 +194,10 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
             def.motorGravity = value;
         } else if (std::strcmp(tag, "step-height") == 0) {
             def.motorStepHeight = value;
+        } else if (std::strcmp(tag, "vertical-speed") == 0) {
+            def.motorVerticalSpeed = value;
+        } else if (std::strcmp(tag, "hover-height") == 0) {
+            def.motorHoverHeight = value;
         } else {
             return false;
         }
@@ -458,6 +473,8 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.motorSpeed = def.motorSpeed;
     out.motorGravity = def.motorGravity;
     out.motorStepHeight = def.motorStepHeight;
+    out.motorVerticalSpeed = def.motorVerticalSpeed;
+    out.motorHoverHeight = def.motorHoverHeight;
     out.motorHull = def.motorHull;
     out.motorMoveMode = def.motorMoveMode;
     out.tags = def.tags;

@@ -23,6 +23,7 @@ struct NavigationAgent {
     float goalMoveThreshold = 1.0f;
     float arriveRadius = 0.75f;
     bool forceReplan = false;
+    bool flyer = false;
     Vector3 lastGoalPos{};
     bool haveLastGoalPos = false;
     float stuckTimer = 0.0f;

@@ -390,6 +390,20 @@ s7_pointer g_motor_step_height(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "step-height", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_motor_vertical_speed(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "vertical-speed", 1, args, "value");
+    }
+    return makeTaggedList(sc, "vertical-speed", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_motor_hover_height(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "hover-height", 1, args, "value");
+    }
+    return makeTaggedList(sc, "hover-height", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_motor_hull(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "hull", 1, args, "capsule|box");
@@ -689,22 +703,33 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                 if (std::strcmp(motorTag, "hull") == 0) {
                     std::string hull;
                     if (!readString(sc, s7_car(motorRest), hull) ||
-                        (hull != "box" && hull != "capsule")) {
-                        TraceLog(LOG_WARNING, "THING: motor hull must be box or capsule");
+                        (hull != "box" && hull != "capsule" && hull != "sphere")) {
+                        TraceLog(LOG_WARNING, "THING: motor hull must be box, capsule, or sphere");
                         return false;
                     }
-                    out.motorHull = (hull == "box") ? CharacterHull::Box : CharacterHull::Capsule;
+                    if (hull == "box") {
+                        out.motorHull = CharacterHull::Box;
+                    } else if (hull == "sphere") {
+                        out.motorHull = CharacterHull::Sphere;
+                    } else {
+                        out.motorHull = CharacterHull::Capsule;
+                    }
                     continue;
                 }
                 if (std::strcmp(motorTag, "move") == 0) {
                     std::string move;
                     if (!readString(sc, s7_car(motorRest), move) ||
-                        (move != "try-move" && move != "slide")) {
-                        TraceLog(LOG_WARNING, "THING: motor move must be slide or try-move");
+                        (move != "try-move" && move != "slide" && move != "fly")) {
+                        TraceLog(LOG_WARNING, "THING: motor move must be slide, try-move, or fly");
                         return false;
                     }
-                    out.motorMoveMode = (move == "try-move") ? CharacterMoveMode::TryMove
-                                                             : CharacterMoveMode::Slide;
+                    if (move == "try-move") {
+                        out.motorMoveMode = CharacterMoveMode::TryMove;
+                    } else if (move == "fly") {
+                        out.motorMoveMode = CharacterMoveMode::Fly;
+                    } else {
+                        out.motorMoveMode = CharacterMoveMode::Slide;
+                    }
                     continue;
                 }
                 if (!s7_is_number(s7_car(motorRest))) {
@@ -722,6 +747,10 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorGravity = value;
                 } else if (std::strcmp(motorTag, "step-height") == 0) {
                     out.motorStepHeight = value;
+                } else if (std::strcmp(motorTag, "vertical-speed") == 0) {
+                    out.motorVerticalSpeed = value;
+                } else if (std::strcmp(motorTag, "hover-height") == 0) {
+                    out.motorHoverHeight = value;
                 } else {
                     TraceLog(LOG_WARNING, "THING: unknown motor clause '%s'", motorTag);
                     return false;
@@ -1436,7 +1465,11 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "speed", g_motor_speed, 1, 0, false, "(speed value)");
     s7_define_function(sc, "gravity", g_motor_gravity, 1, 0, false, "(gravity value)");
     s7_define_function(sc, "step-height", g_motor_step_height, 1, 0, false, "(step-height value)");
-    s7_define_function(sc, "hull", g_motor_hull, 1, 0, false, "(hull capsule|box)");
+    s7_define_function(
+        sc, "vertical-speed", g_motor_vertical_speed, 1, 0, false, "(vertical-speed value)");
+    s7_define_function(
+        sc, "hover-height", g_motor_hover_height, 1, 0, false, "(hover-height value)");
+    s7_define_function(sc, "hull", g_motor_hull, 1, 0, false, "(hull capsule|box|sphere)");
     s7_define_function(sc, "move", g_motor_move, 1, 0, false, "(move slide|try-move)");
     s7_define_variable(sc, "capsule", s7_make_symbol(sc, "capsule"));
     s7_define_variable(sc, "box", s7_make_symbol(sc, "box"));

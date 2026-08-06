@@ -174,13 +174,23 @@ void writeActorFields(std::ostringstream& out, const Thing& p) {
             formatFloat(p.motorGravity) + ") (step-height " + formatFloat(p.motorStepHeight) + ")";
         if (p.motorHull == CharacterHull::Box) {
             clause += " (hull box)";
+        } else if (p.motorHull == CharacterHull::Sphere) {
+            clause += " (hull sphere)";
         } else {
             clause += " (hull capsule)";
         }
         if (p.motorMoveMode == CharacterMoveMode::TryMove) {
             clause += " (move try-move)";
+        } else if (p.motorMoveMode == CharacterMoveMode::Fly) {
+            clause += " (move fly)";
         } else {
             clause += " (move slide)";
+        }
+        if (p.motorVerticalSpeed != 3.0f) {
+            clause += " (vertical-speed " + formatFloat(p.motorVerticalSpeed) + ")";
+        }
+        if (p.motorHoverHeight != 0.0f) {
+            clause += " (hover-height " + formatFloat(p.motorHoverHeight) + ")";
         }
         clause += ")";
         writeIndentClause(out, clause);
@@ -374,7 +384,9 @@ void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& de
                 formatFloat(p.motorHeight) + ") (speed " + formatFloat(p.motorSpeed) +
                 ") (gravity " + formatFloat(p.motorGravity) + ") (step-height " +
                 formatFloat(p.motorStepHeight) + ")";
-            clause += (p.motorHull == CharacterHull::Box) ? " (hull box)" : " (hull capsule)";
+            clause += (p.motorHull == CharacterHull::Box)     ? " (hull box)"
+                    : (p.motorHull == CharacterHull::Sphere) ? " (hull sphere)"
+                                                             : " (hull capsule)";
             clause +=
                 (p.motorMoveMode == CharacterMoveMode::TryMove) ? " (move try-move)"
                                                                 : " (move slide)";

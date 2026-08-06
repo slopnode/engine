@@ -61,6 +61,7 @@ MapNavigation buildMapNavigation(
     nav.walkable.assign(static_cast<std::size_t>(n), false);
     nav.leafCentroids.resize(static_cast<std::size_t>(n));
     nav.leafFloorY.resize(static_cast<std::size_t>(n));
+    nav.leafCeilingY.resize(static_cast<std::size_t>(n));
     nav.adjacency.resize(static_cast<std::size_t>(n));
 
     for (int i = 0; i < n; ++i) {
@@ -68,6 +69,8 @@ MapNavigation buildMapNavigation(
             leafCentroid(tree.leaves[static_cast<std::size_t>(i)]);
         nav.leafFloorY[static_cast<std::size_t>(i)] =
             tree.leaves[static_cast<std::size_t>(i)].mins.y;
+        nav.leafCeilingY[static_cast<std::size_t>(i)] =
+            tree.leaves[static_cast<std::size_t>(i)].maxs.y;
         nav.walkable[static_cast<std::size_t>(i)] = isNavWalkableLeaf(tree, i, exteriorEmpty);
     }
 
@@ -185,7 +188,8 @@ std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf
 std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
-    Vector3 goalPos) {
+    Vector3 goalPos,
+    bool flyerWaypoints) {
     if (leafPath.empty()) {
         return {};
     }
@@ -201,7 +205,8 @@ std::vector<Vector3> leafPathToWaypoints(
         const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];
         const std::optional<Vector3> center = portalCenterBetween(nav, fromLeaf, toLeaf);
         if (center.has_value()) {
-            waypoints.push_back({center->x, floorY, center->z});
+            const float wpY = flyerWaypoints ? center->y : floorY;
+            waypoints.push_back({center->x, wpY, center->z});
         } else {
             const Vector3& fromCentroid = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
             const Vector3& toCentroid = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];

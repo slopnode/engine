@@ -35,10 +35,16 @@ slopengine::CharacterMotor motorFromThing(const slopengine::Thing& thing) {
 }
 
 float motorTotalHeight(const slopengine::CharacterMotor& motor) {
+    if (motor.hull == slopengine::CharacterHull::Sphere) {
+        return 2.0f * motor.radius;
+    }
     return motor.height + 2.0f * motor.radius;
 }
 
 Vector3 motorColliderCenter(Vector3 feet, const slopengine::CharacterMotor& motor) {
+    if (motor.hull == slopengine::CharacterHull::Sphere) {
+        return {feet.x, feet.y + motor.radius, feet.z};
+    }
     return {feet.x, feet.y + motorTotalHeight(motor) * 0.5f, feet.z};
 }
 
@@ -58,6 +64,11 @@ void drawMotorCollider(Vector3 feet, const slopengine::CharacterMotor& motor, Co
         const float totalHeight = motorTotalHeight(motor);
         const Vector3 center = motorColliderCenter(feet, motor);
         DrawCubeWires(center, radius * 2.0f, totalHeight, radius * 2.0f, color);
+        return;
+    }
+    if (motor.hull == slopengine::CharacterHull::Sphere) {
+        const Vector3 center = motorColliderCenter(feet, motor);
+        DrawSphereWires(center, radius, 10, 10, color);
         return;
     }
     const Vector3 start{feet.x, feet.y + radius, feet.z};

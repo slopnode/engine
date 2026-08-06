@@ -77,10 +77,11 @@ Aabb triggerAabb(const Vector3& center, const Vector3& size) {
 }
 
 Aabb capsuleAabb(const Vector3& feet, const CharacterMotor& motor) {
-    const float totalHeight = motor.height + 2.0f * motor.radius;
+    const float radius = characterRadius(motor);
+    const float totalHeight = characterTotalHeight(motor);
     return {
-        .min = {feet.x - motor.radius, feet.y, feet.z - motor.radius},
-        .max = {feet.x + motor.radius, feet.y + totalHeight, feet.z + motor.radius},
+        .min = {feet.x - radius, feet.y, feet.z - radius},
+        .max = {feet.x + radius, feet.y + totalHeight, feet.z + radius},
     };
 }
 

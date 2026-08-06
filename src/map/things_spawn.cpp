@@ -606,9 +606,13 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             motor.moveSpeed = placement.motorSpeed;
             motor.gravity = placement.motorGravity;
             motor.stepHeight = placement.motorStepHeight;
+            motor.verticalSpeed = placement.motorVerticalSpeed;
+            motor.hoverHeight = placement.motorHoverHeight;
             motor.hull = placement.motorHull;
             motor.moveMode = placement.motorMoveMode;
-            entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(NavigationAgent{});
+            NavigationAgent navAgent{};
+            navAgent.flyer = motor.moveMode == CharacterMoveMode::Fly;
+            entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {
                 tags.push_back("actor");

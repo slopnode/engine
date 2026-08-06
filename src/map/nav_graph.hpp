@@ -23,6 +23,7 @@ struct MapNavigation {
     std::vector<bool> walkable;
     std::vector<Vector3> leafCentroids;
     std::vector<float> leafFloorY;
+    std::vector<float> leafCeilingY;
     std::vector<std::vector<NavPortalLink>> adjacency;
 };
 
@@ -38,7 +39,8 @@ std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf
 std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
-    Vector3 goalPos);
+    Vector3 goalPos,
+    bool flyerWaypoints = false);
 
 /** Portal center on the edge between two adjacent leaves, if linked. */
 std::optional<Vector3> portalCenterBetween(

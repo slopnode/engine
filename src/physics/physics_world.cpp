@@ -564,8 +564,8 @@ void PhysicsWorld::createCharacter(
     const CharacterMotor& motor) {
     characters_.erase(id);
 
-    const float radius = motor.radius > 0.0f ? motor.radius : 0.3f;
-    const float height = motor.height > 0.0f ? motor.height : 1.1f;
+    const float radius = characterRadius(motor);
+    const float height = characterBodyHeight(motor);
     const float cylinderHalf = 0.5f * height;
     const float halfY = cylinderHalf + radius;
     CharacterEntry entry{};
@@ -574,6 +574,11 @@ void PhysicsWorld::createCharacter(
             JPH::Vec3(0.0f, halfY, 0.0f),
             JPH::Quat::sIdentity(),
             new JPH::BoxShape(JPH::Vec3(radius, halfY, radius))).Create().Get();
+    } else if (motor.hull == CharacterHull::Sphere) {
+        entry.shape = JPH::RotatedTranslatedShapeSettings(
+            JPH::Vec3(0.0f, radius, 0.0f),
+            JPH::Quat::sIdentity(),
+            new JPH::SphereShape(radius)).Create().Get();
     } else {
         entry.shape = JPH::RotatedTranslatedShapeSettings(
             JPH::Vec3(0.0f, halfY, 0.0f),
@@ -601,8 +606,12 @@ void PhysicsWorld::createCharacter(
         x,
         y,
         z,
-        motor.hull == CharacterHull::Box ? "box" : "capsule",
-        motor.moveMode == CharacterMoveMode::TryMove ? "try-move" : "slide");
+        motor.hull == CharacterHull::Box     ? "box"
+        : motor.hull == CharacterHull::Sphere ? "sphere"
+                                              : "capsule",
+        motor.moveMode == CharacterMoveMode::TryMove ? "try-move"
+        : motor.moveMode == CharacterMoveMode::Fly   ? "fly"
+                                                     : "slide");
 }
 
 void PhysicsWorld::destroyCharacter(std::uint64_t id) {
@@ -788,11 +797,60 @@ void PhysicsWorld::stepCharacter(
         return;
     }
 
+    if (motor.moveMode == CharacterMoveMode::Fly) {
+        stepCharacterFlight(character, motor, characterId);
+        return;
+    }
+
     applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, false);
 
     JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
     const float stepHeight = motor.stepHeight > 0.0f ? motor.stepHeight : 0.4f;
     updateSettings.mWalkStairsStepUp = character.GetUp() * stepHeight;
+    const std::uint8_t blockMask =
+        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    character.ExtendedUpdate(
+        kFixedDt,
+        -character.GetUp() * system_->GetGravity().Length(),
+        updateSettings,
+        system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        system_->GetDefaultLayerFilter(Layers::MOVING),
+        bodyFilter,
+        {},
+        *tempAllocator_);
+}
+
+void PhysicsWorld::applyFlightInput(
+    JPH::CharacterVirtual& character,
+    const CharacterMotor& motor,
+    float dt) {
+    JPH::Vec3 horiz(motor.wishX, 0.0f, motor.wishZ);
+    if (horiz.LengthSq() > 1.0e-6f) {
+        horiz = horiz.Normalized() * motor.moveSpeed;
+    } else {
+        horiz = JPH::Vec3::sZero();
+    }
+
+    float vert = 0.0f;
+    if (std::fabs(motor.wishY) > 1.0e-6f) {
+        vert = (motor.wishY > 0.0f ? 1.0f : -1.0f) * motor.verticalSpeed;
+    }
+
+    JPH::Vec3 vel(horiz.GetX(), vert, horiz.GetZ());
+    vel += JPH::Vec3(0.0f, -motor.gravity, 0.0f) * dt;
+    character.SetLinearVelocity(vel);
+}
+
+void PhysicsWorld::stepCharacterFlight(
+    JPH::CharacterVirtual& character,
+    const CharacterMotor& motor,
+    std::uint64_t characterId) {
+    applyFlightInput(character, motor, kFixedDt);
+
+    JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
+    updateSettings.mWalkStairsStepUp = JPH::Vec3::sZero();
     const std::uint8_t blockMask =
         characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
     JPH::IgnoreMultipleBodiesFilter bodyFilter;
@@ -825,6 +883,15 @@ void removeInwardWish(float& wishX, float& wishZ, float nx, float nz) {
     }
 }
 
+void removeInwardWish3D(float& wishX, float& wishY, float& wishZ, float nx, float ny, float nz) {
+    const float inward = wishX * nx + wishY * ny + wishZ * nz;
+    if (inward > 0.0f) {
+        wishX -= inward * nx;
+        wishY -= inward * ny;
+        wishZ -= inward * nz;
+    }
+}
+
 JPH::Vec3 wishVelocity(const CharacterMotor& motor) {
     JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
     if (wish.LengthSq() > 1.0e-6f) {
@@ -833,11 +900,135 @@ JPH::Vec3 wishVelocity(const CharacterMotor& motor) {
     return JPH::Vec3::sZero();
 }
 
+JPH::Vec3 wishVelocityFly(const CharacterMotor& motor) {
+    JPH::Vec3 horiz(motor.wishX, 0.0f, motor.wishZ);
+    if (horiz.LengthSq() > 1.0e-6f) {
+        horiz = horiz.Normalized() * motor.moveSpeed;
+    } else {
+        horiz = JPH::Vec3::sZero();
+    }
+
+    float vert = 0.0f;
+    if (std::fabs(motor.wishY) > 1.0e-6f) {
+        vert = (motor.wishY > 0.0f ? 1.0f : -1.0f) * motor.verticalSpeed;
+    }
+    return JPH::Vec3(horiz.GetX(), vert, horiz.GetZ());
+}
+
+bool usesFlySeparation(const CharacterMotor& motorA, const CharacterMotor& motorB) {
+    return motorA.moveMode == CharacterMoveMode::Fly || motorB.moveMode == CharacterMoveMode::Fly ||
+        motorA.hull == CharacterHull::Sphere || motorB.hull == CharacterHull::Sphere;
+}
+
 struct SoftSepBody {
     std::uint64_t id = 0;
     CharacterMotor* motor = nullptr;
     JPH::CharacterVirtual* character = nullptr;
 };
+
+void resolveSoftSeparationPairFly(
+    SoftSepBody& a,
+    SoftSepBody& b,
+    float dt) {
+    CharacterMotor& motorA = *a.motor;
+    CharacterMotor& motorB = *b.motor;
+    JPH::CharacterVirtual& charA = *a.character;
+    JPH::CharacterVirtual& charB = *b.character;
+
+    const JPH::RVec3 feetA = charA.GetPosition();
+    const JPH::RVec3 feetB = charB.GetPosition();
+    const float ax = static_cast<float>(feetA.GetX());
+    const float ay = static_cast<float>(feetA.GetY());
+    const float az = static_cast<float>(feetA.GetZ());
+    const float bx = static_cast<float>(feetB.GetX());
+    const float by = static_cast<float>(feetB.GetY());
+    const float bz = static_cast<float>(feetB.GetZ());
+
+    const float centerOffsetA = characterCenterOffset(motorA);
+    const float centerOffsetB = characterCenterOffset(motorB);
+    const float centerAx = ax;
+    const float centerAy = ay + centerOffsetA;
+    const float centerAz = az;
+    const float centerBx = bx;
+    const float centerBy = by + centerOffsetB;
+    const float centerBz = bz;
+
+    const float minDist =
+        kSoftSepRadiusSlack * (characterRadius(motorA) + characterRadius(motorB));
+    if (minDist <= kSoftSepEps) {
+        return;
+    }
+
+    const float dx = centerAx - centerBx;
+    const float dy = centerAy - centerBy;
+    const float dz = centerAz - centerBz;
+    const float distSq = dx * dx + dy * dy + dz * dz;
+    float nx = 0.0f;
+    float ny = 1.0f;
+    float nz = 0.0f;
+    float dist = 0.0f;
+    if (distSq > kSoftSepEps * kSoftSepEps) {
+        dist = std::sqrt(distSq);
+        nx = dx / dist;
+        ny = dy / dist;
+        nz = dz / dist;
+    } else {
+        const std::uint64_t mix = a.id ^ (b.id << 1);
+        const float angle = static_cast<float>(mix & 0xFFFFu) * (6.2831853f / 65536.0f);
+        nx = std::cos(angle);
+        ny = 0.35f;
+        nz = std::sin(angle);
+        const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (len > kSoftSepEps) {
+            nx /= len;
+            ny /= len;
+            nz /= len;
+        }
+    }
+
+    const JPH::Vec3 wishVelA = wishVelocityFly(motorA);
+    const JPH::Vec3 wishVelB = wishVelocityFly(motorB);
+    const float predDx = (centerAx + wishVelA.GetX() * dt) - (centerBx + wishVelB.GetX() * dt);
+    const float predDy = (centerAy + wishVelA.GetY() * dt) - (centerBy + wishVelB.GetY() * dt);
+    const float predDz = (centerAz + wishVelA.GetZ() * dt) - (centerBz + wishVelB.GetZ() * dt);
+    const float predDistSq = predDx * predDx + predDy * predDy + predDz * predDz;
+    const bool overlapping = dist < minDist;
+    const bool wouldOverlap = predDistSq < minDist * minDist;
+    if (!overlapping && !wouldOverlap) {
+        return;
+    }
+
+    removeInwardWish3D(motorA.wishX, motorA.wishY, motorA.wishZ, -nx, -ny, -nz);
+    removeInwardWish3D(motorB.wishX, motorB.wishY, motorB.wishZ, nx, ny, nz);
+
+    if (!overlapping) {
+        return;
+    }
+
+    const float penetration = minDist - dist;
+    float push = kSoftSepPushGain * penetration;
+    if (push > kSoftSepPushMax) {
+        push = kSoftSepPushMax;
+    }
+    motorA.wishX += nx * push;
+    motorA.wishY += ny * push;
+    motorA.wishZ += nz * push;
+    motorB.wishX -= nx * push;
+    motorB.wishY -= ny * push;
+    motorB.wishZ -= nz * push;
+
+    const float corr = 0.5f * kSoftSepPosCorr * penetration;
+    if (corr > kSoftSepEps) {
+        charA.SetPosition(JPH::RVec3(
+            feetA.GetX() + static_cast<double>(nx * corr),
+            feetA.GetY() + static_cast<double>(ny * corr),
+            feetA.GetZ() + static_cast<double>(nz * corr)));
+        charB.SetPosition(JPH::RVec3(
+            feetB.GetX() - static_cast<double>(nx * corr),
+            feetB.GetY() - static_cast<double>(ny * corr),
+            feetB.GetZ() - static_cast<double>(nz * corr)));
+    }
+}
 
 std::uint64_t softSepCellKey(int cellX, int cellZ) {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(cellX)) << 32) |
@@ -848,6 +1039,11 @@ void resolveSoftSeparationPair(
     SoftSepBody& a,
     SoftSepBody& b,
     float dt) {
+    if (usesFlySeparation(*a.motor, *b.motor)) {
+        resolveSoftSeparationPairFly(a, b, dt);
+        return;
+    }
+
     CharacterMotor& motorA = *a.motor;
     CharacterMotor& motorB = *b.motor;
     JPH::CharacterVirtual& charA = *a.character;

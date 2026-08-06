@@ -2,6 +2,8 @@
 
 #include "navigation/nav_module.hpp"
 #include "navigation/nav_components.hpp"
+#include "map/bsp.hpp"
+#include "map/pvs.hpp"
 #include "map/nav_graph.hpp"
 #include "physics/components.hpp"
 #include "render/components.hpp"
@@ -271,6 +273,140 @@ s7_pointer g_nav_at_goal_p(s7_scheme* sc, s7_pointer args) {
     return dist <= agent.arriveRadius ? s7_t(sc) : s7_f(sc);
 }
 
+s7_pointer g_nav_leaf_at(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_navWorld == nullptr || !g_navWorld->has<MapBsp>()) {
+        return s7_f(sc);
+    }
+    float x = 0, y = 0, z = 0;
+    if (!readNumberArg(sc, args, x) || !readNumberArg(sc, args, y) || !readNumberArg(sc, args, z)) {
+        return s7_wrong_type_arg_error(sc, "nav-leaf-at", 1, args, "x y z numbers");
+    }
+    const int leaf = pvsSampleLeaf(g_navWorld->get<MapBsp>().tree, {x, y, z});
+    if (leaf < 0) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, leaf);
+}
+
+s7_pointer g_nav_leaf_bounds(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_navWorld == nullptr || !g_navWorld->has<MapBsp>()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "nav-leaf-bounds", 1, args, "leaf integer");
+    }
+    const int leaf = static_cast<int>(s7_integer(s7_car(args)));
+    const BspTree& tree = g_navWorld->get<MapBsp>().tree;
+    if (leaf < 0 || leaf >= static_cast<int>(tree.leaves.size())) {
+        return s7_f(sc);
+    }
+    const BspLeaf& bspLeaf = tree.leaves[static_cast<std::size_t>(leaf)];
+    return s7_list(
+        sc,
+        2,
+        s7_list(
+            sc,
+            3,
+            s7_make_real(sc, bspLeaf.mins.x),
+            s7_make_real(sc, bspLeaf.mins.y),
+            s7_make_real(sc, bspLeaf.mins.z)),
+        s7_list(
+            sc,
+            3,
+            s7_make_real(sc, bspLeaf.maxs.x),
+            s7_make_real(sc, bspLeaf.maxs.y),
+            s7_make_real(sc, bspLeaf.maxs.z)));
+}
+
+s7_pointer g_nav_leaf_floor(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_navWorld == nullptr || !g_navWorld->has<MapNavigation>()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "nav-leaf-floor", 1, args, "leaf integer");
+    }
+    const int leaf = static_cast<int>(s7_integer(s7_car(args)));
+    const MapNavigation& nav = g_navWorld->get<MapNavigation>();
+    if (leaf < 0 || leaf >= nav.leafCount) {
+        return s7_f(sc);
+    }
+    return s7_make_real(
+        sc, static_cast<double>(nav.leafFloorY[static_cast<std::size_t>(leaf)]));
+}
+
+s7_pointer g_nav_leaf_ceiling(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_navWorld == nullptr || !g_navWorld->has<MapNavigation>()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "nav-leaf-ceiling", 1, args, "leaf integer");
+    }
+    const int leaf = static_cast<int>(s7_integer(s7_car(args)));
+    const MapNavigation& nav = g_navWorld->get<MapNavigation>();
+    if (leaf < 0 || leaf >= nav.leafCount) {
+        return s7_f(sc);
+    }
+    return s7_make_real(
+        sc, static_cast<double>(nav.leafCeilingY[static_cast<std::size_t>(leaf)]));
+}
+
+s7_pointer g_nav_path_altitude(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "nav-path-altitude", 1, args, "id string");
+    }
+    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    const NavigationAgent& agent = entity.get<NavigationAgent>();
+    if (!agent.hasGoal || agent.waypoints.empty()) {
+        return s7_f(sc);
+    }
+
+    const Vector3 agentPos = navActorFeet(entity);
+    const int idx = agent.waypointIndex;
+    if (idx < 0) {
+        return s7_f(sc);
+    }
+
+    if (idx >= static_cast<int>(agent.waypoints.size())) {
+        return s7_make_real(sc, static_cast<double>(agent.waypoints.back().y));
+    }
+
+    const Vector3& wp = agent.waypoints[static_cast<std::size_t>(idx)];
+    const float dist = navHorizontalDist(agentPos, wp);
+    if (idx + 1 < static_cast<int>(agent.waypoints.size())) {
+        if (dist > agent.arriveRadius) {
+            return s7_make_real(sc, static_cast<double>(wp.y));
+        }
+        return s7_make_real(
+            sc,
+            static_cast<double>(agent.waypoints[static_cast<std::size_t>(idx + 1)].y));
+    }
+    if (dist > agent.arriveRadius || idx == 0) {
+        return s7_make_real(sc, static_cast<double>(wp.y));
+    }
+    if (idx > 0) {
+        return s7_make_real(sc, static_cast<double>(wp.y));
+    }
+    return s7_make_real(sc, static_cast<double>(wp.y));
+}
+
 } // namespace
 
 void bindNavApi(flecs::world& world, s7_scheme* scheme) {
@@ -323,6 +459,46 @@ void bindNavApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(nav-path-direction id)");
+    s7_define_function(
+        scheme,
+        "nav-path-altitude",
+        g_nav_path_altitude,
+        1,
+        0,
+        false,
+        "(nav-path-altitude id)");
+    s7_define_function(
+        scheme,
+        "nav-leaf-at",
+        g_nav_leaf_at,
+        3,
+        0,
+        false,
+        "(nav-leaf-at x y z)");
+    s7_define_function(
+        scheme,
+        "nav-leaf-bounds",
+        g_nav_leaf_bounds,
+        1,
+        0,
+        false,
+        "(nav-leaf-bounds leaf)");
+    s7_define_function(
+        scheme,
+        "nav-leaf-floor",
+        g_nav_leaf_floor,
+        1,
+        0,
+        false,
+        "(nav-leaf-floor leaf)");
+    s7_define_function(
+        scheme,
+        "nav-leaf-ceiling",
+        g_nav_leaf_ceiling,
+        1,
+        0,
+        false,
+        "(nav-leaf-ceiling leaf)");
     s7_define_function(
         scheme,
         "nav-at-goal?",

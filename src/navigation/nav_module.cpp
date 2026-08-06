@@ -45,6 +45,17 @@ Vector3 resolveGoalPos(flecs::world& world, const NavigationAgent& agent) {
     return agent.goalPos;
 }
 
+Vector3 navSamplePoint(Vector3 feet, const CharacterMotor& motor, bool flyer) {
+    if (!flyer) {
+        return feet;
+    }
+    return {feet.x, feet.y + characterCenterOffset(motor), feet.z};
+}
+
+Vector3 navAgentSamplePoint(flecs::entity entity, const CharacterMotor& motor, bool flyer) {
+    return navSamplePoint(actorFeet(entity, motor), motor, flyer);
+}
+
 int sampleNavLeaf(const BspTree& tree, Vector3 point) {
     return pvsSampleLeaf(tree, point);
 }
@@ -99,7 +110,8 @@ void replanAgent(
         return;
     }
 
-    const std::vector<Vector3> waypoints = leafPathToWaypoints(nav, leafPath, goalPos);
+    const std::vector<Vector3> waypoints =
+        leafPathToWaypoints(nav, leafPath, goalPos, agent.flyer);
     std::vector<int> waypointToLeaf;
     buildWaypointToLeaf(leafPath, toLeaf, waypointToLeaf);
     const int resumeIndex = findResumeWaypointIndex(
@@ -232,9 +244,9 @@ void replanNavigationAgent(flecs::world& world, flecs::entity entity) {
         return;
     }
     const CharacterMotor& motor = entity.get<CharacterMotor>();
-    const Vector3 agentPos = actorFeet(entity, motor);
+    const Vector3 agentPos = navAgentSamplePoint(entity, motor, agent.flyer);
     const Vector3 goalPos = resolveGoalPos(world, agent);
-    replanAgent(world, agent, agentPos, goalPos, false);
+    replanAgent(world, agent, actorFeet(entity, motor), goalPos, false);
     agent.replanTimer = agent.replanInterval;
     agent.agentLeaf = sampleNavLeaf(world.get<MapBsp>().tree, agentPos);
 }
@@ -264,19 +276,20 @@ void registerNavModule(flecs::world& world) {
             }
 
             const MapNavigation& nav = worldRef.get<MapNavigation>();
-            const Vector3 agentPos = actorFeet(entity, motor);
+            const Vector3 agentFeetPos = actorFeet(entity, motor);
+            const Vector3 agentSamplePos = navSamplePoint(agentFeetPos, motor, agent.flyer);
             const Vector3 goalPos = resolveGoalPos(worldRef, agent);
             const BspTree& tree = worldRef.get<MapBsp>().tree;
-            const int agentLeaf = sampleNavLeaf(tree, agentPos);
+            const int agentLeaf = sampleNavLeaf(tree, agentSamplePos);
             const int goalLeaf = sampleNavLeaf(tree, goalPos);
 
-            updateStuckSkip(agent, agentPos, dt);
-            advanceWaypoints(agent, agentPos, agentLeaf);
+            updateStuckSkip(agent, agentFeetPos, dt);
+            advanceWaypoints(agent, agentFeetPos, agentLeaf);
 
             if (needsReplan(nav, agent, goalPos, agentLeaf, goalLeaf, dt)) {
                 const bool preserveProgress =
                     !agent.forceReplan && !agent.waypoints.empty();
-                replanAgent(worldRef, agent, agentPos, goalPos, preserveProgress);
+                replanAgent(worldRef, agent, agentFeetPos, goalPos, preserveProgress);
                 agent.replanTimer = agent.replanInterval;
                 agent.agentLeaf = agentLeaf;
             }
