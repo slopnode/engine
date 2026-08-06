@@ -4,6 +4,7 @@
 
 #include <raylib.h>
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <vector>
