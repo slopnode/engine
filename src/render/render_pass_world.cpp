@@ -1092,6 +1092,10 @@ void drawWorldDebugOverlays(flecs::world& world) {
         drawGraphDebugOverlays(world.get<MapGraphs>().document);
     }
 
+    if (world.has<DebugUiState>() && world.get<DebugUiState>().showNavPaths) {
+        drawNavDebugOverlays(world, world.get<DebugUiState>());
+    }
+
     if (world.has<DebugLinePool>()) {
         drawDebugLinePool(world.get<DebugLinePool>());
     }

@@ -349,6 +349,7 @@ void drawMainMenuBar(
             ImGui::EndMenu();
         }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
+        menuItemWithIcon(assets, kIcons, "arrow_branch", "Nav Paths", nullptr, &debugUi.showNavPaths);
         menuItemWithIcon(
             assets, kIcons, "chart_curve", "Performance", nullptr, &debugUi.showPerformance);
         menuItemWithIcon(

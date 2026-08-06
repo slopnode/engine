@@ -14,6 +14,7 @@
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "render/skybox.hpp"
+#include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
@@ -456,6 +457,12 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         } else if (placement.haveAngles) {
             ctx.playerStart.pitch = placement.angles.x;
         }
+        if (placement.haveMotor) {
+            ctx.playerStart.haveMotor = true;
+            ctx.playerStart.motorRadius = placement.motorRadius;
+            ctx.playerStart.motorHeight = placement.motorHeight;
+            ctx.playerStart.motorEyeHeight = placement.motorEyeHeight;
+        }
         ctx.playerStart.found = true;
         return;
     }
@@ -605,9 +612,13 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             motor.moveSpeed = placement.motorSpeed;
             motor.gravity = placement.motorGravity;
             motor.stepHeight = placement.motorStepHeight;
+            motor.verticalSpeed = placement.motorVerticalSpeed;
+            motor.hoverHeight = placement.motorHoverHeight;
             motor.hull = placement.motorHull;
             motor.moveMode = placement.motorMoveMode;
-            entity.add<Actor>().set<CharacterMotor>(motor);
+            NavigationAgent navAgent{};
+            navAgent.flyer = motor.moveMode == CharacterMoveMode::Fly;
+            entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {
                 tags.push_back("actor");

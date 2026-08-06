@@ -489,6 +489,109 @@ void runBrushBlockFilterTests() {
     }
 }
 
+void runFlightTests() {
+    {
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-4.0f, -0.25f, -4.0f},
+            {4.0f, 0.0f, 4.0f},
+            "mat/a",
+            {});
+        const Brush ceiling = makeBrushBox(
+            "ceiling",
+            {-4.0f, 4.0f, -4.0f},
+            {4.0f, 4.25f, 4.0f},
+            "mat/a",
+            {});
+
+        PhysicsWorld world;
+        world.addStaticBrushes({floor, ceiling});
+        CharacterMotor motor{};
+        motor.moveMode = CharacterMoveMode::Fly;
+        motor.gravity = 0.0f;
+        motor.verticalSpeed = 4.0f;
+        motor.moveSpeed = 0.0f;
+        constexpr std::uint64_t kCharId = 42;
+        world.createCharacter(kCharId, 0.0f, 2.0f, 0.0f, motor);
+
+        motor.wishY = 1.0f;
+        for (int i = 0; i < 30; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        const float yUp = static_cast<float>(world.characterPosition(kCharId).GetY());
+        CHECK(yUp > 2.1f);
+
+        motor.wishY = -1.0f;
+        for (int i = 0; i < 30; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        const float yDown = static_cast<float>(world.characterPosition(kCharId).GetY());
+        CHECK(yDown < yUp);
+    }
+
+    {
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-4.0f, 0.0f, -4.0f},
+            {4.0f, 0.25f, 4.0f},
+            "mat/a",
+            {});
+        const Brush ceiling = makeBrushBox(
+            "ceiling",
+            {-4.0f, 3.0f, -4.0f},
+            {4.0f, 3.25f, 4.0f},
+            "mat/a",
+            {});
+
+        PhysicsWorld world;
+        world.addStaticBrushes({floor, ceiling});
+
+        const auto floorHit =
+            world.castRay({0.0f, 2.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 64.0f, BrushBlock::Actor);
+        const auto ceilingHit =
+            world.castRay({0.0f, 2.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, 64.0f, BrushBlock::Actor);
+        CHECK(floorHit.has_value());
+        CHECK(ceilingHit.has_value());
+        CHECK(std::fabs(floorHit->point.y - 0.25f) < 0.05f);
+        CHECK(std::fabs(ceilingHit->point.y - 3.0f) < 0.05f);
+    }
+
+    {
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-4.0f, 0.0f, -4.0f},
+            {4.0f, 0.25f, 4.0f},
+            "mat/a",
+            {});
+        const Brush ceiling = makeBrushBox(
+            "ceiling",
+            {-4.0f, 3.0f, -4.0f},
+            {4.0f, 3.25f, 4.0f},
+            "mat/a",
+            {});
+
+        PhysicsWorld world;
+        world.addStaticBrushes({floor, ceiling});
+        CharacterMotor motor{};
+        motor.hull = CharacterHull::Sphere;
+        motor.moveMode = CharacterMoveMode::Fly;
+        motor.gravity = 0.0f;
+        motor.radius = 0.5f;
+        motor.verticalSpeed = 4.0f;
+        motor.moveSpeed = 0.0f;
+        constexpr std::uint64_t kCharId = 43;
+        world.createCharacter(kCharId, 0.0f, 0.5f, 0.0f, motor);
+
+        motor.wishY = 1.0f;
+        for (int i = 0; i < 120; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        const float feetY = static_cast<float>(world.characterPosition(kCharId).GetY());
+        CHECK(feetY > 0.6f);
+        CHECK(feetY + 2.0f * motor.radius <= 3.05f);
+    }
+}
+
 } // namespace
 
 void runPhysicsTests() {
@@ -498,6 +601,7 @@ void runPhysicsTests() {
     runMotoredSweepTests();
     runMoverPushSlideTests();
     runBrushBlockFilterTests();
+    runFlightTests();
 }
 
 }

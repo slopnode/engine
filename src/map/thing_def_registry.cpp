@@ -153,20 +153,31 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
         if (std::strcmp(tag, "hull") == 0) {
             std::string hull;
             if (!readStringValue(scheme, s7_car(values), hull) ||
-                (hull != "box" && hull != "capsule")) {
+                (hull != "box" && hull != "capsule" && hull != "sphere")) {
                 return false;
             }
-            def.motorHull = (hull == "box") ? CharacterHull::Box : CharacterHull::Capsule;
+            if (hull == "box") {
+                def.motorHull = CharacterHull::Box;
+            } else if (hull == "sphere") {
+                def.motorHull = CharacterHull::Sphere;
+            } else {
+                def.motorHull = CharacterHull::Capsule;
+            }
             continue;
         }
         if (std::strcmp(tag, "move") == 0) {
             std::string move;
             if (!readStringValue(scheme, s7_car(values), move) ||
-                (move != "try-move" && move != "slide")) {
+                (move != "try-move" && move != "slide" && move != "fly")) {
                 return false;
             }
-            def.motorMoveMode =
-                (move == "try-move") ? CharacterMoveMode::TryMove : CharacterMoveMode::Slide;
+            if (move == "try-move") {
+                def.motorMoveMode = CharacterMoveMode::TryMove;
+            } else if (move == "fly") {
+                def.motorMoveMode = CharacterMoveMode::Fly;
+            } else {
+                def.motorMoveMode = CharacterMoveMode::Slide;
+            }
             continue;
         }
         if (!s7_is_number(s7_car(values))) {
@@ -183,6 +194,10 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
             def.motorGravity = value;
         } else if (std::strcmp(tag, "step-height") == 0) {
             def.motorStepHeight = value;
+        } else if (std::strcmp(tag, "vertical-speed") == 0) {
+            def.motorVerticalSpeed = value;
+        } else if (std::strcmp(tag, "hover-height") == 0) {
+            def.motorHoverHeight = value;
         } else {
             return false;
         }
@@ -264,6 +279,34 @@ bool parseRangedClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
             def.rangedMinRange = value;
         } else if (std::strcmp(tag, "cooldown") == 0) {
             def.rangedCooldown = value;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool parseLungeClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
+    def.haveLunge = true;
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            return false;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer values = s7_cdr(clause);
+        if (!s7_is_pair(values) || !s7_is_number(s7_car(values))) {
+            return false;
+        }
+        const float value = static_cast<float>(s7_number_to_real(scheme, s7_car(values)));
+        if (std::strcmp(tag, "range") == 0) {
+            def.lungeRange = value;
+        } else if (std::strcmp(tag, "speed") == 0) {
+            def.lungeSpeed = value;
+        } else if (std::strcmp(tag, "cooldown") == 0) {
+            def.lungeCooldown = value;
+        } else if (std::strcmp(tag, "duration") == 0) {
+            def.lungeDuration = value;
         } else {
             return false;
         }
@@ -458,6 +501,8 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.motorSpeed = def.motorSpeed;
     out.motorGravity = def.motorGravity;
     out.motorStepHeight = def.motorStepHeight;
+    out.motorVerticalSpeed = def.motorVerticalSpeed;
+    out.motorHoverHeight = def.motorHoverHeight;
     out.motorHull = def.motorHull;
     out.motorMoveMode = def.motorMoveMode;
     out.tags = def.tags;
@@ -658,6 +703,17 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
                 TraceLog(
                     LOG_WARNING,
                     "THINGDEFS: '%s' has invalid ranged; ignored",
+                    def.id.c_str());
+                continue;
+            }
+        }
+
+        s7_pointer lungeVal = nullptr;
+        if (readAssoc(scheme, props, "lunge", lungeVal)) {
+            if (!parseLungeClauses(scheme, lungeVal, def)) {
+                TraceLog(
+                    LOG_WARNING,
+                    "THINGDEFS: '%s' has invalid lunge; ignored",
                     def.id.c_str());
                 continue;
             }

@@ -11,6 +11,7 @@
 #include "script/save_script.hpp"
 #include "script/script_scope.hpp"
 #include "script/thing_script.hpp"
+#include "navigation/nav_script.hpp"
 #include "script/ui_script.hpp"
 
 #include <raylib.h>
@@ -25,6 +26,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
     bindPostProcessApi(world, scheme);
     bindInputApi(world, scheme);
     bindThingRuntimeApi(world, scheme);
+    bindNavApi(world, scheme);
     bindSaveApi(world, assets, scheme);
     bindHookApi(scheme);
     bindUiApi(world, scheme);

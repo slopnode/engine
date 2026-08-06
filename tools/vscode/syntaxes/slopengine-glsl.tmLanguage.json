@@ -1,0 +1,83 @@
+{
+  "name": "Slopengine GLSL",
+  "scopeName": "source.slopengine.glsl",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#preprocessor" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#storage-qualifier" },
+    { "include": "#control-keyword" },
+    { "include": "#type" },
+    { "include": "#builtin-variable" },
+    { "include": "#builtin-function" },
+    { "include": "#function-call" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.glsl",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.glsl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "preprocessor": {
+      "name": "meta.preprocessor.glsl",
+      "begin": "^\\s*#\\s*(version|define|undef|include|if|ifdef|ifndef|else|elif|endif|pragma|extension|line|error)\\b",
+      "end": "$",
+      "beginCaptures": {
+        "0": { "name": "keyword.control.directive.glsl" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#string" },
+        { "include": "#number" }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.glsl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.glsl",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "number": {
+      "name": "constant.numeric.glsl",
+      "match": "\\b(0[xX][0-9a-fA-F]+|\\d+\\.\\d+([eE][+-]?\\d+)?[fF]?|\\.\\d+[fF]?|\\d+\\.[fF]?|\\d+[eE][+-]?\\d+[fF]?|\\d+[uU]?[fF]?)\\b"
+    },
+    "storage-qualifier": {
+      "name": "storage.modifier.glsl",
+      "match": "\\b(in|out|inout|uniform|attribute|varying|const|layout|flat|smooth|noperspective|centroid|patch|sample|buffer|shared|readonly|writeonly|coherent|volatile|restrict|precision|highp|mediump|lowp|invariant)\\b"
+    },
+    "control-keyword": {
+      "name": "keyword.control.glsl",
+      "match": "\\b(if|else|for|while|do|return|break|continue|discard|switch|case|default)\\b"
+    },
+    "type": {
+      "name": "storage.type.glsl",
+      "match": "\\b(void|bool|int|uint|float|double|vec2|vec3|vec4|ivec2|ivec3|ivec4|uvec2|uvec3|uvec4|bvec2|bvec3|bvec4|dvec2|dvec3|dvec4|mat2|mat3|mat4|mat2x2|mat2x3|mat2x4|mat3x2|mat3x3|mat3x4|mat4x2|mat4x3|mat4x4|sampler1D|sampler2D|sampler3D|samplerCube|sampler2DArray|sampler2DShadow|samplerCubeShadow|sampler2DArrayShadow|isampler2D|usampler2D|image1D|image2D|image3D|imageCube|struct)\\b"
+    },
+    "builtin-variable": {
+      "name": "support.variable.glsl",
+      "match": "\\bgl_(Position|FragCoord|FragColor|FragDepth|PointSize|PointCoord|VertexID|InstanceID|FrontFacing|GlobalInvocationID|LocalInvocationID|WorkGroupID|NumWorkGroups)\\b"
+    },
+    "builtin-function": {
+      "name": "support.function.builtin.glsl",
+      "match": "\\b(texture|texture2D|textureCube|textureLod|texelFetch|textureSize|normalize|dot|cross|mix|clamp|min|max|pow|sqrt|inversesqrt|length|distance|reflect|refract|floor|ceil|fract|mod|abs|sign|sin|cos|tan|asin|acos|atan|exp|exp2|log|log2|smoothstep|step|inverse|transpose|determinant|matrixCompMult|dFdx|dFdy|fwidth|round|trunc)\\b(?=\\()"
+    },
+    "function-call": {
+      "name": "entity.name.function.glsl",
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\()"
+    }
+  }
+}

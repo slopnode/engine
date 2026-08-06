@@ -1,5 +1,8 @@
 #include "render/render_debug.hpp"
 
+#include "navigation/nav_components.hpp"
+#include "physics/components.hpp"
+#include "render/components.hpp"
 #include "render/debug_line_pool.hpp"
 #include "render/sprite_billboard.hpp"
 
@@ -198,6 +201,39 @@ void drawGraphDebugOverlays(const GraphDocument& document) {
             DrawLine3D(from->at, to->at, edgeColor);
         }
     }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+void drawNavDebugOverlays(flecs::world& world, const DebugUiState& debugUi) {
+    if (!debugUi.showNavPaths) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    const Color pathColor{255, 180, 40, 220};
+    const Color currentColor{255, 60, 60, 255};
+
+    world.each([&](flecs::entity, NavigationAgent& agent, LocalTransformation& local) {
+        if (!agent.hasGoal || agent.waypoints.empty()) {
+            return;
+        }
+
+        Vector3 prev = local.position;
+        prev.y += 0.15f;
+        for (std::size_t i = 0; i < agent.waypoints.size(); ++i) {
+            Vector3 wp = agent.waypoints[i];
+            wp.y += 0.15f;
+            const Color color =
+                static_cast<int>(i) == agent.waypointIndex ? currentColor : pathColor;
+            DrawLine3D(prev, wp, color);
+            DrawSphereWires(wp, 0.1f, 6, 6, color);
+            prev = wp;
+        }
+    });
 
     rlEnableDepthMask();
     EndBlendMode();

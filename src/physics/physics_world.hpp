@@ -142,6 +142,14 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         std::uint64_t characterId);
+    void applyFlightInput(
+        JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
+        float dt);
+    void stepCharacterFlight(
+        JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
+        std::uint64_t characterId);
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;

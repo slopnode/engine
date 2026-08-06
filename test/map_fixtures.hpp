@@ -205,6 +205,20 @@ inline std::vector<Brush> sealedRoomWithInteriorDoorway(BrushRole partitionRole 
     return brushes;
 }
 
+/** sealedHollowRoom with a 4-step stair block in the northwest corner (y 0..1). */
+inline std::vector<Brush> sealedHollowRoomWithStairs() {
+    std::vector<Brush> brushes = sealedHollowRoom();
+    std::vector<Brush> stairs = makeBrushStairs(
+        "stairs",
+        {-1.5f, 0.0f, -1.5f},
+        {-0.5f, 1.0f, -0.5f},
+        4,
+        "mat/a",
+        BrushRole::Hull);
+    brushes.insert(brushes.end(), stairs.begin(), stairs.end());
+    return brushes;
+}
+
 inline int countOpenLeaves(const BspTree& tree) {
     int count = 0;
     for (const BspLeaf& leaf : tree.leaves) {

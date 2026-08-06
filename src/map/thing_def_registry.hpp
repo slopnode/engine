@@ -40,6 +40,8 @@ struct ThingDef {
     float motorSpeed = 6.0f;
     float motorGravity = 9.81f;
     float motorStepHeight = 0.4f;
+    float motorVerticalSpeed = 3.0f;
+    float motorHoverHeight = 0.0f;
     CharacterHull motorHull = CharacterHull::Capsule;
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;
@@ -69,6 +71,12 @@ struct ThingDef {
     float rangedMinRange = 1.5f;
     float rangedCooldown = 2.0f;
     std::string rangedAnim;
+
+    bool haveLunge = false;
+    float lungeRange = 14.0f;
+    float lungeSpeed = 16.0f;
+    float lungeCooldown = 2.5f;
+    float lungeDuration = 0.9f;
 
     bool haveSight = false;
     bool sightEnabled = true;

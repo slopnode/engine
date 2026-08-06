@@ -19,6 +19,7 @@ namespace slopengine {
 
 void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPlayer);
 void drawGraphDebugOverlays(const GraphDocument& document);
+void drawNavDebugOverlays(flecs::world& world, const DebugUiState& debugUi);
 void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std::int32_t currentLeaf);
 void drawFacDebugOverlays(const FacFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf);
 std::string drawSpriteDebugOverlays(

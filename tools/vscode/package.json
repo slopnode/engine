@@ -1,8 +1,8 @@
 {
   "name": "slopengine",
   "displayName": "Slopengine",
-  "description": "Syntax highlighting for Slopengine package assets (.csg, .meta, .mat, .s7, .geo, .anim, .skel)",
-  "version": "0.1.0",
+  "description": "Syntax highlighting for Slopengine package assets (.csg, .meta, .mat, .s7, .geo, .anim, .skel, .spr, .spanim, .prt, .iconmap, .glsl)",
+  "version": "0.2.0",
   "publisher": "slopengine",
   "engines": {
     "vscode": "^1.74.0"
@@ -25,9 +25,24 @@
           ".s7",
           ".geo",
           ".anim",
-          ".skel"
+          ".skel",
+          ".spr",
+          ".spanim",
+          ".prt",
+          ".iconmap"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "slopengine-glsl",
+        "aliases": [
+          "Slopengine GLSL",
+          "GLSL"
+        ],
+        "extensions": [
+          ".glsl"
+        ],
+        "configuration": "./language-configuration-glsl.json"
       }
     ],
     "grammars": [
@@ -35,6 +50,11 @@
         "language": "slopengine",
         "scopeName": "source.slopengine",
         "path": "./syntaxes/slopengine.tmLanguage.json"
+      },
+      {
+        "language": "slopengine-glsl",
+        "scopeName": "source.slopengine.glsl",
+        "path": "./syntaxes/slopengine-glsl.tmLanguage.json"
       }
     ]
   }

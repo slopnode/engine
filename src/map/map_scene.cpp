@@ -9,7 +9,9 @@
 #include "game/menu_background.hpp"
 #include "input/input_context.hpp"
 #include "map/bsp.hpp"
+#include "map/bsp_analyze.hpp"
 #include "map/csg_script.hpp"
+#include "map/nav_graph.hpp"
 #include "map/graph.hpp"
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
@@ -30,6 +32,7 @@
 #include "render/render_context.hpp"
 #include "script/first_person_script.hpp"
 #include "script/save_script.hpp"
+#include "script/scheme_call.hpp"
 #include "ui/ui_state.hpp"
 
 #include <algorithm>
@@ -158,6 +161,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapPvs>()) {
         world.remove<MapPvs>();
     }
+    if (world.has<MapNavigation>()) {
+        world.remove<MapNavigation>();
+    }
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
     }
@@ -257,6 +263,14 @@ bool registerMapScene(
     world.set<MapBsp>(std::move(mapBsp));
     world.set<MapFac>(std::move(mapFac));
     world.set<MapPvs>(MapPvs{std::move(loaded->pvs)});
+    {
+        const MapBsp& bspForNav = world.get<MapBsp>();
+        const MapHullAnalysis hullAnalysis = analyzeMapHull(bspForNav.tree, loaded->brushes);
+        MapNavigation mapNav = buildMapNavigation(
+            bspForNav.tree,
+            hullAnalysis.sealed ? &hullAnalysis.exteriorEmpty : nullptr);
+        world.set<MapNavigation>(std::move(mapNav));
+    }
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
@@ -345,6 +359,21 @@ bool registerMapScene(
     }
 
     CharacterMotor motor{};
+    const PlayerMotorDefaults packageMotor = parsePlayerMotorFromScheme(scheme);
+    if (packageMotor.haveRadius) {
+        motor.radius = packageMotor.radius;
+    }
+    if (packageMotor.haveHeight) {
+        motor.height = packageMotor.height;
+    }
+    if (packageMotor.haveEyeHeight) {
+        motor.eyeHeight = packageMotor.eyeHeight;
+    }
+    if (playerStart.haveMotor) {
+        motor.radius = playerStart.motorRadius;
+        motor.height = playerStart.motorHeight;
+        motor.eyeHeight = playerStart.motorEyeHeight;
+    }
     controller.eyeHeight = motor.eyeHeight;
     controller.moveSpeed = motor.moveSpeed;
     player.set<FirstPersonController>(controller);

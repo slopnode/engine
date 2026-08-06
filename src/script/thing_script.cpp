@@ -10,6 +10,7 @@
 #include "map/pvs.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
+#include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
@@ -961,7 +962,7 @@ s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
     motor.height = height > 0.0f ? height : 1.1f;
     motor.moveSpeed = speed;
     motor.gravity = gravity;
-    entity.add<Actor>().set<CharacterMotor>(motor).set<CollisionTags>(CollisionTags{std::move(tags)});
+    entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(NavigationAgent{}).set<CollisionTags>(CollisionTags{std::move(tags)});
 
     PhysicsWorld* physics = physicsWorld();
     if (physics != nullptr) {
@@ -1108,6 +1109,57 @@ s7_pointer g_actor_set_wish(s7_scheme* sc, s7_pointer args) {
     CharacterMotor& motor = entity.get_mut<CharacterMotor>();
     motor.wishX = wx;
     motor.wishZ = wz;
+    motor.wishY = 0.0f;
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_set_wish_3d(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-set-wish-3d", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    float wx = 0.0f;
+    float wy = 0.0f;
+    float wz = 0.0f;
+    if (!readNumberArg(sc, rest, wx, "actor-set-wish-3d", 2) ||
+        !readNumberArg(sc, rest, wy, "actor-set-wish-3d", 3) ||
+        !readNumberArg(sc, rest, wz, "actor-set-wish-3d", 4)) {
+        return s7_wrong_type_arg_error(sc, "actor-set-wish-3d", 2, rest, "wx wy wz numbers");
+    }
+    flecs::entity entity = lookupActor(id);
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    CharacterMotor& motor = entity.get_mut<CharacterMotor>();
+    motor.wishX = wx;
+    motor.wishY = wy;
+    motor.wishZ = wz;
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_set_move_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-set-move-speed!", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    float speed = 0.0f;
+    if (!readNumberArg(sc, rest, speed, "actor-set-move-speed!", 2)) {
+        return s7_wrong_type_arg_error(sc, "actor-set-move-speed!", 2, rest, "speed number");
+    }
+    flecs::entity entity = lookupActor(id);
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    CharacterMotor& motor = entity.get_mut<CharacterMotor>();
+    motor.moveSpeed = speed;
     return s7_t(sc);
 }
 
@@ -1344,6 +1396,101 @@ s7_pointer g_los(s7_scheme* sc, s7_pointer args) {
     const Vector3 dir = Vector3Scale(delta, 1.0f / distance);
     const auto hit = physics->castRay(origin, dir, distance, BrushBlock::Los);
     return hit.has_value() ? s7_f(sc) : s7_t(sc);
+}
+
+namespace {
+
+constexpr float kVolumeProbeDefaultDist = 64.0f;
+
+float readOptionalMaxDist(s7_scheme* sc, s7_pointer args, float fallback) {
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return fallback;
+    }
+    return static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+}
+
+} // namespace
+
+s7_pointer g_volume_floor_at(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    float x = 0, y = 0, z = 0;
+    if (!readNumberArg(sc, args, x, "volume-floor-at", 1) ||
+        !readNumberArg(sc, args, y, "volume-floor-at", 2) ||
+        !readNumberArg(sc, args, z, "volume-floor-at", 3)) {
+        return s7_wrong_type_arg_error(sc, "volume-floor-at", 1, args, "x y z [max-dist]");
+    }
+    const float maxDist = readOptionalMaxDist(sc, args, kVolumeProbeDefaultDist);
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_f(sc);
+    }
+    const auto hit = physics->castRay({x, y, z}, {0.0f, -1.0f, 0.0f}, maxDist, BrushBlock::Actor);
+    if (!hit.has_value()) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(hit->point.y));
+}
+
+s7_pointer g_volume_ceiling_at(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    float x = 0, y = 0, z = 0;
+    if (!readNumberArg(sc, args, x, "volume-ceiling-at", 1) ||
+        !readNumberArg(sc, args, y, "volume-ceiling-at", 2) ||
+        !readNumberArg(sc, args, z, "volume-ceiling-at", 3)) {
+        return s7_wrong_type_arg_error(sc, "volume-ceiling-at", 1, args, "x y z [max-dist]");
+    }
+    const float maxDist = readOptionalMaxDist(sc, args, kVolumeProbeDefaultDist);
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_f(sc);
+    }
+    const auto hit = physics->castRay({x, y, z}, {0.0f, 1.0f, 0.0f}, maxDist, BrushBlock::Actor);
+    if (!hit.has_value()) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(hit->point.y));
+}
+
+s7_pointer g_volume_clearance(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    float x = 0, y = 0, z = 0, halfHeight = 0;
+    if (!readNumberArg(sc, args, x, "volume-clearance", 1) ||
+        !readNumberArg(sc, args, y, "volume-clearance", 2) ||
+        !readNumberArg(sc, args, z, "volume-clearance", 3) ||
+        !readNumberArg(sc, args, halfHeight, "volume-clearance", 4)) {
+        return s7_wrong_type_arg_error(
+            sc, "volume-clearance", 1, args, "x y z half-height [max-dist]");
+    }
+    const float maxDist = readOptionalMaxDist(sc, args, kVolumeProbeDefaultDist);
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_f(sc);
+    }
+    const auto floorHit =
+        physics->castRay({x, y, z}, {0.0f, -1.0f, 0.0f}, maxDist, BrushBlock::Actor);
+    if (!floorHit.has_value()) {
+        return s7_f(sc);
+    }
+    const auto ceilingHit =
+        physics->castRay({x, y, z}, {0.0f, 1.0f, 0.0f}, maxDist, BrushBlock::Actor);
+    if (!ceilingHit.has_value()) {
+        return s7_f(sc);
+    }
+    const float floorY = floorHit->point.y;
+    const float ceilingY = ceilingHit->point.y;
+    const float usable = ceilingY - floorY - 2.0f * halfHeight;
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, static_cast<double>(floorY)),
+        s7_make_real(sc, static_cast<double>(ceilingY)),
+        s7_make_real(sc, static_cast<double>(usable)));
 }
 
 s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
@@ -1966,6 +2113,91 @@ s7_pointer g_thing_def_behavior(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->behavior.c_str());
 }
 
+namespace {
+
+const char* moveModeName(CharacterMoveMode mode) {
+    switch (mode) {
+    case CharacterMoveMode::TryMove:
+        return "try-move";
+    case CharacterMoveMode::Fly:
+        return "fly";
+    default:
+        return "slide";
+    }
+}
+
+} // namespace
+
+s7_pointer g_thing_def_move_mode(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-move-mode", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_string(sc, moveModeName(def->motorMoveMode));
+}
+
+s7_pointer g_thing_def_gravity(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-gravity", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->motorGravity));
+}
+
+s7_pointer g_thing_def_vertical_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-vertical-speed", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->motorVerticalSpeed));
+}
+
+s7_pointer g_thing_def_hover_height(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-hover-height", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->motorHoverHeight));
+}
+
+s7_pointer g_thing_def_radius(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-radius", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->motorRadius));
+}
+
 s7_pointer g_thing_def_melee_damage(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -2078,6 +2310,76 @@ s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, def->rangedAnim.c_str());
 }
 
+s7_pointer g_thing_def_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-speed", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveMotor) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->motorSpeed));
+}
+
+s7_pointer g_thing_def_lunge_range(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-range", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeRange));
+}
+
+s7_pointer g_thing_def_lunge_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-speed", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeSpeed));
+}
+
+s7_pointer g_thing_def_lunge_cooldown(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-cooldown", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeCooldown));
+}
+
+s7_pointer g_thing_def_lunge_duration(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-lunge-duration", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveLunge) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->lungeDuration));
+}
+
 s7_pointer g_thing_def_pain_chance(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -2151,6 +2453,40 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(thing-def-behavior type)");
     s7_define_function(
         scheme,
+        "thing-def-move-mode",
+        g_thing_def_move_mode,
+        1,
+        0,
+        false,
+        "(thing-def-move-mode type)");
+    s7_define_function(
+        scheme,
+        "thing-def-gravity",
+        g_thing_def_gravity,
+        1,
+        0,
+        false,
+        "(thing-def-gravity type)");
+    s7_define_function(
+        scheme,
+        "thing-def-vertical-speed",
+        g_thing_def_vertical_speed,
+        1,
+        0,
+        false,
+        "(thing-def-vertical-speed type)");
+    s7_define_function(
+        scheme,
+        "thing-def-hover-height",
+        g_thing_def_hover_height,
+        1,
+        0,
+        false,
+        "(thing-def-hover-height type)");
+    s7_define_function(
+        scheme, "thing-def-radius", g_thing_def_radius, 1, 0, false, "(thing-def-radius type)");
+    s7_define_function(
+        scheme,
         "thing-def-melee-damage",
         g_thing_def_melee_damage,
         1,
@@ -2213,6 +2549,40 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(thing-def-ranged-anim type)");
+    s7_define_function(
+        scheme, "thing-def-speed", g_thing_def_speed, 1, 0, false, "(thing-def-speed type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-range",
+        g_thing_def_lunge_range,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-range type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-speed",
+        g_thing_def_lunge_speed,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-speed type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-cooldown",
+        g_thing_def_lunge_cooldown,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-lunge-duration",
+        g_thing_def_lunge_duration,
+        1,
+        0,
+        false,
+        "(thing-def-lunge-duration type)");
     s7_define_function(
         scheme,
         "thing-def-pain-chance",
@@ -2338,6 +2708,22 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(actor-set-wish id wx wz)");
     s7_define_function(
+        scheme,
+        "actor-set-wish-3d",
+        g_actor_set_wish_3d,
+        4,
+        0,
+        false,
+        "(actor-set-wish-3d id wx wy wz)");
+    s7_define_function(
+        scheme,
+        "actor-set-move-speed!",
+        g_actor_set_move_speed,
+        2,
+        0,
+        false,
+        "(actor-set-move-speed! id speed)");
+    s7_define_function(
         scheme, "actor-set-corpse!", g_actor_set_corpse, 1, 0, false, "(actor-set-corpse! id)");
     s7_define_function(
         scheme, "actor-grounded?", g_actor_grounded, 1, 0, false, "(actor-grounded? id)");
@@ -2361,6 +2747,24 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(actors-in-radius x y z r [tag])");
     s7_define_function(scheme, "los?", g_los, 6, 0, false, "(los? x0 y0 z0 x1 y1 z1)");
+    s7_define_function(
+        scheme, "volume-floor-at", g_volume_floor_at, 3, 1, false, "(volume-floor-at x y z [max-dist])");
+    s7_define_function(
+        scheme,
+        "volume-ceiling-at",
+        g_volume_ceiling_at,
+        3,
+        1,
+        false,
+        "(volume-ceiling-at x y z [max-dist])");
+    s7_define_function(
+        scheme,
+        "volume-clearance",
+        g_volume_clearance,
+        4,
+        1,
+        false,
+        "(volume-clearance x y z half-height [max-dist])");
     s7_define_function(
         scheme,
         "debug-line-add!",

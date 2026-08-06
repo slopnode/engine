@@ -18,6 +18,7 @@
 #include "physics/physics_module.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/sight_module.hpp"
+#include "navigation/nav_module.hpp"
 #include "particles/particle_module.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
@@ -62,6 +63,7 @@ App::App(AppConfig config)
     registerUiModule(world_);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
+    registerNavModule(world_);
     registerAudioModule(world_, audioWorld_.get(), assetStore_, scheme_);
     registerCameraModule(world_);
     registerInteractModule(world_);

@@ -472,6 +472,29 @@ s7_pointer g_player_set_control(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_player_set_pitch_locked(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::MapControl)) {
+        return s7_f(sc);
+    }
+    if (g_saveWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "player-set-pitch-locked", 1, args, "boolean");
+    }
+    flecs::entity player = g_saveWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<FirstPersonController>()) {
+        return s7_f(sc);
+    }
+    FirstPersonController& controller = player.get_mut<FirstPersonController>();
+    const bool locked = s7_boolean(sc, s7_car(args));
+    controller.allowPitch = !locked;
+    if (locked) {
+        controller.pitch = 0.0f;
+    }
+    return s7_t(sc);
+}
+
 bool parseSaveStemDisplay(std::string_view stem, std::string& displayOut) {
     const std::size_t under = stem.rfind('_');
     if (under == std::string_view::npos || under == 0 || under + 1 >= stem.size()) {
@@ -728,6 +751,14 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         0,
         false,
         "(player-set-control move? look?)");
+    s7_define_function(
+        scheme,
+        "player-set-pitch-locked",
+        g_player_set_pitch_locked,
+        1,
+        0,
+        false,
+        "(player-set-pitch-locked locked?)");
 }
 
 void bindStartupApi(s7_scheme* scheme, const std::unordered_map<std::string, std::string>& args) {
