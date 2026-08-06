@@ -93,6 +93,7 @@ set(SLOPLIB_SOURCES
     src/map/fac_io.cpp
     src/map/pvs_build.cpp
     src/map/pvs_io.cpp
+    src/map/nav_graph.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
     src/render/skybox.cpp
@@ -130,6 +131,8 @@ add_executable(slopengine
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/sight_module.cpp
+    src/navigation/nav_module.cpp
+    src/navigation/nav_script.cpp
     src/physics/motored_body.cpp
     src/physics/motored_sweep.cpp
     src/physics/rigid_mover.cpp

@@ -57,6 +57,7 @@ struct DebugUiState {
     bool showSpriteMasks = false;
     bool showSpriteAim = false;
     bool showGraphs = false;
+    bool showNavPaths = false;
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;

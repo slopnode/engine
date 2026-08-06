@@ -14,6 +14,7 @@
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "render/skybox.hpp"
+#include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
@@ -607,7 +608,7 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             motor.stepHeight = placement.motorStepHeight;
             motor.hull = placement.motorHull;
             motor.moveMode = placement.motorMoveMode;
-            entity.add<Actor>().set<CharacterMotor>(motor);
+            entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(NavigationAgent{});
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {
                 tags.push_back("actor");

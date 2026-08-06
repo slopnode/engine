@@ -10,6 +10,7 @@
 #include "map/pvs.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
+#include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
@@ -961,7 +962,7 @@ s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
     motor.height = height > 0.0f ? height : 1.1f;
     motor.moveSpeed = speed;
     motor.gravity = gravity;
-    entity.add<Actor>().set<CharacterMotor>(motor).set<CollisionTags>(CollisionTags{std::move(tags)});
+    entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(NavigationAgent{}).set<CollisionTags>(CollisionTags{std::move(tags)});
 
     PhysicsWorld* physics = physicsWorld();
     if (physics != nullptr) {

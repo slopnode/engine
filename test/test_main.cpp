@@ -13,6 +13,7 @@ void runBspBuildTests();
 void runBspAnalyzeTests();
 void runFacBuildTests();
 void runPvsBuildTests();
+void runNavGraphTests();
 void runPhysicsTests();
 void runFrustumTests();
 void runTransformTests();
@@ -46,6 +47,7 @@ const Suite kSuites[] = {
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
     {"fac_build", slopengine::runFacBuildTests},
     {"pvs_build", slopengine::runPvsBuildTests},
+    {"nav_graph", slopengine::runNavGraphTests},
     {"physics", slopengine::runPhysicsTests},
     {"frustum", slopengine::runFrustumTests},
     {"transform", slopengine::runTransformTests},
