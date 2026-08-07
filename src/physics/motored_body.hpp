@@ -7,7 +7,9 @@
 
 namespace slopengine {
 
-/** Motor-driven flyer: package sets velocity/gravity; engine integrates vs static hulls and actors. */
+/** Motor-driven flyer: package sets velocity/gravity; engine integrates vs static hulls and actors.
+ *  @ingroup physics_components
+ */
 struct MotoredBody {
     Vector3 velocity = {0.0f, 0.0f, 0.0f};
     float gravity = 0.0f;

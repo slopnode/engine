@@ -29,6 +29,9 @@ enum class MoverPushMode {
     Off,
 };
 
+/** Kinematic door/platform: tweens between closed and open pose and shoves/crushes blockers.
+ *  @ingroup physics_components
+ */
 struct RigidMover {
     Vector3 closedPos = {0.0f, 0.0f, 0.0f};
     Quaternion closedRot = QuaternionIdentity();

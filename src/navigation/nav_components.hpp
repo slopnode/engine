@@ -7,6 +7,9 @@
 
 namespace slopengine {
 
+/** Pathfinding goal/state for an actor: waypoint list, replan timing, and stuck detection.
+ *  @ingroup navigation_components
+ */
 struct NavigationAgent {
     bool enabled = true;
     Vector3 goalPos{};

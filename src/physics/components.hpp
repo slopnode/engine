@@ -57,10 +57,14 @@ inline float characterCenterOffset(const CharacterMotor& motor) {
     return 0.5f * characterBodyHeight(motor) + characterRadius(motor);
 }
 
-/** Tag: package-driven world actor (not the first-person player). */
+/** Tag: package-driven world actor (not the first-person player).
+ *  @ingroup physics_components
+ */
 struct Actor {};
 
-/** Tag: dead actor kept for visuals; no physics or combat collision. */
+/** Tag: dead actor kept for visuals; no physics or combat collision.
+ *  @ingroup physics_components
+ */
 struct ActorCorpse {};
 
 }

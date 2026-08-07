@@ -6,6 +6,9 @@
 
 namespace slopengine {
 
+/** Line-of-sight scanner: FOV/range gated linescan against tagged targets, calling `on-sight`.
+ *  @ingroup physics_components
+ */
 struct ActorSight {
     bool enabled = false;
     float range = 32.0f;
@@ -17,6 +20,9 @@ struct ActorSight {
     std::unordered_set<std::string> visible;
 };
 
+/** World singleton: round-robins ActorSight scans across frames to cap per-frame linescans.
+ *  @ingroup physics_components
+ */
 struct SightScanState {
     std::size_t cursor = 0;
     int maxLosPerFrame = 6;

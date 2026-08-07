@@ -40,6 +40,38 @@
  * Phase: `OnUpdate`. Detects @ref slopengine::TriggerVolume enter/exit and calls Scheme.
  * Defined in `physics/physics_module.cpp`.
  *
+ * @section sys_UpdateFaceTouch UpdateFaceTouch
+ * Phase: `OnUpdate`. Detects @ref slopengine::FaceTouch enter/exit on CSG faces and calls Scheme.
+ * Defined in `physics/physics_module.cpp`.
+ *
+ * @section sys_MotoredBodyIntegrate MotoredBodyIntegrate
+ * Phase: `OnUpdate`. Integrates @ref slopengine::MotoredBody projectiles against static hulls and actors, firing impacts.
+ * Defined in `physics/motored_body.cpp`.
+ *
+ * @section sys_RigidMoverAdvance RigidMoverAdvance
+ * Phase: `PreUpdate`. Advances @ref slopengine::RigidMover progress toward its target and syncs the kinematic body.
+ * Defined in `physics/rigid_mover.cpp`.
+ *
+ * @section sys_RigidMoverCharacterResolve RigidMoverCharacterResolve
+ * Phase: `OnUpdate`. Shoves/crushes characters caught in a moving @ref slopengine::RigidMover and calls `on-crush`.
+ * Defined in `physics/rigid_mover.cpp`.
+ *
+ * @section sys_RigidMoverRadTint RigidMoverRadTint
+ * Phase: `PreUpdate`. Samples the bake tint for a @ref slopengine::RigidMover model at its closed pose.
+ * Defined in `physics/rigid_mover.cpp`.
+ *
+ * @section sys_WorldModelLightTint WorldModelLightTint
+ * Phase: `PreUpdate`. Samples the bake tint for world-space models that are not movers, lightmapped map geo, or view-space.
+ * Defined in `physics/rigid_mover.cpp`.
+ *
+ * @section sys_RigidMoverOnRemove RigidMoverOnRemove
+ * Observer: `OnRemove` on @ref slopengine::RigidMover. Destroys the entity's kinematic body.
+ * Defined in `physics/rigid_mover.cpp`.
+ *
+ * @section sys_SightScan SightScan
+ * Phase: `OnUpdate`. Round-robins @ref slopengine::ActorSight linescans and calls `on-sight` on newly visible targets.
+ * Defined in `physics/sight_module.cpp`.
+ *
  * @}
  */
 
@@ -96,6 +128,32 @@
  * Phase: `OnUpdate`. Destroys entities queued for despawn by the thing runtime API.
  * Defined in `script/thing_script.cpp`.
  *
+ * @section sys_TimedDespawnAdvance TimedDespawnAdvance
+ * Phase: `OnUpdate`. Counts down `TimedDespawn` and queues the entity for despawn at zero.
+ * Defined in `script/thing_script.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup particles_systems
+ * @{
+ *
+ * @section sys_ParticleSystemUpdate ParticleSystemUpdate
+ * Phase: `OnUpdate`. Emits, simulates, and despawns particles for every @ref slopengine::ParticleSystemInstance.
+ * Defined in `particles/particle_module.cpp`.
+ *
+ * @}
+ */
+
+/**
+ * @addtogroup navigation_systems
+ * @{
+ *
+ * @section sys_NavUpdate NavUpdate
+ * Phase: `OnUpdate`. Replans @ref slopengine::NavigationAgent paths toward their goal and steers the character motor.
+ * Defined in `navigation/nav_module.cpp`.
+ *
  * @}
  */
 
@@ -105,27 +163,43 @@
  *
  * @section sys_ApplySpin ApplySpin
  * Phase: `OnUpdate`. Rotates entities that have @ref slopengine::Spin.
- * Defined in `render/render_module.cpp`.
+ * Defined in `render/animation_systems.cpp`.
  *
  * @section sys_CallSchemeTick CallSchemeTick
  * Phase: `OnUpdate`. Invokes the package Scheme per-frame tick hook.
- * Defined in `render/render_module.cpp`.
+ * Defined in `render/animation_systems.cpp`.
  *
  * @section sys_AdvanceAnimationPlayer AdvanceAnimationPlayer
  * Phase: `OnUpdate`. Advances @ref slopengine::AnimationPlayer and skins @ref slopengine::Model3D.
- * Defined in `render/render_module.cpp`.
+ * Defined in `render/animation_systems.cpp`.
  *
  * @section sys_AnimationClipFlipTest AnimationClipFlipTest
  * Phase: `PostUpdate`. Demo helper that flips clips via @ref slopengine::AnimationClipFlipTest.
- * Defined in `render/render_module.cpp`.
+ * Defined in `render/animation_systems.cpp`.
+ *
+ * @section sys_AdvanceMaterialAnim AdvanceMaterialAnim
+ * Phase: `OnUpdate`. Advances material animation clocks and applies the resulting texture frames.
+ * Defined in `render/material_anim.cpp`.
  *
  * @section sys_AdvanceSpriteAnimator AdvanceSpriteAnimator
  * Phase: `OnUpdate`. Advances @ref slopengine::SpriteAnimator into @ref slopengine::SpriteInstance.
- * Defined in `render/render_module.cpp`.
+ * Defined in `render/sprite_animator_system.cpp`.
+ *
+ * @section sys_SyncSpriteOverlayViewOffset SyncSpriteOverlayViewOffset
+ * Phase: `OnUpdate`. Copies a @ref slopengine::SpriteOverlay host's view offset/scale/rotation onto the overlay's @ref slopengine::ViewSprite.
+ * Defined in `render/sprite_animator_system.cpp`.
+ *
+ * @section sys_SyncSpriteOverlayFacing SyncSpriteOverlayFacing
+ * Phase: `OnUpdate`. Copies a world-space @ref slopengine::SpriteOverlay host's facing yaw onto the overlay.
+ * Defined in `render/sprite_animator_system.cpp`.
+ *
+ * @section sys_DespawnFinishedSpriteOverlays DespawnFinishedSpriteOverlays
+ * Phase: `OnUpdate`. Destroys non-looping @ref slopengine::SpriteOverlay entities once their clip finishes.
+ * Defined in `render/sprite_animator_system.cpp`.
  *
  * @section sys_UpdateGlobalTransforms UpdateGlobalTransforms
  * Phase: `OnUpdate`. Recomputes @ref slopengine::GlobalTransformation from the hierarchy.
- * Defined in `render/render_module.cpp`.
+ * Defined in `render/animation_systems.cpp`.
  *
  * @section sys_StartDrawing StartDrawing
  * Phase: `PostUpdate`. Begins the raylib frame (`BeginDrawing`).
@@ -137,6 +211,10 @@
  *
  * @section sys_LensWorld LensWorld
  * Phase: `PostUpdate`. Renders the world pass from a @ref slopengine::WorldSpace @ref slopengine::Lens.
+ * Defined in `render/render_module.cpp`.
+ *
+ * @section sys_MenuTitleOverlay MenuTitleOverlay
+ * Phase: `PostUpdate`. Draws the menu background image and title canvas while in a menu state.
  * Defined in `render/render_module.cpp`.
  *
  * @section sys_ImGuiOverlay ImGuiOverlay

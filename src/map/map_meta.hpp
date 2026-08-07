@@ -16,7 +16,7 @@ struct MapSun {
     Vector3 angles{}; /**< Pitch yaw roll; yaw-only maps to angles.y. */
 };
 
-/** Fields from maps/<name>/map.meta. */
+/** Fields from `maps/<name>/map.meta`. */
 struct MapMeta {
     std::string id;
     std::string name;

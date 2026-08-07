@@ -29,6 +29,9 @@ struct ParticleEmitterRuntime {
     int aliveCount = 0;
 };
 
+/** Playing instance of a .prt effect: loaded emitter defs plus their live particle pools.
+ *  @ingroup particles_components
+ */
 struct ParticleSystemInstance {
     std::string path;
     bool playing = true;
@@ -36,6 +39,9 @@ struct ParticleSystemInstance {
     std::vector<ParticleEmitterRuntime> emitters;
 };
 
+/** Pins a view-space particle system to a first-person muzzle socket at a fixed depth.
+ *  @ingroup particles_components
+ */
 struct ParticleFollowViewMuzzle {
     std::uint64_t host = 0;
     float depth = 0.35f;
