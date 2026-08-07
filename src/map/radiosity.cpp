@@ -1727,14 +1727,27 @@ RadiosityBakeResult bakeRadiosity(
         if (emissiveFace.interiorLeaf < 0 && tree != nullptr) {
             const float centerU = 0.5f * (basis.uMin + basis.uMax);
             const float centerV = 0.5f * (basis.vMin + basis.vMax);
-            const Vector3 centerPos = planePointFromUv(
+            const Vector3 planePos = planePointFromUv(
                 basis.uAxis,
                 basis.vAxis,
                 basis.normal,
                 centerU,
                 centerV,
                 basis.planeD);
-            emissiveFace.interiorLeaf = pointLeaf(*tree, centerPos);
+            static constexpr float kInteriorProbeNudges[] = {0.02f, 0.05f, 0.25f, 0.75f, 1.5f};
+            std::int32_t probeLeaf = -1;
+            for (float nudge : kInteriorProbeNudges) {
+                const Vector3 probePos = add3(planePos, scale3(basis.normal, nudge));
+                const std::int32_t candidate = pointLeaf(*tree, probePos);
+                if (candidate >= 0
+                    && candidate < static_cast<std::int32_t>(tree->leaves.size())
+                    && leafIsOpen(tree->leaves[static_cast<std::size_t>(candidate)].contents)) {
+                    probeLeaf = candidate;
+                    break;
+                }
+            }
+            emissiveFace.interiorLeaf =
+                probeLeaf >= 0 ? probeLeaf : pointLeaf(*tree, planePos);
         }
 
         if (!face.vertices.empty()) {

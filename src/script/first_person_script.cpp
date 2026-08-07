@@ -228,6 +228,12 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
     const char* spritePath = s7_string(s7_car(rest));
     rest = s7_cdr(rest);
 
+    const char* initialClip = "idle";
+    if (s7_is_pair(rest) && s7_is_string(s7_car(rest))) {
+        initialClip = s7_string(s7_car(rest));
+        rest = s7_cdr(rest);
+    }
+
     bool explicitCanvas = false;
     float explicitCanvasX = 0.0f;
     float explicitCanvasY = 0.0f;
@@ -319,7 +325,9 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
         SpriteAnimator animator{};
         animator.animPath = spritePath;
         const SpriteAnimBank* bank = assets.getSpriteAnimBank(spritePath);
-        if (bank != nullptr && bank->clipIndexByName.find("idle") != bank->clipIndexByName.end()) {
+        if (bank != nullptr && bank->clipIndexByName.find(initialClip) != bank->clipIndexByName.end()) {
+            playSpriteAnim(animator, sprite, bank, initialClip, true);
+        } else if (bank != nullptr && bank->clipIndexByName.find("idle") != bank->clipIndexByName.end()) {
             playSpriteAnim(animator, sprite, bank, "idle", true);
         }
         entity.set<SpriteInstance>(sprite);
@@ -977,8 +985,8 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "fp-clear-socket", g_fp_clear_socket, 1, 0, false, "(fp-clear-socket socket)");
     s7_define_function(scheme, "fp-attach-geo", g_fp_attach_geo, 2, 6, false,
                        "(fp-attach-geo socket geo [x y z sx sy sz])");
-    s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 2, false,
-                       "(fp-attach-sprite socket sprite [canvas-x canvas-y]) -> (x y)");
+    s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 3, false,
+                       "(fp-attach-sprite socket sprite [clip] [canvas-x canvas-y]) -> (x y)");
     s7_define_function(scheme, "fp-set-sprite-frame", g_fp_set_sprite_frame, 2, 0, false,
                        "(fp-set-sprite-frame socket frame-id)");
     s7_define_function(scheme, "fp-play-sprite-anim", g_fp_play_sprite_anim, 2, 1, false,
