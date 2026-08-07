@@ -324,6 +324,20 @@ bool pvsVisibleFromCamera(
         objectPos);
 }
 
+bool pvsBoxVisibleFromCamera(
+    flecs::world& world,
+    Vector3 cameraPos,
+    const BoundingBox& worldBounds) {
+    if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
+        return true;
+    }
+    return pvsVisibleBox(
+        world.get<MapBsp>().tree,
+        world.get<MapPvs>().pvs,
+        cameraPos,
+        worldBounds);
+}
+
 struct SpriteBillboardShader {
     Shader shader{};
     int albedoRectLoc = -1;
@@ -655,12 +669,7 @@ void drawWorldModels(
             if (!aabbInFrustum(frustum, worldBounds)) {
                 return;
             }
-            const Vector3 center{
-                (worldBounds.min.x + worldBounds.max.x) * 0.5f,
-                (worldBounds.min.y + worldBounds.max.y) * 0.5f,
-                (worldBounds.min.z + worldBounds.max.z) * 0.5f,
-            };
-            if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
+            if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
                 return;
             }
             const Matrix* closedMatrix = nullptr;
@@ -715,12 +724,7 @@ void drawWorldModels(
                 if (!aabbInFrustum(frustum, worldBounds)) {
                     return;
                 }
-                const Vector3 center{
-                    (worldBounds.min.x + worldBounds.max.x) * 0.5f,
-                    (worldBounds.min.y + worldBounds.max.y) * 0.5f,
-                    (worldBounds.min.z + worldBounds.max.z) * 0.5f,
-                };
-                if (!pvsVisibleFromCamera(world, lens.camera.position, center)) {
+                if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
                     return;
                 }
             }
