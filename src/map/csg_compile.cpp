@@ -84,17 +84,24 @@ CsgCompileResult compileFacesToGeo(
         float uMax = 0.0f;
         float vMin = 0.0f;
         float vMax = 0.0f;
-        for (std::size_t i = 0; i < verts.size(); ++i) {
-            const float u = verts[i].x * uAxis.x + verts[i].y * uAxis.y + verts[i].z * uAxis.z;
-            const float v = verts[i].x * vAxis.x + verts[i].y * vAxis.y + verts[i].z * vAxis.z;
-            if (i == 0) {
-                uMin = uMax = u;
-                vMin = vMax = v;
-            } else {
-                uMin = std::min(uMin, u);
-                uMax = std::max(uMax, u);
-                vMin = std::min(vMin, v);
-                vMax = std::max(vMax, v);
+        if (chart != nullptr && chart->groupUMax > chart->groupUMin) {
+            uMin = chart->groupUMin;
+            uMax = chart->groupUMax;
+            vMin = chart->groupVMin;
+            vMax = chart->groupVMax;
+        } else {
+            for (std::size_t i = 0; i < verts.size(); ++i) {
+                const float u = verts[i].x * uAxis.x + verts[i].y * uAxis.y + verts[i].z * uAxis.z;
+                const float v = verts[i].x * vAxis.x + verts[i].y * vAxis.y + verts[i].z * vAxis.z;
+                if (i == 0) {
+                    uMin = uMax = u;
+                    vMin = vMax = v;
+                } else {
+                    uMin = std::min(uMin, u);
+                    uMax = std::max(uMax, u);
+                    vMin = std::min(vMin, v);
+                    vMax = std::max(vMax, v);
+                }
             }
         }
         const float uSpan = uMax - uMin > 1e-5f ? uMax - uMin : 1.0f;

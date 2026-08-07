@@ -57,6 +57,36 @@ inline bool pvsVisiblePoints(
     return pvsCanSee(pvs, a, b);
 }
 
+inline bool pvsVisibleBox(
+    const BspTree& tree,
+    const PvsFile& pvs,
+    Vector3 from,
+    const BoundingBox& box) {
+    const std::int32_t a = pvsSampleLeaf(tree, from);
+    if (a < 0) {
+        return true;
+    }
+    const Vector3 samples[] = {
+        {(box.min.x + box.max.x) * 0.5f, (box.min.y + box.max.y) * 0.5f,
+         (box.min.z + box.max.z) * 0.5f},
+        {box.min.x, box.min.y, box.min.z},
+        {box.min.x, box.min.y, box.max.z},
+        {box.min.x, box.max.y, box.min.z},
+        {box.min.x, box.max.y, box.max.z},
+        {box.max.x, box.min.y, box.min.z},
+        {box.max.x, box.min.y, box.max.z},
+        {box.max.x, box.max.y, box.min.z},
+        {box.max.x, box.max.y, box.max.z},
+    };
+    for (const Vector3& point : samples) {
+        const std::int32_t b = pvsSampleLeaf(tree, point);
+        if (b < 0 || pvsCanSee(pvs, a, b)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 inline void pvsSetBit(PvsFile& pvs, int fromLeaf, int toLeaf) {
     if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= pvs.leafCount || toLeaf >= pvs.leafCount) {
         return;

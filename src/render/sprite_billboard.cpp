@@ -612,6 +612,49 @@ std::optional<SpriteBillboardHit> raycastSpriteBillboard(
     return hit;
 }
 
+std::optional<SpriteBillboardHit> raycastSpriteBillboardXZ(
+    const Ray& ray,
+    const SpriteBillboard& billboard,
+    float maxDistance) {
+    // The billboard's bottom edge (points[0] -> points[1]) is always horizontal in world
+    // space, and shares its XZ position with the top edge, so it doubles as the sprite's
+    // full horizontal footprint regardless of pitch.
+    const float ax = billboard.points[0].x;
+    const float az = billboard.points[0].z;
+    const float segX = billboard.points[1].x - ax;
+    const float segZ = billboard.points[1].z - az;
+
+    const float ox = ray.position.x;
+    const float oz = ray.position.z;
+    const float dx = ray.direction.x;
+    const float dz = ray.direction.z;
+
+    const float det = segX * dz - segZ * dx;
+    if (std::fabs(det) < 1.0e-9f) {
+        return std::nullopt;
+    }
+
+    const float ex = ox - ax;
+    const float ez = oz - az;
+
+    const float segT = (ex * dz - ez * dx) / det;
+    if (segT < 0.0f || segT > 1.0f) {
+        return std::nullopt;
+    }
+
+    const float rayT = (ex * segZ - segX * ez) / det;
+    if (rayT < 0.0f || rayT > maxDistance) {
+        return std::nullopt;
+    }
+
+    SpriteBillboardHit hit{};
+    hit.distance = rayT;
+    hit.point = Vector3Add(ray.position, Vector3Scale(ray.direction, rayT));
+    hit.part = 1;
+    hit.partName = "body";
+    return hit;
+}
+
 void drawSpriteMaskDebug(const SpriteBillboard& billboard) {
     const Color boundsColor{255, 255, 255, 255};
     DrawLine3D(billboard.points[0], billboard.points[1], boundsColor);

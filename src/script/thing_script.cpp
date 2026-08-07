@@ -1493,6 +1493,53 @@ s7_pointer g_volume_clearance(s7_scheme* sc, s7_pointer args) {
         s7_make_real(sc, static_cast<double>(usable)));
 }
 
+s7_pointer g_linescan_world(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+
+    float ox = 0, oy = 0, oz = 0, dx = 0, dy = 0, dz = 0, maxDistance = 0;
+    if (!readNumberArg(sc, args, ox, "linescan-world", 1) ||
+        !readNumberArg(sc, args, oy, "linescan-world", 2) ||
+        !readNumberArg(sc, args, oz, "linescan-world", 3) ||
+        !readNumberArg(sc, args, dx, "linescan-world", 4) ||
+        !readNumberArg(sc, args, dy, "linescan-world", 5) ||
+        !readNumberArg(sc, args, dz, "linescan-world", 6) ||
+        !readNumberArg(sc, args, maxDistance, "linescan-world", 7)) {
+        return s7_wrong_type_arg_error(
+            sc, "linescan-world", 1, args, "ox oy oz dx dy dz max-distance numbers");
+    }
+    if (maxDistance <= 0.0f) {
+        return s7_f(sc);
+    }
+
+    const Vector3 rawDir{dx, dy, dz};
+    const float dirLen = Vector3Length(rawDir);
+    if (dirLen <= 1.0e-6f) {
+        return s7_f(sc);
+    }
+    const Vector3 dir = Vector3Scale(rawDir, 1.0f / dirLen);
+
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_f(sc);
+    }
+    const auto hit = physics->castRay({ox, oy, oz}, dir, maxDistance, BrushBlock::Linescan);
+    if (!hit.has_value()) {
+        return s7_f(sc);
+    }
+    return s7_list(
+        sc,
+        7,
+        s7_make_real(sc, static_cast<double>(hit->point.x)),
+        s7_make_real(sc, static_cast<double>(hit->point.y)),
+        s7_make_real(sc, static_cast<double>(hit->point.z)),
+        s7_make_real(sc, static_cast<double>(hit->normal.x)),
+        s7_make_real(sc, static_cast<double>(hit->normal.y)),
+        s7_make_real(sc, static_cast<double>(hit->normal.z)),
+        s7_make_real(sc, static_cast<double>(hit->fraction * maxDistance)));
+}
+
 s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1516,6 +1563,11 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
     std::string tagFilter;
     if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
         tagFilter = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    bool xzOnly = false;
+    if (s7_is_pair(args) && s7_is_boolean(s7_car(args))) {
+        xzOnly = s7_boolean(sc, s7_car(args));
     }
 
     if (maxDistance <= 0.0f) {
@@ -1598,7 +1650,8 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
         if (!billboard) {
             return;
         }
-        const auto hit = raycastSpriteBillboard(ray, *billboard, bestDistance);
+        const auto hit = xzOnly ? raycastSpriteBillboardXZ(ray, *billboard, bestDistance)
+                                 : raycastSpriteBillboard(ray, *billboard, bestDistance);
         if (!hit) {
             return;
         }
@@ -2805,9 +2858,18 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "hitscan-actors",
         g_hitscan_actors,
         7,
-        1,
+        2,
         false,
-        "(hitscan-actors ox oy oz dx dy dz max-distance [tag]) -> (id part distance x y z)");
+        "(hitscan-actors ox oy oz dx dy dz max-distance [tag] [xz-only?]) -> "
+        "(id part distance x y z)");
+    s7_define_function(
+        scheme,
+        "linescan-world",
+        g_linescan_world,
+        7,
+        0,
+        false,
+        "(linescan-world ox oy oz dx dy dz max-distance) -> (x y z nx ny nz distance) or #f");
     s7_define_function(scheme, "mover-open", g_mover_open, 1, 0, false, "(mover-open id)");
     s7_define_function(scheme, "mover-close", g_mover_close, 1, 0, false, "(mover-close id)");
     s7_define_function(scheme, "mover-toggle", g_mover_toggle, 1, 0, false, "(mover-toggle id)");

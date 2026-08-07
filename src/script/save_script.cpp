@@ -220,6 +220,14 @@ s7_pointer g_request_map_load(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_return_to_menu(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::MapControl)) {
+        return s7_f(sc);
+    }
+    requestMapLoad("", "menu");
+    return s7_t(sc);
+}
+
 s7_pointer g_list_maps(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_nil(sc);
@@ -728,6 +736,8 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         1,
         false,
         "(request-map-load name [reason])");
+    s7_define_function(
+        scheme, "return-to-menu", g_return_to_menu, 0, 0, false, "(return-to-menu)");
     s7_define_function(scheme, "list-maps", g_list_maps, 0, 0, false, "(list-maps)");
     s7_define_function(scheme, "current-map", g_current_map, 0, 0, false, "(current-map)");
     s7_define_function(scheme, "player-pose", g_player_pose, 0, 0, false, "(player-pose)");

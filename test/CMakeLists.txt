@@ -20,8 +20,10 @@ add_executable(sloptests
     test_brush_blocks.cpp
     test_lightmap_transparent.cpp
     test_lightmap_rgbe.cpp
+    test_lightmap_merge.cpp
     test_radiosity_emitters.cpp
     test_sun_shadow_softness.cpp
+    test_seam_stitch.cpp
     test_sight.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp

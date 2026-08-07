@@ -16,8 +16,9 @@
 namespace slopengine {
 
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
-constexpr std::uint32_t kRadVersion = 3;
+constexpr std::uint32_t kRadVersion = 4;
 constexpr std::uint32_t kRadVersionLegacy = 2;
+constexpr std::uint32_t kRadVersionPrevious = 3;
 
 /** Atlas pixel encoding recorded in rad v3+. */
 enum class LightmapEncoding : std::uint32_t {
@@ -53,6 +54,26 @@ struct LightmapChart {
     float v0 = 0.0f;
     float u1 = 0.0f;
     float v1 = 0.0f;
+    float groupUMin = 0.0f;
+    float groupUMax = 0.0f;
+    float groupVMin = 0.0f;
+    float groupVMax = 0.0f;
+};
+
+/** A cluster of coplanar, UV-frame-matching, edge-adjacent faces sharing one chart. */
+struct LightmapFaceGroup {
+    std::vector<std::int32_t> faceIndices;
+    Vector3 uAxis{};
+    Vector3 vAxis{};
+    float uMin = 0.0f;
+    float uMax = 0.0f;
+    float vMin = 0.0f;
+    float vMax = 0.0f;
+    std::int32_t atlasIndex = 0;
+    int atlasX = 0;
+    int atlasY = 0;
+    int luxelWidth = 0;
+    int luxelHeight = 0;
 };
 
 /** Atlas texture path and size recorded in a .rad file. */
@@ -74,6 +95,7 @@ struct RadFile {
 struct LightmapPackResult {
     RadFile rad;
     std::vector<std::vector<float>> atlasRgb;
+    std::vector<LightmapFaceGroup> groups;
 };
 
 /** Collects drawable faces from brushes for packing / bake. */
@@ -81,6 +103,9 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
 
 /** Collects drawable faces from a VIS visible-face set. */
 std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis);
+
+/** Clusters coplanar, UV-frame-matching, edge-adjacent faces so they can share one chart. */
+std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<LightmapFace>& faces);
 
 /** Packs faces into atlas charts at @p luxelsPerMeter.
  *  When @p skipFaces is non-null and sized to faces, non-zero entries are omitted. */
