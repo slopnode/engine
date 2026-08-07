@@ -422,6 +422,10 @@ void changeMap(
     std::string_view reason) {
     unloadMapScene(world);
     markTitleMapActive(world, false);
+    if (mapName.empty()) {
+        enterMenu(world);
+        return;
+    }
     if (registerMapScene(world, assets, scheme, mapName, reason)) {
         if (reason == "title") {
             markTitleMapActive(world, true);
