@@ -32,6 +32,7 @@ struct RadiositySettings {
     int emitterGridMaxSize = 32;
     /** 0 = sharp sun/window shadows (legacy), 1 = fuzzy penumbra. */
     float sunShadowSoftness = 0.0f;
+    float seamStitchRadiusLuxels = 1.5f;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
 };

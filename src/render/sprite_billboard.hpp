@@ -141,6 +141,17 @@ std::optional<SpriteBillboardHit> raycastSpriteBillboard(
     const SpriteBillboard& billboard,
     float maxDistance);
 
+/**
+ * Raycasts only the billboard's horizontal footprint (its bottom edge projected onto XZ),
+ * ignoring pitch/vertical extent and the pixel hitmask entirely. For games with no vertical
+ * aim, this avoids hitmask gaps (legs, thin frames, floating enemies) that would otherwise
+ * make a level shot miss a target that's clearly in front of the player.
+ */
+std::optional<SpriteBillboardHit> raycastSpriteBillboardXZ(
+    const Ray& ray,
+    const SpriteBillboard& billboard,
+    float maxDistance);
+
 /** Draws hit-mask debug overlay for @p billboard. */
 void drawSpriteMaskDebug(const SpriteBillboard& billboard);
 

@@ -7,6 +7,7 @@
 #include "map/quad_bvh.hpp"
 #include "map/radiosity_emitters.hpp"
 #include "map/radiosity_gpu.hpp"
+#include "map/seam_stitch.hpp"
 #include "map/uv_math.hpp"
 
 #include <raylib.h>
@@ -169,9 +170,23 @@ FaceBasis makeFaceBasis(const LightmapFace& face) {
     return basis;
 }
 
-Vector3 luxelWorldPos(const FaceBasis& basis, const LightmapChart& chart, int x, int y) {
-    const float fu = luxelFaceParam(x, chart.luxelWidth);
-    const float fv = luxelFaceParam(y, chart.luxelHeight);
+FaceBasis makeGroupBasis(const std::vector<LightmapFace>& faces, const LightmapFaceGroup& group) {
+    const LightmapFace& representative = faces[static_cast<std::size_t>(group.faceIndices.front())];
+    FaceBasis basis;
+    basis.normal = representative.normal;
+    basis.uAxis = group.uAxis;
+    basis.vAxis = group.vAxis;
+    basis.planeD = dot3(representative.vertices[0], representative.normal);
+    basis.uMin = group.uMin;
+    basis.uMax = group.uMax;
+    basis.vMin = group.vMin;
+    basis.vMax = group.vMax;
+    return basis;
+}
+
+Vector3 luxelWorldPos(const FaceBasis& basis, int luxelWidth, int luxelHeight, int x, int y) {
+    const float fu = luxelFaceParam(x, luxelWidth);
+    const float fv = luxelFaceParam(y, luxelHeight);
     const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
     const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
     return planePointFromUv(basis.uAxis, basis.vAxis, basis.normal, u, v, basis.planeD);
@@ -1264,6 +1279,102 @@ void bilateralDenoiseLuxels(
     }
 }
 
+struct SeamGridKey {
+    int x = 0;
+    int y = 0;
+    int z = 0;
+
+    bool operator==(const SeamGridKey& other) const {
+        return x == other.x && y == other.y && z == other.z;
+    }
+};
+
+struct SeamGridKeyHash {
+    std::size_t operator()(const SeamGridKey& key) const {
+        const std::size_t hx = static_cast<std::size_t>(key.x) * 73856093u;
+        const std::size_t hy = static_cast<std::size_t>(key.y) * 19349663u;
+        const std::size_t hz = static_cast<std::size_t>(key.z) * 83492791u;
+        return hx ^ hy ^ hz;
+    }
+};
+
+SeamGridKey seamGridKeyOf(Vector3 v, float cellSize) {
+    return SeamGridKey{
+        static_cast<int>(std::floor(v.x / cellSize)),
+        static_cast<int>(std::floor(v.y / cellSize)),
+        static_cast<int>(std::floor(v.z / cellSize)),
+    };
+}
+
+void stitchCoplanarSeams(std::vector<LuxelSample>& luxels, float maxDistance) {
+    if (maxDistance <= 0.0f) {
+        return;
+    }
+
+    std::unordered_map<SeamGridKey, std::vector<std::int32_t>, SeamGridKeyHash> grid;
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        if (luxels[i].covered) {
+            continue;
+        }
+        grid[seamGridKeyOf(luxels[i].position, maxDistance)].push_back(static_cast<std::int32_t>(i));
+    }
+
+    SeamStitchParams params;
+    params.maxDistance = maxDistance;
+
+    std::vector<Color3> blended(luxels.size());
+    std::vector<char> touched(luxels.size(), 0);
+
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        const LuxelSample& self = luxels[i];
+        if (self.covered) {
+            continue;
+        }
+        const SeamGridKey center = seamGridKeyOf(self.position, maxDistance);
+        Color3 sum = self.irradiance;
+        float weightSum = 1.0f;
+        for (int dz = -1; dz <= 1; ++dz) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    const auto it = grid.find(SeamGridKey{center.x + dx, center.y + dy, center.z + dz});
+                    if (it == grid.end()) {
+                        continue;
+                    }
+                    for (std::int32_t j : it->second) {
+                        if (j == static_cast<std::int32_t>(i)) {
+                            continue;
+                        }
+                        const LuxelSample& other = luxels[static_cast<std::size_t>(j)];
+                        if (other.faceIndex == self.faceIndex) {
+                            continue;
+                        }
+                        if (!luxelsShareSeam(self.position, self.normal, other.position, other.normal, params)) {
+                            continue;
+                        }
+                        const float distance = std::sqrt(dot3(sub3(self.position, other.position), sub3(self.position, other.position)));
+                        const float weight = seamBlendWeight(distance, maxDistance);
+                        if (weight <= 0.0f) {
+                            continue;
+                        }
+                        sum += other.irradiance * weight;
+                        weightSum += weight;
+                    }
+                }
+            }
+        }
+        if (weightSum > 1.0f) {
+            blended[i] = sum * (1.0f / weightSum);
+            touched[i] = 1;
+        }
+    }
+
+    for (std::size_t i = 0; i < luxels.size(); ++i) {
+        if (touched[i] != 0) {
+            luxels[i].irradiance = blended[i];
+        }
+    }
+}
+
 void accumulateBounceLightingCpu(
     std::vector<LuxelSample>& luxels,
     std::vector<Color3>& gatheredLuxels,
@@ -1484,14 +1595,25 @@ RadiosityBakeResult bakeRadiosity(
     result.rad = packed.rad;
     TraceLog(
         LOG_INFO,
-        "sloprad: packed charts=%d atlases=%d",
+        "sloprad: packed charts=%d atlases=%d groups=%d merged=%d",
         static_cast<int>(packed.rad.charts.size()),
-        static_cast<int>(packed.rad.atlases.size()));
+        static_cast<int>(packed.rad.atlases.size()),
+        static_cast<int>(packed.groups.size()),
+        static_cast<int>(packed.rad.charts.size()) - static_cast<int>(packed.groups.size()));
     std::fflush(stdout);
 
     std::vector<FaceBasis> bases(faces.size());
     for (std::size_t i = 0; i < faces.size(); ++i) {
         bases[i] = makeFaceBasis(faces[i]);
+    }
+    for (const LightmapFaceGroup& group : packed.groups) {
+        if (group.faceIndices.size() < 2) {
+            continue;
+        }
+        const FaceBasis groupBasis = makeGroupBasis(faces, group);
+        for (std::int32_t memberIndex : group.faceIndices) {
+            bases[static_cast<std::size_t>(memberIndex)] = groupBasis;
+        }
     }
 
     const float coveragePad = 0.5f / std::max(settings.luxelsPerMeter, 1e-3f);
@@ -1658,47 +1780,60 @@ RadiosityBakeResult bakeRadiosity(
     luxels.reserve(packed.rad.charts.size() * 16);
     std::vector<FaceLuxelGrid> faceGrids(faces.size());
     std::size_t coveredCount = 0;
-    for (const LightmapChart& chart : packed.rad.charts) {
-        if (chart.faceIndex < 0 || chart.faceIndex >= static_cast<std::int32_t>(faces.size())) {
+    for (const LightmapFaceGroup& group : packed.groups) {
+        if (group.faceIndices.empty()) {
             continue;
         }
-        const LightmapFace& face = faces[static_cast<std::size_t>(chart.faceIndex)];
-        const MaterialBakeInfo& material = materialFor(face.material);
-        const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
-        const std::string faceBrushId = brushIdFromFaceId(face.id);
+        const std::int32_t representativeIndex = group.faceIndices.front();
+        const LightmapFace& representative = faces[static_cast<std::size_t>(representativeIndex)];
+        const MaterialBakeInfo& material = materialFor(representative.material);
+        const FaceBasis& basis = bases[static_cast<std::size_t>(representativeIndex)];
 
-        FaceLuxelGrid& grid = faceGrids[static_cast<std::size_t>(chart.faceIndex)];
+        FaceLuxelGrid grid;
         grid.valid = true;
         grid.luxelBase = luxels.size();
-        grid.luxelWidth = chart.luxelWidth;
-        grid.luxelHeight = chart.luxelHeight;
+        grid.luxelWidth = group.luxelWidth;
+        grid.luxelHeight = group.luxelHeight;
+        for (std::int32_t memberIndex : group.faceIndices) {
+            faceGrids[static_cast<std::size_t>(memberIndex)] = grid;
+        }
 
-        for (int y = 0; y < chart.luxelHeight; ++y) {
-            for (int x = 0; x < chart.luxelWidth; ++x) {
+        for (int y = 0; y < group.luxelHeight; ++y) {
+            for (int x = 0; x < group.luxelWidth; ++x) {
                 LuxelSample sample;
-                const Vector3 pos = luxelWorldPos(basis, chart, x, y);
-                sample.position = add3(pos, scale3(face.normal, 0.02f));
-                sample.normal = face.normal;
-                sample.albedo = albedoAt(face, material, pos);
-                sample.emission = emissionAt(face, material, pos);
+                const Vector3 pos = luxelWorldPos(basis, group.luxelWidth, group.luxelHeight, x, y);
+                sample.position = add3(pos, scale3(representative.normal, 0.02f));
+                sample.normal = representative.normal;
+                sample.albedo = albedoAt(representative, material, pos);
+                sample.emission = emissionAt(representative, material, pos);
                 sample.irradiance = ambient + sample.emission;
-                sample.faceIndex = chart.faceIndex;
-                sample.interiorLeaf = face.interiorLeaf;
+                sample.faceIndex = representativeIndex;
+                sample.interiorLeaf = representative.interiorLeaf;
                 if (sample.interiorLeaf < 0 && tree != nullptr) {
                     sample.interiorLeaf = pointLeaf(*tree, sample.position);
                 }
-                sample.atlasIndex = chart.atlasIndex;
-                sample.atlasX = chart.atlasX + x;
-                sample.atlasY = chart.atlasY + y;
+                sample.atlasIndex = group.atlasIndex;
+                sample.atlasX = group.atlasX + x;
+                sample.atlasY = group.atlasY + y;
                 sample.localX = x;
                 sample.localY = y;
-                const float fu = luxelFaceParam(x, chart.luxelWidth);
-                const float fv = luxelFaceParam(y, chart.luxelHeight);
+                const float fu = luxelFaceParam(x, group.luxelWidth);
+                const float fv = luxelFaceParam(y, group.luxelHeight);
                 const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
                 const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
-                const bool outsidePoly = !pointInFacePolygon(face, basis, u, v);
+
+                std::int32_t owningIndex = -1;
+                for (std::int32_t memberIndex : group.faceIndices) {
+                    if (pointInFacePolygon(faces[static_cast<std::size_t>(memberIndex)], basis, u, v)) {
+                        owningIndex = memberIndex;
+                        break;
+                    }
+                }
+                const bool outsidePoly = owningIndex < 0;
+                const std::string owningBrushId =
+                    brushIdFromFaceId(faces[static_cast<std::size_t>(outsidePoly ? representativeIndex : owningIndex)].id);
                 sample.covered = outsidePoly
-                    || luxelInsideForeignEmitter(pos, faceBrushId, emitterVolumes);
+                    || luxelInsideForeignEmitter(pos, owningBrushId, emitterVolumes);
                 if (sample.covered) {
                     sample.irradiance = ambient;
                     ++coveredCount;
@@ -1891,6 +2026,11 @@ RadiosityBakeResult bakeRadiosity(
             kRestDenoiseRangeSigma,
             kRestDenoiseKernelRadius);
     }
+
+    logStage("stitching cross-face seams...");
+    stitchCoplanarSeams(
+        luxels,
+        settings.seamStitchRadiusLuxels / std::max(settings.luxelsPerMeter, 1e-3f));
 
     logStage("rasterizing lightmap atlases...");
     for (std::size_t atlas = 0; atlas < packed.atlasRgb.size(); ++atlas) {

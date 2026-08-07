@@ -1516,6 +1516,11 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
     std::string tagFilter;
     if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
         tagFilter = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    bool xzOnly = false;
+    if (s7_is_pair(args) && s7_is_boolean(s7_car(args))) {
+        xzOnly = s7_boolean(sc, s7_car(args));
     }
 
     if (maxDistance <= 0.0f) {
@@ -1598,7 +1603,8 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
         if (!billboard) {
             return;
         }
-        const auto hit = raycastSpriteBillboard(ray, *billboard, bestDistance);
+        const auto hit = xzOnly ? raycastSpriteBillboardXZ(ray, *billboard, bestDistance)
+                                 : raycastSpriteBillboard(ray, *billboard, bestDistance);
         if (!hit) {
             return;
         }
@@ -2805,9 +2811,10 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "hitscan-actors",
         g_hitscan_actors,
         7,
-        1,
+        2,
         false,
-        "(hitscan-actors ox oy oz dx dy dz max-distance [tag]) -> (id part distance x y z)");
+        "(hitscan-actors ox oy oz dx dy dz max-distance [tag] [xz-only?]) -> "
+        "(id part distance x y z)");
     s7_define_function(scheme, "mover-open", g_mover_open, 1, 0, false, "(mover-open id)");
     s7_define_function(scheme, "mover-close", g_mover_close, 1, 0, false, "(mover-close id)");
     s7_define_function(scheme, "mover-toggle", g_mover_toggle, 1, 0, false, "(mover-toggle id)");

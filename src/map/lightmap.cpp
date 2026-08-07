@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <unordered_map>
 
 namespace slopengine {
 
@@ -79,20 +80,104 @@ private:
     std::size_t cursor_ = 0;
 };
 
-float faceExtent(const LightmapFace& face, Vector3 axis) {
-    float minV = 0.0f;
-    float maxV = 0.0f;
-    for (std::size_t i = 0; i < face.vertices.size(); ++i) {
-        const float value =
-            face.vertices[i].x * axis.x + face.vertices[i].y * axis.y + face.vertices[i].z * axis.z;
-        if (i == 0) {
-            minV = maxV = value;
-        } else {
-            minV = std::min(minV, value);
-            maxV = std::max(maxV, value);
+constexpr float kGroupPlaneEps = 1e-4f;
+constexpr float kGroupNormalCosThreshold = 0.999f;
+constexpr float kGroupAdjacencyEps = 1e-3f;
+
+float dot3(Vector3 a, Vector3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+struct Vec2 {
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
+bool sameLightmapUvFrame(const LightmapFace& a, const LightmapFace& b) {
+    if (a.material != b.material || a.uvLock != b.uvLock || a.transparent != b.transparent) {
+        return false;
+    }
+    if (std::fabs(a.uvShiftPixels.x - b.uvShiftPixels.x) > 1e-3f
+        || std::fabs(a.uvShiftPixels.y - b.uvShiftPixels.y) > 1e-3f) {
+        return false;
+    }
+    if (std::fabs(a.uvScale.x - b.uvScale.x) > 1e-3f || std::fabs(a.uvScale.y - b.uvScale.y) > 1e-3f) {
+        return false;
+    }
+    if (dot3(a.normal, b.normal) < kGroupNormalCosThreshold) {
+        return false;
+    }
+    if (a.uvLock
+        && (dot3(a.uvUAxis, b.uvUAxis) < kGroupNormalCosThreshold
+            || dot3(a.uvVAxis, b.uvVAxis) < kGroupNormalCosThreshold)) {
+        return false;
+    }
+    return true;
+}
+
+bool facesCoplanar(const LightmapFace& a, const LightmapFace& b) {
+    if (a.vertices.empty() || b.vertices.empty()) {
+        return false;
+    }
+    const float planeA = dot3(a.normal, a.vertices[0]);
+    const float planeB = dot3(a.normal, b.vertices[0]);
+    return std::fabs(planeA - planeB) <= kGroupPlaneEps;
+}
+
+Vec2 projectToUv(Vector3 v, Vector3 uAxis, Vector3 vAxis) {
+    return {dot3(v, uAxis), dot3(v, vAxis)};
+}
+
+float pointSegmentDist2d(Vec2 p, Vec2 a, Vec2 b) {
+    const Vec2 ab{b.x - a.x, b.y - a.y};
+    const float abLenSq = ab.x * ab.x + ab.y * ab.y;
+    if (abLenSq <= 1e-12f) {
+        const float dx = p.x - a.x;
+        const float dy = p.y - a.y;
+        return std::sqrt(dx * dx + dy * dy);
+    }
+    const float t = std::clamp(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / abLenSq, 0.0f, 1.0f);
+    const float px = a.x + ab.x * t;
+    const float py = a.y + ab.y * t;
+    const float dx = p.x - px;
+    const float dy = p.y - py;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+bool facesAdjacent(const LightmapFace& a, const LightmapFace& b, Vector3 uAxis, Vector3 vAxis) {
+    std::vector<Vec2> pa;
+    pa.reserve(a.vertices.size());
+    for (const Vector3& v : a.vertices) {
+        pa.push_back(projectToUv(v, uAxis, vAxis));
+    }
+    std::vector<Vec2> pb;
+    pb.reserve(b.vertices.size());
+    for (const Vector3& v : b.vertices) {
+        pb.push_back(projectToUv(v, uAxis, vAxis));
+    }
+    for (std::size_t i = 0; i < pa.size(); ++i) {
+        const Vec2 a0 = pa[i];
+        const Vec2 a1 = pa[(i + 1) % pa.size()];
+        for (std::size_t j = 0; j < pb.size(); ++j) {
+            const Vec2 b0 = pb[j];
+            const Vec2 b1 = pb[(j + 1) % pb.size()];
+            if (pointSegmentDist2d(a0, b0, b1) <= kGroupAdjacencyEps
+                || pointSegmentDist2d(a1, b0, b1) <= kGroupAdjacencyEps
+                || pointSegmentDist2d(b0, a0, a1) <= kGroupAdjacencyEps
+                || pointSegmentDist2d(b1, a0, a1) <= kGroupAdjacencyEps) {
+                return true;
+            }
         }
     }
-    return std::max(0.01f, maxV - minV);
+    return false;
+}
+
+std::int32_t findGroupRoot(std::vector<std::int32_t>& parent, std::int32_t x) {
+    while (parent[static_cast<std::size_t>(x)] != x) {
+        parent[static_cast<std::size_t>(x)] = parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(x)])];
+        x = parent[static_cast<std::size_t>(x)];
+    }
+    return x;
 }
 
 } // namespace
@@ -145,6 +230,89 @@ std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis) {
     return faces;
 }
 
+std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<LightmapFace>& faces) {
+    const std::size_t n = faces.size();
+    std::vector<std::int32_t> parent(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        parent[i] = static_cast<std::int32_t>(i);
+    }
+
+    for (std::size_t i = 0; i < n; ++i) {
+        if (faces[i].vertices.size() < 3) {
+            continue;
+        }
+        for (std::size_t j = i + 1; j < n; ++j) {
+            if (faces[j].vertices.size() < 3) {
+                continue;
+            }
+            if (findGroupRoot(parent, static_cast<std::int32_t>(i))
+                == findGroupRoot(parent, static_cast<std::int32_t>(j))) {
+                continue;
+            }
+            if (!sameLightmapUvFrame(faces[i], faces[j]) || !facesCoplanar(faces[i], faces[j])) {
+                continue;
+            }
+            Vector3 uAxis{};
+            Vector3 vAxis{};
+            faceUvAxes(
+                faces[i].uvLock,
+                faces[i].normal,
+                faces[i].uvUAxis,
+                faces[i].uvVAxis,
+                uAxis,
+                vAxis);
+            if (!facesAdjacent(faces[i], faces[j], uAxis, vAxis)) {
+                continue;
+            }
+            const std::int32_t rootI = findGroupRoot(parent, static_cast<std::int32_t>(i));
+            const std::int32_t rootJ = findGroupRoot(parent, static_cast<std::int32_t>(j));
+            parent[static_cast<std::size_t>(rootI)] = rootJ;
+        }
+    }
+
+    std::unordered_map<std::int32_t, std::vector<std::int32_t>> buckets;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (faces[i].vertices.size() < 3) {
+            continue;
+        }
+        buckets[findGroupRoot(parent, static_cast<std::int32_t>(i))].push_back(static_cast<std::int32_t>(i));
+    }
+
+    std::vector<LightmapFaceGroup> groups;
+    groups.reserve(buckets.size());
+    for (auto& [root, members] : buckets) {
+        LightmapFaceGroup group;
+        group.faceIndices = members;
+        const LightmapFace& representative = faces[static_cast<std::size_t>(members.front())];
+        faceUvAxes(
+            representative.uvLock,
+            representative.normal,
+            representative.uvUAxis,
+            representative.uvVAxis,
+            group.uAxis,
+            group.vAxis);
+        bool first = true;
+        for (std::int32_t index : members) {
+            for (const Vector3& vertex : faces[static_cast<std::size_t>(index)].vertices) {
+                const float u = dot3(vertex, group.uAxis);
+                const float v = dot3(vertex, group.vAxis);
+                if (first) {
+                    group.uMin = group.uMax = u;
+                    group.vMin = group.vMax = v;
+                    first = false;
+                } else {
+                    group.uMin = std::min(group.uMin, u);
+                    group.uMax = std::max(group.uMax, u);
+                    group.vMin = std::min(group.vMin, v);
+                    group.vMax = std::max(group.vMax, v);
+                }
+            }
+        }
+        groups.push_back(std::move(group));
+    }
+    return groups;
+}
+
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
     float luxelsPerMeter,
@@ -154,31 +322,59 @@ LightmapPackResult packLightmapCharts(
     result.rad.luxelsPerMeter = luxelsPerMeter;
     atlasSize = std::max(2, atlasSize);
 
+    auto isSkipped = [&](std::int32_t faceIndex) {
+        return skipFaces != nullptr && static_cast<std::size_t>(faceIndex) < skipFaces->size()
+            && (*skipFaces)[static_cast<std::size_t>(faceIndex)] != 0;
+    };
+
+    const std::vector<LightmapFaceGroup> allGroups = groupCoplanarLightmapFaces(faces);
+
     struct PendingChart {
-        std::int32_t faceIndex = -1;
+        LightmapFaceGroup group;
         int luxelW = 0;
         int luxelH = 0;
     };
     std::vector<PendingChart> pending;
-    pending.reserve(faces.size());
+    pending.reserve(allGroups.size());
     constexpr float kLargeFaceMeters = 4.0f;
-    for (std::int32_t faceIndex = 0; faceIndex < static_cast<std::int32_t>(faces.size()); ++faceIndex) {
-        if (skipFaces != nullptr && static_cast<std::size_t>(faceIndex) < skipFaces->size()
-            && (*skipFaces)[static_cast<std::size_t>(faceIndex)] != 0) {
+    for (const LightmapFaceGroup& group : allGroups) {
+        LightmapFaceGroup filtered;
+        filtered.uAxis = group.uAxis;
+        filtered.vAxis = group.vAxis;
+        bool first = true;
+        for (std::int32_t faceIndex : group.faceIndices) {
+            if (isSkipped(faceIndex)) {
+                continue;
+            }
+            filtered.faceIndices.push_back(faceIndex);
+            for (const Vector3& vertex : faces[static_cast<std::size_t>(faceIndex)].vertices) {
+                const float u = filtered.uAxis.x * vertex.x + filtered.uAxis.y * vertex.y
+                    + filtered.uAxis.z * vertex.z;
+                const float v = filtered.vAxis.x * vertex.x + filtered.vAxis.y * vertex.y
+                    + filtered.vAxis.z * vertex.z;
+                if (first) {
+                    filtered.uMin = filtered.uMax = u;
+                    filtered.vMin = filtered.vMax = v;
+                    first = false;
+                } else {
+                    filtered.uMin = std::min(filtered.uMin, u);
+                    filtered.uMax = std::max(filtered.uMax, u);
+                    filtered.vMin = std::min(filtered.vMin, v);
+                    filtered.vMax = std::max(filtered.vMax, v);
+                }
+            }
+        }
+        if (filtered.faceIndices.empty()) {
             continue;
         }
-        const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
-        Vector3 uAxis{};
-        Vector3 vAxis{};
-        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
-        const float widthMeters = faceExtent(face, uAxis);
-        const float heightMeters = faceExtent(face, vAxis);
+
+        const float widthMeters = std::max(0.01f, filtered.uMax - filtered.uMin);
+        const float heightMeters = std::max(0.01f, filtered.vMax - filtered.vMin);
         float effectiveLpm = luxelsPerMeter;
         if (std::max(widthMeters, heightMeters) > kLargeFaceMeters) {
             effectiveLpm *= 0.5f;
         }
         PendingChart chart;
-        chart.faceIndex = faceIndex;
         chart.luxelW = std::clamp(
             static_cast<int>(std::ceil(widthMeters * effectiveLpm)) + 2,
             2,
@@ -187,7 +383,8 @@ LightmapPackResult packLightmapCharts(
             static_cast<int>(std::ceil(heightMeters * effectiveLpm)) + 2,
             2,
             atlasSize);
-        pending.push_back(chart);
+        chart.group = std::move(filtered);
+        pending.push_back(std::move(chart));
     }
     std::sort(pending.begin(), pending.end(), [](const PendingChart& a, const PendingChart& b) {
         if (a.luxelH != b.luxelH) {
@@ -196,7 +393,7 @@ LightmapPackResult packLightmapCharts(
         if (a.luxelW != b.luxelW) {
             return a.luxelW > b.luxelW;
         }
-        return a.faceIndex < b.faceIndex;
+        return a.group.faceIndices.front() < b.group.faceIndices.front();
     });
 
     int atlasIndex = 0;
@@ -227,7 +424,7 @@ LightmapPackResult packLightmapCharts(
 
     ensureAtlas();
 
-    for (const PendingChart& pendingChart : pending) {
+    for (PendingChart& pendingChart : pending) {
         const int luxelW = pendingChart.luxelW;
         const int luxelH = pendingChart.luxelH;
         if (cursorX + luxelW > atlasSize) {
@@ -239,20 +436,38 @@ LightmapPackResult packLightmapCharts(
             newAtlas();
         }
 
-        const LightmapFace& face = faces[static_cast<std::size_t>(pendingChart.faceIndex)];
-        LightmapChart chart;
-        chart.faceIndex = pendingChart.faceIndex;
-        chart.faceId = face.id;
-        chart.atlasIndex = atlasIndex;
-        chart.luxelWidth = luxelW;
-        chart.luxelHeight = luxelH;
-        chart.atlasX = cursorX;
-        chart.atlasY = cursorY;
-        chart.u0 = (static_cast<float>(cursorX) + 0.5f) / static_cast<float>(atlasSize);
-        chart.v0 = (static_cast<float>(cursorY) + 0.5f) / static_cast<float>(atlasSize);
-        chart.u1 = (static_cast<float>(cursorX + luxelW) - 0.5f) / static_cast<float>(atlasSize);
-        chart.v1 = (static_cast<float>(cursorY + luxelH) - 0.5f) / static_cast<float>(atlasSize);
-        result.rad.charts.push_back(std::move(chart));
+        const float u0 = (static_cast<float>(cursorX) + 0.5f) / static_cast<float>(atlasSize);
+        const float v0 = (static_cast<float>(cursorY) + 0.5f) / static_cast<float>(atlasSize);
+        const float u1 = (static_cast<float>(cursorX + luxelW) - 0.5f) / static_cast<float>(atlasSize);
+        const float v1 = (static_cast<float>(cursorY + luxelH) - 0.5f) / static_cast<float>(atlasSize);
+
+        for (std::int32_t faceIndex : pendingChart.group.faceIndices) {
+            const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
+            LightmapChart chart;
+            chart.faceIndex = faceIndex;
+            chart.faceId = face.id;
+            chart.atlasIndex = atlasIndex;
+            chart.luxelWidth = luxelW;
+            chart.luxelHeight = luxelH;
+            chart.atlasX = cursorX;
+            chart.atlasY = cursorY;
+            chart.u0 = u0;
+            chart.v0 = v0;
+            chart.u1 = u1;
+            chart.v1 = v1;
+            chart.groupUMin = pendingChart.group.uMin;
+            chart.groupUMax = pendingChart.group.uMax;
+            chart.groupVMin = pendingChart.group.vMin;
+            chart.groupVMax = pendingChart.group.vMax;
+            result.rad.charts.push_back(std::move(chart));
+        }
+
+        pendingChart.group.atlasIndex = atlasIndex;
+        pendingChart.group.atlasX = cursorX;
+        pendingChart.group.atlasY = cursorY;
+        pendingChart.group.luxelWidth = luxelW;
+        pendingChart.group.luxelHeight = luxelH;
+        result.groups.push_back(std::move(pendingChart.group));
 
         cursorX += luxelW;
         rowHeight = std::max(rowHeight, luxelH);
@@ -334,6 +549,10 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
         writer.writePod(chart.v0);
         writer.writePod(chart.u1);
         writer.writePod(chart.v1);
+        writer.writePod(chart.groupUMin);
+        writer.writePod(chart.groupUMax);
+        writer.writePod(chart.groupVMin);
+        writer.writePod(chart.groupVMax);
     }
 
     std::filesystem::create_directories(path.parent_path());
@@ -354,7 +573,8 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     if (!reader.readPod(magic) || !reader.readPod(version)) {
         return std::nullopt;
     }
-    if (magic != kRadMagic || (version != kRadVersionLegacy && version != kRadVersion)) {
+    if (magic != kRadMagic
+        || (version != kRadVersionLegacy && version != kRadVersionPrevious && version != kRadVersion)) {
         return std::nullopt;
     }
 
@@ -373,7 +593,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
             || !reader.readPod(atlas.height)) {
             return std::nullopt;
         }
-        if (version >= kRadVersion) {
+        if (version >= kRadVersionPrevious) {
             std::uint32_t encoding = 0;
             if (!reader.readPod(encoding)) {
                 return std::nullopt;
@@ -398,6 +618,12 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
             || !reader.readPod(chart.atlasY) || !reader.readPod(chart.u0) || !reader.readPod(chart.v0)
             || !reader.readPod(chart.u1) || !reader.readPod(chart.v1)) {
             return std::nullopt;
+        }
+        if (version >= kRadVersion) {
+            if (!reader.readPod(chart.groupUMin) || !reader.readPod(chart.groupUMax)
+                || !reader.readPod(chart.groupVMin) || !reader.readPod(chart.groupVMax)) {
+                return std::nullopt;
+            }
         }
     }
     return rad;

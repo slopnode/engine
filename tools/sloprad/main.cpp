@@ -139,6 +139,17 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.sunShadowSoftness = parsed;
+        } else if (arg == "--seam-stitch-radius") {
+            const char* value = needValue("--seam-stitch-radius");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 1.5f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.seamStitchRadiusLuxels = parsed;
         } else if (arg == "--gpu") {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
@@ -170,6 +181,7 @@ int main(int argc, char* argv[]) {
             << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n"
             << "       [--emitter-direct-samples N] [--emitter-grid-luxels-per-meter N]\n"
             << "       [--emitter-grid-max-size N] [--sun-shadow-softness N]\n"
+            << "       [--seam-stitch-radius N]\n"
             << "       [--gpu|--cpu]\n"
             << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
