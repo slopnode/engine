@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -144,28 +143,19 @@ float viewDepthAlongAxis(Vector3 point, Vector3 cameraPos, Vector3 cameraForward
     return Vector3DotProduct(Vector3Subtract(point, cameraPos), cameraForward);
 }
 
-float meshMinViewDepth(
+float meshCenterViewDepth(
     const Mesh& mesh,
     const Matrix& worldMatrix,
     Vector3 cameraPos,
     Vector3 cameraForward) {
     const BoundingBox bounds = GetMeshBoundingBox(mesh);
-    const Vector3 localCorners[8] = {
-        {bounds.min.x, bounds.min.y, bounds.min.z},
-        {bounds.max.x, bounds.min.y, bounds.min.z},
-        {bounds.min.x, bounds.max.y, bounds.min.z},
-        {bounds.max.x, bounds.max.y, bounds.min.z},
-        {bounds.min.x, bounds.min.y, bounds.max.z},
-        {bounds.max.x, bounds.min.y, bounds.max.z},
-        {bounds.min.x, bounds.max.y, bounds.max.z},
-        {bounds.max.x, bounds.max.y, bounds.max.z},
+    const Vector3 localCenter{
+        (bounds.min.x + bounds.max.x) * 0.5f,
+        (bounds.min.y + bounds.max.y) * 0.5f,
+        (bounds.min.z + bounds.max.z) * 0.5f,
     };
-    float minDepth = std::numeric_limits<float>::max();
-    for (const Vector3& local : localCorners) {
-        const Vector3 world = Vector3Transform(local, worldMatrix);
-        minDepth = std::min(minDepth, viewDepthAlongAxis(world, cameraPos, cameraForward));
-    }
-    return minDepth;
+    const Vector3 worldCenter = Vector3Transform(localCenter, worldMatrix);
+    return viewDepthAlongAxis(worldCenter, cameraPos, cameraForward);
 }
 
 struct SpriteDrawItem {
@@ -863,7 +853,7 @@ std::string drawWorldTransparentPass(
                 TransparentDrawItem item{};
                 item.kind = TransparentDrawKind::MapMesh;
                 item.mapMeshIndex = meshIndex;
-                item.viewDepth = meshMinViewDepth(
+                item.viewDepth = meshCenterViewDepth(
                     mapModel.model.meshes[meshIndex],
                     mapGlobal.matrix,
                     lens.camera.position,
