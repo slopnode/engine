@@ -2,7 +2,7 @@
 
 `slopengine` and the `slop*` tools share one small argument parser. It understands a fixed set of "mount" flags for locating packages, and hands anything it doesn't recognize to the base package, which can declare its own flags in `data/cli.s7`.
 
-# Mount flags
+# Mount flags {#mount-flags}
 
 ```
 slopengine --base-game <path|name> [--mod <path|name>]... [--profile <name>] [--debug] [package-flags...]
@@ -28,7 +28,7 @@ Usage: slopengine --base-game <path|name> [--mod <path|name>]... [--profile <nam
   --debug       Enable developer-only UI (e.g. the Debug menu)
 ```
 
-# Package flags
+# Package flags {#package-flags}
 
 A base package can declare its own flags by defining `*package-cli*` in `data/cli.s7`:
 
@@ -55,7 +55,7 @@ Inside scripts, read a flag's value with `startup-arg`:
 
 Note that this schema is only known once the base package's own scripts have loaded, so package flags are parsed after `--base-game` is mounted -- a package flag typo doesn't prevent the mount flags themselves from being validated, but it does stop the game from starting.
 
-# Tool binaries
+# Tool binaries {#tool-binaries}
 
 `slopbsp`, `slopfac`, and `slopvis` accept the same `--base-game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process:
 

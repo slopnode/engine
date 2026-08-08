@@ -6,7 +6,7 @@ The engine keeps two different kinds of persistent user data on disk: a global s
 - Windows: `%APPDATA%\slopengine`
 - macOS: `~/Library/Application Support/slopengine`
 
-# Global settings
+# Global settings {#global-settings}
 
 `<config>/settings.cfg` holds the `[paths]` section only -- additional directories to search when `--base-game`/`--mod` is given a name rather than a path:
 
@@ -20,7 +20,7 @@ This file is unscoped by profile or by which package ends up mounted, because it
 
 `<config>/slopmap.cfg` is a separate file for the `slopmap` editor's own settings (window layout, recent files) and isn't part of the profile system below.
 
-# Profiles
+# Profiles {#profile-paths}
 
 `--profile <name>` (default `"default"`) selects which settings file the game reads and writes. What makes a profile a profile is that it's scoped by three things together: the mounted engine package's id and version, the mounted base game's id and version, and the profile name itself:
 
@@ -58,7 +58,7 @@ fire=MOUSE_LEFT
 
 Screenshots (`<config>/screenshots`) are not currently scoped by profile -- they land in one shared directory regardless of which profile or base game took them.
 
-# Save data
+# Save data {#save-data}
 
 Saves live under `<config>/saves`, scoped by the same `<id>_<version>` segments as settings, but for the whole mounted stack rather than just engine+base:
 

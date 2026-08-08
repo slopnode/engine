@@ -2,7 +2,7 @@
 
 Magic 0x31434146 (FAC1), version 2.
 
-# Header
+# Header {#fac-header}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -10,7 +10,7 @@ Magic 0x31434146 (FAC1), version 2.
 | version | u32 | 2 (or 1) |
 | faceCount | u32 |  |
 
-# Faces
+# Faces {#faces}
 
 Each face (repeated faceCount times):
 
@@ -28,7 +28,7 @@ Each face (repeated faceCount times):
 | sourceFaceIdIndex | u32 | String table |
 | materialIndex | u32 | String table |
 
-# String table
+# String table {#fac-string-table}
 
 | Field | Type | Notes |
 |-------|------|-------|

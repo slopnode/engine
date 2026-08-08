@@ -4,7 +4,7 @@ Magic 0x31444152 (RAD1)
 
 Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match FAC fragment ids. Strings in this file are inline length-prefixed (no trailing string table).
 
-# Header
+# Header {#rad-header}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -12,7 +12,7 @@ Atlas pixels are not embedded; they are separate PNGs under rad/ (for example at
 | version | u32 | 2 |
 | luxelsPerMeter | f32 | Nominal bake density |
 
-# Atlases
+# Atlases {#atlases}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -27,7 +27,7 @@ Each atlas:
 | width | u32 |  |
 | height | u32 |  |
 
-# Charts
+# Charts {#charts}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -50,7 +50,7 @@ Each chart:
 | u1 | f32 |  |
 | v1 | f32 |  |
 
-# Transparent alpha occlusion (sloprad)
+# Transparent alpha occlusion (sloprad) {#transparent-alpha-occlusion-sloprad}
 
 Transparent brush faces participate in baked light occlusion using albedo alpha:
 

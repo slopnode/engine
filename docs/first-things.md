@@ -23,7 +23,7 @@ The different base things that are provided by the engine are (and also under de
 
 In the first map tutorials developers placed a thing: the `player-start`. We wont cover the usage of all these in this tutorial, but give you an introduction to defining things as graphics and adding interactive things that use a callback. We will use engine provided assets, but you can use your own.
 
-# Defining things
+# Defining things {#defining-things}
 
 It would be rather annoying if every thing in the map was just a sprite that meant manually tweaking every single one to be something commonly placed on maps by map authors. It's not really realistic either than every single actor thing was composed on the spot. 
 
@@ -56,7 +56,7 @@ The engine defines white sprite textures `engine/dev/sprite-circle`, `engine/dev
         (rot 0 "engine/dev/sprite-square" offset 16 16)))        
 </code></pre>
 
-# Placing things in maps
+# Placing things in maps {#placing-things-in-maps}
 
 Afterwards in `data/things.s7` you can implement `*package-things*` to export thing templates for map authors to see. These will be visible in `slopsprite` as well as `slopmap`.
 

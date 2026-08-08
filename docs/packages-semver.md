@@ -1,6 +1,6 @@
 @page packages Packages
 
-# Meta file
+# Meta file {#meta-file}
 
 A package is a folder with a `package.meta` at its root:
 
@@ -13,7 +13,7 @@ A package is a folder with a `package.meta` at its root:
 
 `id` is required and must be unique across everything mounted in one run -- the engine package, the base game, and every mod. Two mounted packages sharing an id is a startup error naming both roots involved.
 
-# Resolving packages
+# Resolving packages {#resolving-packages}
 
 The engine package itself is resolved first and separately from everything else, since it's always mounted before the base game is even looked up. The engine tries, in order: `./packages/engine` relative to the current working directory, then the `SLOPENGINE_ENGINE` environment variable, then a path baked into the binary at build time (`SLOPENGINE_ENGINE_PACKAGE_DIR`, a CMake cache variable defaulting to `<source>/packages/engine`). The first candidate that actually contains a `package.meta` wins.
 
@@ -24,7 +24,7 @@ A value is used as-is if it's a path (relative to the current directory, or abso
 
 The first search root that has `<root>/<name>/package.meta` wins. If nothing matches, the name is returned unchanged, so the "package not found" error the caller raises still shows exactly what was typed rather than some intermediate resolved path.
 
-# Dependencies
+# Dependencies {#dependencies}
 
 `depends` lists package ids that must also be mounted. Each entry is either a bare id, or `id@constraint`:
 
@@ -40,7 +40,7 @@ package 'slopenstein' depends on missing package 'some-shared-content'
 package 'slopenstein' requires 'slopengine.engine@>=0.4.0' but found version '0.3.9'
 ```
 
-## Constraint syntax
+## Constraint syntax {#constraint-syntax}
 
 A constraint is an optional comparison operator followed by a version: `=`, `>=`, `>`, `<=`, `<`, or no operator at all (which means `=`). An empty constraint always matches.
 
@@ -58,6 +58,6 @@ A version is `MAJOR[.MINOR[.PATCH]]` -- missing components default to `0`, so `"
 
 Comparison is purely numeric major/minor/patch -- there's no pre-release or build-metadata concept (`1.0.0-rc1` isn't a version this parser understands at all, it just fails to parse).
 
-# Assets
+# Assets {#asset-folders}
 
 Once mounted, a package's content is looked up by asset kind (`sprites/`, `textures/`, `data/`, `scripts/`, and so on), with later mods overriding earlier packages for the same path. See @ref assets for the full kind/directory/extension reference and the override rules.
