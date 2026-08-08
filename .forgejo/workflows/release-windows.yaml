@@ -1,0 +1,116 @@
+name: Release Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: alma10
+    container:
+      image: git.slopnode.net/containers/engine-linux-builder:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find latest successful compile-windows run
+        id: run
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          runs=$(curl -sf -H "Authorization: token ${GITEA_TOKEN}" \
+            "${API}/actions/runs?workflow_id=compile-windows.yaml&ref=refs/heads/main&status=success&limit=50")
+          run=$(echo "$runs" | jq -c '.workflow_runs | sort_by(.created) | last')
+          if [ "$run" = "null" ]; then
+            echo "No successful compile-windows run found on main" >&2
+            exit 1
+          fi
+          echo "id=$(echo "$run" | jq -r '.id')" >> "$GITHUB_OUTPUT"
+          echo "sha=$(echo "$run" | jq -r '.commit_sha')" >> "$GITHUB_OUTPUT"
+
+      - name: Find artifact
+        id: artifact
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          artifacts=$(curl -sf -H "Authorization: token ${GITEA_TOKEN}" \
+            "${API}/actions/runs/${{ steps.run.outputs.id }}/artifacts")
+          artifact=$(echo "$artifacts" | jq -c 'sort_by(.created_at) | last')
+          if [ "$artifact" = "null" ]; then
+            echo "No artifact found on run ${{ steps.run.outputs.id }}" >&2
+            exit 1
+          fi
+          echo "url=$(echo "$artifact" | jq -r '.archive_download_url')" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifact
+        id: package
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          FILE="slopengine-win64-v${VERSION}.zip"
+          curl -sf -H "Authorization: token ${GITEA_TOKEN}" \
+            "${{ steps.artifact.outputs.url }}" -o "${FILE}"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "file=${FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or find release
+        id: release
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ steps.package.outputs.tag }}
+          SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          set -euo pipefail
+          status=$(curl -s -o response.json -w '%{http_code}' \
+            -H "Authorization: token ${GITEA_TOKEN}" \
+            "${API}/releases/tags/${TAG}")
+          if [ "$status" = "200" ]; then
+            release_id=$(jq -r '.id' response.json)
+          else
+            status=$(curl -s -o response.json -w '%{http_code}' \
+              -H "Authorization: token ${GITEA_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X POST "${API}/releases" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"target_commitish\":\"${SHA}\"}")
+            if [ "$status" != "201" ]; then
+              echo "Failed to create release (HTTP ${status})" >&2
+              cat response.json >&2
+              exit 1
+            fi
+            release_id=$(jq -r '.id' response.json)
+          fi
+          echo "id=${release_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Remove existing asset with same name
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          FILE: ${{ steps.package.outputs.file }}
+        run: |
+          set -euo pipefail
+          assets=$(curl -sf -H "Authorization: token ${GITEA_TOKEN}" "${API}/releases/${RELEASE_ID}/assets")
+          asset_id=$(echo "$assets" | jq -r --arg name "$FILE" '.[] | select(.name == $name) | .id')
+          if [ -n "$asset_id" ]; then
+            curl -sf -H "Authorization: token ${GITEA_TOKEN}" -X DELETE \
+              "${API}/releases/${RELEASE_ID}/assets/${asset_id}"
+          fi
+
+      - name: Upload release asset
+        env:
+          GITEA_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          FILE: ${{ steps.package.outputs.file }}
+        run: |
+          set -euo pipefail
+          curl -sf -H "Authorization: token ${GITEA_TOKEN}" \
+            -X POST \
+            -F "attachment=@${FILE}" \
+            "${API}/releases/${RELEASE_ID}/assets?name=${FILE}"
