@@ -12,6 +12,7 @@
 
 #if defined(_WIN32)
 #include "core/win32.hpp"
+#include <cstdlib>
 #else
 #include <fcntl.h>
 #include <poll.h>
@@ -40,11 +41,11 @@ void upsertEnvVar(std::vector<std::string>& env, const char* key, const char* va
 
 void copyEnviron(std::vector<std::string>& env) {
 #if defined(_WIN32)
-    extern char** _environ;
-    if (_environ == nullptr) {
+    char** const winEnviron = _environ;
+    if (winEnviron == nullptr) {
         return;
     }
-    for (char** entry = _environ; *entry != nullptr; ++entry) {
+    for (char** entry = winEnviron; *entry != nullptr; ++entry) {
         env.emplace_back(*entry);
     }
 #else
