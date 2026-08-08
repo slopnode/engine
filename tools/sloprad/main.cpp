@@ -9,6 +9,7 @@
 #include "map/radiosity_gpu.hpp"
 #include "map/radiosity_lights.hpp"
 #include "map/fac_io.hpp"
+#include "headless_gl_context.hpp"
 
 #include <raylib.h>
 #include <raymath.h>
@@ -188,9 +189,7 @@ int main(int argc, char* argv[]) {
     }
 
     SetTraceLogLevel(LOG_INFO);
-    SetConfigFlags(FLAG_WINDOW_HIDDEN);
-    InitWindow(16, 16, "sloprad");
-    if (!IsWindowReady()) {
+    if (!slopengine::InitHeadlessGLContext(16, 16)) {
         std::cerr << "sloprad: failed to create OpenGL context\n";
         return 1;
     }
@@ -255,7 +254,7 @@ int main(int argc, char* argv[]) {
     auto mapMeta = loadMapMeta(assets, *cli->config.map);
     if (!mapMeta) {
         std::cerr << "sloprad: failed to load map meta\n";
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
     TraceLog(
@@ -272,7 +271,7 @@ int main(int argc, char* argv[]) {
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, bspVirtualPath);
     if (!bspPath) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".bsp (run slopbsp first)\n";
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
 
@@ -281,7 +280,7 @@ int main(int argc, char* argv[]) {
     auto tree = readBspFile(*bspPath);
     if (!tree) {
         std::cerr << "sloprad: failed to read " << *bspPath << "\n";
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
     TraceLog(
@@ -295,7 +294,7 @@ int main(int argc, char* argv[]) {
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
         std::cerr << "sloprad: failed to init scheme\n";
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
     loadPackageMapHandlers(scheme, assets);
@@ -304,7 +303,7 @@ int main(int argc, char* argv[]) {
     if (!brushes) {
         s7_quit(scheme);
         std::cerr << "sloprad: failed to load map brushes\n";
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
     slopengine::RadiosityThingLights thingLights =
@@ -349,7 +348,7 @@ int main(int argc, char* argv[]) {
 
     if (!assets.hasMapVis(bspVirtualPath)) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
 
@@ -380,7 +379,7 @@ int main(int argc, char* argv[]) {
                     static_cast<int>(faces.size()));
             } else {
                 std::cerr << "sloprad: failed to read " << *facPath << "\n";
-                CloseWindow();
+                slopengine::CloseHeadlessGLContext();
                 return 1;
             }
         }
@@ -449,7 +448,7 @@ int main(int argc, char* argv[]) {
         for (Image& image : baked.atlasImages) {
             UnloadImage(image);
         }
-        CloseWindow();
+        slopengine::CloseHeadlessGLContext();
         return 1;
     }
 
@@ -461,7 +460,7 @@ int main(int argc, char* argv[]) {
             for (Image& image : baked.atlasImages) {
                 UnloadImage(image);
             }
-            CloseWindow();
+            slopengine::CloseHeadlessGLContext();
             return 1;
         }
         UnloadImage(baked.atlasImages[i]);
@@ -476,6 +475,6 @@ int main(int argc, char* argv[]) {
         static_cast<int>(baked.rad.atlases.size()),
         static_cast<int>(baked.rad.charts.size()));
     std::fflush(stdout);
-    CloseWindow();
+    slopengine::CloseHeadlessGLContext();
     return 0;
 }

@@ -687,9 +687,6 @@ bool stringContainsInsensitive(std::string_view haystack, std::string_view needl
 } // namespace
 
 const char* radiosityGpuRenderer() {
-    if (!IsWindowReady()) {
-        return "";
-    }
     GetStringFn fn = glGetStringFn();
     if (fn == nullptr) {
         return "";
@@ -737,9 +734,6 @@ bool radiosityGpuIsIntegrated() {
 }
 
 bool radiosityGpuContextReady() {
-    if (!IsWindowReady()) {
-        return false;
-    }
     if (rlGetVersion() != RL_OPENGL_43) {
         return false;
     }
