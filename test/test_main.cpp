@@ -6,6 +6,7 @@
 namespace slopengine {
 
 void runSexprTests();
+void runPackageSearchTests();
 void runAssetTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
@@ -42,6 +43,7 @@ struct Suite {
 
 const Suite kSuites[] = {
     {"sexpr", slopengine::runSexprTests},
+    {"package_search", slopengine::runPackageSearchTests},
     {"assets", slopengine::runAssetTests},
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},

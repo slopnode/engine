@@ -2,6 +2,7 @@
 
 #include "input/actions.hpp"
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,8 @@ struct ControlsSettings {
 struct UserSettings {
     GraphicsSettings graphics{};
     ControlsSettings controls{};
+    /** Additional package search directories from [paths] (search_path= lines). */
+    std::vector<std::filesystem::path> searchPaths{};
 
     static UserSettings defaults();
     /** Loads graphics from disk (or defaults). Controls stay default-sized until actions are registered. */

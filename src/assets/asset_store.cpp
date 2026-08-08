@@ -3,6 +3,8 @@
 #include "assets/geo_loader.hpp"
 #include "assets/saudio_loader.hpp"
 #include "core/engine_package.hpp"
+#include "core/package_search.hpp"
+#include "core/user_paths.hpp"
 #include "map/map_meta.hpp"
 #include "script/package_load_context.hpp"
 #include "script/proc_role.hpp"
@@ -149,22 +151,32 @@ void AssetStore::mountPackages(const AppConfig& config) {
     }
     engine.setRole(PackageRole::Engine);
 
-    Package base{config.base_game};
+    const std::vector<std::filesystem::path> searchPaths =
+        applicationSearchPaths(userConfiguredSearchPaths());
+
+    const std::filesystem::path baseGamePath =
+        resolveApplicationPackagePath(config.base_game, searchPaths);
+    Package base{baseGamePath};
     if (!base.valid()) {
-        throw std::runtime_error("base game package not found: " + config.base_game.string());
+        throw std::runtime_error(
+            "base game package not found: " + baseGamePath.string()
+            + " (looked up as a path, then by name under the configured search paths)");
     }
     if (!base.hasMeta()) {
-        throw std::runtime_error("base game missing package.meta: " + config.base_game.string());
+        throw std::runtime_error("base game missing package.meta: " + baseGamePath.string());
     }
     base.setRole(PackageRole::Base);
 
     vfs_.setBasePackage(std::move(engine));
     vfs_.addPackage(std::move(base));
 
-    for (const auto& modPath : config.mods) {
+    for (const auto& modArg : config.mods) {
+        const std::filesystem::path modPath = resolveApplicationPackagePath(modArg, searchPaths);
         Package mod{modPath};
         if (!mod.valid()) {
-            throw std::runtime_error("mod package not found: " + modPath.string());
+            throw std::runtime_error(
+                "mod package not found: " + modPath.string()
+                + " (looked up as a path, then by name under the configured search paths)");
         }
         if (!mod.hasMeta()) {
             throw std::runtime_error("mod missing package.meta: " + modPath.string());

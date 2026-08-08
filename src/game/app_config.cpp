@@ -6,10 +6,12 @@ namespace slopengine {
 
 void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag>& schema) {
     std::cerr << "Usage: " << program
-              << " --base-game <path> [--mod <path>]... [package-flags...]\n"
+              << " --base-game <path|name> [--mod <path|name>]... [package-flags...]\n"
               << "\n"
-              << "  --base-game   Base game package directory (required)\n"
-              << "  --mod         Additional mod package directory (repeatable)\n";
+              << "  --base-game   Base game package: a directory path, or a name looked up in\n"
+              << "                the configured search paths (required)\n"
+              << "  --mod         Additional mod package: path or name, same lookup as\n"
+              << "                --base-game (repeatable)\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
         return;

@@ -58,12 +58,26 @@ configure_file(
     @ONLY
 )
 
+set(SLOPENGINE_APP_SEARCH_PATHS "" CACHE STRING
+    "Semicolon-separated default directories to search for game/mod packages by name \
+(e.g. --base-game <name>). A downstream build (packaging a specific game, CI, etc.) \
+sets this to point at wherever it lays out game/mod directories.")
+
+list(JOIN SLOPENGINE_APP_SEARCH_PATHS "\n" SLOPENGINE_APP_SEARCH_PATHS_JOINED)
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/app_search_paths.hpp.in"
+    "${CMAKE_BINARY_DIR}/generated/core/app_search_paths.hpp"
+    @ONLY
+)
+
 add_subdirectory(lib)
 
 set(SLOPLIB_SOURCES
     src/core/engine_package.cpp
     src/core/package.cpp
     src/core/package_meta.cpp
+    src/core/package_search.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
     src/core/vfs.cpp

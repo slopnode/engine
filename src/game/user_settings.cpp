@@ -211,6 +211,7 @@ UserSettings UserSettings::loadOrDefault() {
     settings.graphics = loadGraphicsOrDefault();
     settings.controls = ControlsSettings::defaults();
     mergeControlsFromDisk(settings.controls);
+    settings.searchPaths = userConfiguredSearchPaths();
     return settings;
 }
 
@@ -241,6 +242,11 @@ bool UserSettings::save() const {
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {
         output << actionIdAt(i) << '=' << formatBindToken(controls.binds[static_cast<std::size_t>(i)]) << '\n';
+    }
+
+    output << "\n[paths]\n";
+    for (const std::filesystem::path& path : searchPaths) {
+        output << "search_path=" << path.string() << '\n';
     }
 
     return true;
