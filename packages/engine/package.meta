@@ -1,5 +1,5 @@
 (package
   (id "slopengine.engine")
   (name "Slopengine Engine")
-  (version "0.3.0")
+  (version "0.4.0")
   (depends))

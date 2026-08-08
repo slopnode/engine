@@ -1,5 +1,0 @@
-(map
-  (id "empty-room")
-  (name "Empty Room")
-  (depends)
-  (ambient 0.03 0.03 0.04))

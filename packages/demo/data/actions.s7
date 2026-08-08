@@ -1,6 +1,0 @@
-(define *package-actions*
-  (list
-    (cons "flashlight" '((label . "Flashlight") (default . "f")))
-    (cons "attack" '((label . "Attack") (default . "mouse1")))
-    (cons "weapon-1" '((label . "Weapon 1") (default . "1")))
-    (cons "weapon-2" '((label . "Weapon 2") (default . "2")))))

@@ -1,7 +1,0 @@
-(graph "patrol-a"
-  (node "n0" (at -2.0 0.1 2.0) (tags "cover"))
-  (node "n1" (at 2.0 0.1 2.0))
-  (node "n2" (at 0.0 0.1 -2.0) (tags "waypoint"))
-  (edge "n0" "n1" (cost 1.0) (bidir #t))
-  (edge "n1" "n2" (cost 1.5) (bidir #t))
-  (edge "n2" "n0" (cost 1.5) (bidir #t)))

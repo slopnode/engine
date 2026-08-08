@@ -1,12 +1,20 @@
 @page tut_csg CSG, BSP, VIS, and RAD
 
+# Why BSP?
+
+If you fire up Unreal or Unity today, you won't find a brush editor, a BSP compiler, or a bake step called "VIS." Modern engines build levels out of meshes sculpted in Blender or Maya, not axis-aligned boxes glued together and carved out of each other. Visibility is handled by GPU-driven culling instead: hierarchical Z-buffer occlusion queries, frustum culling, and increasingly virtualized geometry systems like Unreal's Nanite, which sidestep the "how many triangles can I afford" question entirely by only rasterizing the detail that's actually visible at the pixel level, recomputed every frame. Lighting has followed the same trajectory: Lumen and other real-time voxel/SDF/ray-traced global illumination let light bounce and update live as the world changes, instead of being baked once and frozen until the next compile.
+
+There are good reasons for the shift. A precomputed potentially-visible-set assumes the world is static: walls don't move, nothing streams in mid-level, and there's a finite, known-in-advance set of leaves to cross-reference against each other. That assumption breaks the moment you want an open world, destructible geometry, or procedurally generated levels. Baked radiosity has a similar problem: it looks great right up until someone turns off a light or moves the sun, at which point you either re-bake offline or fall back to a cheaper real-time light that won't quite match. And brush-based CSG, while great for boxy corridors and rooms, fights you the moment an artist wants an organic rock formation or a curved surface, which is exactly where sculpted meshes and normal maps do a better job.
+
+So why does this engine still lean on brushes, BSP, VIS, and RAD? Because those tradeoffs run the other way for the kind of game this engine targets. A Doom/Quake-style shooter has levels that are mostly static, is often built by a small team without access to Nanite- or Lumen-grade rendering infrastructure, and benefits a lot from tooling simple enough to implement and reason about end to end. Baking VIS and RAD offline pushes the runtime cost of visibility and lighting close to zero, on hardware far more modest than real-time GI needs. And brush-based CSG, whatever its limits for organic shapes, is still a fast, tactile way to block out and iterate on exactly the kind of corridor-and-room layout this style of game is made of. It's less a limitation than the right tool for the job actually being done here.
+
 # History of BSP
 
 Binary space partitioning didn't start out as a game development trick. It came out of a 1980 SIGGRAPH paper by Henry Fuchs, Zvi Kedem, and Bruce Naylor, "On Visible Surface Generation by A Priori Tree Structures." The problem they were solving had nothing to do with levels or brushes: it was hidden surface removal for flight simulators, where the scene geometry was static (a fixed terrain and airport model) but had to be sorted and drawn correctly from a viewpoint that moved every frame, on hardware with no depth buffer to speak of.
 
 Their insight was to precompute a binary tree of splitting planes once, offline. Every plane in the tree divides space into a front half and a back half. At runtime, you don't need to sort a single polygon: you walk the tree relative to the camera's position, and the tree itself tells you whether to draw the front child or the back child first at every branch. What used to be an expensive per-frame sort becomes an O(n) tree walk. For 1980s flight simulator hardware, this was the difference between real time and not.
 
-## Doom's 2D BSP and Quake's leap into real 3D
+## Doom's and Quake's 3D
 
 id Software picked this idea up for Doom in 1993, but in a scaled-down form. Doom's levels are conceptually 2D: a floor plan of linedefs and sectors, each sector carrying a flat floor height and ceiling height. Doom's BSP tree partitions that 2D linedef layout, which is what let it run hidden-surface removal and collision on a 33MHz 486. There was no real solid modeling involved in building a Doom map; you placed line segments and sectors directly in a 2D editor.
 
@@ -50,7 +58,7 @@ This engine keeps that same "brushes in a text file" idea, just written as Schem
 
 `brush-box` is the axis-aligned convenience case; `brush-convex` lets you list arbitrary convex faces directly, which is how the wedge above gets its slope. Every brush also carries a `role` (`slopengine::BrushRole`): `Hull` brushes are structural, participate in the BSP split, and block visibility and physics like a Quake 1 solid brush; `Detail` brushes are drawn and can still collide, but don't cut the BSP tree or affect VIS, exactly like the `func_detail` brushes Quake 2 and Half-Life added once mappers wanted decorative geometry (crates, trim, light fixtures) without blowing up compile times or visibility graphs on every window ledge.
 
-# The compile pipeline: CSG → BSP → VIS → RAD
+# The compilers: CSG → BSP → VIS → RAD
 
 Once a map is authored as brushes in `slopmap`, getting it into something the engine can render and query at runtime is an offline, three-stage compile, run in order:
 
