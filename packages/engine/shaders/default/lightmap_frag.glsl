@@ -1,6 +1,7 @@
 #version 330
 
 in vec3 fragPosition;
+in vec3 fragNormal;
 in vec2 fragTexCoord;
 in vec2 fragTexCoord2;
 in vec4 fragColor;
@@ -130,7 +131,7 @@ float shadowVisibilityPoint(int slot, vec3 lightPos, vec3 samplePos)
     return 1.0;
 }
 
-vec3 evalOneLight(int i, vec3 worldPos)
+vec3 evalOneLight(int i, vec3 worldPos, vec3 normal)
 {
     vec3 lightPos = dynLightPosRange[i].xyz;
     float range = max(dynLightPosRange[i].w, 1e-4);
@@ -144,9 +145,14 @@ vec3 evalOneLight(int i, vec3 worldPos)
         return vec3(0.0);
     }
     vec3 toLight = delta / dist;
+    float ndotl = dot(normal, toLight);
+    if (ndotl <= 0.0) {
+        return vec3(0.0);
+    }
     float t = dist / range;
     float atten = max(0.0, 1.0 - t * t);
     atten *= atten;
+    atten *= ndotl;
 
     float kind = dynLightMeta[i].x;
     float spot = 1.0;
@@ -182,12 +188,12 @@ vec3 evalOneLight(int i, vec3 worldPos)
     return radiance * (atten * spot * visibility);
 }
 
-vec3 evalDynamicLights(vec3 worldPos)
+vec3 evalDynamicLights(vec3 worldPos, vec3 normal)
 {
     vec3 total = vec3(0.0);
     int count = clamp(dynLightCount, 0, MAX_DYN_LIGHTS);
     for (int i = 0; i < count; ++i) {
-        total += evalOneLight(i, worldPos);
+        total += evalOneLight(i, worldPos, normal);
     }
     return total;
 }
@@ -232,7 +238,7 @@ void main()
     vec4 tex = solidLit != 0 ? vec4(1.0) : texture(texture0, fragTexCoord) * colDiffuse;
     vec3 albedoRgb = tex.rgb;
     float albedoA = tex.a;
-    vec3 dynamic = evalDynamicLights(fragPosition);
+    vec3 dynamic = evalDynamicLights(fragPosition, normalize(fragNormal));
     vec3 emission = vec3(0.0);
     if (solidLit == 0 && useLightmap != 0) {
         vec3 emitMap = texture(texture5, fragTexCoord).rgb;

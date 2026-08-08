@@ -668,6 +668,7 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
     if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
         shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
     }
+    shader.locs[SHADER_LOC_MATRIX_NORMAL] = GetShaderLocation(shader, "matNormal");
     useLightmapLoc = GetShaderLocation(shader, "useLightmap");
     int useLightmap = 1;
     if (useLightmapLoc >= 0) {
@@ -779,7 +780,6 @@ void bindLightmapDummyShadowMaps(Shader shader) {
     rlActiveTextureSlot(unit);
     glBindTexture(GL_TEXTURE_2D_ARRAY, dummyArrayId);
     SetShaderValue(shader, loc, &unit, SHADER_UNIFORM_INT);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
     rlActiveTextureSlot(0);
 }
 

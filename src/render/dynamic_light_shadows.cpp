@@ -29,7 +29,7 @@ void drawShadowCasters(
     }
 
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.0f, 2.0f);
+    glPolygonOffset(0.0f, 4.0f);
     world.each([&](flecs::entity entity, Model3D& model, GlobalTransformation& global) {
         if (!entity.has<WorldSpace>()) {
             return;
@@ -229,6 +229,12 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets) {
     glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
 
     state.fboId = rlLoadFramebuffer();
+    if (state.fboId != 0) {
+        rlEnableFramebuffer(state.fboId);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        rlDisableFramebuffer();
+    }
     state.scratch = LoadRenderTexture(kDynamicShadowMapResolution, kDynamicShadowMapResolution);
     state.ready = state.depthShader.id != 0 && state.depthArrayId != 0 && state.fboId != 0 &&
         state.scratch.id != 0;
@@ -435,7 +441,6 @@ void bindDynamicLightShadowMaps(
     rlActiveTextureSlot(unit);
     glBindTexture(GL_TEXTURE_2D_ARRAY, shadowState.depthArrayId);
     SetShaderValue(shader, bindings.shadowMapsLoc, &unit, SHADER_UNIFORM_INT);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
     rlActiveTextureSlot(0);
 }
 

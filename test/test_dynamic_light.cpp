@@ -84,11 +84,14 @@ void runDynamicLightTests() {
         RankedDynamicLight light = makePoint({0.0f, 1.5f, 1.5f}, 2.5f, 2.5f, true);
         light.linearRgb = {0.25f, 0.55f, 1.0f};
         const Vector3 door{0.0f, 1.1f, 0.0f};
-        const Vector3 contrib = evaluateDynamicLightAtPoint(light, door, {0.0f, 1.0f, 0.0f});
+        const Vector3 normal{0.0f, 1.0f, 0.0f};
+        const Vector3 contrib = evaluateDynamicLightAtPoint(light, door, normal);
         const float dist = Vector3Distance(light.position, door);
         const float t = dist / light.light.range;
         const float atten = std::max(0.0f, 1.0f - t * t);
-        const float expected = atten * atten * light.light.intensity;
+        const Vector3 toLight = Vector3Scale(Vector3Subtract(light.position, door), 1.0f / dist);
+        const float ndotl = Vector3DotProduct(normal, toLight);
+        const float expected = atten * atten * ndotl * light.light.intensity;
         CHECK(contrib.x > 0.05f);
         CHECK(nearEq(contrib.x, light.linearRgb.x * expected));
         CHECK(nearEq(contrib.y, light.linearRgb.y * expected));
@@ -108,7 +111,7 @@ void runDynamicLightTests() {
         const Vector3 onAxis = evaluateDynamicLightAtPoint(
             light,
             {0.0f, 0.0f, 2.0f},
-            {0.0f, 1.0f, 0.0f});
+            {0.0f, 0.0f, -1.0f});
         CHECK(onAxis.x > 0.0f);
 
         const float cosInner = std::cos(light.light.coneAngle * 0.7f);
@@ -119,7 +122,7 @@ void runDynamicLightTests() {
         const float midAngle = std::acos(midCos);
         const Vector3 midDir{std::sin(midAngle), 0.0f, std::cos(midAngle)};
         const Vector3 midPoint = Vector3Scale(midDir, 2.0f);
-        const Vector3 mid = evaluateDynamicLightAtPoint(light, midPoint, {0.0f, 1.0f, 0.0f});
+        const Vector3 mid = evaluateDynamicLightAtPoint(light, midPoint, {0.0f, 0.0f, -1.0f});
         CHECK(mid.x > 0.0f);
         CHECK(mid.x < onAxis.x);
     }

@@ -82,7 +82,7 @@ flecs::entity spawnDynamicLight(
     Quaternion rotation,
     const DynamicLight& light);
 
-/** Evaluates one ranked light at @p point (range-squared atten; @p normal unused). */
+/** Evaluates one ranked light at @p point (range-squared atten, N.L falloff by @p normal). */
 Vector3 evaluateDynamicLightAtPoint(
     const RankedDynamicLight& light,
     Vector3 point,
