@@ -24,6 +24,7 @@
 #include "assets/asset_store.hpp"
 #include "core/package.hpp"
 #include "core/package_meta.hpp"
+#include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
 #include "map/csg_script.hpp"
@@ -255,7 +256,9 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             if (value == nullptr) {
                 return std::nullopt;
             }
-            config.target = value;
+            config.target = slopengine::resolveApplicationPackagePath(
+                value,
+                slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
             continue;
         }
         if (arg == "--map") {
@@ -3301,6 +3304,26 @@ int main(int argc, char* argv[]) {
                                         beginThingKind(
                                             editor,
                                             slopengine::ThingKind::AmbientLight,
+                                            createTool);
+                                    });
+                                placeKindButton(
+                                    "lightning",
+                                    "dynamic-point-light",
+                                    isKind(slopengine::ThingKind::DynamicPointLight),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::DynamicPointLight,
+                                            createTool);
+                                    });
+                                placeKindButton(
+                                    "lightning_add",
+                                    "dynamic-spot-light",
+                                    isKind(slopengine::ThingKind::DynamicSpotLight),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::DynamicSpotLight,
                                             createTool);
                                     });
                                 placeKindButton(

@@ -13,6 +13,7 @@
 #include "map/mover_brushes.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
+#include "render/dynamic_light.hpp"
 #include "render/skybox.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
@@ -356,6 +357,27 @@ void spawnLight(flecs::entity entity, const Thing& placement, SpawnContext& ctx)
             .intensity = placement.intensity,
         });
         break;
+    case ThingKind::DynamicPointLight: {
+        DynamicLight light{};
+        light.kind = DynamicLightKind::Point;
+        setDynamicLightRgb(light, placement.color);
+        light.intensity = placement.intensity;
+        light.range = placement.range;
+        light.castShadows = placement.dynamicCastShadows;
+        entity.set<DynamicLight>(light);
+        break;
+    }
+    case ThingKind::DynamicSpotLight: {
+        DynamicLight light{};
+        light.kind = DynamicLightKind::Spot;
+        setDynamicLightRgb(light, placement.color);
+        light.intensity = placement.intensity;
+        light.range = placement.range;
+        light.coneAngle = placement.coneAngle;
+        light.castShadows = placement.dynamicCastShadows;
+        entity.set<DynamicLight>(light);
+        break;
+    }
     default:
         break;
     }

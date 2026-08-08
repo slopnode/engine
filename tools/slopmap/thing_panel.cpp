@@ -886,7 +886,10 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
     }
 
     const bool showRange = allKindsMatch(doc, targets, [](slopengine::ThingKind kind) {
-        return kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight;
+        return kind == slopengine::ThingKind::PointLight ||
+            kind == slopengine::ThingKind::SpotLight ||
+            kind == slopengine::ThingKind::DynamicPointLight ||
+            kind == slopengine::ThingKind::DynamicSpotLight;
     });
     if (showRange) {
         const auto rangeCommon = commonValue<float>(
@@ -909,7 +912,8 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
     }
 
     const bool showCone = allKindsMatch(doc, targets, [](slopengine::ThingKind kind) {
-        return kind == slopengine::ThingKind::SpotLight;
+        return kind == slopengine::ThingKind::SpotLight ||
+            kind == slopengine::ThingKind::DynamicSpotLight;
     });
     if (showCone) {
         const auto coneCommon = commonValue<float>(
@@ -937,6 +941,26 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
                 })) {
                 changed = true;
                 editor.statusMessage = "Set spot cone";
+            }
+        }
+    }
+
+    const bool showCastShadows = allKindsMatch(doc, targets, [](slopengine::ThingKind kind) {
+        return kind == slopengine::ThingKind::DynamicPointLight ||
+            kind == slopengine::ThingKind::DynamicSpotLight;
+    });
+    if (showCastShadows) {
+        const auto castShadowsCommon = commonValue<bool>(
+            doc,
+            targets,
+            [](const slopengine::Thing& t) { return t.dynamicCastShadows; });
+        bool castShadows = castShadowsCommon.value_or(false);
+        if (checkboxMixed("Cast Shadows", &castShadows, !castShadowsCommon.has_value())) {
+            if (forEachLight(editor, targets, [castShadows](slopengine::Thing& thing) {
+                    thing.dynamicCastShadows = castShadows;
+                })) {
+                changed = true;
+                editor.statusMessage = "Set light cast shadows";
             }
         }
     }

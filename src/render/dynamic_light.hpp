@@ -10,8 +10,12 @@
 
 namespace slopengine {
 
-constexpr int kMaxDynamicLights = 8;
-constexpr int kMaxShadowedDynamicLights = 2;
+/** Compiled array-size ceiling for active dynamic lights; the runtime active
+ *  count is GraphicsSettings::maxDynamicLights, clamped to this. */
+constexpr int kMaxDynamicLights = 128;
+/** Compiled array-size ceiling for shadow-casting lights; the runtime active
+ *  count is GraphicsSettings::maxShadowedDynamicLights, clamped to this. */
+constexpr int kMaxShadowedDynamicLights = 16;
 constexpr int kDynamicShadowMapResolution = 512;
 constexpr int kDynamicShadowFacesPerSlot = 6;
 constexpr float kDynamicShadowBias = 0.002f;

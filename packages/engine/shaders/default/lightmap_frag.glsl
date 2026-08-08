@@ -14,8 +14,8 @@ uniform int useLightmap;
 uniform int solidLit;
 uniform int lightmapEncoding;
 
-const int MAX_DYN_LIGHTS = 8;
-const int MAX_SHADOW_SLOTS = 2;
+const int MAX_DYN_LIGHTS = 128;
+const int MAX_SHADOW_SLOTS = 16;
 const int SHADOW_FACES = 6;
 const int MAX_SHADOW_MAPS = MAX_SHADOW_SLOTS * SHADOW_FACES;
 const float SHADOW_MAP_TEXEL = 1.0 / 512.0;
@@ -186,14 +186,9 @@ vec3 evalDynamicLights(vec3 worldPos)
 {
     vec3 total = vec3(0.0);
     int count = clamp(dynLightCount, 0, MAX_DYN_LIGHTS);
-    if (count > 0) total += evalOneLight(0, worldPos);
-    if (count > 1) total += evalOneLight(1, worldPos);
-    if (count > 2) total += evalOneLight(2, worldPos);
-    if (count > 3) total += evalOneLight(3, worldPos);
-    if (count > 4) total += evalOneLight(4, worldPos);
-    if (count > 5) total += evalOneLight(5, worldPos);
-    if (count > 6) total += evalOneLight(6, worldPos);
-    if (count > 7) total += evalOneLight(7, worldPos);
+    for (int i = 0; i < count; ++i) {
+        total += evalOneLight(i, worldPos);
+    }
     return total;
 }
 

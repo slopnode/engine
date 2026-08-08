@@ -562,6 +562,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     const Frustum& frustum,
     bool unlit,
     bool enableDynamicLights,
+    int maxLights,
     int maxShadowed) {
     std::vector<RankedDynamicLight> rankedLights;
     if (unlit || !enableDynamicLights) {
@@ -599,7 +600,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     rankedLights = rankDynamicLights(
         candidates,
         lens.camera.position,
-        kMaxDynamicLights,
+        maxLights,
         maxShadowed);
     return rankedLights;
 }

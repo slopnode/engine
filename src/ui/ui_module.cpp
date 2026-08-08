@@ -36,6 +36,7 @@
 
 #include "imgui.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -139,7 +140,7 @@ void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
         return;
     }
 
-    ImGui::SetNextWindowSize({420.0f, 260.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({420.0f, 320.0f}, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Graphics", &settingsUi.graphicsOpen, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
@@ -196,7 +197,23 @@ void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
     if (!draft.dynamicLights) {
         ImGui::BeginDisabled();
     }
+    if (ImGui::SliderInt("Max Dynamic Lights", &draft.maxDynamicLights, 0, kMaxDynamicLights)) {
+        draft.maxShadowedDynamicLights =
+            std::min(draft.maxShadowedDynamicLights, draft.maxDynamicLights);
+    }
     ImGui::Checkbox("Dynamic Light Shadows", &draft.dynamicLightShadows);
+    const bool shadowsDisabled = !draft.dynamicLights || !draft.dynamicLightShadows;
+    if (shadowsDisabled) {
+        ImGui::BeginDisabled();
+    }
+    ImGui::SliderInt(
+        "Max Shadowed Lights",
+        &draft.maxShadowedDynamicLights,
+        0,
+        std::min(draft.maxDynamicLights, kMaxShadowedDynamicLights));
+    if (shadowsDisabled) {
+        ImGui::EndDisabled();
+    }
     if (!draft.dynamicLights) {
         ImGui::EndDisabled();
     }
