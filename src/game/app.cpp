@@ -3,6 +3,7 @@
 #include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
 #include "core/package.hpp"
+#include "core/user_paths.hpp"
 #include "game/game_state.hpp"
 #include "game/package_cli.hpp"
 #include "game/script_boot.hpp"
@@ -47,8 +48,15 @@ App::App(AppConfig config)
     , world_{}
     , physicsWorld_{std::make_unique<PhysicsWorld>()}
     , audioWorld_{std::make_unique<AudioWorld>()} {
+    // mountPackages() throws if either is missing, so [0]/[1] are always present here.
+    const std::vector<Package>& mountedPackages = assetStore_.packages();
+    const std::filesystem::path settingsFilePath =
+        profileSettingsPath(mountedPackages[0], mountedPackages[1], config_.profile);
+    const bool hadProfileSettings = std::filesystem::exists(settingsFilePath);
+    userSettings_.settingsFilePath = settingsFilePath;
+
     actionRegistry().registerCoreActions();
-    userSettings_.graphics = UserSettings::loadGraphicsOrDefault();
+    userSettings_.graphics = UserSettings::loadGraphicsOrDefault(settingsFilePath);
     init_window();
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
@@ -56,11 +64,18 @@ App::App(AppConfig config)
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true);
     init_script();
     userSettings_.controls = ControlsSettings::defaults();
-    UserSettings::mergeControlsFromDisk(userSettings_.controls);
+    UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);
+    if (!hadProfileSettings) {
+        // First time this profile has been used for this engine/base-game pair: write a
+        // baseline settings.cfg now that graphics + the full (core + package) action set
+        // are known, instead of leaving the profile directory empty until the user opens
+        // the in-game settings UI.
+        userSettings_.save();
+    }
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
     registerInputModule(world_);
-    registerUiModule(world_);
+    registerUiModule(world_, config_.debug, config_.profile);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
     registerNavModule(world_);

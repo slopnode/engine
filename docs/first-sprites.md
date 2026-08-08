@@ -2,7 +2,7 @@
 
 Even though every 3D engine is capable of drawing billboards, having animated Doom style billboards that also keep their square pixel texels requires an implementation from assets to usable game sprites that translates that properly. This engine presents these Doom sprites as a kind of first class citizen so that package developers can author sprites and animations in a way similar to Doom.
 
-# Doom & sprites
+# Doom & sprites {#doom-and-sprites}
 
 Most Doom source ports, in an attempt to retain compatibility across all Doom WADs, have a fixed logic framerate of 35 ticks per second. Sprites were organized by a four character identifier (`TROO`), followed by a frame letter `A`, and then by a number for viewing angle. Sprites with 0 were always aligned to the screen, otherwise these numbers represented which angle sprite to show.
 
@@ -21,13 +21,13 @@ https://github.com/UZDoom/UZDoom/blob/trunk/wadsrc/static/zscript/actors/doom/do
 
 The number here is not the angle, but how many ticks the sprite should be shown. Every 10 engine ticks the TROO sprite switches between frame A and B. You can also see two functions being called here, `A_Look` and `A_Chase`, which one every 10 ticks looks to see if it sees a player, or if it has seen a player, every 3 frames while doubling up animation frames will move it in the direction of the player. Because developers knew how fast this was going to run, it was easy to include new functionality as well as be able to time things very easily, 10 ticks, 20 ticks, etc.
 
-# Slopengine & sprites
+# Slopengine & sprites {#slopengine-and-sprites}
 
 Since the old days, game engines have evolved where the presentation they are seeing is mostly being handled by a GPU while the game logic itself remains on the CPU. Of course it can't be helped that game logic has to result in a presentation change, but it's not really the case anymore to talk in terms of engine ticks, but in delta times. For animated sprites that represent enemies that launch attacks, that no longer have a discrete tick, this requires a different solution based on time. It also means that sprite appearance has to be separated from game functionality while still being able to keep them in sync without managing package-side timers to coordinate logic.
 
 There are also other caveats to consider when designing your sprites. The engine makes no assumptions about sprites based on filenames. Individual sprites can have whatever you want. The rotations, mirroring, and other properties have to be setup in the sprite.
 
-# Sprite file
+# Sprite file {#sprite-file}
 
 Sprite files go in directory `sprites/` and have a `.spr` extension. Other files are ignored. These are symbolic files that define a sprite property. We'll look at one we made in our previous tutorial:
 
@@ -47,7 +47,7 @@ Sprite files go in directory `sprites/` and have a `.spr` extension. Other files
   * the texture name of the sprite
   * X & Y texture offsets
 
-# Sprite animations
+# Sprite animations {#sprite-animations}
 
 To create an animated sprite it's as easy as adding more frames. We'll create a new animated sprite that will animate between a square, circle, and triangle.
 

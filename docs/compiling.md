@@ -2,7 +2,7 @@
 
 Even though this engine is being developed as cross-platform and I attempt to test against Linux, Windows, and OSX, I am developing this primarily via a Linux workstation. Since Windows and OSX already have plenty of attention from the commerical market my primary target is Linux users. 
 
-# Requirements
+# Requirements {#requirements}
 
 - CMake
 - C++20
@@ -32,7 +32,7 @@ At the moment I don't feel like figuring out for each distro which system depend
 - libXau.so
 - libXdmcp.so
 
-# Getting the source
+# Getting the source {#getting-the-source}
 
 The main repository is located at https://git.slopnode.net/games/engine. 
 
@@ -74,7 +74,7 @@ Submodule path 'lib/s7': checked out '720bb3754539929116cfb7835a0be0e5003c5550'
 Submodule path 'lib/soloud': checked out 'e82fd32c1f62183922f08c14c814a02b58db1873'
 ```
 
-# Building
+# Building {#building}
 
 First the build needs to be configured. By default a debug build is produced. 
 
@@ -200,7 +200,7 @@ test
 
 The `slop*` executables can be launched from either this directory, or they can be installed in your user local environment, or on the system under `/usr/local/bin`.
 
-# Running the demo
+# Running the demo {#running-the-demo}
 
 A basic demo is included with the engine that can be used to test.
 

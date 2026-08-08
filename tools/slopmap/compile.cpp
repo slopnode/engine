@@ -682,6 +682,7 @@ bool launchGame(const CompileMountArgs& mounts, std::string& errorOut) {
     }
     args.emplace_back("--map");
     args.push_back(mounts.mapName);
+    args.emplace_back("--debug");
 
 #if defined(_WIN32)
     std::string cmdline;

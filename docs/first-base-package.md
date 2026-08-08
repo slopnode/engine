@@ -21,7 +21,7 @@ A base-game package will not have other dependencies. From this point on you can
 
 Because changing a map can be different in the context of different games package authors set this part up themselves. This tutorial will cover loading a map via a menu entry and loading via CLI argument and cover persistence/game flow in another. 
 
-# Command line arguments
+# Command line arguments {#command-line-arguments}
 
 Packages can declare command line arguments by providing a definition for `*package-cli*`. Using the function `startup-arg` values can be fetched.
 
@@ -71,7 +71,7 @@ INFO: FILEIO: [/home/bryan/repos/engine/packages/engine/icons/silk.png] File loa
 ...
 </code></pre>
 
-# Adding a menu option
+# Adding a menu option {#adding-a-menu-option}
 
 As stated earlier the engine is unopinionated in regards to what the package wants to do with persistence. Some package authors might go for arcade-like games that don't require saving and loading or carrying some kind of game state over multiple maps. Another option is that package authors want something free of chapters, missions, episodes, or some kind of specific organization of flow. This means that saving, loading, and "new game" are controlled by the base package, including controlling when the player can or can't trigger these moments. 
 

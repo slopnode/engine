@@ -1,5 +1,6 @@
 #include "core/user_paths.hpp"
 
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -13,6 +14,16 @@ namespace {
 bool isUnsafeSegmentChar(char c) {
     return c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<'
         || c == '>' || c == '|';
+}
+
+std::string trimLine(std::string_view value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
+        value.remove_prefix(1);
+    }
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
+        value.remove_suffix(1);
+    }
+    return std::string(value);
 }
 
 std::string packageSegment(const Package& package) {
@@ -103,6 +114,49 @@ std::filesystem::path defaultSlopmapThumbnailCacheDirectory() {
     return userCacheDirectory() / "slopmap" / "thumbnails";
 }
 
+std::vector<std::filesystem::path> userConfiguredSearchPaths() {
+    std::vector<std::filesystem::path> paths;
+
+    std::ifstream input(userSettingsPath());
+    if (!input) {
+        return paths;
+    }
+
+    bool inPaths = false;
+    std::string line;
+    while (std::getline(input, line)) {
+        const std::string trimmed = trimLine(line);
+        if (trimmed.empty() || trimmed[0] == '#' || trimmed[0] == ';') {
+            continue;
+        }
+
+        if (trimmed == "[paths]") {
+            inPaths = true;
+            continue;
+        }
+        if (trimmed.front() == '[' && trimmed.back() == ']') {
+            inPaths = false;
+            continue;
+        }
+        if (!inPaths) {
+            continue;
+        }
+
+        const std::size_t eq = trimmed.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = trimLine(trimmed.substr(0, eq));
+        const std::string value = trimLine(trimmed.substr(eq + 1));
+        if (key == "search_path" && !value.empty()) {
+            paths.emplace_back(value);
+        }
+    }
+
+    return paths;
+}
+
 std::string sanitizeSaveSegment(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -113,6 +167,14 @@ std::string sanitizeSaveSegment(std::string_view text) {
         out = "_";
     }
     return out;
+}
+
+std::filesystem::path profileSettingsPath(
+    const Package& engine,
+    const Package& base,
+    std::string_view profile) {
+    return userConfigDirectory() / "profiles" / packageSegment(engine) / packageSegment(base)
+        / sanitizeSaveSegment(profile) / "settings.cfg";
 }
 
 std::filesystem::path buildSaveContextRoot(const std::vector<Package>& packages) {

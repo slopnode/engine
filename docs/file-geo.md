@@ -1,6 +1,6 @@
 @page filegeo Mesh/Animation formats
 
-# .vert
+# .vert {#vert}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -16,7 +16,7 @@
 
 Primitives in .geo select ranges via vertex/index offsets and counts.
 
-## .weights
+## .weights {#weights}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -32,7 +32,7 @@ Each vertex:
 | jointIndices | u8[4] | Bone indices |
 | jointWeights | f32[4] | Corresponding weights |
 
-## .bind
+## .bind {#bind}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -41,7 +41,7 @@ Each vertex:
 | boneCount | u32 | Must match .skel bone order |
 | matrices[boneCount] | f32[16] | Column-major 4×4, engine Z-up / raylib float order |
 
-## .tracks
+## .tracks {#tracks}
 
 | Field | Type | Notes |
 |-------|------|-------|

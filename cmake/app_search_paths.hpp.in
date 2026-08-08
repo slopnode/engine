@@ -1,0 +1,4 @@
+#pragma once
+
+/** Build-configured default package search directories (see CMake SLOPENGINE_APP_SEARCH_PATHS), one per line. */
+inline constexpr const char* kSlopengineAppSearchPathsRaw = R"SLOPPATHS(@SLOPENGINE_APP_SEARCH_PATHS_JOINED@)SLOPPATHS";

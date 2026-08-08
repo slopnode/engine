@@ -3,6 +3,9 @@
 #include "assets/geo_loader.hpp"
 #include "assets/saudio_loader.hpp"
 #include "core/engine_package.hpp"
+#include "core/package_search.hpp"
+#include "core/semver.hpp"
+#include "core/user_paths.hpp"
 #include "map/map_meta.hpp"
 #include "script/package_load_context.hpp"
 #include "script/proc_role.hpp"
@@ -149,22 +152,32 @@ void AssetStore::mountPackages(const AppConfig& config) {
     }
     engine.setRole(PackageRole::Engine);
 
-    Package base{config.base_game};
+    const std::vector<std::filesystem::path> searchPaths =
+        applicationSearchPaths(userConfiguredSearchPaths());
+
+    const std::filesystem::path baseGamePath =
+        resolveApplicationPackagePath(config.base_game, searchPaths);
+    Package base{baseGamePath};
     if (!base.valid()) {
-        throw std::runtime_error("base game package not found: " + config.base_game.string());
+        throw std::runtime_error(
+            "base game package not found: " + baseGamePath.string()
+            + " (looked up as a path, then by name under the configured search paths)");
     }
     if (!base.hasMeta()) {
-        throw std::runtime_error("base game missing package.meta: " + config.base_game.string());
+        throw std::runtime_error("base game missing package.meta: " + baseGamePath.string());
     }
     base.setRole(PackageRole::Base);
 
     vfs_.setBasePackage(std::move(engine));
     vfs_.addPackage(std::move(base));
 
-    for (const auto& modPath : config.mods) {
+    for (const auto& modArg : config.mods) {
+        const std::filesystem::path modPath = resolveApplicationPackagePath(modArg, searchPaths);
         Package mod{modPath};
         if (!mod.valid()) {
-            throw std::runtime_error("mod package not found: " + modPath.string());
+            throw std::runtime_error(
+                "mod package not found: " + modPath.string()
+                + " (looked up as a path, then by name under the configured search paths)");
         }
         if (!mod.hasMeta()) {
             throw std::runtime_error("mod missing package.meta: " + modPath.string());
@@ -173,22 +186,31 @@ void AssetStore::mountPackages(const AppConfig& config) {
         vfs_.addPackage(std::move(mod));
     }
 
-    std::unordered_map<std::string, std::filesystem::path> ids;
+    std::unordered_map<std::string, const Package*> ids;
     for (const Package& package : vfs_.packages()) {
         const auto& meta = package.meta();
         if (ids.contains(meta.id)) {
             throw std::runtime_error(
                 "duplicate package id '" + meta.id + "': " + package.root().string()
-                + " conflicts with " + ids[meta.id].string());
+                + " conflicts with " + ids[meta.id]->root().string());
         }
-        ids.emplace(meta.id, package.root());
+        ids.emplace(meta.id, &package);
     }
 
     for (const Package& package : vfs_.packages()) {
-        for (const std::string& depend : package.meta().depends) {
-            if (!ids.contains(depend)) {
+        for (const PackageDependency& depend : package.meta().depends) {
+            const auto it = ids.find(depend.id);
+            if (it == ids.end()) {
                 throw std::runtime_error(
-                    "package '" + package.meta().id + "' depends on missing package '" + depend + "'");
+                    "package '" + package.meta().id + "' depends on missing package '" + depend.id
+                    + "'");
+            }
+            if (!depend.versionConstraint.empty()
+                && !satisfiesVersionConstraint(it->second->meta().version, depend.versionConstraint)) {
+                throw std::runtime_error(
+                    "package '" + package.meta().id + "' requires '" + depend.id + "@"
+                    + depend.versionConstraint + "' but found version '" + it->second->meta().version
+                    + "'");
             }
         }
     }

@@ -2,7 +2,7 @@
 
 Magic 0x32505342 (BSP2), version 3. 
 
-# Header
+# Header {#bsp-header}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -12,7 +12,7 @@ Magic 0x32505342 (BSP2), version 3.
 | boundsMins | Vector3 | Tree AABB |
 | boundsMaxs | Vector3 | Tree AABB |
 
-# Nodes
+# Nodes {#nodes}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -28,7 +28,7 @@ Each node:
 | front | i32 | Child index |
 | back | i32 | Child index |
 
-# Leaves
+# Leaves {#leaves}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -47,7 +47,7 @@ Each leaf:
 | neighborCount | u32 |  |
 | neighbors[neighborCount] | i32 | Neighbor leaf indices |
 
-# Portals
+# Portals {#portals}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -62,7 +62,7 @@ Each portal:
 | leafB | i32 |  |
 | vertices | Polygon | Portal polygon |
 
-# Surface faces
+# Surface faces {#surface-faces}
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -80,7 +80,7 @@ Each surface face:
 | idIndex | u32 | Index into string table |
 | materialIndex | u32 | Index into string table |
 
-# String table
+# String table {#bsp-string-table}
 
 | Field | Type | Notes |
 |-------|------|-------|

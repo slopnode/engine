@@ -46,7 +46,16 @@ std::optional<std::string> readQuotedField(std::string_view line, std::string_vi
     return readQuoted(line, cursor);
 }
 
-bool readDepends(std::string_view line, std::vector<std::string>& out) {
+/** Splits "id" or "id@constraint" (e.g. "slopengine.engine@>=1.2.0") into a PackageDependency. */
+PackageDependency parseDependency(const std::string& token) {
+    const std::size_t at = token.find('@');
+    if (at == std::string::npos) {
+        return PackageDependency{token, ""};
+    }
+    return PackageDependency{token.substr(0, at), token.substr(at + 1)};
+}
+
+bool readDepends(std::string_view line, std::vector<PackageDependency>& out) {
     constexpr std::string_view kPrefix = "(depends";
     if (line.rfind(kPrefix, 0) != 0) {
         return false;
@@ -63,7 +72,7 @@ bool readDepends(std::string_view line, std::vector<std::string>& out) {
         if (!value) {
             return false;
         }
-        out.push_back(*value);
+        out.push_back(parseDependency(*value));
     }
     return true;
 }

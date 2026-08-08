@@ -287,7 +287,8 @@ void drawMainMenuBar(
     QuitRequest& quit,
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
-    const UserSettings& settings) {
+    const UserSettings& settings,
+    const EngineSessionInfo& sessionInfo) {
     if (!beginMainMenuBar()) {
         return;
     }
@@ -312,7 +313,7 @@ void drawMainMenuBar(
         ImGui::EndMenu();
     }
 
-    if (beginMenuWithIcon(assets, kIcons, "bug", "Debug", true)) {
+    if (debugUi.menuAvailable && beginMenuWithIcon(assets, kIcons, "bug", "Debug", true)) {
         if (beginMenuWithIcon(assets, kIcons, "map", "Map")) {
             const std::string currentId =
                 world.has<CurrentMap>() ? world.get<CurrentMap>().id : std::string{};
@@ -369,11 +370,15 @@ void drawMainMenuBar(
         ImGui::EndMenu();
     }
 
-    char fpsLabel[32];
-    std::snprintf(fpsLabel, sizeof(fpsLabel), "%.0f FPS", static_cast<double>(ImGui::GetIO().Framerate));
-    const float fpsWidth = ImGui::CalcTextSize(fpsLabel).x;
-    ImGui::SameLine(ImGui::GetWindowWidth() - fpsWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
-    ImGui::TextUnformatted(fpsLabel);
+    const std::vector<Package>& packages = assets.packages();
+    std::string versionLabel;
+    if (packages.size() >= 2) {
+        versionLabel = "engine " + packages[0].meta().version + " - " + packages[1].meta().id
+            + " " + packages[1].meta().version + " - " + sessionInfo.profile;
+    }
+    const float versionWidth = ImGui::CalcTextSize(versionLabel.c_str()).x;
+    ImGui::SameLine(ImGui::GetWindowWidth() - versionWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+    ImGui::TextUnformatted(versionLabel.c_str());
 
     endMainMenuBar();
 }
@@ -1223,14 +1228,17 @@ void registerSystems(flecs::world& world) {
 
 }
 
-void registerUiModule(flecs::world& world) {
+void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile) {
     registerComponents(world);
     world.set<ConsoleState>({});
     world.set<QuitRequest>({});
     world.set<ScreenshotRequest>({});
     world.set<SettingsUiState>({});
-    world.set<DebugUiState>({});
+    DebugUiState debugUi{};
+    debugUi.menuAvailable = debugEnabled;
+    world.set<DebugUiState>(debugUi);
     world.set<FramePerfStats>({});
+    world.set<EngineSessionInfo>({std::move(profile)});
     registerSystems(world);
 }
 
@@ -1265,7 +1273,8 @@ void drawUi(flecs::world world) {
 
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
-        drawMainMenuBar(world, *assets, quit, settingsUi, debugUi, settings);
+        const EngineSessionInfo& sessionInfo = world.get<EngineSessionInfo>();
+        drawMainMenuBar(world, *assets, quit, settingsUi, debugUi, settings, sessionInfo);
         drawGraphicsSettings(*assets, settingsUi, settings);
         drawControlsSettings(*assets, settingsUi, settings);
         drawEntityList(world, debugUi);

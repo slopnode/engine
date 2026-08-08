@@ -6,10 +6,14 @@ namespace slopengine {
 
 void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag>& schema) {
     std::cerr << "Usage: " << program
-              << " --base-game <path> [--mod <path>]... [package-flags...]\n"
+              << " --base-game <path|name> [--mod <path|name>]... [--profile <name>] [package-flags...]\n"
               << "\n"
-              << "  --base-game   Base game package directory (required)\n"
-              << "  --mod         Additional mod package directory (repeatable)\n";
+              << "  --base-game   Base game package: a directory path, or a name looked up in\n"
+              << "                the configured search paths (required)\n"
+              << "  --mod         Additional mod package: path or name, same lookup as\n"
+              << "                --base-game (repeatable)\n"
+              << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
+              << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
         return;
@@ -49,6 +53,22 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
                 return std::nullopt;
             }
             config.mods.push_back(argv[++i]);
+            continue;
+        }
+
+        if (arg == "--debug") {
+            config.debug = true;
+            continue;
+        }
+
+        if (arg == "--profile") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            config.profile = argv[++i];
+            if (config.profile.empty()) {
+                return std::nullopt;
+            }
             continue;
         }
 

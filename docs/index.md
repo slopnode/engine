@@ -54,3 +54,13 @@ Despite the name, it is not a large self-contained engine. It is an assembly of 
 
 ![Screenshot of slopdoom - created using assets from Freedoom](images/screenshot-freedoom.png)
 
+- @subpage tutorials
+- @subpage cli
+- @subpage profiles
+- @subpage packages
+- @subpage assets
+- @subpage tools
+- @subpage libraries
+- @subpage scriptingapi
+- @subpage dataapi
+

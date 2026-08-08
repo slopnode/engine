@@ -4,7 +4,7 @@ Go back and look at the list of base things from the [first things tutorial](@re
 
 This tutorial builds the smallest version of that: a pickup that adds to a single running ammo count, capped at a maximum, shown on the HUD.
 
-# The pickup thing
+# The pickup thing {#the-pickup-thing}
 
 A `pickup` needs a presentation (`sprite` or `geo`) and either an `on-enter` or `on-use` handler, or the map compiler will reject it outright, since a pickup that can't be triggered isn't doing anything. We'll use `on-enter` here so walking over the clip is enough to collect it, the way ammo works in Doom or Quake, rather than requiring a use key press.
 
@@ -19,7 +19,7 @@ We can reuse the tinting trick from the things tutorial for the sprite. A yellow
         (rot 0 "engine/dev/sprite-square" offset 16 16)))
 </code></pre>
 
-# Defining the placeable thing
+# Defining the placeable thing {#defining-the-placeable-thing}
 
 Same as before, `data/things.s7` exports a template so map authors can drop this into `slopmap` without hand-writing the clauses every time:
 
@@ -49,7 +49,7 @@ Placed in a map's `things.s7`, it looks like any other thing, just with `on-ente
 
 Under the hood, giving a thing an `on-enter` clause (pickup or not) attaches a trigger volume to it; entering that volume is what calls the handler. If you wanted to be stricter about who can trigger it, `collide-tags` on the same thing filters entry by tag, but we'll keep this example open to anything that walks through it.
 
-# Counting ammo, package-side
+# Counting ammo, package-side {#counting-ammo-package-side}
 
 The state itself is nothing more than a Scheme variable, capped by a constant the package chooses:
 
