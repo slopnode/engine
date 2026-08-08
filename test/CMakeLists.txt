@@ -2,6 +2,7 @@ add_executable(sloptests
     test_main.cpp
     test_sexpr.cpp
     test_package_search.cpp
+    test_package_meta.cpp
     test_assets.cpp
     test_script_scope.cpp
     test_scheme_harden.cpp
@@ -52,6 +53,7 @@ endif()
 
 add_test(NAME sloptests.sexpr COMMAND sloptests sexpr)
 add_test(NAME sloptests.package_search COMMAND sloptests package_search)
+add_test(NAME sloptests.package_meta COMMAND sloptests package_meta)
 add_test(NAME sloptests.assets COMMAND sloptests assets)
 add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)

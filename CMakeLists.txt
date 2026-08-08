@@ -78,6 +78,7 @@ set(SLOPLIB_SOURCES
     src/core/package.cpp
     src/core/package_meta.cpp
     src/core/package_search.cpp
+    src/core/semver.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
     src/core/vfs.cpp
