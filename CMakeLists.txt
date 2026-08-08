@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
+# We vendor our own patched raylib fork (lib/raylib). A machine-wide `vcpkg integrate
+# install` silently injects a stock vcpkg raylib's headers into every MSBuild project,
+# which can shadow our fork's headers and break the build with missing-member errors.
+# Opt this project's MSBuild output out of that global integration (no-op on non-VS
+# generators, i.e. Linux/macOS).
+set(CMAKE_VS_GLOBALS "VcpkgEnabled=false")
+
 project(slopengine LANGUAGES C CXX)
 
 if(WIN32)
