@@ -6,8 +6,6 @@ on:
 jobs:
   release:
     runs-on: alma10
-    container:
-      image: git.slopnode.net/containers/engine-linux-builder:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
