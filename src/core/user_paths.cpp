@@ -169,6 +169,14 @@ std::string sanitizeSaveSegment(std::string_view text) {
     return out;
 }
 
+std::filesystem::path profileSettingsPath(
+    const Package& engine,
+    const Package& base,
+    std::string_view profile) {
+    return userConfigDirectory() / "profiles" / packageSegment(engine) / packageSegment(base)
+        / sanitizeSaveSegment(profile) / "settings.cfg";
+}
+
 std::filesystem::path buildSaveContextRoot(const std::vector<Package>& packages) {
     std::filesystem::path root = userSavesDirectory();
     if (packages.empty()) {

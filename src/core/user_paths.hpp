@@ -4,12 +4,20 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace slopengine {
 
 std::filesystem::path userConfigDirectory();
 std::filesystem::path userCacheDirectory();
+
+/**
+ * Path to the global settings.cfg: package search paths ([paths]) live here,
+ * unscoped by profile or mounted package, because they're what resolves a
+ * --base-game/--mod name in the first place -- scoping them by package would
+ * make finding the package depend on already having found it.
+ */
 std::filesystem::path userSettingsPath();
 std::filesystem::path userSlopmapSettingsPath();
 std::filesystem::path userScreenshotDirectory();
@@ -18,6 +26,17 @@ std::filesystem::path defaultSlopmapThumbnailCacheDirectory();
 
 /** Additional package search directories from settings.cfg's [paths] section (search_path= lines). */
 std::vector<std::filesystem::path> userConfiguredSearchPaths();
+
+/**
+ * Path to the per-profile settings.cfg (graphics + controls), scoped by the
+ * mounted engine and base-game package identity plus @p profile, so that
+ * "default" (or any other profile name) means something different per game
+ * rather than one settings file shared across every base game you own.
+ */
+std::filesystem::path profileSettingsPath(
+    const Package& engine,
+    const Package& base,
+    std::string_view profile);
 
 /** Sanitizes a single path segment for use under the saves tree. */
 std::string sanitizeSaveSegment(std::string_view text);

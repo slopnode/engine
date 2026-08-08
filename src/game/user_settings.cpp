@@ -1,6 +1,5 @@
 #include "game/user_settings.hpp"
 
-#include "core/user_paths.hpp"
 #include "input/action_registry.hpp"
 #include "input/bind_code.hpp"
 
@@ -103,10 +102,9 @@ UserSettings UserSettings::defaults() {
     return UserSettings{};
 }
 
-GraphicsSettings UserSettings::loadGraphicsOrDefault() {
+GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path& settingsFilePath) {
     GraphicsSettings graphics = defaults().graphics;
-    const std::filesystem::path path = userSettingsPath();
-    std::ifstream input(path);
+    std::ifstream input(settingsFilePath);
     if (!input) {
         return graphics;
     }
@@ -168,9 +166,10 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault() {
     return graphics;
 }
 
-void UserSettings::mergeControlsFromDisk(ControlsSettings& controls) {
-    const std::filesystem::path path = userSettingsPath();
-    std::ifstream input(path);
+void UserSettings::mergeControlsFromDisk(
+    ControlsSettings& controls,
+    const std::filesystem::path& settingsFilePath) {
+    std::ifstream input(settingsFilePath);
     if (!input) {
         return;
     }
@@ -206,17 +205,8 @@ void UserSettings::mergeControlsFromDisk(ControlsSettings& controls) {
     }
 }
 
-UserSettings UserSettings::loadOrDefault() {
-    UserSettings settings = defaults();
-    settings.graphics = loadGraphicsOrDefault();
-    settings.controls = ControlsSettings::defaults();
-    mergeControlsFromDisk(settings.controls);
-    settings.searchPaths = userConfiguredSearchPaths();
-    return settings;
-}
-
 bool UserSettings::save() const {
-    const std::filesystem::path directory = userConfigDirectory();
+    const std::filesystem::path directory = settingsFilePath.parent_path();
     std::error_code ec;
     std::filesystem::create_directories(directory, ec);
     if (ec) {
@@ -224,10 +214,9 @@ bool UserSettings::save() const {
         return false;
     }
 
-    const std::filesystem::path path = userSettingsPath();
-    std::ofstream output(path, std::ios::trunc);
+    std::ofstream output(settingsFilePath, std::ios::trunc);
     if (!output) {
-        TraceLog(LOG_WARNING, "SETTINGS: failed to write %s", path.string().c_str());
+        TraceLog(LOG_WARNING, "SETTINGS: failed to write %s", settingsFilePath.string().c_str());
         return false;
     }
 
@@ -242,11 +231,6 @@ bool UserSettings::save() const {
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {
         output << actionIdAt(i) << '=' << formatBindToken(controls.binds[static_cast<std::size_t>(i)]) << '\n';
-    }
-
-    output << "\n[paths]\n";
-    for (const std::filesystem::path& path : searchPaths) {
-        output << "search_path=" << path.string() << '\n';
     }
 
     return true;
