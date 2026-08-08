@@ -26,6 +26,8 @@ struct AppConfig {
     std::vector<std::filesystem::path> mods;
     /** Selects which settings/saves/screenshots directory tree to use. "default" when not given. */
     std::string profile = "default";
+    /** Enables developer-only UI (e.g. the Debug menu) when set via `--debug`. */
+    bool debug = false;
     /** Tool-facing map id (`slopbsp` / `slopfac` / `slopvis` / editors). Not used by the game runtime. */
     std::optional<std::string> map;
     std::vector<std::string> pendingArgs;

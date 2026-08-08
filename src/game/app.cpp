@@ -75,7 +75,7 @@ App::App(AppConfig config)
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
     registerInputModule(world_);
-    registerUiModule(world_);
+    registerUiModule(world_, config_.debug, config_.profile);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
     registerNavModule(world_);

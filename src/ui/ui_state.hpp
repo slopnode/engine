@@ -8,6 +8,13 @@
 
 namespace slopengine {
 
+/** Static session info set once at startup, for display in the UI.
+ *  @ingroup ui_components
+ */
+struct EngineSessionInfo {
+    std::string profile;
+};
+
 /** In-game console open state, input buffer, and log lines.
  *  @ingroup ui_components
  */
@@ -47,6 +54,8 @@ struct SettingsUiState {
  *  @ingroup ui_components
  */
 struct DebugUiState {
+    /** Whether the Debug menu is shown at all; set once at startup from `--debug`. */
+    bool menuAvailable = false;
     bool showBspOutlines = false;
     bool showBspLeafFaces = false;
     bool showBspPortals = false;

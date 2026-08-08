@@ -12,7 +12,8 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "                the configured search paths (required)\n"
               << "  --mod         Additional mod package: path or name, same lookup as\n"
               << "                --base-game (repeatable)\n"
-              << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n";
+              << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
+              << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
         return;
@@ -52,6 +53,11 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
                 return std::nullopt;
             }
             config.mods.push_back(argv[++i]);
+            continue;
+        }
+
+        if (arg == "--debug") {
+            config.debug = true;
             continue;
         }
 
