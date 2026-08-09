@@ -1,5 +1,6 @@
 // DEAD CODE IGNORE
 #include "map/fac.hpp"
+#include "map/mover_brushes.hpp"
 
 #include <raylib.h>
 
@@ -1114,6 +1115,18 @@ std::vector<ClippedFragment> clipFaceToInteriorLeaves(
     return fragments;
 }
 
+/** The specific movable brush id @p sourceFaceId belongs to, or nullptr if none. */
+const std::string* findMovableOwner(
+    const std::string& sourceFaceId,
+    const std::unordered_set<std::string>& movableBrushIds) {
+    for (const std::string& brushId : movableBrushIds) {
+        if (faceIdBelongsToBrush(sourceFaceId, brushId)) {
+            return &brushId;
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 void weldVisibleFaceTJunctions(std::vector<VisibleFace>& faces) {
@@ -1156,7 +1169,9 @@ void weldVisibleFaceTJunctions(std::vector<VisibleFace>& faces) {
     }
 }
 
-void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
+void mergeCoplanarVisibleFaces(
+    std::vector<VisibleFace>& faces,
+    const std::unordered_set<std::string>* movableBrushIds) {
     bool merged = true;
     while (merged) {
         merged = false;
@@ -1167,6 +1182,14 @@ void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces) {
                 }
                 if (faces[i].transparent != faces[j].transparent) {
                     continue;
+                }
+                if (movableBrushIds != nullptr && !movableBrushIds->empty()) {
+                    const std::string* ownerA = findMovableOwner(faces[i].sourceFaceId, *movableBrushIds);
+                    const std::string* ownerB = findMovableOwner(faces[j].sourceFaceId, *movableBrushIds);
+                    const bool sameMover = ownerA != nullptr && ownerB != nullptr && *ownerA == *ownerB;
+                    if ((ownerA != nullptr || ownerB != nullptr) && !sameMover) {
+                        continue;
+                    }
                 }
                 std::size_t aEdge = 0;
                 std::size_t bEdge = 0;
@@ -1243,7 +1266,7 @@ FacBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,
     const std::vector<Brush>& brushes,
-    const std::unordered_set<std::string>* skipBrushIds) {
+    const std::unordered_set<std::string>* movableBrushIds) {
     FacBuildResult result;
 
     std::vector<std::int32_t> interiorLeaves;
@@ -1259,9 +1282,6 @@ FacBuildResult buildVisibleFaces(
 
     for (std::size_t brushIndex = 0; brushIndex < brushes.size(); ++brushIndex) {
         const Brush& brush = brushes[brushIndex];
-        if (skipBrushIds != nullptr && skipBrushIds->count(brush.id) > 0) {
-            continue;
-        }
         if (!brushRoleEmitsVisFaces(brush.role)) {
             continue;
         }
@@ -1287,7 +1307,7 @@ FacBuildResult buildVisibleFaces(
 
             fragments = microMergeFragments(std::move(fragments));
             if (brushRoleReceivesVisOcclusion(brush.role)) {
-                occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal, skipBrushIds);
+                occludeFragmentsByBrushes(fragments, brushIndex, brushes, face.normal, movableBrushIds);
             }
 
             if (fragments.empty()) {
@@ -1320,7 +1340,7 @@ FacBuildResult buildVisibleFaces(
     weldVisibleFaceTJunctions(result.fac.faces);
     snapWeldVisibleFaceVertices(result.fac.faces);
     cullDegenerateVisibleFaces(result.fac.faces, result.inferredNodrawFaceIds);
-    mergeCoplanarVisibleFaces(result.fac.faces);
+    mergeCoplanarVisibleFaces(result.fac.faces, movableBrushIds);
     sortVisibleFacesByMaterial(result.fac.faces);
     finalizeInferredNodraw(result.inferredNodrawFaceIds);
 

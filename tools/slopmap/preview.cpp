@@ -566,6 +566,7 @@ bool MapPreview::reloadBake(
         if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
             if (auto loadedFac = slopengine::readFacFile(*visPath)) {
                 vis = std::move(*loadedFac);
+                slopengine::eraseFacFacesForMoverBrushes(vis, moverBrushIds);
                 haveVis = true;
             }
         }

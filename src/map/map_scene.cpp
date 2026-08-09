@@ -248,7 +248,7 @@ bool registerMapScene(
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
         facForLighting,
-        std::move(loaded->rad),
+        loaded->rad,
         std::move(loaded->lightmapAtlasImages),
         BLACK));
 
@@ -282,8 +282,16 @@ bool registerMapScene(
         }
     }
 
-    const PlayerStart playerStart =
-        spawnMapThings(scheme, world, assets, mapName, loaded->brushes);
+    const PlayerStart playerStart = spawnMapThings(
+        scheme,
+        world,
+        assets,
+        mapName,
+        loaded->brushes,
+        &loaded->doorFac,
+        &loaded->rad,
+        &loaded->lightmapAtlases,
+        loaded->hasLightmaps);
     if (world.has<MapLighting>()) {
         MapLighting& lighting = world.get_mut<MapLighting>();
         bool foundAmbient = false;

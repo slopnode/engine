@@ -300,6 +300,40 @@ void runFacBuildTests() {
     }
 
     {
+        // Same mergeable silhouette as above, but "a" belongs to a movable (door) brush and
+        // "b" does not: must not fuse across the brush boundary even though geometrically
+        // mergeable, since a door's geometry has to stay extractable as standalone mesh data.
+        VisibleFace a = makeFace(
+            "a",
+            {1.0f, 0.0f, 0.0f},
+            {{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}});
+        VisibleFace b = makeFace(
+            "b",
+            {1.0f, 0.0f, 0.0f},
+            {{0.0f, 1.0f, 0.0f}, {0.0f, 2.0f, 0.0f}, {0.0f, 2.0f, 0.5f}, {0.0f, 1.0f, 1.0f}});
+        std::vector<VisibleFace> faces{a, b};
+        const std::unordered_set<std::string> movable{"a"};
+        mergeCoplanarVisibleFaces(faces, &movable);
+        CHECK_EQ(faces.size(), 2u);
+    }
+
+    {
+        // Two faces owned by the *same* movable brush still fuse with each other.
+        VisibleFace a = makeFace(
+            "door/left",
+            {1.0f, 0.0f, 0.0f},
+            {{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}});
+        VisibleFace b = makeFace(
+            "door/right",
+            {1.0f, 0.0f, 0.0f},
+            {{0.0f, 1.0f, 0.0f}, {0.0f, 2.0f, 0.0f}, {0.0f, 2.0f, 0.5f}, {0.0f, 1.0f, 1.0f}});
+        std::vector<VisibleFace> faces{a, b};
+        const std::unordered_set<std::string> movable{"door"};
+        mergeCoplanarVisibleFaces(faces, &movable);
+        CHECK_EQ(faces.size(), 1u);
+    }
+
+    {
         // Needle sliver between two nearly coincident verts on a sealed room wall via crafted faces
         // after weld/cull path: build a face that is degenerate enough to be culled when passed
         // through weld + merge helpers used by the pipeline.
@@ -377,29 +411,30 @@ void runFacBuildTests() {
         MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
         CHECK(analysis.sealed);
 
-        const FacBuildResult withDoor = buildVisibleFaces(tree, analysis, brushes);
-        bool doorVisible = false;
-        for (const VisibleFace& face : withDoor.fac.faces) {
-            if (faceIdBelongsToBrush(face.sourceFaceId, "door-1-leaf") ||
-                faceIdBelongsToBrush(face.id, "door-1-leaf")) {
-                doorVisible = true;
-                break;
+        auto hasDoorFace = [](const FacFile& fac, const char* brushId) {
+            for (const VisibleFace& face : fac.faces) {
+                if (faceIdBelongsToBrush(face.sourceFaceId, brushId) ||
+                    faceIdBelongsToBrush(face.id, brushId)) {
+                    return true;
+                }
             }
-        }
-        CHECK(doorVisible);
+            return false;
+        };
 
-        const FacBuildResult omitted = buildVisibleFaces(tree, analysis, brushes, &claimed);
-        for (const VisibleFace& face : omitted.fac.faces) {
-            CHECK_FALSE(faceIdBelongsToBrush(face.sourceFaceId, "door-1-leaf"));
-            CHECK_FALSE(faceIdBelongsToBrush(face.id, "door-1-leaf"));
-        }
+        const FacBuildResult withDoor = buildVisibleFaces(tree, analysis, brushes);
+        CHECK(hasDoorFace(withDoor.fac, "door-1-leaf"));
+
+        // Passing the brush as movable still emits its own faces for baking — it just stops
+        // occluding its neighbors (checked below) and never fuses across the brush boundary.
+        const FacBuildResult movable = buildVisibleFaces(tree, analysis, brushes, &claimed);
+        CHECK(hasDoorFace(movable.fac, "door-1-leaf"));
 
         const float jambEastWith = sourceFaceArea(withDoor.fac, "partition-w/east");
         const float jambWestWith = sourceFaceArea(withDoor.fac, "partition-e/west");
-        const float jambEastOmit = sourceFaceArea(omitted.fac, "partition-w/east");
-        const float jambWestOmit = sourceFaceArea(omitted.fac, "partition-e/west");
-        CHECK(jambEastOmit > jambEastWith + 0.05f);
-        CHECK(jambWestOmit > jambWestWith + 0.05f);
+        const float jambEastMovable = sourceFaceArea(movable.fac, "partition-w/east");
+        const float jambWestMovable = sourceFaceArea(movable.fac, "partition-e/west");
+        CHECK(jambEastMovable > jambEastWith + 0.05f);
+        CHECK(jambWestMovable > jambWestWith + 0.05f);
 
         FacFile stale = withDoor.fac;
         eraseFacFacesForMoverBrushes(stale, claimed);
@@ -434,11 +469,16 @@ void runFacBuildTests() {
         MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
         CHECK(analysis.sealed);
 
-        const FacBuildResult omitted = buildVisibleFaces(tree, analysis, brushes, &claimed);
-        for (const VisibleFace& face : omitted.fac.faces) {
-            CHECK_FALSE(faceIdBelongsToBrush(face.sourceFaceId, "door-1"));
-            CHECK_FALSE(faceIdBelongsToBrush(face.id, "door-1"));
+        const FacBuildResult movable = buildVisibleFaces(tree, analysis, brushes, &claimed);
+        bool doorVisible = false;
+        for (const VisibleFace& face : movable.fac.faces) {
+            if (faceIdBelongsToBrush(face.sourceFaceId, "door-1") ||
+                faceIdBelongsToBrush(face.id, "door-1")) {
+                doorVisible = true;
+                break;
+            }
         }
+        CHECK(doorVisible);
     }
 
     {

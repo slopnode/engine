@@ -222,7 +222,7 @@ void renderWorldModel(
             prepareLightmapShaderDraw(
                 mapLightmaps->lightmapShader,
                 mapLightmaps->useLightmapLoc,
-                0,
+                entity.has<BakedLightmapModel>() ? mapUseLightmap : 0,
                 globalTransform.matrix,
                 world);
         }
@@ -673,23 +673,25 @@ void drawWorldModels(
             if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
                 return;
             }
-            const Matrix* closedMatrix = nullptr;
-            Matrix closedMatrixStorage{};
-            if (modelEntity.has<RigidMover>()) {
-                Vector3 scale{1.0f, 1.0f, 1.0f};
-                if (modelEntity.has<LocalTransformation>()) {
-                    scale = modelEntity.get<LocalTransformation>().scale;
+            if (!modelEntity.has<BakedLightmapModel>()) {
+                const Matrix* closedMatrix = nullptr;
+                Matrix closedMatrixStorage{};
+                if (modelEntity.has<RigidMover>()) {
+                    Vector3 scale{1.0f, 1.0f, 1.0f};
+                    if (modelEntity.has<LocalTransformation>()) {
+                        scale = modelEntity.get<LocalTransformation>().scale;
+                    }
+                    closedMatrixStorage =
+                        moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
+                    closedMatrix = &closedMatrixStorage;
                 }
-                closedMatrixStorage =
-                    moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
-                closedMatrix = &closedMatrixStorage;
-            }
-            if (mapLightmapState(world) != nullptr) {
-                model.color = sampleBakeTintColorForModel(
-                    world, model.model, global.matrix, unlit, closedMatrix);
-            } else {
-                model.color = sampleReceiverTintColorForModel(
-                    world, model.model, global.matrix, unlit, closedMatrix);
+                if (mapLightmapState(world) != nullptr) {
+                    model.color = sampleBakeTintColorForModel(
+                        world, model.model, global.matrix, unlit, closedMatrix);
+                } else {
+                    model.color = sampleReceiverTintColorForModel(
+                        world, model.model, global.matrix, unlit, closedMatrix);
+                }
             }
         }
         const std::unordered_set<int>* skipMeshes = nullptr;

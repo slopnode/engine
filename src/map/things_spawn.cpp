@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -48,6 +49,10 @@ struct SpawnContext {
     AssetStore* assets = nullptr;
     s7_scheme* scheme = nullptr;
     const std::vector<Brush>* brushes = nullptr;
+    const FacFile* doorFac = nullptr;
+    const RadFile* rad = nullptr;
+    const std::vector<Texture2D>* lightmapAtlases = nullptr;
+    bool hasLightmaps = false;
     PlayerStart playerStart{};
     std::unordered_set<std::string> usedIds;
     std::string idPrefix;
@@ -199,6 +204,47 @@ LocalTransformation makeLocalTransform(const Thing& placement, const SpawnContex
     return local;
 }
 
+/** This brush's baked, chart-backed faces (closed/authored pose), or empty if the map hasn't
+ *  been rebaked with sloprad since this brush started being claimed by a door/mover. */
+FacFile bakedFacesForBrush(const SpawnContext& ctx, std::string_view brushId) {
+    FacFile subset;
+    if (!ctx.hasLightmaps || ctx.doorFac == nullptr || ctx.rad == nullptr || ctx.lightmapAtlases == nullptr) {
+        return subset;
+    }
+    for (const VisibleFace& face : ctx.doorFac->faces) {
+        const std::string_view source =
+            face.sourceFaceId.empty() ? std::string_view(face.id) : std::string_view(face.sourceFaceId);
+        if (faceIdBelongsToBrush(source, brushId) || faceIdBelongsToBrush(face.id, brushId)) {
+            subset.faces.push_back(face);
+        }
+    }
+    return subset;
+}
+
+/** Binds each mesh's baked atlas texture (per its lightmap chart); mirrors the static-mesh
+ *  atlas binding in loadAndCompileMap. Does not touch material.shader — renderWorldModel
+ *  already swaps any lightmap-less prop's shader to the shared map lightmap shader per frame. */
+void bindBakedLightmapAtlases(Model& model, const CsgCompileResult& compiled, const SpawnContext& ctx) {
+    std::unordered_map<std::string, std::int32_t> faceAtlasById;
+    for (const LightmapChart& chart : ctx.rad->charts) {
+        faceAtlasById[chart.faceId] = chart.atlasIndex;
+    }
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        const std::string& faceId = compiled.asset.primitives[static_cast<std::size_t>(meshIndex)].name;
+        std::int32_t atlasIndex = 0;
+        const auto atlasIt = faceAtlasById.find(faceId);
+        if (atlasIt != faceAtlasById.end()) {
+            atlasIndex = atlasIt->second;
+        }
+        if (atlasIndex >= 0 && atlasIndex < static_cast<std::int32_t>(ctx.lightmapAtlases->size())) {
+            const Texture2D lightmap = (*ctx.lightmapAtlases)[static_cast<std::size_t>(atlasIndex)];
+            if (lightmap.id != 0) {
+                SetMaterialTexture(&model.materials[meshIndex], MATERIAL_MAP_METALNESS, lightmap);
+            }
+        }
+    }
+}
+
 bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     if (ctx.brushes == nullptr || ctx.assets == nullptr) {
         return false;
@@ -213,7 +259,12 @@ bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnC
     const auto resolveUv = [assets = ctx.assets](std::string_view materialPath) {
         return resolveThingMaterialUv(*assets, materialPath);
     };
-    CsgCompileResult compiled = compileBrushesToGeo({*source}, resolveUv, nullptr);
+
+    const FacFile bakedFaces = bakedFacesForBrush(ctx, placement.brush);
+    const bool baked = !bakedFaces.faces.empty();
+    CsgCompileResult compiled = baked
+        ? compileVisibleFacesToGeo(bakedFaces, resolveUv, ctx.rad)
+        : compileBrushesToGeo({*source}, resolveUv, nullptr);
     for (Vector3& pos : compiled.buffer.positions) {
         pos = Vector3Subtract(pos, origin);
     }
@@ -230,8 +281,15 @@ bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnC
         return false;
     }
 
+    if (baked) {
+        bindBakedLightmapAtlases(model, compiled, ctx);
+    }
+
     entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
     entity.set<Model3D>({model, WHITE, true});
+    if (baked) {
+        entity.add<BakedLightmapModel>();
+    }
     attachMaterialAnimTargetsFromGeo(entity, compiled.asset, *ctx.assets);
     return true;
 }
@@ -858,7 +916,11 @@ PlayerStart spawnMapThings(
     flecs::world& world,
     AssetStore& assets,
     std::string_view mapName,
-    const std::vector<Brush>& brushes) {
+    const std::vector<Brush>& brushes,
+    const FacFile* doorFac,
+    const RadFile* rad,
+    const std::vector<Texture2D>* lightmapAtlases,
+    bool hasLightmaps) {
     PlayerStart defaults{};
     if (scheme == nullptr) {
         return defaults;
@@ -869,6 +931,10 @@ PlayerStart spawnMapThings(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = &brushes;
+    ctx.doorFac = doorFac;
+    ctx.rad = rad;
+    ctx.lightmapAtlases = lightmapAtlases;
+    ctx.hasLightmaps = hasLightmaps;
 
     std::optional<ThingDocument> doc;
     const std::string virtualPath = std::string(mapName) + "/things";

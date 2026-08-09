@@ -1330,12 +1330,14 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     FacFile fac{};
+    FacFile doorFac{};
     bool haveFac = false;
     if (assets.hasMapFac(virtualPath)) {
         if (const auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath)) {
             if (auto loadedFac = readFacFile(*facPath)) {
                 fac = std::move(*loadedFac);
                 haveFac = true;
+                doorFac = extractFacFacesForMoverBrushes(fac, moverBrushIds);
                 eraseFacFacesForMoverBrushes(fac, moverBrushIds);
                 TraceLog(
                     LOG_INFO,
@@ -1498,6 +1500,7 @@ std::optional<LoadedMap> loadAndCompileMap(
               resolveUv,
               lightmaps);
     result.fac = std::move(fac);
+    result.doorFac = std::move(doorFac);
     result.pvs = std::move(pvs);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;

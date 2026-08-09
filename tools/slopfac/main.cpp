@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
     if (!moverBrushIds.empty()) {
         TraceLog(
             LOG_INFO,
-            "slopfac: omitting %d claimed brush(es) from FAC",
+            "slopfac: excluding %d claimed brush(es) from occlusion/merge (still baked)",
             static_cast<int>(moverBrushIds.size()));
     }
 
