@@ -74,10 +74,10 @@ bool shadowSampleFace(int slot, int face, vec3 samplePos, out float visibility)
         return false;
     }
     vec3 ndc = clip.xyz / clip.w;
-    if (ndc.z < -1.0 || ndc.z > 1.0) {
+    if (ndc.z < -1.0 || ndc.z > 1.0 || ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0) {
         return false;
     }
-    vec2 uv = clamp(ndc.xy * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+    vec2 uv = ndc.xy * 0.5 + 0.5;
     float current = ndc.z * 0.5 + 0.5;
     float sum = 0.0;
     for (int y = -1; y <= 1; ++y) {
@@ -176,7 +176,7 @@ vec3 evalOneLight(int i, vec3 worldPos, vec3 normal)
     float visibility = 1.0;
     int slot = int(dynLightMeta[i].y + 0.5);
     if (slot >= 0 && slot < MAX_SHADOW_SLOTS) {
-        vec3 samplePos = worldPos + toLight * 0.02;
+        vec3 samplePos = worldPos + normal * 0.02;
         if (kind > 0.5) {
             visibility = shadowVisibilitySpot(slot, samplePos);
         } else {

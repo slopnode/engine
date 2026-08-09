@@ -159,7 +159,7 @@ void runDynamicLightTests() {
         float visibility = 1.0f;
         const bool sampled = shadowSampleFaceDecision(
             vp,
-            {1.1f, 0.5f, 0.0f},
+            {0.1f, 0.5f, 0.0f},
             0.1f,
             kDynamicShadowBias,
             visibility);
