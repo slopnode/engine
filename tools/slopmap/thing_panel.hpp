@@ -17,6 +17,11 @@ struct ThingPanel {
         slopengine::AssetStore& assets,
         MaterialBrowser& materialBrowser,
         float bodyHeight);
+    ThingPanelResult drawMapSection(
+        Editor& editor,
+        slopengine::AssetStore& assets,
+        MaterialBrowser& materialBrowser,
+        float bodyHeight);
 };
 
 }

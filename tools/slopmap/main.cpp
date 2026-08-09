@@ -2817,24 +2817,33 @@ int main(int argc, char* argv[]) {
                 const float avail = ImGui::GetContentRegionAvail().y;
                 const float frameH = ImGui::GetFrameHeight();
                 const float spacing = style.ItemSpacing.y;
-                const float propsLabelH = ImGui::GetTextLineHeight() + spacing;
+                const float propsTabBarH = frameH + spacing;
                 const float separatorH = spacing * 2.0f + 1.0f;
                 const float tabBarH = frameH + spacing;
                 const float filterH = frameH + spacing;
                 const float listMinH = frameH * 3.0f;
                 const float propsMinH = frameH * 8.0f;
                 const float listOverhead = separatorH + tabBarH + filterH;
-                const float splitAvail = std::max(0.0f, avail - propsLabelH - listOverhead);
+                const float splitAvail = std::max(0.0f, avail - propsTabBarH - listOverhead);
                 float propsH = std::max(propsMinH, splitAvail * 0.62f);
                 if (propsH > splitAvail - listMinH) {
                     propsH = std::max(0.0f, splitAvail - listMinH);
                 }
 
-                ImGui::TextUnformatted("Properties");
-                if (d.selectionMode == slopmap::SelectionMode::Entity) {
-                    thingPanel.drawSection(editor, assets, materialBrowser, propsH);
-                } else {
-                    brushPanel.drawSection(editor, propsH);
+                if (ImGui::BeginTabBar("##propsTabs", ImGuiTabBarFlags_None)) {
+                    if (ImGui::BeginTabItem("Select")) {
+                        if (d.selectionMode == slopmap::SelectionMode::Entity) {
+                            thingPanel.drawSection(editor, assets, materialBrowser, propsH);
+                        } else {
+                            brushPanel.drawSection(editor, propsH);
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Map")) {
+                        thingPanel.drawMapSection(editor, assets, materialBrowser, propsH);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
 
                 ImGui::Separator();
@@ -3313,24 +3322,6 @@ int main(int argc, char* argv[]) {
                                             createTool);
                                     });
                                 placeKindButton(
-                                    "weather_sun",
-                                    "sun",
-                                    isKind(slopengine::ThingKind::Sun),
-                                    [&] {
-                                        beginThingKind(
-                                            editor, slopengine::ThingKind::Sun, createTool);
-                                    });
-                                placeKindButton(
-                                    "weather_sun",
-                                    "ambient-light",
-                                    isKind(slopengine::ThingKind::AmbientLight),
-                                    [&] {
-                                        beginThingKind(
-                                            editor,
-                                            slopengine::ThingKind::AmbientLight,
-                                            createTool);
-                                    });
-                                placeKindButton(
                                     "lightning",
                                     "dynamic-point-light",
                                     isKind(slopengine::ThingKind::DynamicPointLight),
@@ -3349,14 +3340,6 @@ int main(int argc, char* argv[]) {
                                             editor,
                                             slopengine::ThingKind::DynamicSpotLight,
                                             createTool);
-                                    });
-                                placeKindButton(
-                                    "image",
-                                    "skybox",
-                                    isKind(slopengine::ThingKind::Skybox),
-                                    [&] {
-                                        beginThingKind(
-                                            editor, slopengine::ThingKind::Skybox, createTool);
                                     });
                                 drawCatalogDefs(
                                     slopengine::thingDefRegistry().defsForRole(
