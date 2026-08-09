@@ -300,6 +300,27 @@ bool targetIsMounted(const slopengine::AssetStore& assets, const std::filesystem
     return false;
 }
 
+std::vector<std::string> listTargetMaps(const std::filesystem::path& target) {
+    std::vector<std::string> maps;
+    const std::filesystem::path mapsRoot = target / "maps";
+    std::error_code ec;
+    std::filesystem::directory_iterator it(mapsRoot, ec);
+    if (ec) {
+        return maps;
+    }
+    for (const auto& entry : it) {
+        if (!entry.is_directory()) {
+            continue;
+        }
+        if (!std::filesystem::exists(entry.path() / "map.meta")) {
+            continue;
+        }
+        maps.push_back(entry.path().filename().string());
+    }
+    std::sort(maps.begin(), maps.end());
+    return maps;
+}
+
 struct MapStats {
     int brushes = 0;
     int hullBrushes = 0;
@@ -555,7 +576,8 @@ void drawScene(
         lineWidth,
         &camera,
         &assets,
-        &d.things);
+        &d.things,
+        editor.showNodraw);
 
     if (fillWire) {
         for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
@@ -1051,6 +1073,7 @@ int main(int argc, char* argv[]) {
     bool compileRunIncludesRad = false;
     bool showPreferencesModal = false;
     char mapNameBuf[128] = {};
+    std::vector<std::string> availableMaps = listTargetMaps(config->target);
     char prefabPathBuf[256] = {};
     char thumbCachePathBuf[512] = {};
     RenderTexture2D contentTargets[slopmap::kViewportCount]{};
@@ -1218,6 +1241,7 @@ int main(int argc, char* argv[]) {
                         editor.showLoadModal = true;
                         editor.modalMapName = editor.levelDoc.assetPath;
                         std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.modalMapName.c_str());
+                        availableMaps = listTargetMaps(config->target);
                     }
                 }
                 if (menuItemWithIcon(assets, kIcons, "disk", "Save", "Ctrl+S")) {
@@ -3509,7 +3533,7 @@ int main(int argc, char* argv[]) {
                 const float rotateSnapW = snapIconMenuWidth(rotateSnapLabel, snapIcon);
                 const float snapSectionW =
                     translateSnapW + transformSnapW + rotateSnapW + snapGap * 2.0f;
-                const float gridControlsW = btn + planeW + gridLabelW + btn * 2.0f;
+                const float gridControlsW = btn + gap + btn + planeW + gridLabelW + btn * 2.0f;
                 const float controlsW = viewSectionW + gap + snapSectionW + gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
@@ -3570,6 +3594,9 @@ int main(int argc, char* argv[]) {
                                 ImU32 tint = ImGui::GetColorU32(ImGuiCol_Text);
                                 if (!editor.showGrid && std::strcmp(id, "grid-toggle") == 0) {
                                     tint = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                                }
+                                if (editor.showNodraw && std::strcmp(id, "nodraw-toggle") == 0) {
+                                    tint = ImGui::GetColorU32(ImGuiCol_CheckMark);
                                 }
                                 ImGui::GetWindowDrawList()->AddImage(
                                     (ImTextureID)(intptr_t)atlas->texture.id,
@@ -3811,6 +3838,18 @@ int main(int argc, char* argv[]) {
 
                     ImGui::SameLine(0.0f, gap);
 
+                    if (iconButton("nodraw-toggle", "eye")) {
+                        editor.showNodraw = !editor.showNodraw;
+                        editor.statusMessage =
+                            editor.showNodraw ? "Nodraw faces: shown" : "Nodraw faces: hidden";
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            editor.showNodraw ? "Hide nodraw faces" : "Show nodraw faces");
+                    }
+
+                    ImGui::SameLine(0.0f, gap);
+
                     if (iconButton("grid-toggle", "table")) {
                         editor.showGrid = !editor.showGrid;
                         editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
@@ -3935,17 +3974,49 @@ int main(int argc, char* argv[]) {
         }
         if (ImGui::BeginPopupModal("Load Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             constexpr const char* kIcons = kDefaultIconSet;
+            auto attemptLoad = [&](const char* name) {
+                if (editor.levelDoc.dirty) {
+                    editor.statusMessage = "Save or discard changes before loading";
+                    return false;
+                }
+                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                if (!editor.load(assets, scheme, name)) {
+                    return false;
+                }
+                previewNeedsRebuild = false;
+                return true;
+            };
+
+            ImGui::TextUnformatted("Maps in target package");
+            ImGui::SameLine();
+            if (buttonWithIcon(assets, kIcons, "arrow_refresh", "Refresh")) {
+                availableMaps = listTargetMaps(config->target);
+            }
+            if (availableMaps.empty()) {
+                ImGui::TextDisabled("(none found under maps/)");
+            } else if (ImGui::BeginListBox("##maplist", ImVec2(280, 160))) {
+                for (const std::string& name : availableMaps) {
+                    ImGui::PushID(name.c_str());
+                    const bool isSelected = mapNameBuf == name;
+                    if (ImGui::Selectable(name.c_str(), isSelected)) {
+                        std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", name.c_str());
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        if (attemptLoad(name.c_str())) {
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndListBox();
+            }
+
+            ImGui::Separator();
             ImGui::TextUnformatted("Map folder name under maps/");
             ImGui::InputText("##loadmap", mapNameBuf, sizeof(mapNameBuf));
             if (buttonWithIcon(assets, kIcons, "folder_page", "Load", ImVec2(120, 0))) {
-                if (editor.levelDoc.dirty) {
-                    editor.statusMessage = "Save or discard changes before loading";
-                } else {
-                    cancelTools(createTool, selectTool, punchTool, clipTool, editor);
-                    if (editor.load(assets, scheme, mapNameBuf)) {
-                        previewNeedsRebuild = false;
-                        ImGui::CloseCurrentPopup();
-                    }
+                if (attemptLoad(mapNameBuf)) {
+                    ImGui::CloseCurrentPopup();
                 }
             }
             ImGui::SameLine();

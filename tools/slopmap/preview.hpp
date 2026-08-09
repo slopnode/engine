@@ -83,7 +83,8 @@ struct MapPreview {
         float lineWidth,
         const Camera3D* camera = nullptr,
         slopengine::AssetStore* assets = nullptr,
-        const std::vector<slopengine::Thing>* things = nullptr) const;
+        const std::vector<slopengine::Thing>* things = nullptr,
+        bool showNodraw = false) const;
 };
 
 struct InfiniteGrid {

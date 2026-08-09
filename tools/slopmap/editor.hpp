@@ -90,6 +90,7 @@ struct Editor {
     float gridSize = 0.1f;
     bool showGrid = true;
     bool showGizmos = true;
+    bool showNodraw = false;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
     TransformSpace transformSpace = TransformSpace::Relative;
