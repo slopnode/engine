@@ -1029,13 +1029,6 @@ std::optional<Brush> makeBrushCylinder(
         }
     };
 
-    Vector3 axisUnit{};
-    {
-        float comps[3] = {0.0f, 0.0f, 0.0f};
-        comps[axisIdx] = 1.0f;
-        axisUnit = {comps[0], comps[1], comps[2]};
-    }
-
     std::vector<BrushFace> faces;
     faces.reserve(static_cast<std::size_t>(sides) + 2);
 
@@ -1055,9 +1048,6 @@ std::optional<Brush> makeBrushCylinder(
 
     for (int i = 0; i < sides; ++i) {
         const int next = (i + 1) % sides;
-        const float angle = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(sides);
-        const float step = (2.0f * kPi) / static_cast<float>(sides);
-        const float midAngle = angle + 0.5f * step;
 
         BrushFace side;
         side.id = id + "/side-" + std::to_string(i);
@@ -1069,18 +1059,9 @@ std::optional<Brush> makeBrushCylinder(
             ringTop[static_cast<std::size_t>(i)],
         };
         orientOutward(side);
-
-        // Explicit per-face UV axes: a world-space nearest-cardinal-axis
-        // projection (the default for axis-aligned faces) snaps to one of six
-        // buckets and jumps discontinuously between adjacent cylinder sides.
-        // Locking a tangent U axis (rotating smoothly around the ring) and a
-        // fixed V axis along the barrel keeps texturing continuous face-to-face.
-        float tangentComps[3] = {0.0f, 0.0f, 0.0f};
-        tangentComps[idxB] = -std::sin(midAngle);
-        tangentComps[idxC] = std::cos(midAngle);
-        side.uvUAxis = normalize3(Vector3{tangentComps[0], tangentComps[1], tangentComps[2]});
-        side.uvVAxis = axisUnit;
-        side.uvLock = true;
+        // UV left at defaults (unlocked, zero shift), same as every other
+        // newly created face; texture alignment is a manual step via the
+        // face Align tool, not something baked in at creation time.
 
         faces.push_back(std::move(side));
     }

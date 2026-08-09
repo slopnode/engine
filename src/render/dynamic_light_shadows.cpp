@@ -196,7 +196,11 @@ void DynamicLightShadowState::unload() {
     ready = false;
 }
 
-DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets) {
+DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets, int resolution) {
+    resolution = std::clamp(
+        resolution,
+        kMinDynamicShadowMapResolution,
+        kMaxDynamicShadowMapResolution);
     DynamicLightShadowState state{};
     const std::string vert = assets.getShaderSource("default/shadow_depth_vert");
     const std::string frag = assets.getShaderSource("default/shadow_depth_frag");
@@ -215,8 +219,8 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets) {
         GL_TEXTURE_2D_ARRAY,
         0,
         GL_DEPTH_COMPONENT24,
-        kDynamicShadowMapResolution,
-        kDynamicShadowMapResolution,
+        resolution,
+        resolution,
         kDynamicShadowMapCount,
         0,
         GL_DEPTH_COMPONENT,
@@ -235,7 +239,7 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets) {
         glReadBuffer(GL_NONE);
         rlDisableFramebuffer();
     }
-    state.scratch = LoadRenderTexture(kDynamicShadowMapResolution, kDynamicShadowMapResolution);
+    state.scratch = LoadRenderTexture(resolution, resolution);
     state.ready = state.depthShader.id != 0 && state.depthArrayId != 0 && state.fboId != 0 &&
         state.scratch.id != 0;
     if (!state.ready) {

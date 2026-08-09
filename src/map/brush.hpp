@@ -158,7 +158,9 @@ std::optional<Brush> makeBrushConvex(
 
 /** Prism inscribed in the AABB footprint, revolved around whichever world axis
  *  (X/Y/Z) @p axis is most closely aligned to (default Y). The two other axes
- *  form the ring; the chosen axis's AABB extent is the prism's height. */
+ *  form the ring; the chosen axis's AABB extent is the prism's height. Faces
+ *  get default (unlocked, zero-shift) UV, same as any other freshly built
+ *  brush face; texture alignment across the ring is a manual step. */
 std::optional<Brush> makeBrushCylinder(
     std::string id,
     Vector3 mins,

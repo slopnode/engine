@@ -16,7 +16,9 @@ constexpr int kMaxDynamicLights = 128;
 /** Compiled array-size ceiling for shadow-casting lights; the runtime active
  *  count is GraphicsSettings::maxShadowedDynamicLights, clamped to this. */
 constexpr int kMaxShadowedDynamicLights = 16;
-constexpr int kDynamicShadowMapResolution = 512;
+constexpr int kMinDynamicShadowMapResolution = 128;
+constexpr int kMaxDynamicShadowMapResolution = 8192;
+constexpr int kDefaultDynamicShadowMapResolution = 512;
 constexpr int kDynamicShadowFacesPerSlot = 6;
 constexpr float kDynamicShadowBias = 0.002f;
 constexpr int kDynamicShadowMapCount =

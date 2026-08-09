@@ -159,6 +159,8 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
             parseInt(value, graphics.maxDynamicLights);
         } else if (key == "max_shadowed_dynamic_lights") {
             parseInt(value, graphics.maxShadowedDynamicLights);
+        } else if (key == "shadow_map_resolution") {
+            parseInt(value, graphics.shadowMapResolution);
         }
     }
 
@@ -174,6 +176,10 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
         graphics.maxShadowedDynamicLights,
         0,
         std::min(graphics.maxDynamicLights, kMaxShadowedDynamicLights));
+    graphics.shadowMapResolution = std::clamp(
+        graphics.shadowMapResolution,
+        kMinDynamicShadowMapResolution,
+        kMaxDynamicShadowMapResolution);
 
     return graphics;
 }
@@ -240,7 +246,8 @@ bool UserSettings::save() const {
            << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
            << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << '\n'
            << "max_dynamic_lights=" << graphics.maxDynamicLights << '\n'
-           << "max_shadowed_dynamic_lights=" << graphics.maxShadowedDynamicLights << "\n\n"
+           << "max_shadowed_dynamic_lights=" << graphics.maxShadowedDynamicLights << '\n'
+           << "shadow_map_resolution=" << graphics.shadowMapResolution << "\n\n"
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

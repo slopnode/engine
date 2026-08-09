@@ -66,8 +66,11 @@ struct DynamicLightFrameState {
     bool shadowMapsActive = false;
 };
 
-/** Creates shadow render targets and the depth shader. */
-DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets);
+/** Creates shadow render targets and the depth shader at @p resolution (clamped to
+ *  [kMinDynamicShadowMapResolution, kMaxDynamicShadowMapResolution]). */
+DynamicLightShadowState createDynamicLightShadowState(
+    AssetStore& assets,
+    int resolution = kDefaultDynamicShadowMapResolution);
 
 /** Renders shadow maps for ranked lights that cast shadows. */
 void renderDynamicLightShadows(
