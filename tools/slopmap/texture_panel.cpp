@@ -596,8 +596,8 @@ TexturePanelResult TexturePanel::drawUvSection(
     float scaleX = scaleXCommon.value_or(1.0f);
     float scaleY = scaleYCommon.value_or(1.0f);
     if (dragFloatMixed("Scale X", &scaleX, !scaleXCommon.has_value(), 0.01f)) {
-        if (scaleX < 1e-4f) {
-            scaleX = 1e-4f;
+        if (std::fabs(scaleX) < 1e-4f) {
+            scaleX = scaleX < 0.0f ? -1e-4f : 1e-4f;
         }
         if (lockAspect) {
             const float ratio =
@@ -616,8 +616,8 @@ TexturePanelResult TexturePanel::drawUvSection(
         }
     }
     if (dragFloatMixed("Scale Y", &scaleY, !scaleYCommon.has_value(), 0.01f)) {
-        if (scaleY < 1e-4f) {
-            scaleY = 1e-4f;
+        if (std::fabs(scaleY) < 1e-4f) {
+            scaleY = scaleY < 0.0f ? -1e-4f : 1e-4f;
         }
         if (lockAspect) {
             const float ratio =
