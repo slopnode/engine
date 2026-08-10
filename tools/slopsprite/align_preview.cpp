@@ -88,15 +88,18 @@ void AlignPreview::draw(
         static_cast<int>(screenH),
         Color{60, 70, 90, 180});
 
-    if (editor.doc.onionEnabled &&
-        editor.doc.onionFrameIndex >= 0 &&
-        editor.doc.onionFrameIndex < static_cast<int>(editor.doc.asset.frames.size())) {
-        const std::string& onionFrameId =
-            editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.onionFrameIndex)].id;
-        const auto onion = slopengine::resolveViewSpriteFrame(
-            editor.doc.asset, editor.doc.atlas, onionFrameId, editor.doc.onionRot);
-        if (onion && onion->texture != nullptr) {
-            drawAlignedFrame(*onion, pivotScreenX, pivotScreenY, zoom, Color{80, 180, 255, 110});
+    if (editor.doc.onionEnabled) {
+        const slopengine::SpriteAsset& onionAsset = editor.onionAsset();
+        const slopengine::SpriteAtlas& onionAtlas = editor.onionAtlas();
+        if (editor.doc.onionFrameIndex >= 0 &&
+            editor.doc.onionFrameIndex < static_cast<int>(onionAsset.frames.size())) {
+            const std::string& onionFrameId =
+                onionAsset.frames[static_cast<std::size_t>(editor.doc.onionFrameIndex)].id;
+            const auto onion = slopengine::resolveViewSpriteFrame(
+                onionAsset, onionAtlas, onionFrameId, editor.doc.onionRot);
+            if (onion && onion->texture != nullptr) {
+                drawAlignedFrame(*onion, pivotScreenX, pivotScreenY, zoom, Color{80, 180, 255, 110});
+            }
         }
     }
 

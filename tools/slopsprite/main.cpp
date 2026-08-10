@@ -38,7 +38,6 @@ using slopengine::beginMainMenuBar;
 using slopengine::beginMenuWithIcon;
 using slopengine::buttonWithIcon;
 using slopengine::collapsingHeaderWithIcon;
-using slopengine::drawIconImGui;
 using slopengine::endMainMenuBar;
 using slopengine::kDefaultIconSet;
 using slopengine::menuItemWithIcon;
@@ -127,6 +126,16 @@ bool targetIsMounted(const slopengine::AssetStore& assets, const std::filesystem
     return false;
 }
 
+constexpr float kLabelColumnWidth = 120.0f;
+
+/** Draws @p label then positions the cursor for a left-labeled, full-width control. */
+void labeledField(const char* label, float labelWidth = kLabelColumnWidth) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(labelWidth);
+    ImGui::SetNextItemWidth(-1.0f);
+}
+
 void drawAnimBar(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("No sprite open");
@@ -198,339 +207,6 @@ void drawAnimBar(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
     }
     ImGui::SameLine();
     ImGui::Text("%s%s", editor.doc.currentFrame.c_str(), editor.doc.animDirty ? "*" : "");
-}
-
-void drawClipFramesSection(
-    slopsprite::Editor& editor,
-    slopengine::AssetStore& assets,
-    slopsprite::SoundBrowser& soundBrowser) {
-    constexpr const char* kIcons = kDefaultIconSet;
-
-    if (!editor.doc.hasAnim || editor.doc.animBank.clips.empty()) {
-        ImGui::TextDisabled("No .spanim for this sprite");
-        if (buttonWithIcon(assets, kIcons, "page_add", "Create .spanim", ImVec2(-1.0f, 0.0f))) {
-            editor.ensureAnimBank();
-        }
-        return;
-    }
-
-    slopengine::SpriteAnimClip* clip = editor.currentAnimClip();
-    if (clip == nullptr) {
-        ImGui::TextDisabled("Select a clip in the timeline");
-        return;
-    }
-
-    if (buttonWithIcon(
-            assets, kIcons, "film_add", "Append selected .spr frame", ImVec2(-1.0f, 0.0f))) {
-        if (editor.doc.selectedFrameIndex >= 0 &&
-            editor.doc.selectedFrameIndex < static_cast<int>(editor.doc.asset.frames.size())) {
-            slopengine::SpriteAnimFrame animFrame{};
-            animFrame.id =
-                editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)].id;
-            animFrame.duration = 0.1f;
-            clip->frames.push_back(std::move(animFrame));
-            editor.doc.animDirty = true;
-            editor.doc.animDuration = editor.clipDuration(editor.doc.animClip);
-        }
-    }
-    ImGui::TextDisabled("Tween out: R rot, S scale, T translate");
-
-    static int soundPickFrameIndex = -1;
-
-    for (int i = 0; i < static_cast<int>(clip->frames.size()); ++i) {
-        slopengine::SpriteAnimFrame& animFrame = clip->frames[static_cast<std::size_t>(i)];
-        ImGui::PushID(i);
-
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
-        char idBuf[64] = {};
-        std::snprintf(idBuf, sizeof(idBuf), "%s", animFrame.id.c_str());
-        if (ImGui::BeginCombo("##animframeid", idBuf)) {
-            for (const slopengine::SpriteFrame& sprFrame : editor.doc.asset.frames) {
-                const bool selected = sprFrame.id == animFrame.id;
-                if (ImGui::Selectable(sprFrame.id.c_str(), selected)) {
-                    animFrame.id = sprFrame.id;
-                    editor.doc.animDirty = true;
-                }
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1.0f);
-        int durationMs = static_cast<int>(std::lround(static_cast<double>(animFrame.duration) * 1000.0));
-        if (ImGui::DragInt("##dur", &durationMs, 1.0f, 1, 60000, "%dms")) {
-            animFrame.duration = static_cast<float>(durationMs) / 1000.0f;
-            editor.doc.animDirty = true;
-            editor.doc.animDuration = editor.clipDuration(editor.doc.animClip);
-        }
-
-        if (ImGui::Checkbox("R", &animFrame.tweenRotation)) {
-            editor.doc.animDirty = true;
-            editor.scrubAnim(editor.doc.animTime);
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("S", &animFrame.tweenScale)) {
-            editor.doc.animDirty = true;
-            editor.scrubAnim(editor.doc.animTime);
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("T", &animFrame.tweenTranslate)) {
-            editor.doc.animDirty = true;
-            editor.scrubAnim(editor.doc.animTime);
-        }
-        ImGui::SameLine();
-        drawIconImGui(assets, kIcons, "arrow_up");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Up") && i > 0) {
-            std::swap(
-                clip->frames[static_cast<std::size_t>(i)],
-                clip->frames[static_cast<std::size_t>(i - 1)]);
-            editor.doc.animDirty = true;
-        }
-        ImGui::SameLine();
-        drawIconImGui(assets, kIcons, "arrow_down");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Dn") && i + 1 < static_cast<int>(clip->frames.size())) {
-            std::swap(
-                clip->frames[static_cast<std::size_t>(i)],
-                clip->frames[static_cast<std::size_t>(i + 1)]);
-            editor.doc.animDirty = true;
-        }
-        ImGui::SameLine();
-        drawIconImGui(assets, kIcons, "cross");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X") && clip->frames.size() > 1) {
-            clip->frames.erase(clip->frames.begin() + i);
-            editor.doc.animDirty = true;
-            editor.doc.animDuration = editor.clipDuration(editor.doc.animClip);
-            ImGui::PopID();
-            break;
-        }
-
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
-        char soundBuf[128] = {};
-        std::snprintf(soundBuf, sizeof(soundBuf), "%s", animFrame.sound.c_str());
-        if (ImGui::InputTextWithHint("##sound", "sound path", soundBuf, sizeof(soundBuf))) {
-            animFrame.sound = soundBuf;
-            editor.doc.animDirty = true;
-        }
-        ImGui::SameLine();
-        drawIconImGui(assets, kIcons, "sound");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Pick")) {
-            soundBrowser.rescan(assets);
-            soundBrowser.filter.clear();
-            soundBrowser.open = true;
-            soundPickFrameIndex = i;
-        }
-        if (animFrame.hasSound()) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::DragFloat("##soundvol", &animFrame.soundVolume, 0.01f, 0.0f, 2.0f, "vol %.2f")) {
-                editor.doc.animDirty = true;
-            }
-        }
-
-        ImGui::SetNextItemWidth(-1.0f);
-        std::string hintsJoined;
-        for (std::size_t hi = 0; hi < animFrame.hints.size(); ++hi) {
-            if (hi > 0) {
-                hintsJoined.push_back(' ');
-            }
-            hintsJoined += animFrame.hints[hi];
-        }
-        char hintsBuf[256] = {};
-        std::snprintf(hintsBuf, sizeof(hintsBuf), "%s", hintsJoined.c_str());
-        if (ImGui::InputTextWithHint("##hints", "hints (space-separated)", hintsBuf, sizeof(hintsBuf))) {
-            animFrame.hints.clear();
-            const char* cursor = hintsBuf;
-            while (*cursor != '\0') {
-                while (*cursor == ' ' || *cursor == '\t' || *cursor == ',') {
-                    ++cursor;
-                }
-                if (*cursor == '\0') {
-                    break;
-                }
-                const char* begin = cursor;
-                while (*cursor != '\0' && *cursor != ' ' && *cursor != '\t' && *cursor != ',') {
-                    ++cursor;
-                }
-                animFrame.hints.emplace_back(begin, static_cast<std::size_t>(cursor - begin));
-            }
-            editor.doc.animDirty = true;
-        }
-
-        ImGui::TextDisabled("Overlays (layer sprite clip x y)");
-        for (int oi = 0; oi < static_cast<int>(animFrame.overlays.size()); ++oi) {
-            slopengine::SpriteAnimOverlay& overlay =
-                animFrame.overlays[static_cast<std::size_t>(oi)];
-            ImGui::PushID(oi + 1000);
-            const bool selected = editor.doc.selectedOverlayHoldIndex == i &&
-                                  editor.doc.selectedOverlayIndex == oi;
-            if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-                editor.doc.muzzleSelected = false;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(48.0f);
-            if (ImGui::DragInt("##layer", &overlay.layer, 0.2f)) {
-                if (overlay.layer == 0) {
-                    overlay.layer = 1;
-                }
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
-            char spriteBuf[128] = {};
-            std::snprintf(spriteBuf, sizeof(spriteBuf), "%s", overlay.sprite.c_str());
-            if (ImGui::InputTextWithHint("##osprite", "sprite", spriteBuf, sizeof(spriteBuf))) {
-                overlay.sprite = spriteBuf;
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
-            char clipBuf[64] = {};
-            std::snprintf(clipBuf, sizeof(clipBuf), "%s", overlay.clip.c_str());
-            if (ImGui::InputTextWithHint("##oclip", "clip", clipBuf, sizeof(clipBuf))) {
-                overlay.clip = clipBuf;
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
-            if (ImGui::DragFloat("##ox", &overlay.x, 0.5f, 0.0f, 0.0f, "x %.1f")) {
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.7f);
-            if (ImGui::DragFloat("##oy", &overlay.y, 0.5f, 0.0f, 0.0f, "y %.1f")) {
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("X")) {
-                if (editor.doc.selectedOverlayHoldIndex == i &&
-                    editor.doc.selectedOverlayIndex == oi) {
-                    editor.doc.selectedOverlayHoldIndex = -1;
-                    editor.doc.selectedOverlayIndex = -1;
-                }
-                animFrame.overlays.erase(animFrame.overlays.begin() + oi);
-                editor.doc.animDirty = true;
-                ImGui::PopID();
-                break;
-            }
-            ImGui::PopID();
-        }
-        if (ImGui::SmallButton("Add overlay")) {
-            slopengine::SpriteAnimOverlay overlay{};
-            overlay.layer = 1;
-            animFrame.overlays.push_back(std::move(overlay));
-            editor.doc.selectedOverlayHoldIndex = i;
-            editor.doc.selectedOverlayIndex = static_cast<int>(animFrame.overlays.size()) - 1;
-            editor.doc.animDirty = true;
-        }
-
-        ImGui::Separator();
-        ImGui::PopID();
-    }
-
-    if (soundBrowser.open) {
-        std::string picked;
-        if (soundBrowser.drawModal(assets, picked)) {
-            if (soundPickFrameIndex >= 0 &&
-                soundPickFrameIndex < static_cast<int>(clip->frames.size())) {
-                clip->frames[static_cast<std::size_t>(soundPickFrameIndex)].sound = std::move(picked);
-                editor.doc.animDirty = true;
-            }
-            soundPickFrameIndex = -1;
-        }
-        if (!soundBrowser.open) {
-            soundPickFrameIndex = -1;
-        }
-    }
-}
-
-void drawFramesListSection(
-    slopsprite::Editor& editor,
-    slopengine::AssetStore& assets) {
-    constexpr const char* kIcons = kDefaultIconSet;
-
-    if (buttonWithIcon(assets, kIcons, "image_add", "Add empty")) {
-        slopengine::SpriteFrame frame{};
-        frame.id = "F" + std::to_string(editor.doc.asset.frames.size());
-        editor.doc.asset.frames.push_back(std::move(frame));
-        editor.selectFrameIndex(static_cast<int>(editor.doc.asset.frames.size()) - 1);
-        editor.markDirty();
-        editor.doc.atlasDirty = true;
-    }
-    ImGui::SameLine();
-    if (buttonWithIcon(assets, kIcons, "page_copy", "Duplicate selected")) {
-        editor.duplicateSelectedFrame();
-    }
-
-    for (int i = 0; i < static_cast<int>(editor.doc.asset.frames.size()); ++i) {
-        slopengine::SpriteFrame& frame = editor.doc.asset.frames[static_cast<std::size_t>(i)];
-        ImGui::PushID(i);
-        const bool selected = i == editor.doc.selectedFrameIndex;
-        if (selected) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.40f, 0.65f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.48f, 0.75f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.35f, 0.58f, 1.0f));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.22f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.26f, 0.32f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.14f, 0.18f, 1.0f));
-        }
-        const float pickSize = ImGui::GetFrameHeight();
-        const ImVec2 pickPos = ImGui::GetCursorScreenPos();
-        if (ImGui::Button("##pick", ImVec2(pickSize, pickSize))) {
-            editor.selectFrameIndex(i);
-        }
-        ImGui::PopStyleColor(3);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Show keyed pose for this frame");
-        }
-        {
-            const ImVec2 iconPos{
-                pickPos.x + (pickSize - 16.0f) * 0.5f,
-                pickPos.y + (pickSize - 16.0f) * 0.5f,
-            };
-            ImGui::SetCursorScreenPos(iconPos);
-            drawIconImGui(assets, kIcons, "images", 16.0f);
-            ImGui::SetCursorScreenPos(
-                ImVec2(pickPos.x + pickSize + ImGui::GetStyle().ItemSpacing.x, pickPos.y));
-        }
-        ImGui::SameLine(0.0f, 0.0f);
-        char idBuf[64] = {};
-        std::snprintf(idBuf, sizeof(idBuf), "%s", frame.id.c_str());
-        ImGui::SetNextItemWidth(80.0f);
-        if (ImGui::InputText("##frameid", idBuf, sizeof(idBuf))) {
-            frame.id = idBuf;
-            if (selected) {
-                editor.doc.currentFrame = frame.id;
-            }
-            editor.markDirty();
-        }
-        ImGui::SameLine();
-        drawIconImGui(assets, kIcons, "cross");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X") && editor.doc.asset.frames.size() > 1) {
-            editor.doc.asset.frames.erase(editor.doc.asset.frames.begin() + i);
-            editor.selectFrameIndex(std::min(i, static_cast<int>(editor.doc.asset.frames.size()) - 1));
-            editor.markDirty();
-            editor.doc.atlasDirty = true;
-            ImGui::PopID();
-            break;
-        }
-        ImGui::PopID();
-    }
 }
 
 void drawAlignFrameSection(
@@ -657,14 +333,15 @@ void drawAlignFrameSection(
 
     if (mode == slopsprite::FrameRotationMode::Custom ||
         mode == slopsprite::FrameRotationMode::Eight) {
-        if (ImGui::Checkbox("Mirror", &mirror)) {
+        labeledField("Mirror");
+        if (ImGui::Checkbox("##mirror", &mirror)) {
             ensureRot().mirror = mirror;
             afterRotEdit();
         }
     }
 
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::InputText("Hit mask", hitBuf, sizeof(hitBuf))) {
+    labeledField("Hit mask");
+    if (ImGui::InputText("##hitmask", hitBuf, sizeof(hitBuf))) {
         slopengine::SpriteRotation& entry = ensureRot();
         if (hitBuf[0] == '\0') {
             entry.hitMaskPath.reset();
@@ -687,23 +364,27 @@ void drawAlignFrameSection(
         entry.hasOffset = true;
     }
     int offset[2] = {entry.offsetX, entry.offsetY};
-    if (ImGui::DragInt2("Offset", offset, 1.0f)) {
+    labeledField("Offset");
+    if (ImGui::DragInt2("##offset", offset, 1.0f)) {
         entry.offsetX = offset[0];
         entry.offsetY = offset[1];
         entry.hasOffset = true;
         afterRotEdit();
     }
-    if (ImGui::DragFloat("Rotation", &entry.rotationDeg, 0.5f, 0.0f, 0.0f, "%.1f deg")) {
+    labeledField("Rotation");
+    if (ImGui::DragFloat("##rotation", &entry.rotationDeg, 0.5f, 0.0f, 0.0f, "%.1f deg")) {
         afterRotEdit();
     }
     float scale[2] = {entry.scaleX, entry.scaleY};
-    if (ImGui::DragFloat2("Scale", scale, 0.01f, 0.01f, 16.0f, "%.2f")) {
+    labeledField("Scale");
+    if (ImGui::DragFloat2("##scale", scale, 0.01f, 0.01f, 16.0f, "%.2f")) {
         entry.scaleX = scale[0];
         entry.scaleY = scale[1];
         afterRotEdit();
     }
     float translate[2] = {entry.translateX, entry.translateY};
-    if (ImGui::DragFloat2("Translate", translate, 0.5f, 0.0f, 0.0f, "%.1f")) {
+    labeledField("Translate");
+    if (ImGui::DragFloat2("##translate", translate, 0.5f, 0.0f, 0.0f, "%.1f")) {
         entry.translateX = translate[0];
         entry.translateY = translate[1];
         afterRotEdit();
@@ -781,17 +462,20 @@ void drawAnimFrameSection(slopsprite::Editor& editor, slopengine::AssetStore& as
         editor.markDirty();
     };
 
-    if (ImGui::DragFloat("Anim rotation", &entry.animRotationDeg, 0.5f, 0.0f, 0.0f, "%.1f deg")) {
+    labeledField("Anim rotation");
+    if (ImGui::DragFloat("##animrotation", &entry.animRotationDeg, 0.5f, 0.0f, 0.0f, "%.1f deg")) {
         afterAnimEdit();
     }
     float animScale[2] = {entry.animScaleX, entry.animScaleY};
-    if (ImGui::DragFloat2("Anim scale", animScale, 0.01f, 0.01f, 16.0f, "%.2f")) {
+    labeledField("Anim scale");
+    if (ImGui::DragFloat2("##animscale", animScale, 0.01f, 0.01f, 16.0f, "%.2f")) {
         entry.animScaleX = animScale[0];
         entry.animScaleY = animScale[1];
         afterAnimEdit();
     }
     float animTranslate[2] = {entry.animTranslateX, entry.animTranslateY};
-    if (ImGui::DragFloat2("Anim translate", animTranslate, 0.5f, 0.0f, 0.0f, "%.1f")) {
+    labeledField("Anim translate");
+    if (ImGui::DragFloat2("##animtranslate", animTranslate, 0.5f, 0.0f, 0.0f, "%.1f")) {
         entry.animTranslateX = animTranslate[0];
         entry.animTranslateY = animTranslate[1];
         afterAnimEdit();
@@ -852,47 +536,71 @@ void drawAnimFrameSection(slopsprite::Editor& editor, slopengine::AssetStore& as
     }
 }
 
-void drawOnionSection(slopsprite::Editor& editor) {
-    ImGui::Checkbox("Compare", &editor.doc.onionEnabled);
-    if (editor.doc.onionEnabled && !editor.doc.asset.frames.empty()) {
-        editor.doc.onionFrameIndex = std::clamp(
-            editor.doc.onionFrameIndex,
-            0,
-            static_cast<int>(editor.doc.asset.frames.size()) - 1);
-        const char* onionPreview =
-            editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.onionFrameIndex)]
-                .id.c_str();
-        ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::BeginCombo("##onionframe", onionPreview)) {
-            for (int i = 0; i < static_cast<int>(editor.doc.asset.frames.size()); ++i) {
-                const bool selected = i == editor.doc.onionFrameIndex;
-                if (ImGui::Selectable(
-                        editor.doc.asset.frames[static_cast<std::size_t>(i)].id.c_str(),
-                        selected)) {
-                    editor.doc.onionFrameIndex = i;
-                }
-            }
-            ImGui::EndCombo();
+void drawOnionSection(
+    slopsprite::Editor& editor,
+    slopengine::AssetStore& assets,
+    slopsprite::SpritePicker& spritePicker) {
+    constexpr const char* kIcons = kDefaultIconSet;
+
+    labeledField("Compare");
+    ImGui::Checkbox("##compare", &editor.doc.onionEnabled);
+    if (editor.doc.onionEnabled) {
+        const std::string onionLabel =
+            editor.onionSpritePath.empty() ? "(this sprite)" : editor.onionSpritePath;
+        ImGui::TextWrapped("Onion sprite: %s", onionLabel.c_str());
+        if (buttonWithIcon(assets, kIcons, "folder_page", "Pick sprite", ImVec2(-1.0f, 0.0f))) {
+            spritePicker.rescan(assets);
+            spritePicker.open = true;
         }
-        const slopsprite::FrameRotationMode onionMode = slopsprite::detectFrameRotationMode(
-            editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.onionFrameIndex)]);
-        editor.doc.onionRot = slopsprite::clampSelectedRotToMode(onionMode, editor.doc.onionRot);
-        if (onionMode == slopsprite::FrameRotationMode::None) {
-            ImGui::TextDisabled("Onion rot: 0");
-        } else if (onionMode == slopsprite::FrameRotationMode::Five) {
-            ImGui::SliderInt("Onion rot", &editor.doc.onionRot, 1, 5);
-        } else {
-            ImGui::SliderInt("Onion rot", &editor.doc.onionRot, 1, 8);
+        std::string pickedSprite;
+        if (spritePicker.drawModal(assets, pickedSprite)) {
+            editor.setOnionSprite(assets, pickedSprite);
+        }
+        if (!editor.onionSpritePath.empty() &&
+            buttonWithIcon(assets, kIcons, "arrow_undo", "Use this sprite", ImVec2(-1.0f, 0.0f))) {
+            editor.clearOnionSprite();
+        }
+
+        const slopengine::SpriteAsset& onionAsset = editor.onionAsset();
+        if (!onionAsset.frames.empty()) {
+            editor.doc.onionFrameIndex = std::clamp(
+                editor.doc.onionFrameIndex,
+                0,
+                static_cast<int>(onionAsset.frames.size()) - 1);
+            const char* onionPreview =
+                onionAsset.frames[static_cast<std::size_t>(editor.doc.onionFrameIndex)].id.c_str();
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::BeginCombo("##onionframe", onionPreview)) {
+                for (int i = 0; i < static_cast<int>(onionAsset.frames.size()); ++i) {
+                    const bool selected = i == editor.doc.onionFrameIndex;
+                    if (ImGui::Selectable(
+                            onionAsset.frames[static_cast<std::size_t>(i)].id.c_str(), selected)) {
+                        editor.doc.onionFrameIndex = i;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            const slopsprite::FrameRotationMode onionMode = slopsprite::detectFrameRotationMode(
+                onionAsset.frames[static_cast<std::size_t>(editor.doc.onionFrameIndex)]);
+            editor.doc.onionRot = slopsprite::clampSelectedRotToMode(onionMode, editor.doc.onionRot);
+            if (onionMode == slopsprite::FrameRotationMode::None) {
+                ImGui::TextDisabled("Onion rot: 0");
+            } else {
+                labeledField("Onion rot");
+                const int maxRot = onionMode == slopsprite::FrameRotationMode::Five ? 5 : 8;
+                ImGui::SliderInt("##onionrot", &editor.doc.onionRot, 1, maxRot);
+            }
         }
     }
-    ImGui::DragFloat("Align zoom", &editor.doc.alignZoom, 0.05f, 0.25f, 16.0f, "%.2f");
+    labeledField("Align zoom");
+    ImGui::DragFloat("##alignzoom", &editor.doc.alignZoom, 0.05f, 0.25f, 16.0f, "%.2f");
 }
 
 void drawInspector(
     slopsprite::Editor& editor,
     slopengine::AssetStore& assets,
     slopsprite::TextureBrowser& textureBrowser,
-    slopsprite::SoundBrowser& soundBrowser) {
+    slopsprite::SpritePicker& onionSpritePicker) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("Select a sprite");
         return;
@@ -902,12 +610,14 @@ void drawInspector(
     ImGui::Text("Dirty: %s", editor.doc.dirty ? "yes" : "no");
 
     float texel = editor.doc.asset.pixelsPerMeter;
-    if (ImGui::DragFloat("Texel size", &texel, 0.5f, 1.0f, 512.0f, "%.1f")) {
+    labeledField("Texel size");
+    if (ImGui::DragFloat("##texelsize", &texel, 0.5f, 1.0f, 512.0f, "%.1f")) {
         editor.doc.asset.pixelsPerMeter = texel;
         editor.markDirty();
     }
 
-    if (ImGui::Checkbox("Fullbright", &editor.doc.asset.fullbright)) {
+    labeledField("Fullbright");
+    if (ImGui::Checkbox("##fullbright", &editor.doc.asset.fullbright)) {
         editor.markDirty();
     }
 
@@ -918,7 +628,8 @@ void drawInspector(
             static_cast<float>(editor.doc.asset.tint.b) / 255.0f,
             static_cast<float>(editor.doc.asset.tint.a) / 255.0f,
         };
-        if (ImGui::ColorEdit4("Tint", tint, ImGuiColorEditFlags_AlphaBar)) {
+        labeledField("Tint");
+        if (ImGui::ColorEdit4("##tint", tint, ImGuiColorEditFlags_AlphaBar)) {
             editor.doc.asset.tint = {
                 static_cast<unsigned char>(std::clamp(tint[0], 0.0f, 1.0f) * 255.0f),
                 static_cast<unsigned char>(std::clamp(tint[1], 0.0f, 1.0f) * 255.0f),
@@ -933,8 +644,8 @@ void drawInspector(
         const char* blendLabel =
             editor.doc.asset.blend == slopengine::SpriteBlendMode::Additive ? "Additive"
                                                                            : "Alpha";
-        ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::BeginCombo("Blend", blendLabel)) {
+        labeledField("Blend");
+        if (ImGui::BeginCombo("##blend", blendLabel)) {
             if (ImGui::Selectable(
                     "Alpha",
                     editor.doc.asset.blend == slopengine::SpriteBlendMode::Alpha)) {
@@ -960,8 +671,8 @@ void drawInspector(
         } else if (editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Screen) {
             modeLabel = "Screen";
         }
-        ImGui::SetNextItemWidth(-1.0f);
-        if (ImGui::BeginCombo("Billboard", modeLabel)) {
+        labeledField("Billboard");
+        if (ImGui::BeginCombo("##billboard", modeLabel)) {
             if (ImGui::Selectable(
                     "Face",
                     editor.doc.asset.billboardMode == slopengine::SpriteBillboardMode::Face)) {
@@ -990,36 +701,44 @@ void drawInspector(
         }
     }
 
-    if (ImGui::CollapsingHeader("View defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (editor.mode == slopsprite::PreviewMode::FirstPerson &&
+        ImGui::CollapsingHeader("View defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
         float canvas[2] = {editor.doc.viewSprite.canvasX, editor.doc.viewSprite.canvasY};
-        if (ImGui::DragFloat2("Canvas", canvas, 0.5f, 0.0f, 0.0f, "%.1f")) {
+        labeledField("Canvas");
+        if (ImGui::DragFloat2("##canvas", canvas, 0.5f, 0.0f, 0.0f, "%.1f")) {
             editor.doc.viewSprite.canvasX = canvas[0];
             editor.doc.viewSprite.canvasY = canvas[1];
             editor.markDirty();
         }
         float origin[2] = {editor.doc.viewSprite.originX, editor.doc.viewSprite.originY};
-        if (ImGui::DragFloat2("Origin", origin, 0.01f, 0.0f, 1.0f, "%.2f")) {
+        labeledField("Origin");
+        if (ImGui::DragFloat2("##origin", origin, 0.01f, 0.0f, 1.0f, "%.2f")) {
             editor.doc.viewSprite.originX = origin[0];
             editor.doc.viewSprite.originY = origin[1];
             editor.markDirty();
         }
         float scale[2] = {editor.doc.viewSprite.scaleX, editor.doc.viewSprite.scaleY};
-        if (ImGui::DragFloat2("Scale", scale, 0.01f, 0.01f, 8.0f, "%.2f")) {
+        labeledField("Scale");
+        if (ImGui::DragFloat2("##viewscale", scale, 0.01f, 0.01f, 8.0f, "%.2f")) {
             editor.doc.viewSprite.scaleX = scale[0];
             editor.doc.viewSprite.scaleY = scale[1];
             editor.markDirty();
         }
-        if (ImGui::DragFloat("Rotation", &editor.doc.viewSprite.rotationDeg, 0.5f, -360.0f, 360.0f, "%.1f")) {
+        labeledField("Rotation");
+        if (ImGui::DragFloat(
+                "##viewrotation", &editor.doc.viewSprite.rotationDeg, 0.5f, -360.0f, 360.0f, "%.1f")) {
             editor.markDirty();
         }
         float eye[3] = {editor.doc.eyeOffsetX, editor.doc.eyeOffsetY, editor.doc.eyeOffsetZ};
-        if (ImGui::DragFloat3("Eye offset", eye, 0.01f, 0.0f, 0.0f, "%.2f")) {
+        labeledField("Eye offset");
+        if (ImGui::DragFloat3("##eyeoffset", eye, 0.01f, 0.0f, 0.0f, "%.2f")) {
             editor.doc.eyeOffsetX = eye[0];
             editor.doc.eyeOffsetY = eye[1];
             editor.doc.eyeOffsetZ = eye[2];
             editor.markDirty();
         }
-        if (ImGui::Checkbox("Muzzle tip", &editor.doc.hasMuzzle)) {
+        labeledField("Muzzle tip");
+        if (ImGui::Checkbox("##muzzletip", &editor.doc.hasMuzzle)) {
             editor.markDirty();
             if (!editor.doc.hasMuzzle) {
                 editor.doc.muzzleSelected = false;
@@ -1036,7 +755,8 @@ void drawInspector(
             ImGui::SameLine();
             ImGui::TextDisabled("drag in FP preview");
             float muzzle[2] = {editor.doc.muzzleX, editor.doc.muzzleY};
-            if (ImGui::DragFloat2("Muzzle XY", muzzle, 0.5f, 0.0f, 0.0f, "%.1f")) {
+            labeledField("Muzzle XY");
+            if (ImGui::DragFloat2("##muzzlexy", muzzle, 0.5f, 0.0f, 0.0f, "%.1f")) {
                 editor.doc.muzzleX = muzzle[0];
                 editor.doc.muzzleY = muzzle[1];
                 editor.markDirty();
@@ -1046,10 +766,10 @@ void drawInspector(
     }
 
     const bool isAlign = editor.mode == slopsprite::PreviewMode::Align;
-    static bool alignOpen[3] = {true, true, true};
-    static bool animOpen[3] = {true, true, true};
+    static bool alignOpen[2] = {true, true};
+    static bool animOpen[1] = {true};
     bool* sectionOpen = isAlign ? alignOpen : animOpen;
-    constexpr int kSectionCount = 3;
+    const int kSectionCount = isAlign ? 2 : 1;
 
     const ImGuiStyle& style = ImGui::GetStyle();
     int openCount = 0;
@@ -1067,52 +787,34 @@ void drawInspector(
             static_cast<float>(kSectionCount + openCount - 1) * spacing);
     const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
 
-    sectionOpen[0] = collapsingHeaderWithIcon(
-        assets, kDefaultIconSet, "images", "Frames", ImGuiTreeNodeFlags_DefaultOpen);
-    if (sectionOpen[0]) {
-        if (ImGui::BeginChild("##sprframes", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-            drawFramesListSection(editor, assets);
-        }
-        ImGui::EndChild();
-    }
-
     if (isAlign) {
-        sectionOpen[1] = collapsingHeaderWithIcon(
+        sectionOpen[0] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "picture_edit", "Base transforms", ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[1]) {
+        if (sectionOpen[0]) {
             if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                 drawAlignFrameSection(editor, assets, textureBrowser);
             }
             ImGui::EndChild();
         }
 
-        sectionOpen[2] = collapsingHeaderWithIcon(
+        sectionOpen[1] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "layers", "Onion skin", ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[2]) {
+        if (sectionOpen[1]) {
             if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                drawOnionSection(editor);
+                drawOnionSection(editor, assets, onionSpritePicker);
             }
             ImGui::EndChild();
         }
     } else {
-        sectionOpen[1] = collapsingHeaderWithIcon(
+        sectionOpen[0] = collapsingHeaderWithIcon(
             assets,
             kDefaultIconSet,
             "arrow_rotate_clockwise",
             "Anim transforms",
             ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[1]) {
+        if (sectionOpen[0]) {
             if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                 drawAnimFrameSection(editor, assets);
-            }
-            ImGui::EndChild();
-        }
-
-        sectionOpen[2] = collapsingHeaderWithIcon(
-            assets, kDefaultIconSet, "film", "Clip frames", ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[2]) {
-            if (ImGui::BeginChild("##clipframes", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                drawClipFramesSection(editor, assets, soundBrowser);
             }
             ImGui::EndChild();
         }
@@ -1162,6 +864,7 @@ int main(int argc, char* argv[]) {
     browser.rescan(assets);
     slopsprite::TextureBrowser textureBrowser;
     slopsprite::SoundBrowser soundBrowser;
+    slopsprite::SpritePicker onionSpritePicker;
     slopsprite::WorldPreview worldPreview;
     slopsprite::FpPreview fpPreview;
     slopsprite::AlignPreview alignPreview;
@@ -1316,7 +1019,7 @@ int main(int argc, char* argv[]) {
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
         ImGui::Begin("Browser", nullptr, panelFlags);
-        browser.draw(editor, assets);
+        browser.draw(editor, assets, soundBrowser);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
@@ -1343,7 +1046,7 @@ int main(int argc, char* argv[]) {
             previewTabButton("Align", slopsprite::PreviewMode::Align);
             ImGui::EndTabBar();
         }
-        drawInspector(editor, assets, textureBrowser, soundBrowser);
+        drawInspector(editor, assets, textureBrowser, onionSpritePicker);
         ImGui::End();
 
         if (animHeight > 0.0f) {
@@ -1552,6 +1255,7 @@ int main(int argc, char* argv[]) {
         UnloadRenderTexture(contentTarget);
     }
     slopengine::unloadSpriteAtlas(editor.doc.atlas);
+    slopengine::unloadSpriteAtlas(editor.onionRefAtlas);
     audioWorld.deinit();
     rlImGuiShutdown();
     CloseWindow();

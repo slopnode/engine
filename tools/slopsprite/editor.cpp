@@ -709,6 +709,31 @@ void Editor::duplicateSelectedFrame() {
     doc.atlasDirty = true;
 }
 
+void Editor::renameFrame(int index, const std::string& newId) {
+    if (index < 0 || index >= static_cast<int>(doc.asset.frames.size())) {
+        return;
+    }
+    slopengine::SpriteFrame& frame = doc.asset.frames[static_cast<std::size_t>(index)];
+    if (frame.id == newId) {
+        return;
+    }
+    const std::string oldId = frame.id;
+    frame.id = newId;
+
+    if (doc.currentFrame == oldId) {
+        doc.currentFrame = newId;
+    }
+    for (slopengine::SpriteAnimClip& clip : doc.animBank.clips) {
+        for (slopengine::SpriteAnimFrame& animFrame : clip.frames) {
+            if (animFrame.id == oldId) {
+                animFrame.id = newId;
+                doc.animDirty = true;
+            }
+        }
+    }
+    markDirty();
+}
+
 void Editor::ensureAnimBank() {
     if (doc.hasAnim && !doc.animBank.clips.empty()) {
         return;
@@ -729,6 +754,108 @@ void Editor::ensureAnimBank() {
     doc.animClip = "idle";
     doc.animDirty = true;
     doc.animDuration = clipDuration(doc.animClip);
+}
+
+void Editor::addClip(const std::string& name) {
+    if (!doc.hasAnim || doc.animBank.clips.empty()) {
+        ensureAnimBank();
+    }
+
+    const std::string base = name.empty() ? "clip" : name;
+    std::string uniqueName = base;
+    int suffix = 2;
+    while (doc.animBank.clipIndexByName.count(uniqueName) != 0) {
+        uniqueName = base + "_" + std::to_string(suffix++);
+    }
+
+    slopengine::SpriteAnimClip clip{};
+    clip.name = uniqueName;
+    clip.loop = true;
+    if (!doc.asset.frames.empty()) {
+        slopengine::SpriteAnimFrame frame{};
+        frame.id = doc.asset.frames.front().id;
+        frame.duration = 0.1f;
+        clip.frames.push_back(std::move(frame));
+    }
+    doc.animBank.clips.push_back(std::move(clip));
+    rebuildAnimIndex();
+
+    doc.animDirty = true;
+    doc.animLoop = true;
+    playAnimClip(uniqueName, true);
+    doc.animPlaying = false;
+    scrubAnim(0.0f);
+}
+
+void Editor::deleteClip(const std::string& name) {
+    const auto it = doc.animBank.clipIndexByName.find(name);
+    if (it == doc.animBank.clipIndexByName.end() || it->second >= doc.animBank.clips.size()) {
+        return;
+    }
+    doc.animBank.clips.erase(doc.animBank.clips.begin() + static_cast<std::ptrdiff_t>(it->second));
+    rebuildAnimIndex();
+    doc.animDirty = true;
+
+    if (doc.animClip != name) {
+        return;
+    }
+    doc.animPlaying = false;
+    doc.lastPreviewSoundFrameIndex = -1;
+    if (doc.animBank.clips.empty()) {
+        doc.animClip.clear();
+        doc.animTime = 0.0f;
+        doc.animDuration = 0.0f;
+        return;
+    }
+    doc.animClip = doc.animBank.clips.front().name;
+    doc.animLoop = doc.animBank.clips.front().loop;
+    scrubAnim(0.0f);
+}
+
+bool Editor::setOnionSprite(slopengine::AssetStore& assets, const std::string& virtualPath) {
+    if (virtualPath.empty() || virtualPath == doc.virtualPath) {
+        clearOnionSprite();
+        return true;
+    }
+    if (!assets.hasSprite(virtualPath)) {
+        setStatus("Sprite not found: " + virtualPath);
+        return false;
+    }
+    slopengine::SpriteAsset asset{};
+    if (!slopengine::parseSpriteAsset(assets.getSpriteSource(virtualPath), asset)) {
+        setStatus("Failed to parse sprite: " + virtualPath);
+        return false;
+    }
+
+    slopengine::unloadSpriteAtlas(onionRefAtlas);
+    onionRefAsset = std::move(asset);
+    onionRefAtlas = slopengine::buildSpriteAtlas(onionRefAsset, [&assets](std::string_view texturePath) {
+        return assets.resolvePath(slopengine::AssetKind::Texture, texturePath);
+    });
+    fillPixelSizes(onionRefAsset, onionRefAtlas);
+    onionSpritePath = virtualPath;
+    doc.onionFrameIndex = 0;
+    doc.onionRot = 0;
+    return true;
+}
+
+void Editor::clearOnionSprite() {
+    if (onionSpritePath.empty()) {
+        return;
+    }
+    slopengine::unloadSpriteAtlas(onionRefAtlas);
+    onionRefAsset = {};
+    onionSpritePath.clear();
+    doc.onionFrameIndex = 0;
+    doc.onionRot = 0;
+}
+
+const slopengine::SpriteAsset& Editor::onionAsset() const {
+    return onionSpritePath.empty() ? doc.asset : onionRefAsset;
+}
+
+const slopengine::SpriteAtlas& Editor::onionAtlas() const {
+    return onionSpritePath.empty() ? doc.atlas : onionRefAtlas;
 }
 
 slopengine::SpriteAnimClip* Editor::currentAnimClip() {

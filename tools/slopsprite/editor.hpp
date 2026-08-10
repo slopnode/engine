@@ -101,6 +101,10 @@ struct Editor {
     bool showNewSpriteModal = false;
     char newSpritePathBuf[256] = {};
 
+    std::string onionSpritePath;
+    slopengine::SpriteAsset onionRefAsset{};
+    slopengine::SpriteAtlas onionRefAtlas{};
+
     void setStatus(std::string message, float seconds = 3.0f);
     void applyViewFromAsset();
     void syncViewToAsset();
@@ -112,7 +116,14 @@ struct Editor {
     bool saveAnim();
     void rebuildAnimIndex();
     void duplicateSelectedFrame();
+    void renameFrame(int index, const std::string& newId);
     void ensureAnimBank();
+    void addClip(const std::string& name);
+    void deleteClip(const std::string& name);
+    bool setOnionSprite(slopengine::AssetStore& assets, const std::string& virtualPath);
+    void clearOnionSprite();
+    const slopengine::SpriteAsset& onionAsset() const;
+    const slopengine::SpriteAtlas& onionAtlas() const;
     slopengine::SpriteAnimClip* currentAnimClip();
     void tickAnim(float dt, slopengine::AssetStore& assets, slopengine::AudioWorld* audio);
     void scrubAnim(float time);

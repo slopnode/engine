@@ -129,10 +129,10 @@ inline bool buttonWithIcon(
     const char* label,
     const ImVec2& size = ImVec2(0, 0),
     float iconSize = 16.0f) {
-    ImGui::PushID(label != nullptr ? label : iconId.data());
+    const bool iconOnly = label == nullptr || label[0] == '\0';
+    ImGui::PushID(iconOnly ? iconId.data() : label);
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 textSize = label != nullptr ? ImGui::CalcTextSize(label) : ImVec2{};
-    const bool iconOnly = label == nullptr || label[0] == '\0';
     const float height = size.y > 0.0f ? size.y : ImGui::GetFrameHeight();
     ImVec2 btnSize = size;
     if (btnSize.x == 0.0f) {

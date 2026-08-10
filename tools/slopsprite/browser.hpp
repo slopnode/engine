@@ -2,6 +2,7 @@
 
 #include "assets/asset_store.hpp"
 #include "editor.hpp"
+#include "sound_browser.hpp"
 
 #include <string>
 #include <vector>
@@ -18,7 +19,16 @@ struct SpriteBrowser {
     std::string filter;
 
     void rescan(const slopengine::AssetStore& assets);
-    void draw(Editor& editor, slopengine::AssetStore& assets);
+    void draw(Editor& editor, slopengine::AssetStore& assets, SoundBrowser& soundBrowser);
+};
+
+struct SpritePicker {
+    std::vector<std::string> sprites;
+    std::string filter;
+    bool open = false;
+
+    void rescan(const slopengine::AssetStore& assets);
+    bool drawModal(slopengine::AssetStore& assets, std::string& outPath);
 };
 
 }
