@@ -131,6 +131,7 @@ set(SLOPLIB_SOURCES
     src/map/pvs_build.cpp
     src/map/pvs_io.cpp
     src/map/nav_graph.cpp
+    src/map/sound_propagation.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
     src/render/skybox.cpp

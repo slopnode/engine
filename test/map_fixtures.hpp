@@ -205,6 +205,24 @@ inline std::vector<Brush> sealedRoomWithInteriorDoorway(BrushRole partitionRole 
     return brushes;
 }
 
+/**
+ * sealedRoomWithInteriorDoorway (hull jambs/lintel) plus an actual closed Door
+ * brush ("door-1") filling the doorway gap, matching how a door is really
+ * authored: a thin slab spanning the opening, not just a role change on the
+ * jambs. North room centers around z=-3, south room around z=3.
+ */
+inline std::vector<Brush> sealedRoomWithInteriorDoor() {
+    std::vector<Brush> brushes = sealedRoomWithInteriorDoorway(BrushRole::Hull);
+    brushes.push_back(makeBrushBox(
+        "door-1",
+        {-1.0f, 0.0f, -0.15f},
+        {1.0f, 2.2f, 0.15f},
+        "mat/a",
+        {},
+        BrushRole::Door));
+    return brushes;
+}
+
 /** sealedHollowRoom with a 4-step stair block in the northwest corner (y 0..1). */
 inline std::vector<Brush> sealedHollowRoomWithStairs() {
     std::vector<Brush> brushes = sealedHollowRoom();

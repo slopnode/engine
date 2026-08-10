@@ -152,6 +152,7 @@ bool writeBspFile(const std::filesystem::path& path, const BspTree& tree) {
         writer.writePod(portal.leafA);
         writer.writePod(portal.leafB);
         writePolygon(writer, portal.vertices);
+        writer.writePod(internString(stringTable, strings, portal.doorBrushId));
     }
 
     writer.writePod(static_cast<std::uint32_t>(tree.surfaceFaces.size()));
@@ -278,9 +279,12 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
         return std::nullopt;
     }
     tree.portals.resize(portalCount);
-    for (BspPortal& portal : tree.portals) {
+    std::vector<std::uint32_t> portalDoorBrushIndices(portalCount);
+    for (std::uint32_t i = 0; i < portalCount; ++i) {
+        BspPortal& portal = tree.portals[i];
         if (!reader.readPod(portal.leafA) || !reader.readPod(portal.leafB)
-            || !readPolygon(reader, portal.vertices)) {
+            || !readPolygon(reader, portal.vertices)
+            || !reader.readPod(portalDoorBrushIndices[i])) {
             return std::nullopt;
         }
     }
@@ -319,6 +323,13 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
         }
         tree.surfaceFaces[i].id = strings[idIndices[i]];
         tree.surfaceFaces[i].material = strings[materialIndices[i]];
+    }
+
+    for (std::uint32_t i = 0; i < portalCount; ++i) {
+        if (portalDoorBrushIndices[i] >= stringCount) {
+            return std::nullopt;
+        }
+        tree.portals[i].doorBrushId = strings[portalDoorBrushIndices[i]];
     }
 
     return tree;
