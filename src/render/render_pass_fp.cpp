@@ -391,10 +391,10 @@ void drawViewSprites(flecs::world& world, bool unlit) {
                                 viewSprite.scaleY * scaleY;
             const float screenX =
                 viewFit.offsetX +
-                (viewSprite.canvasX + viewSprite.offsetX + translateX) * viewFit.scale;
+                (viewSprite.anchorX + viewSprite.offsetX + translateX) * viewFit.scale;
             const float screenY =
                 viewFit.offsetY +
-                (viewSprite.canvasY + viewSprite.offsetY + translateY) * viewFit.scale;
+                (viewSprite.anchorY + viewSprite.offsetY + translateY) * viewFit.scale;
             const Rectangle dest{screenX, screenY, destW, destH};
             Color tint = WHITE;
             if (const SpriteAsset* asset = viewAssets.getSpriteAsset(sprite.sprite);

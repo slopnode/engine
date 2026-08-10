@@ -816,6 +816,12 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
     const std::string path = s7_string(s7_car(args));
     args = s7_cdr(args);
 
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-fp", 4, args, "attach string");
+    }
+    const std::string attach = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
     float depth = 0.35f;
     if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
         depth = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
@@ -848,6 +854,7 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
         assets,
         id.c_str(),
         host,
+        attach,
         path,
         depth,
         true);
@@ -2745,10 +2752,10 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         scheme,
         "particle-spawn-fp",
         g_particle_spawn_fp,
-        3,
+        4,
         1,
         false,
-        "(particle-spawn-fp id socket path [depth])");
+        "(particle-spawn-fp id socket path attach [depth])");
     s7_define_function(
         scheme,
         "particle-play",

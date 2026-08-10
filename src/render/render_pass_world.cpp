@@ -799,7 +799,7 @@ void collectWorldDepthParticleDrawItems(
     out.clear();
     out.reserve(256);
     world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
-        if (entity.has<ParticleFollowViewMuzzle>()) {
+        if (entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
         appendParticleDrawItems(instance, assets, camera, out);

@@ -315,13 +315,15 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             inView = true;
             asset.view.present = true;
             currentFrame = nullptr;
-        } else if (inView && line.rfind("(canvas ", 0) == 0) {
+        } else if (inView && (line.rfind("(anchor ", 0) == 0 || line.rfind("(canvas ", 0) == 0)) {
+            const std::string_view prefix =
+                line.rfind("(anchor ", 0) == 0 ? "(anchor " : "(canvas ";
             float values[2] = {};
-            if (!readFloats(line.substr(std::string_view("(canvas ").size()), 2, values)) {
+            if (!readFloats(line.substr(prefix.size()), 2, values)) {
                 return false;
             }
-            asset.view.canvasX = values[0];
-            asset.view.canvasY = values[1];
+            asset.view.anchorX = values[0];
+            asset.view.anchorY = values[1];
         } else if (inView && line.rfind("(scale ", 0) == 0) {
             float values[2] = {};
             if (!readFloats(line.substr(std::string_view("(scale ").size()), 2, values)) {
@@ -342,22 +344,6 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             }
             asset.view.originX = values[0];
             asset.view.originY = values[1];
-        } else if (inView && line.rfind("(eye-offset ", 0) == 0) {
-            float values[3] = {};
-            if (!readFloats(line.substr(std::string_view("(eye-offset ").size()), 3, values)) {
-                return false;
-            }
-            asset.view.eyeOffsetX = values[0];
-            asset.view.eyeOffsetY = values[1];
-            asset.view.eyeOffsetZ = values[2];
-        } else if (inView && line.rfind("(muzzle ", 0) == 0) {
-            float values[2] = {};
-            if (!readFloats(line.substr(std::string_view("(muzzle ").size()), 2, values)) {
-                return false;
-            }
-            asset.view.hasMuzzle = true;
-            asset.view.muzzleX = values[0];
-            asset.view.muzzleY = values[1];
         } else if (inView && (line == ")" || line.rfind(")", 0) == 0)) {
             inView = false;
         } else if (line == "(fullbright)" || line.rfind("(fullbright", 0) == 0) {
@@ -514,6 +500,29 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
                 entry.animTranslateY = animTranslateY;
             }
             currentFrame->rotations[rotation] = std::move(entry);
+        } else if (auto attachName = readQuotedField(line, "(attach ")) {
+            if (currentFrame == nullptr) {
+                return false;
+            }
+            const std::size_t nameEnd = line.find('"', line.find('"') + 1);
+            if (nameEnd == std::string_view::npos) {
+                return false;
+            }
+            const std::string_view rest = trim(line.substr(nameEnd + 1));
+            SpriteAttachPoint point{};
+            point.name = *attachName;
+            float values[3] = {};
+            if (readFloats(rest, 3, values)) {
+                point.x = values[0];
+                point.y = values[1];
+                point.zIndex = static_cast<int>(values[2]);
+            } else if (readFloats(rest, 2, values)) {
+                point.x = values[0];
+                point.y = values[1];
+            } else {
+                return false;
+            }
+            currentFrame->attachPoints.push_back(std::move(point));
         }
 
         if (lineEnd == std::string_view::npos) {
@@ -550,15 +559,10 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
     }
     if (asset.view.present) {
         out << "  (view\n";
-        out << "    (canvas " << asset.view.canvasX << ' ' << asset.view.canvasY << ")\n";
+        out << "    (anchor " << asset.view.anchorX << ' ' << asset.view.anchorY << ")\n";
         out << "    (scale " << asset.view.scaleX << ' ' << asset.view.scaleY << ")\n";
         out << "    (rotation " << asset.view.rotationDeg << ")\n";
         out << "    (origin " << asset.view.originX << ' ' << asset.view.originY << ")\n";
-        out << "    (eye-offset " << asset.view.eyeOffsetX << ' ' << asset.view.eyeOffsetY << ' '
-            << asset.view.eyeOffsetZ << ")\n";
-        if (asset.view.hasMuzzle) {
-            out << "    (muzzle " << asset.view.muzzleX << ' ' << asset.view.muzzleY << ")\n";
-        }
         out << "  )\n";
     }
     for (const SpriteHitPartDef& part : asset.hitParts) {
@@ -602,6 +606,13 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
             }
             if (entry.brightMapPath.has_value()) {
                 out << " bright \"" << *entry.brightMapPath << '"';
+            }
+            out << ")\n";
+        }
+        for (const SpriteAttachPoint& point : frame.attachPoints) {
+            out << "    (attach \"" << point.name << "\" " << point.x << ' ' << point.y;
+            if (point.zIndex != 0) {
+                out << ' ' << point.zIndex;
             }
             out << ")\n";
         }
