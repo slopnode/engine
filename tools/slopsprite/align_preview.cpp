@@ -75,8 +75,8 @@ void AlignPreview::draw(
         return;
     }
 
-    const float pivotScreenX = screenW * 0.5f;
-    const float pivotScreenY = screenH * 0.55f;
+    const float pivotScreenX = screenW * 0.5f + editor.doc.alignPanX;
+    const float pivotScreenY = screenH * 0.55f + editor.doc.alignPanY;
 
     DrawLine(
         0, static_cast<int>(pivotScreenY), static_cast<int>(screenW), static_cast<int>(pivotScreenY),
@@ -133,6 +133,12 @@ void AlignPreview::draw(
     const float wheel = GetMouseWheelMove();
     if (wheel != 0.0f) {
         editor.doc.alignZoom = std::clamp(editor.doc.alignZoom * (1.0f + wheel * 0.1f), 0.25f, 16.0f);
+    }
+
+    if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        const Vector2 delta = GetMouseDelta();
+        editor.doc.alignPanX += delta.x;
+        editor.doc.alignPanY += delta.y;
     }
 }
 

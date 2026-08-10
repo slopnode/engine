@@ -437,25 +437,19 @@ void Editor::setStatus(std::string message, float seconds) {
 void Editor::applyViewFromAsset() {
     if (!doc.asset.view.present) {
         doc.viewSprite = {};
-        doc.eyeOffsetX = 0.0f;
-        doc.eyeOffsetY = 0.0f;
-        doc.eyeOffsetZ = 0.0f;
         doc.hasMuzzle = false;
         doc.muzzleX = 0.0f;
         doc.muzzleY = 0.0f;
         doc.muzzleSelected = false;
         return;
     }
-    doc.viewSprite.canvasX = doc.asset.view.canvasX;
-    doc.viewSprite.canvasY = doc.asset.view.canvasY;
+    doc.viewSprite.anchorX = doc.asset.view.anchorX;
+    doc.viewSprite.anchorY = doc.asset.view.anchorY;
     doc.viewSprite.scaleX = doc.asset.view.scaleX;
     doc.viewSprite.scaleY = doc.asset.view.scaleY;
     doc.viewSprite.rotationDeg = doc.asset.view.rotationDeg;
     doc.viewSprite.originX = doc.asset.view.originX;
     doc.viewSprite.originY = doc.asset.view.originY;
-    doc.eyeOffsetX = doc.asset.view.eyeOffsetX;
-    doc.eyeOffsetY = doc.asset.view.eyeOffsetY;
-    doc.eyeOffsetZ = doc.asset.view.eyeOffsetZ;
     doc.hasMuzzle = doc.asset.view.hasMuzzle;
     doc.muzzleX = doc.asset.view.muzzleX;
     doc.muzzleY = doc.asset.view.muzzleY;
@@ -463,16 +457,13 @@ void Editor::applyViewFromAsset() {
 
 void Editor::syncViewToAsset() {
     doc.asset.view.present = true;
-    doc.asset.view.canvasX = doc.viewSprite.canvasX;
-    doc.asset.view.canvasY = doc.viewSprite.canvasY;
+    doc.asset.view.anchorX = doc.viewSprite.anchorX;
+    doc.asset.view.anchorY = doc.viewSprite.anchorY;
     doc.asset.view.scaleX = doc.viewSprite.scaleX;
     doc.asset.view.scaleY = doc.viewSprite.scaleY;
     doc.asset.view.rotationDeg = doc.viewSprite.rotationDeg;
     doc.asset.view.originX = doc.viewSprite.originX;
     doc.asset.view.originY = doc.viewSprite.originY;
-    doc.asset.view.eyeOffsetX = doc.eyeOffsetX;
-    doc.asset.view.eyeOffsetY = doc.eyeOffsetY;
-    doc.asset.view.eyeOffsetZ = doc.eyeOffsetZ;
     doc.asset.view.hasMuzzle = doc.hasMuzzle;
     doc.asset.view.muzzleX = doc.muzzleX;
     doc.asset.view.muzzleY = doc.muzzleY;

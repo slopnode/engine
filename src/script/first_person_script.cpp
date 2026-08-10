@@ -234,21 +234,21 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
         rest = s7_cdr(rest);
     }
 
-    bool explicitCanvas = false;
-    float explicitCanvasX = 0.0f;
-    float explicitCanvasY = 0.0f;
+    bool explicitAnchor = false;
+    float explicitAnchorX = 0.0f;
+    float explicitAnchorY = 0.0f;
     if (s7_is_pair(rest) && s7_is_number(s7_car(rest))) {
-        explicitCanvas = true;
-        explicitCanvasX = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        explicitAnchor = true;
+        explicitAnchorX = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         rest = s7_cdr(rest);
         if (s7_is_pair(rest) && s7_is_number(s7_car(rest))) {
-            explicitCanvasY = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+            explicitAnchorY = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else {
             ViewCanvas canvas{};
             if (g_fpWorld->has<ViewCanvas>()) {
                 canvas = g_fpWorld->get<ViewCanvas>();
             }
-            explicitCanvasY = static_cast<float>(canvas.height);
+            explicitAnchorY = static_cast<float>(canvas.height);
         }
     }
 
@@ -279,15 +279,15 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
     }
 
     ViewSprite viewSprite{};
-    viewSprite.canvasX = static_cast<float>(canvas.width) * 0.5f;
-    viewSprite.canvasY = static_cast<float>(canvas.height);
+    viewSprite.anchorX = static_cast<float>(canvas.width) * 0.5f;
+    viewSprite.anchorY = static_cast<float>(canvas.height);
 
     std::string frameId;
     if (const SpriteAsset* asset = assets.getSpriteAsset(spritePath);
         asset != nullptr) {
         if (asset->view.present) {
-            viewSprite.canvasX = asset->view.canvasX;
-            viewSprite.canvasY = asset->view.canvasY;
+            viewSprite.anchorX = asset->view.anchorX;
+            viewSprite.anchorY = asset->view.anchorY;
             viewSprite.scaleX = asset->view.scaleX;
             viewSprite.scaleY = asset->view.scaleY;
             viewSprite.rotationDeg = asset->view.rotationDeg;
@@ -298,9 +298,9 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
             frameId = asset->frames.front().id;
         }
     }
-    if (explicitCanvas) {
-        viewSprite.canvasX = explicitCanvasX;
-        viewSprite.canvasY = explicitCanvasY;
+    if (explicitAnchor) {
+        viewSprite.anchorX = explicitAnchorX;
+        viewSprite.anchorY = explicitAnchorY;
     }
 
     LocalTransformation local{};
@@ -339,8 +339,8 @@ s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
     return s7_list(
         sc,
         2,
-        s7_make_real(sc, static_cast<double>(viewSprite.canvasX)),
-        s7_make_real(sc, static_cast<double>(viewSprite.canvasY)));
+        s7_make_real(sc, static_cast<double>(viewSprite.anchorX)),
+        s7_make_real(sc, static_cast<double>(viewSprite.anchorY)));
 }
 
 s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
@@ -458,14 +458,14 @@ s7_pointer g_fp_set_sprite_pos(s7_scheme* sc, s7_pointer args) {
     }
     s7_pointer rest = s7_cdr(args);
     if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
-        return s7_wrong_type_arg_error(sc, "fp-set-sprite-pos", 2, rest, "canvas-x number");
+        return s7_wrong_type_arg_error(sc, "fp-set-sprite-pos", 2, rest, "anchor-x number");
     }
-    const float canvasX = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+    const float anchorX = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
     rest = s7_cdr(rest);
     if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
-        return s7_wrong_type_arg_error(sc, "fp-set-sprite-pos", 3, rest, "canvas-y number");
+        return s7_wrong_type_arg_error(sc, "fp-set-sprite-pos", 3, rest, "anchor-y number");
     }
-    const float canvasY = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+    const float anchorY = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
 
     flecs::entity player;
     FirstPersonScene scene{};
@@ -479,8 +479,8 @@ s7_pointer g_fp_set_sprite_pos(s7_scheme* sc, s7_pointer args) {
     }
 
     ViewSprite& viewSprite = entity.get_mut<ViewSprite>();
-    viewSprite.canvasX = canvasX;
-    viewSprite.canvasY = canvasY;
+    viewSprite.anchorX = anchorX;
+    viewSprite.anchorY = anchorY;
     return s7_t(sc);
 }
 
@@ -510,8 +510,8 @@ s7_pointer g_fp_sprite_pos(s7_scheme* sc, s7_pointer args) {
     return s7_list(
         sc,
         2,
-        s7_make_real(sc, static_cast<double>(viewSprite.canvasX)),
-        s7_make_real(sc, static_cast<double>(viewSprite.canvasY)));
+        s7_make_real(sc, static_cast<double>(viewSprite.anchorX)),
+        s7_make_real(sc, static_cast<double>(viewSprite.anchorY)));
 }
 
 s7_pointer g_fp_set_sprite_offset(s7_scheme* sc, s7_pointer args) {

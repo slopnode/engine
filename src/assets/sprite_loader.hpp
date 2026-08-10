@@ -56,16 +56,13 @@ struct SpriteFrame {
 /** Optional first-person view defaults stored in a .spr (view …) block. */
 struct SpriteViewDefaults {
     bool present = false;
-    float canvasX = 160.0f;
-    float canvasY = 200.0f;
+    float anchorX = 160.0f;
+    float anchorY = 200.0f;
     float scaleX = 1.0f;
     float scaleY = 1.0f;
     float rotationDeg = 0.0f;
     float originX = 0.5f;
     float originY = 1.0f;
-    float eyeOffsetX = 0.0f;
-    float eyeOffsetY = 0.0f;
-    float eyeOffsetZ = 0.0f;
     bool hasMuzzle = false;
     float muzzleX = 0.0f;
     float muzzleY = 0.0f;

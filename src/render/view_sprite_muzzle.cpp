@@ -68,8 +68,8 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
         }
     }
 
-    const float pinX = viewSprite.canvasX + viewSprite.offsetX + translateX;
-    const float pinY = viewSprite.canvasY + viewSprite.offsetY + translateY;
+    const float pinX = viewSprite.anchorX + viewSprite.offsetX + translateX;
+    const float pinY = viewSprite.anchorY + viewSprite.offsetY + translateY;
     const float theta =
         (viewSprite.rotationDeg + rotationDeg) * (static_cast<float>(DEG2RAD));
     const float cosT = std::cos(theta);

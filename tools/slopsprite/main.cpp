@@ -209,7 +209,7 @@ void drawAnimBar(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
     ImGui::Text("%s%s", editor.doc.currentFrame.c_str(), editor.doc.animDirty ? "*" : "");
 }
 
-void drawAlignFrameSection(
+void drawRotationSection(
     slopsprite::Editor& editor,
     slopengine::AssetStore& assets,
     slopsprite::TextureBrowser& textureBrowser) {
@@ -350,10 +350,35 @@ void drawAlignFrameSection(
         }
         afterRotEdit();
     }
+}
 
-    if (!frame.rotations[rot].has_value()) {
+void drawBaseTransformSection(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
+    constexpr const char* kIcons = kDefaultIconSet;
+
+    if (editor.doc.selectedFrameIndex < 0 ||
+        editor.doc.selectedFrameIndex >= static_cast<int>(editor.doc.asset.frames.size())) {
+        ImGui::TextDisabled("Select a frame");
         return;
     }
+
+    slopengine::SpriteFrame& frame =
+        editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)];
+    const slopsprite::FrameRotationMode mode = slopsprite::detectFrameRotationMode(frame);
+    const int rot = slopsprite::clampSelectedRotToMode(mode, editor.doc.selectedRot);
+    editor.doc.selectedRot = rot;
+
+    if (!frame.rotations[rot].has_value()) {
+        ImGui::TextDisabled("Selected rot has no texture — set it up above");
+        return;
+    }
+
+    auto afterRotEdit = [&]() {
+        if (mode == slopsprite::FrameRotationMode::Five) {
+            slopsprite::syncFiveAngleMirrors(frame);
+        }
+        editor.markDirty();
+        editor.doc.atlasDirty = true;
+    };
 
     slopengine::SpriteRotation& entry = *frame.rotations[rot];
     if (!entry.hasOffset) {
@@ -413,44 +438,13 @@ void drawAnimFrameSection(slopsprite::Editor& editor, slopengine::AssetStore& as
 
     slopengine::SpriteFrame& frame =
         editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)];
-    ImGui::Text("Anim transforms for \"%s\"", frame.id.c_str());
-
     const slopsprite::FrameRotationMode mode = slopsprite::detectFrameRotationMode(frame);
-    editor.doc.selectedRot = slopsprite::clampSelectedRotToMode(mode, editor.doc.selectedRot);
-
+    const int rot = slopsprite::clampSelectedRotToMode(mode, editor.doc.selectedRot);
+    editor.doc.selectedRot = rot;
     const int authorCount = slopsprite::frameRotationAuthorCount(mode);
-    for (int slot = 0; slot < authorCount; ++slot) {
-        if (slot > 0) {
-            ImGui::SameLine();
-        }
-        const int rot = slopsprite::frameRotationAuthorIndex(mode, slot);
-        ImGui::PushID(200 + rot);
-        const bool filled =
-            frame.rotations[rot].has_value() && !frame.rotations[rot]->texturePath.empty();
-        const bool selected = editor.doc.selectedRot == rot;
-        char label[8];
-        if (mode == slopsprite::FrameRotationMode::None) {
-            std::snprintf(label, sizeof(label), "0");
-        } else {
-            std::snprintf(label, sizeof(label), "%d", rot);
-        }
-        if (selected) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.55f, 0.75f, 1.0f));
-        } else if (filled) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.45f, 0.30f, 1.0f));
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
-        }
-        if (ImGui::Button(label, ImVec2(28.0f, 0.0f))) {
-            editor.doc.selectedRot = rot;
-        }
-        ImGui::PopStyleColor();
-        ImGui::PopID();
-    }
 
-    const int rot = editor.doc.selectedRot;
     if (!frame.rotations[rot].has_value()) {
-        ImGui::TextDisabled("Selected rot has no texture — set it up in Align");
+        ImGui::TextDisabled("Selected rot has no texture — set it up above");
         return;
     }
 
@@ -703,11 +697,11 @@ void drawInspector(
 
     if (editor.mode == slopsprite::PreviewMode::FirstPerson &&
         ImGui::CollapsingHeader("View defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
-        float canvas[2] = {editor.doc.viewSprite.canvasX, editor.doc.viewSprite.canvasY};
-        labeledField("Canvas");
-        if (ImGui::DragFloat2("##canvas", canvas, 0.5f, 0.0f, 0.0f, "%.1f")) {
-            editor.doc.viewSprite.canvasX = canvas[0];
-            editor.doc.viewSprite.canvasY = canvas[1];
+        float anchor[2] = {editor.doc.viewSprite.anchorX, editor.doc.viewSprite.anchorY};
+        labeledField("Anchor");
+        if (ImGui::DragFloat2("##anchor", anchor, 0.5f, 0.0f, 0.0f, "%.1f")) {
+            editor.doc.viewSprite.anchorX = anchor[0];
+            editor.doc.viewSprite.anchorY = anchor[1];
             editor.markDirty();
         }
         float origin[2] = {editor.doc.viewSprite.originX, editor.doc.viewSprite.originY};
@@ -727,14 +721,6 @@ void drawInspector(
         labeledField("Rotation");
         if (ImGui::DragFloat(
                 "##viewrotation", &editor.doc.viewSprite.rotationDeg, 0.5f, -360.0f, 360.0f, "%.1f")) {
-            editor.markDirty();
-        }
-        float eye[3] = {editor.doc.eyeOffsetX, editor.doc.eyeOffsetY, editor.doc.eyeOffsetZ};
-        labeledField("Eye offset");
-        if (ImGui::DragFloat3("##eyeoffset", eye, 0.01f, 0.0f, 0.0f, "%.2f")) {
-            editor.doc.eyeOffsetX = eye[0];
-            editor.doc.eyeOffsetY = eye[1];
-            editor.doc.eyeOffsetZ = eye[2];
             editor.markDirty();
         }
         labeledField("Muzzle tip");
@@ -766,10 +752,8 @@ void drawInspector(
     }
 
     const bool isAlign = editor.mode == slopsprite::PreviewMode::Align;
-    static bool alignOpen[2] = {true, true};
-    static bool animOpen[1] = {true};
-    bool* sectionOpen = isAlign ? alignOpen : animOpen;
-    const int kSectionCount = isAlign ? 2 : 1;
+    static bool sectionOpen[4] = {true, true, true, true};
+    const int kSectionCount = isAlign ? 4 : 3;
 
     const ImGuiStyle& style = ImGui::GetStyle();
     int openCount = 0;
@@ -787,34 +771,43 @@ void drawInspector(
             static_cast<float>(kSectionCount + openCount - 1) * spacing);
     const float bodyH = openCount > 0 ? bodyBudget / static_cast<float>(openCount) : 0.0f;
 
-    if (isAlign) {
-        sectionOpen[0] = collapsingHeaderWithIcon(
-            assets, kDefaultIconSet, "picture_edit", "Base transforms", ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[0]) {
-            if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                drawAlignFrameSection(editor, assets, textureBrowser);
-            }
-            ImGui::EndChild();
+    sectionOpen[0] = collapsingHeaderWithIcon(
+        assets, kDefaultIconSet, "picture_edit", "Rotation", ImGuiTreeNodeFlags_DefaultOpen);
+    if (sectionOpen[0]) {
+        if (ImGui::BeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+            drawRotationSection(editor, assets, textureBrowser);
         }
+        ImGui::EndChild();
+    }
 
-        sectionOpen[1] = collapsingHeaderWithIcon(
+    sectionOpen[1] = collapsingHeaderWithIcon(
+        assets, kDefaultIconSet, "shape_handles", "Base transforms", ImGuiTreeNodeFlags_DefaultOpen);
+    if (sectionOpen[1]) {
+        if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+            drawBaseTransformSection(editor, assets);
+        }
+        ImGui::EndChild();
+    }
+
+    sectionOpen[2] = collapsingHeaderWithIcon(
+        assets,
+        kDefaultIconSet,
+        "arrow_rotate_clockwise",
+        "Anim transforms",
+        ImGuiTreeNodeFlags_DefaultOpen);
+    if (sectionOpen[2]) {
+        if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+            drawAnimFrameSection(editor, assets);
+        }
+        ImGui::EndChild();
+    }
+
+    if (isAlign) {
+        sectionOpen[3] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "layers", "Onion skin", ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[1]) {
+        if (sectionOpen[3]) {
             if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                 drawOnionSection(editor, assets, onionSpritePicker);
-            }
-            ImGui::EndChild();
-        }
-    } else {
-        sectionOpen[0] = collapsingHeaderWithIcon(
-            assets,
-            kDefaultIconSet,
-            "arrow_rotate_clockwise",
-            "Anim transforms",
-            ImGuiTreeNodeFlags_DefaultOpen);
-        if (sectionOpen[0]) {
-            if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                drawAnimFrameSection(editor, assets);
             }
             ImGui::EndChild();
         }
@@ -898,10 +891,11 @@ int main(int argc, char* argv[]) {
 
         const float chromeHeight = slopengine::mainMenuBarHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
+        const float viewTabHeight = ImGui::GetFrameHeightWithSpacing();
         const float animHeight =
             editor.mode == slopsprite::PreviewMode::Align ? 0.0f : 72.0f;
         const slopsprite::UiLayout layout =
-            slopsprite::computeUiLayout(chromeHeight, statusHeight, animHeight);
+            slopsprite::computeUiLayout(chromeHeight, statusHeight, animHeight, viewTabHeight);
         slopsprite::ensureContentTarget(contentTarget, layout.content);
 
         const Vector2 mouse = GetMousePosition();
@@ -1013,18 +1007,18 @@ int main(int argc, char* argv[]) {
             ImGui::EndPopup();
         }
 
-        ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
-        ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
         const ImGuiWindowFlags panelFlags =
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-        ImGui::Begin("Browser", nullptr, panelFlags);
-        browser.draw(editor, assets, soundBrowser);
-        ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
-        ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
-        ImGui::Begin("Inspector", nullptr, panelFlags);
+        ImGui::SetNextWindowPos(ImVec2(layout.viewTabBar.x, layout.viewTabBar.y));
+        ImGui::SetNextWindowSize(ImVec2(layout.viewTabBar.width, layout.viewTabBar.height));
+        ImGui::Begin(
+            "##viewTabBar",
+            nullptr,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoScrollWithMouse);
         if (ImGui::BeginTabBar("##previewTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
             auto previewTabButton = [&](const char* label, slopsprite::PreviewMode mode) {
                 const bool selected = editor.mode == mode;
@@ -1046,6 +1040,17 @@ int main(int argc, char* argv[]) {
             previewTabButton("Align", slopsprite::PreviewMode::Align);
             ImGui::EndTabBar();
         }
+        ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
+        ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
+        ImGui::Begin("Browser", nullptr, panelFlags);
+        browser.draw(editor, assets, soundBrowser);
+        ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
+        ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
+        ImGui::Begin("Inspector", nullptr, panelFlags);
         drawInspector(editor, assets, textureBrowser, onionSpritePicker);
         ImGui::End();
 
@@ -1140,7 +1145,14 @@ int main(int argc, char* argv[]) {
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.72f);
             if (ImGui::Begin("##fpoverlay", nullptr, overlayFlags)) {
-                ImGui::TextDisabled("FP");
+                constexpr const char* kIcons = kDefaultIconSet;
+                if (buttonWithIcon(assets, kIcons, "arrow_undo", "Reset")) {
+                    editor.doc.fpZoom = 1.0f;
+                    editor.doc.fpPanX = 0.0f;
+                    editor.doc.fpPanY = 0.0f;
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("FP  RMB pan  Wheel zoom");
                 if (editor.doc.open) {
                     const char* pose = slopsprite::previewPoseLabel(
                         editor.doc, slopsprite::PreviewMode::FirstPerson);
@@ -1166,6 +1178,13 @@ int main(int argc, char* argv[]) {
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.72f);
             if (ImGui::Begin("##alignoverlay", nullptr, overlayFlags)) {
+                constexpr const char* kIcons = kDefaultIconSet;
+                if (buttonWithIcon(assets, kIcons, "arrow_undo", "Reset")) {
+                    editor.doc.alignZoom = 2.0f;
+                    editor.doc.alignPanX = 0.0f;
+                    editor.doc.alignPanY = 0.0f;
+                }
+                ImGui::SameLine();
                 if (!editor.doc.open || editor.doc.atlasDirty) {
                     ImGui::TextDisabled("Open a sprite to align");
                 } else if (
@@ -1186,7 +1205,7 @@ int main(int argc, char* argv[]) {
                         *editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)]
                              .rotations[editor.doc.selectedRot];
                     ImGui::TextDisabled(
-                        "Align  wheel zoom  rot %d  off %d,%d",
+                        "Align  RMB pan  wheel zoom  rot %d  off %d,%d",
                         editor.doc.selectedRot,
                         rot.hasOffset ? rot.offsetX : rot.pixelWidth / 2,
                         rot.hasOffset ? rot.offsetY : rot.pixelHeight);

@@ -47,8 +47,8 @@ HostPose resolveHostPose(
     HostPose pose{};
     const auto frame = slopengine::resolveViewSpriteFrame(asset, atlas, frameId, 0);
     if (!frame) {
-        pose.pinX = view.canvasX + view.offsetX;
-        pose.pinY = view.canvasY + view.offsetY;
+        pose.pinX = view.anchorX + view.offsetX;
+        pose.pinY = view.anchorY + view.offsetY;
         pose.rotationDeg = view.rotationDeg;
         return pose;
     }
@@ -73,8 +73,8 @@ HostPose resolveHostPose(
         }
     }
 
-    pose.pinX = view.canvasX + view.offsetX + translateX;
-    pose.pinY = view.canvasY + view.offsetY + translateY;
+    pose.pinX = view.anchorX + view.offsetX + translateX;
+    pose.pinY = view.anchorY + view.offsetY + translateY;
     pose.rotationDeg = view.rotationDeg + rotationDeg;
     return pose;
 }
@@ -149,8 +149,8 @@ void drawFpSpriteFrame(
 
     const float destW = static_cast<float>(frame->pixelWidth) * fit.scale * view.scaleX * scaleX;
     const float destH = static_cast<float>(frame->pixelHeight) * fit.scale * view.scaleY * scaleY;
-    const float screenX = fit.offsetX + (view.canvasX + view.offsetX + translateX) * fit.scale;
-    const float screenY = fit.offsetY + (view.canvasY + view.offsetY + translateY) * fit.scale;
+    const float screenX = fit.offsetX + (view.anchorX + view.offsetX + translateX) * fit.scale;
+    const float screenY = fit.offsetY + (view.anchorY + view.offsetY + translateY) * fit.scale;
     const Rectangle dest{screenX, screenY, destW, destH};
     DrawTexturePro(
         *frame->texture,
@@ -217,8 +217,11 @@ void FpPreview::draw(
 
     const float screenW = static_cast<float>(target.texture.width);
     const float screenH = static_cast<float>(target.texture.height);
-    const ViewCanvasFit fit =
-        makeViewCanvasFit(editor.viewCanvasW, editor.viewCanvasH, screenW, screenH);
+    ViewCanvasFit fit = makeViewCanvasFit(editor.viewCanvasW, editor.viewCanvasH, screenW, screenH);
+    const float fpZoom = std::clamp(editor.doc.fpZoom, 0.25f, 16.0f);
+    fit.scale *= fpZoom;
+    fit.offsetX = (screenW - fit.canvasW * fit.scale) * 0.5f + editor.doc.fpPanX;
+    fit.offsetY = (screenH - fit.canvasH * fit.scale) * 0.5f + editor.doc.fpPanY;
 
     const Rectangle canvasRect{
         fit.offsetX,
@@ -262,6 +265,18 @@ void FpPreview::draw(
         if (allowInput && fit.scale > 0.0f) {
             const Vector2 mouse = GetMousePosition();
             const bool inContent = CheckCollisionPointRec(mouse, contentRect);
+            if (inContent) {
+                const float wheel = GetMouseWheelMove();
+                if (wheel != 0.0f) {
+                    editor.doc.fpZoom =
+                        std::clamp(editor.doc.fpZoom * (1.0f + wheel * 0.1f), 0.25f, 16.0f);
+                }
+                if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    const Vector2 delta = GetMouseDelta();
+                    editor.doc.fpPanX += delta.x;
+                    editor.doc.fpPanY += delta.y;
+                }
+            }
             if (inContent && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
                 if (editor.doc.hasMuzzle && editor.doc.muzzleSelected) {
                     const Vector2 delta = GetMouseDelta();

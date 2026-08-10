@@ -315,13 +315,15 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             inView = true;
             asset.view.present = true;
             currentFrame = nullptr;
-        } else if (inView && line.rfind("(canvas ", 0) == 0) {
+        } else if (inView && (line.rfind("(anchor ", 0) == 0 || line.rfind("(canvas ", 0) == 0)) {
+            const std::string_view prefix =
+                line.rfind("(anchor ", 0) == 0 ? "(anchor " : "(canvas ";
             float values[2] = {};
-            if (!readFloats(line.substr(std::string_view("(canvas ").size()), 2, values)) {
+            if (!readFloats(line.substr(prefix.size()), 2, values)) {
                 return false;
             }
-            asset.view.canvasX = values[0];
-            asset.view.canvasY = values[1];
+            asset.view.anchorX = values[0];
+            asset.view.anchorY = values[1];
         } else if (inView && line.rfind("(scale ", 0) == 0) {
             float values[2] = {};
             if (!readFloats(line.substr(std::string_view("(scale ").size()), 2, values)) {
@@ -342,14 +344,6 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             }
             asset.view.originX = values[0];
             asset.view.originY = values[1];
-        } else if (inView && line.rfind("(eye-offset ", 0) == 0) {
-            float values[3] = {};
-            if (!readFloats(line.substr(std::string_view("(eye-offset ").size()), 3, values)) {
-                return false;
-            }
-            asset.view.eyeOffsetX = values[0];
-            asset.view.eyeOffsetY = values[1];
-            asset.view.eyeOffsetZ = values[2];
         } else if (inView && line.rfind("(muzzle ", 0) == 0) {
             float values[2] = {};
             if (!readFloats(line.substr(std::string_view("(muzzle ").size()), 2, values)) {
@@ -550,12 +544,10 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
     }
     if (asset.view.present) {
         out << "  (view\n";
-        out << "    (canvas " << asset.view.canvasX << ' ' << asset.view.canvasY << ")\n";
+        out << "    (anchor " << asset.view.anchorX << ' ' << asset.view.anchorY << ")\n";
         out << "    (scale " << asset.view.scaleX << ' ' << asset.view.scaleY << ")\n";
         out << "    (rotation " << asset.view.rotationDeg << ")\n";
         out << "    (origin " << asset.view.originX << ' ' << asset.view.originY << ")\n";
-        out << "    (eye-offset " << asset.view.eyeOffsetX << ' ' << asset.view.eyeOffsetY << ' '
-            << asset.view.eyeOffsetZ << ")\n";
         if (asset.view.hasMuzzle) {
             out << "    (muzzle " << asset.view.muzzleX << ' ' << asset.view.muzzleY << ")\n";
         }

@@ -53,9 +53,6 @@ struct EditorDocument {
     float worldScale = 1.0f;
 
     slopengine::ViewSprite viewSprite{};
-    float eyeOffsetX = 0.0f;
-    float eyeOffsetY = 0.0f;
-    float eyeOffsetZ = 0.0f;
     bool hasMuzzle = false;
     float muzzleX = 0.0f;
     float muzzleY = 0.0f;
@@ -84,6 +81,11 @@ struct EditorDocument {
     int onionFrameIndex = 0;
     int onionRot = 0;
     float alignZoom = 2.0f;
+    float alignPanX = 0.0f;
+    float alignPanY = 0.0f;
+    float fpZoom = 1.0f;
+    float fpPanX = 0.0f;
+    float fpPanY = 0.0f;
 };
 
 struct Editor {

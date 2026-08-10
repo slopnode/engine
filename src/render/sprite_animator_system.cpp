@@ -82,8 +82,8 @@ bool spawnSpriteOverlay(
         viewSprite.offsetY = viewSprite.offsetY + overlay.y;
     } else if (world.has<ViewCanvas>()) {
         const ViewCanvas& canvas = world.get<ViewCanvas>();
-        viewSprite.canvasX = static_cast<float>(canvas.width) * 0.5f;
-        viewSprite.canvasY = static_cast<float>(canvas.height);
+        viewSprite.anchorX = static_cast<float>(canvas.width) * 0.5f;
+        viewSprite.anchorY = static_cast<float>(canvas.height);
         viewSprite.offsetX = overlay.x;
         viewSprite.offsetY = overlay.y;
     }
@@ -539,8 +539,8 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                 return;
             }
             const ViewSprite& hostView = host.get<ViewSprite>();
-            viewSprite.canvasX = hostView.canvasX;
-            viewSprite.canvasY = hostView.canvasY;
+            viewSprite.anchorX = hostView.anchorX;
+            viewSprite.anchorY = hostView.anchorY;
             viewSprite.scaleX = hostView.scaleX;
             viewSprite.scaleY = hostView.scaleY;
             viewSprite.rotationDeg = hostView.rotationDeg;
