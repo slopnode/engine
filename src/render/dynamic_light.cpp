@@ -224,12 +224,16 @@ Vector3 evaluateDynamicLightAtPoint(
         return {};
     }
 
-    (void)normal;
     const Vector3 toLight = Vector3Scale(delta, 1.0f / dist);
+    const float ndotl = Vector3DotProduct(normal, toLight);
+    if (ndotl <= 0.0f) {
+        return {};
+    }
 
     const float t = dist / range;
     float atten = std::max(0.0f, 1.0f - t * t);
     atten *= atten;
+    atten *= ndotl;
 
     float spot = 1.0f;
     if (light.light.kind == DynamicLightKind::Spot) {

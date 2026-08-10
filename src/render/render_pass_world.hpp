@@ -31,6 +31,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     const Frustum& frustum,
     bool unlit,
     bool enableDynamicLights = true,
+    int maxLights = kMaxDynamicLights,
     int maxShadowed = kMaxShadowedDynamicLights);
 
 void storeDynamicLightFrameState(

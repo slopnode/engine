@@ -239,7 +239,8 @@ void CreateTool::commitPending(Editor& editor) {
             editor.createCylinderSides,
             d.defaultMaterial,
             editor.createBrushRole,
-            error);
+            error,
+            plane.normal);
         if (!brush) {
             editor.abortEdit();
             editor.statusMessage = error;

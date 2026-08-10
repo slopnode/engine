@@ -88,6 +88,12 @@ struct Model3D {
     bool ownsGpu = false;
 };
 
+/** Tag: mesh carries its own baked lightmap UV2 + atlas (e.g. a door frozen to its closed
+ *  pose); skip the runtime flat-tint probe and sample the atlas instead.
+ *  @ingroup render_components
+ */
+struct BakedLightmapModel {};
+
 /** Optional cavity / AO style shader binding on an entity.
  *  @ingroup render_components
  */

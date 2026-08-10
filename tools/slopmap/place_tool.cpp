@@ -34,6 +34,10 @@ const char* thingIdPrefix(slopengine::ThingKind kind) {
         return "sun";
     case slopengine::ThingKind::AmbientLight:
         return "ambient-light";
+    case slopengine::ThingKind::DynamicPointLight:
+        return "dynamic-point-light";
+    case slopengine::ThingKind::DynamicSpotLight:
+        return "dynamic-spot-light";
     case slopengine::ThingKind::Skybox:
         return "skybox";
     case slopengine::ThingKind::Prefab:

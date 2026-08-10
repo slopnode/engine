@@ -91,7 +91,8 @@ void writeCommonPose(std::ostringstream& out, const Thing& p) {
                p.kind == ThingKind::Pickup || p.kind == ThingKind::Actor ||
                p.kind == ThingKind::Mover || p.kind == ThingKind::Trigger ||
                p.kind == ThingKind::SpotLight || p.kind == ThingKind::Sun ||
-               p.kind == ThingKind::Marker || p.kind == ThingKind::Particle) {
+               p.kind == ThingKind::DynamicSpotLight || p.kind == ThingKind::Marker ||
+               p.kind == ThingKind::Particle) {
         writeIndentClause(out, "(yaw " + formatFloat(p.yaw) + ")");
     }
     if (!p.haveAngles && p.havePitch) {
@@ -241,16 +242,20 @@ void writeLightFields(std::ostringstream& out, const Thing& p) {
         "(color " + formatFloat(p.color.x) + " " + formatFloat(p.color.y) + " " +
             formatFloat(p.color.z) + ")");
     writeIndentClause(out, "(intensity " + formatFloat(p.intensity) + ")");
-    if (p.kind == ThingKind::PointLight || p.kind == ThingKind::SpotLight) {
+    if (p.kind == ThingKind::PointLight || p.kind == ThingKind::SpotLight ||
+        p.kind == ThingKind::DynamicPointLight || p.kind == ThingKind::DynamicSpotLight) {
         writeIndentClause(out, "(range " + formatFloat(p.range) + ")");
     }
-    if (p.kind == ThingKind::SpotLight) {
+    if (p.kind == ThingKind::SpotLight || p.kind == ThingKind::DynamicSpotLight) {
         writeIndentClause(out, "(cone " + formatFloat(p.coneAngle) + ")");
     }
     if (p.kind == ThingKind::AreaLight) {
         writeIndentClause(
             out,
             "(size " + formatFloat(p.size.x) + " " + formatFloat(p.size.y) + ")");
+    }
+    if (p.kind == ThingKind::DynamicPointLight || p.kind == ThingKind::DynamicSpotLight) {
+        writeIndentClause(out, p.dynamicCastShadows ? "(cast-shadows #t)" : "(cast-shadows #f)");
     }
 }
 

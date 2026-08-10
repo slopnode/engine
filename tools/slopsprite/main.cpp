@@ -11,6 +11,8 @@
 #include "assets/asset_store.hpp"
 #include "audio/audio_world.hpp"
 #include "core/package_meta.hpp"
+#include "core/package_search.hpp"
+#include "core/user_paths.hpp"
 #include "game/app_config.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/imgui_fonts.hpp"
@@ -89,7 +91,9 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             if (value == nullptr) {
                 return std::nullopt;
             }
-            config.target = value;
+            config.target = slopengine::resolveApplicationPackagePath(
+                value,
+                slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
             continue;
         }
         return std::nullopt;

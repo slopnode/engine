@@ -20,7 +20,7 @@ bool axesAreZero(Vector3 u, Vector3 v) {
 }
 
 float axisScale(float scale) {
-    return scale > 1e-8f ? scale : 1.0f;
+    return std::fabs(scale) > 1e-8f ? scale : 1.0f;
 }
 
 } // namespace

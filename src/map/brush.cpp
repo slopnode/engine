@@ -962,7 +962,8 @@ std::optional<Brush> makeBrushCylinder(
     int sides,
     const std::string& material,
     BrushRole role,
-    std::string& errorOut) {
+    std::string& errorOut,
+    Vector3 axis) {
     if (sides < 3) {
         errorOut = "cylinder needs at least 3 sides";
         return std::nullopt;
@@ -972,13 +973,36 @@ std::optional<Brush> makeBrushCylinder(
         return std::nullopt;
     }
 
-    const float cx = 0.5f * (mins.x + maxs.x);
-    const float cz = 0.5f * (mins.z + maxs.z);
-    const float rx = 0.5f * (maxs.x - mins.x);
-    const float rz = 0.5f * (maxs.z - mins.z);
-    const float y0 = mins.y;
-    const float y1 = maxs.y;
+    // Revolve around whichever world axis `axis` is most closely aligned to,
+    // so cylinders drawn against a wall (extrusion along X or Z) extrude from
+    // the base instead of always assuming a vertical (Y) prism.
+    const float minsArr[3] = {mins.x, mins.y, mins.z};
+    const float maxsArr[3] = {maxs.x, maxs.y, maxs.z};
+    const float axisMag[3] = {std::fabs(axis.x), std::fabs(axis.y), std::fabs(axis.z)};
+    int axisIdx = 1;
+    if (axisMag[0] >= axisMag[1] && axisMag[0] >= axisMag[2]) {
+        axisIdx = 0;
+    } else if (axisMag[2] >= axisMag[0] && axisMag[2] >= axisMag[1]) {
+        axisIdx = 2;
+    }
+    const int idxB = (axisIdx == 0) ? 1 : 0;
+    const int idxC = (axisIdx == 2) ? 1 : 2;
+
+    const float centerB = 0.5f * (minsArr[idxB] + maxsArr[idxB]);
+    const float centerC = 0.5f * (minsArr[idxC] + maxsArr[idxC]);
+    const float radiusB = 0.5f * (maxsArr[idxB] - minsArr[idxB]);
+    const float radiusC = 0.5f * (maxsArr[idxC] - minsArr[idxC]);
+    const float axisMin = minsArr[axisIdx];
+    const float axisMax = maxsArr[axisIdx];
     constexpr float kPi = 3.14159265358979323846f;
+
+    auto ringPoint = [&](float axisVal, float angle) {
+        float comps[3];
+        comps[axisIdx] = axisVal;
+        comps[idxB] = centerB + radiusB * std::cos(angle);
+        comps[idxC] = centerC + radiusC * std::sin(angle);
+        return Vector3{comps[0], comps[1], comps[2]};
+    };
 
     std::vector<Vector3> ringBottom;
     std::vector<Vector3> ringTop;
@@ -986,11 +1010,24 @@ std::optional<Brush> makeBrushCylinder(
     ringTop.reserve(static_cast<std::size_t>(sides));
     for (int i = 0; i < sides; ++i) {
         const float angle = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(sides);
-        const float x = cx + rx * std::cos(angle);
-        const float z = cz + rz * std::sin(angle);
-        ringBottom.push_back({x, y0, z});
-        ringTop.push_back({x, y1, z});
+        ringBottom.push_back(ringPoint(axisMin, angle));
+        ringTop.push_back(ringPoint(axisMax, angle));
     }
+
+    const Vector3 center{
+        0.5f * (mins.x + maxs.x),
+        0.5f * (mins.y + maxs.y),
+        0.5f * (mins.z + maxs.z),
+    };
+    auto orientOutward = [&](BrushFace& face) {
+        if (face.vertices.empty()) {
+            return;
+        }
+        const Vector3 normal = faceNormalFromVertices(face.vertices);
+        if (dot3(sub3(center, face.vertices[0]), normal) > 0.0f) {
+            std::reverse(face.vertices.begin(), face.vertices.end());
+        }
+    };
 
     std::vector<BrushFace> faces;
     faces.reserve(static_cast<std::size_t>(sides) + 2);
@@ -999,26 +1036,33 @@ std::optional<Brush> makeBrushCylinder(
     bottom.id = id + "/bottom";
     bottom.material = material;
     bottom.vertices = ringBottom;
+    orientOutward(bottom);
     faces.push_back(std::move(bottom));
 
     BrushFace top;
     top.id = id + "/top";
     top.material = material;
     top.vertices = ringTop;
-    std::reverse(top.vertices.begin(), top.vertices.end());
+    orientOutward(top);
     faces.push_back(std::move(top));
 
     for (int i = 0; i < sides; ++i) {
         const int next = (i + 1) % sides;
+
         BrushFace side;
         side.id = id + "/side-" + std::to_string(i);
         side.material = material;
         side.vertices = {
-            ringBottom[static_cast<std::size_t>(next)],
             ringBottom[static_cast<std::size_t>(i)],
-            ringTop[static_cast<std::size_t>(i)],
+            ringBottom[static_cast<std::size_t>(next)],
             ringTop[static_cast<std::size_t>(next)],
+            ringTop[static_cast<std::size_t>(i)],
         };
+        orientOutward(side);
+        // UV left at defaults (unlocked, zero shift), same as every other
+        // newly created face; texture alignment is a manual step via the
+        // face Align tool, not something baked in at creation time.
+
         faces.push_back(std::move(side));
     }
 

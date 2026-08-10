@@ -10,9 +10,15 @@
 
 namespace slopengine {
 
-constexpr int kMaxDynamicLights = 8;
-constexpr int kMaxShadowedDynamicLights = 2;
-constexpr int kDynamicShadowMapResolution = 512;
+/** Compiled array-size ceiling for active dynamic lights; the runtime active
+ *  count is GraphicsSettings::maxDynamicLights, clamped to this. */
+constexpr int kMaxDynamicLights = 128;
+/** Compiled array-size ceiling for shadow-casting lights; the runtime active
+ *  count is GraphicsSettings::maxShadowedDynamicLights, clamped to this. */
+constexpr int kMaxShadowedDynamicLights = 16;
+constexpr int kMinDynamicShadowMapResolution = 128;
+constexpr int kMaxDynamicShadowMapResolution = 8192;
+constexpr int kDefaultDynamicShadowMapResolution = 512;
 constexpr int kDynamicShadowFacesPerSlot = 6;
 constexpr float kDynamicShadowBias = 0.002f;
 constexpr int kDynamicShadowMapCount =
@@ -78,7 +84,7 @@ flecs::entity spawnDynamicLight(
     Quaternion rotation,
     const DynamicLight& light);
 
-/** Evaluates one ranked light at @p point (range-squared atten; @p normal unused). */
+/** Evaluates one ranked light at @p point (range-squared atten, N.L falloff by @p normal). */
 Vector3 evaluateDynamicLightAtPoint(
     const RankedDynamicLight& light,
     Vector3 point,

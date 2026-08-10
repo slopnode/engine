@@ -156,7 +156,11 @@ std::optional<Brush> makeBrushConvex(
     BrushRole role,
     std::string& errorOut);
 
-/** Y-axis prism inscribed in the AABB footprint (circle in XZ), height = Y extent. */
+/** Prism inscribed in the AABB footprint, revolved around whichever world axis
+ *  (X/Y/Z) @p axis is most closely aligned to (default Y). The two other axes
+ *  form the ring; the chosen axis's AABB extent is the prism's height. Faces
+ *  get default (unlocked, zero-shift) UV, same as any other freshly built
+ *  brush face; texture alignment across the ring is a manual step. */
 std::optional<Brush> makeBrushCylinder(
     std::string id,
     Vector3 mins,
@@ -164,7 +168,8 @@ std::optional<Brush> makeBrushCylinder(
     int sides,
     const std::string& material,
     BrushRole role,
-    std::string& errorOut);
+    std::string& errorOut,
+    Vector3 axis = {0.0f, 1.0f, 0.0f});
 
 /** Stacked box steps filling the AABB; rise along Y, run along longer of X/Z. */
 std::vector<Brush> makeBrushStairs(

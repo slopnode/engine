@@ -418,6 +418,71 @@ s7_pointer g_dyn_light_attach(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_dyn_light_set_pos(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-pos!", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    if (!readNumberArg(sc, args, x, "dyn-light-set-pos!", 2) ||
+        !readNumberArg(sc, args, y, "dyn-light-set-pos!", 3) ||
+        !readNumberArg(sc, args, z, "dyn-light-set-pos!", 4)) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-pos!", 2, args, "x y z numbers");
+    }
+
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid() || !entity.has<LocalTransformation>() ||
+        !entity.has<GlobalTransformation>()) {
+        return s7_f(sc);
+    }
+    LocalTransformation& local = entity.get_mut<LocalTransformation>();
+    local.position = {x, y, z};
+    updateTransform(entity, local, entity.get_mut<GlobalTransformation>());
+    return s7_t(sc);
+}
+
+s7_pointer g_dyn_light_set_hsv(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-hsv!", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float h = 0;
+    float s = 1;
+    float v = 1;
+    if (!readNumberArg(sc, args, h, "dyn-light-set-hsv!", 2) ||
+        !readNumberArg(sc, args, s, "dyn-light-set-hsv!", 3) ||
+        !readNumberArg(sc, args, v, "dyn-light-set-hsv!", 4)) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-hsv!", 2, args, "h s v numbers");
+    }
+
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid() || !entity.has<DynamicLight>()) {
+        return s7_f(sc);
+    }
+    DynamicLight light = entity.get<DynamicLight>();
+    setDynamicLightHsv(light, {h, s, v});
+    entity.set<DynamicLight>(light);
+    return s7_t(sc);
+}
+
 s7_pointer g_dyn_light_spawn(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -2740,6 +2805,22 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         3,
         false,
         "(dyn-light-attach id r g b intensity range)");
+    s7_define_function(
+        scheme,
+        "dyn-light-set-pos!",
+        g_dyn_light_set_pos,
+        4,
+        0,
+        false,
+        "(dyn-light-set-pos! id x y z)");
+    s7_define_function(
+        scheme,
+        "dyn-light-set-hsv!",
+        g_dyn_light_set_hsv,
+        4,
+        0,
+        false,
+        "(dyn-light-set-hsv! id h s v)");
     s7_define_function(
         scheme,
         "actor-spawn",

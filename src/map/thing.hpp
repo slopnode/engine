@@ -26,6 +26,8 @@ enum class ThingKind {
     AreaLight,
     Sun,
     AmbientLight,
+    DynamicPointLight,
+    DynamicSpotLight,
     Skybox,
     Prefab,
     SoundSource,
@@ -117,6 +119,7 @@ struct Thing {
     float range = 8.0f;
     float coneAngle = 0.7f;
     Vector2 size{1.0f, 1.0f};
+    bool dynamicCastShadows = false;
 
     std::string prefabPath;
 
@@ -231,6 +234,10 @@ inline const char* thingKindName(ThingKind kind) {
         return "sun";
     case ThingKind::AmbientLight:
         return "ambient-light";
+    case ThingKind::DynamicPointLight:
+        return "dynamic-point-light";
+    case ThingKind::DynamicSpotLight:
+        return "dynamic-spot-light";
     case ThingKind::Skybox:
         return "skybox";
     case ThingKind::Prefab:
@@ -248,7 +255,8 @@ inline const char* thingKindName(ThingKind kind) {
 inline bool thingKindIsLight(ThingKind kind) {
     return kind == ThingKind::PointLight || kind == ThingKind::SpotLight ||
         kind == ThingKind::AreaLight || kind == ThingKind::Sun ||
-        kind == ThingKind::AmbientLight;
+        kind == ThingKind::AmbientLight || kind == ThingKind::DynamicPointLight ||
+        kind == ThingKind::DynamicSpotLight;
 }
 
 inline bool thingKindNeedsPresentation(ThingKind kind) {

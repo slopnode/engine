@@ -148,7 +148,8 @@ bool shadowSampleFaceDecision(
         clip.y / clip.w,
         clip.z / clip.w,
     };
-    if (ndc.z < -1.0f || ndc.z > 1.0f) {
+    if (ndc.z < -1.0f || ndc.z > 1.0f || ndc.x < -1.0f || ndc.x > 1.0f ||
+        ndc.y < -1.0f || ndc.y > 1.0f) {
         return false;
     }
     const float current = ndc.z * 0.5f + 0.5f;

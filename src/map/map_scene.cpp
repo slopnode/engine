@@ -7,6 +7,7 @@
 #include "camera/components.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
+#include "game/user_settings.hpp"
 #include "input/input_context.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
@@ -228,7 +229,10 @@ bool registerMapScene(
     }
 
     if (loaded->hasLightmaps) {
-        world.set<DynamicLightShadowState>(createDynamicLightShadowState(assets));
+        const int shadowMapResolution = world.has<UserSettings>()
+            ? world.get<UserSettings>().graphics.shadowMapResolution
+            : kDefaultDynamicShadowMapResolution;
+        world.set<DynamicLightShadowState>(createDynamicLightShadowState(assets, shadowMapResolution));
     }
     {
         DynamicLightFrameState frameState{};
@@ -248,7 +252,7 @@ bool registerMapScene(
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
         facForLighting,
-        std::move(loaded->rad),
+        loaded->rad,
         std::move(loaded->lightmapAtlasImages),
         BLACK));
 
@@ -282,8 +286,16 @@ bool registerMapScene(
         }
     }
 
-    const PlayerStart playerStart =
-        spawnMapThings(scheme, world, assets, mapName, loaded->brushes);
+    const PlayerStart playerStart = spawnMapThings(
+        scheme,
+        world,
+        assets,
+        mapName,
+        loaded->brushes,
+        &loaded->doorFac,
+        &loaded->rad,
+        &loaded->lightmapAtlases,
+        loaded->hasLightmaps);
     if (world.has<MapLighting>()) {
         MapLighting& lighting = world.get_mut<MapLighting>();
         bool foundAmbient = false;

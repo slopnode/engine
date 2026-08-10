@@ -2,9 +2,11 @@
 
 #include "input/action_registry.hpp"
 #include "input/bind_code.hpp"
+#include "render/dynamic_light.hpp"
 
 #include <raylib.h>
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <optional>
@@ -153,6 +155,12 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
             parseBool(value, graphics.dynamicLights);
         } else if (key == "dynamic_light_shadows") {
             parseBool(value, graphics.dynamicLightShadows);
+        } else if (key == "max_dynamic_lights") {
+            parseInt(value, graphics.maxDynamicLights);
+        } else if (key == "max_shadowed_dynamic_lights") {
+            parseInt(value, graphics.maxShadowedDynamicLights);
+        } else if (key == "shadow_map_resolution") {
+            parseInt(value, graphics.shadowMapResolution);
         }
     }
 
@@ -162,6 +170,16 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
     if (graphics.height < 360) {
         graphics.height = 360;
     }
+    graphics.maxDynamicLights =
+        std::clamp(graphics.maxDynamicLights, 0, kMaxDynamicLights);
+    graphics.maxShadowedDynamicLights = std::clamp(
+        graphics.maxShadowedDynamicLights,
+        0,
+        std::min(graphics.maxDynamicLights, kMaxShadowedDynamicLights));
+    graphics.shadowMapResolution = std::clamp(
+        graphics.shadowMapResolution,
+        kMinDynamicShadowMapResolution,
+        kMaxDynamicShadowMapResolution);
 
     return graphics;
 }
@@ -226,7 +244,10 @@ bool UserSettings::save() const {
            << "mode=" << windowModeId(graphics.mode) << '\n'
            << "vsync=" << (graphics.vsync ? "1" : "0") << '\n'
            << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
-           << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << "\n\n"
+           << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << '\n'
+           << "max_dynamic_lights=" << graphics.maxDynamicLights << '\n'
+           << "max_shadowed_dynamic_lights=" << graphics.maxShadowedDynamicLights << '\n'
+           << "shadow_map_resolution=" << graphics.shadowMapResolution << "\n\n"
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

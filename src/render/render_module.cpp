@@ -143,8 +143,12 @@ void registerRenderSystems(flecs::world& world) {
             const GraphicsSettings graphics =
                 world.has<UserSettings>() ? world.get<UserSettings>().graphics : GraphicsSettings{};
             const bool enableDynamicLights = graphics.dynamicLights;
+            const int maxUnshadowed =
+                enableDynamicLights ? graphics.maxDynamicLights : 0;
             const int maxShadowed =
-                graphics.dynamicLightShadows ? kMaxShadowedDynamicLights : 0;
+                (enableDynamicLights && graphics.dynamicLightShadows)
+                    ? graphics.maxShadowedDynamicLights
+                    : 0;
 
             std::vector<RankedDynamicLight> rankedLights = gatherDynamicLights(
                 world,
@@ -153,6 +157,7 @@ void registerRenderSystems(flecs::world& world) {
                 frustum,
                 unlit,
                 enableDynamicLights,
+                maxUnshadowed,
                 maxShadowed);
             storeDynamicLightFrameState(world, rankedLights);
 

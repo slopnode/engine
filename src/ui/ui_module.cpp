@@ -36,6 +36,7 @@
 
 #include "imgui.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -94,6 +95,31 @@ std::vector<ResolutionOption> buildResolutionOptions(const GraphicsSettings& dra
     return options;
 }
 
+constexpr int kShadowMapResolutionPresets[] = {128, 256, 512, 1024, 2048, 4096, 8192};
+
+std::vector<int> buildShadowMapResolutionOptions(int current) {
+    std::vector<int> options;
+    options.reserve(8);
+
+    const auto addUnique = [&options](int value) {
+        if (value <= 0) {
+            return;
+        }
+        for (const int existing : options) {
+            if (existing == value) {
+                return;
+            }
+        }
+        options.push_back(value);
+    };
+
+    addUnique(current);
+    for (const int preset : kShadowMapResolutionPresets) {
+        addUnique(preset);
+    }
+    return options;
+}
+
 void openGraphicsSettings(SettingsUiState& settingsUi, const UserSettings& settings) {
     settingsUi.graphicsOpen = true;
     settingsUi.graphicsDraft = settings.graphics;
@@ -106,10 +132,18 @@ void openControlsSettings(SettingsUiState& settingsUi, const UserSettings& setti
     settingsUi.rebindingWaitMouseRelease = false;
 }
 
-void applyGraphicsDraft(UserSettings& settings, const GraphicsSettings& draft) {
+void applyGraphicsDraft(flecs::world world, UserSettings& settings, const GraphicsSettings& draft) {
+    const int previousShadowMapResolution = settings.graphics.shadowMapResolution;
     settings.graphics = draft;
     applyGraphicsSettings(settings.graphics);
     settings.save();
+
+    if (draft.shadowMapResolution != previousShadowMapResolution && world.has<DynamicLightShadowState>() &&
+        world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+        world.set<DynamicLightShadowState>(createDynamicLightShadowState(
+            *world.get<AssetServices>().store,
+            draft.shadowMapResolution));
+    }
 }
 
 void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
@@ -134,12 +168,16 @@ void drawPauseMenu(flecs::world world, AssetStore& assets, InputContextStack& co
     ImGui::End();
 }
 
-void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserSettings& settings) {
+void drawGraphicsSettings(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    UserSettings& settings) {
     if (!settingsUi.graphicsOpen) {
         return;
     }
 
-    ImGui::SetNextWindowSize({420.0f, 260.0f}, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize({420.0f, 320.0f}, ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Graphics", &settingsUi.graphicsOpen, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
@@ -196,14 +234,65 @@ void drawGraphicsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserS
     if (!draft.dynamicLights) {
         ImGui::BeginDisabled();
     }
+    if (ImGui::SliderInt("Max Dynamic Lights", &draft.maxDynamicLights, 0, kMaxDynamicLights)) {
+        draft.maxShadowedDynamicLights =
+            std::min(draft.maxShadowedDynamicLights, draft.maxDynamicLights);
+    }
     ImGui::Checkbox("Dynamic Light Shadows", &draft.dynamicLightShadows);
+    const bool shadowsDisabled = !draft.dynamicLights || !draft.dynamicLightShadows;
+    if (shadowsDisabled) {
+        ImGui::BeginDisabled();
+    }
+    ImGui::SliderInt(
+        "Max Shadowed Lights",
+        &draft.maxShadowedDynamicLights,
+        0,
+        std::min(draft.maxDynamicLights, kMaxShadowedDynamicLights));
+    const std::vector<int> shadowResolutions = buildShadowMapResolutionOptions(draft.shadowMapResolution);
+    int shadowResolutionIndex = 0;
+    for (int i = 0; i < static_cast<int>(shadowResolutions.size()); ++i) {
+        if (shadowResolutions[static_cast<std::size_t>(i)] == draft.shadowMapResolution) {
+            shadowResolutionIndex = i;
+            break;
+        }
+    }
+
+    std::vector<std::string> shadowResolutionLabels;
+    shadowResolutionLabels.reserve(shadowResolutions.size());
+    for (const int value : shadowResolutions) {
+        char label[32];
+        std::snprintf(label, sizeof(label), "%dx%d", value, value);
+        shadowResolutionLabels.emplace_back(label);
+    }
+
+    std::vector<const char*> shadowResolutionItems;
+    shadowResolutionItems.reserve(shadowResolutionLabels.size());
+    for (const std::string& label : shadowResolutionLabels) {
+        shadowResolutionItems.push_back(label.c_str());
+    }
+
+    if (ImGui::Combo(
+            "Shadow Map Resolution",
+            &shadowResolutionIndex,
+            shadowResolutionItems.data(),
+            static_cast<int>(shadowResolutionItems.size()))) {
+        draft.shadowMapResolution = shadowResolutions[static_cast<std::size_t>(shadowResolutionIndex)];
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Higher values use much more VRAM and take effect after Apply.\n"
+            "Applies to every shadow-casting light slot, so cost scales fast.");
+    }
+    if (shadowsDisabled) {
+        ImGui::EndDisabled();
+    }
     if (!draft.dynamicLights) {
         ImGui::EndDisabled();
     }
 
     ImGui::Separator();
     if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
-        applyGraphicsDraft(settings, draft);
+        applyGraphicsDraft(world, settings, draft);
     }
     ImGui::SameLine();
     if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
@@ -1275,7 +1364,7 @@ void drawUi(flecs::world world) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
         const EngineSessionInfo& sessionInfo = world.get<EngineSessionInfo>();
         drawMainMenuBar(world, *assets, quit, settingsUi, debugUi, settings, sessionInfo);
-        drawGraphicsSettings(*assets, settingsUi, settings);
+        drawGraphicsSettings(world, *assets, settingsUi, settings);
         drawControlsSettings(*assets, settingsUi, settings);
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);

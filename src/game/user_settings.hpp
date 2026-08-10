@@ -23,6 +23,9 @@ struct GraphicsSettings {
     bool vsync = true;
     bool dynamicLights = true;
     bool dynamicLightShadows = true;
+    int maxDynamicLights = 32;
+    int maxShadowedDynamicLights = 8;
+    int shadowMapResolution = 512;
 };
 
 /** Key / mouse bindings for each registered action. */

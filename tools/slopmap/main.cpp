@@ -24,6 +24,7 @@
 #include "assets/asset_store.hpp"
 #include "core/package.hpp"
 #include "core/package_meta.hpp"
+#include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
 #include "map/csg_script.hpp"
@@ -255,7 +256,9 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             if (value == nullptr) {
                 return std::nullopt;
             }
-            config.target = value;
+            config.target = slopengine::resolveApplicationPackagePath(
+                value,
+                slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
             continue;
         }
         if (arg == "--map") {
@@ -295,6 +298,27 @@ bool targetIsMounted(const slopengine::AssetStore& assets, const std::filesystem
         }
     }
     return false;
+}
+
+std::vector<std::string> listTargetMaps(const std::filesystem::path& target) {
+    std::vector<std::string> maps;
+    const std::filesystem::path mapsRoot = target / "maps";
+    std::error_code ec;
+    std::filesystem::directory_iterator it(mapsRoot, ec);
+    if (ec) {
+        return maps;
+    }
+    for (const auto& entry : it) {
+        if (!entry.is_directory()) {
+            continue;
+        }
+        if (!std::filesystem::exists(entry.path() / "map.meta")) {
+            continue;
+        }
+        maps.push_back(entry.path().filename().string());
+    }
+    std::sort(maps.begin(), maps.end());
+    return maps;
 }
 
 struct MapStats {
@@ -552,7 +576,8 @@ void drawScene(
         lineWidth,
         &camera,
         &assets,
-        &d.things);
+        &d.things,
+        editor.showNodraw);
 
     if (fillWire) {
         for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
@@ -1048,6 +1073,7 @@ int main(int argc, char* argv[]) {
     bool compileRunIncludesRad = false;
     bool showPreferencesModal = false;
     char mapNameBuf[128] = {};
+    std::vector<std::string> availableMaps = listTargetMaps(config->target);
     char prefabPathBuf[256] = {};
     char thumbCachePathBuf[512] = {};
     RenderTexture2D contentTargets[slopmap::kViewportCount]{};
@@ -1215,6 +1241,7 @@ int main(int argc, char* argv[]) {
                         editor.showLoadModal = true;
                         editor.modalMapName = editor.levelDoc.assetPath;
                         std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", editor.modalMapName.c_str());
+                        availableMaps = listTargetMaps(config->target);
                     }
                 }
                 if (menuItemWithIcon(assets, kIcons, "disk", "Save", "Ctrl+S")) {
@@ -2790,24 +2817,33 @@ int main(int argc, char* argv[]) {
                 const float avail = ImGui::GetContentRegionAvail().y;
                 const float frameH = ImGui::GetFrameHeight();
                 const float spacing = style.ItemSpacing.y;
-                const float propsLabelH = ImGui::GetTextLineHeight() + spacing;
+                const float propsTabBarH = frameH + spacing;
                 const float separatorH = spacing * 2.0f + 1.0f;
                 const float tabBarH = frameH + spacing;
                 const float filterH = frameH + spacing;
                 const float listMinH = frameH * 3.0f;
                 const float propsMinH = frameH * 8.0f;
                 const float listOverhead = separatorH + tabBarH + filterH;
-                const float splitAvail = std::max(0.0f, avail - propsLabelH - listOverhead);
+                const float splitAvail = std::max(0.0f, avail - propsTabBarH - listOverhead);
                 float propsH = std::max(propsMinH, splitAvail * 0.62f);
                 if (propsH > splitAvail - listMinH) {
                     propsH = std::max(0.0f, splitAvail - listMinH);
                 }
 
-                ImGui::TextUnformatted("Properties");
-                if (d.selectionMode == slopmap::SelectionMode::Entity) {
-                    thingPanel.drawSection(editor, assets, materialBrowser, propsH);
-                } else {
-                    brushPanel.drawSection(editor, propsH);
+                if (ImGui::BeginTabBar("##propsTabs", ImGuiTabBarFlags_None)) {
+                    if (ImGui::BeginTabItem("Select")) {
+                        if (d.selectionMode == slopmap::SelectionMode::Entity) {
+                            thingPanel.drawSection(editor, assets, materialBrowser, propsH);
+                        } else {
+                            brushPanel.drawSection(editor, propsH);
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Map")) {
+                        thingPanel.drawMapSection(editor, assets, materialBrowser, propsH);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
 
                 ImGui::Separator();
@@ -3286,30 +3322,24 @@ int main(int argc, char* argv[]) {
                                             createTool);
                                     });
                                 placeKindButton(
-                                    "weather_sun",
-                                    "sun",
-                                    isKind(slopengine::ThingKind::Sun),
-                                    [&] {
-                                        beginThingKind(
-                                            editor, slopengine::ThingKind::Sun, createTool);
-                                    });
-                                placeKindButton(
-                                    "weather_sun",
-                                    "ambient-light",
-                                    isKind(slopengine::ThingKind::AmbientLight),
+                                    "lightning",
+                                    "dynamic-point-light",
+                                    isKind(slopengine::ThingKind::DynamicPointLight),
                                     [&] {
                                         beginThingKind(
                                             editor,
-                                            slopengine::ThingKind::AmbientLight,
+                                            slopengine::ThingKind::DynamicPointLight,
                                             createTool);
                                     });
                                 placeKindButton(
-                                    "image",
-                                    "skybox",
-                                    isKind(slopengine::ThingKind::Skybox),
+                                    "lightning_add",
+                                    "dynamic-spot-light",
+                                    isKind(slopengine::ThingKind::DynamicSpotLight),
                                     [&] {
                                         beginThingKind(
-                                            editor, slopengine::ThingKind::Skybox, createTool);
+                                            editor,
+                                            slopengine::ThingKind::DynamicSpotLight,
+                                            createTool);
                                     });
                                 drawCatalogDefs(
                                     slopengine::thingDefRegistry().defsForRole(
@@ -3486,7 +3516,7 @@ int main(int argc, char* argv[]) {
                 const float rotateSnapW = snapIconMenuWidth(rotateSnapLabel, snapIcon);
                 const float snapSectionW =
                     translateSnapW + transformSnapW + rotateSnapW + snapGap * 2.0f;
-                const float gridControlsW = btn + planeW + gridLabelW + btn * 2.0f;
+                const float gridControlsW = btn + gap + btn + planeW + gridLabelW + btn * 2.0f;
                 const float controlsW = viewSectionW + gap + snapSectionW + gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
@@ -3547,6 +3577,9 @@ int main(int argc, char* argv[]) {
                                 ImU32 tint = ImGui::GetColorU32(ImGuiCol_Text);
                                 if (!editor.showGrid && std::strcmp(id, "grid-toggle") == 0) {
                                     tint = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                                }
+                                if (editor.showNodraw && std::strcmp(id, "nodraw-toggle") == 0) {
+                                    tint = ImGui::GetColorU32(ImGuiCol_CheckMark);
                                 }
                                 ImGui::GetWindowDrawList()->AddImage(
                                     (ImTextureID)(intptr_t)atlas->texture.id,
@@ -3788,6 +3821,18 @@ int main(int argc, char* argv[]) {
 
                     ImGui::SameLine(0.0f, gap);
 
+                    if (iconButton("nodraw-toggle", "eye")) {
+                        editor.showNodraw = !editor.showNodraw;
+                        editor.statusMessage =
+                            editor.showNodraw ? "Nodraw faces: shown" : "Nodraw faces: hidden";
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            editor.showNodraw ? "Hide nodraw faces" : "Show nodraw faces");
+                    }
+
+                    ImGui::SameLine(0.0f, gap);
+
                     if (iconButton("grid-toggle", "table")) {
                         editor.showGrid = !editor.showGrid;
                         editor.statusMessage = editor.showGrid ? "Grid: on" : "Grid: off";
@@ -3912,17 +3957,49 @@ int main(int argc, char* argv[]) {
         }
         if (ImGui::BeginPopupModal("Load Map", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             constexpr const char* kIcons = kDefaultIconSet;
+            auto attemptLoad = [&](const char* name) {
+                if (editor.levelDoc.dirty) {
+                    editor.statusMessage = "Save or discard changes before loading";
+                    return false;
+                }
+                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                if (!editor.load(assets, scheme, name)) {
+                    return false;
+                }
+                previewNeedsRebuild = false;
+                return true;
+            };
+
+            ImGui::TextUnformatted("Maps in target package");
+            ImGui::SameLine();
+            if (buttonWithIcon(assets, kIcons, "arrow_refresh", "Refresh")) {
+                availableMaps = listTargetMaps(config->target);
+            }
+            if (availableMaps.empty()) {
+                ImGui::TextDisabled("(none found under maps/)");
+            } else if (ImGui::BeginListBox("##maplist", ImVec2(280, 160))) {
+                for (const std::string& name : availableMaps) {
+                    ImGui::PushID(name.c_str());
+                    const bool isSelected = mapNameBuf == name;
+                    if (ImGui::Selectable(name.c_str(), isSelected)) {
+                        std::snprintf(mapNameBuf, sizeof(mapNameBuf), "%s", name.c_str());
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        if (attemptLoad(name.c_str())) {
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndListBox();
+            }
+
+            ImGui::Separator();
             ImGui::TextUnformatted("Map folder name under maps/");
             ImGui::InputText("##loadmap", mapNameBuf, sizeof(mapNameBuf));
             if (buttonWithIcon(assets, kIcons, "folder_page", "Load", ImVec2(120, 0))) {
-                if (editor.levelDoc.dirty) {
-                    editor.statusMessage = "Save or discard changes before loading";
-                } else {
-                    cancelTools(createTool, selectTool, punchTool, clipTool, editor);
-                    if (editor.load(assets, scheme, mapNameBuf)) {
-                        previewNeedsRebuild = false;
-                        ImGui::CloseCurrentPopup();
-                    }
+                if (attemptLoad(mapNameBuf)) {
+                    ImGui::CloseCurrentPopup();
                 }
             }
             ImGui::SameLine();
