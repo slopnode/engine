@@ -870,10 +870,11 @@ Spawns a world-space billboard sprite.
 Spawns a particle system, aimed by either a yaw angle or an explicit direction vector.
 
 ### particle-spawn-fp {#particle-spawn-fp}
-<pre><code class="language-scheme">(particle-spawn-fp id socket path [depth]) → boolean?
+<pre><code class="language-scheme">(particle-spawn-fp id socket path attach [depth]) → boolean?
   id     : string?
   socket : string?
   path   : string?
+  attach : string?
   depth  : real? = 0.35
 </code></pre>
 Spawns a view-space particle system pinned to a first-person socket.

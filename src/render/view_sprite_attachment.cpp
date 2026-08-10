@@ -1,4 +1,4 @@
-#include "render/view_sprite_muzzle.hpp"
+#include "render/view_sprite_attachment.hpp"
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
@@ -16,9 +16,30 @@
 
 namespace slopengine {
 
-std::optional<Vector3> resolveViewSpriteMuzzleWorld(
+namespace {
+
+const SpriteAttachPoint* findAttachPoint(
+    const SpriteAsset& asset,
+    std::string_view frameId,
+    const std::string& name) {
+    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
+    if (frame == nullptr) {
+        return nullptr;
+    }
+    for (const SpriteAttachPoint& point : frame->attachPoints) {
+        if (point.name == name) {
+            return &point;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
+std::optional<Vector3> resolveViewSpriteAttachmentWorld(
     flecs::world& world,
     flecs::entity host,
+    const std::string& attachName,
     float depth) {
     if (!host.is_valid() || !host.has<ViewSprite>() || !host.has<SpriteInstance>()) {
         return std::nullopt;
@@ -29,7 +50,11 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
     AssetStore& assets = *world.get_mut<AssetServices>().store;
     const SpriteInstance& sprite = host.get<SpriteInstance>();
     const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
-    if (asset == nullptr || !asset->view.hasMuzzle) {
+    if (asset == nullptr) {
+        return std::nullopt;
+    }
+    const SpriteAttachPoint* attachPoint = findAttachPoint(*asset, sprite.frame, attachName);
+    if (attachPoint == nullptr) {
         return std::nullopt;
     }
 
@@ -42,6 +67,8 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
     float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
     float translateX = frame->translateX + frame->animTranslateX;
     float translateY = frame->translateY + frame->animTranslateY;
+    float attachX = attachPoint->x;
+    float attachY = attachPoint->y;
 
     if (host.has<SpriteAnimator>()) {
         const SpriteAnimator& animator = host.get<SpriteAnimator>();
@@ -64,6 +91,12 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
                     translateX = translateX + (nextTranslateX - translateX) * blend;
                     translateY = translateY + (nextTranslateY - translateY) * blend;
                 }
+                const SpriteAttachPoint* nextAttachPoint =
+                    findAttachPoint(*asset, animator.nextFrame, attachName);
+                if (nextAttachPoint != nullptr) {
+                    attachX = attachX + (nextAttachPoint->x - attachX) * blend;
+                    attachY = attachY + (nextAttachPoint->y - attachY) * blend;
+                }
             }
         }
     }
@@ -74,10 +107,8 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
         (viewSprite.rotationDeg + rotationDeg) * (static_cast<float>(DEG2RAD));
     const float cosT = std::cos(theta);
     const float sinT = std::sin(theta);
-    const float muzzleX = asset->view.muzzleX;
-    const float muzzleY = asset->view.muzzleY;
-    const float canvasX = pinX + muzzleX * cosT - muzzleY * sinT;
-    const float canvasY = pinY + muzzleX * sinT + muzzleY * cosT;
+    const float canvasX = pinX + attachX * cosT - attachY * sinT;
+    const float canvasY = pinY + attachX * sinT + attachY * cosT;
 
     ViewCanvas viewCanvas{};
     if (world.has<ViewCanvas>()) {

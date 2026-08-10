@@ -53,10 +53,7 @@ struct EditorDocument {
     float worldScale = 1.0f;
 
     slopengine::ViewSprite viewSprite{};
-    bool hasMuzzle = false;
-    float muzzleX = 0.0f;
-    float muzzleY = 0.0f;
-    bool muzzleSelected = false;
+    int selectedAttachPointIndex = -1;
 
     std::string animClip;
     float animTime = 0.0f;

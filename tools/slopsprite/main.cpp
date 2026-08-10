@@ -136,6 +136,18 @@ void labeledField(const char* label, float labelWidth = kLabelColumnWidth) {
     ImGui::SetNextItemWidth(-1.0f);
 }
 
+float iconButtonWidth() {
+    return ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x;
+}
+
+bool deleteIconButton(slopengine::AssetStore& assets, const char* kIcons) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.30f, 0.30f, 1.0f));
+    const bool pressed =
+        slopengine::iconButton(assets, kIcons, "cross", ImVec2(iconButtonWidth(), 0.0f));
+    ImGui::PopStyleColor();
+    return pressed;
+}
+
 void drawAnimBar(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("No sprite open");
@@ -723,31 +735,75 @@ void drawInspector(
                 "##viewrotation", &editor.doc.viewSprite.rotationDeg, 0.5f, -360.0f, 360.0f, "%.1f")) {
             editor.markDirty();
         }
-        labeledField("Muzzle tip");
-        if (ImGui::Checkbox("##muzzletip", &editor.doc.hasMuzzle)) {
-            editor.markDirty();
-            if (!editor.doc.hasMuzzle) {
-                editor.doc.muzzleSelected = false;
-            }
-        }
-        if (editor.doc.hasMuzzle) {
-            if (ImGui::SmallButton(editor.doc.muzzleSelected ? "[*] Select" : "[ ] Select")) {
-                editor.doc.muzzleSelected = !editor.doc.muzzleSelected;
-                if (editor.doc.muzzleSelected) {
+    }
+
+    if (editor.doc.selectedFrameIndex >= 0 &&
+        editor.doc.selectedFrameIndex < static_cast<int>(editor.doc.asset.frames.size()) &&
+        ImGui::CollapsingHeader("Attach points", ImGuiTreeNodeFlags_DefaultOpen)) {
+        constexpr const char* kIcons = kDefaultIconSet;
+        slopengine::SpriteFrame& frame =
+            editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)];
+        ImGui::TextDisabled("Named offsets on this frame (name x y z)");
+        for (int pi = 0; pi < static_cast<int>(frame.attachPoints.size()); ++pi) {
+            slopengine::SpriteAttachPoint& point =
+                frame.attachPoints[static_cast<std::size_t>(pi)];
+            ImGui::PushID(pi + 2000);
+            const bool selected = editor.doc.selectedAttachPointIndex == pi;
+            if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
+                editor.doc.selectedAttachPointIndex = selected ? -1 : pi;
+                if (!selected) {
                     editor.doc.selectedOverlayHoldIndex = -1;
                     editor.doc.selectedOverlayIndex = -1;
                 }
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("drag in FP preview");
-            float muzzle[2] = {editor.doc.muzzleX, editor.doc.muzzleY};
-            labeledField("Muzzle XY");
-            if (ImGui::DragFloat2("##muzzlexy", muzzle, 0.5f, 0.0f, 0.0f, "%.1f")) {
-                editor.doc.muzzleX = muzzle[0];
-                editor.doc.muzzleY = muzzle[1];
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.3f);
+            char nameBuf[64] = {};
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", point.name.c_str());
+            if (ImGui::InputTextWithHint("##apname", "name", nameBuf, sizeof(nameBuf))) {
+                point.name = nameBuf;
                 editor.markDirty();
             }
-            ImGui::TextDisabled("Canvas px from sprite pivot (same as overlay XY)");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+            float xy[2] = {point.x, point.y};
+            if (ImGui::DragFloat2("##apxy", xy, 0.5f, 0.0f, 0.0f, "%.1f")) {
+                point.x = xy[0];
+                point.y = xy[1];
+                editor.markDirty();
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(
+                ImGui::GetContentRegionAvail().x - iconButtonWidth() -
+                ImGui::GetStyle().ItemSpacing.x);
+            if (ImGui::DragInt("##apz", &point.zIndex, 0.1f)) {
+                editor.markDirty();
+            }
+            ImGui::SameLine();
+            const bool deletePoint = deleteIconButton(assets, kIcons);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Delete attach point");
+            }
+            if (deletePoint) {
+                if (editor.doc.selectedAttachPointIndex == pi) {
+                    editor.doc.selectedAttachPointIndex = -1;
+                }
+                frame.attachPoints.erase(frame.attachPoints.begin() + pi);
+                editor.markDirty();
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+        if (ImGui::SmallButton("Add attach point")) {
+            slopengine::SpriteAttachPoint point{};
+            point.name = "point";
+            frame.attachPoints.push_back(point);
+            editor.doc.selectedAttachPointIndex = static_cast<int>(frame.attachPoints.size()) - 1;
+            editor.markDirty();
+        }
+        if (editor.mode == slopsprite::PreviewMode::FirstPerson) {
+            ImGui::TextDisabled("Selected point draggable in FP preview");
         }
     }
 

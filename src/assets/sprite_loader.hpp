@@ -47,10 +47,19 @@ struct SpriteRotation {
     int pixelHeight = 0;
 };
 
+/** Named offset point on a frame, e.g. a weapon muzzle or ejection port. */
+struct SpriteAttachPoint {
+    std::string name;
+    float x = 0.0f;
+    float y = 0.0f;
+    int zIndex = 0;
+};
+
 /** Named frame with up to nine Doom-style rotations. */
 struct SpriteFrame {
     std::string id;
     std::optional<SpriteRotation> rotations[kSpriteRotationCount];
+    std::vector<SpriteAttachPoint> attachPoints;
 };
 
 /** Optional first-person view defaults stored in a .spr (view …) block. */
@@ -63,9 +72,6 @@ struct SpriteViewDefaults {
     float rotationDeg = 0.0f;
     float originX = 0.5f;
     float originY = 1.0f;
-    bool hasMuzzle = false;
-    float muzzleX = 0.0f;
-    float muzzleY = 0.0f;
 };
 
 enum class SpriteBillboardMode {

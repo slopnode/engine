@@ -351,7 +351,7 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, Sound
             if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
                 editor.doc.selectedOverlayHoldIndex = i;
                 editor.doc.selectedOverlayIndex = oi;
-                editor.doc.muzzleSelected = false;
+                editor.doc.selectedAttachPointIndex = -1;
             }
             ImGui::SameLine();
             ImGui::SetNextItemWidth(48.0f);

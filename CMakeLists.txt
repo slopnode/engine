@@ -176,7 +176,7 @@ add_executable(slopengine
     src/physics/rigid_mover_motion.cpp
     src/physics/map_collision.cpp
     src/particles/particle_module.cpp
-    src/render/view_sprite_muzzle.cpp
+    src/render/view_sprite_attachment.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp

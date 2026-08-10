@@ -39,11 +39,12 @@ struct ParticleSystemInstance {
     std::vector<ParticleEmitterRuntime> emitters;
 };
 
-/** Pins a view-space particle system to a first-person muzzle socket at a fixed depth.
+/** Pins a view-space particle system to a named first-person attachment point at a fixed depth.
  *  @ingroup particles_components
  */
-struct ParticleFollowViewMuzzle {
+struct ParticleFollowAttachPoint {
     std::uint64_t host = 0;
+    std::string name;
     float depth = 0.35f;
 };
 

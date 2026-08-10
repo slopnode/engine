@@ -437,10 +437,7 @@ void Editor::setStatus(std::string message, float seconds) {
 void Editor::applyViewFromAsset() {
     if (!doc.asset.view.present) {
         doc.viewSprite = {};
-        doc.hasMuzzle = false;
-        doc.muzzleX = 0.0f;
-        doc.muzzleY = 0.0f;
-        doc.muzzleSelected = false;
+        doc.selectedAttachPointIndex = -1;
         return;
     }
     doc.viewSprite.anchorX = doc.asset.view.anchorX;
@@ -450,9 +447,6 @@ void Editor::applyViewFromAsset() {
     doc.viewSprite.rotationDeg = doc.asset.view.rotationDeg;
     doc.viewSprite.originX = doc.asset.view.originX;
     doc.viewSprite.originY = doc.asset.view.originY;
-    doc.hasMuzzle = doc.asset.view.hasMuzzle;
-    doc.muzzleX = doc.asset.view.muzzleX;
-    doc.muzzleY = doc.asset.view.muzzleY;
 }
 
 void Editor::syncViewToAsset() {
@@ -464,9 +458,6 @@ void Editor::syncViewToAsset() {
     doc.asset.view.rotationDeg = doc.viewSprite.rotationDeg;
     doc.asset.view.originX = doc.viewSprite.originX;
     doc.asset.view.originY = doc.viewSprite.originY;
-    doc.asset.view.hasMuzzle = doc.hasMuzzle;
-    doc.asset.view.muzzleX = doc.muzzleX;
-    doc.asset.view.muzzleY = doc.muzzleY;
 }
 
 void Editor::markDirty() {

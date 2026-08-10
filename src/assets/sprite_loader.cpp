@@ -344,14 +344,6 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             }
             asset.view.originX = values[0];
             asset.view.originY = values[1];
-        } else if (inView && line.rfind("(muzzle ", 0) == 0) {
-            float values[2] = {};
-            if (!readFloats(line.substr(std::string_view("(muzzle ").size()), 2, values)) {
-                return false;
-            }
-            asset.view.hasMuzzle = true;
-            asset.view.muzzleX = values[0];
-            asset.view.muzzleY = values[1];
         } else if (inView && (line == ")" || line.rfind(")", 0) == 0)) {
             inView = false;
         } else if (line == "(fullbright)" || line.rfind("(fullbright", 0) == 0) {
@@ -508,6 +500,29 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
                 entry.animTranslateY = animTranslateY;
             }
             currentFrame->rotations[rotation] = std::move(entry);
+        } else if (auto attachName = readQuotedField(line, "(attach ")) {
+            if (currentFrame == nullptr) {
+                return false;
+            }
+            const std::size_t nameEnd = line.find('"', line.find('"') + 1);
+            if (nameEnd == std::string_view::npos) {
+                return false;
+            }
+            const std::string_view rest = trim(line.substr(nameEnd + 1));
+            SpriteAttachPoint point{};
+            point.name = *attachName;
+            float values[3] = {};
+            if (readFloats(rest, 3, values)) {
+                point.x = values[0];
+                point.y = values[1];
+                point.zIndex = static_cast<int>(values[2]);
+            } else if (readFloats(rest, 2, values)) {
+                point.x = values[0];
+                point.y = values[1];
+            } else {
+                return false;
+            }
+            currentFrame->attachPoints.push_back(std::move(point));
         }
 
         if (lineEnd == std::string_view::npos) {
@@ -548,9 +563,6 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
         out << "    (scale " << asset.view.scaleX << ' ' << asset.view.scaleY << ")\n";
         out << "    (rotation " << asset.view.rotationDeg << ")\n";
         out << "    (origin " << asset.view.originX << ' ' << asset.view.originY << ")\n";
-        if (asset.view.hasMuzzle) {
-            out << "    (muzzle " << asset.view.muzzleX << ' ' << asset.view.muzzleY << ")\n";
-        }
         out << "  )\n";
     }
     for (const SpriteHitPartDef& part : asset.hitParts) {
@@ -594,6 +606,13 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
             }
             if (entry.brightMapPath.has_value()) {
                 out << " bright \"" << *entry.brightMapPath << '"';
+            }
+            out << ")\n";
+        }
+        for (const SpriteAttachPoint& point : frame.attachPoints) {
+            out << "    (attach \"" << point.name << "\" " << point.x << ' ' << point.y;
+            if (point.zIndex != 0) {
+                out << ' ' << point.zIndex;
             }
             out << ")\n";
         }
