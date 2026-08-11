@@ -146,6 +146,35 @@ void runNavGraphTests() {
     }
 
     {
+        // A real Door brush filling the doorway (not just a role change on the
+        // jambs) must still connect the two rooms in the portal graph, and the
+        // link must be gated by that door's live open/closed state.
+        const std::vector<Brush> brushes = mapfixtures::sealedRoomWithInteriorDoor();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const MapNavigation nav = buildMapNavigation(tree, &analysis.exteriorEmpty);
+        const std::int32_t north = pointLeaf(tree, {0.0f, 1.0f, -3.0f});
+        const std::int32_t south = pointLeaf(tree, {0.0f, 1.0f, 3.0f});
+        CHECK(north >= 0);
+        CHECK(south >= 0);
+        CHECK(nav.walkable[static_cast<std::size_t>(north)]);
+        CHECK(nav.walkable[static_cast<std::size_t>(south)]);
+
+        const std::vector<int> pathUngated = findLeafPath(nav, north, south);
+        CHECK(pathUngated.size() >= 2);
+
+        const DoorOpenQuery open = [](const std::string&) { return true; };
+        const std::vector<int> pathOpen = findLeafPath(nav, north, south, open);
+        CHECK(pathOpen.size() >= 2);
+
+        const DoorOpenQuery closed = [](const std::string&) { return false; };
+        const std::vector<int> pathClosed = findLeafPath(nav, north, south, closed);
+        CHECK(pathClosed.empty());
+    }
+
+    {
         const std::vector<Brush> brushes = mapfixtures::sealedHollowRoom();
         const BspTree tree = buildBspFromHullBrushes(brushes);
         const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);

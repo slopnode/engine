@@ -7,7 +7,9 @@
 #include "assets/sprite_anim_loader.hpp"
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
+#include "map/nav_graph.hpp"
 #include "map/pvs.hpp"
+#include "map/sound_propagation.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
 #include "navigation/nav_components.hpp"
@@ -27,6 +29,7 @@
 #include "particles/components.hpp"
 #include "particles/particle_module.hpp"
 #include "particles/particle_sim.hpp"
+#include "fx/trail.hpp"
 #include "render/transform.hpp"
 #include "script/first_person_script.hpp"
 
@@ -857,6 +860,91 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
         attach,
         path,
         depth,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_trail_spawn_fp(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 2, args, "socket string");
+    }
+    const std::string socket = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 3, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 4, args, "attach string");
+    }
+    const std::string attach = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float ex = 0, ey = 0, ez = 0, lifetime = 0.12f;
+    if (!readNumberArg(sc, args, ex, "trail-spawn-fp", 5) ||
+        !readNumberArg(sc, args, ey, "trail-spawn-fp", 6) ||
+        !readNumberArg(sc, args, ez, "trail-spawn-fp", 7) ||
+        !readNumberArg(sc, args, lifetime, "trail-spawn-fp", 8)) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 5, args, "ex ey ez lifetime numbers");
+    }
+
+    float width = 0.08f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        width = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+    float depth = 0.35f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        depth = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasTexture(path)) {
+        TraceLog(LOG_WARNING, "trail-spawn-fp: missing texture '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity host = findFirstPersonSocketSprite(*g_thingWorld, socket.c_str());
+    if (!host.is_valid()) {
+        TraceLog(LOG_WARNING, "trail-spawn-fp: no ViewSprite on socket '%s'", socket.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnTrailFp(
+        *g_thingWorld,
+        id.c_str(),
+        host,
+        attach,
+        depth,
+        Vector3{ex, ey, ez},
+        path,
+        lifetime,
+        width,
         true);
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
@@ -1813,6 +1901,75 @@ s7_pointer g_pvs_can_see(s7_scheme* sc, s7_pointer args) {
         : s7_f(sc);
 }
 
+bool isDoorPortalOpenForSound(const std::string& doorBrushId) {
+    if (g_thingWorld == nullptr) {
+        return true;
+    }
+    flecs::entity door = g_thingWorld->lookup(doorBrushId.c_str());
+    if (!door.is_valid() || !door.has<RigidMover>()) {
+        return true;
+    }
+    return door.get<RigidMover>().target >= 0.5f;
+}
+
+s7_pointer g_sound_emit(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_nil(sc);
+    }
+    float x = 0, y = 0, z = 0, loudness = 0;
+    if (!readNumberArg(sc, args, x, "sound-emit!", 1) ||
+        !readNumberArg(sc, args, y, "sound-emit!", 2) ||
+        !readNumberArg(sc, args, z, "sound-emit!", 3) ||
+        !readNumberArg(sc, args, loudness, "sound-emit!", 4)) {
+        return s7_wrong_type_arg_error(
+            sc, "sound-emit!", 1, args, "x y z loudness [falloff-per-unit]");
+    }
+    float falloffPerUnit = 1.0f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        falloffPerUnit = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    }
+    if (loudness <= 0.0f || falloffPerUnit < 0.0f) {
+        return s7_nil(sc);
+    }
+
+    if (!g_thingWorld->has<MapNavigation>() || !g_thingWorld->has<MapBsp>()) {
+        return s7_nil(sc);
+    }
+    const MapNavigation& nav = g_thingWorld->get<MapNavigation>();
+    const BspTree& tree = g_thingWorld->get<MapBsp>().tree;
+    const std::int32_t originLeaf = pvsSampleLeaf(tree, {x, y, z});
+    if (originLeaf < 0) {
+        return s7_nil(sc);
+    }
+
+    const std::vector<float> perceived =
+        floodSound(nav, originLeaf, loudness, falloffPerUnit, isDoorPortalOpenForSound);
+
+    s7_pointer list = s7_nil(sc);
+    g_thingWorld->each([&](flecs::entity entity, Actor, const LocalTransformation& local) {
+        const std::int32_t leaf = pvsSampleLeaf(tree, local.position);
+        if (leaf < 0 || leaf >= static_cast<std::int32_t>(perceived.size())) {
+            return;
+        }
+        const float heard = perceived[static_cast<std::size_t>(leaf)];
+        if (heard <= 0.0f) {
+            return;
+        }
+        list = s7_cons(
+            sc,
+            s7_list(
+                sc,
+                2,
+                s7_make_string(sc, entityIdString(entity).c_str()),
+                s7_make_real(sc, heard)),
+            list);
+    });
+    return list;
+}
+
 } // namespace
 
 void queueThingDespawn(flecs::world& world, std::string_view id) {
@@ -2758,6 +2915,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(particle-spawn-fp id socket path attach [depth])");
     s7_define_function(
         scheme,
+        "trail-spawn-fp",
+        g_trail_spawn_fp,
+        8,
+        2,
+        false,
+        "(trail-spawn-fp id socket path attach ex ey ez lifetime [width] [depth])");
+    s7_define_function(
+        scheme,
         "particle-play",
         g_particle_play,
         1,
@@ -2924,6 +3089,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(pvs-can-see x0 y0 z0 x1 y1 z1)");
+    s7_define_function(
+        scheme,
+        "sound-emit!",
+        g_sound_emit,
+        4,
+        1,
+        false,
+        "(sound-emit! x y z loudness [falloff-per-unit]) -> ((id loudness) ...)");
     s7_define_function(
         scheme, "actor-los?", g_actor_los, 2, 0, false, "(actor-los? from-id to-id)");
     s7_define_function(

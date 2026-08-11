@@ -6,7 +6,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace slopengine {
@@ -15,7 +17,13 @@ struct NavPortalLink {
     int neighborLeaf = -1;
     Vector3 portalCenter{};
     float cost = 0.0f;
+    /** Brush id of the Door gating this link, or empty if the link is ungated. */
+    std::string doorBrushId;
 };
+
+/** Answers whether the door with the given brush id currently allows sound/nav to pass.
+ *  An empty/unset query treats every gated link as open (no gating). */
+using DoorOpenQuery = std::function<bool(const std::string& doorBrushId)>;
 
 /** Leaf portal graph built from sealed BSP hull. */
 struct MapNavigation {
@@ -32,8 +40,13 @@ MapNavigation buildMapNavigation(
     const BspTree& tree,
     const std::vector<std::uint8_t>* exteriorEmpty = nullptr);
 
-/** A* path over walkable leaves; empty if unreachable. */
-std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf);
+/** A* path over walkable leaves; empty if unreachable. Links gated by a closed door
+ *  (per @p isDoorOpen) are skipped, same as an unwalkable leaf. */
+std::vector<int> findLeafPath(
+    const MapNavigation& nav,
+    int fromLeaf,
+    int toLeaf,
+    const DoorOpenQuery& isDoorOpen = {});
 
 /** Portal centers between consecutive leaves, ending at goalPos. */
 std::vector<Vector3> leafPathToWaypoints(

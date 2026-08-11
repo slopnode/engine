@@ -183,8 +183,8 @@ PvsFile buildPvs(const BspTree& tree, const std::vector<std::uint8_t>* exteriorE
         if (portal.leafA >= n || portal.leafB >= n) {
             continue;
         }
-        if (!leafIsOpen(tree.leaves[static_cast<std::size_t>(portal.leafA)].contents)
-            || !leafIsOpen(tree.leaves[static_cast<std::size_t>(portal.leafB)].contents)) {
+        if (!leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(portal.leafA)].contents)
+            || !leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(portal.leafB)].contents)) {
             continue;
         }
 

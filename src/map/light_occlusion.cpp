@@ -36,6 +36,27 @@ Vector3 normalize3(Vector3 v) {
     return scale3(v, 1.0f / len);
 }
 
+Vector3 refract3(Vector3 incident, Vector3 normal, float eta) {
+    const float nDotI = dot3(normal, incident);
+    const float k = 1.0f - eta * eta * (1.0f - nDotI * nDotI);
+    if (k < 0.0f) {
+        return {0.0f, 0.0f, 0.0f};
+    }
+    return sub3(scale3(incident, eta), scale3(normal, eta * nDotI + std::sqrt(k)));
+}
+
+Vector3 materialTint(const MaterialBakeInfo& material) {
+    return {
+        static_cast<float>(material.asset.baseColor.r) / 255.0f,
+        static_cast<float>(material.asset.baseColor.g) / 255.0f,
+        static_cast<float>(material.asset.baseColor.b) / 255.0f,
+    };
+}
+
+Vector3 mul3(Vector3 a, Vector3 b) {
+    return {a.x * b.x, a.y * b.y, a.z * b.z};
+}
+
 bool faceIsTransparentRole(
     const std::vector<char>& faceTransparent,
     std::int32_t faceIndex) {
@@ -108,6 +129,69 @@ bool hitBlocksLight(
     return alpha >= kLightOcclusionAlphaThreshold;
 }
 
+std::optional<QuadBvhHit> raycastSunWithRefraction(
+    const QuadBvh& bvh,
+    Vector3 origin,
+    Vector3 direction,
+    float maxDistance,
+    std::int32_t ignoreFaceA,
+    std::int32_t ignoreFaceB,
+    const std::vector<LightmapFace>& faces,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
+    const std::vector<char>& faceTransparent,
+    Vector3* tintOut) {
+    if (tintOut != nullptr) {
+        *tintOut = {1.0f, 1.0f, 1.0f};
+    }
+    if (bvh.empty() || maxDistance <= 0.0f) {
+        return std::nullopt;
+    }
+    Vector3 dir = normalize3(direction);
+    Vector3 rayOrigin = origin;
+    float traveled = 0.0f;
+    bool bent = false;
+
+    for (int step = 0; step < kMaxAlphaOcclusionSteps; ++step) {
+        if (traveled >= maxDistance) {
+            return std::nullopt;
+        }
+        const float remaining = maxDistance - traveled;
+        const auto hit = raycastQuadBvh(bvh, rayOrigin, dir, remaining, -1, nullptr);
+        if (!hit) {
+            return std::nullopt;
+        }
+        if (shouldIgnoreFace(hit->faceIndex, ignoreFaceA, ignoreFaceB)) {
+            rayOrigin = add3(rayOrigin, scale3(dir, hit->distance + kRayAdvanceEpsilon));
+            traveled += hit->distance + kRayAdvanceEpsilon;
+            continue;
+        }
+        if (hitBlocksLight(*hit, faces, materialCache, faceTransparent)) {
+            QuadBvhHit adjusted = *hit;
+            adjusted.distance += traveled;
+            adjusted.point = add3(rayOrigin, scale3(dir, hit->distance));
+            return adjusted;
+        }
+        const LightmapFace& face = faces[static_cast<std::size_t>(hit->faceIndex)];
+        const MaterialBakeInfo* material = materialForFace(face, materialCache);
+        const Vector3 hitPoint = add3(rayOrigin, scale3(dir, hit->distance));
+        if (material != nullptr) {
+            if (tintOut != nullptr) {
+                *tintOut = mul3(*tintOut, materialTint(*material));
+            }
+            if (!bent && material->asset.ior > 1.0f) {
+                const Vector3 refracted = refract3(dir, face.normal, 1.0f / material->asset.ior);
+                if (dot3(refracted, refracted) > 1e-8f) {
+                    dir = refracted;
+                }
+                bent = true;
+            }
+        }
+        rayOrigin = add3(hitPoint, scale3(dir, kRayAdvanceEpsilon));
+        traveled += hit->distance + kRayAdvanceEpsilon;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 float sampleImageAlpha(const Image& image, float u, float v) {
@@ -153,7 +237,11 @@ std::optional<QuadBvhHit> raycastWithAlphaOcclusion(
     std::int32_t ignoreFaceB,
     const std::vector<LightmapFace>& faces,
     const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
-    const std::vector<char>& faceTransparent) {
+    const std::vector<char>& faceTransparent,
+    Vector3* tintOut) {
+    if (tintOut != nullptr) {
+        *tintOut = {1.0f, 1.0f, 1.0f};
+    }
     if (bvh.empty() || maxDistance <= 0.0f) {
         return std::nullopt;
     }
@@ -180,6 +268,13 @@ std::optional<QuadBvhHit> raycastWithAlphaOcclusion(
             adjusted.point = add3(origin, scale3(dir, adjusted.distance));
             return adjusted;
         }
+        if (tintOut != nullptr) {
+            const MaterialBakeInfo* material =
+                materialForFace(faces[static_cast<std::size_t>(hit->faceIndex)], materialCache);
+            if (material != nullptr) {
+                *tintOut = mul3(*tintOut, materialTint(*material));
+            }
+        }
         traveled += hit->distance + kRayAdvanceEpsilon;
     }
     return std::nullopt;
@@ -193,7 +288,11 @@ bool segmentOccludedWithAlphaOcclusion(
     std::int32_t ignoreFaceB,
     const std::vector<LightmapFace>& faces,
     const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
-    const std::vector<char>& faceTransparent) {
+    const std::vector<char>& faceTransparent,
+    Vector3* tintOut) {
+    if (tintOut != nullptr) {
+        *tintOut = {1.0f, 1.0f, 1.0f};
+    }
     const Vector3 delta = sub3(to, from);
     const float distance = std::sqrt(dot3(delta, delta));
     if (distance < 1e-5f) {
@@ -208,7 +307,8 @@ bool segmentOccludedWithAlphaOcclusion(
         ignoreFaceB,
         faces,
         materialCache,
-        faceTransparent);
+        faceTransparent,
+        tintOut);
     if (!hit) {
         return false;
     }
@@ -226,10 +326,15 @@ float sunSkyVisibilityWithAlphaOcclusion(
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent,
     const std::vector<LightmapFace>& faces,
-    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
+    Vector3* tintOut) {
+    if (tintOut != nullptr) {
+        *tintOut = {1.0f, 1.0f, 1.0f};
+    }
     constexpr float kSunRayDistance = 1000.0f;
     if (sunParams.rayCount <= 1 || sunParams.angularSpreadRad <= 0.0f) {
-        const auto hit = raycastWithAlphaOcclusion(
+        Vector3 rayTint{1.0f, 1.0f, 1.0f};
+        const auto hit = raycastSunWithRefraction(
             occlusionBvh,
             luxelPos,
             toLight,
@@ -238,11 +343,19 @@ float sunSkyVisibilityWithAlphaOcclusion(
             -1,
             faces,
             materialCache,
-            faceTransparent);
-        return hit && faceIsSky(faceSky, hit->faceIndex) ? 1.0f : 0.0f;
+            faceTransparent,
+            &rayTint);
+        if (hit && faceIsSky(faceSky, hit->faceIndex)) {
+            if (tintOut != nullptr) {
+                *tintOut = rayTint;
+            }
+            return 1.0f;
+        }
+        return 0.0f;
     }
 
     float hits = 0.0f;
+    Vector3 tintSum{0.0f, 0.0f, 0.0f};
     for (int ray = 0; ray < sunParams.rayCount; ++ray) {
         const Vector3 rayDir = sampleSunRayDirection(
             toLight,
@@ -251,7 +364,8 @@ float sunSkyVisibilityWithAlphaOcclusion(
             sunParams.angularSpreadRad,
             ray,
             sunParams.rayCount);
-        const auto hit = raycastWithAlphaOcclusion(
+        Vector3 rayTint{1.0f, 1.0f, 1.0f};
+        const auto hit = raycastSunWithRefraction(
             occlusionBvh,
             luxelPos,
             rayDir,
@@ -260,12 +374,17 @@ float sunSkyVisibilityWithAlphaOcclusion(
             -1,
             faces,
             materialCache,
-            faceTransparent);
+            faceTransparent,
+            &rayTint);
         if (hit && faceIsSky(faceSky, hit->faceIndex)) {
             hits += 1.0f;
+            tintSum = add3(tintSum, rayTint);
         }
     }
     const float visibility = hits / static_cast<float>(sunParams.rayCount);
+    if (tintOut != nullptr && hits > 0.0f) {
+        *tintOut = scale3(tintSum, 1.0f / hits);
+    }
     if (visibility <= sunParams.leakThreshold) {
         return 0.0f;
     }
@@ -352,6 +471,16 @@ bool buildRadGpuOcclusionResources(
         gpuFace.baseColorAlpha = material != nullptr
             ? static_cast<float>(material->asset.baseColor.a) / 255.0f
             : 1.0f;
+        gpuFace.baseColorR = material != nullptr
+            ? static_cast<float>(material->asset.baseColor.r) / 255.0f
+            : 1.0f;
+        gpuFace.baseColorG = material != nullptr
+            ? static_cast<float>(material->asset.baseColor.g) / 255.0f
+            : 1.0f;
+        gpuFace.baseColorB = material != nullptr
+            ? static_cast<float>(material->asset.baseColor.b) / 255.0f
+            : 1.0f;
+        gpuFace.ior = material != nullptr ? material->asset.ior : 1.0f;
         gpuFace.pixelsPerMeter =
             material != nullptr && material->asset.pixelsPerMeter > 0.0f
             ? material->asset.pixelsPerMeter

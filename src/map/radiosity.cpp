@@ -685,6 +685,7 @@ void accumulateEmissiveFaceContribution(
             if (!formOk && !fillOk) {
                 continue;
             }
+            Vector3 segmentTint{1.0f, 1.0f, 1.0f};
             if (segmentOccludedWithAlphaOcclusion(
                     occlusionBvh,
                     luxel.position,
@@ -693,16 +694,17 @@ void accumulateEmissiveFaceContribution(
                     face.faceIndex,
                     faces,
                     materialCache,
-                    faceTransparent)) {
+                    faceTransparent,
+                    &segmentTint)) {
                 continue;
             }
 
             if (formOk) {
                 const float form = nDotL * nDotV * sampleArea / (dist2 * PI);
                 const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                accumulated.r += radiance.x * form * atten;
-                accumulated.g += radiance.y * form * atten;
-                accumulated.b += radiance.z * form * atten;
+                accumulated.r += radiance.x * form * atten * segmentTint.x;
+                accumulated.g += radiance.y * form * atten * segmentTint.y;
+                accumulated.b += radiance.z * form * atten * segmentTint.z;
             }
             if (fillOk) {
                 const float planeSep = std::fabs(dot3(delta, luxel.normal));
@@ -711,9 +713,9 @@ void accumulateEmissiveFaceContribution(
                     align * std::exp(-planeSep / kCoplanarSoft) / (lateral2 + minDist2);
                 const float fill = sampleArea * coplanarFill * weight / (4.0f * PI);
                 const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                accumulated.r += radiance.x * fill * atten;
-                accumulated.g += radiance.y * fill * atten;
-                accumulated.b += radiance.z * fill * atten;
+                accumulated.r += radiance.x * fill * atten * segmentTint.x;
+                accumulated.g += radiance.y * fill * atten * segmentTint.y;
+                accumulated.b += radiance.z * fill * atten * segmentTint.z;
             }
         }
     }
@@ -745,7 +747,8 @@ float sunSkyVisibility(
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent,
     const std::vector<LightmapFace>& faces,
-    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
+    Vector3* tintOut) {
     return sunSkyVisibilityWithAlphaOcclusion(
         luxelPos,
         luxelFaceIndex,
@@ -757,7 +760,8 @@ float sunSkyVisibility(
         faceSky,
         faceTransparent,
         faces,
-        materialCache);
+        materialCache,
+        tintOut);
 }
 
 void accumulateEntityLight(
@@ -796,6 +800,7 @@ void accumulateEntityLight(
         Vector3 tangent{};
         Vector3 bitangent{};
         buildSunBasis(toLight, tangent, bitangent);
+        Vector3 sunTint{1.0f, 1.0f, 1.0f};
         const float visibility = sunSkyVisibility(
             luxel.position,
             luxel.faceIndex,
@@ -807,11 +812,13 @@ void accumulateEntityLight(
             faceSky,
             faceTransparent,
             faces,
-            materialCache);
+            materialCache,
+            &sunTint);
         if (visibility <= 0.0f) {
             return;
         }
-        const Color3 contrib = intensity * (nDotL * visibility);
+        const Color3 contrib =
+            intensity * (nDotL * visibility) * Color3{sunTint.x, sunTint.y, sunTint.z};
         luxel.irradiance += contrib;
         luxel.sunIrradiance += contrib;
         return;
@@ -850,6 +857,7 @@ void accumulateEntityLight(
         }
     }
 
+    Vector3 pointTint{1.0f, 1.0f, 1.0f};
     if (segmentOccludedWithAlphaOcclusion(
             occlusionBvh,
             luxel.position,
@@ -858,7 +866,8 @@ void accumulateEntityLight(
             -1,
             faces,
             materialCache,
-            faceTransparent)) {
+            faceTransparent,
+            &pointTint)) {
         return;
     }
 
@@ -866,7 +875,8 @@ void accumulateEntityLight(
     float atten = std::max(0.0f, 1.0f - t * t);
     atten *= atten;
 
-    luxel.irradiance += intensity * (nDotL * atten * spot / dist2);
+    luxel.irradiance +=
+        intensity * (nDotL * atten * spot / dist2) * Color3{pointTint.x, pointTint.y, pointTint.z};
 }
 
 void accumulateDirectLightingCpu(

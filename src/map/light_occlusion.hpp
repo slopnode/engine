@@ -32,7 +32,8 @@ std::optional<QuadBvhHit> raycastWithAlphaOcclusion(
     std::int32_t ignoreFaceB,
     const std::vector<LightmapFace>& faces,
     const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
-    const std::vector<char>& faceTransparent);
+    const std::vector<char>& faceTransparent,
+    Vector3* tintOut = nullptr);
 
 bool segmentOccludedWithAlphaOcclusion(
     const QuadBvh& bvh,
@@ -42,7 +43,8 @@ bool segmentOccludedWithAlphaOcclusion(
     std::int32_t ignoreFaceB,
     const std::vector<LightmapFace>& faces,
     const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
-    const std::vector<char>& faceTransparent);
+    const std::vector<char>& faceTransparent,
+    Vector3* tintOut = nullptr);
 
 float sunSkyVisibilityWithAlphaOcclusion(
     Vector3 luxelPos,
@@ -55,7 +57,8 @@ float sunSkyVisibilityWithAlphaOcclusion(
     const std::vector<char>& faceSky,
     const std::vector<char>& faceTransparent,
     const std::vector<LightmapFace>& faces,
-    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache);
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
+    Vector3* tintOut = nullptr);
 
 struct RadGpuMaterialRect {
     float u0 = 0.0f;
@@ -83,6 +86,12 @@ struct RadGpuFaceOcclusion {
     float uvScaleY = 1.0f;
     float pixelsPerMeter = 64.0f;
     float baseColorAlpha = 1.0f;
+    float baseColorR = 1.0f;
+    float baseColorG = 1.0f;
+    float baseColorB = 1.0f;
+    float ior = 1.0f;
+    float pad0 = 0.0f;
+    float pad1 = 0.0f;
 };
 
 struct RadGpuOcclusionResources {

@@ -131,6 +131,7 @@ set(SLOPLIB_SOURCES
     src/map/pvs_build.cpp
     src/map/pvs_io.cpp
     src/map/nav_graph.cpp
+    src/map/sound_propagation.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
     src/render/skybox.cpp
@@ -176,6 +177,7 @@ add_executable(slopengine
     src/physics/rigid_mover_motion.cpp
     src/physics/map_collision.cpp
     src/particles/particle_module.cpp
+    src/fx/trail.cpp
     src/render/view_sprite_attachment.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp

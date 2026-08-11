@@ -324,6 +324,7 @@ enum class CellClass {
 struct CellClassification {
     CellClass cell = CellClass::WhollyOpen;
     bool preferGlass = false;
+    bool preferDoor = false;
 };
 
 void collectCellSamples(const Polyhedron& poly, std::vector<Vector3>& out) {
@@ -355,8 +356,10 @@ bool pointStrictlyInsideBrush(Vector3 point, const Brush& brush, float epsilon =
 bool centroidInsideSealing(
     const Polyhedron& poly,
     const std::vector<Brush>& sealing,
-    bool& preferGlass) {
+    bool& preferGlass,
+    bool& preferDoor) {
     preferGlass = false;
+    preferDoor = false;
     const Vector3 center = polyCentroid(poly);
     bool inside = false;
     for (const Brush& brush : sealing) {
@@ -366,8 +369,13 @@ bool centroidInsideSealing(
         inside = true;
         if (brush.role == BrushRole::Window) {
             preferGlass = true;
+            preferDoor = false;
+        } else if (brush.role == BrushRole::Door) {
+            preferGlass = false;
+            preferDoor = true;
         } else {
             preferGlass = false;
+            preferDoor = false;
             return true;
         }
     }
@@ -389,6 +397,7 @@ CellClassification classifyAgainstSealing(
     bool anyInside = false;
     bool anyOutside = false;
     bool glassInside = false;
+    bool doorInside = false;
     bool solidInside = false;
 
     for (const Vector3& sample : samples) {
@@ -400,6 +409,8 @@ CellClassification classifyAgainstSealing(
             inside = true;
             if (brush.role == BrushRole::Window) {
                 glassInside = true;
+            } else if (brush.role == BrushRole::Door) {
+                doorInside = true;
             } else {
                 solidInside = true;
             }
@@ -415,13 +426,15 @@ CellClassification classifyAgainstSealing(
         result.cell = CellClass::Mixed;
     } else if (anyInside) {
         result.cell = CellClass::WhollySolid;
-        result.preferGlass = glassInside && !solidInside;
-        if (glassInside && solidInside) {
+        if (solidInside && (glassInside || doorInside)) {
             bool preferGlass = false;
-            centroidInsideSealing(poly, sealing, preferGlass);
+            bool preferDoor = false;
+            centroidInsideSealing(poly, sealing, preferGlass, preferDoor);
             result.preferGlass = preferGlass;
+            result.preferDoor = preferDoor;
         } else {
             result.preferGlass = glassInside;
+            result.preferDoor = doorInside;
         }
     } else {
         result.cell = CellClass::WhollyOpen;
@@ -461,12 +474,19 @@ std::uint32_t terminalLeafContents(
     const BuildBrushes& brushes,
     const CellClassification& classification) {
     if (classification.cell == CellClass::WhollySolid) {
-        return classification.preferGlass ? BspContents::Glass : BspContents::Solid;
+        if (classification.preferGlass) {
+            return BspContents::Glass;
+        }
+        return classification.preferDoor ? (BspContents::Solid | BspContents::Door) : BspContents::Solid;
     }
     if (classification.cell == CellClass::Mixed) {
         bool preferGlass = false;
-        if (centroidInsideSealing(poly, brushes.sealing, preferGlass)) {
-            return preferGlass ? BspContents::Glass : BspContents::Solid;
+        bool preferDoor = false;
+        if (centroidInsideSealing(poly, brushes.sealing, preferGlass, preferDoor)) {
+            if (preferGlass) {
+                return BspContents::Glass;
+            }
+            return preferDoor ? (BspContents::Solid | BspContents::Door) : BspContents::Solid;
         }
     }
     return softContentsAtPoint(polyCentroid(poly), brushes.water, brushes.trigger);
@@ -650,8 +670,12 @@ std::int32_t buildNode(
     std::vector<std::uint8_t>& used) {
     const CellClassification classification = classifyAgainstSealing(poly, brushes.sealing);
     if (classification.cell == CellClass::WhollySolid) {
-        const std::uint32_t contents =
-            classification.preferGlass ? BspContents::Glass : BspContents::Solid;
+        std::uint32_t contents = BspContents::Solid;
+        if (classification.preferGlass) {
+            contents = BspContents::Glass;
+        } else if (classification.preferDoor) {
+            contents = BspContents::Solid | BspContents::Door;
+        }
         return emitLeaf(tree, poly, contents);
     }
 
@@ -857,17 +881,19 @@ static bool tryMakePortal(
     return false;
 }
 
-static void collectOpenLeaves(const BspTree& tree, std::int32_t child, std::vector<std::int32_t>& out) {
+/** Open leaves plus Door-brush leaves: the set of leaves BspPortals should
+ *  connect (see leafParticipatesInPortalGraph). */
+static void collectPortalGraphLeaves(const BspTree& tree, std::int32_t child, std::vector<std::int32_t>& out) {
     if (isLeafChild(child)) {
         const std::int32_t li = decodeLeaf(child);
-        if (leafIsOpen(tree.leaves[static_cast<std::size_t>(li)].contents)) {
+        if (leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(li)].contents)) {
             out.push_back(li);
         }
         return;
     }
     const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
-    collectOpenLeaves(tree, node.front, out);
-    collectOpenLeaves(tree, node.back, out);
+    collectPortalGraphLeaves(tree, node.front, out);
+    collectPortalGraphLeaves(tree, node.back, out);
 }
 
 static void linkNeighbors(BspLeaf& a, BspLeaf& b, std::int32_t ai, std::int32_t bi) {
@@ -888,8 +914,8 @@ static void buildAdjacencyWalk(BspTree& tree, std::int32_t child) {
 
     std::vector<std::int32_t> frontLeaves;
     std::vector<std::int32_t> backLeaves;
-    collectOpenLeaves(tree, node.front, frontLeaves);
-    collectOpenLeaves(tree, node.back, backLeaves);
+    collectPortalGraphLeaves(tree, node.front, frontLeaves);
+    collectPortalGraphLeaves(tree, node.back, backLeaves);
 
     for (const std::int32_t fi : frontLeaves) {
         for (const std::int32_t bi : backLeaves) {
@@ -1036,6 +1062,50 @@ Vector3 leafCentroid(const BspLeaf& leaf) {
     return {sum.x * inv, sum.y * inv, sum.z * inv};
 }
 
+/** Tags each BspPortal produced by a Door brush's closed shape with that brush's id,
+ *  by matching portal-polygon centroids against the door brush's (padded) AABB. Lets
+ *  downstream consumers (nav pathing, sound propagation) gate traversal on the door's
+ *  live open/closed RigidMover state instead of treating every doorway as always-open. */
+void linkDoorPortals(BspTree& tree, const std::vector<Brush>& brushes) {
+    constexpr float kDoorPortalPad = 0.25f;
+    int doorBrushCount = 0;
+    int linkedPortalCount = 0;
+    for (const Brush& brush : brushes) {
+        if (brush.role != BrushRole::Door) {
+            continue;
+        }
+        ++doorBrushCount;
+        const Vector3 mins{
+            brush.mins.x - kDoorPortalPad,
+            brush.mins.y - kDoorPortalPad,
+            brush.mins.z - kDoorPortalPad,
+        };
+        const Vector3 maxs{
+            brush.maxs.x + kDoorPortalPad,
+            brush.maxs.y + kDoorPortalPad,
+            brush.maxs.z + kDoorPortalPad,
+        };
+        for (BspPortal& portal : tree.portals) {
+            if (portal.vertices.empty()) {
+                continue;
+            }
+            const Vector3 center = polygonCentroid(portal.vertices);
+            if (center.x < mins.x || center.x > maxs.x
+                || center.y < mins.y || center.y > maxs.y
+                || center.z < mins.z || center.z > maxs.z) {
+                continue;
+            }
+            portal.doorBrushId = brush.id;
+            ++linkedPortalCount;
+        }
+    }
+    TraceLog(
+        LOG_INFO,
+        "BSP: door portals linked=%d doorBrushes=%d",
+        linkedPortalCount,
+        doorBrushCount);
+}
+
 BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     BspTree tree;
     BuildBrushes buildBrushes;
@@ -1044,6 +1114,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     int triggerCount = 0;
     int waterCount = 0;
     int windowCount = 0;
+    int doorCount = 0;
     int hullCount = 0;
     int boxCount = 0;
     int nocollideCount = 0;
@@ -1066,6 +1137,15 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             buildBrushes.sealing.push_back(brush);
             buildBrushes.surface.push_back(brush);
             break;
+        case BrushRole::Door:
+            ++doorCount;
+            // Sealing only, deliberately not .surface: a door's closed shape
+            // should split leaf space (so the doorway gets a BspPortal like a
+            // window does) but must not be baked as a permanent static
+            // occluder into tree.surfaceFaces (lightmap bake / dynamic light
+            // occlusion), since the door moves at runtime.
+            buildBrushes.sealing.push_back(brush);
+            break;
         case BrushRole::Water:
             ++waterCount;
             buildBrushes.water.push_back(brush);
@@ -1078,7 +1158,6 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             ++hintCount;
             break;
         case BrushRole::Detail:
-        case BrushRole::Door:
         case BrushRole::Transparent:
             ++detailCount;
             break;
@@ -1087,10 +1166,11 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
 
     TraceLog(
         LOG_INFO,
-        "BSP: build start brushes=%d hull=%d window=%d water=%d hint=%d trigger=%d detail=%d box=%d nocollide=%d",
+        "BSP: build start brushes=%d hull=%d window=%d door=%d water=%d hint=%d trigger=%d detail=%d box=%d nocollide=%d",
         static_cast<int>(brushes.size()),
         hullCount,
         windowCount,
+        doorCount,
         waterCount,
         hintCount,
         triggerCount,
@@ -1153,6 +1233,7 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     TraceLog(LOG_INFO, "BSP: nodes=%d leaves=%d", static_cast<int>(tree.nodes.size()), static_cast<int>(tree.leaves.size()));
     TraceLog(LOG_INFO, "BSP: building adjacency...");
     buildAdjacency(tree);
+    linkDoorPortals(tree, brushes);
     TraceLog(LOG_INFO, "BSP: building surface faces...");
     buildSurfaceFaces(tree, buildBrushes.surface);
 

@@ -6,6 +6,7 @@
 #include "map/pvs.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
+#include "physics/rigid_mover.hpp"
 #include "render/components.hpp"
 
 #include <raylib.h>
@@ -60,6 +61,17 @@ int sampleNavLeaf(const BspTree& tree, Vector3 point) {
     return pvsSampleLeaf(tree, point);
 }
 
+// Fails open (treats an unresolved door as passable) rather than permanently
+// stranding a path plan on a data mismatch between the compiled portal graph
+// and the spawned door entities.
+bool isDoorPortalOpen(flecs::world& world, const std::string& doorBrushId) {
+    flecs::entity door = world.lookup(doorBrushId.c_str());
+    if (!door.is_valid() || !door.has<RigidMover>()) {
+        return true;
+    }
+    return door.get<RigidMover>().target >= 0.5f;
+}
+
 bool goalMovedEnough(const NavigationAgent& agent, Vector3 goalPos) {
     if (!agent.haveLastGoalPos) {
         return true;
@@ -104,7 +116,11 @@ void replanAgent(
     const float oldStuckTimer = agent.stuckTimer;
     const float oldLastWpHorizDist = agent.lastWpHorizDist;
 
-    const std::vector<int> leafPath = findLeafPath(nav, fromLeaf, toLeaf);
+    const std::vector<int> leafPath = findLeafPath(
+        nav,
+        fromLeaf,
+        toLeaf,
+        [&world](const std::string& doorBrushId) { return isDoorPortalOpen(world, doorBrushId); });
     if (leafPath.empty()) {
         clearNavPath(agent);
         return;
@@ -197,6 +213,7 @@ void updateStuckSkip(NavigationAgent& agent, Vector3 agentPos, float dt) {
 }
 
 bool needsReplan(
+    flecs::world& world,
     const MapNavigation& nav,
     NavigationAgent& agent,
     Vector3 goalPos,
@@ -211,7 +228,13 @@ bool needsReplan(
     }
     if (agentLeaf >= 0 && agentLeaf != agent.agentLeaf) {
         if (goalLeaf >= 0) {
-            const std::vector<int> newPath = findLeafPath(nav, agentLeaf, goalLeaf);
+            const std::vector<int> newPath = findLeafPath(
+                nav,
+                agentLeaf,
+                goalLeaf,
+                [&world](const std::string& doorBrushId) {
+                    return isDoorPortalOpen(world, doorBrushId);
+                });
             if (navLeafPathRouteUnchanged(agent.leafPath, agentLeaf, newPath)) {
                 agent.agentLeaf = agentLeaf;
                 return false;
@@ -286,7 +309,7 @@ void registerNavModule(flecs::world& world) {
             updateStuckSkip(agent, agentFeetPos, dt);
             advanceWaypoints(agent, agentFeetPos, agentLeaf);
 
-            if (needsReplan(nav, agent, goalPos, agentLeaf, goalLeaf, dt)) {
+            if (needsReplan(worldRef, nav, agent, goalPos, agentLeaf, goalLeaf, dt)) {
                 const bool preserveProgress =
                     !agent.forceReplan && !agent.waypoints.empty();
                 replanAgent(worldRef, agent, agentFeetPos, goalPos, preserveProgress);

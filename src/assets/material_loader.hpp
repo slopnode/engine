@@ -18,6 +18,7 @@ struct MaterialAsset {
     std::string albedoTexture; /**< Texture virtual path, or empty. */
     std::string textureAnimPath; /**< .texanim virtual path, or empty. */
     float pixelsPerMeter = 64.0f; /**< World texel density (texel-size). */
+    float ior = 1.0f; /**< Bake-time index of refraction; 1.0 = no bend. */
     std::string emissionTexture;
     Color emissionColor = {0, 0, 0, 255};
     float emissionPower = 0.0f;

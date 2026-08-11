@@ -21,6 +21,7 @@
 #include "physics/sight_module.hpp"
 #include "navigation/nav_module.hpp"
 #include "particles/particle_module.hpp"
+#include "fx/trail.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
 #include "script/save_script.hpp"
@@ -83,6 +84,7 @@ App::App(AppConfig config)
     registerCameraModule(world_);
     registerInteractModule(world_);
     registerParticleModule(world_, assetStore_);
+    registerTrailModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
     registerMotoredBodySystem(world_);
     registerScriptBoot(world_, assetStore_, scheme_);

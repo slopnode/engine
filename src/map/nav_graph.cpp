@@ -19,7 +19,7 @@ bool isNavWalkableLeaf(
     if (leaf < 0 || leaf >= static_cast<int>(tree.leaves.size())) {
         return false;
     }
-    if (!leafIsOpen(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
+    if (!leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
         return false;
     }
     if (exteriorEmpty != nullptr &&
@@ -92,9 +92,9 @@ MapNavigation buildMapNavigation(
         const float costAB = navDist3(centroidA, center) + navDist3(center, centroidB);
 
         nav.adjacency[static_cast<std::size_t>(portal.leafA)].push_back(
-            NavPortalLink{portal.leafB, center, costAB});
+            NavPortalLink{portal.leafB, center, costAB, portal.doorBrushId});
         nav.adjacency[static_cast<std::size_t>(portal.leafB)].push_back(
-            NavPortalLink{portal.leafA, center, costAB});
+            NavPortalLink{portal.leafA, center, costAB, portal.doorBrushId});
     }
 
     TraceLog(
@@ -119,7 +119,11 @@ std::optional<Vector3> portalCenterBetween(const MapNavigation& nav, int leafA, 
     return std::nullopt;
 }
 
-std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf) {
+std::vector<int> findLeafPath(
+    const MapNavigation& nav,
+    int fromLeaf,
+    int toLeaf,
+    const DoorOpenQuery& isDoorOpen) {
     if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= nav.leafCount || toLeaf >= nav.leafCount) {
         return {};
     }
@@ -169,6 +173,9 @@ std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf
             const int next = link.neighborLeaf;
             if (next < 0 || next >= nav.leafCount ||
                 !nav.walkable[static_cast<std::size_t>(next)]) {
+                continue;
+            }
+            if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
                 continue;
             }
             const float tentative = currentG + link.cost;

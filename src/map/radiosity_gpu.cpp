@@ -167,12 +167,16 @@ struct GpuFaceOcclusionSSBO {
     float uvScaleY = 1.0f;
     float pixelsPerMeter = 64.0f;
     float baseColorAlpha = 1.0f;
+    float baseColorR = 1.0f;
+    float baseColorG = 1.0f;
+    float baseColorB = 1.0f;
+    float ior = 1.0f;
     float pad0 = 0.0f;
     float pad1 = 0.0f;
 };
 
 static_assert(sizeof(GpuMaterialRectSSBO) == 32);
-static_assert(sizeof(GpuFaceOcclusionSSBO) == 64);
+static_assert(sizeof(GpuFaceOcclusionSSBO) == 80);
 
 struct GpuBvhNodeSSBO {
     float minx = 0.0f;
@@ -514,6 +518,7 @@ bool validateGpuSunParity(
             continue;
         }
 
+        Vector3 cpuTint{1.0f, 1.0f, 1.0f};
         const float cpuVisibility = sunSkyVisibilityWithAlphaOcclusion(
             position,
             luxel.faceIndex,
@@ -525,12 +530,19 @@ bool validateGpuSunParity(
             cpuReference.faceSky,
             cpuReference.faceTransparent,
             cpuReference.faces,
-            cpuReference.materialCache);
-        const float cpuSun = (intensity.x + intensity.y + intensity.z) * nDotL * cpuVisibility;
+            cpuReference.materialCache,
+            &cpuTint);
+        const float cpuSunR = intensity.x * nDotL * cpuVisibility * cpuTint.x;
+        const float cpuSunG = intensity.y * nDotL * cpuVisibility * cpuTint.y;
+        const float cpuSunB = intensity.z * nDotL * cpuVisibility * cpuTint.z;
+        const float cpuSun = cpuSunR + cpuSunG + cpuSunB;
         const float gpuSun = luxel.sunIr + luxel.sunIg + luxel.sunIb;
         const float ref = std::max({cpuSun, gpuSun, 1e-4f});
         ++probes;
-        if (std::fabs(cpuSun - gpuSun) > kAbsTol + kRelTol * ref) {
+        if (std::fabs(cpuSun - gpuSun) > kAbsTol + kRelTol * ref
+            || std::fabs(cpuSunR - luxel.sunIr) > kAbsTol + kRelTol * std::max({cpuSunR, luxel.sunIr, 1e-4f})
+            || std::fabs(cpuSunG - luxel.sunIg) > kAbsTol + kRelTol * std::max({cpuSunG, luxel.sunIg, 1e-4f})
+            || std::fabs(cpuSunB - luxel.sunIb) > kAbsTol + kRelTol * std::max({cpuSunB, luxel.sunIb, 1e-4f})) {
             ++mismatches;
         }
     }
@@ -1018,6 +1030,10 @@ bool accumulateDirectLightingGpu(
         dst.uvScaleY = src.uvScaleY;
         dst.pixelsPerMeter = src.pixelsPerMeter;
         dst.baseColorAlpha = src.baseColorAlpha;
+        dst.baseColorR = src.baseColorR;
+        dst.baseColorG = src.baseColorG;
+        dst.baseColorB = src.baseColorB;
+        dst.ior = src.ior;
     }
     if (gpuFaceOcclusion.empty()) {
         gpuFaceOcclusion.push_back({});
@@ -1618,6 +1634,10 @@ bool accumulateBounceLightingGpu(
         dst.uvScaleY = src.uvScaleY;
         dst.pixelsPerMeter = src.pixelsPerMeter;
         dst.baseColorAlpha = src.baseColorAlpha;
+        dst.baseColorR = src.baseColorR;
+        dst.baseColorG = src.baseColorG;
+        dst.baseColorB = src.baseColorB;
+        dst.ior = src.ior;
     }
     if (gpuFaceOcclusion.empty()) {
         gpuFaceOcclusion.push_back({});

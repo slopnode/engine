@@ -109,6 +109,10 @@ struct FaceOcclusion {
     float uvScaleY;
     float pixelsPerMeter;
     float baseColorAlpha;
+    float baseColorR;
+    float baseColorG;
+    float baseColorB;
+    float ior;
     float pad0;
     float pad1;
 };

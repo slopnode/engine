@@ -203,6 +203,15 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.pixelsPerMeter = texelSize;
         return true;
     }
+    if (tag == "ior") {
+        float ior = 1.0f;
+        if (!readNumberField(form, 1, &ior)) {
+            error = {"(ior n)", form.line, form.column};
+            return false;
+        }
+        asset.ior = ior;
+        return true;
+    }
     if (tag == "emission-color") {
         float rgba[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         if (!readNumberField(form, 4, rgba)) {

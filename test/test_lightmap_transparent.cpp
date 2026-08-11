@@ -6,9 +6,12 @@
 #include "map/lightmap.hpp"
 #include "map/quad_bvh.hpp"
 #include "map/radiosity.hpp"
+#include "map/uv_math.hpp"
 
 #include <raylib.h>
 
+#include <cmath>
+#include <cstddef>
 #include <unordered_map>
 #include <vector>
 
@@ -284,6 +287,235 @@ void testRadGpuAtlasMatchesSourceImage() {
     UnloadImage(resources.alphaAtlasImage);
 }
 
+void testSegmentOcclusionTintsByGlassBaseColor() {
+    std::vector<LightmapFace> faces;
+    faces.push_back(makeTestFace("glass", 1.0f, true, "mat/glass"));
+    const QuadBvh bvh = buildLightmapFaceBvh(faces);
+    const std::vector<char> faceTransparent = {1};
+
+    MaterialBakeInfo glassMaterial = makeSolidMaterial();
+    glassMaterial.asset.baseColor = Color{100, 150, 200, 64};
+    std::unordered_map<std::string, MaterialBakeInfo> cache;
+    cache.emplace("mat/glass", glassMaterial);
+
+    Vector3 tint{};
+    const bool occluded = segmentOccludedWithAlphaOcclusion(
+        bvh,
+        {0.0f, 0.0f, 3.0f},
+        {0.0f, 0.0f, -3.0f},
+        -1,
+        -1,
+        faces,
+        cache,
+        faceTransparent,
+        &tint);
+    CHECK_FALSE(occluded);
+    CHECK(std::fabs(tint.x - 100.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(tint.y - 150.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(tint.z - 200.0f / 255.0f) < 0.01f);
+}
+
+void testSunSkyVisibilityStraightThroughGlassWithoutBend() {
+    std::vector<LightmapFace> faces;
+
+    LightmapFace glass = makeTestFace("glass", 2.0f, true, "mat/glass");
+    glass.normal = {0.0f, 0.0f, -1.0f};
+    faces.push_back(glass);
+
+    LightmapFace sky;
+    sky.id = "sky";
+    sky.material = "mat/sky";
+    sky.normal = {0.0f, 0.0f, 1.0f};
+    sky.vertices = {
+        {4.0f, -1.0f, 10.0f},
+        {5.0f, -1.0f, 10.0f},
+        {5.0f, 1.0f, 10.0f},
+        {4.0f, 1.0f, 10.0f},
+    };
+    faces.push_back(sky);
+
+    const QuadBvh bvh = buildLightmapFaceBvh(faces);
+    std::vector<char> faceSky(faces.size(), 0);
+    faceSky[1] = 1;
+    std::vector<char> faceTransparent(faces.size(), 0);
+    faceTransparent[0] = 1;
+
+    MaterialBakeInfo glassMaterial = makeSolidMaterial();
+    glassMaterial.asset.baseColor = Color{100, 150, 200, 64};
+    std::unordered_map<std::string, MaterialBakeInfo> cache;
+    cache.emplace("mat/glass", glassMaterial);
+    cache.emplace("mat/sky", makeSolidMaterial());
+
+    SunShadowSoftnessParams sunParams;
+    Vector3 tint{};
+    const float visibility = sunSkyVisibilityWithAlphaOcclusion(
+        {0.0f, 0.0f, 0.0f},
+        -1,
+        {0.9f, 0.0f, 2.0f},
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        sunParams,
+        bvh,
+        faceSky,
+        faceTransparent,
+        faces,
+        cache,
+        &tint);
+    CHECK(visibility > 0.99f);
+    CHECK(std::fabs(tint.x - 100.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(tint.y - 150.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(tint.z - 200.0f / 255.0f) < 0.01f);
+}
+
+void testSunSkyVisibilityBentAwayByGlassIor() {
+    std::vector<LightmapFace> faces;
+
+    LightmapFace glass = makeTestFace("glass", 2.0f, true, "mat/glass");
+    glass.normal = {0.0f, 0.0f, -1.0f};
+    faces.push_back(glass);
+
+    LightmapFace sky;
+    sky.id = "sky";
+    sky.material = "mat/sky";
+    sky.normal = {0.0f, 0.0f, 1.0f};
+    sky.vertices = {
+        {4.0f, -1.0f, 10.0f},
+        {5.0f, -1.0f, 10.0f},
+        {5.0f, 1.0f, 10.0f},
+        {4.0f, 1.0f, 10.0f},
+    };
+    faces.push_back(sky);
+
+    const QuadBvh bvh = buildLightmapFaceBvh(faces);
+    std::vector<char> faceSky(faces.size(), 0);
+    faceSky[1] = 1;
+    std::vector<char> faceTransparent(faces.size(), 0);
+    faceTransparent[0] = 1;
+
+    MaterialBakeInfo glassMaterial = makeSolidMaterial();
+    glassMaterial.asset.baseColor = Color{255, 255, 255, 64};
+    glassMaterial.asset.ior = 1.5f;
+    std::unordered_map<std::string, MaterialBakeInfo> cache;
+    cache.emplace("mat/glass", glassMaterial);
+    cache.emplace("mat/sky", makeSolidMaterial());
+
+    SunShadowSoftnessParams sunParams;
+    const float visibility = sunSkyVisibilityWithAlphaOcclusion(
+        {0.0f, 0.0f, 0.0f},
+        -1,
+        {0.9f, 0.0f, 2.0f},
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        sunParams,
+        bvh,
+        faceSky,
+        faceTransparent,
+        faces,
+        cache);
+    CHECK(visibility <= 0.01f);
+}
+
+void testSunRefractionThroughThickGlassDoesNotDoubleBend() {
+    std::vector<LightmapFace> faces;
+
+    LightmapFace glassEntry = makeTestFace("glass-entry", 2.0f, true, "mat/glass");
+    glassEntry.normal = {0.0f, 0.0f, -1.0f};
+    faces.push_back(glassEntry);
+
+    LightmapFace glassExit = makeTestFace("glass-exit", 2.05f, true, "mat/glass");
+    glassExit.normal = {0.0f, 0.0f, 1.0f};
+    faces.push_back(glassExit);
+
+    LightmapFace sky;
+    sky.id = "sky";
+    sky.material = "mat/sky";
+    sky.normal = {0.0f, 0.0f, 1.0f};
+    sky.vertices = {
+        {3.0f, -1.0f, 10.0f},
+        {3.7f, -1.0f, 10.0f},
+        {3.7f, 1.0f, 10.0f},
+        {3.0f, 1.0f, 10.0f},
+    };
+    faces.push_back(sky);
+
+    const QuadBvh bvh = buildLightmapFaceBvh(faces);
+    std::vector<char> faceSky(faces.size(), 0);
+    faceSky[2] = 1;
+    std::vector<char> faceTransparent(faces.size(), 0);
+    faceTransparent[0] = 1;
+    faceTransparent[1] = 1;
+
+    MaterialBakeInfo glassMaterial = makeSolidMaterial();
+    glassMaterial.asset.baseColor = Color{255, 255, 255, 64};
+    glassMaterial.asset.ior = 1.4f;
+    std::unordered_map<std::string, MaterialBakeInfo> cache;
+    cache.emplace("mat/glass", glassMaterial);
+    cache.emplace("mat/sky", makeSolidMaterial());
+
+    SunShadowSoftnessParams sunParams;
+    const float visibility = sunSkyVisibilityWithAlphaOcclusion(
+        {0.0f, 0.0f, 0.0f},
+        -1,
+        {0.9f, 0.0f, 2.0f},
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        sunParams,
+        bvh,
+        faceSky,
+        faceTransparent,
+        faces,
+        cache);
+    CHECK(visibility > 0.99f);
+}
+
+void testBuildRadGpuOcclusionResourcesPopulatesTintAndIor() {
+    std::vector<LightmapFace> faces;
+    faces.push_back(makeTestFace("glass", 1.0f, true, "mat/glass"));
+    std::vector<char> faceTransparent = {1};
+
+    MaterialBakeInfo glassMaterial = makeSolidMaterial();
+    glassMaterial.asset.baseColor = Color{100, 150, 200, 64};
+    glassMaterial.asset.ior = 1.5f;
+    std::unordered_map<std::string, MaterialBakeInfo> cache;
+    cache.emplace("mat/glass", glassMaterial);
+
+    RadGpuOcclusionResources resources{};
+    buildRadGpuOcclusionResources(faces, cache, faceTransparent, resources);
+    CHECK_EQ(resources.faceOcclusion.size(), std::size_t{1});
+    const RadGpuFaceOcclusion& gpuFace = resources.faceOcclusion[0];
+    CHECK(std::fabs(gpuFace.baseColorR - 100.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(gpuFace.baseColorG - 150.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(gpuFace.baseColorB - 200.0f / 255.0f) < 0.01f);
+    CHECK(std::fabs(gpuFace.ior - 1.5f) < 0.001f);
+    unloadRadGpuOcclusionResources(resources);
+}
+
+void testAxialUvAxesCrossProductRecoversFaceNormal() {
+    const Vector3 normals[6] = {
+        {0.0f, 1.0f, 0.0f},
+        {0.0f, -1.0f, 0.0f},
+        {1.0f, 0.0f, 0.0f},
+        {-1.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, -1.0f},
+    };
+    for (const Vector3& normal : normals) {
+        Vector3 uAxis{};
+        Vector3 vAxis{};
+        faceUvAxes(false, normal, {}, {}, uAxis, vAxis);
+        const Vector3 cross{
+            vAxis.y * uAxis.z - vAxis.z * uAxis.y,
+            vAxis.z * uAxis.x - vAxis.x * uAxis.z,
+            vAxis.x * uAxis.y - vAxis.y * uAxis.x,
+        };
+        const float len = std::sqrt(cross.x * cross.x + cross.y * cross.y + cross.z * cross.z);
+        CHECK(len > 1e-6f);
+        const Vector3 recovered{cross.x / len, cross.y / len, cross.z / len};
+        const float dot = recovered.x * normal.x + recovered.y * normal.y + recovered.z * normal.z;
+        CHECK(dot > 0.99f);
+    }
+}
+
 } // namespace
 
 void runLightmapTransparentTests() {
@@ -296,6 +528,12 @@ void runLightmapTransparentTests() {
     testSunSkyVisibilityThroughLowAlphaTransparentFace();
     testSunSkyVisibilityBlockedByHighAlphaTransparentFace();
     testRadGpuAtlasMatchesSourceImage();
+    testSegmentOcclusionTintsByGlassBaseColor();
+    testSunSkyVisibilityStraightThroughGlassWithoutBend();
+    testSunSkyVisibilityBentAwayByGlassIor();
+    testSunRefractionThroughThickGlassDoesNotDoubleBend();
+    testBuildRadGpuOcclusionResourcesPopulatesTintAndIor();
+    testAxialUvAxesCrossProductRecoversFaceNormal();
 }
 
 } // namespace slopengine
