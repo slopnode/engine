@@ -26,6 +26,7 @@
 #include "render/skybox_world.hpp"
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
+#include "fx/trail.hpp"
 #include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
@@ -224,6 +225,7 @@ void registerRenderSystems(flecs::world& world) {
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+                drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam);
             }
             drawWorldDebugOverlays(world);
             EndMode3D();
