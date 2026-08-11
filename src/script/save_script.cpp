@@ -693,21 +693,12 @@ s7_pointer g_startup_args(s7_scheme* sc, s7_pointer) {
 
 } // namespace
 
-void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
-    g_saveWorld = &world;
+void bindPackageApi(AssetStore& assets, s7_scheme* scheme) {
     g_saveAssets = &assets;
     if (scheme == nullptr) {
         return;
     }
 
-    s7_define_function(scheme, "save-root", g_save_root, 0, 0, false, "(save-root)");
-    s7_define_function(scheme, "save-write", g_save_write, 2, 0, false, "(save-write rel form)");
-    s7_define_function(scheme, "save-read", g_save_read, 1, 0, false, "(save-read rel)");
-    s7_define_function(scheme, "save-exists?", g_save_exists, 1, 0, false, "(save-exists? rel)");
-    s7_define_function(scheme, "save-delete", g_save_delete, 1, 0, false, "(save-delete rel)");
-    s7_define_function(
-        scheme, "save-timestamp", g_save_timestamp, 0, 0, false, "(save-timestamp)");
-    s7_define_function(scheme, "save-list", g_save_list, 2, 0, false, "(save-list dir suffix)");
     s7_define_function(
         scheme,
         "package-load-data",
@@ -728,6 +719,23 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         scheme, "current-package-id", g_current_package_id, 0, 0, false, "(current-package-id)");
     s7_define_function(
         scheme, "package-mounted?", g_package_mounted_p, 1, 0, false, "(package-mounted? package-id)");
+}
+
+void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
+    g_saveWorld = &world;
+    g_saveAssets = &assets;
+    if (scheme == nullptr) {
+        return;
+    }
+
+    s7_define_function(scheme, "save-root", g_save_root, 0, 0, false, "(save-root)");
+    s7_define_function(scheme, "save-write", g_save_write, 2, 0, false, "(save-write rel form)");
+    s7_define_function(scheme, "save-read", g_save_read, 1, 0, false, "(save-read rel)");
+    s7_define_function(scheme, "save-exists?", g_save_exists, 1, 0, false, "(save-exists? rel)");
+    s7_define_function(scheme, "save-delete", g_save_delete, 1, 0, false, "(save-delete rel)");
+    s7_define_function(
+        scheme, "save-timestamp", g_save_timestamp, 0, 0, false, "(save-timestamp)");
+    s7_define_function(scheme, "save-list", g_save_list, 2, 0, false, "(save-list dir suffix)");
     s7_define_function(
         scheme,
         "request-map-load",
