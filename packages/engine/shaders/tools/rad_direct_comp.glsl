@@ -184,6 +184,10 @@ struct FaceOcclusion {
     float uvScaleY;
     float pixelsPerMeter;
     float baseColorAlpha;
+    float baseColorR;
+    float baseColorG;
+    float baseColorB;
+    float ior;
     float pad0;
     float pad1;
 };
@@ -273,6 +277,33 @@ bool isTransparentFace(int faceIndex) {
         return false;
     }
     return faceTransparent[faceIndex] != 0;
+}
+
+vec3 sampleMaterialTint(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
+        return vec3(1.0);
+    }
+    FaceOcclusion face = faceOcclusion[faceIndex];
+    return vec3(face.baseColorR, face.baseColorG, face.baseColorB);
+}
+
+float sampleMaterialIor(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
+        return 1.0;
+    }
+    return faceOcclusion[faceIndex].ior;
+}
+
+vec3 sampleFaceNormal(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
+        return vec3(0.0, 1.0, 0.0);
+    }
+    FaceOcclusion face = faceOcclusion[faceIndex];
+    vec3 uAxis = vec3(face.uvUAxisX, face.uvUAxisY, face.uvUAxisZ);
+    vec3 vAxis = vec3(face.uvVAxisX, face.uvVAxisY, face.uvVAxisZ);
+    vec3 n = cross(vAxis, uAxis);
+    float len = length(n);
+    return len > 1e-8 ? n / len : vec3(0.0, 1.0, 0.0);
 }
 
 bool leavesReachable(int a, int b) {
@@ -489,7 +520,8 @@ bool raycastAny(
     float maxDistance,
     int ignoreFaceA,
     int ignoreFaceB,
-    out int hitFaceIndex) {
+    out int hitFaceIndex,
+    inout vec3 tint) {
     hitFaceIndex = -1;
     if (params.bvhRoot < 0 || maxDistance <= 0.0) {
         return false;
@@ -521,19 +553,77 @@ bool raycastAny(
             hitFaceIndex = hitFace;
             return true;
         }
+        tint *= sampleMaterialTint(hitFace);
         traveled += hitT + kRayAdvanceEpsilon;
     }
     return false;
 }
 
-bool segmentOccluded(vec3 from, vec3 to, int ignoreFaceA, int ignoreFaceB) {
+bool raycastSunAny(
+    vec3 origin,
+    vec3 direction,
+    float maxDistance,
+    int ignoreFaceA,
+    int ignoreFaceB,
+    out int hitFaceIndex,
+    inout vec3 tint) {
+    hitFaceIndex = -1;
+    if (params.bvhRoot < 0 || maxDistance <= 0.0) {
+        return false;
+    }
+    float dirLen = length(direction);
+    if (dirLen < 1e-8) {
+        return false;
+    }
+    vec3 dir = direction / dirLen;
+    vec3 rayOrigin = origin;
+    float traveled = 0.0;
+    bool bent = false;
+
+    for (int step = 0; step < kMaxAlphaOcclusionSteps; ++step) {
+        if (traveled >= maxDistance) {
+            return false;
+        }
+        float remaining = maxDistance - traveled;
+        int hitFace = -1;
+        float hitT = 0.0;
+        if (!raycastClosestSegment(rayOrigin, dir, remaining, hitFace, hitT)) {
+            return false;
+        }
+        if (hitFace == ignoreFaceA || hitFace == ignoreFaceB) {
+            rayOrigin += dir * (hitT + kRayAdvanceEpsilon);
+            traveled += hitT + kRayAdvanceEpsilon;
+            continue;
+        }
+        vec3 hitPoint = rayOrigin + dir * hitT;
+        if (hitBlocksLight(hitFace, hitPoint)) {
+            hitFaceIndex = hitFace;
+            return true;
+        }
+        tint *= sampleMaterialTint(hitFace);
+        float faceIor = sampleMaterialIor(hitFace);
+        if (!bent && faceIor > 1.0) {
+            vec3 normal = sampleFaceNormal(hitFace);
+            vec3 refracted = refract(dir, normal, 1.0 / faceIor);
+            if (dot(refracted, refracted) > 1e-8) {
+                dir = refracted;
+            }
+            bent = true;
+        }
+        rayOrigin = hitPoint + dir * kRayAdvanceEpsilon;
+        traveled += hitT + kRayAdvanceEpsilon;
+    }
+    return false;
+}
+
+bool segmentOccluded(vec3 from, vec3 to, int ignoreFaceA, int ignoreFaceB, inout vec3 tint) {
     vec3 delta = to - from;
     float distance = length(delta);
     if (distance < 1e-5) {
         return false;
     }
     int hitFace = -1;
-    if (!raycastAny(from, delta, distance * 0.999, ignoreFaceA, ignoreFaceB, hitFace)) {
+    if (!raycastAny(from, delta, distance * 0.999, ignoreFaceA, ignoreFaceB, hitFace, tint)) {
         return false;
     }
     return hitFace != -1;
@@ -675,7 +765,8 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
             if (!formOk && !fillOk) {
                 continue;
             }
-            if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex)) {
+            vec3 segmentTint = vec3(1.0);
+            if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex, segmentTint)) {
                 continue;
             }
 
@@ -683,7 +774,7 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
                 float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
                 float atten = emitterRangeAttenuation(sampleDist, face.castRange);
                 if (!isnan(form) && !isinf(form)) {
-                    irradiance += radiance * form * atten;
+                    irradiance += radiance * form * atten * segmentTint;
                 }
             }
             if (fillOk) {
@@ -693,7 +784,7 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
                 float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
                 float atten = emitterRangeAttenuation(sampleDist, face.castRange);
                 if (!isnan(fill) && !isinf(fill)) {
-                    irradiance += radiance * fill * atten;
+                    irradiance += radiance * fill * atten * segmentTint;
                 }
             }
         }
@@ -782,17 +873,22 @@ float sunSkyVisibility(
     int luxelFaceIndex,
     vec3 toLight,
     vec3 tangent,
-    vec3 bitangent) {
+    vec3 bitangent,
+    out vec3 tintOut) {
+    tintOut = vec3(1.0);
     if (params.sunRayCount <= 1 || params.sunAngularSpread <= 0.0) {
         int hitFace = -1;
-        if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+        vec3 rayTint = vec3(1.0);
+        if (!raycastSunAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace, rayTint)
             || !isSkyFace(hitFace)) {
             return 0.0;
         }
+        tintOut = rayTint;
         return 1.0;
     }
 
     float hits = 0.0;
+    vec3 tintSum = vec3(0.0);
     for (int ray = 0; ray < params.sunRayCount; ++ray) {
         vec3 rayDir = sampleSunRayDirection(
             toLight,
@@ -802,12 +898,17 @@ float sunSkyVisibility(
             ray,
             params.sunRayCount);
         int hitFace = -1;
-        if (raycastAny(luxelPos, rayDir, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+        vec3 rayTint = vec3(1.0);
+        if (raycastSunAny(luxelPos, rayDir, kSunRayDistance, luxelFaceIndex, -1, hitFace, rayTint)
             && isSkyFace(hitFace)) {
             hits += 1.0;
+            tintSum += rayTint;
         }
     }
     float visibility = hits / float(params.sunRayCount);
+    if (hits > 0.0) {
+        tintOut = tintSum / hits;
+    }
     if (visibility <= params.sunLeakThreshold) {
         return 0.0;
     }
@@ -868,11 +969,12 @@ void main() {
             vec3 tangent;
             vec3 bitangent;
             buildSunBasis(toLight, tangent, bitangent);
-            float visibility = sunSkyVisibility(luxelPos, luxel.faceIndex, toLight, tangent, bitangent);
+            vec3 sunTint;
+            float visibility = sunSkyVisibility(luxelPos, luxel.faceIndex, toLight, tangent, bitangent, sunTint);
             if (visibility <= 0.0) {
                 continue;
             }
-            vec3 contrib = intensity * (nDotL * visibility);
+            vec3 contrib = intensity * (nDotL * visibility) * sunTint;
             if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
                 && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
                 irradiance += contrib;
@@ -916,7 +1018,8 @@ void main() {
             }
         }
 
-        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1)) {
+        vec3 pointTint = vec3(1.0);
+        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1, pointTint)) {
             continue;
         }
 
@@ -924,7 +1027,7 @@ void main() {
         float atten = max(0.0, 1.0 - t * t);
         atten *= atten;
 
-        vec3 contrib = intensity * (nDotL * atten * spot / dist2);
+        vec3 contrib = intensity * (nDotL * atten * spot / dist2) * pointTint;
         if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
             && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
             irradiance += contrib;
