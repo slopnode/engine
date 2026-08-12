@@ -573,17 +573,18 @@ bool brushRoleContributesSplits(BrushRole role) {
     case BrushRole::Door:
     case BrushRole::Water:
     case BrushRole::Hint:
+    case BrushRole::Transparent:
         return true;
     case BrushRole::Detail:
     case BrushRole::Trigger:
-    case BrushRole::Transparent:
         return false;
     }
     return false;
 }
 
 bool brushRoleSeals(BrushRole role) {
-    return role == BrushRole::Hull || role == BrushRole::Window || role == BrushRole::Door;
+    return role == BrushRole::Hull || role == BrushRole::Window || role == BrushRole::Door ||
+           role == BrushRole::Transparent;
 }
 
 bool brushRoleEmitsVisFaces(BrushRole role) {
@@ -661,11 +662,11 @@ bool brushRoleNeedsInteriorPlacement(BrushRole role) {
     case BrushRole::Hint:
     case BrushRole::Trigger:
     case BrushRole::Water:
-    case BrushRole::Transparent:
         return true;
     case BrushRole::Hull:
     case BrushRole::Window:
     case BrushRole::Door:
+    case BrushRole::Transparent:
         // Door now seals like Window (see brushRoleSeals): its center point
         // legitimately sits inside its own solid/closed leaf, not open
         // interior space, so it shouldn't be checked against that rule.

@@ -1178,6 +1178,10 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             // occlusion), since the door moves at runtime.
             buildBrushes.sealing.push_back(brush);
             break;
+        case BrushRole::Transparent:
+            ++detailCount;
+            buildBrushes.sealing.push_back(brush);
+            break;
         case BrushRole::Water:
             ++waterCount;
             buildBrushes.water.push_back(brush);
@@ -1190,7 +1194,6 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             ++hintCount;
             break;
         case BrushRole::Detail:
-        case BrushRole::Transparent:
             ++detailCount;
             break;
         }
