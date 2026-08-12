@@ -1848,13 +1848,13 @@ bool drawSkyTextureField(
     const auto pathCommon = commonValue<std::string>(doc, targets, getter);
     const char* preview =
         !pathCommon.has_value() ? "(mixed)" : (pathCommon->empty() ? "(none)" : pathCommon->c_str());
+    ImGui::PushID(label);
     ImGui::Text("%s", label);
     ImGui::SameLine();
     ImGui::TextUnformatted(preview);
     ImGui::SameLine();
     if (slopengine::buttonWithIcon(
             assets, slopengine::kDefaultIconSet, "folder_page", "Browse…")) {
-        ImGui::PushID(label);
         materialBrowser.openPicker(
             AssetPickerKind::Texture,
             [&editor, targets, setter](const std::string& path) {
@@ -1865,8 +1865,8 @@ bool drawSkyTextureField(
                 }
             },
             AssetPickerOptions{.allowNone = true});
-        ImGui::PopID();
     }
+    ImGui::PopID();
     return false;
 }
 

@@ -1493,20 +1493,44 @@ std::optional<LoadedMap> loadAndCompileMap(
             }
         }
     }
-    const CsgCompileResult compiled = haveFac
-        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
-        : compileBrushesToGeo(
-              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
-              resolveUv,
-              lightmaps);
-    result.fac = std::move(fac);
-    result.doorFac = std::move(doorFac);
-    result.pvs = std::move(pvs);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const LightmapChart& chart : rad.charts) {
         faceAtlasById[chart.faceId] = chart.atlasIndex;
     }
+    std::unordered_set<std::string> detailBrushIds;
+    for (const Brush& brush : *brushes) {
+        if (brush.role == BrushRole::Detail && !brush.id.empty()) {
+            detailBrushIds.insert(brush.id);
+        }
+    }
+
+    CsgCompileResult compiled = haveFac
+        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
+        : compileBrushesToGeo(
+              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+              resolveUv,
+              lightmaps);
+
+    // Batch same-material static geometry into fewer, larger draw calls.
+    // Transparent faces stay unmerged (per-mesh back-to-front sort in the
+    // transparent pass); atlas index and detail status are part of the key
+    // since a merged mesh can only carry one lightmap page / offset mode.
+    mergeGeoPrimitivesByKey(compiled.asset, compiled.buffer, [&](const GeoPrimitive& primitive) {
+        if (primitive.transparent) {
+            return "t:" + primitive.name;
+        }
+        std::int32_t atlasIndex = -1;
+        if (const auto it = faceAtlasById.find(primitive.name); it != faceAtlasById.end()) {
+            atlasIndex = it->second;
+        }
+        const bool detail = faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds);
+        return primitive.material + '|' + std::to_string(atlasIndex) + '|' + (detail ? "1" : "0");
+    });
+
+    result.fac = std::move(fac);
+    result.doorFac = std::move(doorFac);
+    result.pvs = std::move(pvs);
 
     Model model = buildModelFromGeo(
         compiled.asset,
@@ -1551,12 +1575,6 @@ std::optional<LoadedMap> loadAndCompileMap(
     result.skyMeshIndices.reserve(compiled.asset.primitives.size());
     result.detailMeshIndices.clear();
     result.detailMeshIndices.reserve(compiled.asset.primitives.size());
-    std::unordered_set<std::string> detailBrushIds;
-    for (const Brush& brush : *brushes) {
-        if (brush.role == BrushRole::Detail && !brush.id.empty()) {
-            detailBrushIds.insert(brush.id);
-        }
-    }
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         const GeoPrimitive& primitive =
             compiled.asset.primitives[static_cast<std::size_t>(meshIndex)];

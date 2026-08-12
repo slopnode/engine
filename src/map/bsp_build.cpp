@@ -528,6 +528,12 @@ struct SplitScore {
 struct SplitPlane {
     BspPlane plane{};
     bool hintOnly = false;
+    // Union of the AABBs of every brush that contributed this plane. A plane
+    // can only ever separate solid from open space within reach of the
+    // brush(es) it came from, so this bounds where the plane is worth trying
+    // as a splitter — see the relevance check in buildNode.
+    Vector3 mins{};
+    Vector3 maxs{};
 };
 
 SplitScore scoreSplitPlane(const BspPlane& plane, const Polyhedron& poly) {
@@ -634,7 +640,12 @@ bool planeCutsPolyhedron(const BspPlane& plane, const Polyhedron& poly) {
     return false;
 }
 
-void addUniqueSplit(std::vector<SplitPlane>& out, const BspPlane& plane, bool hintOnly) {
+void addUniqueSplit(
+    std::vector<SplitPlane>& out,
+    const BspPlane& plane,
+    bool hintOnly,
+    Vector3 brushMins,
+    Vector3 brushMaxs) {
     if (length3(plane.normal) < 1e-6f) {
         return;
     }
@@ -643,10 +654,16 @@ void addUniqueSplit(std::vector<SplitPlane>& out, const BspPlane& plane, bool hi
             if (!hintOnly) {
                 existing.hintOnly = false;
             }
+            existing.mins.x = std::min(existing.mins.x, brushMins.x);
+            existing.mins.y = std::min(existing.mins.y, brushMins.y);
+            existing.mins.z = std::min(existing.mins.z, brushMins.z);
+            existing.maxs.x = std::max(existing.maxs.x, brushMaxs.x);
+            existing.maxs.y = std::max(existing.maxs.y, brushMaxs.y);
+            existing.maxs.z = std::max(existing.maxs.z, brushMaxs.z);
             return;
         }
     }
-    out.push_back(SplitPlane{plane, hintOnly});
+    out.push_back(SplitPlane{plane, hintOnly, brushMins, brushMaxs});
 }
 
 void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& out) {
@@ -657,9 +674,21 @@ void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& o
         }
         const bool hintOnly = brush.role == BrushRole::Hint;
         for (const BrushFace& face : brush.faces) {
-            addUniqueSplit(out, planeFromFace(face), hintOnly);
+            addUniqueSplit(out, planeFromFace(face), hintOnly, brush.mins, brush.maxs);
         }
     }
+}
+
+// Conservative (safe) filter: a plane can only correctly separate solid from
+// open content within the AABB of the brush(es) it came from — outside that
+// box the brush has no geometry, so the plane carries no information about
+// where content actually is. Cheap AABB-vs-AABB test run before the O(faces)
+// scoring below, so it also cuts scoring work, not just tree size.
+bool splitPlaneRelevantToCell(const SplitPlane& split, const Polyhedron& poly) {
+    constexpr float kRelevancePad = 1e-3f;
+    return poly.mins.x <= split.maxs.x + kRelevancePad && poly.maxs.x >= split.mins.x - kRelevancePad
+        && poly.mins.y <= split.maxs.y + kRelevancePad && poly.maxs.y >= split.mins.y - kRelevancePad
+        && poly.mins.z <= split.maxs.z + kRelevancePad && poly.maxs.z >= split.mins.z - kRelevancePad;
 }
 
 std::int32_t buildNode(
@@ -685,6 +714,9 @@ std::int32_t buildNode(
     std::size_t chosenIndex = 0;
     for (std::size_t pi = 0; pi < splits.size(); ++pi) {
         if (used[pi]) {
+            continue;
+        }
+        if (!splitPlaneRelevantToCell(splits[pi], poly)) {
             continue;
         }
         if (!planeCutsPolyhedron(splits[pi].plane, poly)) {
@@ -1146,6 +1178,10 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             // occlusion), since the door moves at runtime.
             buildBrushes.sealing.push_back(brush);
             break;
+        case BrushRole::Transparent:
+            ++detailCount;
+            buildBrushes.sealing.push_back(brush);
+            break;
         case BrushRole::Water:
             ++waterCount;
             buildBrushes.water.push_back(brush);
@@ -1158,7 +1194,6 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
             ++hintCount;
             break;
         case BrushRole::Detail:
-        case BrushRole::Transparent:
             ++detailCount;
             break;
         }

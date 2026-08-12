@@ -90,6 +90,17 @@ Vector3 cross3(Vector3 a, Vector3 b) {
     };
 }
 
+float sunRayMaxDistanceForScene(const QuadBvh& bvh) {
+    constexpr float kFallbackDistance = 1000.0f;
+    if (bvh.root < 0 || bvh.root >= static_cast<std::int32_t>(bvh.nodes.size())) {
+        return kFallbackDistance;
+    }
+    const QuadBvh::Node& rootNode = bvh.nodes[static_cast<std::size_t>(bvh.root)];
+    const Vector3 diagonal = sub3(rootNode.maxs, rootNode.mins);
+    const float sceneDiagonal = std::sqrt(dot3(diagonal, diagonal));
+    return std::max(sceneDiagonal * 2.0f, kFallbackDistance);
+}
+
 float luxelFaceParam(int index, int luxelCount) {
     if (luxelCount <= 1) {
         return 0.5f;
@@ -902,7 +913,8 @@ void accumulateDirectLightingCpu(
     const float luxelPitch = 1.0f / std::max(settings.luxelsPerMeter, 1e-3f);
     const float minDist2 = std::max(luxelPitch * luxelPitch, 0.0025f);
     const int directSamples = std::max(1, settings.emitterDirectSamples);
-    const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
+    SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
+    sunParams.maxRayDistance = sunRayMaxDistanceForScene(occlusionBvh);
     parallelFor(luxelTotal, [&](std::size_t begin, std::size_t end) {
         for (std::size_t i = begin; i < end; ++i) {
             LuxelSample& luxel = luxels[i];
@@ -1074,10 +1086,12 @@ bool accumulateDirectLighting(
         gpuParams.emissionGridFloats =
             static_cast<int>(emissionGrid.size() * 3);
         gpuParams.gpuSafeMode = settings.gpuSafeMode;
-        const SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
+        SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
+        sunParams.maxRayDistance = sunRayMaxDistanceForScene(occlusionBvh);
         gpuParams.sunRayCount = sunParams.rayCount;
         gpuParams.sunAngularSpread = sunParams.angularSpreadRad;
         gpuParams.sunLeakThreshold = sunParams.leakThreshold;
+        gpuParams.sunRayMaxDistance = sunParams.maxRayDistance;
         std::vector<std::int32_t> faceIsSky(faceSky.size(), 0);
         for (std::size_t i = 0; i < faceSky.size(); ++i) {
             faceIsSky[i] = faceSky[i] != 0 ? 1 : 0;

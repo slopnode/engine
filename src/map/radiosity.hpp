@@ -45,6 +45,7 @@ struct SunShadowSoftnessParams {
     float sunDenoiseSpatialSigma = 1.0f;
     float sunDenoiseRangeSigma = 0.35f;
     int sunDenoiseKernelRadius = 1;
+    float maxRayDistance = 1000.0f;
 };
 
 SunShadowSoftnessParams resolveSunShadowSoftness(float softness);
