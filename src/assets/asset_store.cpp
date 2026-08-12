@@ -1266,7 +1266,8 @@ bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
         return false;
     }
 
-    const std::string_view packageId = owned->package != nullptr ? owned->package->meta().id : "";
+    const std::string_view packageId =
+        owned->package != nullptr ? std::string_view{owned->package->meta().id} : std::string_view{};
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
@@ -1342,7 +1343,8 @@ bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
         return false;
     }
 
-    const std::string_view packageId = owned->package != nullptr ? owned->package->meta().id : "";
+    const std::string_view packageId =
+        owned->package != nullptr ? std::string_view{owned->package->meta().id} : std::string_view{};
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);

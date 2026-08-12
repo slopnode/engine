@@ -120,12 +120,16 @@ void App::init_window() {
 void App::init_script() {
     scheme_ = s7_init();
     hardenSchemeRuntime(scheme_);
+    bindPackageApi(assetStore_, scheme_);
     ScriptScopeGuard bootScope(ScriptScope::Boot);
     const std::string baseId{assetStore_.basePackageId()};
     if (baseId.empty()) {
         throw std::runtime_error("SCRIPT: base package id missing");
     }
 
+    if (!assetStore_.loadScript(scheme_, "lang")) {
+        TraceLog(LOG_WARNING, "SCRIPT: lang.s7 not loaded");
+    }
     if (!assetStore_.loadScriptFromPackage(scheme_, baseId, "init")) {
         TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
     }
