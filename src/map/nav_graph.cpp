@@ -123,7 +123,8 @@ std::vector<int> findLeafPath(
     const MapNavigation& nav,
     int fromLeaf,
     int toLeaf,
-    const DoorOpenQuery& isDoorOpen) {
+    const DoorOpenQuery& isDoorOpen,
+    float maxClimb) {
     if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= nav.leafCount || toLeaf >= nav.leafCount) {
         return {};
     }
@@ -176,6 +177,11 @@ std::vector<int> findLeafPath(
                 continue;
             }
             if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
+                continue;
+            }
+            const float rise = nav.leafFloorY[static_cast<std::size_t>(next)] -
+                nav.leafFloorY[static_cast<std::size_t>(current)];
+            if (rise > maxClimb) {
                 continue;
             }
             const float tentative = currentG + link.cost;

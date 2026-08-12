@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -41,12 +42,15 @@ MapNavigation buildMapNavigation(
     const std::vector<std::uint8_t>* exteriorEmpty = nullptr);
 
 /** A* path over walkable leaves; empty if unreachable. Links gated by a closed door
- *  (per @p isDoorOpen) are skipped, same as an unwalkable leaf. */
+ *  (per @p isDoorOpen) are skipped, same as an unwalkable leaf. @p maxClimb caps how far
+ *  a step can rise from one leaf's floor to the next (a ground actor's step-height); pass
+ *  infinity for flyers. Descending is never restricted. */
 std::vector<int> findLeafPath(
     const MapNavigation& nav,
     int fromLeaf,
     int toLeaf,
-    const DoorOpenQuery& isDoorOpen = {});
+    const DoorOpenQuery& isDoorOpen = {},
+    float maxClimb = std::numeric_limits<float>::infinity());
 
 /** Portal centers between consecutive leaves, ending at goalPos. */
 std::vector<Vector3> leafPathToWaypoints(

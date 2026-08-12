@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 
 namespace slopengine {
@@ -72,6 +73,10 @@ bool isDoorPortalOpen(flecs::world& world, const std::string& doorBrushId) {
     return door.get<RigidMover>().target >= 0.5f;
 }
 
+float agentMaxClimb(const NavigationAgent& agent, const CharacterMotor& motor) {
+    return agent.flyer ? std::numeric_limits<float>::infinity() : motor.stepHeight;
+}
+
 bool goalMovedEnough(const NavigationAgent& agent, Vector3 goalPos) {
     if (!agent.haveLastGoalPos) {
         return true;
@@ -93,7 +98,8 @@ void replanAgent(
     NavigationAgent& agent,
     Vector3 agentPos,
     Vector3 goalPos,
-    bool preserveProgress) {
+    bool preserveProgress,
+    float maxClimb) {
     if (!world.has<MapNavigation>() || !world.has<MapBsp>()) {
         clearNavPath(agent);
         return;
@@ -103,13 +109,20 @@ void replanAgent(
     const BspTree& tree = world.get<MapBsp>().tree;
     const int fromLeaf = sampleNavLeaf(tree, agentPos);
     const int toLeaf = sampleNavLeaf(tree, goalPos);
-    agent.agentLeaf = fromLeaf;
-    agent.goalLeaf = toLeaf;
 
     if (fromLeaf < 0 || toLeaf < 0) {
-        clearNavPath(agent);
+        // A momentary leaf-sample miss (e.g. an actor mid-step during a stair
+        // climb) isn't proof the goal is unreachable. Keep following the last
+        // known-good path rather than dropping it and forcing the script's
+        // wall-blind straight-line fallback; the next scheduled replan will
+        // try again once the sample recovers.
+        if (agent.leafPath.empty()) {
+            clearNavPath(agent);
+        }
         return;
     }
+    agent.agentLeaf = fromLeaf;
+    agent.goalLeaf = toLeaf;
 
     const std::vector<int> oldLeafPath = agent.leafPath;
     const int oldWaypointIndex = agent.waypointIndex;
@@ -120,9 +133,12 @@ void replanAgent(
         nav,
         fromLeaf,
         toLeaf,
-        [&world](const std::string& doorBrushId) { return isDoorPortalOpen(world, doorBrushId); });
+        [&world](const std::string& doorBrushId) { return isDoorPortalOpen(world, doorBrushId); },
+        maxClimb);
     if (leafPath.empty()) {
-        clearNavPath(agent);
+        if (agent.leafPath.empty()) {
+            clearNavPath(agent);
+        }
         return;
     }
 
@@ -219,7 +235,8 @@ bool needsReplan(
     Vector3 goalPos,
     int agentLeaf,
     int goalLeaf,
-    float dt) {
+    float dt,
+    float maxClimb) {
     if (agent.forceReplan) {
         return true;
     }
@@ -234,7 +251,8 @@ bool needsReplan(
                 goalLeaf,
                 [&world](const std::string& doorBrushId) {
                     return isDoorPortalOpen(world, doorBrushId);
-                });
+                },
+                maxClimb);
             if (navLeafPathRouteUnchanged(agent.leafPath, agentLeaf, newPath)) {
                 agent.agentLeaf = agentLeaf;
                 return false;
@@ -269,7 +287,7 @@ void replanNavigationAgent(flecs::world& world, flecs::entity entity) {
     const CharacterMotor& motor = entity.get<CharacterMotor>();
     const Vector3 agentPos = navAgentSamplePoint(entity, motor, agent.flyer);
     const Vector3 goalPos = resolveGoalPos(world, agent);
-    replanAgent(world, agent, actorFeet(entity, motor), goalPos, false);
+    replanAgent(world, agent, actorFeet(entity, motor), goalPos, false, agentMaxClimb(agent, motor));
     agent.replanTimer = agent.replanInterval;
     agent.agentLeaf = sampleNavLeaf(world.get<MapBsp>().tree, agentPos);
 }
@@ -309,10 +327,11 @@ void registerNavModule(flecs::world& world) {
             updateStuckSkip(agent, agentFeetPos, dt);
             advanceWaypoints(agent, agentFeetPos, agentLeaf);
 
-            if (needsReplan(worldRef, nav, agent, goalPos, agentLeaf, goalLeaf, dt)) {
+            const float maxClimb = agentMaxClimb(agent, motor);
+            if (needsReplan(worldRef, nav, agent, goalPos, agentLeaf, goalLeaf, dt, maxClimb)) {
                 const bool preserveProgress =
                     !agent.forceReplan && !agent.waypoints.empty();
-                replanAgent(worldRef, agent, agentFeetPos, goalPos, preserveProgress);
+                replanAgent(worldRef, agent, agentFeetPos, goalPos, preserveProgress, maxClimb);
                 agent.replanTimer = agent.replanInterval;
                 agent.agentLeaf = agentLeaf;
             }
