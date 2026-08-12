@@ -1,5 +1,7 @@
 #include "map/uv_math.hpp"
 
+#include <raymath.h>
+
 #include <cmath>
 
 namespace slopengine {
@@ -14,20 +16,46 @@ Vector3 normalizeAxis(Vector3 v) {
     return {v.x / len, v.y / len, v.z / len};
 }
 
+bool isZeroAxis(Vector3 v) {
+    return v.x == 0.0f && v.y == 0.0f && v.z == 0.0f;
+}
+
 bool axesAreZero(Vector3 u, Vector3 v) {
-    return (u.x == 0.0f && u.y == 0.0f && u.z == 0.0f) ||
-        (v.x == 0.0f && v.y == 0.0f && v.z == 0.0f);
+    return isZeroAxis(u) || isZeroAxis(v);
 }
 
 float axisScale(float scale) {
     return std::fabs(scale) > 1e-8f ? scale : 1.0f;
 }
 
+Vector3 orthogonalizeAgainstNormal(Vector3 normal, Vector3 templateU, Vector3 templateV, Vector3& uAxis, Vector3& vAxis) {
+    const Vector3 n = normalizeAxis(normal);
+    if (isZeroAxis(n)) {
+        uAxis = templateU;
+        vAxis = templateV;
+        return n;
+    }
+
+    const float dotU = templateU.x * n.x + templateU.y * n.y + templateU.z * n.z;
+    const Vector3 u = normalizeAxis({
+        templateU.x - n.x * dotU,
+        templateU.y - n.y * dotU,
+        templateU.z - n.z * dotU,
+    });
+    if (isZeroAxis(u)) {
+        uAxis = templateU;
+        vAxis = templateV;
+        return n;
+    }
+
+    uAxis = u;
+    vAxis = Vector3CrossProduct(u, n);
+    return n;
+}
+
 } // namespace
 
 void axialUvAxes(Vector3 normal, Vector3& uAxis, Vector3& vAxis) {
-    // Y-up, Quake/Hammer-style: pick which of six world directions is closest to
-    // the face normal. Each U/V pair is right-handed with that normal (U×V || N).
     /*
     static constexpr Vector3 kBaseAxis[18] = {
         {0.0f, 1.0f, 0.0f},  {1.0f, 0.0f, 0.0f},  {0.0f, 0.0f, -1.0f}, // +Y floor
@@ -58,31 +86,9 @@ void axialUvAxes(Vector3 normal, Vector3& uAxis, Vector3& vAxis) {
         }
     }
 
-    uAxis = kBaseAxis[bestAxis * 3 + 1];
-    vAxis = kBaseAxis[bestAxis * 3 + 2];
-
-    // Ensure consistent U/V axis orientation to prevent texture mirroring
-    // For all faces, we want consistent mapping so that:
-    // - X-aligned faces consistently map U to X coordinate  
-    // - Y-aligned faces consistently map U to Y coordinate
-    // - Z-aligned faces consistently map U to Z coordinate
-    //
-    // This ensures that the same texture applied to similar orientation faces 
-    // appears correctly without requiring negative scaling.
-    
-    // Adjust for consistent orientation - always ensure U axis points in a consistent direction
-    // when possible, avoiding flipping that could cause mirrored appearance
-    if (normal.x != 0.0f || normal.y != 0.0f || normal.z != 0.0f) {
-        // Normalize the normal for consistency checking
-        float len = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
-        if (len > 1e-8f) {
-            Vector3 norm = {normal.x / len, normal.y / len, normal.z / len};
-            
-            // For X-aligned faces (normal.x != 0), make sure we're using consistent U axis
-            // The issue is that sometimes the axis system would flip based on face orientation
-            // which caused inconsistent UV mapping. We ensure a consistent approach here.
-        }
-    }
+    const Vector3 templateU = kBaseAxis[bestAxis * 3 + 1];
+    const Vector3 templateV = kBaseAxis[bestAxis * 3 + 2];
+    orthogonalizeAgainstNormal(normal, templateU, templateV, uAxis, vAxis);
 }
 
 void faceUvAxes(
@@ -93,8 +99,7 @@ void faceUvAxes(
     Vector3& uAxis,
     Vector3& vAxis) {
     if (uvLock && !axesAreZero(storedUAxis, storedVAxis)) {
-        uAxis = storedUAxis;
-        vAxis = storedVAxis;
+        orthogonalizeAgainstNormal(normal, storedUAxis, storedVAxis, uAxis, vAxis);
         return;
     }
     axialUvAxes(normal, uAxis, vAxis);
