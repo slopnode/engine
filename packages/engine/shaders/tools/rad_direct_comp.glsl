@@ -8,7 +8,6 @@ const float kMinCastLuminance = 0.03;
 const int kLightKindPoint = 0;
 const int kLightKindSpot = 1;
 const int kLightKindSun = 2;
-const float kSunRayDistance = 1000.0;
 const float kEmitterNormalOffset = 0.02;
 
 struct Luxel {
@@ -167,6 +166,7 @@ struct Params {
     int materialRectCount;
     int alphaAtlasWidth;
     int alphaAtlasHeight;
+    float sunRayMaxDistance;
 };
 
 struct FaceOcclusion {
@@ -879,7 +879,7 @@ float sunSkyVisibility(
     if (params.sunRayCount <= 1 || params.sunAngularSpread <= 0.0) {
         int hitFace = -1;
         vec3 rayTint = vec3(1.0);
-        if (!raycastSunAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace, rayTint)
+        if (!raycastSunAny(luxelPos, toLight, params.sunRayMaxDistance, luxelFaceIndex, -1, hitFace, rayTint)
             || !isSkyFace(hitFace)) {
             return 0.0;
         }
@@ -899,7 +899,7 @@ float sunSkyVisibility(
             params.sunRayCount);
         int hitFace = -1;
         vec3 rayTint = vec3(1.0);
-        if (raycastSunAny(luxelPos, rayDir, kSunRayDistance, luxelFaceIndex, -1, hitFace, rayTint)
+        if (raycastSunAny(luxelPos, rayDir, params.sunRayMaxDistance, luxelFaceIndex, -1, hitFace, rayTint)
             && isSkyFace(hitFace)) {
             hits += 1.0;
             tintSum += rayTint;

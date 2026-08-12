@@ -88,6 +88,7 @@ struct RadGpuDirectParams {
     int sunRayCount = 1;
     float sunAngularSpread = 0.0f;
     float sunLeakThreshold = 0.0f;
+    float sunRayMaxDistance = 1000.0f;
     bool gpuSafeMode = false;
 };
 

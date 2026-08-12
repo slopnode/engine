@@ -253,6 +253,7 @@ struct GpuParamsSSBO {
     std::int32_t materialRectCount = 0;
     std::int32_t alphaAtlasWidth = 1;
     std::int32_t alphaAtlasHeight = 1;
+    float sunRayMaxDistance = 1000.0f;
 };
 
 static_assert(sizeof(GpuLuxelSSBO) == 64);
@@ -262,7 +263,7 @@ static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
 static_assert(sizeof(GpuEmitterBvhPrimSSBO) == 48);
-static_assert(sizeof(GpuParamsSSBO) == 100);
+static_assert(sizeof(GpuParamsSSBO) == 104);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
@@ -626,6 +627,7 @@ void fillBaseParams(
     params.sunRayCount = directParams.sunRayCount;
     params.sunAngularSpread = directParams.sunAngularSpread;
     params.sunLeakThreshold = directParams.sunLeakThreshold;
+    params.sunRayMaxDistance = directParams.sunRayMaxDistance;
     params.faceCount = faceCount;
     params.materialRectCount =
         static_cast<std::int32_t>(occlusionResources.materialRects.size());

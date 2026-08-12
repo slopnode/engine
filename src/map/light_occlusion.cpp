@@ -331,7 +331,7 @@ float sunSkyVisibilityWithAlphaOcclusion(
     if (tintOut != nullptr) {
         *tintOut = {1.0f, 1.0f, 1.0f};
     }
-    constexpr float kSunRayDistance = 1000.0f;
+    const float kSunRayDistance = sunParams.maxRayDistance;
     if (sunParams.rayCount <= 1 || sunParams.angularSpreadRad <= 0.0f) {
         Vector3 rayTint{1.0f, 1.0f, 1.0f};
         const auto hit = raycastSunWithRefraction(
