@@ -253,4 +253,97 @@ CsgCompileResult compileVisibleFacesToGeo(
     return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);
 }
 
+void mergeGeoPrimitivesByKey(GeoAsset& asset, VertBuffer& buffer, const PrimitiveKeyFn& keyOf) {
+    constexpr std::size_t kMaxVertsPerPrimitive = 65535;
+
+    std::vector<std::string> groupOrder;
+    std::unordered_map<std::string, std::vector<std::size_t>> groups;
+    groupOrder.reserve(asset.primitives.size());
+    for (std::size_t i = 0; i < asset.primitives.size(); ++i) {
+        std::string key = keyOf(asset.primitives[i]);
+        auto [it, inserted] = groups.try_emplace(std::move(key));
+        if (inserted) {
+            groupOrder.push_back(it->first);
+        }
+        it->second.push_back(i);
+    }
+
+    GeoAsset mergedAsset;
+    mergedAsset.skeletonId = asset.skeletonId;
+    mergedAsset.verticesImplicit = asset.verticesImplicit;
+    mergedAsset.weightsImplicit = asset.weightsImplicit;
+    mergedAsset.primitives.reserve(asset.primitives.size());
+
+    VertBuffer mergedBuffer;
+    mergedBuffer.positions.reserve(buffer.positions.size());
+    mergedBuffer.normals.reserve(buffer.normals.size());
+    mergedBuffer.texcoords.reserve(buffer.texcoords.size());
+    mergedBuffer.texcoords2.reserve(buffer.texcoords2.size());
+    mergedBuffer.indices.reserve(buffer.indices.size());
+
+    for (const std::string& key : groupOrder) {
+        const std::vector<std::size_t>& members = groups[key];
+
+        GeoPrimitive current;
+        bool currentOpen = false;
+
+        for (std::size_t memberIndex : members) {
+            const GeoPrimitive& src = asset.primitives[memberIndex];
+
+            if (currentOpen && current.vertexCount + src.vertexCount > kMaxVertsPerPrimitive) {
+                mergedAsset.primitives.push_back(std::move(current));
+                current = GeoPrimitive{};
+                currentOpen = false;
+            }
+
+            if (!currentOpen) {
+                current.name = src.name;
+                current.material = src.material;
+                current.rigidBone = src.rigidBone;
+                current.transparent = src.transparent;
+                current.vertexOffset = mergedBuffer.positions.size();
+                current.indexOffset = mergedBuffer.indices.size();
+                currentOpen = true;
+            }
+
+            const std::uint32_t destBase =
+                static_cast<std::uint32_t>(mergedBuffer.positions.size() - current.vertexOffset);
+
+            mergedBuffer.positions.insert(
+                mergedBuffer.positions.end(),
+                buffer.positions.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset),
+                buffer.positions.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset + src.vertexCount));
+            mergedBuffer.normals.insert(
+                mergedBuffer.normals.end(),
+                buffer.normals.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset),
+                buffer.normals.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset + src.vertexCount));
+            mergedBuffer.texcoords.insert(
+                mergedBuffer.texcoords.end(),
+                buffer.texcoords.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset),
+                buffer.texcoords.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset + src.vertexCount));
+            mergedBuffer.texcoords2.insert(
+                mergedBuffer.texcoords2.end(),
+                buffer.texcoords2.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset),
+                buffer.texcoords2.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset + src.vertexCount));
+
+            for (std::size_t i = 0; i < src.indexCount; ++i) {
+                const std::uint32_t srcIndex = buffer.indices[src.indexOffset + i];
+                const std::uint32_t localIndex = srcIndex - static_cast<std::uint32_t>(src.vertexOffset);
+                mergedBuffer.indices.push_back(
+                    static_cast<std::uint32_t>(current.vertexOffset) + destBase + localIndex);
+            }
+
+            current.vertexCount += src.vertexCount;
+            current.indexCount += src.indexCount;
+        }
+
+        if (currentOpen) {
+            mergedAsset.primitives.push_back(std::move(current));
+        }
+    }
+
+    asset = std::move(mergedAsset);
+    buffer = std::move(mergedBuffer);
+}
+
 }

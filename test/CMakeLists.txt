@@ -9,6 +9,7 @@ add_executable(sloptests
     test_bsp_build.cpp
     test_bsp_analyze.cpp
     test_fac_build.cpp
+    test_csg_compile.cpp
     test_pvs_build.cpp
     test_nav_graph.cpp
     test_physics.cpp
@@ -60,6 +61,7 @@ add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.fac_build COMMAND sloptests fac_build)
+add_test(NAME sloptests.csg_compile COMMAND sloptests csg_compile)
 add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
 add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
 add_test(NAME sloptests.physics COMMAND sloptests physics)
