@@ -3,6 +3,7 @@
 #include "map/emitter_bvh.hpp"
 #include "map/light_occlusion.hpp"
 #include "map/quad_bvh.hpp"
+#include "map/radiosity_emitters.hpp"
 
 #include <raylib.h>
 
@@ -43,7 +44,7 @@ struct RadGpuEmissiveFace {
     std::int32_t gridWidth = 0;
     std::int32_t gridHeight = 0;
     std::int32_t gridOffset = 0;
-    std::int32_t pad1 = 0;
+    std::int32_t directSampleOffset = -1;
     Vector3 peakRadiance{};
     float castRange = 0.0f;
     Vector3 aabbMins{};
@@ -106,6 +107,7 @@ bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
     const std::vector<RadGpuEmissiveFace>& emissiveFaces,
     std::span<const Vector3> emissionGrid,
+    std::span<const EmitterDirectSample> directSampleData,
     const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
     const EmitterBvh& emitterBvh,

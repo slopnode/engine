@@ -50,7 +50,7 @@ struct EmissiveFace {
     int gridWidth;
     int gridHeight;
     int gridOffset;
-    int pad1;
+    int directSampleOffset;
     float peakR;
     float peakG;
     float peakB;
@@ -70,6 +70,21 @@ struct GridSample {
     float g;
     float b;
     float pad;
+};
+
+// One stratified direct-light sample, precomputed CPU-side per emissive face from the fine
+// emission grid (see EmitterDirectSample in radiosity_emitters.hpp / bakeRadiosity()'s
+// collection loop) so this shader's gather pass finds real content even for a mask feature
+// much smaller than emitterDirectSamples^2 fixed query points would otherwise resolve.
+struct DirectSample {
+    float u;
+    float v;
+    float r;
+    float g;
+    float b;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct Light {
@@ -263,6 +278,10 @@ layout(std430, binding = 10) readonly buffer EmitterPrimBuffer {
 
 layout(std430, binding = 11) readonly buffer EmissionGridBuffer {
     GridSample emissionGrid[];
+};
+
+layout(std430, binding = 14) readonly buffer DirectSampleBuffer {
+    DirectSample directSamples[];
 };
 
 bool isSkyFace(int faceIndex) {
@@ -671,6 +690,34 @@ vec3 sampleEmissionGridBilinear(EmissiveFace face, float u, float v) {
     return mix(c0, c1, ty);
 }
 
+// Precomputed samples (built CPU-side once per face; see DirectSample above) are already
+// guaranteed to be real emissive content or nothing, so they skip straight to the cast gate.
+// Falls back to the blind fixed fu/fv grid for faces with no precomputed samples (solid-color
+// emitters, where any point on the face is equally valid).
+bool getDirectSample(
+    EmissiveFace face, int sampleCount, int sx, int sy, out float u, out float v, out vec3 radiance) {
+    if (face.directSampleOffset >= 0) {
+        int index = face.directSampleOffset + sy * sampleCount + sx;
+        if (index < 0 || index >= directSamples.length()) {
+            u = 0.0;
+            v = 0.0;
+            radiance = vec3(0.0);
+            return false;
+        }
+        DirectSample entry = directSamples[index];
+        radiance = vec3(entry.r, entry.g, entry.b);
+        u = entry.u;
+        v = entry.v;
+        return passesCastGate(radiance);
+    }
+    float fu = (float(sx) + 0.5) / float(sampleCount);
+    float fv = (float(sy) + 0.5) / float(sampleCount);
+    u = face.uMin + (face.uMax - face.uMin) * fu;
+    v = face.vMin + (face.vMax - face.vMin) * fv;
+    radiance = sampleEmissionGridBilinear(face, u, v);
+    return passesCastGate(radiance);
+}
+
 vec3 planePointFromUv(EmissiveFace face, float u, float v) {
     vec3 uAxis = vec3(face.uAxisX, face.uAxisY, face.uAxisZ);
     vec3 vAxis = vec3(face.vAxisX, face.vAxisY, face.vAxisZ);
@@ -712,12 +759,9 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
     int validSamples = 0;
     for (int sy = 0; sy < sampleCount; ++sy) {
         for (int sx = 0; sx < sampleCount; ++sx) {
-            float fu = (float(sx) + 0.5) / float(sampleCount);
-            float fv = (float(sy) + 0.5) / float(sampleCount);
-            float u = face.uMin + (face.uMax - face.uMin) * fu;
-            float v = face.vMin + (face.vMax - face.vMin) * fv;
-            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
-            if (passesCastGate(radiance)) {
+            float u, v;
+            vec3 radiance;
+            if (getDirectSample(face, sampleCount, sx, sy, u, v, radiance)) {
                 validSamples += 1;
             }
         }
@@ -732,12 +776,9 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
 
     for (int sy = 0; sy < sampleCount; ++sy) {
         for (int sx = 0; sx < sampleCount; ++sx) {
-            float fu = (float(sx) + 0.5) / float(sampleCount);
-            float fv = (float(sy) + 0.5) / float(sampleCount);
-            float u = face.uMin + (face.uMax - face.uMin) * fu;
-            float v = face.vMin + (face.vMax - face.vMin) * fv;
-            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
-            if (!passesCastGate(radiance)) {
+            float u, v;
+            vec3 radiance;
+            if (!getDirectSample(face, sampleCount, sx, sy, u, v, radiance)) {
                 continue;
             }
 

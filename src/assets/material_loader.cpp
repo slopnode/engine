@@ -239,6 +239,19 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.emissionRange = range;
         return true;
     }
+    if (tag == "fullbright") {
+        if (form.list.size() == 1) {
+            asset.fullbright = true;
+            return true;
+        }
+        float flag = 1.0f;
+        if (!readNumberField(form, 1, &flag)) {
+            error = {"(fullbright) or (fullbright 0|1)", form.line, form.column};
+            return false;
+        }
+        asset.fullbright = flag != 0.0f;
+        return true;
+    }
     if (tag == "sky") {
         if (form.list.size() == 1) {
             asset.sky = true;
@@ -331,10 +344,12 @@ Material createRaylibMaterial(
 
     if (asset.emissionPower > 0.0f) {
         material.maps[MATERIAL_MAP_SPECULAR].color = asset.emissionColor;
-        material.maps[MATERIAL_MAP_SPECULAR].color.a = 255;
     } else {
         material.maps[MATERIAL_MAP_SPECULAR].color = {0, 0, 0, 255};
     }
+    // colSpecular.a is otherwise unused by the world shader; repurposed here as the
+    // render-time "fullbright mask" toggle (see lightmap_frag.glsl's applyFullbrightMask).
+    material.maps[MATERIAL_MAP_SPECULAR].color.a = asset.fullbright ? 255 : 0;
 
     if (!asset.emissionTexture.empty() && resolveTexture) {
         const Texture2D emission = resolveTexture(asset.emissionTexture);

@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <random>
 #include <span>
 #include <string>
@@ -313,16 +314,20 @@ Color3 emissionAt(
     emitColor = emitColor * material.asset.emissionPower;
 
     if (material.hasEmissionImage) {
-        Vector3 uAxis{};
-        Vector3 vAxis{};
-        faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
-        MaterialUvInfo uvInfo{};
-        uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
-        uvInfo.textureWidth = static_cast<float>(material.emissionImage.width);
-        uvInfo.textureHeight = static_cast<float>(material.emissionImage.height);
-        const Vector2 uv =
-            worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, face.uvScale, uvInfo);
-        const Color3 texel = sampleImageUv(material.emissionImage, uv.x, uv.y);
+        // Stretch-fit the mask to this face's own UV bounds rather than reusing the
+        // albedo's world-tiling worldPlanarUv: a mask marks "this part of me is a light
+        // fixture", and that region needs to appear on every face wearing this material,
+        // not just the ones whose world-position-tiled texture window happens to land on
+        // it. Uses the face's own (unmerged) basis so this matches what emissionAt() would
+        // sample regardless of any lightmap-chart group merging elsewhere in the bake.
+        const FaceBasis ownBasis = makeFaceBasis(face);
+        const float uSpan = std::max(ownBasis.uMax - ownBasis.uMin, 1e-4f);
+        const float vSpan = std::max(ownBasis.vMax - ownBasis.vMin, 1e-4f);
+        const float metersU = dot3(worldPos, ownBasis.uAxis);
+        const float metersV = dot3(worldPos, ownBasis.vAxis);
+        const float u = std::clamp((metersU - ownBasis.uMin) / uSpan, 0.0f, 1.0f);
+        const float v = std::clamp((metersV - ownBasis.vMin) / vSpan, 0.0f, 1.0f);
+        const Color3 texel = sampleImageUv(material.emissionImage, u, v);
         if (luminance(texel) < 1.0f / 255.0f) {
             return {};
         }
@@ -496,6 +501,38 @@ bool pointInAabb(Vector3 p, Vector3 mins, Vector3 maxs) {
         && p.z <= maxs.z;
 }
 
+// With stretch-fit mask UVs (see emissionAt()), a face's own vertices always land exactly on
+// the mask's bounding-box corners, which are black for any mask whose lit region doesn't
+// touch the edge. A 2-point vertex check would then deterministically miss every such face
+// instead of just sometimes missing it, so this probes a small interior grid instead.
+bool faceHasAnyEmission(const LightmapFace& face, const MaterialBakeInfo& material) {
+    if (face.vertices.empty()) {
+        return false;
+    }
+    if (!material.hasEmissionImage) {
+        return luminance(emissionAt(face, material, face.vertices[0])) > 0.0f;
+    }
+    constexpr int kProbeGrid = 8;
+    const FaceBasis basis = makeFaceBasis(face);
+    for (int gy = 0; gy < kProbeGrid; ++gy) {
+        const float fv = (static_cast<float>(gy) + 0.5f) / static_cast<float>(kProbeGrid);
+        const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
+        for (int gx = 0; gx < kProbeGrid; ++gx) {
+            const float fu = (static_cast<float>(gx) + 0.5f) / static_cast<float>(kProbeGrid);
+            const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
+            if (!pointInFacePolygon(face, basis, u, v)) {
+                continue;
+            }
+            const Vector3 pos =
+                planePointFromUv(basis.uAxis, basis.vAxis, basis.normal, u, v, basis.planeD);
+            if (luminance(emissionAt(face, material, pos)) > 0.0f) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 std::vector<EmitterVolume> buildEmitterVolumes(
     const std::vector<LightmapFace>& faces,
     const std::unordered_map<std::string, MaterialBakeInfo>& materialCache,
@@ -520,11 +557,7 @@ std::vector<EmitterVolume> buildEmitterVolumes(
             && material.asset.emissionColor.b == 0 && !material.hasEmissionImage) {
             continue;
         }
-        if (face.vertices.size() < 3
-            || (luminance(emissionAt(face, material, face.vertices[0])) <= 0.0f
-                && luminance(
-                       emissionAt(face, material, face.vertices[face.vertices.size() / 2]))
-                    <= 0.0f)) {
+        if (face.vertices.size() < 3 || !faceHasAnyEmission(face, material)) {
             continue;
         }
         Acc& acc = byBrush[brushIdFromFaceId(face.id)];
@@ -595,6 +628,7 @@ void accumulateEmissiveFaceContribution(
     LuxelSample& luxel,
     const EmissiveFace& face,
     std::span<const Vector3> emissionGrid,
+    std::span<const EmitterDirectSample> directSampleData,
     const LightmapFace& faceGeom,
     int directSamples,
     float wrap,
@@ -625,23 +659,68 @@ void accumulateEmissiveFaceContribution(
     basis.vMax = face.vMax;
 
     const int sampleCount = std::max(1, directSamples);
+    const std::size_t neededSamples =
+        static_cast<std::size_t>(sampleCount) * static_cast<std::size_t>(sampleCount);
+    const bool useContentAwareSamples =
+        face.directSampleOffset >= 0
+        && directSampleData.size() >= static_cast<std::size_t>(face.directSampleOffset) + neededSamples;
+
+    // Precomputed samples are built once per face (in bakeRadiosity()'s collection loop) from
+    // the fine emission grid, so a block is only ever empty if the mask really has nothing lit
+    // there - they don't need the blind fu/fv grid's polygon test. This is what lets a thin
+    // mask feature (a light strip a few texels tall in a much larger texture) still register:
+    // the old fixed-fu/fv grid could straddle it entirely regardless of collection-grid detail.
+    auto sampleAt = [&](int sx, int sy, float& u, float& v, Vector3& radiance) -> bool {
+        if (useContentAwareSamples) {
+            const EmitterDirectSample& sample = directSampleData[static_cast<std::size_t>(
+                face.directSampleOffset + sy * sampleCount + sx)];
+            if (!passesCastGate(sample.radiance)) {
+                return false;
+            }
+            u = sample.u;
+            v = sample.v;
+            radiance = sample.radiance;
+            return true;
+        }
+        const float fu = (static_cast<float>(sx) + 0.5f) / static_cast<float>(sampleCount);
+        const float fv = (static_cast<float>(sy) + 0.5f) / static_cast<float>(sampleCount);
+        u = face.uMin + (face.uMax - face.uMin) * fu;
+        v = face.vMin + (face.vMax - face.vMin) * fv;
+        if (!pointInFacePolygon(faceGeom, basis, u, v)) {
+            return false;
+        }
+        radiance = sampleEmissionGridBilinear(face, emissionGrid, u, v);
+        return passesCastGate(radiance);
+    };
+
     int validSamples = 0;
     for (int sy = 0; sy < sampleCount; ++sy) {
         for (int sx = 0; sx < sampleCount; ++sx) {
-            const float fu =
-                (static_cast<float>(sx) + 0.5f) / static_cast<float>(sampleCount);
-            const float fv =
-                (static_cast<float>(sy) + 0.5f) / static_cast<float>(sampleCount);
-            const float u = face.uMin + (face.uMax - face.uMin) * fu;
-            const float v = face.vMin + (face.vMax - face.vMin) * fv;
-            if (!pointInFacePolygon(faceGeom, basis, u, v)) {
-                continue;
+            float u = 0.0f;
+            float v = 0.0f;
+            Vector3 radiance{};
+            if (sampleAt(sx, sy, u, v, radiance)) {
+                ++validSamples;
             }
-            const Vector3 radiance = sampleEmissionGridBilinear(face, emissionGrid, u, v);
-            if (!passesCastGate(radiance)) {
-                continue;
-            }
-            ++validSamples;
+        }
+    }
+    static const std::string debugGatherFaceId = []() {
+        const char* env = std::getenv("SLOPRAD_DEBUG_FACE");
+        return env != nullptr ? std::string(env) : std::string();
+    }();
+    static std::atomic<bool> debugGatherPrinted{false};
+    if (!debugGatherFaceId.empty() && faceGeom.id == debugGatherFaceId) {
+        bool expected = false;
+        if (debugGatherPrinted.compare_exchange_strong(expected, true)) {
+            TraceLog(
+                LOG_INFO,
+                "sloprad-debug: gather validSamples=%d/%d for face=%s (first luxel query; 0 here "
+                "means this emitter contributes no light to any surface despite being a "
+                "registered emitter - see the collection-phase trace above for why)",
+                validSamples,
+                sampleCount * sampleCount,
+                faceGeom.id.c_str());
+            std::fflush(stdout);
         }
     }
     if (validSamples <= 0) {
@@ -656,17 +735,10 @@ void accumulateEmissiveFaceContribution(
     Color3 accumulated{};
     for (int sy = 0; sy < sampleCount; ++sy) {
         for (int sx = 0; sx < sampleCount; ++sx) {
-            const float fu =
-                (static_cast<float>(sx) + 0.5f) / static_cast<float>(sampleCount);
-            const float fv =
-                (static_cast<float>(sy) + 0.5f) / static_cast<float>(sampleCount);
-            const float u = face.uMin + (face.uMax - face.uMin) * fu;
-            const float v = face.vMin + (face.vMax - face.vMin) * fv;
-            if (!pointInFacePolygon(faceGeom, basis, u, v)) {
-                continue;
-            }
-            const Vector3 radiance = sampleEmissionGridBilinear(face, emissionGrid, u, v);
-            if (!passesCastGate(radiance)) {
+            float u = 0.0f;
+            float v = 0.0f;
+            Vector3 radiance{};
+            if (!sampleAt(sx, sy, u, v, radiance)) {
                 continue;
             }
 
@@ -895,6 +967,7 @@ void accumulateDirectLightingCpu(
     const std::vector<LightmapFace>& faces,
     const std::vector<EmissiveFace>& emissiveFaces,
     std::span<const Vector3> emissionGrid,
+    std::span<const EmitterDirectSample> directSampleData,
     const EmitterBvh& emitterBvh,
     float emitterQueryRadius,
     const std::vector<RadiosityLight>& lights,
@@ -950,6 +1023,7 @@ void accumulateDirectLightingCpu(
                             luxel,
                             emissiveFace,
                             emissionGrid,
+                            directSampleData,
                             faceGeom,
                             directSamples,
                             wrap,
@@ -991,6 +1065,7 @@ bool accumulateDirectLighting(
     const std::vector<LightmapFace>& faces,
     const std::vector<EmissiveFace>& emissiveFaces,
     std::span<const Vector3> emissionGrid,
+    std::span<const EmitterDirectSample> directSampleData,
     const std::vector<RadiosityLight>& lights,
     const std::vector<std::int32_t>& lightLeaves,
     const QuadBvh& occlusionBvh,
@@ -1051,6 +1126,7 @@ bool accumulateDirectLighting(
             dst.gridWidth = src.gridWidth;
             dst.gridHeight = src.gridHeight;
             dst.gridOffset = src.gridOffset;
+            dst.directSampleOffset = src.directSampleOffset;
             dst.peakRadiance = src.peakRadiance;
             dst.castRange = src.castRange;
             dst.aabbMins = src.aabbMins;
@@ -1112,6 +1188,7 @@ bool accumulateDirectLighting(
                 gpuLuxels,
                 gpuEmissiveFaces,
                 emissionGrid,
+                directSampleData,
                 gpuLights,
                 occlusionBvh,
                 emitterBvh,
@@ -1147,6 +1224,7 @@ bool accumulateDirectLighting(
         faces,
         emissiveFaces,
         emissionGrid,
+        directSampleData,
         emitterBvh,
         emitterQueryRadius,
         lights,
@@ -1658,7 +1736,20 @@ RadiosityBakeResult bakeRadiosity(
     logStage("collecting emissive faces...");
     std::vector<EmissiveFace> emissiveFaces;
     std::vector<Vector3> emissionGridBuffer;
+    std::vector<EmitterDirectSample> directSampleBuffer;
     int gridCellCount = 0;
+
+    // SLOPRAD_DEBUG_FACE=<face-id> dumps the UV basis and every grid sample
+    // for one face's emissive-collection pass (matched against chart.faceId).
+    const char* debugFaceIdEnv = std::getenv("SLOPRAD_DEBUG_FACE");
+    const std::string debugFaceId = debugFaceIdEnv != nullptr ? debugFaceIdEnv : std::string();
+
+    // Stratified best-per-block scratch for the direct-light gather's precomputed samples;
+    // reused per chart to avoid reallocating. See EmitterDirectSample.
+    const int directSampleAxisCount = std::max(1, settings.emitterDirectSamples);
+    std::vector<float> blockBestLuminance(
+        static_cast<std::size_t>(directSampleAxisCount) * static_cast<std::size_t>(directSampleAxisCount));
+    std::vector<EmitterDirectSample> blockBestSample(blockBestLuminance.size());
 
     for (std::size_t chartIndex = 0; chartIndex < packed.rad.charts.size(); ++chartIndex) {
         const LightmapChart& chart = packed.rad.charts[chartIndex];
@@ -1670,6 +1761,7 @@ RadiosityBakeResult bakeRadiosity(
         if (material.asset.sky) {
             continue;
         }
+        const bool debugThis = !debugFaceId.empty() && chart.faceId == debugFaceId;
         const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
         const float widthMeters = std::max(basis.uMax - basis.uMin, 1e-4f);
         const float heightMeters = std::max(basis.vMax - basis.vMin, 1e-4f);
@@ -1684,6 +1776,98 @@ RadiosityBakeResult bakeRadiosity(
         if (!material.hasEmissionImage) {
             gridWidth = 1;
             gridHeight = 1;
+        }
+
+        const FaceBasis ownBasis = makeFaceBasis(face);
+        const Vector3& ownUAxis = ownBasis.uAxis;
+        const Vector3& ownVAxis = ownBasis.vAxis;
+
+        if (material.hasEmissionImage) {
+            // emissionAt() stretch-fits the mask to this face's own UV bounds (ownBasis),
+            // always spanning its full 0..1 range regardless of face size. The collection
+            // grid below is enumerated over `basis`, which for a merged lightmap chart can
+            // span more than one face's own UV footprint — so a face that only occupies a
+            // fraction of the chart's basis extent needs proportionally more grid samples to
+            // resolve one mask texel's worth of detail. Scale the mask's native resolution by
+            // how much wider/taller the chart basis is than this face's own basis (own and
+            // chart axes point the same way for merged members, so extents compare directly).
+            constexpr int kEmissionMaskGridMaxSize = 128;
+            const float ownUSpan = std::max(ownBasis.uMax - ownBasis.uMin, 1e-4f);
+            const float ownVSpan = std::max(ownBasis.vMax - ownBasis.vMin, 1e-4f);
+            const float chartUSpan = std::max(basis.uMax - basis.uMin, 1e-4f);
+            const float chartVSpan = std::max(basis.vMax - basis.vMin, 1e-4f);
+            const float scaleU = std::max(chartUSpan / ownUSpan, 1.0f);
+            const float scaleV = std::max(chartVSpan / ownVSpan, 1.0f);
+            gridWidth = std::clamp(
+                static_cast<int>(std::ceil(static_cast<float>(material.emissionImage.width) * scaleU)),
+                1,
+                kEmissionMaskGridMaxSize);
+            gridHeight = std::clamp(
+                static_cast<int>(std::ceil(static_cast<float>(material.emissionImage.height) * scaleV)),
+                1,
+                kEmissionMaskGridMaxSize);
+        }
+
+        if (debugThis) {
+            const bool usesGroupBasis =
+                basis.uAxis.x != ownUAxis.x || basis.uAxis.y != ownUAxis.y
+                || basis.uAxis.z != ownUAxis.z || basis.vAxis.x != ownVAxis.x
+                || basis.vAxis.y != ownVAxis.y || basis.vAxis.z != ownVAxis.z;
+            TraceLog(
+                LOG_INFO,
+                "sloprad-debug: face=%s material=%s hasEmissionImage=%d chartUsesMergedGroupBasis=%d",
+                chart.faceId.c_str(),
+                face.material.c_str(),
+                material.hasEmissionImage ? 1 : 0,
+                usesGroupBasis ? 1 : 0);
+            TraceLog(
+                LOG_INFO,
+                "sloprad-debug:   uvLock=%d storedUAxis=(%.5f,%.5f,%.5f) storedVAxis=(%.5f,%.5f,%.5f) "
+                "uvShiftPx=(%.2f,%.2f) uvScale=(%.3f,%.3f)",
+                face.uvLock ? 1 : 0,
+                static_cast<double>(face.uvUAxis.x),
+                static_cast<double>(face.uvUAxis.y),
+                static_cast<double>(face.uvUAxis.z),
+                static_cast<double>(face.uvVAxis.x),
+                static_cast<double>(face.uvVAxis.y),
+                static_cast<double>(face.uvVAxis.z),
+                static_cast<double>(face.uvShiftPixels.x),
+                static_cast<double>(face.uvShiftPixels.y),
+                static_cast<double>(face.uvScale.x),
+                static_cast<double>(face.uvScale.y));
+            TraceLog(
+                LOG_INFO,
+                "sloprad-debug:   faceUvAxes()-derived uAxis=(%.5f,%.5f,%.5f) vAxis=(%.5f,%.5f,%.5f)",
+                static_cast<double>(ownUAxis.x),
+                static_cast<double>(ownUAxis.y),
+                static_cast<double>(ownUAxis.z),
+                static_cast<double>(ownVAxis.x),
+                static_cast<double>(ownVAxis.y),
+                static_cast<double>(ownVAxis.z));
+            TraceLog(
+                LOG_INFO,
+                "sloprad-debug:   grid-basis uAxis=(%.5f,%.5f,%.5f) vAxis=(%.5f,%.5f,%.5f) "
+                "uMin=%.3f uMax=%.3f vMin=%.3f vMax=%.3f grid=%dx%d",
+                static_cast<double>(basis.uAxis.x),
+                static_cast<double>(basis.uAxis.y),
+                static_cast<double>(basis.uAxis.z),
+                static_cast<double>(basis.vAxis.x),
+                static_cast<double>(basis.vAxis.y),
+                static_cast<double>(basis.vAxis.z),
+                static_cast<double>(basis.uMin),
+                static_cast<double>(basis.uMax),
+                static_cast<double>(basis.vMin),
+                static_cast<double>(basis.vMax),
+                gridWidth,
+                gridHeight);
+            TraceLog(
+                LOG_INFO,
+                "sloprad-debug:   pixelsPerMeter=%.2f emissionImage=%dx%d emissionPower=%.2f",
+                static_cast<double>(material.asset.pixelsPerMeter),
+                material.hasEmissionImage ? material.emissionImage.width : 0,
+                material.hasEmissionImage ? material.emissionImage.height : 0,
+                static_cast<double>(material.asset.emissionPower));
+            std::fflush(stdout);
         }
 
         EmissiveFace emissiveFace;
@@ -1702,6 +1886,12 @@ RadiosityBakeResult bakeRadiosity(
         emissiveFace.gridHeight = gridHeight;
         emissiveFace.gridOffset = static_cast<int>(emissionGridBuffer.size());
 
+        const bool buildDirectSamples = material.hasEmissionImage;
+        if (buildDirectSamples) {
+            std::fill(blockBestLuminance.begin(), blockBestLuminance.end(), 0.0f);
+            std::fill(blockBestSample.begin(), blockBestSample.end(), EmitterDirectSample{});
+        }
+
         Vector3 peakRadiance{};
         float peakLuminance = 0.0f;
         bool anyEmission = false;
@@ -1714,7 +1904,8 @@ RadiosityBakeResult bakeRadiosity(
                 const float u = basis.uMin + (basis.uMax - basis.uMin) * fu;
                 const float v = basis.vMin + (basis.vMax - basis.vMin) * fv;
                 Vector3 radiance{};
-                if (pointInFacePolygon(face, basis, u, v)) {
+                const bool inside = pointInFacePolygon(face, basis, u, v);
+                if (inside) {
                     const Vector3 pos = planePointFromUv(
                         basis.uAxis,
                         basis.vAxis,
@@ -1724,6 +1915,47 @@ RadiosityBakeResult bakeRadiosity(
                         basis.planeD);
                     const Color3 emit = emissionAt(face, material, pos);
                     radiance = {emit.r, emit.g, emit.b};
+                    if (debugThis) {
+                        Vector2 maskUv{0.0f, 0.0f};
+                        int pixelX = -1;
+                        int pixelY = -1;
+                        if (material.hasEmissionImage) {
+                            const float ownUSpan = std::max(ownBasis.uMax - ownBasis.uMin, 1e-4f);
+                            const float ownVSpan = std::max(ownBasis.vMax - ownBasis.vMin, 1e-4f);
+                            maskUv.x = std::clamp(
+                                (dot3(pos, ownUAxis) - ownBasis.uMin) / ownUSpan, 0.0f, 1.0f);
+                            maskUv.y = std::clamp(
+                                (dot3(pos, ownVAxis) - ownBasis.vMin) / ownVSpan, 0.0f, 1.0f);
+                            pixelX = std::clamp(
+                                static_cast<int>(maskUv.x * static_cast<float>(material.emissionImage.width)),
+                                0,
+                                material.emissionImage.width - 1);
+                            pixelY = std::clamp(
+                                static_cast<int>(maskUv.y * static_cast<float>(material.emissionImage.height)),
+                                0,
+                                material.emissionImage.height - 1);
+                        }
+                        TraceLog(
+                            LOG_INFO,
+                            "sloprad-debug:   cell(%d,%d) basisUV=(%.3f,%.3f) world=(%.3f,%.3f,%.3f) "
+                            "maskUV=(%.4f,%.4f) maskPixel=(%d,%d) rgb=(%.4f,%.4f,%.4f) lum=%.5f pass=%d",
+                            gx,
+                            gy,
+                            static_cast<double>(u),
+                            static_cast<double>(v),
+                            static_cast<double>(pos.x),
+                            static_cast<double>(pos.y),
+                            static_cast<double>(pos.z),
+                            static_cast<double>(maskUv.x),
+                            static_cast<double>(maskUv.y),
+                            pixelX,
+                            pixelY,
+                            static_cast<double>(radiance.x),
+                            static_cast<double>(radiance.y),
+                            static_cast<double>(radiance.z),
+                            static_cast<double>(emitterLuminance(radiance)),
+                            passesCastGate(radiance) ? 1 : 0);
+                    }
                     if (passesCastGate(radiance)) {
                         anyEmission = true;
                         const float lum = emitterLuminance(radiance);
@@ -1731,13 +1963,55 @@ RadiosityBakeResult bakeRadiosity(
                             peakLuminance = lum;
                             peakRadiance = radiance;
                         }
+                        if (buildDirectSamples) {
+                            const int sx = std::clamp(
+                                static_cast<int>(fu * static_cast<float>(directSampleAxisCount)),
+                                0,
+                                directSampleAxisCount - 1);
+                            const int sy = std::clamp(
+                                static_cast<int>(fv * static_cast<float>(directSampleAxisCount)),
+                                0,
+                                directSampleAxisCount - 1);
+                            const std::size_t blockIndex =
+                                static_cast<std::size_t>(sy) * static_cast<std::size_t>(directSampleAxisCount)
+                                + static_cast<std::size_t>(sx);
+                            if (lum > blockBestLuminance[blockIndex]) {
+                                blockBestLuminance[blockIndex] = lum;
+                                blockBestSample[blockIndex] = EmitterDirectSample{u, v, radiance};
+                            }
+                        }
                     }
+                } else if (debugThis) {
+                    TraceLog(
+                        LOG_INFO,
+                        "sloprad-debug:   cell(%d,%d) basisUV=(%.3f,%.3f) OUTSIDE polygon",
+                        gx,
+                        gy,
+                        static_cast<double>(u),
+                        static_cast<double>(v));
                 }
                 emissionGridBuffer.push_back(radiance);
                 ++gridCellCount;
             }
         }
         if (!anyEmission) {
+            if (material.hasEmissionImage) {
+                TraceLog(
+                    LOG_WARNING,
+                    "sloprad: face '%s' (material '%s') has an emissive mask but no grid cell "
+                    "passed the cast-luminance gate (grid=%dx%d, uv u[%.3f,%.3f] v[%.3f,%.3f]) - "
+                    "this face will emit no light; check uv-shift/uv-scale alignment against the "
+                    "mask, or re-run with SLOPRAD_DEBUG_FACE=%s for a full per-sample trace",
+                    chart.faceId.c_str(),
+                    face.material.c_str(),
+                    gridWidth,
+                    gridHeight,
+                    static_cast<double>(basis.uMin),
+                    static_cast<double>(basis.uMax),
+                    static_cast<double>(basis.vMin),
+                    static_cast<double>(basis.vMax),
+                    chart.faceId.c_str());
+            }
             emissionGridBuffer.resize(static_cast<std::size_t>(emissiveFace.gridOffset));
             gridCellCount -= gridWidth * gridHeight;
             if ((chartIndex + 1) % 32 == 0 || chartIndex + 1 == packed.rad.charts.size()) {
@@ -1747,6 +2021,11 @@ RadiosityBakeResult bakeRadiosity(
         }
 
         emissiveFace.peakRadiance = peakRadiance;
+        if (buildDirectSamples) {
+            emissiveFace.directSampleOffset = static_cast<int>(directSampleBuffer.size());
+            directSampleBuffer.insert(
+                directSampleBuffer.end(), blockBestSample.begin(), blockBestSample.end());
+        }
         emissiveFace.interiorLeaf = face.interiorLeaf;
         if (emissiveFace.interiorLeaf < 0 && tree != nullptr) {
             const float centerU = 0.5f * (basis.uMin + basis.uMax);
@@ -1907,6 +2186,7 @@ RadiosityBakeResult bakeRadiosity(
         faces,
         emissiveFaces,
         emissionGridBuffer,
+        directSampleBuffer,
         lights,
         lightLeaves,
         sceneBvh,

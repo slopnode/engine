@@ -31,6 +31,17 @@ struct EmissiveFace {
     int gridWidth = 0;
     int gridHeight = 0;
     int gridOffset = 0;
+    /** Base index into a parallel EmitterDirectSample buffer, sized emitterDirectSamples^2;
+     *  -1 when not built (solid-color emitters fall back to the blind fu/fv grid). */
+    int directSampleOffset = -1;
+};
+
+/** One stratified direct-light sample, precomputed once per emissive face from the fine
+ *  emission grid so the gather pass finds real content even when it's a thin mask feature. */
+struct EmitterDirectSample {
+    float u = 0.0f;
+    float v = 0.0f;
+    Vector3 radiance{};
 };
 
 float emitterLuminance(Vector3 radiance);

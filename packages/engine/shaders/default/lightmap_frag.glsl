@@ -233,6 +233,21 @@ vec3 tonemapDisplay(vec3 linear)
     return linear / (1.0 + max(linear, vec3(0.0)));
 }
 
+// Doom-style "fullbright" override: wherever the material's emission mask is lit, ignore
+// computed lighting entirely and show the raw (already display-space, already tonemapped)
+// albedo color instead. Must run AFTER tonemapDisplay(), not before - tonemapDisplay is a
+// compressive curve (linear/(1+linear)), so mixing in raw albedo pre-tonemap would still get
+// compressed and read dimmer than authored, not "full brightness". Opt-in via colSpecular.a,
+// set from MaterialAsset::fullbright (see material_loader.cpp) - default off, so materials
+// that only use emission for bake-time light emission are unaffected.
+vec3 applyFullbrightMask(vec3 displayColor, vec3 albedo, float emitMask)
+{
+    if (colSpecular.a > 0.5) {
+        return mix(displayColor, albedo, clamp(emitMask, 0.0, 1.0));
+    }
+    return displayColor;
+}
+
 void main()
 {
     vec4 tex = solidLit != 0 ? vec4(1.0) : texture(texture0, fragTexCoord) * colDiffuse;
@@ -240,19 +255,20 @@ void main()
     float albedoA = tex.a;
     vec3 dynamic = evalDynamicLights(fragPosition, normalize(fragNormal));
     vec3 emission = vec3(0.0);
+    float emitMask = 0.0;
     if (solidLit == 0 && useLightmap != 0) {
         vec3 emitMap = texture(texture5, fragTexCoord).rgb;
-        float emitMask = dot(emitMap, vec3(0.2126, 0.7152, 0.0722));
+        emitMask = dot(emitMap, vec3(0.2126, 0.7152, 0.0722));
         float albedoLuma = dot(albedoRgb, vec3(0.2126, 0.7152, 0.0722));
         emission = colSpecular.rgb * emitMask * albedoLuma;
     }
     if (useLightmap != 0 && lightmapEncoding != 0) {
         vec3 irradiance = sampleBakedIrradiance(fragTexCoord2);
         vec3 litLinear = albedoRgb * (irradiance + dynamic) + emission;
-        finalColor = vec4(tonemapDisplay(litLinear), albedoA);
+        finalColor = vec4(applyFullbrightMask(tonemapDisplay(litLinear), albedoRgb, emitMask), albedoA);
         return;
     }
     vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;
     vec3 litLinear = albedoRgb * (baked + dynamic) + emission;
-    finalColor = vec4(tonemapDisplay(litLinear), albedoA);
+    finalColor = vec4(applyFullbrightMask(tonemapDisplay(litLinear), albedoRgb, emitMask), albedoA);
 }
