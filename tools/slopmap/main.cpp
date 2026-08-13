@@ -1809,8 +1809,6 @@ int main(int argc, char* argv[]) {
                             editor.fill == slopmap::PreviewFill::Textures)) {
                         editor.fill = slopmap::PreviewFill::Textures;
                     }
-                    ImGui::Separator();
-                    ImGui::TextDisabled("VIS / RAD");
                     if (menuItemWithIcon(
                             assets,
                             kIcons,
@@ -1818,13 +1816,10 @@ int main(int argc, char* argv[]) {
                             "Unlit",
                             nullptr,
                             editor.fill == slopmap::PreviewFill::Unlit)) {
-                        if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
-                            editor.fill = slopmap::PreviewFill::Unlit;
-                        } else {
-                            editor.statusMessage = "No VIS; run VIS (falling back to Textures)";
-                            editor.fill = slopmap::PreviewFill::Textures;
-                        }
+                        editor.fill = slopmap::PreviewFill::Unlit;
                     }
+                    ImGui::Separator();
+                    ImGui::TextDisabled("VIS / RAD");
                     if (menuItemWithIcon(
                             assets,
                             kIcons,
@@ -2144,13 +2139,7 @@ int main(int argc, char* argv[]) {
                         editor.fill = slopmap::PreviewFill::Textures;
                         break;
                     case slopmap::PreviewFill::Textures:
-                        if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
-                            editor.fill = slopmap::PreviewFill::Unlit;
-                        } else if (editor.preview.litValid || editor.reloadLitBake(assets)) {
-                            editor.fill = slopmap::PreviewFill::Lit;
-                        } else {
-                            editor.fill = slopmap::PreviewFill::Wireframe;
-                        }
+                        editor.fill = slopmap::PreviewFill::Unlit;
                         break;
                     case slopmap::PreviewFill::Unlit:
                         if (editor.preview.litValid || editor.reloadLitBake(assets)) {
@@ -2215,9 +2204,9 @@ int main(int argc, char* argv[]) {
 
         if (editor.doc().brushes.size() != brushCountBefore ||
             editor.doc().instances.size() != instanceCountBefore ||
-            editor.doc().dirty != dirtyBefore || selectTool.active() || wasSelectTransform ||
-            createTool.active() != createWasActive || punchTool.active() != punchWasActive ||
-            clipTool.active() != clipWasActive) {
+            editor.doc().dirty != dirtyBefore || editor.previewDirty || selectTool.active() ||
+            wasSelectTransform || createTool.active() != createWasActive ||
+            punchTool.active() != punchWasActive || clipTool.active() != clipWasActive) {
             previewNeedsRebuild = true;
         }
         if (previewNeedsRebuild &&
@@ -2470,8 +2459,6 @@ int main(int argc, char* argv[]) {
                                 editor.fill == slopmap::PreviewFill::Textures)) {
                             editor.fill = slopmap::PreviewFill::Textures;
                         }
-                        ImGui::Separator();
-                        ImGui::TextDisabled("VIS / RAD");
                         if (menuItemWithIcon(
                                 assets,
                                 kToolbarIcons,
@@ -2479,14 +2466,10 @@ int main(int argc, char* argv[]) {
                                 "Unlit",
                                 nullptr,
                                 editor.fill == slopmap::PreviewFill::Unlit)) {
-                            if (editor.preview.visValid || editor.reloadVisPreview(assets)) {
-                                editor.fill = slopmap::PreviewFill::Unlit;
-                            } else {
-                                editor.statusMessage =
-                                    "No VIS; run VIS (falling back to Textures)";
-                                editor.fill = slopmap::PreviewFill::Textures;
-                            }
+                            editor.fill = slopmap::PreviewFill::Unlit;
                         }
+                        ImGui::Separator();
+                        ImGui::TextDisabled("VIS / RAD");
                         if (menuItemWithIcon(
                                 assets,
                                 kToolbarIcons,

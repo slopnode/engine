@@ -132,6 +132,7 @@ struct Editor {
     std::vector<slopengine::Brush> expandedInstanceBrushes;
     std::vector<int> expandedInstanceOwners;
     CompileDirty compileDirty{};
+    bool previewDirty = false;
 
     struct ToolMouseCapture {
         bool active = false;

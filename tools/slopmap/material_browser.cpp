@@ -705,6 +705,18 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
         ImGui::EndTable();
     };
 
+    const char* scopeLabel = "brush";
+    if (editor.doc().selectionMode == SelectionMode::Face) {
+        scopeLabel = "face";
+    } else if (editor.doc().selectionMode == SelectionMode::Entity) {
+        scopeLabel = "thing";
+    }
+    const bool hasApplicableSelection =
+        (editor.doc().selectionMode == SelectionMode::Face && !editor.doc().selectedFaces.empty()) ||
+        (editor.doc().selectionMode == SelectionMode::Brush && !editor.doc().selectedBrushes.empty());
+    const bool canUseSelectionAsActive = selectionMaterial != "none" &&
+        selectionMaterial != "mixed" && selectionMaterial != "(empty)";
+
     drawMaterialHeader("##active_mat", activeMaterial, [&] {
         ImGui::TextUnformatted("Active");
         ImGui::Spacing();
@@ -724,18 +736,22 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
                     editor.statusMessage = "Active material: " + path;
                 });
         }
+        ImGui::BeginDisabled(!hasApplicableSelection);
+        if (slopengine::buttonWithIcon(
+                assets,
+                slopengine::kDefaultIconSet,
+                "accept",
+                "Apply to Selection",
+                ImVec2(-1.0f, 0.0f))) {
+            applyMaterialToSelection(editor, activeMaterial);
+        }
+        ImGui::EndDisabled();
+        if (hasApplicableSelection && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("Apply the active material to the selected %s(s).", scopeLabel);
+        }
     });
 
     ImGui::Separator();
-
-    const char* scopeLabel = "brush";
-    if (editor.doc().selectionMode == SelectionMode::Face) {
-        scopeLabel = "face";
-    } else if (editor.doc().selectionMode == SelectionMode::Entity) {
-        scopeLabel = "thing";
-    }
-    const bool canUseSelectionAsActive = selectionMaterial != "none" &&
-        selectionMaterial != "mixed" && selectionMaterial != "(empty)";
 
     drawMaterialHeader("##selection_mat", selectionMaterial, [&] {
         ImGui::Text("Selection (%s)", scopeLabel);

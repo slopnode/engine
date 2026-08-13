@@ -82,8 +82,8 @@ Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false) {
     const float nLen = Vector3Length(normal);
     Vector3 n = nLen > 1e-6f ? Vector3Scale(normal, 1.0f / nLen) : Vector3{0.0f, 1.0f, 0.0f};
     float ndotl = Vector3DotProduct(n, lightDir);
-    if (ndotl < 0.2f) {
-        ndotl = 0.2f;
+    if (ndotl < 0.55f) {
+        ndotl = 0.55f;
     }
     if (ndotl > 1.0f) {
         ndotl = 1.0f;
@@ -430,8 +430,8 @@ void MapPreview::clearLit() {
     }
     useLightmapLoc = -1;
     solidLitLoc = -1;
-    transparentMeshIndices.clear();
-    skyMeshIndices.clear();
+    litTransparentMeshIndices.clear();
+    litSkyMeshIndices.clear();
     if (skyShader.id != 0) {
         UnloadShader(skyShader);
         skyShader = {};
@@ -448,7 +448,8 @@ void MapPreview::clearVis() {
     }
     visModel = {};
     visValid = false;
-    transparentMeshIndices.clear();
+    visTransparentMeshIndices.clear();
+    visSkyMeshIndices.clear();
     if (!litValid) {
         pickFac = {};
     }
@@ -461,6 +462,8 @@ void MapPreview::clear() {
     model = {};
     valid = false;
     editFaceIds.clear();
+    modelTransparentMeshIndices.clear();
+    modelSkyMeshIndices.clear();
     clearVis();
     clearLit();
     clearMoverOverlay(moverOverlayModel, moverOverlayValid);
@@ -473,6 +476,8 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     model = {};
     valid = false;
     editFaceIds.clear();
+    modelTransparentMeshIndices.clear();
+    modelSkyMeshIndices.clear();
     if (brushes.empty()) {
         return;
     }
@@ -491,8 +496,8 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
 
-    collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, skyMeshIndices);
+    collectTransparentMeshIndices(compiled.asset, modelTransparentMeshIndices);
+    collectSkyMeshIndices(assets, compiled.asset, modelSkyMeshIndices);
     valid = model.meshCount > 0;
 }
 
@@ -534,8 +539,8 @@ bool MapPreview::reloadVisPreview(
         compiled.asset,
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
-    collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, skyMeshIndices);
+    collectTransparentMeshIndices(compiled.asset, visTransparentMeshIndices);
+    collectSkyMeshIndices(assets, compiled.asset, visSkyMeshIndices);
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
@@ -663,9 +668,9 @@ bool MapPreview::reloadBake(
             }
             litModel.materials[meshIndex].shader = lightmapShader;
         }
-        collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
-        collectSkyMeshIndices(assets, compiled.asset, skyMeshIndices);
-        for (int meshIndex : skyMeshIndices) {
+        collectTransparentMeshIndices(compiled.asset, litTransparentMeshIndices);
+        collectSkyMeshIndices(assets, compiled.asset, litSkyMeshIndices);
+        for (int meshIndex : litSkyMeshIndices) {
             if (meshIndex >= 0 && meshIndex < litModel.meshCount && skyShader.id != 0) {
                 litModel.materials[meshIndex].shader = skyShader;
             }
@@ -859,8 +864,8 @@ void MapPreview::draw(
                 SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
-            drawModelMeshesSplit(litModel, transparentMeshIndices, skyMeshIndices, false);
-            drawPreviewModelTextured(litModel, transparentMeshIndices, skyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(litModel, litTransparentMeshIndices, litSkyMeshIndices, false);
+            drawPreviewModelTextured(litModel, litTransparentMeshIndices, litSkyMeshIndices, eye, cameraForward);
             if (camera != nullptr && assets != nullptr && things != nullptr && skyShader.id != 0) {
                 const slopengine::SkyboxSettings* skySettings = nullptr;
                 slopengine::SkyboxSettings localSettings{};
@@ -871,7 +876,7 @@ void MapPreview::draw(
                         break;
                     }
                 }
-                if (skySettings != nullptr && !skyMeshIndices.empty()) {
+                if (skySettings != nullptr && !litSkyMeshIndices.empty()) {
                     slopengine::SkyboxShaderState& shaderState =
                         slopengine::ensureSkyboxShaders(*assets);
                     slopengine::applySkyShaderUniforms(
@@ -894,7 +899,7 @@ void MapPreview::draw(
                     if (matViewRotLoc >= 0) {
                         SetShaderValueMatrix(skyShader, matViewRotLoc, viewRot);
                     }
-                    for (int meshIndex : skyMeshIndices) {
+                    for (int meshIndex : litSkyMeshIndices) {
                         if (meshIndex < 0 || meshIndex >= litModel.meshCount) {
                             continue;
                         }
@@ -912,18 +917,21 @@ void MapPreview::draw(
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
-            drawModelMeshesSplit(visModel, transparentMeshIndices, skyMeshIndices, false);
-            drawPreviewModelTextured(visModel, transparentMeshIndices, skyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(visModel, visTransparentMeshIndices, visSkyMeshIndices, false);
+            drawPreviewModelTextured(visModel, visTransparentMeshIndices, visSkyMeshIndices, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
-            break;
+        } else if (valid) {
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false);
+            drawPreviewModelTextured(model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward);
         }
-        [[fallthrough]];
+        break;
     case PreviewFill::Textures:
         if (valid) {
-            drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false, true);
-            drawPreviewModelTextured(model, transparentMeshIndices, skyMeshIndices, eye, cameraForward, true);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false, true);
+            drawPreviewModelTextured(
+                model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward, true);
         }
         break;
     case PreviewFill::Solid:
