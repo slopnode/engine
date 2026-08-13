@@ -139,6 +139,10 @@ float luminance(const Color3& c) {
     return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
 }
 
+float axisScaleMagnitude(float scale) {
+    return std::fabs(scale) > 1e-8f ? std::fabs(scale) : 1.0f;
+}
+
 Color3 sampleImageUv(const Image& image, float u, float v) {
     if (image.data == nullptr || image.width <= 0 || image.height <= 0) {
         return {1.0f, 1.0f, 1.0f};
@@ -302,6 +306,20 @@ std::uint32_t hashLuxelSeed(std::int32_t faceIndex, int x, int y) {
     return h;
 }
 
+Vector2 emissionMaskUv(
+    const LightmapFace& face,
+    const MaterialBakeInfo& material,
+    Vector3 worldPos) {
+    Vector3 uAxis{};
+    Vector3 vAxis{};
+    faceUvAxes(face.uvLock, face.normal, face.uvUAxis, face.uvVAxis, uAxis, vAxis);
+    MaterialUvInfo uvInfo{};
+    uvInfo.pixelsPerMeter = material.asset.pixelsPerMeter;
+    uvInfo.textureWidth = static_cast<float>(material.emissionImage.width);
+    uvInfo.textureHeight = static_cast<float>(material.emissionImage.height);
+    return worldPlanarUv(worldPos, uAxis, vAxis, face.uvShiftPixels, face.uvScale, uvInfo);
+}
+
 Color3 emissionAt(
     const LightmapFace& face,
     const MaterialBakeInfo& material,
@@ -314,20 +332,8 @@ Color3 emissionAt(
     emitColor = emitColor * material.asset.emissionPower;
 
     if (material.hasEmissionImage) {
-        // Stretch-fit the mask to this face's own UV bounds rather than reusing the
-        // albedo's world-tiling worldPlanarUv: a mask marks "this part of me is a light
-        // fixture", and that region needs to appear on every face wearing this material,
-        // not just the ones whose world-position-tiled texture window happens to land on
-        // it. Uses the face's own (unmerged) basis so this matches what emissionAt() would
-        // sample regardless of any lightmap-chart group merging elsewhere in the bake.
-        const FaceBasis ownBasis = makeFaceBasis(face);
-        const float uSpan = std::max(ownBasis.uMax - ownBasis.uMin, 1e-4f);
-        const float vSpan = std::max(ownBasis.vMax - ownBasis.vMin, 1e-4f);
-        const float metersU = dot3(worldPos, ownBasis.uAxis);
-        const float metersV = dot3(worldPos, ownBasis.vAxis);
-        const float u = std::clamp((metersU - ownBasis.uMin) / uSpan, 0.0f, 1.0f);
-        const float v = std::clamp((metersV - ownBasis.vMin) / vSpan, 0.0f, 1.0f);
-        const Color3 texel = sampleImageUv(material.emissionImage, u, v);
+        const Vector2 uv = emissionMaskUv(face, material, worldPos);
+        const Color3 texel = sampleImageUv(material.emissionImage, uv.x, uv.y);
         if (luminance(texel) < 1.0f / 255.0f) {
             return {};
         }
@@ -501,10 +507,6 @@ bool pointInAabb(Vector3 p, Vector3 mins, Vector3 maxs) {
         && p.z <= maxs.z;
 }
 
-// With stretch-fit mask UVs (see emissionAt()), a face's own vertices always land exactly on
-// the mask's bounding-box corners, which are black for any mask whose lit region doesn't
-// touch the edge. A 2-point vertex check would then deterministically miss every such face
-// instead of just sometimes missing it, so this probes a small interior grid instead.
 bool faceHasAnyEmission(const LightmapFace& face, const MaterialBakeInfo& material) {
     if (face.vertices.empty()) {
         return false;
@@ -1783,29 +1785,13 @@ RadiosityBakeResult bakeRadiosity(
         const Vector3& ownVAxis = ownBasis.vAxis;
 
         if (material.hasEmissionImage) {
-            // emissionAt() stretch-fits the mask to this face's own UV bounds (ownBasis),
-            // always spanning its full 0..1 range regardless of face size. The collection
-            // grid below is enumerated over `basis`, which for a merged lightmap chart can
-            // span more than one face's own UV footprint — so a face that only occupies a
-            // fraction of the chart's basis extent needs proportionally more grid samples to
-            // resolve one mask texel's worth of detail. Scale the mask's native resolution by
-            // how much wider/taller the chart basis is than this face's own basis (own and
-            // chart axes point the same way for merged members, so extents compare directly).
             constexpr int kEmissionMaskGridMaxSize = 128;
-            const float ownUSpan = std::max(ownBasis.uMax - ownBasis.uMin, 1e-4f);
-            const float ownVSpan = std::max(ownBasis.vMax - ownBasis.vMin, 1e-4f);
-            const float chartUSpan = std::max(basis.uMax - basis.uMin, 1e-4f);
-            const float chartVSpan = std::max(basis.vMax - basis.vMin, 1e-4f);
-            const float scaleU = std::max(chartUSpan / ownUSpan, 1.0f);
-            const float scaleV = std::max(chartVSpan / ownVSpan, 1.0f);
+            const float ppmU = material.asset.pixelsPerMeter * axisScaleMagnitude(face.uvScale.x);
+            const float ppmV = material.asset.pixelsPerMeter * axisScaleMagnitude(face.uvScale.y);
             gridWidth = std::clamp(
-                static_cast<int>(std::ceil(static_cast<float>(material.emissionImage.width) * scaleU)),
-                1,
-                kEmissionMaskGridMaxSize);
+                static_cast<int>(std::ceil(widthMeters * ppmU)), 1, kEmissionMaskGridMaxSize);
             gridHeight = std::clamp(
-                static_cast<int>(std::ceil(static_cast<float>(material.emissionImage.height) * scaleV)),
-                1,
-                kEmissionMaskGridMaxSize);
+                static_cast<int>(std::ceil(heightMeters * ppmV)), 1, kEmissionMaskGridMaxSize);
         }
 
         if (debugThis) {
@@ -1920,12 +1906,9 @@ RadiosityBakeResult bakeRadiosity(
                         int pixelX = -1;
                         int pixelY = -1;
                         if (material.hasEmissionImage) {
-                            const float ownUSpan = std::max(ownBasis.uMax - ownBasis.uMin, 1e-4f);
-                            const float ownVSpan = std::max(ownBasis.vMax - ownBasis.vMin, 1e-4f);
-                            maskUv.x = std::clamp(
-                                (dot3(pos, ownUAxis) - ownBasis.uMin) / ownUSpan, 0.0f, 1.0f);
-                            maskUv.y = std::clamp(
-                                (dot3(pos, ownVAxis) - ownBasis.vMin) / ownVSpan, 0.0f, 1.0f);
+                            const Vector2 rawUv = emissionMaskUv(face, material, pos);
+                            maskUv.x = rawUv.x - std::floor(rawUv.x);
+                            maskUv.y = rawUv.y - std::floor(rawUv.y);
                             pixelX = std::clamp(
                                 static_cast<int>(maskUv.x * static_cast<float>(material.emissionImage.width)),
                                 0,
