@@ -31,9 +31,14 @@ struct EmissiveFace {
     int gridWidth = 0;
     int gridHeight = 0;
     int gridOffset = 0;
-    /** Base index into a parallel EmitterDirectSample buffer, sized emitterDirectSamples^2;
+    /** Base index into a parallel EmitterDirectSample buffer, sized directSampleAxis^2;
      *  -1 when not built (solid-color emitters fall back to the blind fu/fv grid). */
     int directSampleOffset = -1;
+    /** Direct-sample grid axis used to build/index this face's EmitterDirectSample block, i.e.
+     *  the sqrt of the buffer sized above; 0 means "use the global RadiositySettings default"
+     *  (set only for MaterialAsset::preciseEmission faces, which get a per-face density). */
+    int directSampleAxis = 0;
+    int directSampleCount = 0;
 };
 
 /** One stratified direct-light sample, precomputed once per emissive face from the fine

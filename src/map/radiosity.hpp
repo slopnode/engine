@@ -26,6 +26,15 @@ struct RadiositySettings {
     bool gpuSafeMode = false;
     /** N×N stratified UV samples per receiver–emissive-face pair in direct lighting. */
     int emitterDirectSamples = 4;
+    /** For materials with MaterialAsset::preciseEmission: direct-sample axis density per meter
+     *  of face length (replaces emitterDirectSamples for that face, scaled to length so long
+     *  faces keep separate mask features distinct instead of averaging them into one block). */
+    float precisionDirectSamplesPerMeter = 2.0f;
+    /** Upper bound on the scaled axis count from @ref precisionDirectSamplesPerMeter, so a very
+     *  long precise-emission face can't blow up bake time or the direct-sample buffer size. */
+    int precisionMaxDirectSamples = 16;
+    int exactEmissionGridMaxSize = 256;
+    int exactEmissionMaxSamples = 8192;
     /** World-space resolution for pre-baked per-face emission cast grids. */
     float emitterGridLuxelsPerMeter = 8.0f;
     /** Maximum emission grid dimension per emissive face axis. */

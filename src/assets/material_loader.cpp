@@ -239,6 +239,32 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.emissionRange = range;
         return true;
     }
+    if (tag == "precise-emission") {
+        if (form.list.size() == 1) {
+            asset.preciseEmission = true;
+            return true;
+        }
+        float flag = 1.0f;
+        if (!readNumberField(form, 1, &flag)) {
+            error = {"(precise-emission) or (precise-emission 0|1)", form.line, form.column};
+            return false;
+        }
+        asset.preciseEmission = flag != 0.0f;
+        return true;
+    }
+    if (tag == "exact-emission") {
+        if (form.list.size() == 1) {
+            asset.exactEmission = true;
+            return true;
+        }
+        float flag = 1.0f;
+        if (!readNumberField(form, 1, &flag)) {
+            error = {"(exact-emission) or (exact-emission 0|1)", form.line, form.column};
+            return false;
+        }
+        asset.exactEmission = flag != 0.0f;
+        return true;
+    }
     if (tag == "fullbright") {
         if (form.list.size() == 1) {
             asset.fullbright = true;

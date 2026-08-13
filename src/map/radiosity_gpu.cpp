@@ -108,11 +108,11 @@ struct GpuEmissiveFaceSSBO {
     float aabbMinX = 0.0f;
     float aabbMinY = 0.0f;
     float aabbMinZ = 0.0f;
-    float pad3 = 0.0f;
+    std::int32_t directSampleCount = 0;
     float aabbMaxX = 0.0f;
     float aabbMaxY = 0.0f;
     float aabbMaxZ = 0.0f;
-    float pad4 = 0.0f;
+    std::int32_t directSampleAxis = 0;
 };
 
 struct GpuGridSampleSSBO {
@@ -863,6 +863,8 @@ bool accumulateDirectLightingGpu(
         dst.aabbMaxX = src.aabbMaxs.x;
         dst.aabbMaxY = src.aabbMaxs.y;
         dst.aabbMaxZ = src.aabbMaxs.z;
+        dst.directSampleAxis = src.directSampleAxis;
+        dst.directSampleCount = src.directSampleCount;
     }
 
     std::vector<GpuGridSampleSSBO> gpuGridSamples(std::max<std::size_t>(emissionGrid.size(), 1));

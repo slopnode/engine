@@ -660,19 +660,32 @@ void accumulateEmissiveFaceContribution(
     basis.vMin = face.vMin;
     basis.vMax = face.vMax;
 
-    const int sampleCount = std::max(1, directSamples);
+    const int sampleCount =
+        std::max(1, face.directSampleAxis > 0 ? face.directSampleAxis : directSamples);
     const std::size_t neededSamples =
         static_cast<std::size_t>(sampleCount) * static_cast<std::size_t>(sampleCount);
     const bool useContentAwareSamples =
         face.directSampleOffset >= 0
         && directSampleData.size() >= static_cast<std::size_t>(face.directSampleOffset) + neededSamples;
+    const bool useExactSamples = face.directSampleCount > 0;
+    const int flatCount = useExactSamples ? face.directSampleCount : sampleCount * sampleCount;
 
     // Precomputed samples are built once per face (in bakeRadiosity()'s collection loop) from
     // the fine emission grid, so a block is only ever empty if the mask really has nothing lit
     // there - they don't need the blind fu/fv grid's polygon test. This is what lets a thin
     // mask feature (a light strip a few texels tall in a much larger texture) still register:
     // the old fixed-fu/fv grid could straddle it entirely regardless of collection-grid detail.
-    auto sampleAt = [&](int sx, int sy, float& u, float& v, Vector3& radiance) -> bool {
+    auto sampleAt = [&](int flatIndex, float& u, float& v, Vector3& radiance) -> bool {
+        if (useExactSamples) {
+            const EmitterDirectSample& sample =
+                directSampleData[static_cast<std::size_t>(face.directSampleOffset + flatIndex)];
+            u = sample.u;
+            v = sample.v;
+            radiance = sample.radiance;
+            return passesCastGate(radiance);
+        }
+        const int sx = flatIndex % sampleCount;
+        const int sy = flatIndex / sampleCount;
         if (useContentAwareSamples) {
             const EmitterDirectSample& sample = directSampleData[static_cast<std::size_t>(
                 face.directSampleOffset + sy * sampleCount + sx)];
@@ -696,14 +709,12 @@ void accumulateEmissiveFaceContribution(
     };
 
     int validSamples = 0;
-    for (int sy = 0; sy < sampleCount; ++sy) {
-        for (int sx = 0; sx < sampleCount; ++sx) {
-            float u = 0.0f;
-            float v = 0.0f;
-            Vector3 radiance{};
-            if (sampleAt(sx, sy, u, v, radiance)) {
-                ++validSamples;
-            }
+    for (int i = 0; i < flatCount; ++i) {
+        float u = 0.0f;
+        float v = 0.0f;
+        Vector3 radiance{};
+        if (sampleAt(i, u, v, radiance)) {
+            ++validSamples;
         }
     }
     static const std::string debugGatherFaceId = []() {
@@ -720,7 +731,7 @@ void accumulateEmissiveFaceContribution(
                 "means this emitter contributes no light to any surface despite being a "
                 "registered emitter - see the collection-phase trace above for why)",
                 validSamples,
-                sampleCount * sampleCount,
+                flatCount,
                 faceGeom.id.c_str());
             std::fflush(stdout);
         }
@@ -735,73 +746,71 @@ void accumulateEmissiveFaceContribution(
     constexpr float kEmitterNormalOffset = 0.02f;
 
     Color3 accumulated{};
-    for (int sy = 0; sy < sampleCount; ++sy) {
-        for (int sx = 0; sx < sampleCount; ++sx) {
-            float u = 0.0f;
-            float v = 0.0f;
-            Vector3 radiance{};
-            if (!sampleAt(sx, sy, u, v, radiance)) {
-                continue;
-            }
+    for (int i = 0; i < flatCount; ++i) {
+        float u = 0.0f;
+        float v = 0.0f;
+        Vector3 radiance{};
+        if (!sampleAt(i, u, v, radiance)) {
+            continue;
+        }
 
-            const Vector3 samplePos = add3(
-                planePointFromUv(face.uAxis, face.vAxis, face.normal, u, v, face.planeD),
-                scale3(face.normal, kEmitterNormalOffset));
-            Vector3 delta = sub3(samplePos, luxel.position);
-            const float sampleDist2Raw = dot3(delta, delta);
-            if (sampleDist2Raw < 1e-6f) {
-                continue;
-            }
-            const float sampleDist = std::sqrt(sampleDist2Raw);
-            if (face.castRange > 0.0f && sampleDist > face.castRange) {
-                continue;
-            }
-            const Vector3 toLight = scale3(delta, 1.0f / sampleDist);
-            const float dist2 = std::max(sampleDist2Raw, minDist2);
-            const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
-            const float nDotV = wrapCosine(-dot3(face.normal, toLight), wrap);
-            const bool formOk = nDotL > 0.0f && nDotV > 0.0f;
-            float align = 0.0f;
-            bool fillOk = false;
-            if (coplanarFill > 0.0f) {
-                align = dot3(luxel.normal, face.normal);
-                fillOk = align > kCoplanarAlignMin;
-            }
-            if (!formOk && !fillOk) {
-                continue;
-            }
-            Vector3 segmentTint{1.0f, 1.0f, 1.0f};
-            if (segmentOccludedWithAlphaOcclusion(
-                    occlusionBvh,
-                    luxel.position,
-                    samplePos,
-                    luxel.faceIndex,
-                    face.faceIndex,
-                    faces,
-                    materialCache,
-                    faceTransparent,
-                    &segmentTint)) {
-                continue;
-            }
+        const Vector3 samplePos = add3(
+            planePointFromUv(face.uAxis, face.vAxis, face.normal, u, v, face.planeD),
+            scale3(face.normal, kEmitterNormalOffset));
+        Vector3 delta = sub3(samplePos, luxel.position);
+        const float sampleDist2Raw = dot3(delta, delta);
+        if (sampleDist2Raw < 1e-6f) {
+            continue;
+        }
+        const float sampleDist = std::sqrt(sampleDist2Raw);
+        if (face.castRange > 0.0f && sampleDist > face.castRange) {
+            continue;
+        }
+        const Vector3 toLight = scale3(delta, 1.0f / sampleDist);
+        const float dist2 = std::max(sampleDist2Raw, minDist2);
+        const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
+        const float nDotV = wrapCosine(-dot3(face.normal, toLight), wrap);
+        const bool formOk = nDotL > 0.0f && nDotV > 0.0f;
+        float align = 0.0f;
+        bool fillOk = false;
+        if (coplanarFill > 0.0f) {
+            align = dot3(luxel.normal, face.normal);
+            fillOk = align > kCoplanarAlignMin;
+        }
+        if (!formOk && !fillOk) {
+            continue;
+        }
+        Vector3 segmentTint{1.0f, 1.0f, 1.0f};
+        if (segmentOccludedWithAlphaOcclusion(
+                occlusionBvh,
+                luxel.position,
+                samplePos,
+                luxel.faceIndex,
+                face.faceIndex,
+                faces,
+                materialCache,
+                faceTransparent,
+                &segmentTint)) {
+            continue;
+        }
 
-            if (formOk) {
-                const float form = nDotL * nDotV * sampleArea / (dist2 * PI);
-                const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                accumulated.r += radiance.x * form * atten * segmentTint.x;
-                accumulated.g += radiance.y * form * atten * segmentTint.y;
-                accumulated.b += radiance.z * form * atten * segmentTint.z;
-            }
-            if (fillOk) {
-                const float planeSep = std::fabs(dot3(delta, luxel.normal));
-                const float lateral2 = std::max(0.0f, sampleDist2Raw - planeSep * planeSep);
-                const float weight =
-                    align * std::exp(-planeSep / kCoplanarSoft) / (lateral2 + minDist2);
-                const float fill = sampleArea * coplanarFill * weight / (4.0f * PI);
-                const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                accumulated.r += radiance.x * fill * atten * segmentTint.x;
-                accumulated.g += radiance.y * fill * atten * segmentTint.y;
-                accumulated.b += radiance.z * fill * atten * segmentTint.z;
-            }
+        if (formOk) {
+            const float form = nDotL * nDotV * sampleArea / (dist2 * PI);
+            const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+            accumulated.r += radiance.x * form * atten * segmentTint.x;
+            accumulated.g += radiance.y * form * atten * segmentTint.y;
+            accumulated.b += radiance.z * form * atten * segmentTint.z;
+        }
+        if (fillOk) {
+            const float planeSep = std::fabs(dot3(delta, luxel.normal));
+            const float lateral2 = std::max(0.0f, sampleDist2Raw - planeSep * planeSep);
+            const float weight =
+                align * std::exp(-planeSep / kCoplanarSoft) / (lateral2 + minDist2);
+            const float fill = sampleArea * coplanarFill * weight / (4.0f * PI);
+            const float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+            accumulated.r += radiance.x * fill * atten * segmentTint.x;
+            accumulated.g += radiance.y * fill * atten * segmentTint.y;
+            accumulated.b += radiance.z * fill * atten * segmentTint.z;
         }
     }
     luxel.irradiance += accumulated;
@@ -1133,6 +1142,8 @@ bool accumulateDirectLighting(
             dst.castRange = src.castRange;
             dst.aabbMins = src.aabbMins;
             dst.aabbMaxs = src.aabbMaxs;
+            dst.directSampleAxis = src.directSampleAxis;
+            dst.directSampleCount = src.directSampleCount;
         }
         std::vector<RadGpuLight> gpuLights(lights.size());
         for (std::size_t i = 0; i < lights.size(); ++i) {
@@ -1747,11 +1758,13 @@ RadiosityBakeResult bakeRadiosity(
     const std::string debugFaceId = debugFaceIdEnv != nullptr ? debugFaceIdEnv : std::string();
 
     // Stratified best-per-block scratch for the direct-light gather's precomputed samples;
-    // reused per chart to avoid reallocating. See EmitterDirectSample.
-    const int directSampleAxisCount = std::max(1, settings.emitterDirectSamples);
-    std::vector<float> blockBestLuminance(
-        static_cast<std::size_t>(directSampleAxisCount) * static_cast<std::size_t>(directSampleAxisCount));
-    std::vector<EmitterDirectSample> blockBestSample(blockBestLuminance.size());
+    // resized per face below (MaterialAsset::preciseEmission faces get a larger, length-scaled
+    // axis so long faces don't average distinct mask features into one block). See
+    // EmitterDirectSample.
+    const int defaultDirectSampleAxisCount = std::max(1, settings.emitterDirectSamples);
+    std::vector<float> blockBestLuminance;
+    std::vector<EmitterDirectSample> blockBestSample;
+    std::vector<EmitterDirectSample> exactSamples;
 
     for (std::size_t chartIndex = 0; chartIndex < packed.rad.charts.size(); ++chartIndex) {
         const LightmapChart& chart = packed.rad.charts[chartIndex];
@@ -1764,6 +1777,7 @@ RadiosityBakeResult bakeRadiosity(
             continue;
         }
         const bool debugThis = !debugFaceId.empty() && chart.faceId == debugFaceId;
+        const bool exactMode = material.hasEmissionImage && material.asset.exactEmission;
         const FaceBasis& basis = bases[static_cast<std::size_t>(chart.faceIndex)];
         const float widthMeters = std::max(basis.uMax - basis.uMin, 1e-4f);
         const float heightMeters = std::max(basis.vMax - basis.vMin, 1e-4f);
@@ -1786,12 +1800,14 @@ RadiosityBakeResult bakeRadiosity(
 
         if (material.hasEmissionImage) {
             constexpr int kEmissionMaskGridMaxSize = 128;
+            const int gridMaxSize =
+                exactMode ? std::max(1, settings.exactEmissionGridMaxSize) : kEmissionMaskGridMaxSize;
             const float ppmU = material.asset.pixelsPerMeter * axisScaleMagnitude(face.uvScale.x);
             const float ppmV = material.asset.pixelsPerMeter * axisScaleMagnitude(face.uvScale.y);
             gridWidth = std::clamp(
-                static_cast<int>(std::ceil(widthMeters * ppmU)), 1, kEmissionMaskGridMaxSize);
+                static_cast<int>(std::ceil(widthMeters * ppmU)), 1, gridMaxSize);
             gridHeight = std::clamp(
-                static_cast<int>(std::ceil(heightMeters * ppmV)), 1, kEmissionMaskGridMaxSize);
+                static_cast<int>(std::ceil(heightMeters * ppmV)), 1, gridMaxSize);
         }
 
         if (debugThis) {
@@ -1873,9 +1889,40 @@ RadiosityBakeResult bakeRadiosity(
         emissiveFace.gridOffset = static_cast<int>(emissionGridBuffer.size());
 
         const bool buildDirectSamples = material.hasEmissionImage;
-        if (buildDirectSamples) {
-            std::fill(blockBestLuminance.begin(), blockBestLuminance.end(), 0.0f);
-            std::fill(blockBestSample.begin(), blockBestSample.end(), EmitterDirectSample{});
+        int directSampleAxisCount = defaultDirectSampleAxisCount;
+        if (buildDirectSamples && material.asset.preciseEmission) {
+            const float longestMeters = std::max(widthMeters, heightMeters);
+            directSampleAxisCount = std::clamp(
+                static_cast<int>(std::ceil(longestMeters * settings.precisionDirectSamplesPerMeter)),
+                defaultDirectSampleAxisCount,
+                std::max(1, settings.precisionMaxDirectSamples));
+            TraceLog(
+                LOG_INFO,
+                "sloprad: face '%s' (material '%s') precise-emission axis=%d (face=%.2fx%.2fm, "
+                "default axis=%d)",
+                chart.faceId.c_str(),
+                face.material.c_str(),
+                directSampleAxisCount,
+                static_cast<double>(widthMeters),
+                static_cast<double>(heightMeters),
+                defaultDirectSampleAxisCount);
+        }
+        emissiveFace.directSampleAxis = (buildDirectSamples && !exactMode) ? directSampleAxisCount : 0;
+        if (buildDirectSamples && exactMode) {
+            exactSamples.clear();
+            TraceLog(
+                LOG_INFO,
+                "sloprad: face '%s' (material '%s') exact-emission grid=%dx%d",
+                chart.faceId.c_str(),
+                face.material.c_str(),
+                gridWidth,
+                gridHeight);
+        } else if (buildDirectSamples) {
+            blockBestLuminance.assign(
+                static_cast<std::size_t>(directSampleAxisCount)
+                    * static_cast<std::size_t>(directSampleAxisCount),
+                0.0f);
+            blockBestSample.assign(blockBestLuminance.size(), EmitterDirectSample{});
         }
 
         Vector3 peakRadiance{};
@@ -1946,7 +1993,9 @@ RadiosityBakeResult bakeRadiosity(
                             peakLuminance = lum;
                             peakRadiance = radiance;
                         }
-                        if (buildDirectSamples) {
+                        if (buildDirectSamples && exactMode) {
+                            exactSamples.push_back(EmitterDirectSample{u, v, radiance});
+                        } else if (buildDirectSamples) {
                             const int sx = std::clamp(
                                 static_cast<int>(fu * static_cast<float>(directSampleAxisCount)),
                                 0,
@@ -2004,7 +2053,32 @@ RadiosityBakeResult bakeRadiosity(
         }
 
         emissiveFace.peakRadiance = peakRadiance;
-        if (buildDirectSamples) {
+        if (buildDirectSamples && exactMode) {
+            const int maxSamples = std::max(1, settings.exactEmissionMaxSamples);
+            if (static_cast<int>(exactSamples.size()) > maxSamples) {
+                const std::size_t step =
+                    (exactSamples.size() + static_cast<std::size_t>(maxSamples) - 1)
+                    / static_cast<std::size_t>(maxSamples);
+                std::vector<EmitterDirectSample> downsampled;
+                downsampled.reserve(static_cast<std::size_t>(maxSamples));
+                for (std::size_t i = 0; i < exactSamples.size(); i += step) {
+                    downsampled.push_back(exactSamples[i]);
+                }
+                TraceLog(
+                    LOG_WARNING,
+                    "sloprad: face '%s' (material '%s') exact-emission samples=%zu exceed "
+                    "exactEmissionMaxSamples=%d, downsampled to %zu",
+                    chart.faceId.c_str(),
+                    face.material.c_str(),
+                    exactSamples.size(),
+                    maxSamples,
+                    downsampled.size());
+                exactSamples = std::move(downsampled);
+            }
+            emissiveFace.directSampleOffset = static_cast<int>(directSampleBuffer.size());
+            directSampleBuffer.insert(directSampleBuffer.end(), exactSamples.begin(), exactSamples.end());
+            emissiveFace.directSampleCount = static_cast<int>(exactSamples.size());
+        } else if (buildDirectSamples) {
             emissiveFace.directSampleOffset = static_cast<int>(directSampleBuffer.size());
             directSampleBuffer.insert(
                 directSampleBuffer.end(), blockBestSample.begin(), blockBestSample.end());

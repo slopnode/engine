@@ -48,9 +48,10 @@ struct RadGpuEmissiveFace {
     Vector3 peakRadiance{};
     float castRange = 0.0f;
     Vector3 aabbMins{};
-    float pad3 = 0.0f;
+    std::int32_t directSampleCount = 0;
     Vector3 aabbMaxs{};
-    float pad4 = 0.0f;
+    /** 0 = use params.emitterDirectSamples; see EmissiveFace::directSampleAxis. */
+    std::int32_t directSampleAxis = 0;
 };
 
 struct RadGpuLight {
