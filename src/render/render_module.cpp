@@ -225,7 +225,7 @@ void registerRenderSystems(flecs::world& world) {
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);
-                drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam);
+                drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam, unlit);
             }
             drawWorldDebugOverlays(world);
             EndMode3D();

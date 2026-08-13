@@ -2,6 +2,7 @@
 
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
+#include "render/fx_local_light.hpp"
 #include "render/view_sprite_attachment.hpp"
 
 #include <algorithm>
@@ -19,6 +20,18 @@ Vector3 segmentRight(Vector3 dir, Vector3 toCam, Vector3 fallbackRight) {
         return fallbackRight;
     }
     return Vector3Normalize(cross);
+}
+
+Color multiplyTint(Color base, Color scene) {
+    return {
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.r) * static_cast<int>(scene.r) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.g) * static_cast<int>(scene.g) / 255, 0, 255)),
+        static_cast<unsigned char>(
+            std::clamp(static_cast<int>(base.b) * static_cast<int>(scene.b) / 255, 0, 255)),
+        base.a,
+    };
 }
 
 } // namespace
@@ -57,6 +70,29 @@ flecs::entity spawnTrailFp(
     return entity;
 }
 
+flecs::entity spawnTrail(
+    flecs::world& world,
+    const char* id,
+    Vector3 startPoint,
+    Vector3 endPoint,
+    std::string_view texturePath,
+    float lifetime,
+    float width,
+    bool mapOwned) {
+    flecs::entity entity = world.entity(id);
+    TrailEffect trail{};
+    trail.points = {startPoint, endPoint};
+    trail.texturePath = std::string(texturePath);
+    trail.width = width;
+    trail.lifetime = lifetime;
+    trail.age = 0.0f;
+    entity.set<TrailEffect>(trail);
+    if (mapOwned) {
+        entity.add<MapOwned>();
+    }
+    return entity;
+}
+
 void registerTrailModule(flecs::world& world) {
     world.component<TrailEffect>();
 
@@ -77,7 +113,7 @@ void registerTrailModule(flecs::world& world) {
         });
 }
 
-void drawTrailEffects(flecs::world& world, AssetStore& assets, const Camera3D& camera) {
+void drawTrailEffects(flecs::world& world, AssetStore& assets, const Camera3D& camera, bool unlit) {
     bool began = false;
 
     const Matrix matView = MatrixLookAt(camera.position, camera.target, camera.up);
@@ -129,6 +165,14 @@ void drawTrailEffects(flecs::world& world, AssetStore& assets, const Camera3D& c
             rights[i] = segmentRight(dir, toCam, fallbackRight);
         }
 
+        std::vector<Color> tints(count, trail.color);
+        if (!unlit) {
+            for (std::size_t i = 0; i < count; ++i) {
+                const Color scene = sampleReceiverTintColor(world, trail.points[i], false, 64.0f);
+                tints[i] = multiplyTint(trail.color, scene);
+            }
+        }
+
         if (!began) {
             rlDrawRenderBatchActive();
             rlDisableShader();
@@ -152,14 +196,20 @@ void drawTrailEffects(flecs::world& world, AssetStore& assets, const Camera3D& c
             const Vector3 p1a = Vector3Add(trail.points[i + 1], r1);
             const Vector3 p1b = Vector3Subtract(trail.points[i + 1], r1);
 
+            const Color c0 = tints[i];
+            const Color c1 = tints[i + 1];
+
             rlBegin(RL_QUADS);
-            rlColor4ub(255, 255, 255, alpha);
+            rlColor4ub(c0.r, c0.g, c0.b, alpha);
             rlTexCoord2f(u0, 1.0f);
             rlVertex3f(p0b.x, p0b.y, p0b.z);
+            rlColor4ub(c0.r, c0.g, c0.b, alpha);
             rlTexCoord2f(u0, 0.0f);
             rlVertex3f(p0a.x, p0a.y, p0a.z);
+            rlColor4ub(c1.r, c1.g, c1.b, alpha);
             rlTexCoord2f(u1, 0.0f);
             rlVertex3f(p1a.x, p1a.y, p1a.z);
+            rlColor4ub(c1.r, c1.g, c1.b, alpha);
             rlTexCoord2f(u1, 1.0f);
             rlVertex3f(p1b.x, p1b.y, p1b.z);
             rlEnd();

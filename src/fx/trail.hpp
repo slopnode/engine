@@ -32,8 +32,18 @@ flecs::entity spawnTrailFp(
     float width = 0.08f,
     bool mapOwned = true);
 
+flecs::entity spawnTrail(
+    flecs::world& world,
+    const char* id,
+    Vector3 startPoint,
+    Vector3 endPoint,
+    std::string_view texturePath,
+    float lifetime = 0.12f,
+    float width = 0.08,
+    bool mapOwned = true);
+
 void registerTrailModule(flecs::world& world);
 
-void drawTrailEffects(flecs::world& world, AssetStore& assets, const Camera3D& camera);
+void drawTrailEffects(flecs::world& world, AssetStore& assets, const Camera3D& camera, bool unlit = false);
 
 }
