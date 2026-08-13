@@ -100,7 +100,7 @@ struct GpuEmissiveFaceSSBO {
     std::int32_t gridWidth = 0;
     std::int32_t gridHeight = 0;
     std::int32_t gridOffset = 0;
-    std::int32_t pad1 = 0;
+    std::int32_t directSampleOffset = -1;
     float peakR = 0.0f;
     float peakG = 0.0f;
     float peakB = 0.0f;
@@ -108,11 +108,11 @@ struct GpuEmissiveFaceSSBO {
     float aabbMinX = 0.0f;
     float aabbMinY = 0.0f;
     float aabbMinZ = 0.0f;
-    float pad3 = 0.0f;
+    std::int32_t directSampleCount = 0;
     float aabbMaxX = 0.0f;
     float aabbMaxY = 0.0f;
     float aabbMaxZ = 0.0f;
-    float pad4 = 0.0f;
+    std::int32_t directSampleAxis = 0;
 };
 
 struct GpuGridSampleSSBO {
@@ -120,6 +120,17 @@ struct GpuGridSampleSSBO {
     float g = 0.0f;
     float b = 0.0f;
     float pad = 0.0f;
+};
+
+struct GpuDirectSampleSSBO {
+    float u = 0.0f;
+    float v = 0.0f;
+    float r = 0.0f;
+    float g = 0.0f;
+    float b = 0.0f;
+    float pad0 = 0.0f;
+    float pad1 = 0.0f;
+    float pad2 = 0.0f;
 };
 
 struct GpuLightSSBO {
@@ -259,6 +270,7 @@ struct GpuParamsSSBO {
 static_assert(sizeof(GpuLuxelSSBO) == 64);
 static_assert(sizeof(GpuEmissiveFaceSSBO) == 132);
 static_assert(sizeof(GpuGridSampleSSBO) == 16);
+static_assert(sizeof(GpuDirectSampleSSBO) == 32);
 static_assert(sizeof(GpuLightSSBO) == 64);
 static_assert(sizeof(GpuBvhNodeSSBO) == 48);
 static_assert(sizeof(GpuBvhPrimSSBO) == 64);
@@ -564,6 +576,7 @@ void unloadDirectResources(
     unsigned int luxelSsbo,
     unsigned int emissiveFaceSsbo,
     unsigned int emissionGridSsbo,
+    unsigned int directSampleSsbo,
     unsigned int lightSsbo,
     unsigned int nodeSsbo,
     unsigned int primSsbo,
@@ -579,6 +592,7 @@ void unloadDirectResources(
     unloadSsbo(luxelSsbo);
     unloadSsbo(emissiveFaceSsbo);
     unloadSsbo(emissionGridSsbo);
+    unloadSsbo(directSampleSsbo);
     unloadSsbo(lightSsbo);
     unloadSsbo(nodeSsbo);
     unloadSsbo(primSsbo);
@@ -758,6 +772,7 @@ bool accumulateDirectLightingGpu(
     std::vector<RadGpuLuxel>& luxels,
     const std::vector<RadGpuEmissiveFace>& emissiveFaces,
     std::span<const Vector3> emissionGrid,
+    std::span<const EmitterDirectSample> directSampleData,
     const std::vector<RadGpuLight>& lights,
     const QuadBvh& occlusionBvh,
     const EmitterBvh& emitterBvh,
@@ -837,6 +852,7 @@ bool accumulateDirectLightingGpu(
         dst.gridWidth = src.gridWidth;
         dst.gridHeight = src.gridHeight;
         dst.gridOffset = src.gridOffset;
+        dst.directSampleOffset = src.directSampleOffset;
         dst.peakR = src.peakRadiance.x;
         dst.peakG = src.peakRadiance.y;
         dst.peakB = src.peakRadiance.z;
@@ -847,6 +863,8 @@ bool accumulateDirectLightingGpu(
         dst.aabbMaxX = src.aabbMaxs.x;
         dst.aabbMaxY = src.aabbMaxs.y;
         dst.aabbMaxZ = src.aabbMaxs.z;
+        dst.directSampleAxis = src.directSampleAxis;
+        dst.directSampleCount = src.directSampleCount;
     }
 
     std::vector<GpuGridSampleSSBO> gpuGridSamples(std::max<std::size_t>(emissionGrid.size(), 1));
@@ -854,6 +872,15 @@ bool accumulateDirectLightingGpu(
         gpuGridSamples[i].r = emissionGrid[i].x;
         gpuGridSamples[i].g = emissionGrid[i].y;
         gpuGridSamples[i].b = emissionGrid[i].z;
+    }
+
+    std::vector<GpuDirectSampleSSBO> gpuDirectSamples(std::max<std::size_t>(directSampleData.size(), 1));
+    for (std::size_t i = 0; i < directSampleData.size(); ++i) {
+        gpuDirectSamples[i].u = directSampleData[i].u;
+        gpuDirectSamples[i].v = directSampleData[i].v;
+        gpuDirectSamples[i].r = directSampleData[i].radiance.x;
+        gpuDirectSamples[i].g = directSampleData[i].radiance.y;
+        gpuDirectSamples[i].b = directSampleData[i].radiance.z;
     }
 
     std::vector<GpuLightSSBO> gpuLights(std::max<std::size_t>(lights.size(), 1));
@@ -981,6 +1008,10 @@ bool accumulateDirectLightingGpu(
         static_cast<unsigned int>(gpuGridSamples.size() * sizeof(GpuGridSampleSSBO)),
         gpuGridSamples.data(),
         RL_DYNAMIC_COPY);
+    const unsigned int directSampleSsbo = rlLoadShaderBuffer(
+        static_cast<unsigned int>(gpuDirectSamples.size() * sizeof(GpuDirectSampleSSBO)),
+        gpuDirectSamples.data(),
+        RL_DYNAMIC_COPY);
     const unsigned int lightSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuLights.size() * sizeof(GpuLightSSBO)),
         gpuLights.data(),
@@ -1098,7 +1129,8 @@ bool accumulateDirectLightingGpu(
     const unsigned int paramsSsbo =
         rlLoadShaderBuffer(sizeof(GpuParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
 
-    if (luxelSsbo == 0 || emissiveFaceSsbo == 0 || emissionGridSsbo == 0 || lightSsbo == 0
+    if (luxelSsbo == 0 || emissiveFaceSsbo == 0 || emissionGridSsbo == 0 || directSampleSsbo == 0
+        || lightSsbo == 0
         || nodeSsbo == 0 || primSsbo == 0 || emitterNodeSsbo == 0 || emitterPrimSsbo == 0
         || paramsSsbo == 0 || reachSsbo == 0 || faceSkySsbo == 0 || faceTransparentSsbo == 0
         || faceOcclusionSsbo == 0 || materialRectSsbo == 0) {
@@ -1107,6 +1139,7 @@ bool accumulateDirectLightingGpu(
             luxelSsbo,
             emissiveFaceSsbo,
             emissionGridSsbo,
+            directSampleSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
@@ -1126,6 +1159,7 @@ bool accumulateDirectLightingGpu(
             luxelSsbo,
             emissiveFaceSsbo,
             emissionGridSsbo,
+            directSampleSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
@@ -1171,6 +1205,7 @@ bool accumulateDirectLightingGpu(
     rlBindShaderBuffer(emissionGridSsbo, 11);
     rlBindShaderBuffer(faceOcclusionSsbo, 12);
     rlBindShaderBuffer(materialRectSsbo, 13);
+    rlBindShaderBuffer(directSampleSsbo, 14);
     bindAlphaAtlasForCompute(program, occlusionResources);
 
     bool dispatchFailed = false;
@@ -1266,6 +1301,7 @@ bool accumulateDirectLightingGpu(
             luxelSsbo,
             emissiveFaceSsbo,
             emissionGridSsbo,
+            directSampleSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
@@ -1291,6 +1327,7 @@ bool accumulateDirectLightingGpu(
             luxelSsbo,
             emissiveFaceSsbo,
             emissionGridSsbo,
+            directSampleSsbo,
             lightSsbo,
             nodeSsbo,
             primSsbo,
@@ -1310,6 +1347,7 @@ bool accumulateDirectLightingGpu(
         luxelSsbo,
         emissiveFaceSsbo,
         emissionGridSsbo,
+        directSampleSsbo,
         lightSsbo,
         nodeSsbo,
         primSsbo,

@@ -21,6 +21,7 @@ void runAssetTests() {
         CHECK_EQ(asset.shader, std::string("default"));
         CHECK_EQ(asset.albedoTexture, std::string("freedom/WALL"));
         CHECK_EQ(asset.pixelsPerMeter, 64.0f);
+        CHECK_FALSE(asset.fullbright);
     }
 
     {
@@ -29,6 +30,21 @@ void runAssetTests() {
             "(material (shader \"default\") (texure \"typo\"))",
             asset);
         CHECK_FALSE(ok);
+    }
+
+    {
+        MaterialAsset asset{};
+        const bool ok = parseMaterialAsset(
+            "(material\n"
+            "  (shader \"default\")\n"
+            "  (texture \"freedom/AQSECT12\")\n"
+            "  (texel-size 32)\n"
+            "  (emission \"freedom/masks/AQSECT12\")\n"
+            "  (fullbright)\n"
+            "  (base-color 1 1 1 1))\n",
+            asset);
+        CHECK(ok);
+        CHECK(asset.fullbright);
     }
 
     {

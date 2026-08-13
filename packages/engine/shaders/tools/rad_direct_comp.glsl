@@ -50,7 +50,7 @@ struct EmissiveFace {
     int gridWidth;
     int gridHeight;
     int gridOffset;
-    int pad1;
+    int directSampleOffset;
     float peakR;
     float peakG;
     float peakB;
@@ -58,11 +58,12 @@ struct EmissiveFace {
     float aabbMinX;
     float aabbMinY;
     float aabbMinZ;
-    float pad3;
+    int directSampleCount;
     float aabbMaxX;
     float aabbMaxY;
     float aabbMaxZ;
-    float pad4;
+    // 0 = use params.emitterDirectSamples; set per-face for precise-emission materials.
+    int directSampleAxis;
 };
 
 struct GridSample {
@@ -70,6 +71,21 @@ struct GridSample {
     float g;
     float b;
     float pad;
+};
+
+// One stratified direct-light sample, precomputed CPU-side per emissive face from the fine
+// emission grid (see EmitterDirectSample in radiosity_emitters.hpp / bakeRadiosity()'s
+// collection loop) so this shader's gather pass finds real content even for a mask feature
+// much smaller than emitterDirectSamples^2 fixed query points would otherwise resolve.
+struct DirectSample {
+    float u;
+    float v;
+    float r;
+    float g;
+    float b;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct Light {
@@ -263,6 +279,10 @@ layout(std430, binding = 10) readonly buffer EmitterPrimBuffer {
 
 layout(std430, binding = 11) readonly buffer EmissionGridBuffer {
     GridSample emissionGrid[];
+};
+
+layout(std430, binding = 14) readonly buffer DirectSampleBuffer {
+    DirectSample directSamples[];
 };
 
 bool isSkyFace(int faceIndex) {
@@ -671,6 +691,50 @@ vec3 sampleEmissionGridBilinear(EmissiveFace face, float u, float v) {
     return mix(c0, c1, ty);
 }
 
+// Precomputed samples (built CPU-side once per face; see DirectSample above) are already
+// guaranteed to be real emissive content or nothing, so they skip straight to the cast gate.
+// Falls back to the blind fixed fu/fv grid for faces with no precomputed samples (solid-color
+// emitters, where any point on the face is equally valid).
+bool getDirectSample(
+    EmissiveFace face, int sampleCount, int flatIndex, out float u, out float v, out vec3 radiance) {
+    if (face.directSampleCount > 0) {
+        int index = face.directSampleOffset + flatIndex;
+        if (index < 0 || index >= directSamples.length()) {
+            u = 0.0;
+            v = 0.0;
+            radiance = vec3(0.0);
+            return false;
+        }
+        DirectSample entry = directSamples[index];
+        radiance = vec3(entry.r, entry.g, entry.b);
+        u = entry.u;
+        v = entry.v;
+        return passesCastGate(radiance);
+    }
+    int sx = flatIndex % sampleCount;
+    int sy = flatIndex / sampleCount;
+    if (face.directSampleOffset >= 0) {
+        int index = face.directSampleOffset + sy * sampleCount + sx;
+        if (index < 0 || index >= directSamples.length()) {
+            u = 0.0;
+            v = 0.0;
+            radiance = vec3(0.0);
+            return false;
+        }
+        DirectSample entry = directSamples[index];
+        radiance = vec3(entry.r, entry.g, entry.b);
+        u = entry.u;
+        v = entry.v;
+        return passesCastGate(radiance);
+    }
+    float fu = (float(sx) + 0.5) / float(sampleCount);
+    float fv = (float(sy) + 0.5) / float(sampleCount);
+    u = face.uMin + (face.uMax - face.uMin) * fu;
+    v = face.vMin + (face.vMax - face.vMin) * fv;
+    radiance = sampleEmissionGridBilinear(face, u, v);
+    return passesCastGate(radiance);
+}
+
 vec3 planePointFromUv(EmissiveFace face, float u, float v) {
     vec3 uAxis = vec3(face.uAxisX, face.uAxisY, face.uAxisZ);
     vec3 vAxis = vec3(face.vAxisX, face.vAxisY, face.vAxisZ);
@@ -708,18 +772,14 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
         return;
     }
 
-    int sampleCount = max(params.emitterDirectSamples, 1);
+    int sampleCount = max(face.directSampleAxis > 0 ? face.directSampleAxis : params.emitterDirectSamples, 1);
+    int flatCount = face.directSampleCount > 0 ? face.directSampleCount : sampleCount * sampleCount;
     int validSamples = 0;
-    for (int sy = 0; sy < sampleCount; ++sy) {
-        for (int sx = 0; sx < sampleCount; ++sx) {
-            float fu = (float(sx) + 0.5) / float(sampleCount);
-            float fv = (float(sy) + 0.5) / float(sampleCount);
-            float u = face.uMin + (face.uMax - face.uMin) * fu;
-            float v = face.vMin + (face.vMax - face.vMin) * fv;
-            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
-            if (passesCastGate(radiance)) {
-                validSamples += 1;
-            }
+    for (int i = 0; i < flatCount; ++i) {
+        float u, v;
+        vec3 radiance;
+        if (getDirectSample(face, sampleCount, i, u, v, radiance)) {
+            validSamples += 1;
         }
     }
     if (validSamples <= 0) {
@@ -730,62 +790,57 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
     vec3 faceNormal = vec3(face.nx, face.ny, face.nz);
     const float kCoplanarAlignMin = 0.85;
 
-    for (int sy = 0; sy < sampleCount; ++sy) {
-        for (int sx = 0; sx < sampleCount; ++sx) {
-            float fu = (float(sx) + 0.5) / float(sampleCount);
-            float fv = (float(sy) + 0.5) / float(sampleCount);
-            float u = face.uMin + (face.uMax - face.uMin) * fu;
-            float v = face.vMin + (face.vMax - face.vMin) * fv;
-            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
-            if (!passesCastGate(radiance)) {
-                continue;
-            }
+    for (int i = 0; i < flatCount; ++i) {
+        float u, v;
+        vec3 radiance;
+        if (!getDirectSample(face, sampleCount, i, u, v, radiance)) {
+            continue;
+        }
 
-            vec3 samplePos = planePointFromUv(face, u, v) + faceNormal * kEmitterNormalOffset;
-            vec3 delta = samplePos - luxelPos;
-            float sampleDist2Raw = dot(delta, delta);
-            if (sampleDist2Raw < 1e-6) {
-                continue;
-            }
-            float sampleDist = sqrt(sampleDist2Raw);
-            if (face.castRange > 0.0 && sampleDist > face.castRange) {
-                continue;
-            }
-            vec3 toLight = delta / sampleDist;
-            float dist2 = max(sampleDist2Raw, minDist2);
-            float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
-            float nDotV = wrapCosine(-dot(faceNormal, toLight), wrap);
-            bool formOk = nDotL > 0.0 && nDotV > 0.0;
-            float align = 0.0;
-            bool fillOk = false;
-            if (coplanarFill > 0.0) {
-                align = dot(luxelNormal, faceNormal);
-                fillOk = align > kCoplanarAlignMin;
-            }
-            if (!formOk && !fillOk) {
-                continue;
-            }
-            vec3 segmentTint = vec3(1.0);
-            if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex, segmentTint)) {
-                continue;
-            }
+        vec3 samplePos = planePointFromUv(face, u, v) + faceNormal * kEmitterNormalOffset;
+        vec3 delta = samplePos - luxelPos;
+        float sampleDist2Raw = dot(delta, delta);
+        if (sampleDist2Raw < 1e-6) {
+            continue;
+        }
+        float sampleDist = sqrt(sampleDist2Raw);
+        if (face.castRange > 0.0 && sampleDist > face.castRange) {
+            continue;
+        }
+        vec3 toLight = delta / sampleDist;
+        float dist2 = max(sampleDist2Raw, minDist2);
+        float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+        float nDotV = wrapCosine(-dot(faceNormal, toLight), wrap);
+        bool formOk = nDotL > 0.0 && nDotV > 0.0;
+        float align = 0.0;
+        bool fillOk = false;
+        if (coplanarFill > 0.0) {
+            align = dot(luxelNormal, faceNormal);
+            fillOk = align > kCoplanarAlignMin;
+        }
+        if (!formOk && !fillOk) {
+            continue;
+        }
+        vec3 segmentTint = vec3(1.0);
+        if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex, segmentTint)) {
+            continue;
+        }
 
-            if (formOk) {
-                float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
-                float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                if (!isnan(form) && !isinf(form)) {
-                    irradiance += radiance * form * atten * segmentTint;
-                }
+        if (formOk) {
+            float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
+            float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+            if (!isnan(form) && !isinf(form)) {
+                irradiance += radiance * form * atten * segmentTint;
             }
-            if (fillOk) {
-                float planeSep = abs(dot(delta, luxelNormal));
-                float lateral2 = max(0.0, sampleDist2Raw - planeSep * planeSep);
-                float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
-                float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
-                float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                if (!isnan(fill) && !isinf(fill)) {
-                    irradiance += radiance * fill * atten * segmentTint;
-                }
+        }
+        if (fillOk) {
+            float planeSep = abs(dot(delta, luxelNormal));
+            float lateral2 = max(0.0, sampleDist2Raw - planeSep * planeSep);
+            float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
+            float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
+            float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+            if (!isnan(fill) && !isinf(fill)) {
+                irradiance += radiance * fill * atten * segmentTint;
             }
         }
     }

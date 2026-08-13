@@ -37,6 +37,8 @@ namespace {
 
 Color sampleFirstPersonRadTint(
     Vector3 feetOrigin,
+    Vector3 eyeOrigin,
+    Vector3 eyeForward,
     const MapLighting* lighting,
     const std::vector<RankedDynamicLight>* dynamicLights,
     const FxLightFrameState* fxLights,
@@ -47,22 +49,54 @@ Color sampleFirstPersonRadTint(
 
     Color tint = lighting != nullptr ? lighting->ambient : WHITE;
     if (lighting != nullptr && lighting->available) {
-        constexpr Vector3 kDown{0.0f, -1.0f, 0.0f};
-        constexpr float kMaxDist = 2.5f;
-        const Vector3 offsets[] = {
+        constexpr float kFloorMaxDist = 2.5f;
+        constexpr float kEyeMaxDist = 4.0f;
+        const Vector3 floorOffsets[] = {
             {0.0f, 0.0f, 0.0f},
             {0.12f, 0.0f, 0.0f},
             {-0.12f, 0.0f, 0.0f},
             {0.0f, 0.0f, 0.12f},
             {0.0f, 0.0f, -0.12f},
         };
+
+        // A floor-only probe reads dark in rooms lit mainly from walls/ceiling (e.g. a
+        // wall-lit hallway with dim floor luxels), so blend it with rays cast around eye
+        // height toward the ceiling and the surrounding walls, same idea as the feet+head
+        // blend used for world sprites in render_pass_world.cpp.
+        Vector3 forwardFlat{eyeForward.x, 0.0f, eyeForward.z};
+        const float forwardLenSq = forwardFlat.x * forwardFlat.x + forwardFlat.z * forwardFlat.z;
+        forwardFlat = forwardLenSq > 1e-8f
+            ? Vector3Scale(forwardFlat, 1.0f / std::sqrt(forwardLenSq))
+            : Vector3{0.0f, 0.0f, 1.0f};
+        const Vector3 rightFlat{forwardFlat.z, 0.0f, -forwardFlat.x};
+
+        const Vector3 rayOrigins[] = {
+            feetOrigin, feetOrigin, feetOrigin, feetOrigin, feetOrigin,
+            eyeOrigin, eyeOrigin, eyeOrigin, eyeOrigin, eyeOrigin,
+        };
+        const Vector3 rayDirs[] = {
+            {0.0f, -1.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, {0.0f, -1.0f, 0.0f},
+            {0.0f, -1.0f, 0.0f}, {0.0f, -1.0f, 0.0f},
+            {0.0f, 1.0f, 0.0f}, forwardFlat, Vector3Negate(forwardFlat), rightFlat,
+            Vector3Negate(rightFlat),
+        };
+
         int sampleCount = 0;
         int sumR = 0;
         int sumG = 0;
         int sumB = 0;
-        for (const Vector3& offset : offsets) {
+        for (const Vector3& offset : floorOffsets) {
             const Vector3 origin = Vector3Add(feetOrigin, offset);
-            if (auto sampled = sampleMapLight(*lighting, origin, kDown, kMaxDist)) {
+            if (auto sampled = sampleMapLight(*lighting, origin, {0.0f, -1.0f, 0.0f}, kFloorMaxDist)) {
+                sumR += sampled->r;
+                sumG += sampled->g;
+                sumB += sampled->b;
+                ++sampleCount;
+            }
+        }
+        constexpr std::size_t kRayCount = sizeof(rayOrigins) / sizeof(rayOrigins[0]);
+        for (std::size_t i = 5; i < kRayCount; ++i) {
+            if (auto sampled = sampleMapLight(*lighting, rayOrigins[i], rayDirs[i], kEyeMaxDist)) {
                 sumR += sampled->r;
                 sumG += sampled->g;
                 sumB += sampled->b;
@@ -193,8 +227,10 @@ void drawFirstPersonPass(
                 : nullptr;
         const FxLightFrameState* fpFx =
             (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
-        const Color targetTint =
-            sampleFirstPersonRadTint(feetOrigin, fpLighting, fpDyn, fpFx, unlit);
+        const Vector3 eyeForward =
+            Vector3Subtract(lens.camera.target, lens.camera.position);
+        const Color targetTint = sampleFirstPersonRadTint(
+            feetOrigin, lens.camera.position, eyeForward, fpLighting, fpDyn, fpFx, unlit);
         fpTint = smoothFirstPersonRadTint(
             playerEntity.get_mut<FirstPersonScene>(),
             targetTint,

@@ -96,6 +96,14 @@ void runRadiosityEmitterTests() {
     });
     CHECK_EQ(nearIndices.size(), 1u);
     CHECK_EQ(nearIndices[0], 1);
+
+    EmissiveFace exactFace = makeTestFace();
+    CHECK_EQ(exactFace.directSampleCount, 0);
+    CHECK_EQ(exactFace.directSampleAxis, 0);
+    exactFace.directSampleOffset = 5;
+    exactFace.directSampleCount = 3;
+    CHECK_EQ(exactFace.directSampleOffset, 5);
+    CHECK_EQ(exactFace.directSampleCount, 3);
 }
 
 } // namespace slopengine
