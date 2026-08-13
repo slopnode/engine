@@ -160,19 +160,6 @@ inline bool navWaypointCompleted(
         return true;
     }
 
-    constexpr float kStairVertPassed = 0.25f;
-    constexpr float kStairVertAlign = 0.05f;
-    constexpr float kStairHorizScale = 1.5f;
-    if (agentPos.y >= wp.y + kStairVertPassed) {
-        return true;
-    }
-    if (agentPos.y >= wp.y - kStairVertAlign) {
-        const float relaxed = arriveRadius * kStairHorizScale;
-        if (navHorizontalDistSq(agentPos, wp) <= relaxed * relaxed) {
-            return true;
-        }
-    }
-
     const int lastIndex = static_cast<int>(waypoints.size()) - 1;
     if (waypointIndex >= lastIndex) {
         return false;

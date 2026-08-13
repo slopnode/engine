@@ -92,10 +92,15 @@ void runNavGraphTests() {
     }
 
     {
+        // A waypoint must never be marked completed off vertical position alone:
+        // an agent standing on a higher floor elsewhere on the map (here 7 units
+        // away horizontally) is not "past" this waypoint just because its Y is
+        // higher. Only horizontal arrival (or, with real leaf data, having
+        // actually entered the target leaf) counts as completion.
         const std::vector<Vector3> waypoints = {{0.0f, 4.0f, 0.0f}};
         const std::vector<int> leafPath = {1};
         const std::vector<int> waypointToLeaf = {1};
-        CHECK(navWaypointCompleted(
+        CHECK_FALSE(navWaypointCompleted(
             waypoints, waypointToLeaf, leafPath, {5.0f, 4.3f, 5.0f}, -1, 0, 0.75f));
         CHECK(navWaypointCompleted(
             waypoints, waypointToLeaf, leafPath, {0.2f, 3.98f, 0.1f}, -1, 0, 0.75f));
@@ -274,6 +279,32 @@ void runNavGraphTests() {
             }
         }
         CHECK(foundVerticalPortal);
+    }
+
+    {
+        // Reported floor height must reflect real solid ground, not wherever a
+        // leaf's own AABB happens to bottom out — a leaf that's merely an
+        // upper slice of one open room (phantom-split by an unrelated brush's
+        // face plane) must resolve to the same floor as the leaf beneath it.
+        const std::vector<Brush> brushes = mapfixtures::tallRoomWithDistantHorizontalSplitter();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const MapNavigation nav = buildMapNavigation(tree, &analysis.exteriorEmpty);
+
+        const std::int32_t low = pointLeaf(tree, {0.0f, 0.5f, 0.0f});
+        const std::int32_t high = pointLeaf(tree, {0.0f, 3.5f, 0.0f});
+        CHECK(low >= 0);
+        CHECK(high >= 0);
+        CHECK(nav.walkable[static_cast<std::size_t>(low)]);
+        CHECK(nav.walkable[static_cast<std::size_t>(high)]);
+        // The fixture only proves anything if the phantom split actually
+        // happened, i.e. the low and high probes landed in different leaves.
+        CHECK(low != high);
+
+        CHECK_EQ(nav.leafFloorY[static_cast<std::size_t>(low)], 0.0f);
+        CHECK_EQ(nav.leafFloorY[static_cast<std::size_t>(high)], 0.0f);
     }
 }
 

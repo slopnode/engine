@@ -46,6 +46,65 @@ float navDist3(Vector3 a, Vector3 b) {
     return Vector3Distance(a, b);
 }
 
+// Walks straight down from (x, startY, z) through open leaves (via exact BSP
+// point classification, not an approximation) until it lands in solid content
+// or leaves the map, returning the Y of the last open leaf reached — i.e. the
+// real floor a ground agent would come to rest on there. A leaf's own
+// mins.y is not trustworthy on its own: face-plane-driven BSP splitting lets
+// a brush anywhere else in the level contribute a horizontal split plane that
+// slices straight through unrelated open leaves, leaving some of them
+// reporting a "floor" that's really just empty air over a leaf stacked
+// beneath them.
+float descendToRealFloor(const BspTree& tree, float x, float z, float startY) {
+    constexpr float kStepEps = 0.01f;
+    constexpr int kMaxSteps = 64;
+    float y = startY;
+    for (int step = 0; step < kMaxSteps; ++step) {
+        const float probeY = y - kStepEps;
+        if (probeY < tree.boundsMins.y) {
+            return y;
+        }
+        const std::int32_t below = pointLeaf(tree, {x, probeY, z});
+        if (below < 0) {
+            return y;
+        }
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(below)];
+        if (leafBlocksFlood(leaf.contents)) {
+            return y;
+        }
+        y = leaf.mins.y;
+    }
+    return y;
+}
+
+// Resolves leaf i's true floor by descending from several points spread
+// across its footprint (its centroid, plus the midpoint toward every face
+// vertex — all guaranteed inside this convex leaf), not just the centroid
+// alone: a single probe can be fooled by a small local opening (a grate, a
+// pipe gap, a window portal) that isn't representative of the leaf's floor
+// as a whole. Only commits the corrected floor when every sample agrees;
+// a leaf where samples disagree keeps its original mins.y rather than
+// guessing.
+float resolveLeafFloorY(const BspTree& tree, const BspLeaf& leaf, Vector3 centroid) {
+    const float startY = leaf.mins.y;
+    float lo = descendToRealFloor(tree, centroid.x, centroid.z, startY);
+    float hi = lo;
+    for (const auto& face : leaf.faces) {
+        for (const Vector3& v : face) {
+            const float sx = 0.5f * (centroid.x + v.x);
+            const float sz = 0.5f * (centroid.z + v.z);
+            const float y = descendToRealFloor(tree, sx, sz, startY);
+            lo = std::min(lo, y);
+            hi = std::max(hi, y);
+        }
+    }
+    constexpr float kAgreementEps = 0.05f;
+    if (hi - lo > kAgreementEps) {
+        return leaf.mins.y; // samples disagree — leave the leaf's own floor alone
+    }
+    return lo;
+}
+
 } // namespace
 
 MapNavigation buildMapNavigation(
@@ -65,13 +124,21 @@ MapNavigation buildMapNavigation(
     nav.adjacency.resize(static_cast<std::size_t>(n));
 
     for (int i = 0; i < n; ++i) {
-        nav.leafCentroids[static_cast<std::size_t>(i)] =
-            leafCentroid(tree.leaves[static_cast<std::size_t>(i)]);
-        nav.leafFloorY[static_cast<std::size_t>(i)] =
-            tree.leaves[static_cast<std::size_t>(i)].mins.y;
-        nav.leafCeilingY[static_cast<std::size_t>(i)] =
-            tree.leaves[static_cast<std::size_t>(i)].maxs.y;
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        nav.leafCentroids[static_cast<std::size_t>(i)] = leafCentroid(leaf);
+        nav.leafFloorY[static_cast<std::size_t>(i)] = leaf.mins.y;
+        nav.leafCeilingY[static_cast<std::size_t>(i)] = leaf.maxs.y;
         nav.walkable[static_cast<std::size_t>(i)] = isNavWalkableLeaf(tree, i, exteriorEmpty);
+    }
+
+    for (int i = 0; i < n; ++i) {
+        if (!nav.walkable[static_cast<std::size_t>(i)]) {
+            continue;
+        }
+        nav.leafFloorY[static_cast<std::size_t>(i)] = resolveLeafFloorY(
+            tree,
+            tree.leaves[static_cast<std::size_t>(i)],
+            nav.leafCentroids[static_cast<std::size_t>(i)]);
     }
 
     for (const BspPortal& portal : tree.portals) {
