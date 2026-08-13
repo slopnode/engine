@@ -70,6 +70,7 @@ struct DebugUiState {
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;
+    bool freeCamera = false;
     bool hideHud = false;
     bool hideFpScene = false;
     bool entityListOpen = false;

@@ -33,6 +33,7 @@
 #include "ui/ui_state.hpp"
 #include "rlImGui.h"
 
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -120,20 +121,39 @@ void registerRenderSystems(flecs::world& world) {
             }
             flecs::entity eyeEntity = it.entity(index);
             RenderContext& context = world.get_mut<RenderContext>();
-            const bool unlit =
-                world.has<DebugUiState>() && world.get<DebugUiState>().unlit;
+            const DebugUiState* debugUiState =
+                world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
+            const bool unlit = debugUiState != nullptr && debugUiState->unlit;
+            const bool useFreeCam =
+                debugUiState != nullptr && debugUiState->freeCamera && world.has<FreeFlyCamera>();
 
-            FirstPersonController controller{};
-            ViewEyeOffset eyeOffset{};
-            if (eyeEntity.has<FirstPersonController>()) {
-                controller = eyeEntity.get<FirstPersonController>();
+            Camera3D presentCam;
+            if (useFreeCam) {
+                const FreeFlyCamera& fly = world.get<FreeFlyCamera>();
+                const float cosPitch = std::cos(fly.pitch);
+                const Vector3 forward = Vector3Normalize({
+                    std::sin(fly.yaw) * cosPitch,
+                    std::sin(fly.pitch),
+                    std::cos(fly.yaw) * cosPitch,
+                });
+                presentCam = lens.camera;
+                presentCam.position = fly.position;
+                presentCam.target = Vector3Add(fly.position, forward);
+                presentCam.up = {0.0f, 1.0f, 0.0f};
+            } else {
+                FirstPersonController controller{};
+                ViewEyeOffset eyeOffset{};
+                if (eyeEntity.has<FirstPersonController>()) {
+                    controller = eyeEntity.get<FirstPersonController>();
+                }
+                if (eyeEntity.has<ViewEyeOffset>()) {
+                    eyeOffset = eyeEntity.get<ViewEyeOffset>();
+                }
+                presentCam = presentationCamera(lens, controller, eyeOffset);
             }
-            if (eyeEntity.has<ViewEyeOffset>()) {
-                eyeOffset = eyeEntity.get<ViewEyeOffset>();
-            }
-            const Camera3D presentCam = presentationCamera(lens, controller, eyeOffset);
             Lens presentLens = lens;
             presentLens.camera = presentCam;
+            const Lens& worldLens = useFreeCam ? presentLens : lens;
 
             const float aspect = static_cast<float>(GetRenderWidth()) /
                 static_cast<float>(GetRenderHeight() > 0 ? GetRenderHeight() : 1);
@@ -153,7 +173,7 @@ void registerRenderSystems(flecs::world& world) {
 
             std::vector<RankedDynamicLight> rankedLights = gatherDynamicLights(
                 world,
-                lens,
+                worldLens,
                 presentLens,
                 frustum,
                 unlit,
@@ -216,12 +236,12 @@ void registerRenderSystems(flecs::world& world) {
                 skyShaderState = &ensureSkyboxShaders(*assetStore);
                 drawSkyboxBackground(presentCam, *assetStore, *skyShaderState, *skySettings);
             }
-            drawWorldModels(world, context, lens, frustum, unlit);
+            drawWorldModels(world, context, worldLens, frustum, unlit);
             if (skySettings != nullptr && assetStore != nullptr && skyShaderState != nullptr) {
                 drawSkyMaterialFaces(world, presentCam, *assetStore, *skyShaderState, *skySettings);
             }
             const std::string spriteAimStatus =
-                drawWorldTransparentPass(world, context, lens, frustum, unlit);
+                drawWorldTransparentPass(world, context, worldLens, frustum, unlit);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);
@@ -231,10 +251,9 @@ void registerRenderSystems(flecs::world& world) {
             EndMode3D();
 
             if (playing) {
-                const DebugUiState* debugUi =
-                    world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
-                const bool hideFp = debugUi != nullptr && debugUi->hideFpScene;
-                const bool hideHud = debugUi != nullptr && debugUi->hideHud;
+                const bool hideFp =
+                    (debugUiState != nullptr && debugUiState->hideFpScene) || useFreeCam;
+                const bool hideHud = debugUiState != nullptr && debugUiState->hideHud;
 
                 if (!hideFp && world.has<AssetServices>() &&
                     world.get<AssetServices>().store != nullptr) {

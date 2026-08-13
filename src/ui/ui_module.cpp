@@ -445,6 +445,8 @@ void drawMainMenuBar(
         menuItemWithIcon(
             assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
         menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
+        menuItemWithIcon(
+            assets, kIcons, "camera_go", "Free Camera", nullptr, &debugUi.freeCamera);
         menuItemWithIcon(assets, kIcons, "picture_empty", "Hide HUD", nullptr, &debugUi.hideHud);
         menuItemWithIcon(
             assets, kIcons, "user", "Hide FP View", nullptr, &debugUi.hideFpScene);

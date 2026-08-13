@@ -185,7 +185,9 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
             CharacterMotor& motor = camera.get_mut<CharacterMotor>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
-            if (!controller.allowMove) {
+            const bool freeCamera =
+                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().freeCamera;
+            if (!controller.allowMove || freeCamera) {
                 motor.wishX = 0.0f;
                 motor.wishZ = 0.0f;
                 return;

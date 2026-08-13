@@ -6,6 +6,8 @@
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
 #include "render/components.hpp"
+#include "ui/ui_state.hpp"
+#include <algorithm>
 #include <cmath>
 
 #include <raylib.h>
@@ -30,6 +32,7 @@ void registerComponents(flecs::world& world) {
     world.component<FpLightControl>();
     world.component<FirstPersonController>();
     world.component<ViewEyeOffset>();
+    world.component<FreeFlyCamera>();
 }
 
 void registerSystems(flecs::world& world) {
@@ -40,6 +43,10 @@ void registerSystems(flecs::world& world) {
             InputContextStack& contexts = it.world().get_mut<InputContextStack>();
 
             if (!contexts.allowsGameplay()) {
+                return;
+            }
+
+            if (it.world().has<DebugUiState>() && it.world().get<DebugUiState>().freeCamera) {
                 return;
             }
 
@@ -108,12 +115,92 @@ void registerSystems(flecs::world& world) {
                 lens.camera.up = {0.0f, 1.0f, 0.0f};
             }
         });
+
+    world.system("FreeFlyCameraController")
+        .kind(flecs::PreUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!world.has<DebugUiState>() || !world.has<FreeFlyCamera>()) {
+                return;
+            }
+
+            const bool wantActive = world.get<DebugUiState>().freeCamera;
+            FreeFlyCamera& fly = world.get_mut<FreeFlyCamera>();
+
+            if (!wantActive) {
+                fly.active = false;
+                return;
+            }
+
+            if (!fly.active) {
+                const flecs::entity player = world.lookup("Player");
+                if (player.is_valid() && player.has<Lens>() && player.has<FirstPersonController>()) {
+                    fly.position = player.get<Lens>().camera.position;
+                    const FirstPersonController& controller = player.get<FirstPersonController>();
+                    fly.yaw = controller.yaw;
+                    fly.pitch = controller.pitch;
+                }
+                fly.active = true;
+            }
+
+            InputContextStack& contexts = world.get_mut<InputContextStack>();
+            if (!contexts.allowsGameplay()) {
+                return;
+            }
+
+            InputState& input = world.get_mut<InputState>();
+            fly.yaw -= input.mouseDelta.x * fly.lookSensitivity;
+            fly.pitch -= input.mouseDelta.y * fly.lookSensitivity;
+            constexpr float kMaxPitch = 1.53f;
+            fly.pitch = std::clamp(fly.pitch, -kMaxPitch, kMaxPitch);
+
+            const float cosPitch = std::cos(fly.pitch);
+            const Vector3 forward = Vector3Normalize({
+                std::sin(fly.yaw) * cosPitch,
+                std::sin(fly.pitch),
+                std::cos(fly.yaw) * cosPitch,
+            });
+            const Vector3 forwardFlat = Vector3Normalize({std::sin(fly.yaw), 0.0f, std::cos(fly.yaw)});
+            const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
+
+            Vector3 move{};
+            if (input.down(Action::MoveForward)) {
+                move = Vector3Add(move, forward);
+            }
+            if (input.down(Action::MoveBackward)) {
+                move = Vector3Subtract(move, forward);
+            }
+            if (input.down(Action::MoveRight)) {
+                move = Vector3Add(move, right);
+            }
+            if (input.down(Action::MoveLeft)) {
+                move = Vector3Subtract(move, right);
+            }
+            if (input.down(Action::Jump)) {
+                move.y += 1.0f;
+            }
+            if (IsKeyDown(KEY_LEFT_CONTROL)) {
+                move.y -= 1.0f;
+            }
+
+            float speed = fly.moveSpeed;
+            if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)) {
+                speed *= fly.fastMultiplier;
+            }
+
+            if (Vector3LengthSqr(move) > 1e-8f) {
+                const float dt = GetFrameTime();
+                fly.position =
+                    Vector3Add(fly.position, Vector3Scale(Vector3Normalize(move), speed * dt));
+            }
+        });
 }
 
 }
 
 void registerCameraModule(flecs::world& world) {
     registerComponents(world);
+    world.set<FreeFlyCamera>({});
     registerSystems(world);
 }
 
