@@ -864,6 +864,73 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
 
+s7_pointer g_trail_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float sx = 0, sy = 0, sz = 0, ex = 0, ey = 0, ez = 0;
+    if (!readNumberArg(sc, args, sx, "trail-spawn", 2) ||
+        !readNumberArg(sc, args, sy, "trail-spawn", 3) ||
+        !readNumberArg(sc, args, sz, "trail-spawn", 4) ||
+        !readNumberArg(sc, args, ex, "trail-spawn", 5) ||
+        !readNumberArg(sc, args, ey, "trail-spawn", 6) ||
+        !readNumberArg(sc, args, ez, "trail-spawn", 7)) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 2, args, "sx sy sz ex ey ez numbers");
+    }
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 8, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float lifetime = 0.12f;
+    if (!readNumberArg(sc, args, lifetime, "trail-spawn", 9)) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 9, args, "lifetime number");
+    }
+
+    float width = 0.08f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        width = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasTexture(path)) {
+        TraceLog(LOG_WARNING, "trail-spawn: missing texture '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnTrail(
+        *g_thingWorld,
+        id.c_str(),
+        Vector3{sx, sy, sz},
+        Vector3{ex, ey, ez},
+        path,
+        lifetime,
+        width,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
 s7_pointer g_trail_spawn_fp(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -2921,6 +2988,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         2,
         false,
         "(trail-spawn-fp id socket path attach ex ey ez lifetime [width] [depth])");
+    s7_define_function(
+        scheme,
+        "trail-spawn",
+        g_trail_spawn,
+        9,
+        1,
+        false,
+        "(trail-spawn id sx sy sz ex ey ez path lifetime [width])");
     s7_define_function(
         scheme,
         "particle-play",
