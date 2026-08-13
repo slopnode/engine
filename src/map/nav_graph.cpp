@@ -164,6 +164,17 @@ MapNavigation buildMapNavigation(
             NavPortalLink{portal.leafA, center, costAB, portal.doorBrushId});
     }
 
+    nav.reverseAdjacency.assign(static_cast<std::size_t>(n), {});
+    for (int i = 0; i < n; ++i) {
+        for (const NavPortalLink& link : nav.adjacency[static_cast<std::size_t>(i)]) {
+            if (link.neighborLeaf < 0 || link.neighborLeaf >= n) {
+                continue;
+            }
+            nav.reverseAdjacency[static_cast<std::size_t>(link.neighborLeaf)].push_back(
+                NavPortalLink{i, link.portalCenter, link.cost, link.doorBrushId});
+        }
+    }
+
     TraceLog(
         LOG_INFO,
         "NAV: built graph leaves=%d walkable=%d portals=%d",
@@ -262,6 +273,94 @@ std::vector<int> findLeafPath(
         }
     }
 
+    return {};
+}
+
+NavFlowField buildNavFlowField(
+    const MapNavigation& nav,
+    int goalLeaf,
+    const DoorOpenQuery& isDoorOpen,
+    float maxClimb) {
+    NavFlowField field;
+    field.goalLeaf = goalLeaf;
+    field.maxClimb = maxClimb;
+    if (nav.leafCount <= 0) {
+        return field;
+    }
+    field.nextLeaf.assign(static_cast<std::size_t>(nav.leafCount), -1);
+    if (goalLeaf < 0 || goalLeaf >= nav.leafCount ||
+        !nav.walkable[static_cast<std::size_t>(goalLeaf)]) {
+        return field;
+    }
+
+    struct Node {
+        int leaf = -1;
+        float g = 0.0f;
+        bool operator>(const Node& other) const { return g > other.g; }
+    };
+
+    std::vector<float> gScore(
+        static_cast<std::size_t>(nav.leafCount), std::numeric_limits<float>::infinity());
+    gScore[static_cast<std::size_t>(goalLeaf)] = 0.0f;
+
+    std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open;
+    open.push(Node{goalLeaf, 0.0f});
+
+    while (!open.empty()) {
+        const int current = open.top().leaf;
+        open.pop();
+        const float currentG = gScore[static_cast<std::size_t>(current)];
+
+        for (const NavPortalLink& link : nav.reverseAdjacency[static_cast<std::size_t>(current)]) {
+            const int prev = link.neighborLeaf;
+            if (prev < 0 || prev >= nav.leafCount ||
+                !nav.walkable[static_cast<std::size_t>(prev)]) {
+                continue;
+            }
+            if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
+                continue;
+            }
+            const float rise = nav.leafFloorY[static_cast<std::size_t>(current)] -
+                nav.leafFloorY[static_cast<std::size_t>(prev)];
+            if (rise > maxClimb) {
+                continue;
+            }
+            const float tentative = currentG + link.cost;
+            if (tentative < gScore[static_cast<std::size_t>(prev)]) {
+                gScore[static_cast<std::size_t>(prev)] = tentative;
+                field.nextLeaf[static_cast<std::size_t>(prev)] = current;
+                open.push(Node{prev, tentative});
+            }
+        }
+    }
+
+    return field;
+}
+
+std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf) {
+    if (fromLeaf < 0 || fromLeaf >= static_cast<int>(field.nextLeaf.size())) {
+        return {};
+    }
+    if (fromLeaf == field.goalLeaf) {
+        return {fromLeaf};
+    }
+    if (field.nextLeaf[static_cast<std::size_t>(fromLeaf)] < 0) {
+        return {};
+    }
+
+    std::vector<int> path{fromLeaf};
+    int current = fromLeaf;
+    const int guard = static_cast<int>(field.nextLeaf.size()) + 1;
+    for (int step = 0; step < guard; ++step) {
+        current = field.nextLeaf[static_cast<std::size_t>(current)];
+        if (current < 0) {
+            return {};
+        }
+        path.push_back(current);
+        if (current == field.goalLeaf) {
+            return path;
+        }
+    }
     return {};
 }
 

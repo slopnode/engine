@@ -15,8 +15,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <string>
+#include <unordered_map>
 
 namespace slopengine {
 
@@ -94,6 +96,84 @@ float agentMaxClimb(const NavigationAgent& agent, const CharacterMotor& motor) {
     return agent.flyer ? std::numeric_limits<float>::infinity() : motor.stepHeight;
 }
 
+struct NavFlowFieldKey {
+    int goalLeaf = -1;
+    float maxClimb = 0.0f;
+    bool operator==(const NavFlowFieldKey& other) const {
+        return goalLeaf == other.goalLeaf && maxClimb == other.maxClimb;
+    }
+};
+
+struct NavFlowFieldKeyHash {
+    std::size_t operator()(const NavFlowFieldKey& key) const {
+        const std::size_t h1 = std::hash<int>{}(key.goalLeaf);
+        const std::size_t h2 = std::hash<float>{}(key.maxClimb);
+        return h1 ^ (h2 + 0x9e3779b9u + (h1 << 6) + (h1 >> 2));
+    }
+};
+
+struct NavFlowFieldEntry {
+    NavFlowField field;
+    float refreshTimer = 0.0f;
+    std::int64_t refreshFrame = -1;
+    std::int64_t lastUsedFrame = -1;
+};
+
+struct NavFlowFieldCache {
+    std::unordered_map<NavFlowFieldKey, NavFlowFieldEntry, NavFlowFieldKeyHash> entries;
+    std::int64_t lastSweepFrame = -1;
+};
+
+constexpr float kFlowFieldRefreshInterval = 0.25f;
+constexpr std::int64_t kFlowFieldEvictFrames = 240;
+
+const NavFlowField& getOrBuildFlowField(
+    flecs::world& world,
+    const MapNavigation& nav,
+    int goalLeaf,
+    float maxClimb) {
+    NavFlowFieldCache& cache = world.get_mut<NavFlowFieldCache>();
+    const std::int64_t currentFrame = world.get_info()->frame_count_total;
+
+    if (cache.lastSweepFrame != currentFrame) {
+        for (auto it = cache.entries.begin(); it != cache.entries.end();) {
+            if (currentFrame - it->second.lastUsedFrame > kFlowFieldEvictFrames) {
+                it = cache.entries.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        cache.lastSweepFrame = currentFrame;
+    }
+
+    const auto rebuild = [&](NavFlowFieldEntry& entry) {
+        entry.field = buildNavFlowField(
+            nav,
+            goalLeaf,
+            [&world](const std::string& doorBrushId) { return isDoorPortalOpen(world, doorBrushId); },
+            maxClimb);
+        entry.refreshTimer = kFlowFieldRefreshInterval;
+        entry.refreshFrame = currentFrame;
+    };
+
+    const NavFlowFieldKey key{goalLeaf, maxClimb};
+    auto it = cache.entries.find(key);
+    if (it == cache.entries.end()) {
+        NavFlowFieldEntry entry;
+        rebuild(entry);
+        it = cache.entries.emplace(key, std::move(entry)).first;
+    } else if (it->second.refreshFrame != currentFrame) {
+        it->second.refreshTimer -= GetFrameTime();
+        it->second.refreshFrame = currentFrame;
+        if (it->second.refreshTimer <= 0.0f) {
+            rebuild(it->second);
+        }
+    }
+
+    it->second.lastUsedFrame = currentFrame;
+    return it->second.field;
+}
+
 bool goalMovedEnough(const NavigationAgent& agent, Vector3 goalPos) {
     if (!agent.haveLastGoalPos) {
         return true;
@@ -169,12 +249,8 @@ void replanAgent(
     const Vector3 oldStuckLastPos = agent.stuckLastPos;
     const bool oldHaveStuckLastPos = agent.haveStuckLastPos;
 
-    const std::vector<int> leafPath = findLeafPath(
-        nav,
-        fromLeaf,
-        toLeaf,
-        [&world](const std::string& doorBrushId) { return isDoorPortalOpen(world, doorBrushId); },
-        maxClimb);
+    const NavFlowField& flowField = getOrBuildFlowField(world, nav, toLeaf, maxClimb);
+    const std::vector<int> leafPath = flowFieldPathFrom(flowField, fromLeaf);
     if (leafPath.empty()) {
         if (logNav) {
             TraceLog(
@@ -400,14 +476,8 @@ const char* needsReplan(
             return nullptr;
         }
         if (goalLeaf >= 0) {
-            const std::vector<int> newPath = findLeafPath(
-                nav,
-                agentLeaf,
-                goalLeaf,
-                [&world](const std::string& doorBrushId) {
-                    return isDoorPortalOpen(world, doorBrushId);
-                },
-                maxClimb);
+            const NavFlowField& flowField = getOrBuildFlowField(world, nav, goalLeaf, maxClimb);
+            const std::vector<int> newPath = flowFieldPathFrom(flowField, agentLeaf);
             if (navLeafPathRouteUnchanged(agent.leafPath, agentLeaf, newPath)) {
                 if (logNav) {
                     TraceLog(
@@ -433,6 +503,10 @@ const char* needsReplan(
 }
 
 } // namespace
+
+void resetNavFlowFieldCache(flecs::world& world) {
+    world.set<NavFlowFieldCache>({});
+}
 
 void replanNavigationAgent(flecs::world& world, flecs::entity entity) {
     if (!entity.is_valid() || !entity.has<NavigationAgent>() ||
