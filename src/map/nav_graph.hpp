@@ -34,6 +34,13 @@ struct MapNavigation {
     std::vector<float> leafFloorY;
     std::vector<float> leafCeilingY;
     std::vector<std::vector<NavPortalLink>> adjacency;
+    std::vector<std::vector<NavPortalLink>> reverseAdjacency;
+};
+
+struct NavFlowField {
+    int goalLeaf = -1;
+    float maxClimb = 0.0f;
+    std::vector<int> nextLeaf;
 };
 
 /** Builds walkable leaf adjacency from BSP portals (interior open leaves only). */
@@ -51,6 +58,14 @@ std::vector<int> findLeafPath(
     int toLeaf,
     const DoorOpenQuery& isDoorOpen = {},
     float maxClimb = std::numeric_limits<float>::infinity());
+
+NavFlowField buildNavFlowField(
+    const MapNavigation& nav,
+    int goalLeaf,
+    const DoorOpenQuery& isDoorOpen = {},
+    float maxClimb = std::numeric_limits<float>::infinity());
+
+std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf);
 
 /** Portal centers between consecutive leaves, ending at goalPos. */
 std::vector<Vector3> leafPathToWaypoints(
@@ -158,19 +173,6 @@ inline bool navWaypointCompleted(
     const float arriveRadiusSq = arriveRadius * arriveRadius;
     if (navHorizontalDistSq(agentPos, wp) <= arriveRadiusSq) {
         return true;
-    }
-
-    constexpr float kStairVertPassed = 0.25f;
-    constexpr float kStairVertAlign = 0.05f;
-    constexpr float kStairHorizScale = 1.5f;
-    if (agentPos.y >= wp.y + kStairVertPassed) {
-        return true;
-    }
-    if (agentPos.y >= wp.y - kStairVertAlign) {
-        const float relaxed = arriveRadius * kStairHorizScale;
-        if (navHorizontalDistSq(agentPos, wp) <= relaxed * relaxed) {
-            return true;
-        }
     }
 
     const int lastIndex = static_cast<int>(waypoints.size()) - 1;

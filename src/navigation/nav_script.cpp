@@ -142,7 +142,7 @@ s7_pointer g_nav_clear_goal(s7_scheme* sc, s7_pointer args) {
     agent.waypointToLeaf.clear();
     agent.waypointIndex = 0;
     agent.stuckTimer = 0.0f;
-    agent.lastWpHorizDist = -1.0f;
+    agent.haveStuckLastPos = false;
     agent.haveLastGoalPos = false;
     agent.forceReplan = false;
     return s7_t(sc);

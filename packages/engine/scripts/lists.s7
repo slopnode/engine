@@ -23,3 +23,6 @@
 
 (define (alist-set alist key val)
   (cons (cons key val) (alist-remove key alist)))
+
+(define (hash-ref table key . default)
+  (or (hash-table-ref table key) (and (pair? default) (car default))))

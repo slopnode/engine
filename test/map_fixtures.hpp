@@ -237,6 +237,31 @@ inline std::vector<Brush> sealedHollowRoomWithStairs() {
     return brushes;
 }
 
+/** A tall sealed room plus a thin decorative beam along one wall, spanning
+ *  the room's width at half its height but only a shallow depth. The beam's
+ *  own AABB overlaps the room in all three axes, so its horizontal face
+ *  plane is a valid BSP split candidate for the room's whole cell — splitting
+ *  the room at that height everywhere, not just where the beam is actually
+ *  solid. The far side of the room, well away from the beam, ends up with a
+ *  leaf whose floor is a phantom split with nothing solid beneath it —
+ *  reproducing the step navigation floor height must see through. */
+inline std::vector<Brush> tallRoomWithDistantHorizontalSplitter() {
+    Brush shell = makeBrushBox(
+        "shell",
+        {-2.0f, -0.25f, -2.0f},
+        {2.0f, 4.25f, 2.0f},
+        "mat/a",
+        {});
+    std::vector<Brush> brushes = hollowBrushBox(shell, 0.25f, idAllocator("wall-"));
+    brushes.push_back(makeBrushBox(
+        "beam",
+        {-1.75f, 2.0f, -1.75f},
+        {1.75f, 2.25f, -1.5f},
+        "mat/a",
+        {}));
+    return brushes;
+}
+
 inline int countOpenLeaves(const BspTree& tree) {
     int count = 0;
     for (const BspLeaf& leaf : tree.leaves) {

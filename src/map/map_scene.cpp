@@ -14,6 +14,7 @@
 #include "map/csg_script.hpp"
 #include "map/nav_graph.hpp"
 #include "map/graph.hpp"
+#include "navigation/nav_module.hpp"
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
@@ -274,6 +275,7 @@ bool registerMapScene(
             bspForNav.tree,
             hullAnalysis.sealed ? &hullAnalysis.exteriorEmpty : nullptr);
         world.set<MapNavigation>(std::move(mapNav));
+        resetNavFlowFieldCache(world);
     }
 
     if (world.has<PhysicsContext>()) {
