@@ -4,6 +4,7 @@
 #include "map/bsp_ray.hpp"
 #include "map/emitter_bvh.hpp"
 #include "map/light_occlusion.hpp"
+#include "map/light_probes.hpp"
 #include "map/quad_bvh.hpp"
 #include "map/radiosity_emitters.hpp"
 #include "map/radiosity_gpu.hpp"
@@ -2423,6 +2424,27 @@ RadiosityBakeResult bakeRadiosity(
         Image& image = result.atlasImages[static_cast<std::size_t>(luxel.atlasIndex)];
         const Color pixel = encodeRgbe(luxel.irradiance.r, luxel.irradiance.g, luxel.irradiance.b);
         ImageDrawPixel(&image, luxel.atlasX, luxel.atlasY, pixel);
+    }
+
+    if (tree != nullptr) {
+        logStage("baking volumetric light probes...");
+        LightProbeBakeSettings probeSettings;
+        probeSettings.cellSize = settings.probeCellSize;
+        probeSettings.fineCellSize = settings.probeFineCellSize;
+        probeSettings.sampleCount = settings.probeSampleCount;
+        const LightProbeBakeResult probes = bakeLightProbeGrids(
+            *tree,
+            sceneBvh,
+            faces,
+            result.rad,
+            result.atlasImages,
+            meta.ambient,
+            probeSettings);
+        result.rad.probeGridCoarse = probes.coarse;
+        result.rad.probeGridFine = probes.fine;
+    } else {
+        TraceLog(LOG_WARNING, "sloprad: no BSP tree; skipping volumetric light probe bake");
+        std::fflush(stdout);
     }
 
     for (auto& [path, info] : materialCache) {

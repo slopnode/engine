@@ -478,9 +478,11 @@ void drawWorldSprite(
                 billboard->position.x,
                 billboard->position.y + 0.05f,
                 billboard->position.z};
-            if (auto feet =
-                    sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            if (auto feet = sampleLightProbe(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f})) {
                 colorFeet = *feet;
+            } else if (auto feetRay =
+                           sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                colorFeet = *feetRay;
             }
 
             const Vector3 headPos{
@@ -495,8 +497,10 @@ void drawWorldSprite(
             const float headLenSq = Vector3LengthSqr(headDir);
             if (headLenSq > 1e-8f) {
                 headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
-                if (auto head = sampleMapLight(*lighting, headPos, headDir, 4.0f)) {
+                if (auto head = sampleLightProbe(*lighting, headPos, headDir)) {
                     colorHead = *head;
+                } else if (auto headRay = sampleMapLight(*lighting, headPos, headDir, 4.0f)) {
+                    colorHead = *headRay;
                 } else {
                     colorHead = colorFeet;
                 }

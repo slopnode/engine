@@ -555,6 +555,21 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
         writer.writePod(chart.groupVMax);
     }
 
+    auto writeProbeGrid = [&writer](const LightProbeGridInfo& grid) {
+        writer.writePod(grid.cellSize);
+        writer.writePod(static_cast<std::uint32_t>(grid.probes.size()));
+        for (const LightProbe& probe : grid.probes) {
+            writer.writePod(probe.cellX);
+            writer.writePod(probe.cellY);
+            writer.writePod(probe.cellZ);
+            for (const Color& term : probe.shRgbe) {
+                writer.writePod(term);
+            }
+        }
+    };
+    writeProbeGrid(rad.probeGridCoarse);
+    writeProbeGrid(rad.probeGridFine);
+
     std::filesystem::create_directories(path.parent_path());
     std::ofstream file(path, std::ios::binary);
     if (!file) {
@@ -574,7 +589,8 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
         return std::nullopt;
     }
     if (magic != kRadMagic
-        || (version != kRadVersionLegacy && version != kRadVersionPrevious && version != kRadVersion)) {
+        || (version != kRadVersionLegacy && version != kRadVersionPrevious
+            && version != kRadVersionGroups && version != kRadVersion)) {
         return std::nullopt;
     }
 
@@ -619,11 +635,39 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
             || !reader.readPod(chart.u1) || !reader.readPod(chart.v1)) {
             return std::nullopt;
         }
-        if (version >= kRadVersion) {
+        if (version >= kRadVersionGroups) {
             if (!reader.readPod(chart.groupUMin) || !reader.readPod(chart.groupUMax)
                 || !reader.readPod(chart.groupVMin) || !reader.readPod(chart.groupVMax)) {
                 return std::nullopt;
             }
+        }
+    }
+
+    if (version >= kRadVersionProbes) {
+        auto readProbeGrid = [&reader](LightProbeGridInfo& grid) -> bool {
+            if (!reader.readPod(grid.cellSize)) {
+                return false;
+            }
+            std::uint32_t probeCount = 0;
+            if (!reader.readPod(probeCount)) {
+                return false;
+            }
+            grid.probes.resize(probeCount);
+            for (LightProbe& probe : grid.probes) {
+                if (!reader.readPod(probe.cellX) || !reader.readPod(probe.cellY)
+                    || !reader.readPod(probe.cellZ)) {
+                    return false;
+                }
+                for (Color& term : probe.shRgbe) {
+                    if (!reader.readPod(term)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+        if (!readProbeGrid(rad.probeGridCoarse) || !readProbeGrid(rad.probeGridFine)) {
+            return std::nullopt;
         }
     }
     return rad;

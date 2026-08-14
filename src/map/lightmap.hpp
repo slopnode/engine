@@ -6,6 +6,7 @@
 
 #include <raylib.h>
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -16,9 +17,11 @@
 namespace slopengine {
 
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
-constexpr std::uint32_t kRadVersion = 4;
+constexpr std::uint32_t kRadVersion = 5;
 constexpr std::uint32_t kRadVersionLegacy = 2;
 constexpr std::uint32_t kRadVersionPrevious = 3;
+constexpr std::uint32_t kRadVersionGroups = 4;
+constexpr std::uint32_t kRadVersionProbes = 5;
 
 /** Atlas pixel encoding recorded in rad v3+. */
 enum class LightmapEncoding : std::uint32_t {
@@ -84,11 +87,25 @@ struct LightmapAtlasInfo {
     LightmapEncoding encoding = LightmapEncoding::Ldr;
 };
 
+struct LightProbe {
+    std::int32_t cellX = 0;
+    std::int32_t cellY = 0;
+    std::int32_t cellZ = 0;
+    std::array<Color, 4> shRgbe{};
+};
+
+struct LightProbeGridInfo {
+    float cellSize = 4.0f;
+    std::vector<LightProbe> probes;
+};
+
 /** Parsed rad/static.rad sidecar (charts + atlas metadata). */
 struct RadFile {
     float luxelsPerMeter = 16.0f;
     std::vector<LightmapAtlasInfo> atlases;
     std::vector<LightmapChart> charts;
+    LightProbeGridInfo probeGridCoarse;
+    LightProbeGridInfo probeGridFine;
 };
 
 /** Packed charts plus RGB luxel buffers before PNG write. */
