@@ -96,6 +96,24 @@ float agentMaxClimb(const NavigationAgent& agent, const CharacterMotor& motor) {
     return agent.flyer ? std::numeric_limits<float>::infinity() : motor.stepHeight;
 }
 
+float navLateralBiasForEntity(flecs::entity_t id) {
+    std::uint64_t h = static_cast<std::uint64_t>(id) * 0x9E3779B97F4A7C15ULL;
+    h ^= h >> 33;
+    h *= 0xFF51AFD7ED558CCDULL;
+    h ^= h >> 33;
+    constexpr std::uint64_t kMask = (1ull << 24) - 1;
+    const float frac = static_cast<float>(h & kMask) / static_cast<float>(kMask);
+    return frac * 2.0f - 1.0f;
+}
+
+float agentLateralBias(flecs::entity entity, NavigationAgent& agent) {
+    if (!agent.haveLateralBias) {
+        agent.lateralBias = navLateralBiasForEntity(entity.id());
+        agent.haveLateralBias = true;
+    }
+    return agent.lateralBias;
+}
+
 struct NavFlowFieldKey {
     int goalLeaf = -1;
     float maxClimb = 0.0f;
@@ -267,7 +285,7 @@ void replanAgent(
     }
 
     const std::vector<Vector3> waypoints =
-        leafPathToWaypoints(nav, leafPath, goalPos, agent.flyer);
+        leafPathToWaypoints(nav, leafPath, goalPos, agent.flyer, agentLateralBias(entity, agent));
     std::vector<int> waypointToLeaf;
     buildWaypointToLeaf(leafPath, toLeaf, waypointToLeaf);
     const int resumeIndex = findResumeWaypointIndex(

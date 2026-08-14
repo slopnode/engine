@@ -46,6 +46,37 @@ float navDist3(Vector3 a, Vector3 b) {
     return Vector3Distance(a, b);
 }
 
+struct PortalSpread {
+    Vector3 tangent{1.0f, 0.0f, 0.0f};
+    float halfWidth = 0.0f;
+};
+
+PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices) {
+    constexpr float kSpreadFraction = 0.5f;
+    constexpr float kEdgeClearance = 0.45f;
+
+    float bestDistSq = 0.0f;
+    Vector3 bestDelta{1.0f, 0.0f, 0.0f};
+    for (std::size_t a = 0; a < vertices.size(); ++a) {
+        for (std::size_t b = a + 1; b < vertices.size(); ++b) {
+            const float dx = vertices[b].x - vertices[a].x;
+            const float dz = vertices[b].z - vertices[a].z;
+            const float distSq = dx * dx + dz * dz;
+            if (distSq > bestDistSq) {
+                bestDistSq = distSq;
+                bestDelta = {dx, 0.0f, dz};
+            }
+        }
+    }
+
+    const float dist = std::sqrt(bestDistSq);
+    if (dist < 1.0e-4f) {
+        return {};
+    }
+    const float halfWidth = std::max(0.0f, dist * kSpreadFraction - kEdgeClearance);
+    return {Vector3Scale(bestDelta, 1.0f / dist), halfWidth};
+}
+
 // Walks straight down from (x, startY, z) through open leaves (via exact BSP
 // point classification, not an approximation) until it lands in solid content
 // or leaves the map, returning the Y of the last open leaf reached — i.e. the
@@ -157,11 +188,12 @@ MapNavigation buildMapNavigation(
         const Vector3& centroidA = nav.leafCentroids[static_cast<std::size_t>(portal.leafA)];
         const Vector3& centroidB = nav.leafCentroids[static_cast<std::size_t>(portal.leafB)];
         const float costAB = navDist3(centroidA, center) + navDist3(center, centroidB);
+        const PortalSpread spread = computePortalHorizontalSpread(portal.vertices);
 
         nav.adjacency[static_cast<std::size_t>(portal.leafA)].push_back(
-            NavPortalLink{portal.leafB, center, costAB, portal.doorBrushId});
+            NavPortalLink{portal.leafB, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId});
         nav.adjacency[static_cast<std::size_t>(portal.leafB)].push_back(
-            NavPortalLink{portal.leafA, center, costAB, portal.doorBrushId});
+            NavPortalLink{portal.leafA, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId});
     }
 
     nav.reverseAdjacency.assign(static_cast<std::size_t>(n), {});
@@ -171,7 +203,9 @@ MapNavigation buildMapNavigation(
                 continue;
             }
             nav.reverseAdjacency[static_cast<std::size_t>(link.neighborLeaf)].push_back(
-                NavPortalLink{i, link.portalCenter, link.cost, link.doorBrushId});
+                NavPortalLink{
+                    i, link.portalCenter, link.portalTangent, link.portalHalfWidth, link.cost,
+                    link.doorBrushId});
         }
     }
 
@@ -195,6 +229,18 @@ std::optional<Vector3> portalCenterBetween(const MapNavigation& nav, int leafA, 
         }
     }
     return std::nullopt;
+}
+
+const NavPortalLink* portalLinkBetween(const MapNavigation& nav, int leafA, int leafB) {
+    if (leafA < 0 || leafB < 0 || leafA >= nav.leafCount || leafB >= nav.leafCount) {
+        return nullptr;
+    }
+    for (const NavPortalLink& link : nav.adjacency[static_cast<std::size_t>(leafA)]) {
+        if (link.neighborLeaf == leafB) {
+            return &link;
+        }
+    }
+    return nullptr;
 }
 
 std::vector<int> findLeafPath(
@@ -368,7 +414,8 @@ std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
     Vector3 goalPos,
-    bool flyerWaypoints) {
+    bool flyerWaypoints,
+    float lateralBias) {
     if (leafPath.empty()) {
         return {};
     }
@@ -382,10 +429,15 @@ std::vector<Vector3> leafPathToWaypoints(
         const int fromLeaf = leafPath[i];
         const int toLeaf = leafPath[i + 1];
         const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];
-        const std::optional<Vector3> center = portalCenterBetween(nav, fromLeaf, toLeaf);
-        if (center.has_value()) {
-            const float wpY = flyerWaypoints ? center->y : floorY;
-            waypoints.push_back({center->x, wpY, center->z});
+        const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
+        if (link != nullptr) {
+            Vector3 point = link->portalCenter;
+            if (link->portalHalfWidth > 0.0f) {
+                point = Vector3Add(
+                    point, Vector3Scale(link->portalTangent, lateralBias * link->portalHalfWidth));
+            }
+            const float wpY = flyerWaypoints ? point.y : floorY;
+            waypoints.push_back({point.x, wpY, point.z});
         } else {
             const Vector3& fromCentroid = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
             const Vector3& toCentroid = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];
