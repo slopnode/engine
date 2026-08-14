@@ -70,6 +70,7 @@ struct ThingDef {
     float rangedRange = 24.0f;
     float rangedMinRange = 1.5f;
     float rangedCooldown = 2.0f;
+    float rangedCooldownJitter = 0.0f;
     std::string rangedAnim;
 
     bool haveLunge = false;

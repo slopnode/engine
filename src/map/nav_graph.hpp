@@ -17,6 +17,13 @@ namespace slopengine {
 struct NavPortalLink {
     int neighborLeaf = -1;
     Vector3 portalCenter{};
+    /** Unit horizontal direction along the portal's widest span; only meaningful when
+     *  portalHalfWidth > 0. */
+    Vector3 portalTangent{1.0f, 0.0f, 0.0f};
+    /** How far a waypoint may be nudged off-center along portalTangent and still clear
+     *  the portal's edges, in world units. Zero for portals too narrow to spread agents
+     *  across (doorways, thin gaps). */
+    float portalHalfWidth = 0.0f;
     float cost = 0.0f;
     /** Brush id of the Door gating this link, or empty if the link is ungated. */
     std::string doorBrushId;
@@ -67,15 +74,26 @@ NavFlowField buildNavFlowField(
 
 std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf);
 
-/** Portal centers between consecutive leaves, ending at goalPos. */
+/** Portal centers between consecutive leaves, ending at goalPos. @p lateralBias in
+ *  [-1, 1] nudges each portal-crossing waypoint off-center along that portal's
+ *  tangent (scaled by its portalHalfWidth), so agents sharing a route don't all
+ *  converge on the exact same point; 0 reproduces the plain portal center. */
 std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
     Vector3 goalPos,
-    bool flyerWaypoints = false);
+    bool flyerWaypoints = false,
+    float lateralBias = 0.0f);
 
 /** Portal center on the edge between two adjacent leaves, if linked. */
 std::optional<Vector3> portalCenterBetween(
+    const MapNavigation& nav,
+    int leafA,
+    int leafB);
+
+/** Full portal link (center, tangent, half-width) between two adjacent leaves, if linked.
+ *  Returned pointer aliases @p nav's adjacency storage. */
+const NavPortalLink* portalLinkBetween(
     const MapNavigation& nav,
     int leafA,
     int leafB);

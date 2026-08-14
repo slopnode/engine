@@ -1296,12 +1296,6 @@ s7_pointer g_actor_set_corpse(s7_scheme* sc, s7_pointer args) {
         return s7_t(sc);
     }
 
-    if (PhysicsWorld* physics = physicsWorld()) {
-        const std::uint64_t eid = static_cast<std::uint64_t>(entity.id());
-        if (physics->hasCharacter(eid)) {
-            physics->destroyCharacter(eid);
-        }
-    }
     if (entity.has<CharacterMotor>()) {
         CharacterMotor& motor = entity.get_mut<CharacterMotor>();
         motor.wishX = 0.0f;
@@ -2645,6 +2639,20 @@ s7_pointer g_thing_def_ranged_cooldown(s7_scheme* sc, s7_pointer args) {
     return s7_make_real(sc, static_cast<double>(def->rangedCooldown));
 }
 
+s7_pointer g_thing_def_ranged_jitter(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-ranged-jitter", 1, args, "type string");
+    }
+    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
+    if (def == nullptr || !def->haveRanged) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(def->rangedCooldownJitter));
+}
+
 s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -2890,6 +2898,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(thing-def-ranged-cooldown type)");
+    s7_define_function(
+        scheme,
+        "thing-def-ranged-jitter",
+        g_thing_def_ranged_jitter,
+        1,
+        0,
+        false,
+        "(thing-def-ranged-jitter type)");
     s7_define_function(
         scheme,
         "thing-def-ranged-anim",

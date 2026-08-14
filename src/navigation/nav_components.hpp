@@ -33,6 +33,8 @@ struct NavigationAgent {
     Vector3 stuckLastPos{};
     bool haveStuckLastPos = false;
     float stuckSkipTime = 0.45f;
+    float lateralBias = 0.0f;
+    bool haveLateralBias = false;
 };
 
 }

@@ -279,6 +279,8 @@ bool parseRangedClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
             def.rangedMinRange = value;
         } else if (std::strcmp(tag, "cooldown") == 0) {
             def.rangedCooldown = value;
+        } else if (std::strcmp(tag, "jitter") == 0) {
+            def.rangedCooldownJitter = value;
         } else {
             return false;
         }
