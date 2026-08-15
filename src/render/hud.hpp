@@ -37,6 +37,7 @@ void hudAnchorPoint(HudAnchor anchor, float canvasW, float canvasH, float& outX,
 enum class HudCmdKind {
     Rect,
     Image,
+    Texture,
     Text,
 };
 
@@ -52,6 +53,8 @@ struct HudCmd {
     std::string path;
     std::string text;
     std::string fontPath;
+    Texture2D rawTexture{};
+    std::string maskPath;
 };
 
 /** Deferred HUD draw commands for the current frame.

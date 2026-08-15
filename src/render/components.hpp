@@ -79,6 +79,34 @@ struct Lens {
     };
 };
 
+/** Secondary render-to-texture camera (e.g. a weapon scope), synced from the
+ *  Player's Lens each frame; @p fovy controls the zoom independently of the
+ *  main view.
+ *  @ingroup render_components
+ */
+struct ExtraEye {
+    Camera3D camera = {
+        .position = {0.0f, 0.0f, 0.0f},
+        .target = {0.0f, 0.0f, 1.0f},
+        .up = {0.0f, 1.0f, 0.0f},
+        .fovy = 20.0f,
+        .projection = CAMERA_PERSPECTIVE,
+    };
+    RenderTexture2D target = {};
+    int width = 128;
+    int height = 128;
+    float fovy = 20.0f;
+    bool active = false;
+};
+
+/** Script-controlled override to hide the first-person weapon viewmodel
+ *  (e.g. while looking through a scope).
+ *  @ingroup render_components
+ */
+struct FpViewOverride {
+    bool hideWeapon = false;
+};
+
 /** Drawable raylib model with a tint color.
  *  @ingroup render_components
  */

@@ -160,6 +160,62 @@ void flushHudDrawList(HudDrawList& list, AssetStore& assets, HudFontCache& fonts
             DrawTexturePro(texture, source, dest, Vector2{0.0f, 0.0f}, 0.0f, cmd.color);
             break;
         }
+        case HudCmdKind::Texture: {
+            if (cmd.rawTexture.id == 0) {
+                break;
+            }
+            float destW = cmd.w;
+            float destH = cmd.h;
+            if (destW <= 0.0f || destH <= 0.0f) {
+                destW = static_cast<float>(cmd.rawTexture.width);
+                destH = static_cast<float>(cmd.rawTexture.height);
+            }
+            const Rectangle source{
+                0.0f,
+                0.0f,
+                static_cast<float>(cmd.rawTexture.width),
+                -static_cast<float>(cmd.rawTexture.height),
+            };
+            const Rectangle dest{
+                fit.offsetX + cmd.x * fit.scale,
+                fit.offsetY + cmd.y * fit.scale,
+                destW * fit.scale,
+                destH * fit.scale,
+            };
+            SetTextureFilter(cmd.rawTexture, TEXTURE_FILTER_BILINEAR);
+
+            if (!cmd.maskPath.empty()) {
+                static Shader maskShader{};
+                static int maskLoc = -1;
+                static bool maskShaderAttempted = false;
+                if (!maskShaderAttempted) {
+                    maskShaderAttempted = true;
+                    if (assets.hasShader("default/scope_mask_frag") &&
+                        assets.hasShader("default/post_vert")) {
+                        const std::string vert = assets.getShaderSource("default/post_vert");
+                        const std::string frag = assets.getShaderSource("default/scope_mask_frag");
+                        if (!vert.empty() && !frag.empty()) {
+                            Shader compiled = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+                            if (IsShaderValid(compiled)) {
+                                maskShader = compiled;
+                                maskLoc = GetShaderLocation(maskShader, "maskTexture");
+                            }
+                        }
+                    }
+                }
+                const Texture2D mask = assets.getTexture(cmd.maskPath);
+                if (mask.id != 0 && IsShaderValid(maskShader) && maskLoc >= 0) {
+                    SetTextureFilter(mask, TEXTURE_FILTER_BILINEAR);
+                    BeginShaderMode(maskShader);
+                    SetShaderValueTexture(maskShader, maskLoc, mask);
+                    DrawTexturePro(cmd.rawTexture, source, dest, Vector2{0.0f, 0.0f}, 0.0f, cmd.color);
+                    EndShaderMode();
+                    break;
+                }
+            }
+            DrawTexturePro(cmd.rawTexture, source, dest, Vector2{0.0f, 0.0f}, 0.0f, cmd.color);
+            break;
+        }
         case HudCmdKind::Text: {
             Font* font = ensureHudFont(fonts, assets, cmd.fontPath);
             const Font& drawFont = font != nullptr ? *font : GetFontDefault();

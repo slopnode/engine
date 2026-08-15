@@ -92,10 +92,20 @@ void registerSystems(flecs::world& world) {
             }
 
             if (controller.allowLook) {
-                controller.yaw -= input.mouseDelta.x * controller.lookSensitivity;
+                float sensitivity = controller.lookSensitivity;
+                if (camera.has<ExtraEye>()) {
+                    const ExtraEye& extraEye = camera.get<ExtraEye>();
+                    if (extraEye.active && lens.camera.fovy > 0.0f) {
+                        const float zoomedTan = std::tan(extraEye.fovy * DEG2RAD * 0.5f);
+                        const float baseTan = std::tan(lens.camera.fovy * DEG2RAD * 0.5f);
+                        sensitivity *= zoomedTan / baseTan;
+                    }
+                }
+
+                controller.yaw -= input.mouseDelta.x * sensitivity;
 
                 if (controller.allowPitch) {
-                    controller.pitch -= input.mouseDelta.y * controller.lookSensitivity;
+                    controller.pitch -= input.mouseDelta.y * sensitivity;
 
                     constexpr float kMaxPitch = 1.4f;
                     if (controller.pitch > kMaxPitch) {

@@ -20,6 +20,7 @@
 #include "render/render_context.hpp"
 #include "render/material_anim.hpp"
 #include "render/post_process.hpp"
+#include "render/render_pass_extra_eye.hpp"
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
 #include "render/render_frustum.hpp"
@@ -59,6 +60,14 @@ void registerComponents(flecs::world& world) {
     world.component<HudDrawList>();
     world.component<HudFontCache>();
     world.component<Lens>();
+    world.component<ExtraEye>()
+        .on_remove([](flecs::iter&, size_t, ExtraEye& eye) {
+            if (eye.target.id != 0) {
+                UnloadRenderTexture(eye.target);
+            }
+            eye.target = {};
+        });
+    world.component<FpViewOverride>();
     world.component<Spin>();
     world.component<Model3D>();
     world.component<SpriteInstance>();
@@ -252,7 +261,8 @@ void registerRenderSystems(flecs::world& world) {
 
             if (playing) {
                 const bool hideFp =
-                    (debugUiState != nullptr && debugUiState->hideFpScene) || useFreeCam;
+                    (debugUiState != nullptr && debugUiState->hideFpScene) || useFreeCam ||
+                    (world.has<FpViewOverride>() && world.get<FpViewOverride>().hideWeapon);
                 const bool hideHud = debugUiState != nullptr && debugUiState->hideHud;
 
                 if (!hideFp && world.has<AssetServices>() &&
@@ -280,6 +290,8 @@ void registerRenderSystems(flecs::world& world) {
                 world.get_mut<FramePerfStats>().renderMs += perfElapsedMs(renderStart);
             }
         });
+
+    registerExtraEyeSystems(world);
 
     world.system("MenuTitleOverlay")
         .kind(flecs::PostUpdate)
@@ -372,6 +384,7 @@ void registerRenderModule(
     });
     world.set<PlayerEntity>({});
     world.set<PostProcessState>({});
+    world.set<FpViewOverride>({});
 
     registerSpinSystem(world);
     registerSchemeTickSystem(world);
