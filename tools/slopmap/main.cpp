@@ -2762,6 +2762,14 @@ int main(int argc, char* argv[]) {
                             editor.createPrimitive == slopmap::CreatePrimitive::Stairs)) {
                         editor.createPrimitive = slopmap::CreatePrimitive::Stairs;
                     }
+                    ImGui::SameLine();
+                    if (toolBtn(
+                            "prim-spiral-stairs",
+                            "arrow_rotate_clockwise",
+                            "Spiral Stairs",
+                            editor.createPrimitive == slopmap::CreatePrimitive::SpiralStairs)) {
+                        editor.createPrimitive = slopmap::CreatePrimitive::SpiralStairs;
+                    }
                     toolSep();
                     if (toolBtn(
                             "create-role",
@@ -3918,6 +3926,22 @@ int main(int argc, char* argv[]) {
                 ImGui::InputInt("##stairsteps", &editor.createStairsSteps);
                 if (editor.createStairsSteps < 1) {
                     editor.createStairsSteps = 1;
+                }
+            } else if (editor.createPrimitive == slopmap::CreatePrimitive::SpiralStairs) {
+                ImGui::TextUnformatted("Inner radius");
+                ImGui::InputFloat("##spiralinner", &editor.createSpiralInnerRadius, 0.0f, 0.0f, "%.3f");
+                if (editor.createSpiralInnerRadius < 0.0f) {
+                    editor.createSpiralInnerRadius = 0.0f;
+                }
+                ImGui::TextUnformatted("Step height");
+                ImGui::InputFloat("##spiralstepheight", &editor.createSpiralStepHeight, 0.0f, 0.0f, "%.3f");
+                if (editor.createSpiralStepHeight < editor.gridSize * 0.1f) {
+                    editor.createSpiralStepHeight = editor.gridSize * 0.1f;
+                }
+                ImGui::TextUnformatted("Sides per rotation");
+                ImGui::InputInt("##spiralsides", &editor.createSpiralSides);
+                if (editor.createSpiralSides < 3) {
+                    editor.createSpiralSides = 3;
                 }
             }
             if (ImGui::Button("Create", ImVec2(120, 0))) {

@@ -180,6 +180,32 @@ std::vector<Brush> makeBrushStairs(
     const std::string& material,
     BrushRole role);
 
+/** Wedge steps spiraling around whichever world axis @p axis is most closely
+ *  aligned to (default Y), same axis-selection rule as makeBrushCylinder.
+ *  Unlike makeBrushCylinder, the outer radius is not read independently per
+ *  ring axis (which would let a non-square footprint draw an oval): it's the
+ *  average of the AABB's two ring-axis half-extents, so callers are expected
+ *  to hand in a square footprint (the create-tool enforces this while
+ *  dragging). The ring center is the footprint's centroid; steps climb from
+ *  the AABB's axis mins to maxs, each spanning one step's own rise (not
+ *  solid down to the base, since a spiral revisits the same angle every
+ *  @p sides steps at a higher elevation). Each step advances 360/sides
+ *  degrees and keeps turning past a full revolution for as many turns as
+ *  the height needs. Step count is chosen so risers divide the drawn height
+ *  evenly, as close to @p stepHeight as an integer count allows. Empty if
+ *  sides < 3, innerRadius is negative or would meet/exceed the derived outer
+ *  radius, stepHeight <= 0, or the AABB is degenerate. */
+std::vector<Brush> makeBrushSpiralStairs(
+    const std::string& idPrefix,
+    Vector3 mins,
+    Vector3 maxs,
+    float innerRadius,
+    float stepHeight,
+    int sides,
+    const std::string& material,
+    BrushRole role,
+    Vector3 axis = {0.0f, 1.0f, 0.0f});
+
 /** Six wall slabs leaving an inner void; empty if thickness is invalid.
  *  When @p outward is false, walls grow inward inside the source AABB.
  *  When @p outward is true, the source AABB is the inner void and walls expand outside. */

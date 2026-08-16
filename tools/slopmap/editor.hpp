@@ -46,6 +46,7 @@ enum class CreatePrimitive {
     Box,
     Cylinder,
     Stairs,
+    SpiralStairs,
 };
 
 enum class PlaceTarget {
@@ -113,6 +114,9 @@ struct Editor {
     bool hollowOutward = false;
     int createCylinderSides = 16;
     int createStairsSteps = 8;
+    int createSpiralSides = 12;
+    float createSpiralInnerRadius = 0.5f;
+    float createSpiralStepHeight = 0.2f;
     EditorScene pendingScene = EditorScene::Level;
     std::string modalMapName;
     std::string modalPrefabPath;
