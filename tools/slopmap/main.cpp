@@ -473,6 +473,7 @@ void drawScene(
     const slopmap::PlaceTool& placeTool,
     const slopmap::PunchTool& punchTool,
     const slopmap::ClipTool& clipTool,
+    const slopmap::SelectTool& selectTool,
     const slopmap::InfiniteGrid& infiniteGrid,
     slopmap::ParticlePreviewState& particlePreview) {
     ClearBackground(Color{32, 34, 38, 255});
@@ -742,6 +743,16 @@ void drawScene(
             }
         }
 
+        rlDrawRenderBatchActive();
+        rlEnableDepthMask();
+        rlEnableDepthTest();
+    }
+
+    if (selectTool.active() && selectTool.snapAnchorIsVertex) {
+        rlDrawRenderBatchActive();
+        rlDisableDepthTest();
+        rlDisableDepthMask();
+        DrawSphere(selectTool.snapAnchorWorldPos(editor), 0.09f, Color{255, 90, 220, 255});
         rlDrawRenderBatchActive();
         rlEnableDepthMask();
         rlEnableDepthTest();
@@ -2250,6 +2261,7 @@ int main(int argc, char* argv[]) {
                     placeTool,
                     punchTool,
                     clipTool,
+                    selectTool,
                     infiniteGrid,
                     particlePreview);
                 EndTextureMode();
