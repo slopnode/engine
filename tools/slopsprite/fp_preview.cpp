@@ -22,6 +22,8 @@ struct HostPose {
     float pinX = 0.0f;
     float pinY = 0.0f;
     float rotationDeg = 0.0f;
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
 };
 
 ViewCanvasFit makeViewCanvasFit(int width, int height, float screenW, float screenH) {
@@ -54,6 +56,8 @@ HostPose resolveHostPose(
     }
 
     float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+    float scaleX = frame->scaleX * frame->animScaleX;
+    float scaleY = frame->scaleY * frame->animScaleY;
     float translateX = frame->translateX + frame->animTranslateX;
     float translateY = frame->translateY + frame->animTranslateY;
 
@@ -61,10 +65,16 @@ HostPose resolveHostPose(
         const auto next = slopengine::resolveViewSpriteFrame(asset, atlas, nextFrame, 0);
         if (next) {
             const float nextRotation = next->rotationDeg + next->animRotationDeg;
+            const float nextScaleX = next->scaleX * next->animScaleX;
+            const float nextScaleY = next->scaleY * next->animScaleY;
             const float nextTranslateX = next->translateX + next->animTranslateX;
             const float nextTranslateY = next->translateY + next->animTranslateY;
             if (tweenRotation) {
                 rotationDeg = rotationDeg + (nextRotation - rotationDeg) * transformBlend;
+            }
+            if (tweenScale) {
+                scaleX = scaleX + (nextScaleX - scaleX) * transformBlend;
+                scaleY = scaleY + (nextScaleY - scaleY) * transformBlend;
             }
             if (tweenTranslate) {
                 translateX = translateX + (nextTranslateX - translateX) * transformBlend;
@@ -76,6 +86,8 @@ HostPose resolveHostPose(
     pose.pinX = view.anchorX + view.offsetX + translateX;
     pose.pinY = view.anchorY + view.offsetY + translateY;
     pose.rotationDeg = view.rotationDeg + rotationDeg;
+    pose.scaleX = scaleX;
+    pose.scaleY = scaleY;
     return pose;
 }
 
@@ -83,9 +95,11 @@ Vector2 attachCanvasPoint(const HostPose& pose, float attachX, float attachY) {
     const float theta = pose.rotationDeg * (static_cast<float>(DEG2RAD));
     const float cosT = std::cos(theta);
     const float sinT = std::sin(theta);
+    const float scaledX = attachX * pose.scaleX;
+    const float scaledY = attachY * pose.scaleY;
     return {
-        pose.pinX + attachX * cosT - attachY * sinT,
-        pose.pinY + attachX * sinT + attachY * cosT,
+        pose.pinX + scaledX * cosT - scaledY * sinT,
+        pose.pinY + scaledX * sinT + scaledY * cosT,
     };
 }
 
@@ -301,8 +315,10 @@ void FpPreview::draw(
                     const float sinT = std::sin(theta);
                     const float dx = delta.x / fit.scale;
                     const float dy = delta.y / fit.scale;
-                    point->x += dx * cosT + dy * sinT;
-                    point->y += -dx * sinT + dy * cosT;
+                    const float safeScaleX = hostPose.scaleX != 0.0f ? hostPose.scaleX : 1.0f;
+                    const float safeScaleY = hostPose.scaleY != 0.0f ? hostPose.scaleY : 1.0f;
+                    point->x += (dx * cosT + dy * sinT) / safeScaleX;
+                    point->y += (-dx * sinT + dy * cosT) / safeScaleY;
                     editor.markDirty();
                 } else if (slopengine::SpriteAnimOverlay* overlay = selectedOverlayMutable(editor)) {
                     const Vector2 delta = GetMouseDelta();

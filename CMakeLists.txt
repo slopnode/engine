@@ -115,6 +115,7 @@ set(SLOPLIB_SOURCES
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_occlusion.cpp
+    src/map/light_probes.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp
     src/map/prefab.cpp
@@ -201,6 +202,7 @@ add_executable(slopengine
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
     src/render/render_pass_fp.cpp
+    src/render/render_pass_extra_eye.cpp
     src/render/post_process.cpp
     src/render/skybox_world.cpp
     src/render/render_module.cpp

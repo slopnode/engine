@@ -250,9 +250,11 @@ Color sampleReceiverTintAtOrigin(
         const MapLighting& lighting = world.get<MapLighting>();
         tint = lighting.ambient;
         if (lighting.available) {
-            if (auto sample = sampleMapLight(
-                    lighting, origin, {0.0f, -1.0f, 0.0f}, bakeMaxDistance)) {
+            if (auto sample = sampleLightProbe(lighting, origin, {0.0f, -1.0f, 0.0f})) {
                 tint = *sample;
+            } else if (auto ray = sampleMapLight(
+                           lighting, origin, {0.0f, -1.0f, 0.0f}, bakeMaxDistance)) {
+                tint = *ray;
             }
         }
     }
@@ -340,9 +342,10 @@ Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
         const MapLighting& lighting = world.get<MapLighting>();
         tint = lighting.ambient;
         if (lighting.available) {
-            if (auto sample =
-                    sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            if (auto sample = sampleLightProbe(lighting, origin, {0.0f, -1.0f, 0.0f})) {
                 tint = *sample;
+            } else if (auto ray = sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                tint = *ray;
             }
         }
     }

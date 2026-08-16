@@ -887,6 +887,80 @@ s7_pointer g_fp_set_eye_offset(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_fp_set_weapon_hidden(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr || !s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "fp-set-weapon-hidden!", 1, args, "hidden boolean");
+    }
+    if (!g_fpWorld->has<FpViewOverride>()) {
+        g_fpWorld->set<FpViewOverride>({});
+    }
+    g_fpWorld->get_mut<FpViewOverride>().hideWeapon = s7_boolean(sc, s7_car(args));
+    return s7_t(sc);
+}
+
+s7_pointer g_extra_eye_configure(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "extra-eye-configure!", 1, args, "width number");
+    }
+    const int width = static_cast<int>(s7_number_to_real(sc, s7_car(args)));
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "extra-eye-configure!", 2, rest, "height number");
+    }
+    const int height = static_cast<int>(s7_number_to_real(sc, s7_car(rest)));
+    rest = s7_cdr(rest);
+    if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "extra-eye-configure!", 3, rest, "fovy number");
+    }
+    const float fovy = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid()) {
+        return s7_f(sc);
+    }
+    if (!player.has<ExtraEye>()) {
+        ExtraEye eye{};
+        eye.width = width;
+        eye.height = height;
+        eye.fovy = fovy;
+        player.set<ExtraEye>(eye);
+    } else {
+        ExtraEye& eye = player.get_mut<ExtraEye>();
+        eye.width = width;
+        eye.height = height;
+        eye.fovy = fovy;
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_extra_eye_set_active(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr || !s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "extra-eye-set-active!", 1, args, "active boolean");
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<ExtraEye>()) {
+        TraceLog(LOG_WARNING, "SCOPE-DEBUG: extra-eye-set-active!: no ExtraEye on Player (valid=%d)",
+                 player.is_valid());
+        return s7_f(sc);
+    }
+    const bool active = s7_boolean(sc, s7_car(args));
+    player.get_mut<ExtraEye>().active = active;
+    TraceLog(LOG_INFO, "SCOPE-DEBUG: extra-eye-set-active!: set active=%d", active);
+    return s7_t(sc);
+}
+
 s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1017,6 +1091,12 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(fp-set-shading enabled)");
     s7_define_function(scheme, "fp-set-eye-offset", g_fp_set_eye_offset, 3, 0, false,
                        "(fp-set-eye-offset x y z)");
+    s7_define_function(scheme, "fp-set-weapon-hidden!", g_fp_set_weapon_hidden, 1, 0, false,
+                       "(fp-set-weapon-hidden! hidden)");
+    s7_define_function(scheme, "extra-eye-configure!", g_extra_eye_configure, 3, 0, false,
+                       "(extra-eye-configure! width height fovy)");
+    s7_define_function(scheme, "extra-eye-set-active!", g_extra_eye_set_active, 1, 0, false,
+                       "(extra-eye-set-active! active)");
     s7_define_function(scheme, "player-speed", g_player_speed, 0, 0, false, "(player-speed)");
     s7_define_function(scheme, "player-grounded?", g_player_grounded, 0, 0, false,
                        "(player-grounded?)");

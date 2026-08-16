@@ -65,6 +65,8 @@ std::optional<Vector3> resolveViewSpriteAttachmentWorld(
     }
 
     float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+    float scaleX = frame->scaleX * frame->animScaleX;
+    float scaleY = frame->scaleY * frame->animScaleY;
     float translateX = frame->translateX + frame->animTranslateX;
     float translateY = frame->translateY + frame->animTranslateY;
     float attachX = attachPoint->x;
@@ -80,12 +82,18 @@ std::optional<Vector3> resolveViewSpriteAttachmentWorld(
                 const float blend = animator.transformBlend;
                 const float nextRotation =
                     nextFrame->rotationDeg + nextFrame->animRotationDeg;
+                const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
+                const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
                 const float nextTranslateX =
                     nextFrame->translateX + nextFrame->animTranslateX;
                 const float nextTranslateY =
                     nextFrame->translateY + nextFrame->animTranslateY;
                 if (animator.tweenRotation) {
                     rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
+                }
+                if (animator.tweenScale) {
+                    scaleX = scaleX + (nextScaleX - scaleX) * blend;
+                    scaleY = scaleY + (nextScaleY - scaleY) * blend;
                 }
                 if (animator.tweenTranslate) {
                     translateX = translateX + (nextTranslateX - translateX) * blend;
@@ -100,6 +108,9 @@ std::optional<Vector3> resolveViewSpriteAttachmentWorld(
             }
         }
     }
+
+    attachX *= scaleX;
+    attachY *= scaleY;
 
     const float pinX = viewSprite.anchorX + viewSprite.offsetX + translateX;
     const float pinY = viewSprite.anchorY + viewSprite.offsetY + translateY;

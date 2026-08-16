@@ -44,6 +44,12 @@ struct RadiositySettings {
     float seamStitchRadiusLuxels = 1.5f;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
+    /** Volumetric light probe grid: coarse cell spacing covering all open space. */
+    float probeCellSize = 4.0f;
+    /** Fine probe cell spacing, populated only near geometry (walls/corners/doorways). */
+    float probeFineCellSize = 2.0f;
+    /** Sphere samples gathered per probe for the SH L1 projection. */
+    int probeSampleCount = 32;
 };
 
 /** Resolved bake parameters derived from @ref RadiositySettings::sunShadowSoftness. */

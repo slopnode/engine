@@ -15,6 +15,34 @@
 
 namespace slopengine {
 
+struct ProbeCell {
+    std::int32_t x = 0;
+    std::int32_t y = 0;
+    std::int32_t z = 0;
+
+    bool operator==(const ProbeCell& other) const {
+        return x == other.x && y == other.y && z == other.z;
+    }
+};
+
+struct ProbeCellHash {
+    std::size_t operator()(const ProbeCell& cell) const {
+        std::size_t h = std::hash<std::int32_t>{}(cell.x);
+        h ^= std::hash<std::int32_t>{}(cell.y) + 0x9e3779b9u + (h << 6) + (h >> 2);
+        h ^= std::hash<std::int32_t>{}(cell.z) + 0x9e3779b9u + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+struct ProbeSH {
+    Vector3 coeff[4]{};
+};
+
+struct ProbeGrid {
+    float cellSize = 4.0f;
+    std::unordered_map<ProbeCell, ProbeSH, ProbeCellHash> probesByCell;
+};
+
 /** Runtime baked lighting: rad charts, atlases, and surface BVH for probes. */
 struct MapLighting {
     bool available = false;
@@ -25,6 +53,8 @@ struct MapLighting {
     std::unordered_map<std::string, std::size_t> chartIndexByFaceId;
     std::vector<Image> atlasImages;
     Color ambient = {8, 8, 10, 255};
+    ProbeGrid probeGridFine;
+    ProbeGrid probeGridCoarse;
 
     MapLighting() = default;
     MapLighting(const MapLighting&) = delete;
@@ -38,7 +68,9 @@ struct MapLighting {
         , surfaceBvh(std::move(other.surfaceBvh))
         , chartIndexByFaceId(std::move(other.chartIndexByFaceId))
         , atlasImages(std::move(other.atlasImages))
-        , ambient(other.ambient) {
+        , ambient(other.ambient)
+        , probeGridFine(std::move(other.probeGridFine))
+        , probeGridCoarse(std::move(other.probeGridCoarse)) {
         other.available = false;
         other.atlasImages.clear();
     }
@@ -56,6 +88,8 @@ struct MapLighting {
         chartIndexByFaceId = std::move(other.chartIndexByFaceId);
         atlasImages = std::move(other.atlasImages);
         ambient = other.ambient;
+        probeGridFine = std::move(other.probeGridFine);
+        probeGridCoarse = std::move(other.probeGridCoarse);
         other.available = false;
         other.atlasImages.clear();
         return *this;
@@ -75,6 +109,8 @@ struct MapLighting {
         atlasImages.clear();
         probeFaces.clear();
         faceTransparentSkip.clear();
+        probeGridFine.probesByCell.clear();
+        probeGridCoarse.probesByCell.clear();
         available = false;
     }
 };
@@ -93,5 +129,11 @@ std::optional<Color> sampleMapLight(
     Vector3 origin,
     Vector3 direction,
     float maxDistance);
+
+/** Samples the volumetric probe grid at @p point, evaluated toward @p direction. */
+std::optional<Color> sampleLightProbe(
+    const MapLighting& lighting,
+    Vector3 point,
+    Vector3 direction);
 
 }

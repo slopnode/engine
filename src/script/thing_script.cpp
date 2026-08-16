@@ -288,11 +288,25 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     entity.add<WorldSpace>().add<MapOwned>().set<LocalTransformation>(local);
 
     if (isSprite) {
-        entity.set<SpriteInstance>({
+        SpriteInstance sprite{
             .sprite = path,
             .frame = "A",
             .facingYaw = facingYaw,
-        });
+        };
+        if (assets.hasSpriteAnim(path)) {
+            const SpriteAnimBank* bank = assets.getSpriteAnimBank(path);
+            if (bank != nullptr && bank->clipIndexByName.contains("fly")) {
+                SpriteAnimator animator{};
+                animator.animPath = path;
+                playSpriteAnim(animator, sprite, bank, "fly", /*shouldLoop=*/true);
+                entity.set<SpriteInstance>(sprite);
+                entity.set<SpriteAnimator>(animator);
+            } else {
+                entity.set<SpriteInstance>(sprite);
+            }
+        } else {
+            entity.set<SpriteInstance>(sprite);
+        }
     } else {
         const Model source = assets.getGeoModel(path);
         Model model = cloneGeoModelInstance(source);
