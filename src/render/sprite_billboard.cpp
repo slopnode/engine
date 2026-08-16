@@ -134,6 +134,7 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     const SpriteAsset& asset,
     const SpriteAtlas& atlas,
     const SpriteRotation& selected,
+    bool frameFullbright,
     const SpriteRotation* next,
     const SpriteAnimTween* tween,
     const GlobalTransformation& global,
@@ -248,7 +249,7 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     billboard.pixelHeight = static_cast<int>(pixelH);
     billboard.texture = &texture;
     billboard.source = source;
-    billboard.fullbright = asset.fullbright;
+    billboard.fullbright = asset.fullbright || frameFullbright;
     billboard.blend = asset.blend;
     billboard.tint = asset.tint;
 
@@ -339,6 +340,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         asset,
         atlas,
         *selected,
+        frame->fullbright,
         next,
         tween,
         global,
@@ -378,6 +380,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
         asset,
         atlas,
         *selected,
+        frame->fullbright,
         next,
         tween,
         global,
@@ -463,6 +466,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         *asset,
         *atlas,
         *selected,
+        frame->fullbright,
         next,
         tween,
         global,

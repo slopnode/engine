@@ -465,7 +465,8 @@ void drawWorldSprite(
         return;
     }
 
-    const bool useBrightmap = billboard->brightTexture != nullptr && billboard->brightTexture->id != 0;
+    const bool hasBrightMask = billboard->brightTexture != nullptr && billboard->brightTexture->id != 0;
+    const bool useBrightmap = billboard->fullbright && hasBrightMask;
     const bool forceFullbright = billboard->fullbright && !useBrightmap;
 
     Color colorFeet = WHITE;
@@ -537,11 +538,6 @@ void drawWorldSprite(
             evaluateOverlayLightsAtPoint(
                 dynamicLights, fxLights, headPoint, normal, occlusionBvh, occlusionSkip));
     }
-    if (billboard->fullbright && useBrightmap) {
-        colorFeet = WHITE;
-        colorHead = WHITE;
-    }
-
     auto multiplyTint = [](Color lit, Color tint) {
         return Color{
             static_cast<unsigned char>(

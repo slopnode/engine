@@ -295,8 +295,14 @@ void drawRotationSection(
         ImGui::TextDisabled("Angles 6–8 are mirrored from 4–2");
     }
 
+    labeledField("Frame fullbright");
+    if (ImGui::Checkbox("##framefullbright", &frame.fullbright)) {
+        editor.markDirty();
+    }
+
     const int rot = editor.doc.selectedRot;
     char hitBuf[256] = {};
+    char brightBuf[256] = {};
     bool mirror = false;
     std::string texPath;
     if (frame.rotations[rot].has_value()) {
@@ -305,6 +311,10 @@ void drawRotationSection(
         if (frame.rotations[rot]->hitMaskPath.has_value()) {
             std::snprintf(
                 hitBuf, sizeof(hitBuf), "%s", frame.rotations[rot]->hitMaskPath->c_str());
+        }
+        if (frame.rotations[rot]->brightMapPath.has_value()) {
+            std::snprintf(
+                brightBuf, sizeof(brightBuf), "%s", frame.rotations[rot]->brightMapPath->c_str());
         }
     }
 
@@ -359,6 +369,17 @@ void drawRotationSection(
             entry.hitMaskPath.reset();
         } else {
             entry.hitMaskPath = hitBuf;
+        }
+        afterRotEdit();
+    }
+
+    labeledField("Bright mask");
+    if (ImGui::InputText("##brightmask", brightBuf, sizeof(brightBuf))) {
+        slopengine::SpriteRotation& entry = ensureRot();
+        if (brightBuf[0] == '\0') {
+            entry.brightMapPath.reset();
+        } else {
+            entry.brightMapPath = brightBuf;
         }
         afterRotEdit();
     }

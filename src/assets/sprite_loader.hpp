@@ -58,6 +58,7 @@ struct SpriteAttachPoint {
 /** Named frame with up to nine Doom-style rotations. */
 struct SpriteFrame {
     std::string id;
+    bool fullbright = false;
     std::optional<SpriteRotation> rotations[kSpriteRotationCount];
     std::vector<SpriteAttachPoint> attachPoints;
 };
