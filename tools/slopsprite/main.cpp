@@ -707,6 +707,75 @@ void drawInspector(
         }
     }
 
+    if (ImGui::CollapsingHeader("Hit parts")) {
+        constexpr const char* kIcons = kDefaultIconSet;
+        static constexpr float kSuggestedHitPartColors[][3] = {
+            {80 / 255.0f, 180 / 255.0f, 255 / 255.0f},
+            {80 / 255.0f, 255 / 255.0f, 120 / 255.0f},
+            {255 / 255.0f, 80 / 255.0f, 80 / 255.0f},
+            {255 / 255.0f, 220 / 255.0f, 40 / 255.0f},
+            {220 / 255.0f, 80 / 255.0f, 255 / 255.0f},
+            {40 / 255.0f, 255 / 255.0f, 220 / 255.0f},
+        };
+        ImGui::TextDisabled("Colors in a frame's hit-mask image map to these named parts");
+        for (int pi = 0; pi < static_cast<int>(editor.doc.asset.hitParts.size()); ++pi) {
+            slopengine::SpriteHitPartDef& part =
+                editor.doc.asset.hitParts[static_cast<std::size_t>(pi)];
+            ImGui::PushID(pi + 4000);
+            float color[3] = {
+                static_cast<float>(part.r) / 255.0f,
+                static_cast<float>(part.g) / 255.0f,
+                static_cast<float>(part.b) / 255.0f,
+            };
+            if (ImGui::ColorEdit3(
+                    "##hitpartcolor", color, ImGuiColorEditFlags_NoInputs)) {
+                part.r = static_cast<unsigned char>(std::clamp(color[0], 0.0f, 1.0f) * 255.0f);
+                part.g = static_cast<unsigned char>(std::clamp(color[1], 0.0f, 1.0f) * 255.0f);
+                part.b = static_cast<unsigned char>(std::clamp(color[2], 0.0f, 1.0f) * 255.0f);
+                editor.markDirty();
+                editor.doc.atlasDirty = true;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(
+                ImGui::GetContentRegionAvail().x - iconButtonWidth() -
+                ImGui::GetStyle().ItemSpacing.x);
+            char nameBuf[64] = {};
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", part.name.c_str());
+            if (ImGui::InputTextWithHint("##hitpartname", "name", nameBuf, sizeof(nameBuf))) {
+                part.name = nameBuf;
+                editor.markDirty();
+                editor.doc.atlasDirty = true;
+            }
+            ImGui::SameLine();
+            const bool deletePart = deleteIconButton(assets, kIcons);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Delete hit part");
+            }
+            if (deletePart) {
+                editor.doc.asset.hitParts.erase(editor.doc.asset.hitParts.begin() + pi);
+                editor.markDirty();
+                editor.doc.atlasDirty = true;
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+        if (ImGui::SmallButton("Add hit part")) {
+            const std::size_t suggestCount =
+                sizeof(kSuggestedHitPartColors) / sizeof(kSuggestedHitPartColors[0]);
+            const float* suggested =
+                kSuggestedHitPartColors[editor.doc.asset.hitParts.size() % suggestCount];
+            slopengine::SpriteHitPartDef part{};
+            part.name = "part";
+            part.r = static_cast<unsigned char>(suggested[0] * 255.0f);
+            part.g = static_cast<unsigned char>(suggested[1] * 255.0f);
+            part.b = static_cast<unsigned char>(suggested[2] * 255.0f);
+            editor.doc.asset.hitParts.push_back(part);
+            editor.markDirty();
+            editor.doc.atlasDirty = true;
+        }
+    }
+
     if (editor.mode == slopsprite::PreviewMode::FirstPerson &&
         ImGui::CollapsingHeader("View defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
         float anchor[2] = {editor.doc.viewSprite.anchorX, editor.doc.viewSprite.anchorY};
@@ -1167,20 +1236,12 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 if (editor.showSpriteMasks && !editor.doc.asset.hitParts.empty()) {
-                    static constexpr ImVec4 kPartColors[] = {
-                        {80 / 255.0f, 180 / 255.0f, 255 / 255.0f, 1.0f},
-                        {80 / 255.0f, 255 / 255.0f, 120 / 255.0f, 1.0f},
-                        {255 / 255.0f, 80 / 255.0f, 80 / 255.0f, 1.0f},
-                        {255 / 255.0f, 220 / 255.0f, 40 / 255.0f, 1.0f},
-                        {220 / 255.0f, 80 / 255.0f, 255 / 255.0f, 1.0f},
-                        {40 / 255.0f, 255 / 255.0f, 220 / 255.0f, 1.0f},
-                    };
                     ImGui::Separator();
                     ImGui::TextUnformatted("Hit parts");
                     for (std::size_t i = 0; i < editor.doc.asset.hitParts.size(); ++i) {
                         const auto& part = editor.doc.asset.hitParts[i];
-                        const ImVec4 color =
-                            kPartColors[i % (sizeof(kPartColors) / sizeof(kPartColors[0]))];
+                        const ImVec4 color = ImVec4(
+                            part.r / 255.0f, part.g / 255.0f, part.b / 255.0f, 1.0f);
                         ImGui::PushID(static_cast<int>(i));
                         ImGui::ColorButton(
                             "##hitpart",
