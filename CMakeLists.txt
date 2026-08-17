@@ -348,6 +348,23 @@ else()
     target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(slopthing
+    tools/slopthing/main.cpp
+    tools/slopthing/sexpr.cpp
+    tools/slopthing/things_doc.cpp
+    tools/slopthing/editor.cpp
+    tools/slopthing/browser_panel.cpp
+    tools/slopthing/inspector_panel.cpp
+    src/ui/imgui_fonts.cpp
+)
+target_include_directories(slopthing PRIVATE tools/slopthing)
+target_link_libraries(slopthing PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopthing PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopthing PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 add_executable(slopicons tools/slopicons/main.cpp)
 target_link_libraries(slopicons PRIVATE raylib)
 if(MSVC)
