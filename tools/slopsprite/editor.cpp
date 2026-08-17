@@ -736,6 +736,7 @@ void Editor::ensureAnimBank() {
     doc.animClip = "idle";
     doc.animDirty = true;
     doc.animDuration = clipDuration(doc.animClip);
+    doc.selectedClipFrameIndex = doc.animBank.clips.back().frames.empty() ? -1 : 0;
 }
 
 void Editor::addClip(const std::string& name) {
@@ -787,10 +788,12 @@ void Editor::deleteClip(const std::string& name) {
         doc.animClip.clear();
         doc.animTime = 0.0f;
         doc.animDuration = 0.0f;
+        doc.selectedClipFrameIndex = -1;
         return;
     }
     doc.animClip = doc.animBank.clips.front().name;
     doc.animLoop = doc.animBank.clips.front().loop;
+    doc.selectedClipFrameIndex = doc.animBank.clips.front().frames.empty() ? -1 : 0;
     scrubAnim(0.0f);
 }
 
@@ -873,6 +876,7 @@ void Editor::playAnimClip(const std::string& clip, bool loop) {
     doc.animPlaying = true;
     doc.animDuration = computeClipDuration(*found);
     doc.lastPreviewSoundFrameIndex = -1;
+    doc.selectedClipFrameIndex = found->frames.empty() ? -1 : 0;
     applyAnimTime(doc, *found, 0.0f, loop);
 }
 
