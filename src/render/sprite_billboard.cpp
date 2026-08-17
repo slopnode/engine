@@ -538,6 +538,11 @@ std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
     result.animScaleY = selected->animScaleY;
     result.animTranslateX = selected->animTranslateX;
     result.animTranslateY = selected->animTranslateY;
+    result.fullbright = asset.fullbright || frame->fullbright;
+    const auto brightIt = atlas.brightTextures.find(selected->texturePath);
+    if (brightIt != atlas.brightTextures.end() && brightIt->second.id != 0) {
+        result.brightTexture = &brightIt->second;
+    }
     if (result.pixelWidth <= 0 || result.pixelHeight <= 0) {
         return std::nullopt;
     }

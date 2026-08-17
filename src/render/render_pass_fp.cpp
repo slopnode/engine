@@ -147,6 +147,40 @@ Color multiplySpriteTint(Color base, Color factor) {
     };
 }
 
+/** Same blend math as SpriteBillboardShader in render_pass_world.cpp, reused for view sprites
+ *  so a per-pixel bright mask on a weapon/view sprite renders identically to a world sprite's. */
+struct ViewSpriteBrightShader {
+    Shader shader{};
+    int albedoRectLoc = -1;
+    int atlasSizeLoc = -1;
+    int useBrightmapLoc = -1;
+    int brightMapLoc = -1;
+    bool ready = false;
+};
+
+ViewSpriteBrightShader& viewSpriteBrightShader(AssetStore& assets) {
+    static ViewSpriteBrightShader state{};
+    if (state.ready || state.shader.id != 0) {
+        return state;
+    }
+    const std::string vert = assets.getShaderSource("default/sprite_billboard_vert");
+    const std::string frag = assets.getShaderSource("default/sprite_billboard_frag");
+    if (vert.empty() || frag.empty()) {
+        return state;
+    }
+    state.shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (state.shader.id == 0) {
+        return state;
+    }
+    state.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(state.shader, "texture0");
+    state.brightMapLoc = GetShaderLocation(state.shader, "texture1");
+    state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
+    state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
+    state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.ready = true;
+    return state;
+}
+
 } // namespace
 
 void drawFirstPersonPass(
@@ -405,14 +439,51 @@ void drawViewSprites(flecs::world& world, bool unlit) {
                 asset != nullptr) {
                 tint = asset->tint;
             }
-            tint = multiplySpriteTint(tint, fpRadTint);
-            DrawTexturePro(
-                *frame->texture,
-                frame->source,
-                dest,
-                Vector2{destW * originX, destH * originY},
-                viewSprite.rotationDeg + rotationDeg,
-                tint);
+
+            const bool hasBrightMask =
+                frame->brightTexture != nullptr && frame->brightTexture->id != 0;
+            const bool useBrightmap = frame->fullbright && hasBrightMask;
+            const bool forceFullbright = frame->fullbright && !hasBrightMask;
+            if (!forceFullbright) {
+                tint = multiplySpriteTint(tint, fpRadTint);
+            }
+
+            const Vector2 origin{destW * originX, destH * originY};
+            const float drawRotation = viewSprite.rotationDeg + rotationDeg;
+
+            if (useBrightmap) {
+                ViewSpriteBrightShader& brightShader = viewSpriteBrightShader(viewAssets);
+                if (brightShader.ready) {
+                    const Vector4 albedoRect{
+                        frame->source.x, frame->source.y, frame->source.width, frame->source.height};
+                    const Vector2 atlasSize{
+                        static_cast<float>(frame->texture->width),
+                        static_cast<float>(frame->texture->height)};
+                    const int useBright = 1;
+                    BeginShaderMode(brightShader.shader);
+                    if (brightShader.albedoRectLoc >= 0) {
+                        SetShaderValue(
+                            brightShader.shader, brightShader.albedoRectLoc, &albedoRect, SHADER_UNIFORM_VEC4);
+                    }
+                    if (brightShader.atlasSizeLoc >= 0) {
+                        SetShaderValue(
+                            brightShader.shader, brightShader.atlasSizeLoc, &atlasSize, SHADER_UNIFORM_VEC2);
+                    }
+                    if (brightShader.useBrightmapLoc >= 0) {
+                        SetShaderValue(
+                            brightShader.shader, brightShader.useBrightmapLoc, &useBright, SHADER_UNIFORM_INT);
+                    }
+                    if (brightShader.brightMapLoc >= 0) {
+                        SetShaderValueTexture(
+                            brightShader.shader, brightShader.brightMapLoc, *frame->brightTexture);
+                    }
+                    DrawTexturePro(*frame->texture, frame->source, dest, origin, drawRotation, tint);
+                    EndShaderMode();
+                    return;
+                }
+            }
+
+            DrawTexturePro(*frame->texture, frame->source, dest, origin, drawRotation, tint);
         };
 
     struct ViewDrawItem {

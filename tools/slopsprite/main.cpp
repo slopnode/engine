@@ -460,22 +460,9 @@ void drawRotationSection(
 
     ImGui::TextWrapped("%s", texPath.empty() ? "(no texture)" : texPath.c_str());
     if (buttonWithIcon(assets, kIcons, "folder_page", "Pick texture", ImVec2(-1.0f, 0.0f))) {
+        textureBrowser.target = slopsprite::TextureBrowserTarget::Texture;
         textureBrowser.rescan(assets);
         textureBrowser.open = true;
-    }
-    std::string picked;
-    if (textureBrowser.drawModal(assets, picked)) {
-        ensureRot().texturePath = picked;
-        editor.rebuildAtlas(assets);
-        slopengine::SpriteRotation& entry = ensureRot();
-        if (!entry.hasOffset) {
-            const int w = std::max(1, entry.pixelWidth);
-            const int h = std::max(1, entry.pixelHeight);
-            entry.offsetX = w / 2;
-            entry.offsetY = h;
-            entry.hasOffset = true;
-        }
-        afterRotEdit();
     }
 
     if (mode == slopsprite::FrameRotationMode::Custom ||
@@ -487,26 +474,108 @@ void drawRotationSection(
         }
     }
 
-    labeledField("Hit mask");
-    if (ImGui::InputText("##hitmask", hitBuf, sizeof(hitBuf))) {
-        slopengine::SpriteRotation& entry = ensureRot();
-        if (hitBuf[0] == '\0') {
-            entry.hitMaskPath.reset();
-        } else {
-            entry.hitMaskPath = hitBuf;
+    constexpr float kMaskThumbSize = 32.0f;
+    auto drawMaskField = [&](const char* label,
+                              const char* fieldId,
+                              char* buf,
+                              std::size_t bufSize,
+                              const std::string& path,
+                              slopsprite::TextureBrowserTarget target,
+                              auto&& applyPath) {
+        ImGui::PushID(fieldId);
+        labeledField(label);
+        const Texture2D thumb = path.empty() ? Texture2D{} : assets.getTexture(path);
+        if (thumb.id != 0) {
+            rlImGuiImageSize(&thumb, static_cast<int>(kMaskThumbSize), static_cast<int>(kMaskThumbSize));
+            ImGui::SameLine();
         }
-        afterRotEdit();
-    }
+        ImGui::SetNextItemWidth(
+            ImGui::GetContentRegionAvail().x - iconButtonWidth() - ImGui::GetStyle().ItemSpacing.x);
+        if (ImGui::InputText("##path", buf, bufSize)) {
+            applyPath(std::string(buf));
+        }
+        ImGui::SameLine();
+        const bool pick =
+            slopengine::iconButton(assets, kIcons, "folder_page", ImVec2(iconButtonWidth(), 0.0f));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Pick texture");
+        }
+        if (pick) {
+            textureBrowser.target = target;
+            textureBrowser.rescan(assets);
+            textureBrowser.open = true;
+        }
+        ImGui::PopID();
+    };
 
-    labeledField("Bright mask");
-    if (ImGui::InputText("##brightmask", brightBuf, sizeof(brightBuf))) {
-        slopengine::SpriteRotation& entry = ensureRot();
-        if (brightBuf[0] == '\0') {
-            entry.brightMapPath.reset();
-        } else {
-            entry.brightMapPath = brightBuf;
+    const std::string hitMaskPath =
+        (frame.rotations[rot].has_value() && frame.rotations[rot]->hitMaskPath.has_value())
+            ? *frame.rotations[rot]->hitMaskPath
+            : std::string();
+    drawMaskField(
+        "Hit mask",
+        "hitmask",
+        hitBuf,
+        sizeof(hitBuf),
+        hitMaskPath,
+        slopsprite::TextureBrowserTarget::HitMask,
+        [&](std::string value) {
+            slopengine::SpriteRotation& entry = ensureRot();
+            if (value.empty()) {
+                entry.hitMaskPath.reset();
+            } else {
+                entry.hitMaskPath = std::move(value);
+            }
+            afterRotEdit();
+        });
+
+    const std::string brightMaskPath =
+        (frame.rotations[rot].has_value() && frame.rotations[rot]->brightMapPath.has_value())
+            ? *frame.rotations[rot]->brightMapPath
+            : std::string();
+    drawMaskField(
+        "Bright mask",
+        "brightmask",
+        brightBuf,
+        sizeof(brightBuf),
+        brightMaskPath,
+        slopsprite::TextureBrowserTarget::BrightMask,
+        [&](std::string value) {
+            slopengine::SpriteRotation& entry = ensureRot();
+            if (value.empty()) {
+                entry.brightMapPath.reset();
+            } else {
+                entry.brightMapPath = std::move(value);
+            }
+            afterRotEdit();
+        });
+
+    std::string picked;
+    if (textureBrowser.drawModal(assets, picked)) {
+        switch (textureBrowser.target) {
+            case slopsprite::TextureBrowserTarget::Texture: {
+                ensureRot().texturePath = picked;
+                editor.rebuildAtlas(assets);
+                slopengine::SpriteRotation& entry = ensureRot();
+                if (!entry.hasOffset) {
+                    const int w = std::max(1, entry.pixelWidth);
+                    const int h = std::max(1, entry.pixelHeight);
+                    entry.offsetX = w / 2;
+                    entry.offsetY = h;
+                    entry.hasOffset = true;
+                }
+                afterRotEdit();
+                break;
+            }
+            case slopsprite::TextureBrowserTarget::HitMask:
+                ensureRot().hitMaskPath = picked;
+                afterRotEdit();
+                break;
+            case slopsprite::TextureBrowserTarget::BrightMask:
+                ensureRot().brightMapPath = picked;
+                afterRotEdit();
+                break;
         }
-        afterRotEdit();
     }
 }
 
@@ -1229,7 +1298,7 @@ void drawInspector(
     sectionOpen[0] = collapsingHeaderWithIcon(
         assets, kDefaultIconSet, "picture_edit", "Rotation", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[0]) {
-        if (ImGui::BeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
             drawRotationSection(editor, assets, textureBrowser);
         }
         ImGui::EndChild();
@@ -1238,7 +1307,7 @@ void drawInspector(
     sectionOpen[1] = collapsingHeaderWithIcon(
         assets, kDefaultIconSet, "shape_handles", "Base transforms", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[1]) {
-        if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
             drawBaseTransformSection(editor, assets);
         }
         ImGui::EndChild();
@@ -1251,7 +1320,7 @@ void drawInspector(
         "Anim transforms",
         ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[2]) {
-        if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
             drawAnimFrameSection(editor, assets);
         }
         ImGui::EndChild();
@@ -1261,7 +1330,7 @@ void drawInspector(
         sectionOpen[3] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "layers", "Onion skin", ImGuiTreeNodeFlags_DefaultOpen);
         if (sectionOpen[3]) {
-            if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+            if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
                 drawOnionSection(editor, assets, onionSpritePicker);
             }
             ImGui::EndChild();
@@ -1270,7 +1339,7 @@ void drawInspector(
         sectionOpen[3] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "film", "Clip frame", ImGuiTreeNodeFlags_DefaultOpen);
         if (sectionOpen[3]) {
-            if (ImGui::BeginChild("##clipframe", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+            if (ImGui::BeginChild("##clipframe", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
                 drawClipFramePropertiesSection(editor, assets, soundBrowser);
             }
             ImGui::EndChild();
