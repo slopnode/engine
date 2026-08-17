@@ -356,6 +356,7 @@ add_executable(slopthing
     tools/slopthing/package_scan.cpp
     tools/slopthing/browser_panel.cpp
     tools/slopthing/inspector_panel.cpp
+    tools/slopthing/collider_preview.cpp
     src/ui/imgui_fonts.cpp
 )
 target_include_directories(slopthing PRIVATE tools/slopthing)

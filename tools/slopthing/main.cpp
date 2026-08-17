@@ -1,4 +1,5 @@
 #include "browser_panel.hpp"
+#include "collider_preview.hpp"
 #include "editor.hpp"
 #include "inspector_panel.hpp"
 
@@ -17,6 +18,7 @@
 #include <raylib.h>
 #include <s7.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -152,6 +154,9 @@ int main(int argc, char* argv[]) {
     editor.thingsFilePath = editor.targetRoot / "data" / "things.s7";
     editor.load();
 
+    slopthing::ColliderPreview colliderPreview;
+    RenderTexture2D colliderTarget{};
+
     bool quit = false;
     while (!quit) {
         if (WindowShouldClose()) {
@@ -173,6 +178,8 @@ int main(int argc, char* argv[]) {
         const float screenH = static_cast<float>(GetScreenHeight());
         const float bodyTop = chromeHeight;
         const float bodyHeight = screenH - chromeHeight - statusHeight;
+        const float previewWidth = std::clamp(screenW - leftWidth - 480.0f, 320.0f, 480.0f);
+        const float inspectorWidth = std::max(320.0f, screenW - leftWidth - previewWidth);
 
         if (beginMainMenuBar()) {
             constexpr const char* kIcons = kDefaultIconSet;
@@ -209,9 +216,39 @@ int main(int argc, char* argv[]) {
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(leftWidth, bodyTop));
-        ImGui::SetNextWindowSize(ImVec2(screenW - leftWidth, bodyHeight));
+        ImGui::SetNextWindowSize(ImVec2(inspectorWidth, bodyHeight));
         ImGui::Begin("Inspector", nullptr, panelFlags | ImGuiWindowFlags_NoScrollWithMouse);
         slopthing::drawInspectorPanel(editor, assets, monoFont, bodyHeight - 8.0f);
+        ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(leftWidth + inspectorWidth, bodyTop));
+        ImGui::SetNextWindowSize(ImVec2(previewWidth, bodyHeight));
+        ImGui::Begin("Collider Preview", nullptr, panelFlags);
+        {
+            slopthing::ThingEntry* sel = editor.selected();
+            if (sel == nullptr) {
+                ImGui::TextDisabled("Select a thing on the left.");
+            } else if (!slopthing::thingHasColliderPreview(sel->alist)) {
+                ImGui::TextDisabled(
+                    "Add a sprite plus a Motor or Trigger block to preview its collider here.");
+            } else {
+                ImGui::TextDisabled("RMB orbit  Wheel zoom");
+                if (slopthing::hasBlock(sel->alist, "motor")) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(1.0f, 0.67f, 0.24f, 1.0f), "  motor");
+                }
+                if (slopthing::alistHasKey(sel->alist, "trigger-size")) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.27f, 0.78f, 1.0f, 1.0f), "  trigger");
+                }
+                const ImVec2 avail = ImGui::GetContentRegionAvail();
+                slopthing::ensureRenderTexture(
+                    colliderTarget, static_cast<int>(avail.x), static_cast<int>(avail.y));
+                const bool allowInput = ImGui::IsWindowHovered();
+                colliderPreview.draw(editor, assets, colliderTarget, allowInput);
+                rlImGuiImageRenderTextureFit(&colliderTarget, true);
+            }
+        }
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(0.0f, screenH - statusHeight));
@@ -233,6 +270,9 @@ int main(int argc, char* argv[]) {
         EndDrawing();
     }
 
+    if (colliderTarget.id != 0) {
+        UnloadRenderTexture(colliderTarget);
+    }
     CloseWindow();
     return 0;
 }
