@@ -18,7 +18,6 @@ using slopengine::buttonWithIcon;
 using slopengine::drawIconImGui;
 using slopengine::iconButton;
 using slopengine::kDefaultIconSet;
-using slopengine::selectableWithIcon;
 
 float iconButtonWidth() {
     return ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x;
@@ -58,25 +57,56 @@ bool matchesFilter(const ThingEntry& t, const std::string& filter) {
     return false;
 }
 
+/**
+ * Draws a thing as a real full-width Button with the icon+label drawn
+ * left-aligned on top, matching slopmap's thing-catalog row style (a plain
+ * ImGui::Selectable renders no background at all when idle, which read as
+ * flat black next to slopmap's always-visible button background).
+ */
 void drawThingRow(Editor& editor, slopengine::AssetStore& assets, const ThingEntry& t) {
     const std::string icon = getStr(t.alist, "icon").value_or("page");
     const std::string label = getStr(t.alist, "label").value_or(t.id);
     const bool selected = editor.selectedId == t.id;
+
     ImGui::PushID(t.id.c_str());
-    // Match slopmap's thing-catalog highlight: the selected row gets the
-    // theme's button-active blue instead of the default header highlight.
     if (selected) {
-        const ImVec4 activeColor = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
-        ImGui::PushStyleColor(ImGuiCol_Header, activeColor);
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, activeColor);
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, activeColor);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        ImGui::PushStyleColor(
+            ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
     }
-    if (selectableWithIcon(assets, kDefaultIconSet, icon, label.c_str(), selected)) {
+    const bool pressed = ImGui::Button("##row", ImVec2(-1.0f, ImGui::GetFrameHeight()));
+    if (selected) {
+        ImGui::PopStyleColor(2);
+    }
+    if (pressed) {
         editor.select(t.id);
     }
-    if (selected) {
-        ImGui::PopStyleColor(3);
+
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    const float pad = ImGui::GetStyle().FramePadding.x;
+    const float iconSize = 16.0f;
+    float textX = min.x + pad;
+    const float iconY = min.y + (max.y - min.y - iconSize) * 0.5f;
+    const slopengine::IconAtlas* atlas = assets.getIconAtlas(kDefaultIconSet);
+    if (atlas != nullptr && atlas->texture.id != 0) {
+        if (const auto rect = slopengine::findIconRect(*atlas, icon)) {
+            const float tw = static_cast<float>(atlas->texture.width);
+            const float th = static_cast<float>(atlas->texture.height);
+            ImGui::GetWindowDrawList()->AddImage(
+                (ImTextureID)(intptr_t)atlas->texture.id,
+                ImVec2(textX, iconY),
+                ImVec2(textX + iconSize, iconY + iconSize),
+                ImVec2(rect->x / tw, rect->y / th),
+                ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th),
+                ImGui::GetColorU32(ImGuiCol_Text));
+            textX += iconSize + ImGui::GetStyle().ItemInnerSpacing.x;
+        }
     }
+    const float textY = min.y + (max.y - min.y - ImGui::GetTextLineHeight()) * 0.5f;
+    ImGui::GetWindowDrawList()->AddText(
+        ImVec2(textX, textY), ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
+
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("%s", t.id.c_str());
     }

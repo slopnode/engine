@@ -7,6 +7,7 @@
 #include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
+#include "map/csg_script.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/imgui_fonts.hpp"
 
@@ -142,6 +143,8 @@ int main(int argc, char* argv[]) {
 
     slopthing::Editor editor;
     editor.scheme = s7_init();
+    editor.assets = &assets;
+    slopengine::loadPackageMapHandlers(editor.scheme, assets);
     editor.targetRoot = config->target;
     if (auto meta = slopengine::loadPackageMetaFile(config->target / "package.meta")) {
         editor.targetPackageId = meta->id;

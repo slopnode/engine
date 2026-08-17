@@ -1,5 +1,7 @@
 #include "editor.hpp"
 
+#include "package_scan.hpp"
+
 #include <algorithm>
 #include <utility>
 
@@ -21,6 +23,7 @@ bool Editor::load() {
     if (!doc.things.empty()) {
         selectedId = doc.things.front().id;
     }
+    usedAccessors = assets != nullptr ? scanUsedAccessors(*assets) : std::set<std::string>{};
     setStatus("Loaded " + std::to_string(doc.things.size()) + " things");
     return true;
 }

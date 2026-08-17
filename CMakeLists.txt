@@ -353,6 +353,7 @@ add_executable(slopthing
     tools/slopthing/sexpr.cpp
     tools/slopthing/things_doc.cpp
     tools/slopthing/editor.cpp
+    tools/slopthing/package_scan.cpp
     tools/slopthing/browser_panel.cpp
     tools/slopthing/inspector_panel.cpp
     src/ui/imgui_fonts.cpp
