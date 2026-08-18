@@ -71,6 +71,7 @@ struct EditorDocument {
 
     int selectedFrameIndex = 0;
     int selectedRot = 0;
+    int selectedClipFrameIndex = -1;
     int selectedOverlayHoldIndex = -1;
     int selectedOverlayIndex = -1;
 

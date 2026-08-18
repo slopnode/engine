@@ -122,7 +122,7 @@ void drawFramesSection(Editor& editor, slopengine::AssetStore& assets) {
     }
 }
 
-void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, SoundBrowser& soundBrowser) {
+void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets) {
     constexpr const char* kIcons = slopengine::kDefaultIconSet;
 
     if (!editor.doc.open) {
@@ -202,23 +202,58 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, Sound
             clip->frames.push_back(std::move(animFrame));
             editor.doc.animDirty = true;
             editor.doc.animDuration = editor.clipDuration(editor.doc.animClip);
+            editor.doc.selectedClipFrameIndex = static_cast<int>(clip->frames.size()) - 1;
         }
     }
-    ImGui::TextDisabled("Tween out: R rot, S scale, T translate");
 
-    static int soundPickFrameIndex = -1;
+    if (editor.doc.selectedClipFrameIndex < 0 && !clip->frames.empty()) {
+        editor.doc.selectedClipFrameIndex = 0;
+    }
+
+    const float rowButtons =
+        iconButtonWidth() * 3.0f + ImGui::GetStyle().ItemSpacing.x * 3.0f;
 
     for (int i = 0; i < static_cast<int>(clip->frames.size()); ++i) {
         slopengine::SpriteAnimFrame& animFrame = clip->frames[static_cast<std::size_t>(i)];
         ImGui::PushID(i);
+        const bool selected = i == editor.doc.selectedClipFrameIndex;
+        if (selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.40f, 0.65f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.48f, 0.75f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.35f, 0.58f, 1.0f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.18f, 0.22f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.26f, 0.32f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.14f, 0.14f, 0.18f, 1.0f));
+        }
+        const float pickSize = ImGui::GetFrameHeight();
+        const ImVec2 pickPos = ImGui::GetCursorScreenPos();
+        if (ImGui::Button("##pick", ImVec2(pickSize, pickSize))) {
+            editor.doc.selectedClipFrameIndex = i;
+        }
+        ImGui::PopStyleColor(3);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Edit this clip frame's properties in the Inspector");
+        }
+        {
+            const ImVec2 iconPos{
+                pickPos.x + (pickSize - 16.0f) * 0.5f,
+                pickPos.y + (pickSize - 16.0f) * 0.5f,
+            };
+            ImGui::SetCursorScreenPos(iconPos);
+            slopengine::drawIconImGui(assets, kIcons, "images", 16.0f);
+            ImGui::SetCursorScreenPos(
+                ImVec2(pickPos.x + pickSize + ImGui::GetStyle().ItemSpacing.x, pickPos.y));
+        }
+        ImGui::SameLine(0.0f, 0.0f);
 
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f - rowButtons * 0.5f);
         char idBuf[64] = {};
         std::snprintf(idBuf, sizeof(idBuf), "%s", animFrame.id.c_str());
         if (ImGui::BeginCombo("##animframeid", idBuf)) {
             for (const slopengine::SpriteFrame& sprFrame : editor.doc.asset.frames) {
-                const bool selected = sprFrame.id == animFrame.id;
-                if (ImGui::Selectable(sprFrame.id.c_str(), selected)) {
+                const bool frameSelected = sprFrame.id == animFrame.id;
+                if (ImGui::Selectable(sprFrame.id.c_str(), frameSelected)) {
                     animFrame.id = sprFrame.id;
                     editor.doc.animDirty = true;
                 }
@@ -226,27 +261,13 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, Sound
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::SetNextItemWidth(
+            ImGui::GetContentRegionAvail().x - rowButtons - ImGui::GetStyle().ItemSpacing.x);
         int durationMs = static_cast<int>(std::lround(static_cast<double>(animFrame.duration) * 1000.0));
         if (ImGui::DragInt("##dur", &durationMs, 1.0f, 1, 60000, "%dms")) {
             animFrame.duration = static_cast<float>(durationMs) / 1000.0f;
             editor.doc.animDirty = true;
             editor.doc.animDuration = editor.clipDuration(editor.doc.animClip);
-        }
-
-        if (ImGui::Checkbox("R", &animFrame.tweenRotation)) {
-            editor.doc.animDirty = true;
-            editor.scrubAnim(editor.doc.animTime);
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("S", &animFrame.tweenScale)) {
-            editor.doc.animDirty = true;
-            editor.scrubAnim(editor.doc.animTime);
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("T", &animFrame.tweenTranslate)) {
-            editor.doc.animDirty = true;
-            editor.scrubAnim(editor.doc.animTime);
         }
         ImGui::SameLine();
         const bool moveFrameUp =
@@ -258,6 +279,11 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, Sound
             std::swap(
                 clip->frames[static_cast<std::size_t>(i)],
                 clip->frames[static_cast<std::size_t>(i - 1)]);
+            if (editor.doc.selectedClipFrameIndex == i) {
+                editor.doc.selectedClipFrameIndex = i - 1;
+            } else if (editor.doc.selectedClipFrameIndex == i - 1) {
+                editor.doc.selectedClipFrameIndex = i;
+            }
             editor.doc.animDirty = true;
         }
         ImGui::SameLine();
@@ -270,6 +296,11 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, Sound
             std::swap(
                 clip->frames[static_cast<std::size_t>(i)],
                 clip->frames[static_cast<std::size_t>(i + 1)]);
+            if (editor.doc.selectedClipFrameIndex == i) {
+                editor.doc.selectedClipFrameIndex = i + 1;
+            } else if (editor.doc.selectedClipFrameIndex == i + 1) {
+                editor.doc.selectedClipFrameIndex = i;
+            }
             editor.doc.animDirty = true;
         }
         ImGui::SameLine();
@@ -279,167 +310,15 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets, Sound
         }
         if (deleteClipFrame && clip->frames.size() > 1) {
             clip->frames.erase(clip->frames.begin() + i);
+            if (editor.doc.selectedClipFrameIndex >= static_cast<int>(clip->frames.size())) {
+                editor.doc.selectedClipFrameIndex = static_cast<int>(clip->frames.size()) - 1;
+            }
             editor.doc.animDirty = true;
             editor.doc.animDuration = editor.clipDuration(editor.doc.animClip);
             ImGui::PopID();
             break;
         }
-
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
-        char soundBuf[128] = {};
-        std::snprintf(soundBuf, sizeof(soundBuf), "%s", animFrame.sound.c_str());
-        if (ImGui::InputTextWithHint("##sound", "sound path", soundBuf, sizeof(soundBuf))) {
-            animFrame.sound = soundBuf;
-            editor.doc.animDirty = true;
-        }
-        ImGui::SameLine();
-        const bool pickSound =
-            slopengine::iconButton(assets, kIcons, "sound", ImVec2(iconButtonWidth(), 0.0f));
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Pick sound");
-        }
-        if (pickSound) {
-            soundBrowser.rescan(assets);
-            soundBrowser.filter.clear();
-            soundBrowser.open = true;
-            soundPickFrameIndex = i;
-        }
-        if (animFrame.hasSound()) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(-1.0f);
-            if (ImGui::DragFloat("##soundvol", &animFrame.soundVolume, 0.01f, 0.0f, 2.0f, "vol %.2f")) {
-                editor.doc.animDirty = true;
-            }
-        }
-
-        ImGui::SetNextItemWidth(-1.0f);
-        std::string hintsJoined;
-        for (std::size_t hi = 0; hi < animFrame.hints.size(); ++hi) {
-            if (hi > 0) {
-                hintsJoined.push_back(' ');
-            }
-            hintsJoined += animFrame.hints[hi];
-        }
-        char hintsBuf[256] = {};
-        std::snprintf(hintsBuf, sizeof(hintsBuf), "%s", hintsJoined.c_str());
-        if (ImGui::InputTextWithHint("##hints", "hints (space-separated)", hintsBuf, sizeof(hintsBuf))) {
-            animFrame.hints.clear();
-            const char* cursor = hintsBuf;
-            while (*cursor != '\0') {
-                while (*cursor == ' ' || *cursor == '\t' || *cursor == ',') {
-                    ++cursor;
-                }
-                if (*cursor == '\0') {
-                    break;
-                }
-                const char* begin = cursor;
-                while (*cursor != '\0' && *cursor != ' ' && *cursor != '\t' && *cursor != ',') {
-                    ++cursor;
-                }
-                animFrame.hints.emplace_back(begin, static_cast<std::size_t>(cursor - begin));
-            }
-            editor.doc.animDirty = true;
-        }
-
-        ImGui::TextDisabled("Overlays (layer sprite clip x y)");
-        for (int oi = 0; oi < static_cast<int>(animFrame.overlays.size()); ++oi) {
-            slopengine::SpriteAnimOverlay& overlay =
-                animFrame.overlays[static_cast<std::size_t>(oi)];
-            ImGui::PushID(oi + 1000);
-            const bool selected = editor.doc.selectedOverlayHoldIndex == i &&
-                                  editor.doc.selectedOverlayIndex == oi;
-            if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-                editor.doc.selectedAttachPointIndex = -1;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(48.0f);
-            if (ImGui::DragInt("##layer", &overlay.layer, 0.2f)) {
-                if (overlay.layer == 0) {
-                    overlay.layer = 1;
-                }
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
-            char spriteBuf[128] = {};
-            std::snprintf(spriteBuf, sizeof(spriteBuf), "%s", overlay.sprite.c_str());
-            if (ImGui::InputTextWithHint("##osprite", "sprite", spriteBuf, sizeof(spriteBuf))) {
-                overlay.sprite = spriteBuf;
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
-            char clipBuf[64] = {};
-            std::snprintf(clipBuf, sizeof(clipBuf), "%s", overlay.clip.c_str());
-            if (ImGui::InputTextWithHint("##oclip", "clip", clipBuf, sizeof(clipBuf))) {
-                overlay.clip = clipBuf;
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
-            if (ImGui::DragFloat("##ox", &overlay.x, 0.5f, 0.0f, 0.0f, "x %.1f")) {
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.7f);
-            if (ImGui::DragFloat("##oy", &overlay.y, 0.5f, 0.0f, 0.0f, "y %.1f")) {
-                editor.doc.animDirty = true;
-                editor.doc.selectedOverlayHoldIndex = i;
-                editor.doc.selectedOverlayIndex = oi;
-            }
-            ImGui::SameLine();
-            const bool deleteOverlay = deleteIconButton(assets, kIcons);
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Delete overlay");
-            }
-            if (deleteOverlay) {
-                if (editor.doc.selectedOverlayHoldIndex == i &&
-                    editor.doc.selectedOverlayIndex == oi) {
-                    editor.doc.selectedOverlayHoldIndex = -1;
-                    editor.doc.selectedOverlayIndex = -1;
-                }
-                animFrame.overlays.erase(animFrame.overlays.begin() + oi);
-                editor.doc.animDirty = true;
-                ImGui::PopID();
-                break;
-            }
-            ImGui::PopID();
-        }
-        if (ImGui::SmallButton("Add overlay")) {
-            slopengine::SpriteAnimOverlay overlay{};
-            overlay.layer = 1;
-            animFrame.overlays.push_back(std::move(overlay));
-            editor.doc.selectedOverlayHoldIndex = i;
-            editor.doc.selectedOverlayIndex = static_cast<int>(animFrame.overlays.size()) - 1;
-            editor.doc.animDirty = true;
-        }
-
-        ImGui::Separator();
         ImGui::PopID();
-    }
-
-    if (soundBrowser.open) {
-        std::string picked;
-        if (soundBrowser.drawModal(assets, picked)) {
-            if (soundPickFrameIndex >= 0 &&
-                soundPickFrameIndex < static_cast<int>(clip->frames.size())) {
-                clip->frames[static_cast<std::size_t>(soundPickFrameIndex)].sound = std::move(picked);
-                editor.doc.animDirty = true;
-            }
-            soundPickFrameIndex = -1;
-        }
-        if (!soundBrowser.open) {
-            soundPickFrameIndex = -1;
-        }
     }
 }
 
@@ -484,7 +363,7 @@ void SpriteBrowser::rescan(const slopengine::AssetStore& assets) {
     });
 }
 
-void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets, SoundBrowser& soundBrowser) {
+void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
     constexpr const char* kIcons = slopengine::kDefaultIconSet;
 
     ImGui::TextUnformatted("Sprites");
@@ -537,7 +416,7 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets, SoundBr
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Clips")) {
-                drawClipFramesSection(editor, assets, soundBrowser);
+                drawClipFramesSection(editor, assets);
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

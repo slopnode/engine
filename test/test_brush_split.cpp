@@ -178,6 +178,54 @@ void runBrushSplitTests() {
     }
 
     {
+        // 2x2 footprint (square, per makeBrushSpiralStairs' contract), 4 units
+        // tall, 0.5 step height -> 8 steps, 8 sides -> exactly one full turn.
+        std::vector<Brush> spiral = makeBrushSpiralStairs(
+            "spiral",
+            {-1.0f, 0.0f, -1.0f},
+            {1.0f, 4.0f, 1.0f},
+            0.25f,
+            0.5f,
+            8,
+            "mat/a",
+            BrushRole::Detail);
+        CHECK_EQ(spiral.size(), std::size_t{8});
+        for (const Brush& step : spiral) {
+            CHECK(!validateBrushConvex(step).has_value());
+        }
+        CHECK(spiral.back().maxs.y <= 4.0f + 1e-3f);
+        CHECK(spiral.front().mins.y >= 0.0f - 1e-3f);
+
+        // No inner radius: steps should still be valid (triangular bottom/top
+        // instead of the trapezoid quad, no degenerate inner face).
+        std::vector<Brush> solidCore = makeBrushSpiralStairs(
+            "core",
+            {-1.0f, 0.0f, -1.0f},
+            {1.0f, 4.0f, 1.0f},
+            0.0f,
+            0.5f,
+            8,
+            "mat/a",
+            BrushRole::Detail);
+        CHECK_EQ(solidCore.size(), std::size_t{8});
+        for (const Brush& step : solidCore) {
+            CHECK(!validateBrushConvex(step).has_value());
+        }
+
+        // Inner radius at/past the footprint's derived outer radius is invalid.
+        std::vector<Brush> badInner = makeBrushSpiralStairs(
+            "bad",
+            {-1.0f, 0.0f, -1.0f},
+            {1.0f, 4.0f, 1.0f},
+            1.0f,
+            0.5f,
+            8,
+            "mat/a",
+            BrushRole::Detail);
+        CHECK(badInner.empty());
+    }
+
+    {
         std::vector<BrushFace> faces;
         BrushFace a{};
         a.vertices = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.5f, 0.0f, 1.0f}};

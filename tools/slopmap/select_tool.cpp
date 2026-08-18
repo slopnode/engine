@@ -33,6 +33,53 @@ bool vertsNear(Vector3 a, Vector3 b, float epsilon = kWeldEpsilon) {
         std::fabs(a.z - b.z) <= epsilon;
 }
 
+Vector3 vertRefPosition(const EditorDocument& d, VertRef ref) {
+    if (!ref.valid() || ref.brush >= static_cast<int>(d.brushes.size())) {
+        return {};
+    }
+    const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(ref.brush)];
+    if (ref.face >= static_cast<int>(brush.faces.size())) {
+        return {};
+    }
+    const auto& verts = brush.faces[static_cast<std::size_t>(ref.face)].vertices;
+    if (ref.vert < 0 || ref.vert >= static_cast<int>(verts.size())) {
+        return {};
+    }
+    return verts[static_cast<std::size_t>(ref.vert)];
+}
+
+// Finds the vertex of the selected brushes nearest (in screen space) to the mouse, so a
+// translate/rotate can anchor on an actual corner instead of the selection's bounding-box
+// center -- otherwise irregular brushes have no way to land their vertices on the grid.
+std::optional<VertRef> nearestSelectedVertexToScreen(
+    const EditorDocument& d,
+    const Camera3D& camera,
+    Rectangle viewport,
+    Vector2 screenPoint) {
+    std::optional<VertRef> best;
+    float bestDistSq = std::numeric_limits<float>::max();
+    for (int index : d.selectedBrushes) {
+        if (index < 0 || index >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        const slopengine::Brush& brush = d.brushes[static_cast<std::size_t>(index)];
+        for (std::size_t f = 0; f < brush.faces.size(); ++f) {
+            const auto& verts = brush.faces[f].vertices;
+            for (std::size_t v = 0; v < verts.size(); ++v) {
+                const Vector2 screen = worldToViewportScreen(verts[v], camera, viewport);
+                const float dx = screen.x - screenPoint.x;
+                const float dy = screen.y - screenPoint.y;
+                const float distSq = dx * dx + dy * dy;
+                if (distSq < bestDistSq) {
+                    bestDistSq = distSq;
+                    best = VertRef{index, static_cast<int>(f), static_cast<int>(v)};
+                }
+            }
+        }
+    }
+    return best;
+}
+
 float facePixelsPerMeter(slopengine::AssetStore& assets, std::string_view materialPath) {
     const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialPath);
     if (asset != nullptr && asset->pixelsPerMeter > 0.0f) {
@@ -1155,6 +1202,7 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
     entityAnglesSnapshots.clear();
     entityHaveAnglesSnapshots.clear();
     entitySnapshotRefs.clear();
+    snapAnchorIsVertex = false;
 
     if (d.selectionMode == SelectionMode::Entity) {
         if (d.selectedEntities.empty()) {
@@ -1269,7 +1317,13 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
             translating = false;
             return;
         }
-        translateOrigin = editor.selectionCenter();
+        if (const auto picked = nearestSelectedVertexToScreen(
+                d, camera, editor.contentViewport, GetMousePosition())) {
+            translateOrigin = vertRefPosition(d, *picked);
+            snapAnchorIsVertex = true;
+        } else {
+            translateOrigin = editor.selectionCenter();
+        }
     } else {
         return;
     }
@@ -1437,6 +1491,7 @@ void SelectTool::confirmTranslate(Editor& editor, slopengine::AssetStore& assets
     }
     translating = false;
     axisLock = TranslateAxis::None;
+    snapAnchorIsVertex = false;
     numericActive = false;
     editor.numericBuffer.clear();
     brushSnapshot.clear();
@@ -1463,6 +1518,7 @@ void SelectTool::cancelTranslate(Editor& editor) {
     }
     translating = false;
     axisLock = TranslateAxis::None;
+    snapAnchorIsVertex = false;
     numericActive = false;
     editor.numericBuffer.clear();
     brushSnapshot.clear();
@@ -1476,6 +1532,17 @@ void SelectTool::cancelTranslate(Editor& editor) {
 
 bool SelectTool::numericLocked(const Editor& editor) const {
     return bufferHasDigit(editor.numericBuffer);
+}
+
+Vector3 SelectTool::snapAnchorWorldPos(const Editor& editor) const {
+    if (rotating) {
+        // The pivot never moves during a rotate; the anchor vertex stays put by definition.
+        return rotateOrigin;
+    }
+    if (translating) {
+        return add3(translateOrigin, currentTranslateDelta(editor, *this));
+    }
+    return translateOrigin;
 }
 
 void SelectTool::handleNumeric(
@@ -2427,6 +2494,7 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
     entitySnapshotRefs.clear();
     rotateAngle = 0.0f;
     rotateAxisLock = TranslateAxis::Y;
+    snapAnchorIsVertex = false;
 
     if (d.selectionMode == SelectionMode::Entity) {
         if (d.selectedEntities.empty()) {
@@ -2478,7 +2546,17 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
     numericActive = false;
     editor.numericBuffer.clear();
     editor.prepareEdit();
-    rotateOrigin = editor.selectionCenter();
+    if (d.selectionMode == SelectionMode::Brush) {
+        if (const auto picked = nearestSelectedVertexToScreen(
+                d, camera, editor.contentViewport, GetMousePosition())) {
+            rotateOrigin = vertRefPosition(d, *picked);
+            snapAnchorIsVertex = true;
+        } else {
+            rotateOrigin = editor.selectionCenter();
+        }
+    } else {
+        rotateOrigin = editor.selectionCenter();
+    }
     const Vector2 grabScreen = GetMousePosition();
     beginToolMouseCapture(editor, grabScreen);
     mouseGrabScreen = toolMouseScreen(editor);
@@ -2578,6 +2656,7 @@ void SelectTool::confirmRotate(Editor& editor, slopengine::AssetStore& assets) {
     rotating = false;
     rotateAxisLock = TranslateAxis::Y;
     rotateAngle = 0.0f;
+    snapAnchorIsVertex = false;
     numericActive = false;
     editor.numericBuffer.clear();
     brushSnapshot.clear();
@@ -2608,6 +2687,7 @@ void SelectTool::cancelRotate(Editor& editor) {
     rotating = false;
     rotateAxisLock = TranslateAxis::Y;
     rotateAngle = 0.0f;
+    snapAnchorIsVertex = false;
     numericActive = false;
     editor.numericBuffer.clear();
     brushSnapshot.clear();

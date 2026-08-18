@@ -148,6 +148,127 @@ bool deleteIconButton(slopengine::AssetStore& assets, const char* kIcons) {
     return pressed;
 }
 
+void addDashedLine(
+    ImDrawList* drawList, ImVec2 p0, ImVec2 p1, ImU32 color, float thickness) {
+    constexpr float kDashLen = 4.0f;
+    constexpr float kGapLen = 3.0f;
+    const float length = p1.x - p0.x;
+    float drawn = 0.0f;
+    bool dash = true;
+    while (drawn < length) {
+        const float seg = std::min(dash ? kDashLen : kGapLen, length - drawn);
+        if (dash) {
+            drawList->AddLine(
+                ImVec2(p0.x + drawn, p0.y), ImVec2(p0.x + drawn + seg, p0.y), color, thickness);
+        }
+        drawn += seg;
+        dash = !dash;
+    }
+}
+
+/** Piano-roll-style Translate/Rotate/Scale tween tracks for the current clip. */
+void drawTweenTracks(slopsprite::Editor& editor, const slopengine::SpriteAnimClip& clip) {
+    if (clip.frames.empty()) {
+        return;
+    }
+
+    constexpr float kLabelWidth = 16.0f;
+    constexpr float kRowHeight = 14.0f;
+    constexpr float kRowGap = 3.0f;
+    constexpr int kTrackCount = 3;
+    struct TrackDef {
+        const char* label;
+        ImU32 color;
+    };
+    static constexpr TrackDef kTracks[kTrackCount] = {
+        {"T", IM_COL32(90, 170, 255, 255)},
+        {"R", IM_COL32(255, 170, 60, 255)},
+        {"S", IM_COL32(120, 220, 120, 255)},
+    };
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float trackX0 = origin.x + kLabelWidth;
+    const float trackWidth = std::max(20.0f, ImGui::GetContentRegionAvail().x - kLabelWidth);
+    const float totalHeight = kRowHeight * kTrackCount + kRowGap * (kTrackCount - 1);
+
+    std::vector<float> startMs(clip.frames.size() + 1, 0.0f);
+    for (std::size_t i = 0; i < clip.frames.size(); ++i) {
+        startMs[i + 1] = startMs[i] + clip.frames[i].duration * 1000.0f;
+    }
+    const float clipDurMs = std::max(startMs.back(), 1.0f);
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+    if (editor.doc.selectedClipFrameIndex >= 0 &&
+        editor.doc.selectedClipFrameIndex < static_cast<int>(clip.frames.size())) {
+        const std::size_t si = static_cast<std::size_t>(editor.doc.selectedClipFrameIndex);
+        const float sx0 = trackX0 + (startMs[si] / clipDurMs) * trackWidth;
+        const float sx1 = trackX0 + (startMs[si + 1] / clipDurMs) * trackWidth;
+        drawList->AddRectFilled(
+            ImVec2(sx0, origin.y),
+            ImVec2(sx1, origin.y + totalHeight),
+            IM_COL32(255, 255, 255, 30));
+    }
+
+    for (int t = 0; t < kTrackCount; ++t) {
+        const float rowY0 = origin.y + static_cast<float>(t) * (kRowHeight + kRowGap);
+        const float rowY1 = rowY0 + kRowHeight;
+        const float midY = (rowY0 + rowY1) * 0.5f;
+        drawList->AddText(
+            ImVec2(origin.x, rowY0 + 1.0f), IM_COL32(170, 170, 178, 255), kTracks[t].label);
+        for (std::size_t i = 0; i < clip.frames.size(); ++i) {
+            const float x0 = trackX0 + (startMs[i] / clipDurMs) * trackWidth;
+            const float x1 = trackX0 + (startMs[i + 1] / clipDurMs) * trackWidth;
+            const bool on = t == 0 ? clip.frames[i].tweenTranslate
+                : t == 1              ? clip.frames[i].tweenRotation
+                                       : clip.frames[i].tweenScale;
+            if (on) {
+                drawList->AddLine(
+                    ImVec2(x0 + 1.0f, midY), ImVec2(x1 - 1.0f, midY), kTracks[t].color, 3.0f);
+            } else {
+                addDashedLine(
+                    drawList,
+                    ImVec2(x0 + 1.0f, midY),
+                    ImVec2(x1 - 1.0f, midY),
+                    IM_COL32(90, 90, 98, 255),
+                    1.5f);
+            }
+            drawList->AddLine(
+                ImVec2(x0, rowY0), ImVec2(x0, rowY1), IM_COL32(55, 55, 60, 255), 1.0f);
+        }
+
+        constexpr float kKeyframeRadius = 3.0f;
+        for (std::size_t j = 0; j <= clip.frames.size(); ++j) {
+            const float x = trackX0 + (startMs[j] / clipDurMs) * trackWidth;
+            drawList->AddCircleFilled(ImVec2(x, midY), kKeyframeRadius, IM_COL32(22, 22, 26, 255), 8);
+            drawList->AddCircle(
+                ImVec2(x, midY), kKeyframeRadius, IM_COL32(232, 232, 236, 255), 8, 1.3f);
+        }
+    }
+    const float trackXEnd = trackX0 + trackWidth;
+    drawList->AddLine(
+        ImVec2(trackXEnd, origin.y),
+        ImVec2(trackXEnd, origin.y + totalHeight),
+        IM_COL32(55, 55, 60, 255),
+        1.0f);
+
+    const float playFrac = std::clamp(editor.doc.animTime * 1000.0f / clipDurMs, 0.0f, 1.0f);
+    const float playX = trackX0 + playFrac * trackWidth;
+    drawList->AddLine(
+        ImVec2(playX, origin.y),
+        ImVec2(playX, origin.y + totalHeight),
+        IM_COL32(255, 255, 255, 220),
+        1.5f);
+
+    ImGui::InvisibleButton("##tweentracks", ImVec2(trackWidth + kLabelWidth, totalHeight));
+    if (ImGui::IsItemActive()) {
+        const float mouseX = ImGui::GetIO().MousePos.x;
+        const float frac = std::clamp((mouseX - trackX0) / trackWidth, 0.0f, 1.0f);
+        editor.doc.animPlaying = false;
+        editor.scrubAnim(frac * clipDurMs / 1000.0f);
+    }
+}
+
 void drawAnimBar(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("No sprite open");
@@ -219,6 +340,10 @@ void drawAnimBar(slopsprite::Editor& editor, slopengine::AssetStore& assets) {
     }
     ImGui::SameLine();
     ImGui::Text("%s%s", editor.doc.currentFrame.c_str(), editor.doc.animDirty ? "*" : "");
+
+    if (const slopengine::SpriteAnimClip* clip = editor.currentAnimClip()) {
+        drawTweenTracks(editor, *clip);
+    }
 }
 
 void drawRotationSection(
@@ -295,8 +420,14 @@ void drawRotationSection(
         ImGui::TextDisabled("Angles 6–8 are mirrored from 4–2");
     }
 
+    labeledField("Frame fullbright");
+    if (ImGui::Checkbox("##framefullbright", &frame.fullbright)) {
+        editor.markDirty();
+    }
+
     const int rot = editor.doc.selectedRot;
     char hitBuf[256] = {};
+    char brightBuf[256] = {};
     bool mirror = false;
     std::string texPath;
     if (frame.rotations[rot].has_value()) {
@@ -305,6 +436,10 @@ void drawRotationSection(
         if (frame.rotations[rot]->hitMaskPath.has_value()) {
             std::snprintf(
                 hitBuf, sizeof(hitBuf), "%s", frame.rotations[rot]->hitMaskPath->c_str());
+        }
+        if (frame.rotations[rot]->brightMapPath.has_value()) {
+            std::snprintf(
+                brightBuf, sizeof(brightBuf), "%s", frame.rotations[rot]->brightMapPath->c_str());
         }
     }
 
@@ -325,22 +460,9 @@ void drawRotationSection(
 
     ImGui::TextWrapped("%s", texPath.empty() ? "(no texture)" : texPath.c_str());
     if (buttonWithIcon(assets, kIcons, "folder_page", "Pick texture", ImVec2(-1.0f, 0.0f))) {
+        textureBrowser.target = slopsprite::TextureBrowserTarget::Texture;
         textureBrowser.rescan(assets);
         textureBrowser.open = true;
-    }
-    std::string picked;
-    if (textureBrowser.drawModal(assets, picked)) {
-        ensureRot().texturePath = picked;
-        editor.rebuildAtlas(assets);
-        slopengine::SpriteRotation& entry = ensureRot();
-        if (!entry.hasOffset) {
-            const int w = std::max(1, entry.pixelWidth);
-            const int h = std::max(1, entry.pixelHeight);
-            entry.offsetX = w / 2;
-            entry.offsetY = h;
-            entry.hasOffset = true;
-        }
-        afterRotEdit();
     }
 
     if (mode == slopsprite::FrameRotationMode::Custom ||
@@ -352,15 +474,108 @@ void drawRotationSection(
         }
     }
 
-    labeledField("Hit mask");
-    if (ImGui::InputText("##hitmask", hitBuf, sizeof(hitBuf))) {
-        slopengine::SpriteRotation& entry = ensureRot();
-        if (hitBuf[0] == '\0') {
-            entry.hitMaskPath.reset();
-        } else {
-            entry.hitMaskPath = hitBuf;
+    constexpr float kMaskThumbSize = 32.0f;
+    auto drawMaskField = [&](const char* label,
+                              const char* fieldId,
+                              char* buf,
+                              std::size_t bufSize,
+                              const std::string& path,
+                              slopsprite::TextureBrowserTarget target,
+                              auto&& applyPath) {
+        ImGui::PushID(fieldId);
+        labeledField(label);
+        const Texture2D thumb = path.empty() ? Texture2D{} : assets.getTexture(path);
+        if (thumb.id != 0) {
+            rlImGuiImageSize(&thumb, static_cast<int>(kMaskThumbSize), static_cast<int>(kMaskThumbSize));
+            ImGui::SameLine();
         }
-        afterRotEdit();
+        ImGui::SetNextItemWidth(
+            ImGui::GetContentRegionAvail().x - iconButtonWidth() - ImGui::GetStyle().ItemSpacing.x);
+        if (ImGui::InputText("##path", buf, bufSize)) {
+            applyPath(std::string(buf));
+        }
+        ImGui::SameLine();
+        const bool pick =
+            slopengine::iconButton(assets, kIcons, "folder_page", ImVec2(iconButtonWidth(), 0.0f));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Pick texture");
+        }
+        if (pick) {
+            textureBrowser.target = target;
+            textureBrowser.rescan(assets);
+            textureBrowser.open = true;
+        }
+        ImGui::PopID();
+    };
+
+    const std::string hitMaskPath =
+        (frame.rotations[rot].has_value() && frame.rotations[rot]->hitMaskPath.has_value())
+            ? *frame.rotations[rot]->hitMaskPath
+            : std::string();
+    drawMaskField(
+        "Hit mask",
+        "hitmask",
+        hitBuf,
+        sizeof(hitBuf),
+        hitMaskPath,
+        slopsprite::TextureBrowserTarget::HitMask,
+        [&](std::string value) {
+            slopengine::SpriteRotation& entry = ensureRot();
+            if (value.empty()) {
+                entry.hitMaskPath.reset();
+            } else {
+                entry.hitMaskPath = std::move(value);
+            }
+            afterRotEdit();
+        });
+
+    const std::string brightMaskPath =
+        (frame.rotations[rot].has_value() && frame.rotations[rot]->brightMapPath.has_value())
+            ? *frame.rotations[rot]->brightMapPath
+            : std::string();
+    drawMaskField(
+        "Bright mask",
+        "brightmask",
+        brightBuf,
+        sizeof(brightBuf),
+        brightMaskPath,
+        slopsprite::TextureBrowserTarget::BrightMask,
+        [&](std::string value) {
+            slopengine::SpriteRotation& entry = ensureRot();
+            if (value.empty()) {
+                entry.brightMapPath.reset();
+            } else {
+                entry.brightMapPath = std::move(value);
+            }
+            afterRotEdit();
+        });
+
+    std::string picked;
+    if (textureBrowser.drawModal(assets, picked)) {
+        switch (textureBrowser.target) {
+            case slopsprite::TextureBrowserTarget::Texture: {
+                ensureRot().texturePath = picked;
+                editor.rebuildAtlas(assets);
+                slopengine::SpriteRotation& entry = ensureRot();
+                if (!entry.hasOffset) {
+                    const int w = std::max(1, entry.pixelWidth);
+                    const int h = std::max(1, entry.pixelHeight);
+                    entry.offsetX = w / 2;
+                    entry.offsetY = h;
+                    entry.hasOffset = true;
+                }
+                afterRotEdit();
+                break;
+            }
+            case slopsprite::TextureBrowserTarget::HitMask:
+                ensureRot().hitMaskPath = picked;
+                afterRotEdit();
+                break;
+            case slopsprite::TextureBrowserTarget::BrightMask:
+                ensureRot().brightMapPath = picked;
+                afterRotEdit();
+                break;
+        }
     }
 }
 
@@ -602,11 +817,195 @@ void drawOnionSection(
     ImGui::DragFloat("##alignzoom", &editor.doc.alignZoom, 0.05f, 0.25f, 16.0f, "%.2f");
 }
 
+void drawClipFramePropertiesSection(
+    slopsprite::Editor& editor,
+    slopengine::AssetStore& assets,
+    slopsprite::SoundBrowser& soundBrowser) {
+    constexpr const char* kIcons = kDefaultIconSet;
+
+    slopengine::SpriteAnimClip* clip = editor.currentAnimClip();
+    if (clip == nullptr ||
+        editor.doc.selectedClipFrameIndex < 0 ||
+        editor.doc.selectedClipFrameIndex >= static_cast<int>(clip->frames.size())) {
+        ImGui::TextDisabled("Select a clip frame in the Clips tab");
+        return;
+    }
+
+    slopengine::SpriteAnimFrame& animFrame =
+        clip->frames[static_cast<std::size_t>(editor.doc.selectedClipFrameIndex)];
+
+    ImGui::TextDisabled("Tween out: R rot, S scale, T translate");
+    if (ImGui::Checkbox("R", &animFrame.tweenRotation)) {
+        editor.doc.animDirty = true;
+        editor.scrubAnim(editor.doc.animTime);
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("S", &animFrame.tweenScale)) {
+        editor.doc.animDirty = true;
+        editor.scrubAnim(editor.doc.animTime);
+    }
+    ImGui::SameLine();
+    if (ImGui::Checkbox("T", &animFrame.tweenTranslate)) {
+        editor.doc.animDirty = true;
+        editor.scrubAnim(editor.doc.animTime);
+    }
+
+    ImGui::Separator();
+
+    ImGui::SetNextItemWidth(
+        ImGui::GetContentRegionAvail().x - iconButtonWidth() - ImGui::GetStyle().ItemSpacing.x);
+    char soundBuf[128] = {};
+    std::snprintf(soundBuf, sizeof(soundBuf), "%s", animFrame.sound.c_str());
+    if (ImGui::InputTextWithHint("##sound", "sound path", soundBuf, sizeof(soundBuf))) {
+        animFrame.sound = soundBuf;
+        editor.doc.animDirty = true;
+    }
+    ImGui::SameLine();
+    const bool pickSound =
+        slopengine::iconButton(assets, kIcons, "sound", ImVec2(iconButtonWidth(), 0.0f));
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Pick sound");
+    }
+    if (pickSound) {
+        soundBrowser.rescan(assets);
+        soundBrowser.filter.clear();
+        soundBrowser.open = true;
+    }
+    if (animFrame.hasSound()) {
+        labeledField("Volume");
+        if (ImGui::DragFloat("##soundvol", &animFrame.soundVolume, 0.01f, 0.0f, 2.0f, "%.2f")) {
+            editor.doc.animDirty = true;
+        }
+    }
+    if (soundBrowser.open) {
+        std::string picked;
+        if (soundBrowser.drawModal(assets, picked)) {
+            animFrame.sound = std::move(picked);
+            editor.doc.animDirty = true;
+        }
+    }
+
+    ImGui::Separator();
+
+    ImGui::SetNextItemWidth(-1.0f);
+    std::string hintsJoined;
+    for (std::size_t hi = 0; hi < animFrame.hints.size(); ++hi) {
+        if (hi > 0) {
+            hintsJoined.push_back(' ');
+        }
+        hintsJoined += animFrame.hints[hi];
+    }
+    char hintsBuf[256] = {};
+    std::snprintf(hintsBuf, sizeof(hintsBuf), "%s", hintsJoined.c_str());
+    if (ImGui::InputTextWithHint("##hints", "hints (space-separated)", hintsBuf, sizeof(hintsBuf))) {
+        animFrame.hints.clear();
+        const char* cursor = hintsBuf;
+        while (*cursor != '\0') {
+            while (*cursor == ' ' || *cursor == '\t' || *cursor == ',') {
+                ++cursor;
+            }
+            if (*cursor == '\0') {
+                break;
+            }
+            const char* begin = cursor;
+            while (*cursor != '\0' && *cursor != ' ' && *cursor != '\t' && *cursor != ',') {
+                ++cursor;
+            }
+            animFrame.hints.emplace_back(begin, static_cast<std::size_t>(cursor - begin));
+        }
+        editor.doc.animDirty = true;
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Overlays (layer sprite clip x y)");
+    const int holdIndex = editor.doc.selectedClipFrameIndex;
+    for (int oi = 0; oi < static_cast<int>(animFrame.overlays.size()); ++oi) {
+        slopengine::SpriteAnimOverlay& overlay = animFrame.overlays[static_cast<std::size_t>(oi)];
+        ImGui::PushID(oi + 1000);
+        const bool selected = editor.doc.selectedOverlayHoldIndex == holdIndex &&
+                              editor.doc.selectedOverlayIndex == oi;
+        if (ImGui::SmallButton(selected ? "[*]" : "[ ]")) {
+            editor.doc.selectedOverlayHoldIndex = holdIndex;
+            editor.doc.selectedOverlayIndex = oi;
+            editor.doc.selectedAttachPointIndex = -1;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(48.0f);
+        if (ImGui::DragInt("##layer", &overlay.layer, 0.2f)) {
+            if (overlay.layer == 0) {
+                overlay.layer = 1;
+            }
+            editor.doc.animDirty = true;
+            editor.doc.selectedOverlayHoldIndex = holdIndex;
+            editor.doc.selectedOverlayIndex = oi;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+        char spriteBuf[128] = {};
+        std::snprintf(spriteBuf, sizeof(spriteBuf), "%s", overlay.sprite.c_str());
+        if (ImGui::InputTextWithHint("##osprite", "sprite", spriteBuf, sizeof(spriteBuf))) {
+            overlay.sprite = spriteBuf;
+            editor.doc.animDirty = true;
+            editor.doc.selectedOverlayHoldIndex = holdIndex;
+            editor.doc.selectedOverlayIndex = oi;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
+        char clipBuf[64] = {};
+        std::snprintf(clipBuf, sizeof(clipBuf), "%s", overlay.clip.c_str());
+        if (ImGui::InputTextWithHint("##oclip", "clip", clipBuf, sizeof(clipBuf))) {
+            overlay.clip = clipBuf;
+            editor.doc.animDirty = true;
+            editor.doc.selectedOverlayHoldIndex = holdIndex;
+            editor.doc.selectedOverlayIndex = oi;
+        }
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+        if (ImGui::DragFloat("##ox", &overlay.x, 0.5f, 0.0f, 0.0f, "x %.1f")) {
+            editor.doc.animDirty = true;
+            editor.doc.selectedOverlayHoldIndex = holdIndex;
+            editor.doc.selectedOverlayIndex = oi;
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.7f);
+        if (ImGui::DragFloat("##oy", &overlay.y, 0.5f, 0.0f, 0.0f, "y %.1f")) {
+            editor.doc.animDirty = true;
+            editor.doc.selectedOverlayHoldIndex = holdIndex;
+            editor.doc.selectedOverlayIndex = oi;
+        }
+        ImGui::SameLine();
+        const bool deleteOverlay = deleteIconButton(assets, kIcons);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Delete overlay");
+        }
+        if (deleteOverlay) {
+            if (editor.doc.selectedOverlayHoldIndex == holdIndex &&
+                editor.doc.selectedOverlayIndex == oi) {
+                editor.doc.selectedOverlayHoldIndex = -1;
+                editor.doc.selectedOverlayIndex = -1;
+            }
+            animFrame.overlays.erase(animFrame.overlays.begin() + oi);
+            editor.doc.animDirty = true;
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("Add overlay")) {
+        slopengine::SpriteAnimOverlay overlay{};
+        overlay.layer = 1;
+        animFrame.overlays.push_back(std::move(overlay));
+        editor.doc.selectedOverlayHoldIndex = holdIndex;
+        editor.doc.selectedOverlayIndex = static_cast<int>(animFrame.overlays.size()) - 1;
+        editor.doc.animDirty = true;
+    }
+}
+
 void drawInspector(
     slopsprite::Editor& editor,
     slopengine::AssetStore& assets,
     slopsprite::TextureBrowser& textureBrowser,
-    slopsprite::SpritePicker& onionSpritePicker) {
+    slopsprite::SpritePicker& onionSpritePicker,
+    slopsprite::SoundBrowser& soundBrowser) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("Select a sprite");
         return;
@@ -704,6 +1103,75 @@ void drawInspector(
                 editor.markDirty();
             }
             ImGui::EndCombo();
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Hit parts")) {
+        constexpr const char* kIcons = kDefaultIconSet;
+        static constexpr float kSuggestedHitPartColors[][3] = {
+            {80 / 255.0f, 180 / 255.0f, 255 / 255.0f},
+            {80 / 255.0f, 255 / 255.0f, 120 / 255.0f},
+            {255 / 255.0f, 80 / 255.0f, 80 / 255.0f},
+            {255 / 255.0f, 220 / 255.0f, 40 / 255.0f},
+            {220 / 255.0f, 80 / 255.0f, 255 / 255.0f},
+            {40 / 255.0f, 255 / 255.0f, 220 / 255.0f},
+        };
+        ImGui::TextDisabled("Colors in a frame's hit-mask image map to these named parts");
+        for (int pi = 0; pi < static_cast<int>(editor.doc.asset.hitParts.size()); ++pi) {
+            slopengine::SpriteHitPartDef& part =
+                editor.doc.asset.hitParts[static_cast<std::size_t>(pi)];
+            ImGui::PushID(pi + 4000);
+            float color[3] = {
+                static_cast<float>(part.r) / 255.0f,
+                static_cast<float>(part.g) / 255.0f,
+                static_cast<float>(part.b) / 255.0f,
+            };
+            if (ImGui::ColorEdit3(
+                    "##hitpartcolor", color, ImGuiColorEditFlags_NoInputs)) {
+                part.r = static_cast<unsigned char>(std::clamp(color[0], 0.0f, 1.0f) * 255.0f);
+                part.g = static_cast<unsigned char>(std::clamp(color[1], 0.0f, 1.0f) * 255.0f);
+                part.b = static_cast<unsigned char>(std::clamp(color[2], 0.0f, 1.0f) * 255.0f);
+                editor.markDirty();
+                editor.doc.atlasDirty = true;
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(
+                ImGui::GetContentRegionAvail().x - iconButtonWidth() -
+                ImGui::GetStyle().ItemSpacing.x);
+            char nameBuf[64] = {};
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", part.name.c_str());
+            if (ImGui::InputTextWithHint("##hitpartname", "name", nameBuf, sizeof(nameBuf))) {
+                part.name = nameBuf;
+                editor.markDirty();
+                editor.doc.atlasDirty = true;
+            }
+            ImGui::SameLine();
+            const bool deletePart = deleteIconButton(assets, kIcons);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Delete hit part");
+            }
+            if (deletePart) {
+                editor.doc.asset.hitParts.erase(editor.doc.asset.hitParts.begin() + pi);
+                editor.markDirty();
+                editor.doc.atlasDirty = true;
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+        if (ImGui::SmallButton("Add hit part")) {
+            const std::size_t suggestCount =
+                sizeof(kSuggestedHitPartColors) / sizeof(kSuggestedHitPartColors[0]);
+            const float* suggested =
+                kSuggestedHitPartColors[editor.doc.asset.hitParts.size() % suggestCount];
+            slopengine::SpriteHitPartDef part{};
+            part.name = "part";
+            part.r = static_cast<unsigned char>(suggested[0] * 255.0f);
+            part.g = static_cast<unsigned char>(suggested[1] * 255.0f);
+            part.b = static_cast<unsigned char>(suggested[2] * 255.0f);
+            editor.doc.asset.hitParts.push_back(part);
+            editor.markDirty();
+            editor.doc.atlasDirty = true;
         }
     }
 
@@ -809,7 +1277,7 @@ void drawInspector(
 
     const bool isAlign = editor.mode == slopsprite::PreviewMode::Align;
     static bool sectionOpen[4] = {true, true, true, true};
-    const int kSectionCount = isAlign ? 4 : 3;
+    const int kSectionCount = 4;
 
     const ImGuiStyle& style = ImGui::GetStyle();
     int openCount = 0;
@@ -830,7 +1298,7 @@ void drawInspector(
     sectionOpen[0] = collapsingHeaderWithIcon(
         assets, kDefaultIconSet, "picture_edit", "Rotation", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[0]) {
-        if (ImGui::BeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
             drawRotationSection(editor, assets, textureBrowser);
         }
         ImGui::EndChild();
@@ -839,7 +1307,7 @@ void drawInspector(
     sectionOpen[1] = collapsingHeaderWithIcon(
         assets, kDefaultIconSet, "shape_handles", "Base transforms", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[1]) {
-        if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
             drawBaseTransformSection(editor, assets);
         }
         ImGui::EndChild();
@@ -852,7 +1320,7 @@ void drawInspector(
         "Anim transforms",
         ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[2]) {
-        if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
             drawAnimFrameSection(editor, assets);
         }
         ImGui::EndChild();
@@ -862,8 +1330,17 @@ void drawInspector(
         sectionOpen[3] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "layers", "Onion skin", ImGuiTreeNodeFlags_DefaultOpen);
         if (sectionOpen[3]) {
-            if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
+            if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
                 drawOnionSection(editor, assets, onionSpritePicker);
+            }
+            ImGui::EndChild();
+        }
+    } else {
+        sectionOpen[3] = collapsingHeaderWithIcon(
+            assets, kDefaultIconSet, "film", "Clip frame", ImGuiTreeNodeFlags_DefaultOpen);
+        if (sectionOpen[3]) {
+            if (ImGui::BeginChild("##clipframe", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
+                drawClipFramePropertiesSection(editor, assets, soundBrowser);
             }
             ImGui::EndChild();
         }
@@ -930,9 +1407,7 @@ int main(int argc, char* argv[]) {
         if (editor.doc.atlasDirty && editor.doc.open) {
             editor.rebuildAtlas(assets);
         }
-        if (editor.mode != slopsprite::PreviewMode::Align) {
-            editor.tickAnim(GetFrameTime(), assets, &audioWorld);
-        }
+        editor.tickAnim(GetFrameTime(), assets, &audioWorld);
         if (editor.statusTimer > 0.0f) {
             editor.statusTimer -= GetFrameTime();
             if (editor.statusTimer <= 0.0f) {
@@ -948,8 +1423,7 @@ int main(int argc, char* argv[]) {
         const float chromeHeight = slopengine::mainMenuBarHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
         const float viewTabHeight = ImGui::GetFrameHeightWithSpacing();
-        const float animHeight =
-            editor.mode == slopsprite::PreviewMode::Align ? 0.0f : 72.0f;
+        const float animHeight = 128.0f;
         const slopsprite::UiLayout layout =
             slopsprite::computeUiLayout(chromeHeight, statusHeight, animHeight, viewTabHeight);
         slopsprite::ensureContentTarget(contentTarget, layout.content);
@@ -959,13 +1433,7 @@ int main(int argc, char* argv[]) {
         const bool allowPreviewInput =
             !uiWantsKeyboard && !uiWantsMouse && mouseInContent;
 
-        auto setPreviewMode = [&](slopsprite::PreviewMode mode) {
-            if (mode == slopsprite::PreviewMode::Align &&
-                editor.mode != slopsprite::PreviewMode::Align) {
-                editor.stopAnim();
-            }
-            editor.mode = mode;
-        };
+        auto setPreviewMode = [&](slopsprite::PreviewMode mode) { editor.mode = mode; };
 
         if (beginMainMenuBar()) {
             constexpr const char* kIcons = kDefaultIconSet;
@@ -1009,7 +1477,7 @@ int main(int argc, char* argv[]) {
                         assets,
                         kIcons,
                         "shape_square",
-                        "Align",
+                        "Sprite",
                         nullptr,
                         editor.mode == slopsprite::PreviewMode::Align)) {
                     setPreviewMode(slopsprite::PreviewMode::Align);
@@ -1093,7 +1561,7 @@ int main(int argc, char* argv[]) {
             };
             previewTabButton("World", slopsprite::PreviewMode::World);
             previewTabButton("FP", slopsprite::PreviewMode::FirstPerson);
-            previewTabButton("Align", slopsprite::PreviewMode::Align);
+            previewTabButton("Sprite", slopsprite::PreviewMode::Align);
             ImGui::EndTabBar();
         }
         ImGui::End();
@@ -1101,26 +1569,25 @@ int main(int argc, char* argv[]) {
         ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
         ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
         ImGui::Begin("Browser", nullptr, panelFlags);
-        browser.draw(editor, assets, soundBrowser);
+        browser.draw(editor, assets);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
         ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
         ImGui::Begin("Inspector", nullptr, panelFlags);
-        drawInspector(editor, assets, textureBrowser, onionSpritePicker);
+        drawInspector(editor, assets, textureBrowser, onionSpritePicker, soundBrowser);
         ImGui::End();
 
-        if (animHeight > 0.0f) {
-            ImGui::SetNextWindowPos(ImVec2(layout.animPanel.x, layout.animPanel.y));
-            ImGui::SetNextWindowSize(ImVec2(layout.animPanel.width, layout.animPanel.height));
-            ImGui::Begin(
-                "Animation",
-                nullptr,
-                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                    ImGuiWindowFlags_NoTitleBar);
-            drawAnimBar(editor, assets);
-            ImGui::End();
-        }
+        ImGui::SetNextWindowPos(ImVec2(layout.animPanel.x, layout.animPanel.y));
+        ImGui::SetNextWindowSize(ImVec2(layout.animPanel.width, layout.animPanel.height));
+        ImGui::Begin(
+            "Animation",
+            nullptr,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
+                ImGuiWindowFlags_NoScrollWithMouse);
+        drawAnimBar(editor, assets);
+        ImGui::End();
 
         const ImGuiWindowFlags overlayFlags =
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -1167,20 +1634,12 @@ int main(int argc, char* argv[]) {
                     }
                 }
                 if (editor.showSpriteMasks && !editor.doc.asset.hitParts.empty()) {
-                    static constexpr ImVec4 kPartColors[] = {
-                        {80 / 255.0f, 180 / 255.0f, 255 / 255.0f, 1.0f},
-                        {80 / 255.0f, 255 / 255.0f, 120 / 255.0f, 1.0f},
-                        {255 / 255.0f, 80 / 255.0f, 80 / 255.0f, 1.0f},
-                        {255 / 255.0f, 220 / 255.0f, 40 / 255.0f, 1.0f},
-                        {220 / 255.0f, 80 / 255.0f, 255 / 255.0f, 1.0f},
-                        {40 / 255.0f, 255 / 255.0f, 220 / 255.0f, 1.0f},
-                    };
                     ImGui::Separator();
                     ImGui::TextUnformatted("Hit parts");
                     for (std::size_t i = 0; i < editor.doc.asset.hitParts.size(); ++i) {
                         const auto& part = editor.doc.asset.hitParts[i];
-                        const ImVec4 color =
-                            kPartColors[i % (sizeof(kPartColors) / sizeof(kPartColors[0]))];
+                        const ImVec4 color = ImVec4(
+                            part.r / 255.0f, part.g / 255.0f, part.b / 255.0f, 1.0f);
                         ImGui::PushID(static_cast<int>(i));
                         ImGui::ColorButton(
                             "##hitpart",
@@ -1261,7 +1720,7 @@ int main(int argc, char* argv[]) {
                         *editor.doc.asset.frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)]
                              .rotations[editor.doc.selectedRot];
                     ImGui::TextDisabled(
-                        "Align  RMB pan  wheel zoom  rot %d  off %d,%d",
+                        "Sprite  RMB pan  wheel zoom  rot %d  off %d,%d",
                         editor.doc.selectedRot,
                         rot.hasOffset ? rot.offsetX : rot.pixelWidth / 2,
                         rot.hasOffset ? rot.offsetY : rot.pixelHeight);
@@ -1277,7 +1736,7 @@ int main(int argc, char* argv[]) {
             if (editor.mode == slopsprite::PreviewMode::FirstPerson) {
                 modeLabel = "FP";
             } else if (editor.mode == slopsprite::PreviewMode::Align) {
-                modeLabel = "Align";
+                modeLabel = "Sprite";
             }
             std::string statusLine = "target: ";
             statusLine += editor.targetPackageId.empty() ? editor.targetRoot.string()

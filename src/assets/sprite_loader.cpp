@@ -348,7 +348,11 @@ bool parseSpriteAsset(std::string_view source, SpriteAsset& asset) {
             inView = false;
         } else if (line == "(fullbright)" || line.rfind("(fullbright", 0) == 0) {
             inView = false;
-            asset.fullbright = true;
+            if (currentFrame != nullptr) {
+                currentFrame->fullbright = true;
+            } else {
+                asset.fullbright = true;
+            }
         } else if (line.rfind("(blend ", 0) == 0) {
             inView = false;
             std::string_view rest = trim(line.substr(std::string_view("(blend ").size()));
@@ -571,6 +575,9 @@ std::string serializeSpriteAsset(const SpriteAsset& asset) {
     }
     for (const SpriteFrame& frame : asset.frames) {
         out << "  (frame \"" << frame.id << "\"\n";
+        if (frame.fullbright) {
+            out << "    (fullbright)\n";
+        }
         for (int rotation = 0; rotation < kSpriteRotationCount; ++rotation) {
             if (!frame.rotations[rotation].has_value()) {
                 continue;

@@ -116,6 +116,8 @@ struct ViewSpriteFrame {
     float animScaleY = 1.0f;
     float animTranslateX = 0.0f;
     float animTranslateY = 0.0f;
+    bool fullbright = false;
+    const Texture2D* brightTexture = nullptr;
 };
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(

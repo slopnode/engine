@@ -1121,6 +1121,160 @@ std::vector<Brush> makeBrushStairs(
     return out;
 }
 
+std::vector<Brush> makeBrushSpiralStairs(
+    const std::string& idPrefix,
+    Vector3 mins,
+    Vector3 maxs,
+    float innerRadius,
+    float stepHeight,
+    int sides,
+    const std::string& material,
+    BrushRole role,
+    Vector3 axis) {
+    std::vector<Brush> out;
+    if (sides < 3 || stepHeight <= 0.0f || innerRadius < 0.0f) {
+        return out;
+    }
+    if (maxs.x <= mins.x || maxs.y <= mins.y || maxs.z <= mins.z) {
+        return out;
+    }
+
+    // Same nearest-world-axis revolve rule as makeBrushCylinder, so a
+    // footprint drawn against a wall spirals away from the wall instead of
+    // always assuming a vertical (Y) shaft.
+    const float minsArr[3] = {mins.x, mins.y, mins.z};
+    const float maxsArr[3] = {maxs.x, maxs.y, maxs.z};
+    const float axisMag[3] = {std::fabs(axis.x), std::fabs(axis.y), std::fabs(axis.z)};
+    int axisIdx = 1;
+    if (axisMag[0] >= axisMag[1] && axisMag[0] >= axisMag[2]) {
+        axisIdx = 0;
+    } else if (axisMag[2] >= axisMag[0] && axisMag[2] >= axisMag[1]) {
+        axisIdx = 2;
+    }
+    const int idxB = (axisIdx == 0) ? 1 : 0;
+    const int idxC = (axisIdx == 2) ? 1 : 2;
+
+    const float centerB = 0.5f * (minsArr[idxB] + maxsArr[idxB]);
+    const float centerC = 0.5f * (minsArr[idxC] + maxsArr[idxC]);
+    const float radiusB = 0.5f * (maxsArr[idxB] - minsArr[idxB]);
+    const float radiusC = 0.5f * (maxsArr[idxC] - minsArr[idxC]);
+    const float outerRadius = 0.5f * (radiusB + radiusC);
+    if (innerRadius >= outerRadius) {
+        return out;
+    }
+    const bool hasInner = innerRadius > 1e-4f;
+
+    const float axisMin = minsArr[axisIdx];
+    const float axisMax = maxsArr[axisIdx];
+    const float totalHeight = axisMax - axisMin;
+
+    const int numSteps =
+        std::clamp(static_cast<int>(std::lround(totalHeight / stepHeight)), 1, 4096);
+    const float stepRise = totalHeight / static_cast<float>(numSteps);
+    constexpr float kPi = 3.14159265358979323846f;
+    const float angleStep = (2.0f * kPi) / static_cast<float>(sides);
+
+    auto ringPoint = [&](float axisVal, float angle, float radius) {
+        float comps[3];
+        comps[axisIdx] = axisVal;
+        comps[idxB] = centerB + radius * std::cos(angle);
+        comps[idxC] = centerC + radius * std::sin(angle);
+        return Vector3{comps[0], comps[1], comps[2]};
+    };
+
+    auto orientOutward = [&](BrushFace& face, Vector3 interior) {
+        if (face.vertices.empty()) {
+            return;
+        }
+        const Vector3 normal = faceNormalFromVertices(face.vertices);
+        if (dot3(sub3(interior, face.vertices[0]), normal) > 0.0f) {
+            std::reverse(face.vertices.begin(), face.vertices.end());
+        }
+    };
+
+    out.reserve(static_cast<std::size_t>(numSteps));
+    for (int i = 0; i < numSteps; ++i) {
+        const float angle0 = angleStep * static_cast<float>(i);
+        const float angle1 = angleStep * static_cast<float>(i + 1);
+        const float bottomAxis = axisMin + stepRise * static_cast<float>(i);
+        const float topAxis = axisMin + stepRise * static_cast<float>(i + 1);
+
+        const Vector3 outerBottom0 = ringPoint(bottomAxis, angle0, outerRadius);
+        const Vector3 outerBottom1 = ringPoint(bottomAxis, angle1, outerRadius);
+        const Vector3 outerTop0 = ringPoint(topAxis, angle0, outerRadius);
+        const Vector3 outerTop1 = ringPoint(topAxis, angle1, outerRadius);
+        const Vector3 innerBottom0 = ringPoint(bottomAxis, angle0, innerRadius);
+        const Vector3 innerBottom1 = ringPoint(bottomAxis, angle1, innerRadius);
+        const Vector3 innerTop0 = ringPoint(topAxis, angle0, innerRadius);
+        const Vector3 innerTop1 = ringPoint(topAxis, angle1, innerRadius);
+
+        const Vector3 interior = ringPoint(
+            0.5f * (bottomAxis + topAxis),
+            0.5f * (angle0 + angle1),
+            0.5f * (innerRadius + outerRadius));
+
+        const std::string id = idPrefix + "-" + std::to_string(i);
+        std::vector<BrushFace> faces;
+        faces.reserve(6);
+
+        BrushFace bottom;
+        bottom.id = id + "/bottom";
+        bottom.material = material;
+        bottom.vertices = hasInner
+            ? std::vector<Vector3>{innerBottom0, outerBottom0, outerBottom1, innerBottom1}
+            : std::vector<Vector3>{outerBottom0, outerBottom1, innerBottom0};
+        orientOutward(bottom, interior);
+        faces.push_back(std::move(bottom));
+
+        BrushFace top;
+        top.id = id + "/top";
+        top.material = material;
+        top.vertices = hasInner
+            ? std::vector<Vector3>{innerTop0, outerTop0, outerTop1, innerTop1}
+            : std::vector<Vector3>{outerTop0, outerTop1, innerTop0};
+        orientOutward(top, interior);
+        faces.push_back(std::move(top));
+
+        BrushFace outer;
+        outer.id = id + "/outer";
+        outer.material = material;
+        outer.vertices = {outerBottom0, outerBottom1, outerTop1, outerTop0};
+        orientOutward(outer, interior);
+        faces.push_back(std::move(outer));
+
+        if (hasInner) {
+            BrushFace inner;
+            inner.id = id + "/inner";
+            inner.material = material;
+            inner.vertices = {innerBottom1, innerBottom0, innerTop0, innerTop1};
+            orientOutward(inner, interior);
+            faces.push_back(std::move(inner));
+        }
+
+        BrushFace radial0;
+        radial0.id = id + "/radial-0";
+        radial0.material = material;
+        radial0.vertices = {innerBottom0, outerBottom0, outerTop0, innerTop0};
+        orientOutward(radial0, interior);
+        faces.push_back(std::move(radial0));
+
+        BrushFace radial1;
+        radial1.id = id + "/radial-1";
+        radial1.material = material;
+        radial1.vertices = {outerBottom1, innerBottom1, innerTop1, outerTop1};
+        orientOutward(radial1, interior);
+        faces.push_back(std::move(radial1));
+
+        std::string error;
+        auto brush = makeBrushConvex(id, std::move(faces), role, error);
+        if (brush) {
+            out.push_back(std::move(*brush));
+        }
+    }
+
+    return out;
+}
+
 std::vector<Brush> hollowBrushBox(
     const Brush& source,
     float thickness,
