@@ -6,6 +6,7 @@
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
 #include "interact/components.hpp"
+#include "map/bsp.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/rigid_mover.hpp"
@@ -28,6 +29,27 @@
 namespace slopengine {
 
 namespace {
+
+/** Fraction (0..1) of the character's body height sitting inside Water-content BSP leaves,
+ *  sampled from feet to head so a character wading in shows partial rather than binary submersion. */
+float computeSubmersion(const BspTree& tree, JPH::RVec3 feetPos, const CharacterMotor& motor) {
+    constexpr int kSamples = 5;
+    const float totalHeight = characterTotalHeight(motor);
+    const float baseX = static_cast<float>(feetPos.GetX());
+    const float baseY = static_cast<float>(feetPos.GetY());
+    const float baseZ = static_cast<float>(feetPos.GetZ());
+
+    int wet = 0;
+    for (int i = 0; i < kSamples; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(kSamples - 1);
+        const Vector3 sample{baseX, baseY + t * totalHeight, baseZ};
+        const std::int32_t leaf = pointLeaf(tree, sample);
+        if (leaf >= 0 && (tree.leaves[static_cast<std::size_t>(leaf)].contents & BspContents::Water) != 0) {
+            ++wet;
+        }
+    }
+    return static_cast<float>(wet) / static_cast<float>(kSamples);
+}
 
 Vector3 forwardFromYawPitch(float yaw, float pitch) {
     const float cosPitch = std::cos(pitch);
@@ -190,6 +212,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             if (!controller.allowMove || freeCamera) {
                 motor.wishX = 0.0f;
                 motor.wishZ = 0.0f;
+                motor.wishY = 0.0f;
                 return;
             }
 
@@ -204,6 +227,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
             motor.wishX = wish.x;
             motor.wishZ = wish.z;
+            motor.wishY = command.moveUp;
         });
 
     world.system("PhysicsStep")
@@ -231,6 +255,8 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             const bool playerNoclip =
                 it.world().has<DebugUiState>() && it.world().get<DebugUiState>().noclip;
 
+            const MapBsp* mapBsp = it.world().has<MapBsp>() ? &it.world().get<MapBsp>() : nullptr;
+
             std::vector<CharacterStep> steps;
             it.world().each([&](flecs::entity entity, CharacterMotor& motor) {
                 const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
@@ -241,6 +267,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 step.id = id;
                 step.motor = &motor;
                 step.noclip = entity.has<PlayerCamera>() && playerNoclip;
+                if (mapBsp != nullptr) {
+                    step.submersion =
+                        computeSubmersion(mapBsp->tree, physics.world->characterPosition(id), motor);
+                }
                 steps.push_back(step);
             });
 

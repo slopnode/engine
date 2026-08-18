@@ -25,6 +25,7 @@ struct CharacterStep {
     std::uint64_t id = 0;
     CharacterMotor* motor = nullptr;
     bool noclip = false;
+    float submersion = 0.0f; /**< Fraction (0..1) of body height inside a water volume. */
 };
 
 struct RayCastHit {
@@ -137,7 +138,8 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         bool noclip,
-        std::uint64_t characterId);
+        std::uint64_t characterId,
+        float submersion);
     void stepCharacterTryMove(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
@@ -150,6 +152,22 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         std::uint64_t characterId);
+    void applyBuoyantInput(
+        JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
+        float dt,
+        float submersion);
+    void stepCharacterSwim(
+        JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
+        std::uint64_t characterId,
+        float submersion);
+    void tryClimbBlockedStep(
+        JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
+        std::uint64_t characterId,
+        JPH::Vec3 desiredVelocity,
+        JPH::RVec3 beforePosition);
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;

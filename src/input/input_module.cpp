@@ -78,6 +78,8 @@ void registerSystems(flecs::world& world) {
                                    (input.down(Action::MoveBackward) ? 1.0f : 0.0f);
             command.moveStrafe = (input.down(Action::MoveRight) ? 1.0f : 0.0f) -
                                   (input.down(Action::MoveLeft) ? 1.0f : 0.0f);
+            command.moveUp = (input.down(Action::Jump) ? 1.0f : 0.0f) -
+                              (input.down(Action::Descend) ? 1.0f : 0.0f);
             command.look = input.mouseDelta;
         });
 
