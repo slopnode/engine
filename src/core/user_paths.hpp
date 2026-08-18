@@ -28,6 +28,20 @@ std::filesystem::path defaultSlopmapThumbnailCacheDirectory();
 std::vector<std::filesystem::path> userConfiguredSearchPaths();
 
 /**
+ * Overwrites settings.cfg's [paths] section with @p paths as search_path=
+ * lines, adding the section if absent. Every other section is left
+ * untouched. Returns false if the file couldn't be written.
+ */
+bool saveUserConfiguredSearchPaths(const std::vector<std::filesystem::path>& paths);
+
+/**
+ * Directory holding one subfolder per profile for this engine+base pair --
+ * the parent of profileSettingsPath's per-profile settings.cfg. Lets a
+ * caller enumerate existing profiles for a given base game.
+ */
+std::filesystem::path profilesRootForBase(const Package& engine, const Package& base);
+
+/**
  * Path to the per-profile settings.cfg (graphics + controls), scoped by the
  * mounted engine and base-game package identity plus @p profile, so that
  * "default" (or any other profile name) means something different per game

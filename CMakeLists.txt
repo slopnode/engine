@@ -76,8 +76,10 @@ add_subdirectory(lib)
 set(SLOPLIB_SOURCES
     src/core/engine_package.cpp
     src/core/package.cpp
+    src/core/package_discovery.cpp
     src/core/package_meta.cpp
     src/core/package_search.cpp
+    src/core/process_launch.cpp
     src/core/semver.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
@@ -366,6 +368,22 @@ if(MSVC)
     target_compile_options(slopthing PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopthing PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(sloplauncher
+    tools/sloplauncher/main.cpp
+    tools/sloplauncher/launcher_state.cpp
+    tools/sloplauncher/packages_panel.cpp
+    tools/sloplauncher/game_tab.cpp
+    tools/sloplauncher/development_tab.cpp
+    src/game/package_cli.cpp
+)
+target_include_directories(sloplauncher PRIVATE tools/sloplauncher)
+target_link_libraries(sloplauncher PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(sloplauncher PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(sloplauncher PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopicons tools/slopicons/main.cpp)

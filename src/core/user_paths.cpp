@@ -157,6 +157,69 @@ std::vector<std::filesystem::path> userConfiguredSearchPaths() {
     return paths;
 }
 
+bool saveUserConfiguredSearchPaths(const std::vector<std::filesystem::path>& paths) {
+    const std::filesystem::path settingsPath = userSettingsPath();
+
+    std::vector<std::string> lines;
+    {
+        std::ifstream input(settingsPath);
+        std::string line;
+        while (std::getline(input, line)) {
+            lines.push_back(line);
+        }
+    }
+
+    std::vector<std::string> newPathLines;
+    newPathLines.reserve(paths.size());
+    for (const std::filesystem::path& path : paths) {
+        newPathLines.push_back("search_path=" + path.string());
+    }
+
+    std::size_t sectionStart = lines.size();
+    std::size_t sectionEnd = lines.size();
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        if (trimLine(lines[i]) != "[paths]") {
+            continue;
+        }
+        sectionStart = i;
+        sectionEnd = lines.size();
+        for (std::size_t j = i + 1; j < lines.size(); ++j) {
+            const std::string trimmed = trimLine(lines[j]);
+            if (!trimmed.empty() && trimmed.front() == '[' && trimmed.back() == ']') {
+                sectionEnd = j;
+                break;
+            }
+        }
+        break;
+    }
+
+    std::vector<std::string> output;
+    if (sectionStart == lines.size()) {
+        output = lines;
+        if (!output.empty() && !output.back().empty()) {
+            output.emplace_back();
+        }
+        output.emplace_back("[paths]");
+        output.insert(output.end(), newPathLines.begin(), newPathLines.end());
+    } else {
+        output.assign(lines.begin(), lines.begin() + static_cast<std::ptrdiff_t>(sectionStart) + 1);
+        output.insert(output.end(), newPathLines.begin(), newPathLines.end());
+        output.insert(output.end(), lines.begin() + static_cast<std::ptrdiff_t>(sectionEnd), lines.end());
+    }
+
+    std::error_code dirEc;
+    std::filesystem::create_directories(settingsPath.parent_path(), dirEc);
+
+    std::ofstream out(settingsPath, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        return false;
+    }
+    for (const std::string& line : output) {
+        out << line << '\n';
+    }
+    return static_cast<bool>(out);
+}
+
 std::string sanitizeSaveSegment(std::string_view text) {
     std::string out;
     out.reserve(text.size());
@@ -169,12 +232,15 @@ std::string sanitizeSaveSegment(std::string_view text) {
     return out;
 }
 
+std::filesystem::path profilesRootForBase(const Package& engine, const Package& base) {
+    return userConfigDirectory() / "profiles" / packageSegment(engine) / packageSegment(base);
+}
+
 std::filesystem::path profileSettingsPath(
     const Package& engine,
     const Package& base,
     std::string_view profile) {
-    return userConfigDirectory() / "profiles" / packageSegment(engine) / packageSegment(base)
-        / sanitizeSaveSegment(profile) / "settings.cfg";
+    return profilesRootForBase(engine, base) / sanitizeSaveSegment(profile) / "settings.cfg";
 }
 
 std::filesystem::path buildSaveContextRoot(const std::vector<Package>& packages) {
