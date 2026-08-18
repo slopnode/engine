@@ -9,6 +9,7 @@
 #include "imgui.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <set>
 #include <string>
 #include <vector>
@@ -465,13 +466,9 @@ struct DetectedConventions {
     bool painThreshold = false;
     bool idleAnim = false;
     bool behavior = false;
-    bool melee = false;
-    bool ranged = false;
-    bool lunge = false;
 
     bool any() const {
-        return health || painChance || painThreshold || idleAnim || behavior || melee || ranged ||
-            lunge;
+        return health || painChance || painThreshold || idleAnim || behavior;
     }
 };
 
@@ -482,15 +479,138 @@ DetectedConventions detectConventions(const std::set<std::string>& used) {
     d.painThreshold = used.count("thing-def-pain-threshold") != 0;
     d.idleAnim = used.count("thing-def-idle-anim") != 0;
     d.behavior = used.count("thing-def-behavior") != 0;
-    d.melee = used.count("thing-def-melee-damage") != 0 || used.count("thing-def-melee-range") != 0 ||
-        used.count("thing-def-melee-cooldown") != 0 || used.count("thing-def-melee-anim") != 0;
-    d.ranged = used.count("thing-def-ranged-range") != 0 ||
-        used.count("thing-def-ranged-min-range") != 0 ||
-        used.count("thing-def-ranged-cooldown") != 0 ||
-        used.count("thing-def-ranged-jitter") != 0 || used.count("thing-def-ranged-anim") != 0;
-    d.lunge = used.count("thing-def-lunge-range") != 0 || used.count("thing-def-lunge-speed") != 0 ||
-        used.count("thing-def-lunge-cooldown") != 0 || used.count("thing-def-lunge-duration") != 0;
     return d;
+}
+
+std::string paramValueToText(const NodePtr& value) {
+    if (!value) {
+        return "";
+    }
+    switch (value->kind) {
+        case NodeKind::String:
+        case NodeKind::Symbol:
+            return value->str;
+        case NodeKind::Bool:
+            return value->boolVal ? "true" : "false";
+        case NodeKind::Int:
+            return std::to_string(value->intVal);
+        case NodeKind::Float: {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%g", value->floatVal);
+            return buf;
+        }
+        default:
+            return "";
+    }
+}
+
+NodePtr parseParamValueText(const std::string& text) {
+    if (text == "true") {
+        return makeBool(true);
+    }
+    if (text == "false") {
+        return makeBool(false);
+    }
+    if (!text.empty()) {
+        char* end = nullptr;
+        const double d = std::strtod(text.c_str(), &end);
+        if (end == text.c_str() + text.size()) {
+            return makeFloat(d);
+        }
+    }
+    return makeString(text);
+}
+
+void drawBehaviorsSection(Editor& editor, slopengine::AssetStore& assets, NodePtr& alist) {
+    if (!collapsingHeaderWithIcon(assets, kIcons, "script", "Behaviors")) {
+        return;
+    }
+
+    NodePtr behaviors = hasBlock(alist, "behaviors") ? blockAlist(alist, "behaviors") : makeNil();
+    bool changed = false;
+    std::string removeBehavior;
+
+    for (const NodePtr& entry : listItems(behaviors)) {
+        if (!isPair(entry) || !entry->car) {
+            continue;
+        }
+        const std::string name = entry->car->str;
+        ImGui::PushID(name.c_str());
+        ImGui::Separator();
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::SameLine();
+        if (buttonWithIcon(assets, kIcons, "delete", "Remove behavior")) {
+            removeBehavior = name;
+        }
+
+        NodePtr params = entry->cdr;
+        bool paramsChanged = false;
+        std::string removeParam;
+        int idx = 0;
+        for (const NodePtr& p : listItems(params)) {
+            if (!isPair(p) || !p->car) {
+                ++idx;
+                continue;
+            }
+            const std::string key = p->car->str;
+            ImGui::PushID(idx);
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "%s", paramValueToText(scalarValue(p->cdr)).c_str());
+            labeledField(key.c_str());
+            if (ImGui::InputText("##pv", buf, sizeof(buf))) {
+                alistSetScalar(params, key, parseParamValueText(buf));
+                paramsChanged = true;
+            }
+            ImGui::SameLine();
+            if (buttonWithIcon(assets, kIcons, "delete", "Remove param")) {
+                removeParam = key;
+            }
+            ImGui::PopID();
+            ++idx;
+        }
+        if (!removeParam.empty()) {
+            alistRemoveKey(params, removeParam);
+            paramsChanged = true;
+        }
+
+        static char newParamKeyBuf[64] = "";
+        labeledField("New param key");
+        ImGui::InputText("##newparamkey", newParamKeyBuf, sizeof(newParamKeyBuf));
+        ImGui::SameLine();
+        if (buttonWithIcon(assets, kIcons, "add", "Add param") && newParamKeyBuf[0] != '\0') {
+            alistSetScalar(params, newParamKeyBuf, makeFloat(0.0));
+            newParamKeyBuf[0] = '\0';
+            paramsChanged = true;
+        }
+
+        if (paramsChanged) {
+            alistSetRest(behaviors, name, params);
+            changed = true;
+        }
+        ImGui::PopID();
+    }
+
+    if (!removeBehavior.empty()) {
+        alistRemoveKey(behaviors, removeBehavior);
+        changed = true;
+    }
+
+    ImGui::Separator();
+    static char newBehaviorBuf[64] = "";
+    labeledField("New behavior name");
+    ImGui::InputText("##newbehavior", newBehaviorBuf, sizeof(newBehaviorBuf));
+    ImGui::SameLine();
+    if (buttonWithIcon(assets, kIcons, "add", "Add behavior") && newBehaviorBuf[0] != '\0' &&
+        !alistHasKey(behaviors, newBehaviorBuf)) {
+        alistSetRest(behaviors, newBehaviorBuf, defaultBehaviorParams(newBehaviorBuf));
+        newBehaviorBuf[0] = '\0';
+        changed = true;
+    }
+
+    if (changed) {
+        setBlock(alist, "behaviors", behaviors);
+        editor.markDirty();
+    }
 }
 
 void drawPackageSpecificSection(
@@ -520,85 +640,6 @@ void drawPackageSpecificSection(
     }
     if (detected.behavior) {
         changed |= editStrField(alist, "behavior", "Behavior");
-    }
-
-    if (detected.melee) {
-        ImGui::PushID("melee");
-        bool present = hasBlock(alist, "melee");
-        if (ImGui::Checkbox("Melee attack", &present)) {
-            if (present) {
-                setBlock(alist, "melee", defaultMeleeBlock());
-            } else {
-                removeBlock(alist, "melee");
-            }
-            changed = true;
-        }
-        if (present) {
-            NodePtr block = blockAlist(alist, "melee");
-            bool blockChanged = false;
-            blockChanged |= editFloatField(block, "damage", "Damage", 1.0f);
-            blockChanged |= editFloatField(block, "range", "Range", 0.05f);
-            blockChanged |= editFloatField(block, "cooldown", "Cooldown", 0.05f);
-            blockChanged |= editStrField(block, "anim", "Anim clip");
-            if (blockChanged) {
-                setBlock(alist, "melee", block);
-                changed = true;
-            }
-        }
-        ImGui::PopID();
-    }
-
-    if (detected.ranged) {
-        ImGui::PushID("ranged");
-        bool present = hasBlock(alist, "ranged");
-        if (ImGui::Checkbox("Ranged attack", &present)) {
-            if (present) {
-                setBlock(alist, "ranged", defaultRangedBlock());
-            } else {
-                removeBlock(alist, "ranged");
-            }
-            changed = true;
-        }
-        if (present) {
-            NodePtr block = blockAlist(alist, "ranged");
-            bool blockChanged = false;
-            blockChanged |= editFloatField(block, "cooldown", "Cooldown", 0.05f);
-            blockChanged |= editFloatField(block, "range", "Range", 0.5f);
-            blockChanged |= editFloatField(block, "min-range", "Min range", 0.5f);
-            blockChanged |= editFloatField(block, "jitter", "Cooldown jitter", 0.05f);
-            blockChanged |= editStrField(block, "anim", "Anim clip");
-            if (blockChanged) {
-                setBlock(alist, "ranged", block);
-                changed = true;
-            }
-        }
-        ImGui::PopID();
-    }
-
-    if (detected.lunge) {
-        ImGui::PushID("lunge");
-        bool present = hasBlock(alist, "lunge");
-        if (ImGui::Checkbox("Lunge attack", &present)) {
-            if (present) {
-                setBlock(alist, "lunge", defaultLungeBlock());
-            } else {
-                removeBlock(alist, "lunge");
-            }
-            changed = true;
-        }
-        if (present) {
-            NodePtr block = blockAlist(alist, "lunge");
-            bool blockChanged = false;
-            blockChanged |= editFloatField(block, "range", "Range", 0.5f);
-            blockChanged |= editFloatField(block, "speed", "Speed", 0.5f);
-            blockChanged |= editFloatField(block, "cooldown", "Cooldown", 0.05f);
-            blockChanged |= editFloatField(block, "duration", "Duration", 0.05f);
-            if (blockChanged) {
-                setBlock(alist, "lunge", block);
-                changed = true;
-            }
-        }
-        ImGui::PopID();
     }
 
     if (changed) {
@@ -699,6 +740,7 @@ void drawInspectorPanel(
 
     drawTriggerSection(editor, assets, t.alist);
     drawSightSection(editor, assets, t.alist);
+    drawBehaviorsSection(editor, assets, t.alist);
 
     if (collapsingHeaderWithIcon(assets, kIcons, "tag_orange", "Tags")) {
         if (editStrListField(t.alist, "tags", "Tags")) {

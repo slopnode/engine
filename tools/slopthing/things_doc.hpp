@@ -52,8 +52,7 @@ void removeBlock(NodePtr& alist, const std::string& key);
 
 NodePtr defaultMotorBlock();
 NodePtr defaultSightBlock();
-NodePtr defaultMeleeBlock();
-NodePtr defaultRangedBlock();
-NodePtr defaultLungeBlock();
+
+NodePtr defaultBehaviorParams(const std::string& name);
 
 }

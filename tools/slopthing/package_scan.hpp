@@ -17,13 +17,12 @@ namespace slopthing {
  */
 struct ConventionField {
     std::string accessor;
-    std::string block; // "" for a top-level scalar, else a nested block key (e.g. "melee")
+    std::string block; // "" for a top-level scalar, else a nested block key
     std::string key;
     enum class Type { Float, Int, String } type;
     std::string label;
 };
 
-/** The full, fixed set of thing-def-* accessors the engine registers. */
 const std::vector<ConventionField>& conventionFields();
 
 /**

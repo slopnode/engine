@@ -205,33 +205,37 @@ NodePtr defaultSightBlock() {
     return makeList(items);
 }
 
-NodePtr defaultMeleeBlock() {
-    std::vector<NodePtr> items{
-        kv("damage", makeFloat(10.0)),
-        kv("range", makeFloat(1.2)),
-        kv("cooldown", makeFloat(1.0)),
-        kv("anim", makeString("melee")),
-    };
-    return makeList(items);
-}
-
-NodePtr defaultRangedBlock() {
-    std::vector<NodePtr> items{
-        kv("cooldown", makeFloat(2.0)),
-        kv("range", makeFloat(24.0)),
-        kv("min-range", makeFloat(0.0)),
-        kv("anim", makeString("attack")),
-    };
-    return makeList(items);
-}
-
-NodePtr defaultLungeBlock() {
-    std::vector<NodePtr> items{
-        kv("range", makeFloat(14.0)),
-        kv("speed", makeFloat(16.0)),
-        kv("cooldown", makeFloat(2.5)),
-        kv("duration", makeFloat(0.9)),
-    };
+NodePtr defaultBehaviorParams(const std::string& name) {
+    std::vector<NodePtr> items;
+    if (name == "melee") {
+        items = {
+            kv("damage", makeFloat(10.0)),
+            kv("range", makeFloat(1.2)),
+            kv("cooldown", makeFloat(1.0)),
+            kv("anim", makeString("melee")),
+        };
+    } else if (name == "ranged") {
+        items = {
+            kv("cooldown", makeFloat(2.0)),
+            kv("range", makeFloat(24.0)),
+            kv("min-range", makeFloat(0.0)),
+            kv("anim", makeString("attack")),
+            kv("recipe", makeString("hitscan")),
+        };
+    } else if (name == "lunge") {
+        items = {
+            kv("range", makeFloat(14.0)),
+            kv("speed", makeFloat(16.0)),
+            kv("cooldown", makeFloat(2.5)),
+            kv("duration", makeFloat(0.9)),
+        };
+    } else if (name == "strafe") {
+        items = {
+            kv("range", makeFloat(20.0)),
+            kv("min-range", makeFloat(4.0)),
+            kv("interval", makeFloat(1.2)),
+        };
+    }
     return makeList(items);
 }
 
