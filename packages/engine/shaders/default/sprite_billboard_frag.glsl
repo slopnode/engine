@@ -5,9 +5,12 @@ in vec4 fragColor;
 
 uniform sampler2D texture0;
 uniform sampler2D texture1;
+uniform sampler2D texture2;
 uniform vec4 albedoRect;
 uniform vec2 atlasSize;
 uniform int useBrightmap;
+uniform int usePartMask;
+uniform int hiddenPartsMask;
 
 out vec4 finalColor;
 
@@ -19,8 +22,8 @@ void main()
         discard;
     }
 
-    vec3 light = fragColor.rgb;
-    if (useBrightmap != 0) {
+    vec2 localUv = vec2(0.0);
+    if (useBrightmap != 0 || usePartMask != 0) {
         float width = albedoRect.z;
         float height = albedoRect.w;
         float absW = abs(width);
@@ -34,9 +37,19 @@ void main()
         if (height < 0.0) {
             localY = 1.0 - localY;
         }
-        localX = clamp(localX, 0.0, 1.0);
-        localY = clamp(localY, 0.0, 1.0);
-        float bright = texture(texture1, vec2(localX, localY)).r;
+        localUv = clamp(vec2(localX, localY), 0.0, 1.0);
+    }
+
+    if (usePartMask != 0) {
+        int part = int(texture(texture2, localUv).r * 255.0 + 0.5);
+        if (part != 0 && ((hiddenPartsMask >> (part - 1)) & 1) != 0) {
+            discard;
+        }
+    }
+
+    vec3 light = fragColor.rgb;
+    if (useBrightmap != 0) {
+        float bright = texture(texture1, localUv).r;
         light = mix(fragColor.rgb, vec3(1.0), clamp(bright, 0.0, 1.0));
     }
 

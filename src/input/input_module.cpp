@@ -2,7 +2,9 @@
 
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
+#include "input/actions.hpp"
 #include "input/bind_code.hpp"
+#include "input/input_command.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
 #include "script/scheme_call.hpp"
@@ -53,6 +55,7 @@ void pollInput(InputState& input, const ControlsSettings& controls) {
 void registerComponents(flecs::world& world) {
     world.component<InputState>();
     world.component<InputContextStack>();
+    world.component<InputCommand>();
 }
 
 void registerSystems(flecs::world& world) {
@@ -62,6 +65,20 @@ void registerSystems(flecs::world& world) {
             pollInput(
                 it.world().get_mut<InputState>(),
                 it.world().get<UserSettings>().controls);
+        });
+
+    world.system("CaptureInputCommand")
+        .kind(flecs::PreUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            const InputState& input = world.get<InputState>();
+            InputCommand& command = world.get_mut<InputCommand>();
+            command.tick += 1;
+            command.moveForward = (input.down(Action::MoveForward) ? 1.0f : 0.0f) -
+                                   (input.down(Action::MoveBackward) ? 1.0f : 0.0f);
+            command.moveStrafe = (input.down(Action::MoveRight) ? 1.0f : 0.0f) -
+                                  (input.down(Action::MoveLeft) ? 1.0f : 0.0f);
+            command.look = input.mouseDelta;
         });
 
     world.system("DispatchPackageActions")
@@ -123,6 +140,7 @@ void registerInputModule(flecs::world& world) {
     input.resize(actionRegistry().size());
     world.set<InputState>(std::move(input));
     world.set<InputContextStack>({});
+    world.set<InputCommand>({});
     registerSystems(world);
 }
 

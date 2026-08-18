@@ -28,6 +28,7 @@ struct SpriteBillboard {
     const Texture2D* texture = nullptr;
     Rectangle source{};
     const Texture2D* brightTexture = nullptr;
+    const Texture2D* partMaskTexture = nullptr;
 };
 
 /** Ray hit against a sprite billboard, including hit-part. */

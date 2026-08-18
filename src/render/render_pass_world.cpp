@@ -232,6 +232,7 @@ struct SpriteDrawItem {
     const SpriteAnimator* animator = nullptr;
     float viewDepth = 0.0f;
     int layer = 0;
+    std::uint32_t hiddenParts = 0;
 };
 
 enum class TransparentDrawKind {
@@ -414,6 +415,9 @@ struct SpriteBillboardShader {
     int atlasSizeLoc = -1;
     int useBrightmapLoc = -1;
     int brightMapLoc = -1;
+    int usePartMaskLoc = -1;
+    int partMaskLoc = -1;
+    int hiddenPartsMaskLoc = -1;
     bool ready = false;
 };
 
@@ -436,6 +440,9 @@ SpriteBillboardShader& spriteBillboardShader(AssetStore& assets) {
     state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
     state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
     state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.partMaskLoc = GetShaderLocation(state.shader, "texture2");
+    state.usePartMaskLoc = GetShaderLocation(state.shader, "usePartMask");
+    state.hiddenPartsMaskLoc = GetShaderLocation(state.shader, "hiddenPartsMask");
     state.ready = true;
     return state;
 }
@@ -449,7 +456,8 @@ void drawWorldSprite(
     const std::vector<RankedDynamicLight>* dynamicLights,
     const FxLightFrameState* fxLights,
     bool unlit,
-    const SpriteAnimator* animator) {
+    const SpriteAnimator* animator,
+    std::uint32_t hiddenPartsMask) {
     SpriteAnimTween tween{};
     const SpriteAnimTween* tweenPtr = nullptr;
     if (animator != nullptr && animator->hasTween() && !animator->nextFrame.empty()) {
@@ -606,6 +614,34 @@ void drawWorldSprite(
                 billboardShader->shader,
                 billboardShader->brightMapLoc,
                 *billboard->brightTexture);
+        }
+
+        const bool usePartMask =
+            hiddenPartsMask != 0 && billboard->partMaskTexture != nullptr &&
+            billboard->partMaskTexture->id != 0;
+        const int usePartMaskInt = usePartMask ? 1 : 0;
+        if (billboardShader->usePartMaskLoc >= 0) {
+            SetShaderValue(
+                billboardShader->shader,
+                billboardShader->usePartMaskLoc,
+                &usePartMaskInt,
+                SHADER_UNIFORM_INT);
+        }
+        if (usePartMask) {
+            if (billboardShader->hiddenPartsMaskLoc >= 0) {
+                const int hiddenPartsMaskInt = static_cast<int>(hiddenPartsMask);
+                SetShaderValue(
+                    billboardShader->shader,
+                    billboardShader->hiddenPartsMaskLoc,
+                    &hiddenPartsMaskInt,
+                    SHADER_UNIFORM_INT);
+            }
+            if (billboardShader->partMaskLoc >= 0) {
+                SetShaderValueTexture(
+                    billboardShader->shader,
+                    billboardShader->partMaskLoc,
+                    *billboard->partMaskTexture);
+            }
         }
     }
 
@@ -844,6 +880,8 @@ void collectWorldSpriteDrawItems(
                                                    : nullptr,
                 viewDepthAlongAxis(position, lens.camera.position, camForward),
                 spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
+                spriteEntity.has<SpriteHiddenParts>() ? spriteEntity.get<SpriteHiddenParts>().mask
+                                                       : 0,
             });
         });
 }
@@ -1102,7 +1140,8 @@ std::string drawWorldTransparentPass(
                 dynamicLights,
                 fxLights,
                 unlit,
-                item.sprite.animator);
+                item.sprite.animator,
+                item.sprite.hiddenParts);
         } else if (item.kind == TransparentDrawKind::Particle) {
             const ParticleDrawItem& particle = item.particle;
             if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {

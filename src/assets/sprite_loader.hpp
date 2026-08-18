@@ -120,6 +120,9 @@ struct SpriteAtlas {
     std::unordered_map<std::string, SpriteHitmask> hitmasks;
     /** Grayscale brightmaps keyed by albedo texture path (standalone textures). */
     std::unordered_map<std::string, Texture2D> brightTextures;
+    /** GPU part-index masks (R8, one texel per albedo pixel) keyed by albedo texture path.
+     *  Only present for frames with an authored multi-part hit mask. */
+    std::unordered_map<std::string, Texture2D> partMaskTextures;
 };
 
 /** Parses .spr text into @p asset. */

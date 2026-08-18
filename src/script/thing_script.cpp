@@ -1322,6 +1322,48 @@ s7_pointer g_actor_set_corpse(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_sprite_hide_part(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "sprite-hide-part!", 1, args, "id string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "sprite-hide-part!", 2, rest, "part-name string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<SpriteInstance>()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    const SpriteAsset* asset = assets.getSpriteAsset(entity.get<SpriteInstance>().sprite);
+    if (asset == nullptr) {
+        return s7_f(sc);
+    }
+
+    const std::string partName = s7_string(s7_car(rest));
+    int partIndex = -1;
+    for (std::size_t i = 0; i < asset->hitParts.size(); ++i) {
+        if (asset->hitParts[i].name == partName) {
+            partIndex = static_cast<int>(i);
+            break;
+        }
+    }
+    if (partIndex < 0 || partIndex >= 32) {
+        return s7_f(sc);
+    }
+
+    std::uint32_t mask = entity.has<SpriteHiddenParts>() ? entity.get<SpriteHiddenParts>().mask : 0;
+    mask |= (1u << static_cast<unsigned>(partIndex));
+    entity.set<SpriteHiddenParts>({mask});
+    return s7_t(sc);
+}
+
 s7_pointer g_actor_set_wish(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -2958,6 +3000,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(actor-set-move-speed! id speed)");
     s7_define_function(
         scheme, "actor-set-corpse!", g_actor_set_corpse, 1, 0, false, "(actor-set-corpse! id)");
+    s7_define_function(
+        scheme,
+        "sprite-hide-part!",
+        g_sprite_hide_part,
+        2,
+        0,
+        false,
+        "(sprite-hide-part! id part-name)");
     s7_define_function(
         scheme, "actor-grounded?", g_actor_grounded, 1, 0, false, "(actor-grounded? id)");
     s7_define_function(

@@ -3,9 +3,8 @@
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
 #include "game/game_state.hpp"
-#include "input/actions.hpp"
+#include "input/input_command.hpp"
 #include "input/input_context.hpp"
-#include "input/input_state.hpp"
 #include "interact/components.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
@@ -164,21 +163,22 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.system("CharacterMotorInput")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
-            if (!it.world().has<PhysicsContext>() || !it.world().has<InputState>()) {
+            flecs::world world = it.world();
+            if (!world.has<PhysicsContext>() || !world.has<InputCommand>()) {
                 return;
             }
 
-            PhysicsContext& physics = it.world().get_mut<PhysicsContext>();
+            PhysicsContext& physics = world.get_mut<PhysicsContext>();
             if (physics.world == nullptr || !physics.world->hasPlayer()) {
                 return;
             }
 
-            InputContextStack& contexts = it.world().get_mut<InputContextStack>();
+            InputContextStack& contexts = world.get_mut<InputContextStack>();
             if (!contexts.allowsGameplay()) {
                 return;
             }
 
-            const flecs::entity camera = it.world().lookup("Player");
+            const flecs::entity camera = world.lookup("Player");
             if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<FirstPersonController>()) {
                 return;
             }
@@ -186,32 +186,21 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             CharacterMotor& motor = camera.get_mut<CharacterMotor>();
             FirstPersonController& controller = camera.get_mut<FirstPersonController>();
             const bool freeCamera =
-                it.world().has<DebugUiState>() && it.world().get<DebugUiState>().freeCamera;
+                world.has<DebugUiState>() && world.get<DebugUiState>().freeCamera;
             if (!controller.allowMove || freeCamera) {
                 motor.wishX = 0.0f;
                 motor.wishZ = 0.0f;
                 return;
             }
 
-            InputState& input = it.world().get_mut<InputState>();
+            const InputCommand& command = world.get<InputCommand>();
 
             const Vector3 forwardFlat =
                 Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
             const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-            Vector3 wish{};
-
-            if (input.down(Action::MoveForward)) {
-                wish = Vector3Add(wish, forwardFlat);
-            }
-            if (input.down(Action::MoveBackward)) {
-                wish = Vector3Subtract(wish, forwardFlat);
-            }
-            if (input.down(Action::MoveLeft)) {
-                wish = Vector3Subtract(wish, right);
-            }
-            if (input.down(Action::MoveRight)) {
-                wish = Vector3Add(wish, right);
-            }
+            const Vector3 wish = Vector3Add(
+                Vector3Scale(forwardFlat, command.moveForward),
+                Vector3Scale(right, command.moveStrafe));
 
             motor.wishX = wish.x;
             motor.wishZ = wish.z;

@@ -2,6 +2,7 @@
 
 #include "camera/components.hpp"
 #include "input/actions.hpp"
+#include "input/input_command.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
 #include "physics/components.hpp"
@@ -39,18 +40,19 @@ void registerSystems(flecs::world& world) {
     world.system("FirstPersonController")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
-            InputState& input = it.world().get_mut<InputState>();
-            InputContextStack& contexts = it.world().get_mut<InputContextStack>();
+            flecs::world world = it.world();
+            const InputCommand& command = world.get<InputCommand>();
+            InputContextStack& contexts = world.get_mut<InputContextStack>();
 
             if (!contexts.allowsGameplay()) {
                 return;
             }
 
-            if (it.world().has<DebugUiState>() && it.world().get<DebugUiState>().freeCamera) {
+            if (world.has<DebugUiState>() && world.get<DebugUiState>().freeCamera) {
                 return;
             }
 
-            const flecs::entity camera = it.world().lookup("Player");
+            const flecs::entity camera = world.lookup("Player");
             if (!camera.is_valid() || !camera.has<PlayerCamera>() || !camera.has<Lens>() ||
                 !camera.has<FirstPersonController>()) {
                 return;
@@ -67,20 +69,9 @@ void registerSystems(flecs::world& world) {
                     const Vector3 forwardFlat =
                         Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
                     const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-                    Vector3 movement{};
-
-                    if (input.down(Action::MoveForward)) {
-                        movement = Vector3Add(movement, forwardFlat);
-                    }
-                    if (input.down(Action::MoveBackward)) {
-                        movement = Vector3Subtract(movement, forwardFlat);
-                    }
-                    if (input.down(Action::MoveLeft)) {
-                        movement = Vector3Subtract(movement, right);
-                    }
-                    if (input.down(Action::MoveRight)) {
-                        movement = Vector3Add(movement, right);
-                    }
+                    Vector3 movement = Vector3Add(
+                        Vector3Scale(forwardFlat, command.moveForward),
+                        Vector3Scale(right, command.moveStrafe));
 
                     if (Vector3LengthSqr(movement) > 0.0f) {
                         movement = Vector3Scale(Vector3Normalize(movement), controller.moveSpeed * dt);
@@ -102,10 +93,10 @@ void registerSystems(flecs::world& world) {
                     }
                 }
 
-                controller.yaw -= input.mouseDelta.x * sensitivity;
+                controller.yaw -= command.look.x * sensitivity;
 
                 if (controller.allowPitch) {
-                    controller.pitch -= input.mouseDelta.y * sensitivity;
+                    controller.pitch -= command.look.y * sensitivity;
 
                     constexpr float kMaxPitch = 1.4f;
                     if (controller.pitch > kMaxPitch) {
