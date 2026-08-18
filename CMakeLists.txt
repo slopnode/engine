@@ -376,6 +376,7 @@ add_executable(sloplauncher
     tools/sloplauncher/packages_panel.cpp
     tools/sloplauncher/game_tab.cpp
     tools/sloplauncher/development_tab.cpp
+    tools/sloplauncher/package_details_tab.cpp
     src/game/package_cli.cpp
 )
 target_include_directories(sloplauncher PRIVATE tools/sloplauncher)

@@ -103,6 +103,7 @@ void drawPackageList(LauncherState& state) {
         const bool isBase = state.baseGameId == id;
         if (ImGui::RadioButton("##base", isBase)) {
             state.setBaseGame(id);
+            state.selectedPackageId = id;
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Set as base game");
@@ -115,13 +116,19 @@ void drawPackageList(LauncherState& state) {
         bool modChecked = isMod;
         if (ImGui::Checkbox("Mod", &modChecked)) {
             state.toggleMod(id);
+            state.selectedPackageId = id;
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
 
-        ImGui::Text("%s", label.c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("(%s %s)", id.c_str(), package.meta().version.c_str());
+        const std::string rowLabel =
+            label + "  (" + id + " " + package.meta().version + ")";
+        if (ImGui::Selectable(rowLabel.c_str(), state.selectedPackageId == id)) {
+            state.selectedPackageId = id;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("View package details");
+        }
 
         ImGui::PopID();
     }

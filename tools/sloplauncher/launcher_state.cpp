@@ -22,6 +22,15 @@ void LauncherState::init() {
 void LauncherState::refreshPackages() {
     discovered = slopengine::discoverPackages(slopengine::applicationSearchPaths(searchPaths));
 
+    enginePackage.reset();
+    if (const auto enginePath = slopengine::resolveEnginePackage()) {
+        enginePackage.emplace(*enginePath);
+    }
+
+    if (!selectedPackageId.empty() && findPackage(selectedPackageId) == nullptr) {
+        selectedPackageId.clear();
+    }
+
     if (!baseGameId.empty() && findPackage(baseGameId) == nullptr) {
         baseGameId.clear();
         existingProfiles.clear();
@@ -112,6 +121,9 @@ const slopengine::Package* LauncherState::findPackage(const std::string& id) con
             return &package;
         }
     }
+    if (enginePackage && enginePackage->meta().id == id) {
+        return &*enginePackage;
+    }
     return nullptr;
 }
 
@@ -135,15 +147,10 @@ void LauncherState::refreshProfiles() {
     existingProfiles.clear();
 
     const slopengine::Package* base = findPackage(baseGameId);
-    if (base == nullptr) {
+    if (base == nullptr || !enginePackage) {
         return;
     }
-    const auto enginePath = slopengine::resolveEnginePackage();
-    if (!enginePath) {
-        return;
-    }
-    const slopengine::Package engine{*enginePath};
-    const std::filesystem::path root = slopengine::profilesRootForBase(engine, *base);
+    const std::filesystem::path root = slopengine::profilesRootForBase(*enginePackage, *base);
 
     std::error_code ec;
     std::filesystem::directory_iterator it(root, ec);

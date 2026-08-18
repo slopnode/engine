@@ -1,6 +1,7 @@
 #include "development_tab.hpp"
 #include "game_tab.hpp"
 #include "launcher_state.hpp"
+#include "package_details_tab.hpp"
 #include "packages_panel.hpp"
 
 #include "imgui.h"
@@ -57,6 +58,10 @@ int main() {
             }
             if (ImGui::BeginTabItem("Development")) {
                 sloplauncher::drawDevelopmentTab(state);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Package")) {
+                sloplauncher::drawPackageDetailsTab(state);
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

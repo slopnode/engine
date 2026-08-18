@@ -4,6 +4,7 @@
 #include "game/app_config.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -18,6 +19,17 @@ struct LauncherState {
 
     std::vector<slopengine::Package> discovered;
     std::string packageFilterText;
+
+    /**
+     * The engine package (resolved separately from searchPaths via
+     * resolveEnginePackage(), the same way the real slopengine binary finds
+     * it) so dependency checks on e.g. "slopengine.engine" resolve correctly
+     * instead of reporting the engine as missing.
+     */
+    std::optional<slopengine::Package> enginePackage;
+
+    /** Package to show in the "Package" details tab; set by clicking a row in the list. */
+    std::string selectedPackageId;
 
     std::string baseGameId;
     std::vector<std::string> modIds;
