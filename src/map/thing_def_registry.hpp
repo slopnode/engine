@@ -21,6 +21,27 @@ struct ThingFolderDef {
     PackageRole packageRole = PackageRole::Base;
 };
 
+struct ThingDefBehaviorParam {
+    enum class Kind { Float, String, Bool } kind = Kind::Float;
+    float f = 0.0f;
+    std::string s;
+    bool b = false;
+};
+
+struct ThingDefBehavior {
+    std::string name;
+    std::vector<std::pair<std::string, ThingDefBehaviorParam>> params;
+
+    const ThingDefBehaviorParam* find(std::string_view key) const {
+        for (const auto& [k, v] : params) {
+            if (k == key) {
+                return &v;
+            }
+        }
+        return nullptr;
+    }
+};
+
 struct ThingDef {
     std::string id;
     std::string label;
@@ -60,24 +81,7 @@ struct ThingDef {
     std::optional<float> painChance;
     std::optional<float> painThreshold;
 
-    bool haveMelee = false;
-    float meleeDamage = 0.0f;
-    float meleeRange = 1.2f;
-    float meleeCooldown = 1.0f;
-    std::string meleeAnim;
-
-    bool haveRanged = false;
-    float rangedRange = 24.0f;
-    float rangedMinRange = 1.5f;
-    float rangedCooldown = 2.0f;
-    float rangedCooldownJitter = 0.0f;
-    std::string rangedAnim;
-
-    bool haveLunge = false;
-    float lungeRange = 14.0f;
-    float lungeSpeed = 16.0f;
-    float lungeCooldown = 2.5f;
-    float lungeDuration = 0.9f;
+    std::vector<ThingDefBehavior> behaviors;
 
     bool haveSight = false;
     bool sightEnabled = true;

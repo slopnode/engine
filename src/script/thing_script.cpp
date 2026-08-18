@@ -2555,130 +2555,88 @@ s7_pointer g_thing_def_radius(s7_scheme* sc, s7_pointer args) {
     return s7_make_real(sc, static_cast<double>(def->motorRadius));
 }
 
-s7_pointer g_thing_def_melee_damage(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
+const ThingDefBehavior* findThingDefBehavior(const ThingDef* def, const char* name) {
+    if (def == nullptr) {
+        return nullptr;
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-damage", 1, args, "type string");
+    for (const auto& behavior : def->behaviors) {
+        if (behavior.name == name) {
+            return &behavior;
+        }
     }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->meleeDamage));
+    return nullptr;
 }
 
-s7_pointer g_thing_def_melee_range(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
+s7_pointer thingDefBehaviorParamToScheme(s7_scheme* sc, const ThingDefBehaviorParam& param) {
+    switch (param.kind) {
+        case ThingDefBehaviorParam::Kind::String:
+            return s7_make_string(sc, param.s.c_str());
+        case ThingDefBehaviorParam::Kind::Bool:
+            return param.b ? s7_t(sc) : s7_f(sc);
+        case ThingDefBehaviorParam::Kind::Float:
+        default:
+            return s7_make_real(sc, static_cast<double>(param.f));
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-range", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->meleeRange));
 }
 
-s7_pointer g_thing_def_melee_cooldown(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_thing_def_behavior_names(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-cooldown", 1, args, "type string");
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-names", 1, args, "type string");
     }
     const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee) {
-        return s7_f(sc);
+    s7_pointer list = s7_nil(sc);
+    if (def == nullptr) {
+        return list;
     }
-    return s7_make_real(sc, static_cast<double>(def->meleeCooldown));
+    for (auto it = def->behaviors.rbegin(); it != def->behaviors.rend(); ++it) {
+        list = s7_cons(sc, s7_make_string(sc, it->name.c_str()), list);
+    }
+    return list;
 }
 
-s7_pointer g_thing_def_melee_anim(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_thing_def_behavior_has(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-anim", 1, args, "type string");
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-has?", 1, args, "type string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-has?", 2, rest, "name string");
     }
     const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee || def->meleeAnim.empty()) {
-        return s7_f(sc);
-    }
-    return s7_make_string(sc, def->meleeAnim.c_str());
+    return findThingDefBehavior(def, s7_string(s7_car(rest))) != nullptr ? s7_t(sc) : s7_f(sc);
 }
 
-s7_pointer g_thing_def_ranged_range(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_thing_def_behavior_params(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-range", 1, args, "type string");
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-params", 1, args, "type string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-params", 2, rest, "name string");
     }
     const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
+    const ThingDefBehavior* behavior = findThingDefBehavior(def, s7_string(s7_car(rest)));
+    if (behavior == nullptr) {
         return s7_f(sc);
     }
-    return s7_make_real(sc, static_cast<double>(def->rangedRange));
-}
-
-s7_pointer g_thing_def_ranged_min_range(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
+    s7_pointer alist = s7_nil(sc);
+    for (auto it = behavior->params.rbegin(); it != behavior->params.rend(); ++it) {
+        s7_pointer pair = s7_cons(
+            sc,
+            s7_make_symbol(sc, it->first.c_str()),
+            thingDefBehaviorParamToScheme(sc, it->second));
+        alist = s7_cons(sc, pair, alist);
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-min-range", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->rangedMinRange));
-}
-
-s7_pointer g_thing_def_ranged_cooldown(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-cooldown", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->rangedCooldown));
-}
-
-s7_pointer g_thing_def_ranged_jitter(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-jitter", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->rangedCooldownJitter));
-}
-
-s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-anim", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged || def->rangedAnim.empty()) {
-        return s7_f(sc);
-    }
-    return s7_make_string(sc, def->rangedAnim.c_str());
+    return alist;
 }
 
 s7_pointer g_thing_def_speed(s7_scheme* sc, s7_pointer args) {
@@ -2693,62 +2651,6 @@ s7_pointer g_thing_def_speed(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
     return s7_make_real(sc, static_cast<double>(def->motorSpeed));
-}
-
-s7_pointer g_thing_def_lunge_range(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-range", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeRange));
-}
-
-s7_pointer g_thing_def_lunge_speed(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-speed", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeSpeed));
-}
-
-s7_pointer g_thing_def_lunge_cooldown(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-cooldown", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeCooldown));
-}
-
-s7_pointer g_thing_def_lunge_duration(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-duration", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeDuration));
 }
 
 s7_pointer g_thing_def_pain_chance(s7_scheme* sc, s7_pointer args) {
@@ -2858,110 +2760,30 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         scheme, "thing-def-radius", g_thing_def_radius, 1, 0, false, "(thing-def-radius type)");
     s7_define_function(
         scheme,
-        "thing-def-melee-damage",
-        g_thing_def_melee_damage,
+        "thing-def-behavior-names",
+        g_thing_def_behavior_names,
         1,
         0,
         false,
-        "(thing-def-melee-damage type)");
+        "(thing-def-behavior-names type)");
     s7_define_function(
         scheme,
-        "thing-def-melee-range",
-        g_thing_def_melee_range,
-        1,
+        "thing-def-behavior-has?",
+        g_thing_def_behavior_has,
+        2,
         0,
         false,
-        "(thing-def-melee-range type)");
+        "(thing-def-behavior-has? type name)");
     s7_define_function(
         scheme,
-        "thing-def-melee-cooldown",
-        g_thing_def_melee_cooldown,
-        1,
+        "thing-def-behavior-params",
+        g_thing_def_behavior_params,
+        2,
         0,
         false,
-        "(thing-def-melee-cooldown type)");
-    s7_define_function(
-        scheme,
-        "thing-def-melee-anim",
-        g_thing_def_melee_anim,
-        1,
-        0,
-        false,
-        "(thing-def-melee-anim type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-range",
-        g_thing_def_ranged_range,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-range type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-min-range",
-        g_thing_def_ranged_min_range,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-min-range type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-cooldown",
-        g_thing_def_ranged_cooldown,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-cooldown type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-jitter",
-        g_thing_def_ranged_jitter,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-jitter type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-anim",
-        g_thing_def_ranged_anim,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-anim type)");
+        "(thing-def-behavior-params type name)");
     s7_define_function(
         scheme, "thing-def-speed", g_thing_def_speed, 1, 0, false, "(thing-def-speed type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-range",
-        g_thing_def_lunge_range,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-range type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-speed",
-        g_thing_def_lunge_speed,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-speed type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-cooldown",
-        g_thing_def_lunge_cooldown,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-cooldown type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-duration",
-        g_thing_def_lunge_duration,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-duration type)");
     s7_define_function(
         scheme,
         "thing-def-pain-chance",
