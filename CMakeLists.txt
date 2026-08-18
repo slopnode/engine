@@ -180,6 +180,7 @@ add_executable(slopengine
     src/particles/particle_module.cpp
     src/fx/trail.cpp
     src/render/view_sprite_attachment.cpp
+    src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp

@@ -142,6 +142,12 @@ void unloadSpriteAtlas(SpriteAtlas& atlas);
 /** Finds a frame by id, or nullptr. */
 const SpriteFrame* findSpriteFrame(const SpriteAsset& asset, std::string_view frameId);
 
+/** Finds a named (attach ...) point on a specific frame, or nullptr. */
+const SpriteAttachPoint* findSpriteAttachPoint(
+    const SpriteAsset& asset,
+    std::string_view frameId,
+    const std::string& name);
+
 /** Picks a rotation with fallbacks when the requested angle is missing. */
 const SpriteRotation* selectSpriteRotation(const SpriteFrame& frame, int rotation);
 

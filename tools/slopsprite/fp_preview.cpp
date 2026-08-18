@@ -178,26 +178,6 @@ void drawFpSpriteFrame(
     }
 }
 
-void drawAttachMarker(Vector2 screen, const std::string& name, bool selected) {
-    const Color color = selected ? Color{80, 220, 255, 255} : Color{40, 180, 220, 220};
-    const float r = selected ? 6.0f : 5.0f;
-    DrawCircleLines(static_cast<int>(screen.x), static_cast<int>(screen.y), r, color);
-    DrawLine(
-        static_cast<int>(screen.x - 8.0f),
-        static_cast<int>(screen.y),
-        static_cast<int>(screen.x + 8.0f),
-        static_cast<int>(screen.y),
-        color);
-    DrawLine(
-        static_cast<int>(screen.x),
-        static_cast<int>(screen.y - 8.0f),
-        static_cast<int>(screen.x),
-        static_cast<int>(screen.y + 8.0f),
-        color);
-    DrawText(
-        name.c_str(), static_cast<int>(screen.x) + 9, static_cast<int>(screen.y) - 9, 10, color);
-}
-
 slopengine::SpriteAttachPoint* selectedAttachPointMutable(Editor& editor) {
     if (editor.doc.selectedFrameIndex < 0 ||
         editor.doc.selectedFrameIndex >= static_cast<int>(editor.doc.asset.frames.size())) {

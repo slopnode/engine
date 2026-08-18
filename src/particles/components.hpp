@@ -48,4 +48,14 @@ struct ParticleFollowAttachPoint {
     float depth = 0.35f;
 };
 
+/** Pins a world-space particle system to a named attachment point on a world sprite (actor).
+ *  Unlike ParticleFollowAttachPoint, resolved from the host's real billboard geometry, not a
+ *  camera-ray projection, so there is no depth parameter.
+ *  @ingroup particles_components
+ */
+struct ParticleFollowWorldAttachPoint {
+    std::uint64_t host = 0;
+    std::string name;
+};
+
 }

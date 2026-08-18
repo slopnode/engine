@@ -878,6 +878,68 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
 
+s7_pointer g_particle_spawn_attach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 2, args, "target string");
+    }
+    const std::string target = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 3, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 4, args, "attach string");
+    }
+    const std::string attach = s7_string(s7_car(args));
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasParticle(path)) {
+        TraceLog(LOG_WARNING, "particle-spawn-attach: missing system '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity host = lookupActor(target);
+    if (!host.is_valid()) {
+        TraceLog(LOG_WARNING, "particle-spawn-attach: no actor '%s'", target.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnParticleSystemWorldAttach(
+        *g_thingWorld,
+        assets,
+        id.c_str(),
+        host,
+        attach,
+        path,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
 s7_pointer g_trail_spawn(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -2874,6 +2936,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         1,
         false,
         "(particle-spawn-fp id socket path attach [depth])");
+    s7_define_function(
+        scheme,
+        "particle-spawn-attach",
+        g_particle_spawn_attach,
+        4,
+        0,
+        false,
+        "(particle-spawn-attach id target path attach)");
     s7_define_function(
         scheme,
         "trail-spawn-fp",

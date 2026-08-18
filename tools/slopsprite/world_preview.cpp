@@ -13,6 +13,12 @@ namespace slopsprite {
 
 namespace {
 
+struct AttachMarkerDraw {
+    Vector2 screen{};
+    std::string name;
+    bool selected = false;
+};
+
 void drawWorldBillboard(const slopengine::SpriteBillboard& billboard) {
     if (billboard.texture == nullptr) {
         return;
@@ -87,6 +93,7 @@ void WorldPreview::draw(
     ClearBackground(previewClearColor(editor.doc, PreviewMode::World));
 
     const Camera3D rayCam = camera.toRaylib();
+    std::vector<AttachMarkerDraw> attachMarkers;
     BeginMode3D(rayCam);
     DrawGrid(20, 1.0f);
     DrawLine3D({0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, RED);
@@ -200,9 +207,40 @@ void WorldPreview::draw(
             drawOverlay(overlays[oi]);
             ++oi;
         }
+
+        if (editor.doc.selectedFrameIndex >= 0 &&
+            editor.doc.selectedFrameIndex < static_cast<int>(editor.doc.asset.frames.size())) {
+            const slopengine::SpriteFrame& frame = editor.doc.asset
+                .frames[static_cast<std::size_t>(editor.doc.selectedFrameIndex)];
+            const auto pointBillboard = slopengine::resolveSpriteBillboard(
+                editor.doc.asset,
+                editor.doc.atlas,
+                frame.id,
+                editor.doc.facingYaw,
+                global,
+                rayCam.position,
+                slopengine::horizontalCameraYaw(rayCam.position, rayCam.target));
+            if (pointBillboard) {
+                for (int pi = 0; pi < static_cast<int>(frame.attachPoints.size()); ++pi) {
+                    const slopengine::SpriteAttachPoint& point =
+                        frame.attachPoints[static_cast<std::size_t>(pi)];
+                    const Vector3 world =
+                        slopengine::spriteBillboardPointAt(*pointBillboard, point.x, point.y);
+                    const Vector2 screen = GetWorldToScreenEx(
+                        world, rayCam, target.texture.width, target.texture.height);
+                    attachMarkers.push_back(
+                        {screen, point.name, editor.doc.selectedAttachPointIndex == pi});
+                }
+            }
+        }
     }
 
     EndMode3D();
+
+    for (const AttachMarkerDraw& marker : attachMarkers) {
+        drawAttachMarker(marker.screen, marker.name, marker.selected);
+    }
+
     EndTextureMode();
 }
 

@@ -956,6 +956,22 @@ const SpriteFrame* findSpriteFrame(const SpriteAsset& asset, std::string_view fr
     return nullptr;
 }
 
+const SpriteAttachPoint* findSpriteAttachPoint(
+    const SpriteAsset& asset,
+    std::string_view frameId,
+    const std::string& name) {
+    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
+    if (frame == nullptr) {
+        return nullptr;
+    }
+    for (const SpriteAttachPoint& point : frame->attachPoints) {
+        if (point.name == name) {
+            return &point;
+        }
+    }
+    return nullptr;
+}
+
 const SpriteRotation* selectSpriteRotation(const SpriteFrame& frame, int rotation) {
     if (rotation >= 0 && rotation < kSpriteRotationCount && frame.rotations[rotation].has_value()) {
         return &*frame.rotations[rotation];
