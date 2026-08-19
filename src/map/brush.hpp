@@ -54,6 +54,17 @@ enum class DoorMotion {
     Swing,
 };
 
+/** Underwater screen-effect metadata when role is Water. Read by the runtime
+ *  into a MapWaterVolumes entry; unauthored fields keep their engine defaults. */
+struct BrushWater {
+    Vector3 tint{0.05f, 0.25f, 0.35f};
+    bool haveTint = false;
+    float wobble = 0.4f;
+    bool haveWobble = false;
+    float vignette = 0.35f;
+    bool haveVignette = false;
+};
+
 /** Door motion/interact metadata when role is Door (spawns RigidMover at load). */
 struct BrushDoor {
     DoorMotion motion = DoorMotion::Raise;
@@ -99,6 +110,7 @@ struct Brush {
     std::uint8_t blocks = BrushBlock::All; /**< Physics query blocking mask. */
     bool nocollide = false; /**< Derived: true when @p blocks is zero. */
     BrushDoor door{}; /**< Meaningful when role is Door. */
+    BrushWater water{}; /**< Meaningful when role is Water. */
 };
 
 const char* brushBoxSideName(BrushBoxSide side);

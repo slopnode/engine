@@ -1293,6 +1293,7 @@ FacBuildResult buildVisibleFaces(
             if (!canClip) {
                 VisibleFace visible = makeVisibleFromBrushFace(face, face.id);
                 visible.transparent = brush.role == BrushRole::Transparent;
+                visible.twoSided = brush.role == BrushRole::Water;
                 result.fac.faces.push_back(std::move(visible));
                 continue;
             }
@@ -1332,6 +1333,7 @@ FacBuildResult buildVisibleFaces(
                 visible.vertices = std::move(fragments[i].vertices);
                 visible.interiorLeaf = fragments[i].interiorLeaf;
                 visible.transparent = brush.role == BrushRole::Transparent;
+                visible.twoSided = brush.role == BrushRole::Water;
                 result.fac.faces.push_back(std::move(visible));
             }
         }

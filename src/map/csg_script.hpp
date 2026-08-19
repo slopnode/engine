@@ -41,6 +41,7 @@ struct LoadedMap {
     std::vector<int> transparentMeshIndices;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
+    std::vector<int> twoSidedMeshIndices;
     Shader skyShader{};
     MaterialAnimTargets materialAnimTargets{};
 };

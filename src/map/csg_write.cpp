@@ -180,6 +180,20 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     out << "  )\n";
 }
 
+void writeBrushWater(std::ostringstream& out, const BrushWater& water) {
+    out << "  (water\n";
+    if (water.haveTint) {
+        out << "    (tint " << formatVec3(water.tint) << ")\n";
+    }
+    if (water.haveWobble) {
+        out << "    (wobble " << formatFloat(water.wobble) << ")\n";
+    }
+    if (water.haveVignette) {
+        out << "    (vignette " << formatFloat(water.vignette) << ")\n";
+    }
+    out << "  )\n";
+}
+
 void writeBrushBlockClauses(std::ostringstream& out, const Brush& brush) {
     const std::uint8_t roleDefault = brushRoleDefaultBlocks(brush.role);
     if (!brushBlocksAny(brush.blocks) && brushBlocksAny(roleDefault)) {
@@ -250,6 +264,9 @@ void writeBrushBox(std::ostringstream& out, const Brush& brush) {
     if (brush.role == BrushRole::Door) {
         writeBrushDoor(out, brush.door);
     }
+    if (brush.role == BrushRole::Water) {
+        writeBrushWater(out, brush.water);
+    }
 
     constexpr BrushBoxSide kSides[] = {
         BrushBoxSide::Top,
@@ -293,6 +310,9 @@ void writeBrushConvex(std::ostringstream& out, const Brush& brush) {
     writeBrushBlockClauses(out, brush);
     if (brush.role == BrushRole::Door) {
         writeBrushDoor(out, brush.door);
+    }
+    if (brush.role == BrushRole::Water) {
+        writeBrushWater(out, brush.water);
     }
 
     const std::string material = defaultMaterialForBrush(brush);

@@ -24,6 +24,7 @@
 #include "fx/trail.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
+#include "render/underwater_effect.hpp"
 #include "script/save_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/scheme_harden.hpp"
@@ -86,6 +87,7 @@ App::App(AppConfig config)
     registerParticleModule(world_, assetStore_);
     registerTrailModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
+    registerUnderwaterEffectModule(world_);
     registerMotoredBodySystem(world_);
     registerScriptBoot(world_, assetStore_, scheme_);
     callOnStartup(world_);

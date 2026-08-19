@@ -25,6 +25,10 @@ struct VisibleFace {
     bool uvLock = false;
     std::int32_t interiorLeaf = -1;
     bool transparent = false;
+    /** True for Water-role brush faces not touching another brush (the open
+     *  top surface) — rendered without backface culling so it reads from
+     *  both above and below the waterline. */
+    bool twoSided = false;
 };
 
 /** In-memory / on-disk face set (FAC1). */

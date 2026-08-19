@@ -343,6 +343,10 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
                             brush.door.havePrompt = true;
                             brush.door.prompt = "Open";
                         }
+                        if (next == slopengine::BrushRole::Water &&
+                            previous != slopengine::BrushRole::Water) {
+                            brush.water = slopengine::BrushWater{};
+                        }
                     })) {
                     result.changed = true;
                     editor.markRadDirty();
@@ -717,6 +721,86 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
                     });
                 })) {
             result.changed = true;
+        }
+    }
+
+    const auto roleIsWater = commonValue<bool>(
+        doc,
+        targets,
+        [](const slopengine::Brush& b) { return b.role == slopengine::BrushRole::Water; });
+    const bool showWaterProps = roleIsWater.value_or(false) ||
+        (!roleIsWater.has_value() &&
+         std::any_of(targets.begin(), targets.end(), [&](int index) {
+             const slopengine::Brush* b = brushAt(doc, index);
+             return b != nullptr && b->role == slopengine::BrushRole::Water;
+         }));
+
+    if (showWaterProps) {
+        ImGui::Separator();
+        ImGui::TextUnformatted("Water");
+
+        const auto floatEq = [](const float& a, const float& b) { return nearlyEqual(a, b); };
+
+        const auto tintCommon = commonValue<Vector3>(
+            doc,
+            targets,
+            [](const slopengine::Brush& b) { return b.water.tint; },
+            vec3Equal);
+        float tint[3] = {
+            tintCommon.has_value() ? tintCommon->x : 0.0f,
+            tintCommon.has_value() ? tintCommon->y : 0.0f,
+            tintCommon.has_value() ? tintCommon->z : 0.0f,
+        };
+        if (ImGui::ColorEdit3("Tint", tint)) {
+            const Vector3 next{tint[0], tint[1], tint[2]};
+            if (forEachBrush(editor, targets, [next](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (brush.role != slopengine::BrushRole::Water) {
+                        return;
+                    }
+                    brush.water.tint = next;
+                    brush.water.haveTint = true;
+                })) {
+                result.changed = true;
+            }
+        }
+        if (!tintCommon.has_value() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+
+        const auto wobbleCommon = commonValue<float>(
+            doc,
+            targets,
+            [](const slopengine::Brush& b) { return b.water.wobble; },
+            floatEq);
+        float wobble = wobbleCommon.value_or(0.4f);
+        if (ImGui::DragFloat("Wobble", &wobble, 0.01f, 0.0f, 2.0f, "%.2f")) {
+            if (forEachBrush(editor, targets, [wobble](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (brush.role != slopengine::BrushRole::Water) {
+                        return;
+                    }
+                    brush.water.wobble = wobble;
+                    brush.water.haveWobble = true;
+                })) {
+                result.changed = true;
+            }
+        }
+
+        const auto vignetteCommon = commonValue<float>(
+            doc,
+            targets,
+            [](const slopengine::Brush& b) { return b.water.vignette; },
+            floatEq);
+        float vignette = vignetteCommon.value_or(0.35f);
+        if (ImGui::DragFloat("Vignette", &vignette, 0.01f, 0.0f, 1.5f, "%.2f")) {
+            if (forEachBrush(editor, targets, [vignette](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (brush.role != slopengine::BrushRole::Water) {
+                        return;
+                    }
+                    brush.water.vignette = vignette;
+                    brush.water.haveVignette = true;
+                })) {
+                result.changed = true;
+            }
         }
     }
 

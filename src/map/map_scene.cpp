@@ -22,6 +22,7 @@
 #include "map/things_spawn.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
+#include "map/water_volumes.hpp"
 #include "render/material_anim.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
@@ -166,6 +167,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapNavigation>()) {
         world.remove<MapNavigation>();
     }
+    if (world.has<MapWaterVolumes>()) {
+        world.remove<MapWaterVolumes>();
+    }
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
     }
@@ -211,6 +215,7 @@ bool registerMapScene(
     lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
     lightmapState.skyMeshIndices = std::move(loaded->skyMeshIndices);
     lightmapState.detailMeshIndices = std::move(loaded->detailMeshIndices);
+    lightmapState.twoSidedMeshIndices = std::move(loaded->twoSidedMeshIndices);
     lightmapState.skyShader = loaded->skyShader;
 
     world.entity("MapStatic")
@@ -277,6 +282,7 @@ bool registerMapScene(
         world.set<MapNavigation>(std::move(mapNav));
         resetNavFlowFieldCache(world);
     }
+    world.set<MapWaterVolumes>(buildMapWaterVolumes(loaded->brushes));
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;

@@ -188,6 +188,7 @@ add_executable(slopengine
     src/map/things_spawn.cpp
     src/map/brush_door.cpp
     src/map/face_triggers.cpp
+    src/map/water_volumes.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
@@ -207,6 +208,7 @@ add_executable(slopengine
     src/render/render_pass_fp.cpp
     src/render/render_pass_extra_eye.cpp
     src/render/post_process.cpp
+    src/render/underwater_effect.cpp
     src/render/skybox_world.cpp
     src/render/render_module.cpp
     src/render/hud.cpp

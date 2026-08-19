@@ -108,7 +108,8 @@ void drawModelMeshes(
     const Model& model,
     const std::unordered_set<int>* skipMeshIndices,
     const std::unordered_set<int>* onlyMeshIndices,
-    const std::unordered_set<int>* polygonOffsetBackMeshIndices) {
+    const std::unordered_set<int>* polygonOffsetBackMeshIndices,
+    const std::unordered_set<int>* twoSidedMeshIndices = nullptr) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -123,7 +124,15 @@ void drawModelMeshes(
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(kDetailMeshPolygonOffsetFactor, kDetailMeshPolygonOffsetUnits);
         }
+        const bool twoSided =
+            twoSidedMeshIndices != nullptr && twoSidedMeshIndices->count(meshIndex) > 0;
+        if (twoSided) {
+            rlDisableBackfaceCulling();
+        }
         DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+        if (twoSided) {
+            rlEnableBackfaceCulling();
+        }
         if (offsetBack) {
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
@@ -322,6 +331,8 @@ void renderWorldModel(
     if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
+        const std::unordered_set<int>* twoSided = nullptr;
+        std::unordered_set<int> twoSidedOffset;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.detailMeshIndices.empty()) {
@@ -330,11 +341,19 @@ void renderWorldModel(
                     lightmaps.detailMeshIndices.end());
                 polygonOffsetBack = &detailOffset;
             }
+            if (!lightmaps.twoSidedMeshIndices.empty()) {
+                twoSidedOffset.insert(
+                    lightmaps.twoSidedMeshIndices.begin(),
+                    lightmaps.twoSidedMeshIndices.end());
+                twoSided = &twoSidedOffset;
+            }
         }
-        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack);
+        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
+        const std::unordered_set<int>* twoSided = nullptr;
+        std::unordered_set<int> twoSidedOffset;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.detailMeshIndices.empty()) {
@@ -343,9 +362,15 @@ void renderWorldModel(
                     lightmaps.detailMeshIndices.end());
                 polygonOffsetBack = &detailOffset;
             }
+            if (!lightmaps.twoSidedMeshIndices.empty()) {
+                twoSidedOffset.insert(
+                    lightmaps.twoSidedMeshIndices.begin(),
+                    lightmaps.twoSidedMeshIndices.end());
+                twoSided = &twoSidedOffset;
+            }
         }
-        if (polygonOffsetBack != nullptr) {
-            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack);
+        if (polygonOffsetBack != nullptr || twoSided != nullptr) {
+            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack, twoSided);
         } else {
             DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
         }

@@ -968,6 +968,34 @@ SoLoud::Filter* AudioWorld::makeBuiltinFilter(std::string_view name) {
     return ptr;
 }
 
+bool AudioWorld::setUnderwaterMuffle(float amount01) {
+    if (!ready_) {
+        return false;
+    }
+    if (underwaterFilterSlot_ < 0) {
+        unsigned int& count = busFilterCount(AudioBusKind::Sfx);
+        if (count >= FILTERS_PER_STREAM) {
+            return false;
+        }
+        SoLoud::Filter* filter = makeBuiltinFilter("biquad");
+        if (filter == nullptr) {
+            return false;
+        }
+        auto* biquad = static_cast<SoLoud::BiquadResonantFilter*>(filter);
+        biquad->setParams(SoLoud::BiquadResonantFilter::LOWPASS, 900.0f, 2.0f);
+        bus(AudioBusKind::Sfx).setFilter(count, filter);
+        underwaterFilterSlot_ = static_cast<int>(count);
+        ++count;
+    }
+    const float wet = std::clamp(amount01, 0.0f, 1.0f);
+    soloud_.setFilterParameter(
+        sfxBusHandle_,
+        static_cast<unsigned int>(underwaterFilterSlot_),
+        static_cast<unsigned int>(SoLoud::BiquadResonantFilter::WET),
+        wet);
+    return true;
+}
+
 bool AudioWorld::attachBuiltinFilter(AudioBusKind kind, std::string_view name, unsigned int slot) {
     if (!ready_) {
         return false;
