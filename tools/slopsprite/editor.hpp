@@ -140,6 +140,9 @@ Color previewClearColor(const EditorDocument& doc, PreviewMode mode);
 const char* previewPoseLabel(const EditorDocument& doc, PreviewMode mode);
 Color previewPoseLabelColor(const EditorDocument& doc, PreviewMode mode);
 
+/** Draws a crosshair + label marker for an (attach ...) point at a resolved screen position. */
+void drawAttachMarker(Vector2 screen, const std::string& name, bool selected);
+
 /** Active (overlay ...) layer for FP / World preview at the current anim scrub time. */
 struct PreviewOverlayDraw {
     int layer = 1;

@@ -29,6 +29,9 @@ struct CharacterMotor {
     float verticalSpeed = 3.0f; /**< Max climb/dive speed in flight mode. */
     float hoverHeight = 0.0f;   /**< Default cruise offset above floor (0 = script decides). */
     float stepHeight = 0.5f;
+    float swimSpeed = 3.0f;  /**< Horizontal move speed while submerged past the swim threshold. */
+    float waterDrag = 1.0f;  /**< Vertical velocity damping rate (1/s) while swimming. */
+    float buoyancy = 2.0f;   /**< Upward accel (m/s^2) at full submersion; blended with gravity by submersion fraction. */
     CharacterHull hull = CharacterHull::Capsule;
     CharacterMoveMode moveMode = CharacterMoveMode::Slide;
 };

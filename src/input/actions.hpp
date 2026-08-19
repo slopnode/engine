@@ -9,6 +9,7 @@ enum class Action {
     MoveLeft,
     MoveRight,
     Jump,
+    Descend,
     Pause,
     Interact,
     Console,

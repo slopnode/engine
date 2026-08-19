@@ -802,6 +802,20 @@ SpriteAtlas buildSpriteAtlas(
         } else {
             hitmask = bakeSingleHitmask(image.image);
         }
+        if (hitmask.partNames.size() > 1 && !hitmask.parts.empty()) {
+            Image partMaskImage{};
+            partMaskImage.data = hitmask.parts.data();
+            partMaskImage.width = hitmask.width;
+            partMaskImage.height = hitmask.height;
+            partMaskImage.mipmaps = 1;
+            partMaskImage.format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE;
+            Texture2D partMaskTex = LoadTextureFromImage(partMaskImage);
+            if (partMaskTex.id != 0) {
+                SetTextureWrap(partMaskTex, TEXTURE_WRAP_CLAMP);
+                SetTextureFilter(partMaskTex, TEXTURE_FILTER_POINT);
+                atlas.partMaskTextures.emplace(image.path, partMaskTex);
+            }
+        }
         atlas.hitmasks.emplace(image.path, std::move(hitmask));
 
         const auto brightPathIt = textureBrightPaths.find(image.path);
@@ -880,6 +894,14 @@ void unloadSpriteAtlas(SpriteAtlas& atlas) {
         }
     }
     atlas.brightTextures.clear();
+    for (auto& [path, texture] : atlas.partMaskTextures) {
+        (void)path;
+        if (texture.id != 0) {
+            UnloadTexture(texture);
+            texture = {};
+        }
+    }
+    atlas.partMaskTextures.clear();
 }
 
 std::uint8_t hitmaskPartAt(const SpriteHitmask& mask, int x, int y) {
@@ -930,6 +952,22 @@ const SpriteFrame* findSpriteFrame(const SpriteAsset& asset, std::string_view fr
     }
     if (!asset.frames.empty()) {
         return &asset.frames.front();
+    }
+    return nullptr;
+}
+
+const SpriteAttachPoint* findSpriteAttachPoint(
+    const SpriteAsset& asset,
+    std::string_view frameId,
+    const std::string& name) {
+    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
+    if (frame == nullptr) {
+        return nullptr;
+    }
+    for (const SpriteAttachPoint& point : frame->attachPoints) {
+        if (point.name == name) {
+            return &point;
+        }
     }
     return nullptr;
 }

@@ -25,6 +25,7 @@ struct FaceCompileInput {
     Vector3 uvVAxis{};
     bool uvLock = false;
     bool transparent = false;
+    bool twoSided = false;
 };
 
 CsgCompileResult compileFacesToGeo(
@@ -55,6 +56,7 @@ CsgCompileResult compileFacesToGeo(
         primitive.name = face.id;
         primitive.material = face.material;
         primitive.transparent = face.transparent;
+        primitive.twoSided = face.twoSided;
         primitive.vertexOffset = result.buffer.positions.size();
         primitive.vertexCount = verts.size();
         primitive.indexOffset = result.buffer.indices.size();
@@ -221,6 +223,7 @@ CsgCompileResult compileBrushesToGeo(
             input.uvVAxis = face.uvVAxis;
             input.uvLock = face.uvLock;
             input.transparent = brush.role == BrushRole::Transparent;
+            input.twoSided = brush.role == BrushRole::Water;
             faces.push_back(std::move(input));
         }
     }
@@ -248,6 +251,7 @@ CsgCompileResult compileVisibleFacesToGeo(
         input.uvVAxis = face.uvVAxis;
         input.uvLock = face.uvLock;
         input.transparent = face.transparent;
+        input.twoSided = face.twoSided;
         faces.push_back(std::move(input));
     }
     return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);
@@ -301,6 +305,7 @@ void mergeGeoPrimitivesByKey(GeoAsset& asset, VertBuffer& buffer, const Primitiv
                 current.material = src.material;
                 current.rigidBone = src.rigidBone;
                 current.transparent = src.transparent;
+                current.twoSided = src.twoSided;
                 current.vertexOffset = mergedBuffer.positions.size();
                 current.indexOffset = mergedBuffer.indices.size();
                 currentOpen = true;

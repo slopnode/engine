@@ -76,8 +76,10 @@ add_subdirectory(lib)
 set(SLOPLIB_SOURCES
     src/core/engine_package.cpp
     src/core/package.cpp
+    src/core/package_discovery.cpp
     src/core/package_meta.cpp
     src/core/package_search.cpp
+    src/core/process_launch.cpp
     src/core/semver.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
@@ -180,11 +182,13 @@ add_executable(slopengine
     src/particles/particle_module.cpp
     src/fx/trail.cpp
     src/render/view_sprite_attachment.cpp
+    src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
     src/map/brush_door.cpp
     src/map/face_triggers.cpp
+    src/map/water_volumes.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
@@ -204,6 +208,7 @@ add_executable(slopengine
     src/render/render_pass_fp.cpp
     src/render/render_pass_extra_eye.cpp
     src/render/post_process.cpp
+    src/render/underwater_effect.cpp
     src/render/skybox_world.cpp
     src/render/render_module.cpp
     src/render/hud.cpp
@@ -365,6 +370,23 @@ if(MSVC)
     target_compile_options(slopthing PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopthing PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(sloplauncher
+    tools/sloplauncher/main.cpp
+    tools/sloplauncher/launcher_state.cpp
+    tools/sloplauncher/packages_panel.cpp
+    tools/sloplauncher/game_tab.cpp
+    tools/sloplauncher/development_tab.cpp
+    tools/sloplauncher/package_details_tab.cpp
+    src/game/package_cli.cpp
+)
+target_include_directories(sloplauncher PRIVATE tools/sloplauncher)
+target_link_libraries(sloplauncher PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(sloplauncher PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(sloplauncher PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopicons tools/slopicons/main.cpp)

@@ -278,11 +278,19 @@ void registerRenderSystems(flecs::world& world) {
                 }
                 if (sceneToTexture) {
                     EndTextureMode();
-                    presentPostProcess(*postState);
-                }
-                if (!hideHud) {
-                    drawHud(world);
-                    drawSpriteAimHudText(spriteAimStatus);
+                    if (!hideHud && postProcessNeedsCompositePipeline(*postState)) {
+                        beginHudCapture(*postState);
+                        drawHud(world);
+                        drawSpriteAimHudText(spriteAimStatus);
+                        endHudCapture(*postState);
+                        presentPostProcessComposite(*postState);
+                    } else {
+                        presentPostProcessSceneOnly(*postState);
+                        if (!hideHud) {
+                            drawHud(world);
+                            drawSpriteAimHudText(spriteAimStatus);
+                        }
+                    }
                 }
             }
 

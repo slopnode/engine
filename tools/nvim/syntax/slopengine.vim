@@ -32,6 +32,12 @@ syntax match slopengineHeadBuiltin "\%((\)\@<=\V\(car\|cdr\|caar\|cadr\|cdar\|cd
 
 syntax match slopengineHeadKeyword "\%((\)\@<=\V\(define\|define*\|define-macro\|define-macro*\|define-bacro\|define-bacro*\|define-constant\|define-expansion\|define-syntax\|define-record-type\|define-module\|define-class\|define-animal\|define-values\|lambda\|lambda*\|dilambda\|let\|let*\|let-values\|let*-values\|letrec\|letrec*\|named-lambda\|do\|if\|cond\|case\|when\|unless\|and\|or\|begin\|set!\|quote\|quasiquote\|unquote\|unquote-splicing\|delay\|delay-force\|force\|dynamic-wind\|call/cc\|call-with-current-continuation\|call-with-values\|call-with-exit\|with-let\|with-baffle\|catch\|syntax-rules\)\m\(\%([ \t)]\)\|$\)\@="
 
+" Engine-invoked hooks: fixed names from docs/scripting-api.md's Hooks
+" section, plus the on-action-{id}/on-use-{name} (and, by codebase
+" convention, on-enter-/on-exit-/on-touch-) prefixed callback names.
+syntax match slopengineHook "\%((\)\@<=\V\(prepare-first-person\|on-map-ready\|on-startup\|draw-file-menu\|draw-pause-menu\|draw-debug-menu\|draw-modals\|tick\|draw-hud\|draw-title\|on-sprite-hint\|on-sight\|sight-filter\)\m\(\%([ \t)]\)\|$\)\@="
+syntax match slopengineHook "\%((\)\@<=\V\(on-action-\|on-use-\|on-enter-\|on-exit-\|on-touch-\)\m[-A-Za-z0-9_./!?+*<>=]\+"
+
 highlight default link slopengineComment Comment
 highlight default link slopengineString String
 highlight default link slopengineEscape SpecialChar
@@ -45,5 +51,6 @@ highlight default link slopengineParen Delimiter
 highlight default link slopengineHeadFunction Function
 highlight default link slopengineHeadBuiltin Function
 highlight default link slopengineHeadKeyword Keyword
+highlight default link slopengineHook Special
 
 let b:current_syntax = "slopengine"

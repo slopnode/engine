@@ -16,26 +16,6 @@
 
 namespace slopengine {
 
-namespace {
-
-const SpriteAttachPoint* findAttachPoint(
-    const SpriteAsset& asset,
-    std::string_view frameId,
-    const std::string& name) {
-    const SpriteFrame* frame = findSpriteFrame(asset, frameId);
-    if (frame == nullptr) {
-        return nullptr;
-    }
-    for (const SpriteAttachPoint& point : frame->attachPoints) {
-        if (point.name == name) {
-            return &point;
-        }
-    }
-    return nullptr;
-}
-
-} // namespace
-
 std::optional<Vector3> resolveViewSpriteAttachmentWorld(
     flecs::world& world,
     flecs::entity host,
@@ -53,7 +33,7 @@ std::optional<Vector3> resolveViewSpriteAttachmentWorld(
     if (asset == nullptr) {
         return std::nullopt;
     }
-    const SpriteAttachPoint* attachPoint = findAttachPoint(*asset, sprite.frame, attachName);
+    const SpriteAttachPoint* attachPoint = findSpriteAttachPoint(*asset, sprite.frame, attachName);
     if (attachPoint == nullptr) {
         return std::nullopt;
     }
@@ -100,7 +80,7 @@ std::optional<Vector3> resolveViewSpriteAttachmentWorld(
                     translateY = translateY + (nextTranslateY - translateY) * blend;
                 }
                 const SpriteAttachPoint* nextAttachPoint =
-                    findAttachPoint(*asset, animator.nextFrame, attachName);
+                    findSpriteAttachPoint(*asset, animator.nextFrame, attachName);
                 if (nextAttachPoint != nullptr) {
                     attachX = attachX + (nextAttachPoint->x - attachX) * blend;
                     attachY = attachY + (nextAttachPoint->y - attachY) * blend;

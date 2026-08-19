@@ -168,4 +168,11 @@ struct SpriteOverlay {
     std::uint64_t host = 0;
 };
 
+/** Bitmask of hitmask part indices (bit (partIndex-1)) hidden from rendering, e.g. a shot-off head.
+ *  @ingroup render_components
+ */
+struct SpriteHiddenParts {
+    std::uint32_t mask = 0;
+};
+
 }

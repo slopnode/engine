@@ -1,5 +1,7 @@
 #include "compile.hpp"
 
+#include "core/process_launch.hpp"
+
 #include <raylib.h>
 
 #include <algorithm>
@@ -658,17 +660,9 @@ bool launchGame(const CompileMountArgs& mounts, std::string& errorOut) {
         return false;
     }
 
-    const char* dir = GetApplicationDirectory();
-    std::filesystem::path toolPath = dir ? std::filesystem::path(dir) : std::filesystem::path();
-#if defined(_WIN32)
-    toolPath /= "slopengine.exe";
-#else
-    toolPath /= "slopengine";
-#endif
-
-    std::error_code ec;
-    if (!std::filesystem::exists(toolPath, ec)) {
-        errorOut = "slopengine not found: " + toolPath.string();
+    const std::filesystem::path toolPath = slopengine::resolveSiblingExecutable("slopengine");
+    if (toolPath.empty()) {
+        errorOut = "slopengine not found next to slopmap";
         return false;
     }
 
@@ -684,56 +678,7 @@ bool launchGame(const CompileMountArgs& mounts, std::string& errorOut) {
     args.push_back(mounts.mapName);
     args.emplace_back("--debug");
 
-#if defined(_WIN32)
-    std::string cmdline;
-    for (std::size_t i = 0; i < args.size(); ++i) {
-        if (i > 0) {
-            cmdline.push_back(' ');
-        }
-        cmdline += quoteWinArg(args[i]);
-    }
-    std::vector<char> cmdlineMutable(cmdline.begin(), cmdline.end());
-    cmdlineMutable.push_back('\0');
-
-    STARTUPINFOA si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    const BOOL ok = CreateProcessA(
-        toolPath.string().c_str(),
-        cmdlineMutable.data(),
-        nullptr,
-        nullptr,
-        FALSE,
-        0,
-        nullptr,
-        nullptr,
-        &si,
-        &pi);
-    if (!ok) {
-        errorOut = "Failed to launch slopengine";
-        return false;
-    }
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    return true;
-#else
-    std::vector<char*> argv;
-    argv.reserve(args.size() + 1);
-    std::vector<std::string> argsOwned = args;
-    for (auto& arg : argsOwned) {
-        argv.push_back(arg.data());
-    }
-    argv.push_back(nullptr);
-
-    pid_t pid = -1;
-    const int spawnRc =
-        ::posix_spawn(&pid, toolPath.string().c_str(), nullptr, nullptr, argv.data(), environ);
-    if (spawnRc != 0) {
-        errorOut = std::string("Failed to launch slopengine: ") + std::strerror(spawnRc);
-        return false;
-    }
-    return true;
-#endif
+    return slopengine::spawnDetached(toolPath, args, errorOut);
 }
 
 }

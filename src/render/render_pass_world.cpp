@@ -108,7 +108,8 @@ void drawModelMeshes(
     const Model& model,
     const std::unordered_set<int>* skipMeshIndices,
     const std::unordered_set<int>* onlyMeshIndices,
-    const std::unordered_set<int>* polygonOffsetBackMeshIndices) {
+    const std::unordered_set<int>* polygonOffsetBackMeshIndices,
+    const std::unordered_set<int>* twoSidedMeshIndices = nullptr) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -123,7 +124,15 @@ void drawModelMeshes(
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(kDetailMeshPolygonOffsetFactor, kDetailMeshPolygonOffsetUnits);
         }
+        const bool twoSided =
+            twoSidedMeshIndices != nullptr && twoSidedMeshIndices->count(meshIndex) > 0;
+        if (twoSided) {
+            rlDisableBackfaceCulling();
+        }
         DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+        if (twoSided) {
+            rlEnableBackfaceCulling();
+        }
         if (offsetBack) {
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
@@ -232,6 +241,7 @@ struct SpriteDrawItem {
     const SpriteAnimator* animator = nullptr;
     float viewDepth = 0.0f;
     int layer = 0;
+    std::uint32_t hiddenParts = 0;
 };
 
 enum class TransparentDrawKind {
@@ -321,6 +331,8 @@ void renderWorldModel(
     if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
+        const std::unordered_set<int>* twoSided = nullptr;
+        std::unordered_set<int> twoSidedOffset;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.detailMeshIndices.empty()) {
@@ -329,11 +341,19 @@ void renderWorldModel(
                     lightmaps.detailMeshIndices.end());
                 polygonOffsetBack = &detailOffset;
             }
+            if (!lightmaps.twoSidedMeshIndices.empty()) {
+                twoSidedOffset.insert(
+                    lightmaps.twoSidedMeshIndices.begin(),
+                    lightmaps.twoSidedMeshIndices.end());
+                twoSided = &twoSidedOffset;
+            }
         }
-        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack);
+        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
+        const std::unordered_set<int>* twoSided = nullptr;
+        std::unordered_set<int> twoSidedOffset;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.detailMeshIndices.empty()) {
@@ -342,9 +362,15 @@ void renderWorldModel(
                     lightmaps.detailMeshIndices.end());
                 polygonOffsetBack = &detailOffset;
             }
+            if (!lightmaps.twoSidedMeshIndices.empty()) {
+                twoSidedOffset.insert(
+                    lightmaps.twoSidedMeshIndices.begin(),
+                    lightmaps.twoSidedMeshIndices.end());
+                twoSided = &twoSidedOffset;
+            }
         }
-        if (polygonOffsetBack != nullptr) {
-            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack);
+        if (polygonOffsetBack != nullptr || twoSided != nullptr) {
+            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack, twoSided);
         } else {
             DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
         }
@@ -414,6 +440,9 @@ struct SpriteBillboardShader {
     int atlasSizeLoc = -1;
     int useBrightmapLoc = -1;
     int brightMapLoc = -1;
+    int usePartMaskLoc = -1;
+    int partMaskLoc = -1;
+    int hiddenPartsMaskLoc = -1;
     bool ready = false;
 };
 
@@ -436,6 +465,9 @@ SpriteBillboardShader& spriteBillboardShader(AssetStore& assets) {
     state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
     state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
     state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.partMaskLoc = GetShaderLocation(state.shader, "texture2");
+    state.usePartMaskLoc = GetShaderLocation(state.shader, "usePartMask");
+    state.hiddenPartsMaskLoc = GetShaderLocation(state.shader, "hiddenPartsMask");
     state.ready = true;
     return state;
 }
@@ -449,7 +481,8 @@ void drawWorldSprite(
     const std::vector<RankedDynamicLight>* dynamicLights,
     const FxLightFrameState* fxLights,
     bool unlit,
-    const SpriteAnimator* animator) {
+    const SpriteAnimator* animator,
+    std::uint32_t hiddenPartsMask) {
     SpriteAnimTween tween{};
     const SpriteAnimTween* tweenPtr = nullptr;
     if (animator != nullptr && animator->hasTween() && !animator->nextFrame.empty()) {
@@ -606,6 +639,34 @@ void drawWorldSprite(
                 billboardShader->shader,
                 billboardShader->brightMapLoc,
                 *billboard->brightTexture);
+        }
+
+        const bool usePartMask =
+            hiddenPartsMask != 0 && billboard->partMaskTexture != nullptr &&
+            billboard->partMaskTexture->id != 0;
+        const int usePartMaskInt = usePartMask ? 1 : 0;
+        if (billboardShader->usePartMaskLoc >= 0) {
+            SetShaderValue(
+                billboardShader->shader,
+                billboardShader->usePartMaskLoc,
+                &usePartMaskInt,
+                SHADER_UNIFORM_INT);
+        }
+        if (usePartMask) {
+            if (billboardShader->hiddenPartsMaskLoc >= 0) {
+                const int hiddenPartsMaskInt = static_cast<int>(hiddenPartsMask);
+                SetShaderValue(
+                    billboardShader->shader,
+                    billboardShader->hiddenPartsMaskLoc,
+                    &hiddenPartsMaskInt,
+                    SHADER_UNIFORM_INT);
+            }
+            if (billboardShader->partMaskLoc >= 0) {
+                SetShaderValueTexture(
+                    billboardShader->shader,
+                    billboardShader->partMaskLoc,
+                    *billboard->partMaskTexture);
+            }
         }
     }
 
@@ -844,6 +905,8 @@ void collectWorldSpriteDrawItems(
                                                    : nullptr,
                 viewDepthAlongAxis(position, lens.camera.position, camForward),
                 spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
+                spriteEntity.has<SpriteHiddenParts>() ? spriteEntity.get<SpriteHiddenParts>().mask
+                                                       : 0,
             });
         });
 }
@@ -1102,7 +1165,8 @@ std::string drawWorldTransparentPass(
                 dynamicLights,
                 fxLights,
                 unlit,
-                item.sprite.animator);
+                item.sprite.animator,
+                item.sprite.hiddenParts);
         } else if (item.kind == TransparentDrawKind::Particle) {
             const ParticleDrawItem& particle = item.particle;
             if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {

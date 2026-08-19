@@ -10,6 +10,7 @@
 #include "render/components.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/view_sprite_attachment.hpp"
+#include "render/world_sprite_attachment.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -104,6 +105,29 @@ void syncFollowAttachPoints(flecs::world& world) {
     });
 }
 
+void syncFollowWorldAttachPoints(flecs::world& world) {
+    world.each([&](flecs::entity entity,
+                   ParticleFollowWorldAttachPoint& follow,
+                   ParticleSystemInstance& instance,
+                   LocalTransformation& local,
+                   GlobalTransformation& global) {
+        if (!instance.playing) {
+            entity.destruct();
+            return;
+        }
+        flecs::entity host = world.entity(static_cast<flecs::entity_t>(follow.host));
+        if (!host.is_valid()) {
+            entity.destruct();
+            return;
+        }
+        const auto tip = resolveWorldSpriteAttachmentWorld(world, host, follow.name);
+        if (!tip) {
+            return;
+        }
+        writeWorldPose(local, global, *tip, 0.0f);
+    });
+}
+
 } // namespace
 
 flecs::entity spawnParticleSystem(
@@ -188,6 +212,38 @@ flecs::entity spawnParticleSystemFp(
     return entity;
 }
 
+flecs::entity spawnParticleSystemWorldAttach(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity hostSprite,
+    const std::string& attachName,
+    std::string_view path,
+    bool mapOwned) {
+    if (!hostSprite.is_valid()) {
+        return {};
+    }
+    const auto tip = resolveWorldSpriteAttachmentWorld(world, hostSprite, attachName);
+    if (!tip) {
+        TraceLog(
+            LOG_WARNING,
+            "spawnParticleSystemWorldAttach: host missing attach point '%s' or sprite pose",
+            attachName.c_str());
+        return {};
+    }
+
+    flecs::entity entity =
+        spawnParticleSystem(world, assets, id, *tip, 0.0f, path, true, mapOwned);
+    if (!entity.is_valid()) {
+        return {};
+    }
+    entity.set<ParticleFollowWorldAttachPoint>({
+        .host = static_cast<std::uint64_t>(hostSprite.id()),
+        .name = attachName,
+    });
+    return entity;
+}
+
 void updateParticleSystems(
     flecs::world& world,
     AssetStore& assets,
@@ -198,6 +254,7 @@ void updateParticleSystems(
     }
 
     syncFollowAttachPoints(world);
+    syncFollowWorldAttachPoints(world);
 
     ParticleRaycastFn raycast;
     if (physics != nullptr) {
@@ -282,6 +339,7 @@ void drawMuzzleParticleSystems(
 void registerParticleModule(flecs::world& world, AssetStore& assets) {
     world.component<ParticleSystemInstance>();
     world.component<ParticleFollowAttachPoint>();
+    world.component<ParticleFollowWorldAttachPoint>();
 
     world.system("ParticleSystemUpdate")
         .kind(flecs::OnUpdate)

@@ -547,50 +547,84 @@ Draws text on the HUD canvas.
 
 ## Post-processing {#post-processing}
 
-### post-set-shader {#post-set-shader}
-<pre><code class="language-scheme">(post-set-shader path) → boolean?
-  path : string?
-</code></pre>
-Sets the active post-process shader.
+Post-process shaders run as an ordered stack per target, so any number of
+effects can be layered — each pushed shader is a full extra fullscreen pass,
+so stacking many has a real GPU cost. `target` is one of three symbols:
 
-### post-clear-shader {#post-clear-shader}
-<pre><code class="language-scheme">(post-clear-shader) → boolean?
+- `'scene` — runs on the rendered 3D/first-person scene only, before the HUD
+  is drawn.
+- `'hud` — runs on the HUD layer only (in isolation, on a transparent
+  background), before it's composited over the scene.
+- `'both` — runs once on the final composited scene+HUD image, after
+  compositing. Use this for full-screen effects (CRT, vignette, chromatic
+  aberration) that should visibly affect the UI too.
+
+Every push returns an integer handle (`0` on failure) used to address that
+specific pass — enable/disable it, update its uniforms, or remove it.
+Whenever `'hud` or `'both` has at least one active pass, the engine captures
+the HUD to its own texture and composites it with the shaded scene; with only
+`'scene` passes active (the common case), rendering stays on the original
+direct-to-backbuffer fast path.
+
+### post-push-shader {#post-push-shader}
+<pre><code class="language-scheme">(post-push-shader path target) → integer?
+  path   : string?
+  target : symbol? = 'scene | 'hud | 'both
 </code></pre>
-Clears the active post-process shader.
+Compiles `path` against the engine's fullscreen vertex shader and pushes it
+onto `target`'s stack, enabled by default. Returns a handle, or `0` on
+failure (bad path, compile error).
+
+### post-remove-shader {#post-remove-shader}
+<pre><code class="language-scheme">(post-remove-shader handle) → boolean?
+  handle : integer?
+</code></pre>
+Removes a single pass from whichever stack it's in.
+
+### post-clear-shaders {#post-clear-shaders}
+<pre><code class="language-scheme">(post-clear-shaders target) → boolean?
+  target : symbol? = 'scene | 'hud | 'both
+</code></pre>
+Removes every pass on the given target's stack.
 
 ### post-set-enabled {#post-set-enabled}
-<pre><code class="language-scheme">(post-set-enabled enabled) → boolean?
+<pre><code class="language-scheme">(post-set-enabled handle enabled) → boolean?
+  handle  : integer?
   enabled : boolean?
 </code></pre>
-Enables or disables the post-process pass.
+Enables or disables a specific pass without removing it.
 
 ### post-set-float {#post-set-float}
-<pre><code class="language-scheme">(post-set-float name x) → boolean?
-  name : string?
-  x    : real?
+<pre><code class="language-scheme">(post-set-float handle name x) → boolean?
+  handle : integer?
+  name   : string?
+  x      : real?
 </code></pre>
-Sets a `float` uniform on the active post-process shader.
+Sets a `float` uniform on a specific pass's shader.
 
 ### post-set-vec2 {#post-set-vec2}
-<pre><code class="language-scheme">(post-set-vec2 name x y) → boolean?
-  name : string?
-  x, y : real?
+<pre><code class="language-scheme">(post-set-vec2 handle name x y) → boolean?
+  handle : integer?
+  name   : string?
+  x, y   : real?
 </code></pre>
-Sets a `vec2` uniform on the active post-process shader.
+Sets a `vec2` uniform on a specific pass's shader.
 
 ### post-set-vec3 {#post-set-vec3}
-<pre><code class="language-scheme">(post-set-vec3 name x y z) → boolean?
+<pre><code class="language-scheme">(post-set-vec3 handle name x y z) → boolean?
+  handle  : integer?
   name    : string?
   x, y, z : real?
 </code></pre>
-Sets a `vec3` uniform on the active post-process shader.
+Sets a `vec3` uniform on a specific pass's shader.
 
 ### post-set-vec4 {#post-set-vec4}
-<pre><code class="language-scheme">(post-set-vec4 name x y z w) → boolean?
+<pre><code class="language-scheme">(post-set-vec4 handle name x y z w) → boolean?
+  handle     : integer?
   name       : string?
   x, y, z, w : real?
 </code></pre>
-Sets a `vec4` uniform on the active post-process shader.
+Sets a `vec4` uniform on a specific pass's shader.
 
 ## Audio {#audio}
 

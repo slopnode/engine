@@ -120,6 +120,9 @@ struct SpriteAtlas {
     std::unordered_map<std::string, SpriteHitmask> hitmasks;
     /** Grayscale brightmaps keyed by albedo texture path (standalone textures). */
     std::unordered_map<std::string, Texture2D> brightTextures;
+    /** GPU part-index masks (R8, one texel per albedo pixel) keyed by albedo texture path.
+     *  Only present for frames with an authored multi-part hit mask. */
+    std::unordered_map<std::string, Texture2D> partMaskTextures;
 };
 
 /** Parses .spr text into @p asset. */
@@ -138,6 +141,12 @@ void unloadSpriteAtlas(SpriteAtlas& atlas);
 
 /** Finds a frame by id, or nullptr. */
 const SpriteFrame* findSpriteFrame(const SpriteAsset& asset, std::string_view frameId);
+
+/** Finds a named (attach ...) point on a specific frame, or nullptr. */
+const SpriteAttachPoint* findSpriteAttachPoint(
+    const SpriteAsset& asset,
+    std::string_view frameId,
+    const std::string& name);
 
 /** Picks a rotation with fallbacks when the requested angle is missing. */
 const SpriteRotation* selectSpriteRotation(const SpriteFrame& frame, int rotation);
