@@ -8,10 +8,15 @@
 
 namespace slopengine {
 
-/** One Water-role brush's bounds and underwater screen-effect properties. */
+/** One Water-role brush's bounds and underwater screen-effect properties.
+ *  boundaryFaces holds every convex face except the upward-facing top, used
+ *  for an accurate point-in-volume test — the AABB alone over-approximates
+ *  non-box brushes and can overlap a neighboring/unrelated water volume's
+ *  AABB, which reads as the tint flickering between them near the surface. */
 struct WaterVolume {
     Vector3 mins{};
     Vector3 maxs{};
+    std::vector<BrushFace> boundaryFaces;
     BrushWater water{};
 };
 

@@ -19,10 +19,19 @@ void main()
 {
     float amt = clamp(amount, 0.0, 1.0);
 
+    // Taper the distortion to zero within a margin of the screen edge so the
+    // sample never wanders outside the render target — otherwise the wrapped/
+    // clamped edge pixels show up as visible seams and holes, most noticeable
+    // eating into the first-person viewmodel near the bottom of the screen.
+    const float kEdgeMargin = 0.06;
+    vec2 edgeDist = min(fragTexCoord, 1.0 - fragTexCoord);
+    float edgeFade = smoothstep(0.0, kEdgeMargin, min(edgeDist.x, edgeDist.y));
+
     vec2 uv = fragTexCoord;
-    float wobbleAmp = 0.006 * wobble * amt;
+    float wobbleAmp = 0.006 * wobble * amt * edgeFade;
     uv.x += sin(uv.y * 40.0 + time * 1.6) * wobbleAmp;
     uv.y += cos(uv.x * 40.0 + time * 1.3) * wobbleAmp;
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
 
     vec3 sceneColor = texture(texture0, uv).rgb;
     vec3 tinted = mix(sceneColor, sceneColor * (tint * 1.6) + tint * 0.08, amt);
