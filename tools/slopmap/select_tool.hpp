@@ -24,6 +24,7 @@ struct SelectTool {
     TranslateAxis rotateAxisLock = TranslateAxis::Y;
     Vector3 translateOrigin{};
     Vector3 rotateOrigin{};
+    bool snapAnchorIsVertex = false;
     Vector3 mouseGrabWorld{};
     Vector2 mouseGrabScreen{};
     float rotateGrabAngle = 0.0f;
@@ -48,6 +49,7 @@ struct SelectTool {
     void toggleSelectedUvLock(Editor& editor);
     bool active() const { return translating || rotating; }
     bool numericLocked(const Editor& editor) const;
+    Vector3 snapAnchorWorldPos(const Editor& editor) const;
 
 private:
     Vector2 pickCycleMouse{};

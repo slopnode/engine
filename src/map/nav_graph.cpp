@@ -19,7 +19,7 @@ bool isNavWalkableLeaf(
     if (leaf < 0 || leaf >= static_cast<int>(tree.leaves.size())) {
         return false;
     }
-    if (!leafIsOpen(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
+    if (!leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
         return false;
     }
     if (exteriorEmpty != nullptr &&
@@ -46,6 +46,96 @@ float navDist3(Vector3 a, Vector3 b) {
     return Vector3Distance(a, b);
 }
 
+struct PortalSpread {
+    Vector3 tangent{1.0f, 0.0f, 0.0f};
+    float halfWidth = 0.0f;
+};
+
+PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices) {
+    constexpr float kSpreadFraction = 0.5f;
+    constexpr float kEdgeClearance = 0.45f;
+
+    float bestDistSq = 0.0f;
+    Vector3 bestDelta{1.0f, 0.0f, 0.0f};
+    for (std::size_t a = 0; a < vertices.size(); ++a) {
+        for (std::size_t b = a + 1; b < vertices.size(); ++b) {
+            const float dx = vertices[b].x - vertices[a].x;
+            const float dz = vertices[b].z - vertices[a].z;
+            const float distSq = dx * dx + dz * dz;
+            if (distSq > bestDistSq) {
+                bestDistSq = distSq;
+                bestDelta = {dx, 0.0f, dz};
+            }
+        }
+    }
+
+    const float dist = std::sqrt(bestDistSq);
+    if (dist < 1.0e-4f) {
+        return {};
+    }
+    const float halfWidth = std::max(0.0f, dist * kSpreadFraction - kEdgeClearance);
+    return {Vector3Scale(bestDelta, 1.0f / dist), halfWidth};
+}
+
+// Walks straight down from (x, startY, z) through open leaves (via exact BSP
+// point classification, not an approximation) until it lands in solid content
+// or leaves the map, returning the Y of the last open leaf reached — i.e. the
+// real floor a ground agent would come to rest on there. A leaf's own
+// mins.y is not trustworthy on its own: face-plane-driven BSP splitting lets
+// a brush anywhere else in the level contribute a horizontal split plane that
+// slices straight through unrelated open leaves, leaving some of them
+// reporting a "floor" that's really just empty air over a leaf stacked
+// beneath them.
+float descendToRealFloor(const BspTree& tree, float x, float z, float startY) {
+    constexpr float kStepEps = 0.01f;
+    constexpr int kMaxSteps = 64;
+    float y = startY;
+    for (int step = 0; step < kMaxSteps; ++step) {
+        const float probeY = y - kStepEps;
+        if (probeY < tree.boundsMins.y) {
+            return y;
+        }
+        const std::int32_t below = pointLeaf(tree, {x, probeY, z});
+        if (below < 0) {
+            return y;
+        }
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(below)];
+        if (leafBlocksFlood(leaf.contents)) {
+            return y;
+        }
+        y = leaf.mins.y;
+    }
+    return y;
+}
+
+// Resolves leaf i's true floor by descending from several points spread
+// across its footprint (its centroid, plus the midpoint toward every face
+// vertex — all guaranteed inside this convex leaf), not just the centroid
+// alone: a single probe can be fooled by a small local opening (a grate, a
+// pipe gap, a window portal) that isn't representative of the leaf's floor
+// as a whole. Only commits the corrected floor when every sample agrees;
+// a leaf where samples disagree keeps its original mins.y rather than
+// guessing.
+float resolveLeafFloorY(const BspTree& tree, const BspLeaf& leaf, Vector3 centroid) {
+    const float startY = leaf.mins.y;
+    float lo = descendToRealFloor(tree, centroid.x, centroid.z, startY);
+    float hi = lo;
+    for (const auto& face : leaf.faces) {
+        for (const Vector3& v : face) {
+            const float sx = 0.5f * (centroid.x + v.x);
+            const float sz = 0.5f * (centroid.z + v.z);
+            const float y = descendToRealFloor(tree, sx, sz, startY);
+            lo = std::min(lo, y);
+            hi = std::max(hi, y);
+        }
+    }
+    constexpr float kAgreementEps = 0.05f;
+    if (hi - lo > kAgreementEps) {
+        return leaf.mins.y; // samples disagree — leave the leaf's own floor alone
+    }
+    return lo;
+}
+
 } // namespace
 
 MapNavigation buildMapNavigation(
@@ -65,13 +155,21 @@ MapNavigation buildMapNavigation(
     nav.adjacency.resize(static_cast<std::size_t>(n));
 
     for (int i = 0; i < n; ++i) {
-        nav.leafCentroids[static_cast<std::size_t>(i)] =
-            leafCentroid(tree.leaves[static_cast<std::size_t>(i)]);
-        nav.leafFloorY[static_cast<std::size_t>(i)] =
-            tree.leaves[static_cast<std::size_t>(i)].mins.y;
-        nav.leafCeilingY[static_cast<std::size_t>(i)] =
-            tree.leaves[static_cast<std::size_t>(i)].maxs.y;
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        nav.leafCentroids[static_cast<std::size_t>(i)] = leafCentroid(leaf);
+        nav.leafFloorY[static_cast<std::size_t>(i)] = leaf.mins.y;
+        nav.leafCeilingY[static_cast<std::size_t>(i)] = leaf.maxs.y;
         nav.walkable[static_cast<std::size_t>(i)] = isNavWalkableLeaf(tree, i, exteriorEmpty);
+    }
+
+    for (int i = 0; i < n; ++i) {
+        if (!nav.walkable[static_cast<std::size_t>(i)]) {
+            continue;
+        }
+        nav.leafFloorY[static_cast<std::size_t>(i)] = resolveLeafFloorY(
+            tree,
+            tree.leaves[static_cast<std::size_t>(i)],
+            nav.leafCentroids[static_cast<std::size_t>(i)]);
     }
 
     for (const BspPortal& portal : tree.portals) {
@@ -90,11 +188,25 @@ MapNavigation buildMapNavigation(
         const Vector3& centroidA = nav.leafCentroids[static_cast<std::size_t>(portal.leafA)];
         const Vector3& centroidB = nav.leafCentroids[static_cast<std::size_t>(portal.leafB)];
         const float costAB = navDist3(centroidA, center) + navDist3(center, centroidB);
+        const PortalSpread spread = computePortalHorizontalSpread(portal.vertices);
 
         nav.adjacency[static_cast<std::size_t>(portal.leafA)].push_back(
-            NavPortalLink{portal.leafB, center, costAB});
+            NavPortalLink{portal.leafB, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId});
         nav.adjacency[static_cast<std::size_t>(portal.leafB)].push_back(
-            NavPortalLink{portal.leafA, center, costAB});
+            NavPortalLink{portal.leafA, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId});
+    }
+
+    nav.reverseAdjacency.assign(static_cast<std::size_t>(n), {});
+    for (int i = 0; i < n; ++i) {
+        for (const NavPortalLink& link : nav.adjacency[static_cast<std::size_t>(i)]) {
+            if (link.neighborLeaf < 0 || link.neighborLeaf >= n) {
+                continue;
+            }
+            nav.reverseAdjacency[static_cast<std::size_t>(link.neighborLeaf)].push_back(
+                NavPortalLink{
+                    i, link.portalCenter, link.portalTangent, link.portalHalfWidth, link.cost,
+                    link.doorBrushId});
+        }
     }
 
     TraceLog(
@@ -119,7 +231,24 @@ std::optional<Vector3> portalCenterBetween(const MapNavigation& nav, int leafA, 
     return std::nullopt;
 }
 
-std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf) {
+const NavPortalLink* portalLinkBetween(const MapNavigation& nav, int leafA, int leafB) {
+    if (leafA < 0 || leafB < 0 || leafA >= nav.leafCount || leafB >= nav.leafCount) {
+        return nullptr;
+    }
+    for (const NavPortalLink& link : nav.adjacency[static_cast<std::size_t>(leafA)]) {
+        if (link.neighborLeaf == leafB) {
+            return &link;
+        }
+    }
+    return nullptr;
+}
+
+std::vector<int> findLeafPath(
+    const MapNavigation& nav,
+    int fromLeaf,
+    int toLeaf,
+    const DoorOpenQuery& isDoorOpen,
+    float maxClimb) {
     if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= nav.leafCount || toLeaf >= nav.leafCount) {
         return {};
     }
@@ -171,6 +300,14 @@ std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf
                 !nav.walkable[static_cast<std::size_t>(next)]) {
                 continue;
             }
+            if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
+                continue;
+            }
+            const float rise = nav.leafFloorY[static_cast<std::size_t>(next)] -
+                nav.leafFloorY[static_cast<std::size_t>(current)];
+            if (rise > maxClimb) {
+                continue;
+            }
             const float tentative = currentG + link.cost;
             const auto it = gScore.find(next);
             if (it != gScore.end() && tentative >= it->second) {
@@ -185,11 +322,100 @@ std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf
     return {};
 }
 
+NavFlowField buildNavFlowField(
+    const MapNavigation& nav,
+    int goalLeaf,
+    const DoorOpenQuery& isDoorOpen,
+    float maxClimb) {
+    NavFlowField field;
+    field.goalLeaf = goalLeaf;
+    field.maxClimb = maxClimb;
+    if (nav.leafCount <= 0) {
+        return field;
+    }
+    field.nextLeaf.assign(static_cast<std::size_t>(nav.leafCount), -1);
+    if (goalLeaf < 0 || goalLeaf >= nav.leafCount ||
+        !nav.walkable[static_cast<std::size_t>(goalLeaf)]) {
+        return field;
+    }
+
+    struct Node {
+        int leaf = -1;
+        float g = 0.0f;
+        bool operator>(const Node& other) const { return g > other.g; }
+    };
+
+    std::vector<float> gScore(
+        static_cast<std::size_t>(nav.leafCount), std::numeric_limits<float>::infinity());
+    gScore[static_cast<std::size_t>(goalLeaf)] = 0.0f;
+
+    std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open;
+    open.push(Node{goalLeaf, 0.0f});
+
+    while (!open.empty()) {
+        const int current = open.top().leaf;
+        open.pop();
+        const float currentG = gScore[static_cast<std::size_t>(current)];
+
+        for (const NavPortalLink& link : nav.reverseAdjacency[static_cast<std::size_t>(current)]) {
+            const int prev = link.neighborLeaf;
+            if (prev < 0 || prev >= nav.leafCount ||
+                !nav.walkable[static_cast<std::size_t>(prev)]) {
+                continue;
+            }
+            if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
+                continue;
+            }
+            const float rise = nav.leafFloorY[static_cast<std::size_t>(current)] -
+                nav.leafFloorY[static_cast<std::size_t>(prev)];
+            if (rise > maxClimb) {
+                continue;
+            }
+            const float tentative = currentG + link.cost;
+            if (tentative < gScore[static_cast<std::size_t>(prev)]) {
+                gScore[static_cast<std::size_t>(prev)] = tentative;
+                field.nextLeaf[static_cast<std::size_t>(prev)] = current;
+                open.push(Node{prev, tentative});
+            }
+        }
+    }
+
+    return field;
+}
+
+std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf) {
+    if (fromLeaf < 0 || fromLeaf >= static_cast<int>(field.nextLeaf.size())) {
+        return {};
+    }
+    if (fromLeaf == field.goalLeaf) {
+        return {fromLeaf};
+    }
+    if (field.nextLeaf[static_cast<std::size_t>(fromLeaf)] < 0) {
+        return {};
+    }
+
+    std::vector<int> path{fromLeaf};
+    int current = fromLeaf;
+    const int guard = static_cast<int>(field.nextLeaf.size()) + 1;
+    for (int step = 0; step < guard; ++step) {
+        current = field.nextLeaf[static_cast<std::size_t>(current)];
+        if (current < 0) {
+            return {};
+        }
+        path.push_back(current);
+        if (current == field.goalLeaf) {
+            return path;
+        }
+    }
+    return {};
+}
+
 std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
     Vector3 goalPos,
-    bool flyerWaypoints) {
+    bool flyerWaypoints,
+    float lateralBias) {
     if (leafPath.empty()) {
         return {};
     }
@@ -203,10 +429,15 @@ std::vector<Vector3> leafPathToWaypoints(
         const int fromLeaf = leafPath[i];
         const int toLeaf = leafPath[i + 1];
         const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];
-        const std::optional<Vector3> center = portalCenterBetween(nav, fromLeaf, toLeaf);
-        if (center.has_value()) {
-            const float wpY = flyerWaypoints ? center->y : floorY;
-            waypoints.push_back({center->x, wpY, center->z});
+        const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
+        if (link != nullptr) {
+            Vector3 point = link->portalCenter;
+            if (link->portalHalfWidth > 0.0f) {
+                point = Vector3Add(
+                    point, Vector3Scale(link->portalTangent, lateralBias * link->portalHalfWidth));
+            }
+            const float wpY = flyerWaypoints ? point.y : floorY;
+            waypoints.push_back({point.x, wpY, point.z});
         } else {
             const Vector3& fromCentroid = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
             const Vector3& toCentroid = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];

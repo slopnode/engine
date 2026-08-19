@@ -21,4 +21,13 @@ struct SpriteBrowser {
     void draw(Editor& editor, slopengine::AssetStore& assets);
 };
 
+struct SpritePicker {
+    std::vector<std::string> sprites;
+    std::string filter;
+    bool open = false;
+
+    void rescan(const slopengine::AssetStore& assets);
+    bool drawModal(slopengine::AssetStore& assets, std::string& outPath);
+};
+
 }

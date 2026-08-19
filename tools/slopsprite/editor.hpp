@@ -53,13 +53,7 @@ struct EditorDocument {
     float worldScale = 1.0f;
 
     slopengine::ViewSprite viewSprite{};
-    float eyeOffsetX = 0.0f;
-    float eyeOffsetY = 0.0f;
-    float eyeOffsetZ = 0.0f;
-    bool hasMuzzle = false;
-    float muzzleX = 0.0f;
-    float muzzleY = 0.0f;
-    bool muzzleSelected = false;
+    int selectedAttachPointIndex = -1;
 
     std::string animClip;
     float animTime = 0.0f;
@@ -77,6 +71,7 @@ struct EditorDocument {
 
     int selectedFrameIndex = 0;
     int selectedRot = 0;
+    int selectedClipFrameIndex = -1;
     int selectedOverlayHoldIndex = -1;
     int selectedOverlayIndex = -1;
 
@@ -84,6 +79,11 @@ struct EditorDocument {
     int onionFrameIndex = 0;
     int onionRot = 0;
     float alignZoom = 2.0f;
+    float alignPanX = 0.0f;
+    float alignPanY = 0.0f;
+    float fpZoom = 1.0f;
+    float fpPanX = 0.0f;
+    float fpPanY = 0.0f;
 };
 
 struct Editor {
@@ -101,6 +101,10 @@ struct Editor {
     bool showNewSpriteModal = false;
     char newSpritePathBuf[256] = {};
 
+    std::string onionSpritePath;
+    slopengine::SpriteAsset onionRefAsset{};
+    slopengine::SpriteAtlas onionRefAtlas{};
+
     void setStatus(std::string message, float seconds = 3.0f);
     void applyViewFromAsset();
     void syncViewToAsset();
@@ -112,7 +116,14 @@ struct Editor {
     bool saveAnim();
     void rebuildAnimIndex();
     void duplicateSelectedFrame();
+    void renameFrame(int index, const std::string& newId);
     void ensureAnimBank();
+    void addClip(const std::string& name);
+    void deleteClip(const std::string& name);
+    bool setOnionSprite(slopengine::AssetStore& assets, const std::string& virtualPath);
+    void clearOnionSprite();
+    const slopengine::SpriteAsset& onionAsset() const;
+    const slopengine::SpriteAtlas& onionAtlas() const;
     slopengine::SpriteAnimClip* currentAnimClip();
     void tickAnim(float dt, slopengine::AssetStore& assets, slopengine::AudioWorld* audio);
     void scrubAnim(float time);
@@ -128,6 +139,9 @@ bool previewShowingTween(const EditorDocument& doc);
 Color previewClearColor(const EditorDocument& doc, PreviewMode mode);
 const char* previewPoseLabel(const EditorDocument& doc, PreviewMode mode);
 Color previewPoseLabelColor(const EditorDocument& doc, PreviewMode mode);
+
+/** Draws a crosshair + label marker for an (attach ...) point at a resolved screen position. */
+void drawAttachMarker(Vector2 screen, const std::string& name, bool selected);
 
 /** Active (overlay ...) layer for FP / World preview at the current anim scrub time. */
 struct PreviewOverlayDraw {

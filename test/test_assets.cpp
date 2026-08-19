@@ -21,6 +21,7 @@ void runAssetTests() {
         CHECK_EQ(asset.shader, std::string("default"));
         CHECK_EQ(asset.albedoTexture, std::string("freedom/WALL"));
         CHECK_EQ(asset.pixelsPerMeter, 64.0f);
+        CHECK_FALSE(asset.fullbright);
     }
 
     {
@@ -29,6 +30,21 @@ void runAssetTests() {
             "(material (shader \"default\") (texure \"typo\"))",
             asset);
         CHECK_FALSE(ok);
+    }
+
+    {
+        MaterialAsset asset{};
+        const bool ok = parseMaterialAsset(
+            "(material\n"
+            "  (shader \"default\")\n"
+            "  (texture \"freedom/AQSECT12\")\n"
+            "  (texel-size 32)\n"
+            "  (emission \"freedom/masks/AQSECT12\")\n"
+            "  (fullbright)\n"
+            "  (base-color 1 1 1 1))\n",
+            asset);
+        CHECK(ok);
+        CHECK(asset.fullbright);
     }
 
     {
@@ -150,6 +166,39 @@ void runAssetTests() {
         CHECK_EQ(roundTrip.tint.g, 128);
         CHECK_EQ(roundTrip.tint.b, 64);
         CHECK_EQ(roundTrip.tint.a, 191);
+    }
+
+    {
+        SpriteAsset asset{};
+        const bool ok = parseSpriteAsset(
+            "(sprite\n"
+            "  (texel-size 32)\n"
+            "  (frame \"A\"\n"
+            "    (rot 0 \"fx/blood\" offset 8 8)\n"
+            "    (attach \"muzzle\" 30 12)\n"
+            "    (attach \"ejector\" -5 8 3))\n"
+            ")\n",
+            asset);
+        CHECK(ok);
+        CHECK_EQ(asset.frames.size(), 1u);
+        CHECK_EQ(asset.frames[0].attachPoints.size(), 2u);
+        CHECK_EQ(asset.frames[0].attachPoints[0].name, std::string("muzzle"));
+        CHECK_EQ(asset.frames[0].attachPoints[0].x, 30.0f);
+        CHECK_EQ(asset.frames[0].attachPoints[0].y, 12.0f);
+        CHECK_EQ(asset.frames[0].attachPoints[0].zIndex, 0);
+        CHECK_EQ(asset.frames[0].attachPoints[1].name, std::string("ejector"));
+        CHECK_EQ(asset.frames[0].attachPoints[1].x, -5.0f);
+        CHECK_EQ(asset.frames[0].attachPoints[1].y, 8.0f);
+        CHECK_EQ(asset.frames[0].attachPoints[1].zIndex, 3);
+
+        const std::string serialized = serializeSpriteAsset(asset);
+        SpriteAsset roundTrip{};
+        CHECK(parseSpriteAsset(serialized, roundTrip));
+        CHECK_EQ(roundTrip.frames[0].attachPoints.size(), 2u);
+        CHECK_EQ(roundTrip.frames[0].attachPoints[0].name, std::string("muzzle"));
+        CHECK_EQ(roundTrip.frames[0].attachPoints[0].zIndex, 0);
+        CHECK_EQ(roundTrip.frames[0].attachPoints[1].name, std::string("ejector"));
+        CHECK_EQ(roundTrip.frames[0].attachPoints[1].zIndex, 3);
     }
 
     {

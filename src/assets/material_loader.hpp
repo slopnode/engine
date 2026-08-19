@@ -18,10 +18,17 @@ struct MaterialAsset {
     std::string albedoTexture; /**< Texture virtual path, or empty. */
     std::string textureAnimPath; /**< .texanim virtual path, or empty. */
     float pixelsPerMeter = 64.0f; /**< World texel density (texel-size). */
+    float ior = 1.0f; /**< Bake-time index of refraction; 1.0 = no bend. */
     std::string emissionTexture;
     Color emissionColor = {0, 0, 0, 255};
     float emissionPower = 0.0f;
     float emissionRange = 0.0f; /**< Max cast distance in world units; 0 = unlimited. */
+    /** Bake-time: scale the direct-light sample density with face length so emission-mask
+     *  features (light strips, point clusters) cast as distinct shapes instead of smearing
+     *  into one continuous glow across long faces. Costs more bake time; off by default. */
+    bool preciseEmission = false;
+    bool exactEmission = false;
+    bool fullbright = false; /**< Render-time: mix masked-emissive texels to raw albedo, ignoring lighting. */
     bool sky = false; /**< Bake-time sun aperture; not a lightmap receiver. */
     SkyboxMode skyMode = SkyboxMode::Solid;
     bool haveSkyMode = false;

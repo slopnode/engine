@@ -1,0 +1,18 @@
+(define (require path)
+  (let ((pkg (current-package-id)))
+    (if (not pkg)
+        (error 'require "require: no current package context (only usable while a package script/data file is loading)")
+        (if (not (package-load-script pkg path))
+            (error 'require "require: no such script \"~A\" in package \"~A\"" path pkg)
+            #t))))
+
+(define (require-data path)
+  (let ((pkg (current-package-id)))
+    (if (not pkg)
+        (error 'require-data "require-data: no current package context (only usable while a package script/data file is loading)")
+        (if (not (package-load-data pkg path))
+            (error 'require-data "require-data: no such data file \"~A\" in package \"~A\"" path pkg)
+            #t))))
+
+(require "lists")
+(require "math")

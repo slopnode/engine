@@ -105,6 +105,10 @@ Color kindColor(slopengine::ThingKind kind, bool selected) {
         return Color{255, 255, 160, 255};
     case slopengine::ThingKind::AmbientLight:
         return Color{180, 200, 255, 255};
+    case slopengine::ThingKind::DynamicPointLight:
+        return Color{140, 255, 220, 255};
+    case slopengine::ThingKind::DynamicSpotLight:
+        return Color{90, 230, 255, 255};
     case slopengine::ThingKind::Skybox:
         return Color{120, 180, 255, 255};
     case slopengine::ThingKind::Prefab:
@@ -228,8 +232,14 @@ void drawLightGizmo(
     bool showGizmos) {
     const Vector3 pos = thingPosition(thing);
     const Color color = lightColor(thing, selected);
-    const char* iconId =
-        thing.kind == slopengine::ThingKind::AmbientLight ? "weather_sun" : "lightbulb";
+    const char* iconId = "lightbulb";
+    if (thing.kind == slopengine::ThingKind::AmbientLight) {
+        iconId = "weather_sun";
+    } else if (thing.kind == slopengine::ThingKind::DynamicPointLight) {
+        iconId = "lightning";
+    } else if (thing.kind == slopengine::ThingKind::DynamicSpotLight) {
+        iconId = "lightning_add";
+    }
     if (!drawBillboardIcon(assets, camera, pos, iconId, color)) {
         DrawSphere(pos, 0.12f, color);
     }
@@ -237,12 +247,14 @@ void drawLightGizmo(
         return;
     }
     switch (thing.kind) {
-    case slopengine::ThingKind::PointLight: {
+    case slopengine::ThingKind::PointLight:
+    case slopengine::ThingKind::DynamicPointLight: {
         const float radius = std::max(thing.range, 0.01f);
         DrawSphereWires(pos, radius, 8, 8, color);
         break;
     }
-    case slopengine::ThingKind::SpotLight: {
+    case slopengine::ThingKind::SpotLight:
+    case slopengine::ThingKind::DynamicSpotLight: {
         drawYawArrow(pos, thing.yaw, color);
         const float reach = std::max(thing.range, 0.01f);
         const Vector3 tip = {
@@ -376,6 +388,8 @@ void drawThings(
         case slopengine::ThingKind::AreaLight:
         case slopengine::ThingKind::Sun:
         case slopengine::ThingKind::AmbientLight:
+        case slopengine::ThingKind::DynamicPointLight:
+        case slopengine::ThingKind::DynamicSpotLight:
             drawLightGizmo(assets, camera, thing, selected, showGizmos);
             break;
         case slopengine::ThingKind::Skybox: {

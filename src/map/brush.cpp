@@ -570,20 +570,21 @@ bool brushRoleContributesSplits(BrushRole role) {
     switch (role) {
     case BrushRole::Hull:
     case BrushRole::Window:
+    case BrushRole::Door:
     case BrushRole::Water:
     case BrushRole::Hint:
+    case BrushRole::Transparent:
         return true;
     case BrushRole::Detail:
-    case BrushRole::Door:
     case BrushRole::Trigger:
-    case BrushRole::Transparent:
         return false;
     }
     return false;
 }
 
 bool brushRoleSeals(BrushRole role) {
-    return role == BrushRole::Hull || role == BrushRole::Window;
+    return role == BrushRole::Hull || role == BrushRole::Window || role == BrushRole::Door ||
+           role == BrushRole::Transparent;
 }
 
 bool brushRoleEmitsVisFaces(BrushRole role) {
@@ -658,14 +659,17 @@ void setBrushBlocks(Brush& brush, std::uint8_t blocks) {
 bool brushRoleNeedsInteriorPlacement(BrushRole role) {
     switch (role) {
     case BrushRole::Detail:
-    case BrushRole::Door:
     case BrushRole::Hint:
     case BrushRole::Trigger:
     case BrushRole::Water:
-    case BrushRole::Transparent:
         return true;
     case BrushRole::Hull:
     case BrushRole::Window:
+    case BrushRole::Door:
+    case BrushRole::Transparent:
+        // Door now seals like Window (see brushRoleSeals): its center point
+        // legitimately sits inside its own solid/closed leaf, not open
+        // interior space, so it shouldn't be checked against that rule.
         return false;
     }
     return false;
@@ -962,7 +966,8 @@ std::optional<Brush> makeBrushCylinder(
     int sides,
     const std::string& material,
     BrushRole role,
-    std::string& errorOut) {
+    std::string& errorOut,
+    Vector3 axis) {
     if (sides < 3) {
         errorOut = "cylinder needs at least 3 sides";
         return std::nullopt;
@@ -972,13 +977,36 @@ std::optional<Brush> makeBrushCylinder(
         return std::nullopt;
     }
 
-    const float cx = 0.5f * (mins.x + maxs.x);
-    const float cz = 0.5f * (mins.z + maxs.z);
-    const float rx = 0.5f * (maxs.x - mins.x);
-    const float rz = 0.5f * (maxs.z - mins.z);
-    const float y0 = mins.y;
-    const float y1 = maxs.y;
+    // Revolve around whichever world axis `axis` is most closely aligned to,
+    // so cylinders drawn against a wall (extrusion along X or Z) extrude from
+    // the base instead of always assuming a vertical (Y) prism.
+    const float minsArr[3] = {mins.x, mins.y, mins.z};
+    const float maxsArr[3] = {maxs.x, maxs.y, maxs.z};
+    const float axisMag[3] = {std::fabs(axis.x), std::fabs(axis.y), std::fabs(axis.z)};
+    int axisIdx = 1;
+    if (axisMag[0] >= axisMag[1] && axisMag[0] >= axisMag[2]) {
+        axisIdx = 0;
+    } else if (axisMag[2] >= axisMag[0] && axisMag[2] >= axisMag[1]) {
+        axisIdx = 2;
+    }
+    const int idxB = (axisIdx == 0) ? 1 : 0;
+    const int idxC = (axisIdx == 2) ? 1 : 2;
+
+    const float centerB = 0.5f * (minsArr[idxB] + maxsArr[idxB]);
+    const float centerC = 0.5f * (minsArr[idxC] + maxsArr[idxC]);
+    const float radiusB = 0.5f * (maxsArr[idxB] - minsArr[idxB]);
+    const float radiusC = 0.5f * (maxsArr[idxC] - minsArr[idxC]);
+    const float axisMin = minsArr[axisIdx];
+    const float axisMax = maxsArr[axisIdx];
     constexpr float kPi = 3.14159265358979323846f;
+
+    auto ringPoint = [&](float axisVal, float angle) {
+        float comps[3];
+        comps[axisIdx] = axisVal;
+        comps[idxB] = centerB + radiusB * std::cos(angle);
+        comps[idxC] = centerC + radiusC * std::sin(angle);
+        return Vector3{comps[0], comps[1], comps[2]};
+    };
 
     std::vector<Vector3> ringBottom;
     std::vector<Vector3> ringTop;
@@ -986,11 +1014,24 @@ std::optional<Brush> makeBrushCylinder(
     ringTop.reserve(static_cast<std::size_t>(sides));
     for (int i = 0; i < sides; ++i) {
         const float angle = (2.0f * kPi * static_cast<float>(i)) / static_cast<float>(sides);
-        const float x = cx + rx * std::cos(angle);
-        const float z = cz + rz * std::sin(angle);
-        ringBottom.push_back({x, y0, z});
-        ringTop.push_back({x, y1, z});
+        ringBottom.push_back(ringPoint(axisMin, angle));
+        ringTop.push_back(ringPoint(axisMax, angle));
     }
+
+    const Vector3 center{
+        0.5f * (mins.x + maxs.x),
+        0.5f * (mins.y + maxs.y),
+        0.5f * (mins.z + maxs.z),
+    };
+    auto orientOutward = [&](BrushFace& face) {
+        if (face.vertices.empty()) {
+            return;
+        }
+        const Vector3 normal = faceNormalFromVertices(face.vertices);
+        if (dot3(sub3(center, face.vertices[0]), normal) > 0.0f) {
+            std::reverse(face.vertices.begin(), face.vertices.end());
+        }
+    };
 
     std::vector<BrushFace> faces;
     faces.reserve(static_cast<std::size_t>(sides) + 2);
@@ -999,26 +1040,33 @@ std::optional<Brush> makeBrushCylinder(
     bottom.id = id + "/bottom";
     bottom.material = material;
     bottom.vertices = ringBottom;
+    orientOutward(bottom);
     faces.push_back(std::move(bottom));
 
     BrushFace top;
     top.id = id + "/top";
     top.material = material;
     top.vertices = ringTop;
-    std::reverse(top.vertices.begin(), top.vertices.end());
+    orientOutward(top);
     faces.push_back(std::move(top));
 
     for (int i = 0; i < sides; ++i) {
         const int next = (i + 1) % sides;
+
         BrushFace side;
         side.id = id + "/side-" + std::to_string(i);
         side.material = material;
         side.vertices = {
-            ringBottom[static_cast<std::size_t>(next)],
             ringBottom[static_cast<std::size_t>(i)],
-            ringTop[static_cast<std::size_t>(i)],
+            ringBottom[static_cast<std::size_t>(next)],
             ringTop[static_cast<std::size_t>(next)],
+            ringTop[static_cast<std::size_t>(i)],
         };
+        orientOutward(side);
+        // UV left at defaults (unlocked, zero shift), same as every other
+        // newly created face; texture alignment is a manual step via the
+        // face Align tool, not something baked in at creation time.
+
         faces.push_back(std::move(side));
     }
 
@@ -1070,6 +1118,160 @@ std::vector<Brush> makeBrushStairs(
             {},
             role));
     }
+    return out;
+}
+
+std::vector<Brush> makeBrushSpiralStairs(
+    const std::string& idPrefix,
+    Vector3 mins,
+    Vector3 maxs,
+    float innerRadius,
+    float stepHeight,
+    int sides,
+    const std::string& material,
+    BrushRole role,
+    Vector3 axis) {
+    std::vector<Brush> out;
+    if (sides < 3 || stepHeight <= 0.0f || innerRadius < 0.0f) {
+        return out;
+    }
+    if (maxs.x <= mins.x || maxs.y <= mins.y || maxs.z <= mins.z) {
+        return out;
+    }
+
+    // Same nearest-world-axis revolve rule as makeBrushCylinder, so a
+    // footprint drawn against a wall spirals away from the wall instead of
+    // always assuming a vertical (Y) shaft.
+    const float minsArr[3] = {mins.x, mins.y, mins.z};
+    const float maxsArr[3] = {maxs.x, maxs.y, maxs.z};
+    const float axisMag[3] = {std::fabs(axis.x), std::fabs(axis.y), std::fabs(axis.z)};
+    int axisIdx = 1;
+    if (axisMag[0] >= axisMag[1] && axisMag[0] >= axisMag[2]) {
+        axisIdx = 0;
+    } else if (axisMag[2] >= axisMag[0] && axisMag[2] >= axisMag[1]) {
+        axisIdx = 2;
+    }
+    const int idxB = (axisIdx == 0) ? 1 : 0;
+    const int idxC = (axisIdx == 2) ? 1 : 2;
+
+    const float centerB = 0.5f * (minsArr[idxB] + maxsArr[idxB]);
+    const float centerC = 0.5f * (minsArr[idxC] + maxsArr[idxC]);
+    const float radiusB = 0.5f * (maxsArr[idxB] - minsArr[idxB]);
+    const float radiusC = 0.5f * (maxsArr[idxC] - minsArr[idxC]);
+    const float outerRadius = 0.5f * (radiusB + radiusC);
+    if (innerRadius >= outerRadius) {
+        return out;
+    }
+    const bool hasInner = innerRadius > 1e-4f;
+
+    const float axisMin = minsArr[axisIdx];
+    const float axisMax = maxsArr[axisIdx];
+    const float totalHeight = axisMax - axisMin;
+
+    const int numSteps =
+        std::clamp(static_cast<int>(std::lround(totalHeight / stepHeight)), 1, 4096);
+    const float stepRise = totalHeight / static_cast<float>(numSteps);
+    constexpr float kPi = 3.14159265358979323846f;
+    const float angleStep = (2.0f * kPi) / static_cast<float>(sides);
+
+    auto ringPoint = [&](float axisVal, float angle, float radius) {
+        float comps[3];
+        comps[axisIdx] = axisVal;
+        comps[idxB] = centerB + radius * std::cos(angle);
+        comps[idxC] = centerC + radius * std::sin(angle);
+        return Vector3{comps[0], comps[1], comps[2]};
+    };
+
+    auto orientOutward = [&](BrushFace& face, Vector3 interior) {
+        if (face.vertices.empty()) {
+            return;
+        }
+        const Vector3 normal = faceNormalFromVertices(face.vertices);
+        if (dot3(sub3(interior, face.vertices[0]), normal) > 0.0f) {
+            std::reverse(face.vertices.begin(), face.vertices.end());
+        }
+    };
+
+    out.reserve(static_cast<std::size_t>(numSteps));
+    for (int i = 0; i < numSteps; ++i) {
+        const float angle0 = angleStep * static_cast<float>(i);
+        const float angle1 = angleStep * static_cast<float>(i + 1);
+        const float bottomAxis = axisMin + stepRise * static_cast<float>(i);
+        const float topAxis = axisMin + stepRise * static_cast<float>(i + 1);
+
+        const Vector3 outerBottom0 = ringPoint(bottomAxis, angle0, outerRadius);
+        const Vector3 outerBottom1 = ringPoint(bottomAxis, angle1, outerRadius);
+        const Vector3 outerTop0 = ringPoint(topAxis, angle0, outerRadius);
+        const Vector3 outerTop1 = ringPoint(topAxis, angle1, outerRadius);
+        const Vector3 innerBottom0 = ringPoint(bottomAxis, angle0, innerRadius);
+        const Vector3 innerBottom1 = ringPoint(bottomAxis, angle1, innerRadius);
+        const Vector3 innerTop0 = ringPoint(topAxis, angle0, innerRadius);
+        const Vector3 innerTop1 = ringPoint(topAxis, angle1, innerRadius);
+
+        const Vector3 interior = ringPoint(
+            0.5f * (bottomAxis + topAxis),
+            0.5f * (angle0 + angle1),
+            0.5f * (innerRadius + outerRadius));
+
+        const std::string id = idPrefix + "-" + std::to_string(i);
+        std::vector<BrushFace> faces;
+        faces.reserve(6);
+
+        BrushFace bottom;
+        bottom.id = id + "/bottom";
+        bottom.material = material;
+        bottom.vertices = hasInner
+            ? std::vector<Vector3>{innerBottom0, outerBottom0, outerBottom1, innerBottom1}
+            : std::vector<Vector3>{outerBottom0, outerBottom1, innerBottom0};
+        orientOutward(bottom, interior);
+        faces.push_back(std::move(bottom));
+
+        BrushFace top;
+        top.id = id + "/top";
+        top.material = material;
+        top.vertices = hasInner
+            ? std::vector<Vector3>{innerTop0, outerTop0, outerTop1, innerTop1}
+            : std::vector<Vector3>{outerTop0, outerTop1, innerTop0};
+        orientOutward(top, interior);
+        faces.push_back(std::move(top));
+
+        BrushFace outer;
+        outer.id = id + "/outer";
+        outer.material = material;
+        outer.vertices = {outerBottom0, outerBottom1, outerTop1, outerTop0};
+        orientOutward(outer, interior);
+        faces.push_back(std::move(outer));
+
+        if (hasInner) {
+            BrushFace inner;
+            inner.id = id + "/inner";
+            inner.material = material;
+            inner.vertices = {innerBottom1, innerBottom0, innerTop0, innerTop1};
+            orientOutward(inner, interior);
+            faces.push_back(std::move(inner));
+        }
+
+        BrushFace radial0;
+        radial0.id = id + "/radial-0";
+        radial0.material = material;
+        radial0.vertices = {innerBottom0, outerBottom0, outerTop0, innerTop0};
+        orientOutward(radial0, interior);
+        faces.push_back(std::move(radial0));
+
+        BrushFace radial1;
+        radial1.id = id + "/radial-1";
+        radial1.material = material;
+        radial1.vertices = {outerBottom1, innerBottom1, innerTop1, outerTop1};
+        orientOutward(radial1, interior);
+        faces.push_back(std::move(radial1));
+
+        std::string error;
+        auto brush = makeBrushConvex(id, std::move(faces), role, error);
+        if (brush) {
+            out.push_back(std::move(*brush));
+        }
+    }
+
     return out;
 }
 

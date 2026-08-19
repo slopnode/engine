@@ -140,6 +140,23 @@ void eraseFacFacesForMoverBrushes(FacFile& fac, const std::unordered_set<std::st
     fac.faces = std::move(kept);
 }
 
+FacFile extractFacFacesForMoverBrushes(const FacFile& fac, const std::unordered_set<std::string>& brushIds) {
+    FacFile extracted;
+    if (brushIds.empty()) {
+        return extracted;
+    }
+    extracted.faces.reserve(fac.faces.size());
+    for (const VisibleFace& face : fac.faces) {
+        const std::string_view source =
+            face.sourceFaceId.empty() ? std::string_view(face.id) : std::string_view(face.sourceFaceId);
+        if (faceIdBelongsToAnyMoverBrush(source, brushIds) ||
+            faceIdBelongsToAnyMoverBrush(face.id, brushIds)) {
+            extracted.faces.push_back(face);
+        }
+    }
+    return extracted;
+}
+
 const Brush* findBrushById(const std::vector<Brush>& brushes, std::string_view id) {
     for (const Brush& brush : brushes) {
         if (brush.id == id) {

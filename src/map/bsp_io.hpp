@@ -13,7 +13,7 @@
 namespace slopengine {
 
 constexpr std::uint32_t kBspMagic = 0x32505342u; // "BSP2" LE
-constexpr std::uint32_t kBspVersion = 3;
+constexpr std::uint32_t kBspVersion = 4; // v4: BspPortal.doorBrushId
 
 /** Writes @p tree as a BSP2 file. */
 bool writeBspFile(const std::filesystem::path& path, const BspTree& tree);

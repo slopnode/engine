@@ -453,6 +453,13 @@ s7_pointer g_cone(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "cone", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_cast_shadows(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "cast-shadows", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "cast-shadows", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_size(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args))) {
         return s7_wrong_type_arg_error(sc, "size", 0, args, "width height");
@@ -860,6 +867,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             readBool(sc, s7_car(rest), out.looping);
         } else if (std::strcmp(tag, "spatial") == 0 && s7_is_pair(rest)) {
             readBool(sc, s7_car(rest), out.spatial);
+        } else if (std::strcmp(tag, "cast-shadows") == 0 && s7_is_pair(rest)) {
+            readBool(sc, s7_car(rest), out.dynamicCastShadows);
         } else if (std::strcmp(tag, "min-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
             out.minDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
@@ -1113,6 +1122,28 @@ s7_pointer g_spot_light(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "spot-light has invalid clauses")));
     }
     return appendThing(sc, std::move(placement), "spot-light requires id and at", true);
+}
+
+s7_pointer g_dynamic_point_light(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultLightThing(ThingKind::DynamicPointLight);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "dynamic-point-light has invalid clauses")));
+    }
+    return appendThing(sc, std::move(placement), "dynamic-point-light requires id and at", true);
+}
+
+s7_pointer g_dynamic_spot_light(s7_scheme* sc, s7_pointer args) {
+    Thing placement = makeDefaultLightThing(ThingKind::DynamicSpotLight);
+    if (!parseThingClauses(sc, args, placement)) {
+        return s7_error(
+            sc,
+            s7_make_symbol(sc, "thing-error"),
+            s7_list(sc, 1, s7_make_string(sc, "dynamic-spot-light has invalid clauses")));
+    }
+    return appendThing(sc, std::move(placement), "dynamic-spot-light requires id and at", true);
 }
 
 s7_pointer g_area_light(s7_scheme* sc, s7_pointer args) {
@@ -1506,6 +1537,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "volume", g_volume, 1, 0, false, "(volume value)");
     s7_define_function(sc, "loop", g_loop, 1, 0, false, "(loop bool)");
     s7_define_function(sc, "spatial", g_spatial, 1, 0, false, "(spatial bool)");
+    s7_define_function(sc, "cast-shadows", g_cast_shadows, 1, 0, false, "(cast-shadows bool)");
     s7_define_function(sc, "min-distance", g_min_distance, 1, 0, false, "(min-distance value)");
     s7_define_function(sc, "max-distance", g_max_distance, 1, 0, false, "(max-distance value)");
     s7_define_function(sc, "player-start", g_player_start, 0, 0, true, "(player-start clauses...)");
@@ -1521,6 +1553,22 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "area-light", g_area_light, 0, 0, true, "(area-light clauses...)");
     s7_define_function(sc, "sun", g_sun, 0, 0, true, "(sun clauses...)");
     s7_define_function(sc, "ambient-light", g_ambient_light, 0, 0, true, "(ambient-light clauses...)");
+    s7_define_function(
+        sc,
+        "dynamic-point-light",
+        g_dynamic_point_light,
+        0,
+        0,
+        true,
+        "(dynamic-point-light clauses...)");
+    s7_define_function(
+        sc,
+        "dynamic-spot-light",
+        g_dynamic_spot_light,
+        0,
+        0,
+        true,
+        "(dynamic-spot-light clauses...)");
     s7_define_function(sc, "material", g_sky_material, 1, 0, false, "(material path)");
     s7_define_function(sc, "gradient", g_gradient, 0, 0, true, "(gradient (stop ...)...)");
     s7_define_function(sc, "cube", g_cube, 0, 0, true, "(cube (px ...)... (nz ...))");

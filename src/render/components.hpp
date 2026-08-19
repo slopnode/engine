@@ -50,13 +50,13 @@ struct HudCanvas {
     int height = 200;
 };
 
-/** Screen-space FP sprite: canvasX/Y place the normalized origin on the view canvas.
- *  offsetX/Y are a package presentation layer (raise/lower/bob) on top of canvas.
+/** Screen-space FP sprite: anchorX/Y place the normalized origin on the view canvas.
+ *  offsetX/Y are a package presentation layer (raise/lower/bob) on top of anchor.
  *  @ingroup render_components
  */
 struct ViewSprite {
-    float canvasX = 160.0f;
-    float canvasY = 200.0f;
+    float anchorX = 160.0f;
+    float anchorY = 200.0f;
     float offsetX = 0.0f;
     float offsetY = 0.0f;
     float scaleX = 1.0f;
@@ -79,6 +79,34 @@ struct Lens {
     };
 };
 
+/** Secondary render-to-texture camera (e.g. a weapon scope), synced from the
+ *  Player's Lens each frame; @p fovy controls the zoom independently of the
+ *  main view.
+ *  @ingroup render_components
+ */
+struct ExtraEye {
+    Camera3D camera = {
+        .position = {0.0f, 0.0f, 0.0f},
+        .target = {0.0f, 0.0f, 1.0f},
+        .up = {0.0f, 1.0f, 0.0f},
+        .fovy = 20.0f,
+        .projection = CAMERA_PERSPECTIVE,
+    };
+    RenderTexture2D target = {};
+    int width = 128;
+    int height = 128;
+    float fovy = 20.0f;
+    bool active = false;
+};
+
+/** Script-controlled override to hide the first-person weapon viewmodel
+ *  (e.g. while looking through a scope).
+ *  @ingroup render_components
+ */
+struct FpViewOverride {
+    bool hideWeapon = false;
+};
+
 /** Drawable raylib model with a tint color.
  *  @ingroup render_components
  */
@@ -87,6 +115,12 @@ struct Model3D {
     Color color = WHITE;
     bool ownsGpu = false;
 };
+
+/** Tag: mesh carries its own baked lightmap UV2 + atlas (e.g. a door frozen to its closed
+ *  pose); skip the runtime flat-tint probe and sample the atlas instead.
+ *  @ingroup render_components
+ */
+struct BakedLightmapModel {};
 
 /** Optional cavity / AO style shader binding on an entity.
  *  @ingroup render_components
@@ -132,6 +166,13 @@ struct SpriteOverlay {
     float offsetX = 0.0f;
     float offsetY = 0.0f;
     std::uint64_t host = 0;
+};
+
+/** Bitmask of hitmask part indices (bit (partIndex-1)) hidden from rendering, e.g. a shot-off head.
+ *  @ingroup render_components
+ */
+struct SpriteHiddenParts {
+    std::uint32_t mask = 0;
 };
 
 }

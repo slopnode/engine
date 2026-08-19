@@ -20,18 +20,21 @@
 #include "render/render_context.hpp"
 #include "render/material_anim.hpp"
 #include "render/post_process.hpp"
+#include "render/render_pass_extra_eye.hpp"
 #include "render/render_pass_fp.hpp"
 #include "render/render_pass_world.hpp"
 #include "render/render_frustum.hpp"
 #include "render/skybox_world.hpp"
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
+#include "fx/trail.hpp"
 #include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
 #include "rlImGui.h"
 
+#include <cmath>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -57,6 +60,14 @@ void registerComponents(flecs::world& world) {
     world.component<HudDrawList>();
     world.component<HudFontCache>();
     world.component<Lens>();
+    world.component<ExtraEye>()
+        .on_remove([](flecs::iter&, size_t, ExtraEye& eye) {
+            if (eye.target.id != 0) {
+                UnloadRenderTexture(eye.target);
+            }
+            eye.target = {};
+        });
+    world.component<FpViewOverride>();
     world.component<Spin>();
     world.component<Model3D>();
     world.component<SpriteInstance>();
@@ -119,20 +130,39 @@ void registerRenderSystems(flecs::world& world) {
             }
             flecs::entity eyeEntity = it.entity(index);
             RenderContext& context = world.get_mut<RenderContext>();
-            const bool unlit =
-                world.has<DebugUiState>() && world.get<DebugUiState>().unlit;
+            const DebugUiState* debugUiState =
+                world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
+            const bool unlit = debugUiState != nullptr && debugUiState->unlit;
+            const bool useFreeCam =
+                debugUiState != nullptr && debugUiState->freeCamera && world.has<FreeFlyCamera>();
 
-            FirstPersonController controller{};
-            ViewEyeOffset eyeOffset{};
-            if (eyeEntity.has<FirstPersonController>()) {
-                controller = eyeEntity.get<FirstPersonController>();
+            Camera3D presentCam;
+            if (useFreeCam) {
+                const FreeFlyCamera& fly = world.get<FreeFlyCamera>();
+                const float cosPitch = std::cos(fly.pitch);
+                const Vector3 forward = Vector3Normalize({
+                    std::sin(fly.yaw) * cosPitch,
+                    std::sin(fly.pitch),
+                    std::cos(fly.yaw) * cosPitch,
+                });
+                presentCam = lens.camera;
+                presentCam.position = fly.position;
+                presentCam.target = Vector3Add(fly.position, forward);
+                presentCam.up = {0.0f, 1.0f, 0.0f};
+            } else {
+                FirstPersonController controller{};
+                ViewEyeOffset eyeOffset{};
+                if (eyeEntity.has<FirstPersonController>()) {
+                    controller = eyeEntity.get<FirstPersonController>();
+                }
+                if (eyeEntity.has<ViewEyeOffset>()) {
+                    eyeOffset = eyeEntity.get<ViewEyeOffset>();
+                }
+                presentCam = presentationCamera(lens, controller, eyeOffset);
             }
-            if (eyeEntity.has<ViewEyeOffset>()) {
-                eyeOffset = eyeEntity.get<ViewEyeOffset>();
-            }
-            const Camera3D presentCam = presentationCamera(lens, controller, eyeOffset);
             Lens presentLens = lens;
             presentLens.camera = presentCam;
+            const Lens& worldLens = useFreeCam ? presentLens : lens;
 
             const float aspect = static_cast<float>(GetRenderWidth()) /
                 static_cast<float>(GetRenderHeight() > 0 ? GetRenderHeight() : 1);
@@ -143,16 +173,21 @@ void registerRenderSystems(flecs::world& world) {
             const GraphicsSettings graphics =
                 world.has<UserSettings>() ? world.get<UserSettings>().graphics : GraphicsSettings{};
             const bool enableDynamicLights = graphics.dynamicLights;
+            const int maxUnshadowed =
+                enableDynamicLights ? graphics.maxDynamicLights : 0;
             const int maxShadowed =
-                graphics.dynamicLightShadows ? kMaxShadowedDynamicLights : 0;
+                (enableDynamicLights && graphics.dynamicLightShadows)
+                    ? graphics.maxShadowedDynamicLights
+                    : 0;
 
             std::vector<RankedDynamicLight> rankedLights = gatherDynamicLights(
                 world,
-                lens,
+                worldLens,
                 presentLens,
                 frustum,
                 unlit,
                 enableDynamicLights,
+                maxUnshadowed,
                 maxShadowed);
             storeDynamicLightFrameState(world, rankedLights);
 
@@ -210,24 +245,25 @@ void registerRenderSystems(flecs::world& world) {
                 skyShaderState = &ensureSkyboxShaders(*assetStore);
                 drawSkyboxBackground(presentCam, *assetStore, *skyShaderState, *skySettings);
             }
-            drawWorldModels(world, context, lens, frustum, unlit);
+            drawWorldModels(world, context, worldLens, frustum, unlit);
             if (skySettings != nullptr && assetStore != nullptr && skyShaderState != nullptr) {
                 drawSkyMaterialFaces(world, presentCam, *assetStore, *skyShaderState, *skySettings);
             }
             const std::string spriteAimStatus =
-                drawWorldTransparentPass(world, context, lens, frustum, unlit);
+                drawWorldTransparentPass(world, context, worldLens, frustum, unlit);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+                drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam, unlit);
             }
             drawWorldDebugOverlays(world);
             EndMode3D();
 
             if (playing) {
-                const DebugUiState* debugUi =
-                    world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
-                const bool hideFp = debugUi != nullptr && debugUi->hideFpScene;
-                const bool hideHud = debugUi != nullptr && debugUi->hideHud;
+                const bool hideFp =
+                    (debugUiState != nullptr && debugUiState->hideFpScene) || useFreeCam ||
+                    (world.has<FpViewOverride>() && world.get<FpViewOverride>().hideWeapon);
+                const bool hideHud = debugUiState != nullptr && debugUiState->hideHud;
 
                 if (!hideFp && world.has<AssetServices>() &&
                     world.get<AssetServices>().store != nullptr) {
@@ -242,11 +278,19 @@ void registerRenderSystems(flecs::world& world) {
                 }
                 if (sceneToTexture) {
                     EndTextureMode();
-                    presentPostProcess(*postState);
-                }
-                if (!hideHud) {
-                    drawHud(world);
-                    drawSpriteAimHudText(spriteAimStatus);
+                    if (!hideHud && postProcessNeedsCompositePipeline(*postState)) {
+                        beginHudCapture(*postState);
+                        drawHud(world);
+                        drawSpriteAimHudText(spriteAimStatus);
+                        endHudCapture(*postState);
+                        presentPostProcessComposite(*postState);
+                    } else {
+                        presentPostProcessSceneOnly(*postState);
+                        if (!hideHud) {
+                            drawHud(world);
+                            drawSpriteAimHudText(spriteAimStatus);
+                        }
+                    }
                 }
             }
 
@@ -254,6 +298,8 @@ void registerRenderSystems(flecs::world& world) {
                 world.get_mut<FramePerfStats>().renderMs += perfElapsedMs(renderStart);
             }
         });
+
+    registerExtraEyeSystems(world);
 
     world.system("MenuTitleOverlay")
         .kind(flecs::PostUpdate)
@@ -346,6 +392,7 @@ void registerRenderModule(
     });
     world.set<PlayerEntity>({});
     world.set<PostProcessState>({});
+    world.set<FpViewOverride>({});
 
     registerSpinSystem(world);
     registerSchemeTickSystem(world);

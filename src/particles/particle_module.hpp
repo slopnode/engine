@@ -40,8 +40,18 @@ flecs::entity spawnParticleSystemFp(
     AssetStore& assets,
     const char* id,
     flecs::entity hostViewSprite,
+    const std::string& attachName,
     std::string_view path,
     float depth = 0.35f,
+    bool mapOwned = true);
+
+flecs::entity spawnParticleSystemWorldAttach(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity hostSprite,
+    const std::string& attachName,
+    std::string_view path,
     bool mapOwned = true);
 
 void updateParticleSystems(

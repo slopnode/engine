@@ -46,6 +46,7 @@ enum class CreatePrimitive {
     Box,
     Cylinder,
     Stairs,
+    SpiralStairs,
 };
 
 enum class PlaceTarget {
@@ -90,6 +91,7 @@ struct Editor {
     float gridSize = 0.1f;
     bool showGrid = true;
     bool showGizmos = true;
+    bool showNodraw = false;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
     TransformSpace transformSpace = TransformSpace::Relative;
@@ -112,6 +114,9 @@ struct Editor {
     bool hollowOutward = false;
     int createCylinderSides = 16;
     int createStairsSteps = 8;
+    int createSpiralSides = 12;
+    float createSpiralInnerRadius = 0.5f;
+    float createSpiralStepHeight = 0.2f;
     EditorScene pendingScene = EditorScene::Level;
     std::string modalMapName;
     std::string modalPrefabPath;
@@ -131,6 +136,7 @@ struct Editor {
     std::vector<slopengine::Brush> expandedInstanceBrushes;
     std::vector<int> expandedInstanceOwners;
     CompileDirty compileDirty{};
+    bool previewDirty = false;
 
     struct ToolMouseCapture {
         bool active = false;

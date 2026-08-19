@@ -37,6 +37,7 @@ namespace {
 
 Color sampleFirstPersonRadTint(
     Vector3 feetOrigin,
+    Vector3 eyeOrigin,
     const MapLighting* lighting,
     const std::vector<RankedDynamicLight>* dynamicLights,
     const FxLightFrameState* fxLights,
@@ -47,28 +48,31 @@ Color sampleFirstPersonRadTint(
 
     Color tint = lighting != nullptr ? lighting->ambient : WHITE;
     if (lighting != nullptr && lighting->available) {
-        constexpr Vector3 kDown{0.0f, -1.0f, 0.0f};
-        constexpr float kMaxDist = 2.5f;
-        const Vector3 offsets[] = {
-            {0.0f, 0.0f, 0.0f},
-            {0.12f, 0.0f, 0.0f},
-            {-0.12f, 0.0f, 0.0f},
-            {0.0f, 0.0f, 0.12f},
-            {0.0f, 0.0f, -0.12f},
-        };
+        constexpr float kFloorMaxDist = 2.5f;
+        constexpr float kEyeMaxDist = 4.0f;
+
         int sampleCount = 0;
         int sumR = 0;
         int sumG = 0;
         int sumB = 0;
-        for (const Vector3& offset : offsets) {
-            const Vector3 origin = Vector3Add(feetOrigin, offset);
-            if (auto sampled = sampleMapLight(*lighting, origin, kDown, kMaxDist)) {
+        auto accumulate = [&](std::optional<Color> sampled) {
+            if (sampled) {
                 sumR += sampled->r;
                 sumG += sampled->g;
                 sumB += sampled->b;
                 ++sampleCount;
             }
+        };
+        auto feet = sampleLightProbe(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f});
+        if (!feet) {
+            feet = sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, kFloorMaxDist);
         }
+        accumulate(feet);
+        auto eye = sampleLightProbe(*lighting, eyeOrigin, {0.0f, 1.0f, 0.0f});
+        if (!eye) {
+            eye = sampleMapLight(*lighting, eyeOrigin, {0.0f, 1.0f, 0.0f}, kEyeMaxDist);
+        }
+        accumulate(eye);
         if (sampleCount > 0) {
             tint = Color{
                 static_cast<unsigned char>(sumR / sampleCount),
@@ -143,6 +147,40 @@ Color multiplySpriteTint(Color base, Color factor) {
     };
 }
 
+/** Same blend math as SpriteBillboardShader in render_pass_world.cpp, reused for view sprites
+ *  so a per-pixel bright mask on a weapon/view sprite renders identically to a world sprite's. */
+struct ViewSpriteBrightShader {
+    Shader shader{};
+    int albedoRectLoc = -1;
+    int atlasSizeLoc = -1;
+    int useBrightmapLoc = -1;
+    int brightMapLoc = -1;
+    bool ready = false;
+};
+
+ViewSpriteBrightShader& viewSpriteBrightShader(AssetStore& assets) {
+    static ViewSpriteBrightShader state{};
+    if (state.ready || state.shader.id != 0) {
+        return state;
+    }
+    const std::string vert = assets.getShaderSource("default/sprite_billboard_vert");
+    const std::string frag = assets.getShaderSource("default/sprite_billboard_frag");
+    if (vert.empty() || frag.empty()) {
+        return state;
+    }
+    state.shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    if (state.shader.id == 0) {
+        return state;
+    }
+    state.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(state.shader, "texture0");
+    state.brightMapLoc = GetShaderLocation(state.shader, "texture1");
+    state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
+    state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
+    state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.ready = true;
+    return state;
+}
+
 } // namespace
 
 void drawFirstPersonPass(
@@ -193,8 +231,8 @@ void drawFirstPersonPass(
                 : nullptr;
         const FxLightFrameState* fpFx =
             (!unlit && world.has<FxLightFrameState>()) ? &world.get<FxLightFrameState>() : nullptr;
-        const Color targetTint =
-            sampleFirstPersonRadTint(feetOrigin, fpLighting, fpDyn, fpFx, unlit);
+        const Color targetTint = sampleFirstPersonRadTint(
+            feetOrigin, lens.camera.position, fpLighting, fpDyn, fpFx, unlit);
         fpTint = smoothFirstPersonRadTint(
             playerEntity.get_mut<FirstPersonScene>(),
             targetTint,
@@ -391,24 +429,61 @@ void drawViewSprites(flecs::world& world, bool unlit) {
                                 viewSprite.scaleY * scaleY;
             const float screenX =
                 viewFit.offsetX +
-                (viewSprite.canvasX + viewSprite.offsetX + translateX) * viewFit.scale;
+                (viewSprite.anchorX + viewSprite.offsetX + translateX) * viewFit.scale;
             const float screenY =
                 viewFit.offsetY +
-                (viewSprite.canvasY + viewSprite.offsetY + translateY) * viewFit.scale;
+                (viewSprite.anchorY + viewSprite.offsetY + translateY) * viewFit.scale;
             const Rectangle dest{screenX, screenY, destW, destH};
             Color tint = WHITE;
             if (const SpriteAsset* asset = viewAssets.getSpriteAsset(sprite.sprite);
                 asset != nullptr) {
                 tint = asset->tint;
             }
-            tint = multiplySpriteTint(tint, fpRadTint);
-            DrawTexturePro(
-                *frame->texture,
-                frame->source,
-                dest,
-                Vector2{destW * originX, destH * originY},
-                viewSprite.rotationDeg + rotationDeg,
-                tint);
+
+            const bool hasBrightMask =
+                frame->brightTexture != nullptr && frame->brightTexture->id != 0;
+            const bool useBrightmap = frame->fullbright && hasBrightMask;
+            const bool forceFullbright = frame->fullbright && !hasBrightMask;
+            if (!forceFullbright) {
+                tint = multiplySpriteTint(tint, fpRadTint);
+            }
+
+            const Vector2 origin{destW * originX, destH * originY};
+            const float drawRotation = viewSprite.rotationDeg + rotationDeg;
+
+            if (useBrightmap) {
+                ViewSpriteBrightShader& brightShader = viewSpriteBrightShader(viewAssets);
+                if (brightShader.ready) {
+                    const Vector4 albedoRect{
+                        frame->source.x, frame->source.y, frame->source.width, frame->source.height};
+                    const Vector2 atlasSize{
+                        static_cast<float>(frame->texture->width),
+                        static_cast<float>(frame->texture->height)};
+                    const int useBright = 1;
+                    BeginShaderMode(brightShader.shader);
+                    if (brightShader.albedoRectLoc >= 0) {
+                        SetShaderValue(
+                            brightShader.shader, brightShader.albedoRectLoc, &albedoRect, SHADER_UNIFORM_VEC4);
+                    }
+                    if (brightShader.atlasSizeLoc >= 0) {
+                        SetShaderValue(
+                            brightShader.shader, brightShader.atlasSizeLoc, &atlasSize, SHADER_UNIFORM_VEC2);
+                    }
+                    if (brightShader.useBrightmapLoc >= 0) {
+                        SetShaderValue(
+                            brightShader.shader, brightShader.useBrightmapLoc, &useBright, SHADER_UNIFORM_INT);
+                    }
+                    if (brightShader.brightMapLoc >= 0) {
+                        SetShaderValueTexture(
+                            brightShader.shader, brightShader.brightMapLoc, *frame->brightTexture);
+                    }
+                    DrawTexturePro(*frame->texture, frame->source, dest, origin, drawRotation, tint);
+                    EndShaderMode();
+                    return;
+                }
+            }
+
+            DrawTexturePro(*frame->texture, frame->source, dest, origin, drawRotation, tint);
         };
 
     struct ViewDrawItem {

@@ -3,6 +3,7 @@
 #include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
 #include "core/package.hpp"
+#include "core/user_paths.hpp"
 #include "game/game_state.hpp"
 #include "game/package_cli.hpp"
 #include "game/script_boot.hpp"
@@ -20,8 +21,10 @@
 #include "physics/sight_module.hpp"
 #include "navigation/nav_module.hpp"
 #include "particles/particle_module.hpp"
+#include "fx/trail.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
+#include "render/underwater_effect.hpp"
 #include "script/save_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/scheme_harden.hpp"
@@ -47,8 +50,15 @@ App::App(AppConfig config)
     , world_{}
     , physicsWorld_{std::make_unique<PhysicsWorld>()}
     , audioWorld_{std::make_unique<AudioWorld>()} {
+    // mountPackages() throws if either is missing, so [0]/[1] are always present here.
+    const std::vector<Package>& mountedPackages = assetStore_.packages();
+    const std::filesystem::path settingsFilePath =
+        profileSettingsPath(mountedPackages[0], mountedPackages[1], config_.profile);
+    const bool hadProfileSettings = std::filesystem::exists(settingsFilePath);
+    userSettings_.settingsFilePath = settingsFilePath;
+
     actionRegistry().registerCoreActions();
-    userSettings_.graphics = UserSettings::loadGraphicsOrDefault();
+    userSettings_.graphics = UserSettings::loadGraphicsOrDefault(settingsFilePath);
     init_window();
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
@@ -56,11 +66,18 @@ App::App(AppConfig config)
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true);
     init_script();
     userSettings_.controls = ControlsSettings::defaults();
-    UserSettings::mergeControlsFromDisk(userSettings_.controls);
+    UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);
+    if (!hadProfileSettings) {
+        // First time this profile has been used for this engine/base-game pair: write a
+        // baseline settings.cfg now that graphics + the full (core + package) action set
+        // are known, instead of leaving the profile directory empty until the user opens
+        // the in-game settings UI.
+        userSettings_.save();
+    }
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
     registerInputModule(world_);
-    registerUiModule(world_);
+    registerUiModule(world_, config_.debug, config_.profile);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
     registerNavModule(world_);
@@ -68,7 +85,9 @@ App::App(AppConfig config)
     registerCameraModule(world_);
     registerInteractModule(world_);
     registerParticleModule(world_, assetStore_);
+    registerTrailModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
+    registerUnderwaterEffectModule(world_);
     registerMotoredBodySystem(world_);
     registerScriptBoot(world_, assetStore_, scheme_);
     callOnStartup(world_);
@@ -103,12 +122,16 @@ void App::init_window() {
 void App::init_script() {
     scheme_ = s7_init();
     hardenSchemeRuntime(scheme_);
+    bindPackageApi(assetStore_, scheme_);
     ScriptScopeGuard bootScope(ScriptScope::Boot);
     const std::string baseId{assetStore_.basePackageId()};
     if (baseId.empty()) {
         throw std::runtime_error("SCRIPT: base package id missing");
     }
 
+    if (!assetStore_.loadScript(scheme_, "lang")) {
+        TraceLog(LOG_WARNING, "SCRIPT: lang.s7 not loaded");
+    }
     if (!assetStore_.loadScriptFromPackage(scheme_, baseId, "init")) {
         TraceLog(LOG_WARNING, "SCRIPT: init.s7 not loaded");
     }

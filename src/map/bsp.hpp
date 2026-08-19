@@ -15,6 +15,11 @@ constexpr std::uint32_t Solid = 1u << 0;
 constexpr std::uint32_t Glass = 1u << 1;
 constexpr std::uint32_t Water = 1u << 2;
 constexpr std::uint32_t Trigger = 1u << 3;
+/** Set alongside Solid on a Door brush's closed-shape leaf. Leaves stay
+ *  Solid for flood/leak/radiosity/debug purposes, but this bit lets portal-
+ *  graph consumers (nav, sound, PVS) traverse the leaf as a doorway hop
+ *  instead of treating it as a permanent wall. */
+constexpr std::uint32_t Door = 1u << 4;
 }
 
 inline bool leafBlocksFlood(std::uint32_t contents) {
@@ -23,6 +28,15 @@ inline bool leafBlocksFlood(std::uint32_t contents) {
 
 inline bool leafIsOpen(std::uint32_t contents) {
     return !leafBlocksFlood(contents);
+}
+
+/** True for open leaves and Door-brush leaves: leaves that should form
+ *  BspPortal links in the portal graph used by nav pathing, sound
+ *  propagation, and PVS. A closed door still blocks light/leak flood and
+ *  physics (via the brush's own block mask), but a door leaf must not sever
+ *  the portal graph the way a permanent wall does, since the door can open. */
+inline bool leafParticipatesInPortalGraph(std::uint32_t contents) {
+    return leafIsOpen(contents) || (contents & BspContents::Door) != 0;
 }
 
 /** Splitting plane in a BSP node. */
@@ -52,6 +66,8 @@ struct BspPortal {
     std::int32_t leafA = -1;
     std::int32_t leafB = -1;
     std::vector<Vector3> vertices;
+    /** Brush id of the Door whose closed shape produced this portal boundary, or empty if none. */
+    std::string doorBrushId;
 };
 
 /** Hull face that borders empty space (used for nodraw / debug). */
@@ -103,6 +119,7 @@ struct MapLightmapState {
     std::vector<int> transparentMeshIndices;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
+    std::vector<int> twoSidedMeshIndices;
 };
 
 /** Tag on entities spawned as part of the active map scene. */

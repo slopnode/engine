@@ -32,6 +32,7 @@ struct GeoPrimitive {
     std::size_t indexCount = 0;
     std::string rigidBone; /**< Optional bone name for rigid attachment. */
     bool transparent = false;
+    bool twoSided = false;
 };
 
 /** Parsed .geo mesh description (buffers live in sibling .vert / .weights). */

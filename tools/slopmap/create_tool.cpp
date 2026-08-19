@@ -32,6 +32,26 @@ Vector3 snapOnPlane(Vector3 point, const ConstructionPlane& plane, float grid) {
     return snapOnConstructionPlane(point, plane, grid);
 }
 
+// Spiral stairs read a single radius off the footprint (see
+// makeBrushSpiralStairs), so unlike Box/Cylinder the drag must stay square
+// rather than let independent U/V extents draw an oval.
+Vector3 squareFootprintCorner(
+    Vector3 corner0,
+    Vector3 candidate,
+    const ConstructionPlane& plane,
+    float grid) {
+    const Vector3 rel0 = sub3(corner0, plane.origin);
+    const Vector3 rel1 = sub3(candidate, plane.origin);
+    const float u0 = projectAxis(rel0, plane.axisU);
+    const float v0 = projectAxis(rel0, plane.axisV);
+    const float u1 = projectAxis(rel1, plane.axisU);
+    const float v1 = projectAxis(rel1, plane.axisV);
+    const float side = std::max(std::fabs(u1 - u0), std::fabs(v1 - v0));
+    const float su = u0 + std::copysign(side, u1 - u0);
+    const float sv = v0 + std::copysign(side, v1 - v0);
+    return snapOnConstructionPlane(combineAxes(plane, su, sv, 0.0f), plane, grid);
+}
+
 bool enterPressed() {
     return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
 }
@@ -239,7 +259,8 @@ void CreateTool::commitPending(Editor& editor) {
             editor.createCylinderSides,
             d.defaultMaterial,
             editor.createBrushRole,
-            error);
+            error,
+            plane.normal);
         if (!brush) {
             editor.abortEdit();
             editor.statusMessage = error;
@@ -260,6 +281,24 @@ void CreateTool::commitPending(Editor& editor) {
             editor.createStairsSteps,
             d.defaultMaterial,
             editor.createBrushRole);
+        for (slopengine::Brush& brush : stairs) {
+            brush.blocks = slopengine::brushRoleDefaultBlocks(editor.createBrushRole);
+            slopengine::syncBrushNocollide(brush);
+            d.brushes.push_back(std::move(brush));
+            created.push_back(static_cast<int>(d.brushes.size()) - 1);
+        }
+    } else if (editor.createPrimitive == CreatePrimitive::SpiralStairs) {
+        const std::string prefix = editor.allocateBrushId();
+        auto stairs = slopengine::makeBrushSpiralStairs(
+            prefix,
+            mins,
+            maxs,
+            editor.createSpiralInnerRadius,
+            editor.createSpiralStepHeight,
+            editor.createSpiralSides,
+            d.defaultMaterial,
+            editor.createBrushRole,
+            plane.normal);
         for (slopengine::Brush& brush : stairs) {
             brush.blocks = slopengine::brushRoleDefaultBlocks(editor.createBrushRole);
             slopengine::syncBrushNocollide(brush);
@@ -414,6 +453,9 @@ void CreateTool::update(Editor& editor, const Camera3D& camera, bool uiWantsMous
             Vector3 hit{};
             if (rayPlaneIntersection(ray, plane.origin, plane.normal, hit)) {
                 corner1 = snapOnPlane(hit, plane, editor.gridSize);
+                if (editor.createPrimitive == CreatePrimitive::SpiralStairs) {
+                    corner1 = squareFootprintCorner(corner0, corner1, plane, editor.gridSize);
+                }
             }
         }
         if (!uiWantsKeyboard && enterOrClick(uiWantsMouse)) {

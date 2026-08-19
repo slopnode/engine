@@ -28,6 +28,7 @@ struct SpriteBillboard {
     const Texture2D* texture = nullptr;
     Rectangle source{};
     const Texture2D* brightTexture = nullptr;
+    const Texture2D* partMaskTexture = nullptr;
 };
 
 /** Ray hit against a sprite billboard, including hit-part. */
@@ -96,6 +97,14 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
 /** Horizontal look yaw (radians) from eye toward target on XZ. */
 float horizontalCameraYaw(Vector3 eye, Vector3 target);
 
+/**
+ * Maps a pixel coordinate in the sprite's source-image space (same convention as
+ * `offset`/`translate`/`attach`: top-left origin, x right, y down) to a world-space point on
+ * @p billboard's already-resolved quad, via bilinear interpolation across its four corners.
+ * This is the inverse of the pixel lookup `raycastSpriteBillboard` performs on ray hits.
+ */
+Vector3 spriteBillboardPointAt(const SpriteBillboard& billboard, float pixelX, float pixelY);
+
 /** Atlas sample for a screen-space view sprite (rot 0 / non-directional). */
 struct ViewSpriteFrame {
     const Texture2D* texture = nullptr;
@@ -116,6 +125,8 @@ struct ViewSpriteFrame {
     float animScaleY = 1.0f;
     float animTranslateX = 0.0f;
     float animTranslateY = 0.0f;
+    bool fullbright = false;
+    const Texture2D* brightTexture = nullptr;
 };
 
 std::optional<ViewSpriteFrame> resolveViewSpriteFrame(

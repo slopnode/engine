@@ -39,10 +39,14 @@ struct MapPreview {
     Model model{};
     bool valid = false;
     std::vector<std::string> editFaceIds;
+    std::vector<int> modelTransparentMeshIndices;
+    std::vector<int> modelSkyMeshIndices;
 
     Model visModel{};
     bool visValid = false;
     slopengine::FacFile pickFac{};
+    std::vector<int> visTransparentMeshIndices;
+    std::vector<int> visSkyMeshIndices;
 
     Model moverOverlayModel{};
     bool moverOverlayValid = false;
@@ -54,8 +58,8 @@ struct MapPreview {
     int useLightmapLoc = -1;
     int solidLitLoc = -1;
     std::vector<Texture2D> lightmapAtlases;
-    std::vector<int> transparentMeshIndices;
-    std::vector<int> skyMeshIndices;
+    std::vector<int> litTransparentMeshIndices;
+    std::vector<int> litSkyMeshIndices;
     Shader skyShader{};
 
     void clear();
@@ -83,7 +87,8 @@ struct MapPreview {
         float lineWidth,
         const Camera3D* camera = nullptr,
         slopengine::AssetStore* assets = nullptr,
-        const std::vector<slopengine::Thing>* things = nullptr) const;
+        const std::vector<slopengine::Thing>* things = nullptr,
+        bool showNodraw = false) const;
 };
 
 struct InfiniteGrid {

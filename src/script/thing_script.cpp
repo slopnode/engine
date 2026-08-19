@@ -7,7 +7,9 @@
 #include "assets/sprite_anim_loader.hpp"
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
+#include "map/nav_graph.hpp"
 #include "map/pvs.hpp"
+#include "map/sound_propagation.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
 #include "navigation/nav_components.hpp"
@@ -27,6 +29,7 @@
 #include "particles/components.hpp"
 #include "particles/particle_module.hpp"
 #include "particles/particle_sim.hpp"
+#include "fx/trail.hpp"
 #include "render/transform.hpp"
 #include "script/first_person_script.hpp"
 
@@ -285,11 +288,25 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     entity.add<WorldSpace>().add<MapOwned>().set<LocalTransformation>(local);
 
     if (isSprite) {
-        entity.set<SpriteInstance>({
+        SpriteInstance sprite{
             .sprite = path,
             .frame = "A",
             .facingYaw = facingYaw,
-        });
+        };
+        if (assets.hasSpriteAnim(path)) {
+            const SpriteAnimBank* bank = assets.getSpriteAnimBank(path);
+            if (bank != nullptr && bank->clipIndexByName.contains("fly")) {
+                SpriteAnimator animator{};
+                animator.animPath = path;
+                playSpriteAnim(animator, sprite, bank, "fly", /*shouldLoop=*/true);
+                entity.set<SpriteInstance>(sprite);
+                entity.set<SpriteAnimator>(animator);
+            } else {
+                entity.set<SpriteInstance>(sprite);
+            }
+        } else {
+            entity.set<SpriteInstance>(sprite);
+        }
     } else {
         const Model source = assets.getGeoModel(path);
         Model model = cloneGeoModelInstance(source);
@@ -414,6 +431,71 @@ s7_pointer g_dyn_light_attach(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
     const DynamicLight light = makePointDynamicLight(r, g, b, intensity, range);
+    entity.set<DynamicLight>(light);
+    return s7_t(sc);
+}
+
+s7_pointer g_dyn_light_set_pos(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-pos!", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    if (!readNumberArg(sc, args, x, "dyn-light-set-pos!", 2) ||
+        !readNumberArg(sc, args, y, "dyn-light-set-pos!", 3) ||
+        !readNumberArg(sc, args, z, "dyn-light-set-pos!", 4)) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-pos!", 2, args, "x y z numbers");
+    }
+
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid() || !entity.has<LocalTransformation>() ||
+        !entity.has<GlobalTransformation>()) {
+        return s7_f(sc);
+    }
+    LocalTransformation& local = entity.get_mut<LocalTransformation>();
+    local.position = {x, y, z};
+    updateTransform(entity, local, entity.get_mut<GlobalTransformation>());
+    return s7_t(sc);
+}
+
+s7_pointer g_dyn_light_set_hsv(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-hsv!", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float h = 0;
+    float s = 1;
+    float v = 1;
+    if (!readNumberArg(sc, args, h, "dyn-light-set-hsv!", 2) ||
+        !readNumberArg(sc, args, s, "dyn-light-set-hsv!", 3) ||
+        !readNumberArg(sc, args, v, "dyn-light-set-hsv!", 4)) {
+        return s7_wrong_type_arg_error(sc, "dyn-light-set-hsv!", 2, args, "h s v numbers");
+    }
+
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (!entity.is_valid() || !entity.has<DynamicLight>()) {
+        return s7_f(sc);
+    }
+    DynamicLight light = entity.get<DynamicLight>();
+    setDynamicLightHsv(light, {h, s, v});
     entity.set<DynamicLight>(light);
     return s7_t(sc);
 }
@@ -751,6 +833,12 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
     const std::string path = s7_string(s7_car(args));
     args = s7_cdr(args);
 
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-fp", 4, args, "attach string");
+    }
+    const std::string attach = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
     float depth = 0.35f;
     if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
         depth = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
@@ -783,8 +871,223 @@ s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
         assets,
         id.c_str(),
         host,
+        attach,
         path,
         depth,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_particle_spawn_attach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 2, args, "target string");
+    }
+    const std::string target = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 3, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-attach", 4, args, "attach string");
+    }
+    const std::string attach = s7_string(s7_car(args));
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasParticle(path)) {
+        TraceLog(LOG_WARNING, "particle-spawn-attach: missing system '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity host = lookupActor(target);
+    if (!host.is_valid()) {
+        TraceLog(LOG_WARNING, "particle-spawn-attach: no actor '%s'", target.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnParticleSystemWorldAttach(
+        *g_thingWorld,
+        assets,
+        id.c_str(),
+        host,
+        attach,
+        path,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_trail_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float sx = 0, sy = 0, sz = 0, ex = 0, ey = 0, ez = 0;
+    if (!readNumberArg(sc, args, sx, "trail-spawn", 2) ||
+        !readNumberArg(sc, args, sy, "trail-spawn", 3) ||
+        !readNumberArg(sc, args, sz, "trail-spawn", 4) ||
+        !readNumberArg(sc, args, ex, "trail-spawn", 5) ||
+        !readNumberArg(sc, args, ey, "trail-spawn", 6) ||
+        !readNumberArg(sc, args, ez, "trail-spawn", 7)) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 2, args, "sx sy sz ex ey ez numbers");
+    }
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 8, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float lifetime = 0.12f;
+    if (!readNumberArg(sc, args, lifetime, "trail-spawn", 9)) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn", 9, args, "lifetime number");
+    }
+
+    float width = 0.08f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        width = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasTexture(path)) {
+        TraceLog(LOG_WARNING, "trail-spawn: missing texture '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnTrail(
+        *g_thingWorld,
+        id.c_str(),
+        Vector3{sx, sy, sz},
+        Vector3{ex, ey, ez},
+        path,
+        lifetime,
+        width,
+        true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_trail_spawn_fp(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 1, args, "id string");
+    }
+    const std::string id = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 2, args, "socket string");
+    }
+    const std::string socket = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 3, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 4, args, "attach string");
+    }
+    const std::string attach = s7_string(s7_car(args));
+    args = s7_cdr(args);
+
+    float ex = 0, ey = 0, ez = 0, lifetime = 0.12f;
+    if (!readNumberArg(sc, args, ex, "trail-spawn-fp", 5) ||
+        !readNumberArg(sc, args, ey, "trail-spawn-fp", 6) ||
+        !readNumberArg(sc, args, ez, "trail-spawn-fp", 7) ||
+        !readNumberArg(sc, args, lifetime, "trail-spawn-fp", 8)) {
+        return s7_wrong_type_arg_error(sc, "trail-spawn-fp", 5, args, "ex ey ez lifetime numbers");
+    }
+
+    float width = 0.08f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        width = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+    float depth = 0.35f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        depth = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    if (id.empty() || isProtectedThingId(id)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld->lookup(id.c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasTexture(path)) {
+        TraceLog(LOG_WARNING, "trail-spawn-fp: missing texture '%s'", path.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity host = findFirstPersonSocketSprite(*g_thingWorld, socket.c_str());
+    if (!host.is_valid()) {
+        TraceLog(LOG_WARNING, "trail-spawn-fp: no ViewSprite on socket '%s'", socket.c_str());
+        return s7_f(sc);
+    }
+
+    flecs::entity entity = spawnTrailFp(
+        *g_thingWorld,
+        id.c_str(),
+        host,
+        attach,
+        depth,
+        Vector3{ex, ey, ez},
+        path,
+        lifetime,
+        width,
         true);
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
@@ -1069,12 +1372,6 @@ s7_pointer g_actor_set_corpse(s7_scheme* sc, s7_pointer args) {
         return s7_t(sc);
     }
 
-    if (PhysicsWorld* physics = physicsWorld()) {
-        const std::uint64_t eid = static_cast<std::uint64_t>(entity.id());
-        if (physics->hasCharacter(eid)) {
-            physics->destroyCharacter(eid);
-        }
-    }
     if (entity.has<CharacterMotor>()) {
         CharacterMotor& motor = entity.get_mut<CharacterMotor>();
         motor.wishX = 0.0f;
@@ -1084,6 +1381,48 @@ s7_pointer g_actor_set_corpse(s7_scheme* sc, s7_pointer args) {
         entity.remove<ActorSight>();
     }
     entity.add<ActorCorpse>();
+    return s7_t(sc);
+}
+
+s7_pointer g_sprite_hide_part(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "sprite-hide-part!", 1, args, "id string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "sprite-hide-part!", 2, rest, "part-name string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<SpriteInstance>()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    const SpriteAsset* asset = assets.getSpriteAsset(entity.get<SpriteInstance>().sprite);
+    if (asset == nullptr) {
+        return s7_f(sc);
+    }
+
+    const std::string partName = s7_string(s7_car(rest));
+    int partIndex = -1;
+    for (std::size_t i = 0; i < asset->hitParts.size(); ++i) {
+        if (asset->hitParts[i].name == partName) {
+            partIndex = static_cast<int>(i);
+            break;
+        }
+    }
+    if (partIndex < 0 || partIndex >= 32) {
+        return s7_f(sc);
+    }
+
+    std::uint32_t mask = entity.has<SpriteHiddenParts>() ? entity.get<SpriteHiddenParts>().mask : 0;
+    mask |= (1u << static_cast<unsigned>(partIndex));
+    entity.set<SpriteHiddenParts>({mask});
     return s7_t(sc);
 }
 
@@ -1741,6 +2080,75 @@ s7_pointer g_pvs_can_see(s7_scheme* sc, s7_pointer args) {
         : s7_f(sc);
 }
 
+bool isDoorPortalOpenForSound(const std::string& doorBrushId) {
+    if (g_thingWorld == nullptr) {
+        return true;
+    }
+    flecs::entity door = g_thingWorld->lookup(doorBrushId.c_str());
+    if (!door.is_valid() || !door.has<RigidMover>()) {
+        return true;
+    }
+    return door.get<RigidMover>().target >= 0.5f;
+}
+
+s7_pointer g_sound_emit(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_nil(sc);
+    }
+    float x = 0, y = 0, z = 0, loudness = 0;
+    if (!readNumberArg(sc, args, x, "sound-emit!", 1) ||
+        !readNumberArg(sc, args, y, "sound-emit!", 2) ||
+        !readNumberArg(sc, args, z, "sound-emit!", 3) ||
+        !readNumberArg(sc, args, loudness, "sound-emit!", 4)) {
+        return s7_wrong_type_arg_error(
+            sc, "sound-emit!", 1, args, "x y z loudness [falloff-per-unit]");
+    }
+    float falloffPerUnit = 1.0f;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        falloffPerUnit = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    }
+    if (loudness <= 0.0f || falloffPerUnit < 0.0f) {
+        return s7_nil(sc);
+    }
+
+    if (!g_thingWorld->has<MapNavigation>() || !g_thingWorld->has<MapBsp>()) {
+        return s7_nil(sc);
+    }
+    const MapNavigation& nav = g_thingWorld->get<MapNavigation>();
+    const BspTree& tree = g_thingWorld->get<MapBsp>().tree;
+    const std::int32_t originLeaf = pvsSampleLeaf(tree, {x, y, z});
+    if (originLeaf < 0) {
+        return s7_nil(sc);
+    }
+
+    const std::vector<float> perceived =
+        floodSound(nav, originLeaf, loudness, falloffPerUnit, isDoorPortalOpenForSound);
+
+    s7_pointer list = s7_nil(sc);
+    g_thingWorld->each([&](flecs::entity entity, Actor, const LocalTransformation& local) {
+        const std::int32_t leaf = pvsSampleLeaf(tree, local.position);
+        if (leaf < 0 || leaf >= static_cast<std::int32_t>(perceived.size())) {
+            return;
+        }
+        const float heard = perceived[static_cast<std::size_t>(leaf)];
+        if (heard <= 0.0f) {
+            return;
+        }
+        list = s7_cons(
+            sc,
+            s7_list(
+                sc,
+                2,
+                s7_make_string(sc, entityIdString(entity).c_str()),
+                s7_make_real(sc, heard)),
+            list);
+    });
+    return list;
+}
+
 } // namespace
 
 void queueThingDespawn(flecs::world& world, std::string_view id) {
@@ -2251,116 +2659,88 @@ s7_pointer g_thing_def_radius(s7_scheme* sc, s7_pointer args) {
     return s7_make_real(sc, static_cast<double>(def->motorRadius));
 }
 
-s7_pointer g_thing_def_melee_damage(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
+const ThingDefBehavior* findThingDefBehavior(const ThingDef* def, const char* name) {
+    if (def == nullptr) {
+        return nullptr;
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-damage", 1, args, "type string");
+    for (const auto& behavior : def->behaviors) {
+        if (behavior.name == name) {
+            return &behavior;
+        }
     }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->meleeDamage));
+    return nullptr;
 }
 
-s7_pointer g_thing_def_melee_range(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
+s7_pointer thingDefBehaviorParamToScheme(s7_scheme* sc, const ThingDefBehaviorParam& param) {
+    switch (param.kind) {
+        case ThingDefBehaviorParam::Kind::String:
+            return s7_make_string(sc, param.s.c_str());
+        case ThingDefBehaviorParam::Kind::Bool:
+            return param.b ? s7_t(sc) : s7_f(sc);
+        case ThingDefBehaviorParam::Kind::Float:
+        default:
+            return s7_make_real(sc, static_cast<double>(param.f));
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-range", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->meleeRange));
 }
 
-s7_pointer g_thing_def_melee_cooldown(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_thing_def_behavior_names(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-cooldown", 1, args, "type string");
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-names", 1, args, "type string");
     }
     const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee) {
-        return s7_f(sc);
+    s7_pointer list = s7_nil(sc);
+    if (def == nullptr) {
+        return list;
     }
-    return s7_make_real(sc, static_cast<double>(def->meleeCooldown));
+    for (auto it = def->behaviors.rbegin(); it != def->behaviors.rend(); ++it) {
+        list = s7_cons(sc, s7_make_string(sc, it->name.c_str()), list);
+    }
+    return list;
 }
 
-s7_pointer g_thing_def_melee_anim(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_thing_def_behavior_has(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-melee-anim", 1, args, "type string");
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-has?", 1, args, "type string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-has?", 2, rest, "name string");
     }
     const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveMelee || def->meleeAnim.empty()) {
-        return s7_f(sc);
-    }
-    return s7_make_string(sc, def->meleeAnim.c_str());
+    return findThingDefBehavior(def, s7_string(s7_car(rest))) != nullptr ? s7_t(sc) : s7_f(sc);
 }
 
-s7_pointer g_thing_def_ranged_range(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_thing_def_behavior_params(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-range", 1, args, "type string");
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-params", 1, args, "type string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "thing-def-behavior-params", 2, rest, "name string");
     }
     const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
+    const ThingDefBehavior* behavior = findThingDefBehavior(def, s7_string(s7_car(rest)));
+    if (behavior == nullptr) {
         return s7_f(sc);
     }
-    return s7_make_real(sc, static_cast<double>(def->rangedRange));
-}
-
-s7_pointer g_thing_def_ranged_min_range(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
+    s7_pointer alist = s7_nil(sc);
+    for (auto it = behavior->params.rbegin(); it != behavior->params.rend(); ++it) {
+        s7_pointer pair = s7_cons(
+            sc,
+            s7_make_symbol(sc, it->first.c_str()),
+            thingDefBehaviorParamToScheme(sc, it->second));
+        alist = s7_cons(sc, pair, alist);
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-min-range", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->rangedMinRange));
-}
-
-s7_pointer g_thing_def_ranged_cooldown(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-cooldown", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->rangedCooldown));
-}
-
-s7_pointer g_thing_def_ranged_anim(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-ranged-anim", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveRanged || def->rangedAnim.empty()) {
-        return s7_f(sc);
-    }
-    return s7_make_string(sc, def->rangedAnim.c_str());
+    return alist;
 }
 
 s7_pointer g_thing_def_speed(s7_scheme* sc, s7_pointer args) {
@@ -2375,62 +2755,6 @@ s7_pointer g_thing_def_speed(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
     return s7_make_real(sc, static_cast<double>(def->motorSpeed));
-}
-
-s7_pointer g_thing_def_lunge_range(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-range", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeRange));
-}
-
-s7_pointer g_thing_def_lunge_speed(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-speed", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeSpeed));
-}
-
-s7_pointer g_thing_def_lunge_cooldown(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-cooldown", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeCooldown));
-}
-
-s7_pointer g_thing_def_lunge_duration(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "thing-def-lunge-duration", 1, args, "type string");
-    }
-    const ThingDef* def = thingDefRegistry().find(s7_string(s7_car(args)));
-    if (def == nullptr || !def->haveLunge) {
-        return s7_f(sc);
-    }
-    return s7_make_real(sc, static_cast<double>(def->lungeDuration));
 }
 
 s7_pointer g_thing_def_pain_chance(s7_scheme* sc, s7_pointer args) {
@@ -2540,102 +2864,30 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         scheme, "thing-def-radius", g_thing_def_radius, 1, 0, false, "(thing-def-radius type)");
     s7_define_function(
         scheme,
-        "thing-def-melee-damage",
-        g_thing_def_melee_damage,
+        "thing-def-behavior-names",
+        g_thing_def_behavior_names,
         1,
         0,
         false,
-        "(thing-def-melee-damage type)");
+        "(thing-def-behavior-names type)");
     s7_define_function(
         scheme,
-        "thing-def-melee-range",
-        g_thing_def_melee_range,
-        1,
+        "thing-def-behavior-has?",
+        g_thing_def_behavior_has,
+        2,
         0,
         false,
-        "(thing-def-melee-range type)");
+        "(thing-def-behavior-has? type name)");
     s7_define_function(
         scheme,
-        "thing-def-melee-cooldown",
-        g_thing_def_melee_cooldown,
-        1,
+        "thing-def-behavior-params",
+        g_thing_def_behavior_params,
+        2,
         0,
         false,
-        "(thing-def-melee-cooldown type)");
-    s7_define_function(
-        scheme,
-        "thing-def-melee-anim",
-        g_thing_def_melee_anim,
-        1,
-        0,
-        false,
-        "(thing-def-melee-anim type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-range",
-        g_thing_def_ranged_range,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-range type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-min-range",
-        g_thing_def_ranged_min_range,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-min-range type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-cooldown",
-        g_thing_def_ranged_cooldown,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-cooldown type)");
-    s7_define_function(
-        scheme,
-        "thing-def-ranged-anim",
-        g_thing_def_ranged_anim,
-        1,
-        0,
-        false,
-        "(thing-def-ranged-anim type)");
+        "(thing-def-behavior-params type name)");
     s7_define_function(
         scheme, "thing-def-speed", g_thing_def_speed, 1, 0, false, "(thing-def-speed type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-range",
-        g_thing_def_lunge_range,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-range type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-speed",
-        g_thing_def_lunge_speed,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-speed type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-cooldown",
-        g_thing_def_lunge_cooldown,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-cooldown type)");
-    s7_define_function(
-        scheme,
-        "thing-def-lunge-duration",
-        g_thing_def_lunge_duration,
-        1,
-        0,
-        false,
-        "(thing-def-lunge-duration type)");
     s7_define_function(
         scheme,
         "thing-def-pain-chance",
@@ -2680,10 +2932,34 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         scheme,
         "particle-spawn-fp",
         g_particle_spawn_fp,
-        3,
+        4,
         1,
         false,
-        "(particle-spawn-fp id socket path [depth])");
+        "(particle-spawn-fp id socket path attach [depth])");
+    s7_define_function(
+        scheme,
+        "particle-spawn-attach",
+        g_particle_spawn_attach,
+        4,
+        0,
+        false,
+        "(particle-spawn-attach id target path attach)");
+    s7_define_function(
+        scheme,
+        "trail-spawn-fp",
+        g_trail_spawn_fp,
+        8,
+        2,
+        false,
+        "(trail-spawn-fp id socket path attach ex ey ez lifetime [width] [depth])");
+    s7_define_function(
+        scheme,
+        "trail-spawn",
+        g_trail_spawn,
+        9,
+        1,
+        false,
+        "(trail-spawn id sx sy sz ex ey ez path lifetime [width])");
     s7_define_function(
         scheme,
         "particle-play",
@@ -2742,6 +3018,22 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(dyn-light-attach id r g b intensity range)");
     s7_define_function(
         scheme,
+        "dyn-light-set-pos!",
+        g_dyn_light_set_pos,
+        4,
+        0,
+        false,
+        "(dyn-light-set-pos! id x y z)");
+    s7_define_function(
+        scheme,
+        "dyn-light-set-hsv!",
+        g_dyn_light_set_hsv,
+        4,
+        0,
+        false,
+        "(dyn-light-set-hsv! id h s v)");
+    s7_define_function(
+        scheme,
         "actor-spawn",
         g_actor_spawn,
         7,
@@ -2778,6 +3070,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(actor-set-move-speed! id speed)");
     s7_define_function(
         scheme, "actor-set-corpse!", g_actor_set_corpse, 1, 0, false, "(actor-set-corpse! id)");
+    s7_define_function(
+        scheme,
+        "sprite-hide-part!",
+        g_sprite_hide_part,
+        2,
+        0,
+        false,
+        "(sprite-hide-part! id part-name)");
     s7_define_function(
         scheme, "actor-grounded?", g_actor_grounded, 1, 0, false, "(actor-grounded? id)");
     s7_define_function(
@@ -2836,6 +3136,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         0,
         false,
         "(pvs-can-see x0 y0 z0 x1 y1 z1)");
+    s7_define_function(
+        scheme,
+        "sound-emit!",
+        g_sound_emit,
+        4,
+        1,
+        false,
+        "(sound-emit! x y z loudness [falloff-per-unit]) -> ((id loudness) ...)");
     s7_define_function(
         scheme, "actor-los?", g_actor_los, 2, 0, false, "(actor-los? from-id to-id)");
     s7_define_function(

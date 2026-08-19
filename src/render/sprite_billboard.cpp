@@ -134,6 +134,7 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     const SpriteAsset& asset,
     const SpriteAtlas& atlas,
     const SpriteRotation& selected,
+    bool frameFullbright,
     const SpriteRotation* next,
     const SpriteAnimTween* tween,
     const GlobalTransformation& global,
@@ -248,7 +249,7 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     billboard.pixelHeight = static_cast<int>(pixelH);
     billboard.texture = &texture;
     billboard.source = source;
-    billboard.fullbright = asset.fullbright;
+    billboard.fullbright = asset.fullbright || frameFullbright;
     billboard.blend = asset.blend;
     billboard.tint = asset.tint;
 
@@ -259,6 +260,10 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
     const auto brightIt = atlas.brightTextures.find(selected.texturePath);
     if (brightIt != atlas.brightTextures.end() && brightIt->second.id != 0) {
         billboard.brightTexture = &brightIt->second;
+    }
+    const auto partMaskIt = atlas.partMaskTextures.find(selected.texturePath);
+    if (partMaskIt != atlas.partMaskTextures.end() && partMaskIt->second.id != 0) {
+        billboard.partMaskTexture = &partMaskIt->second;
     }
 
     Vector3 points[4] = {
@@ -276,6 +281,19 @@ std::optional<SpriteBillboard> buildBillboardFromRotation(
 }
 
 } // namespace
+
+Vector3 spriteBillboardPointAt(const SpriteBillboard& billboard, float pixelX, float pixelY) {
+    const float width = static_cast<float>(std::max(billboard.pixelWidth, 1));
+    const float height = static_cast<float>(std::max(billboard.pixelHeight, 1));
+    const float mirroredX = billboard.mirror ? (width - 1.0f - pixelX) : pixelX;
+    const float u = mirroredX / width;
+    const float v = (height - pixelY) / height;
+    const Vector3 right = Vector3Subtract(billboard.points[1], billboard.points[0]);
+    const Vector3 up = Vector3Subtract(billboard.points[3], billboard.points[0]);
+    return Vector3Add(
+        billboard.points[0],
+        Vector3Add(Vector3Scale(right, u), Vector3Scale(up, v)));
+}
 
 float horizontalCameraYaw(Vector3 eye, Vector3 target) {
     const float dx = target.x - eye.x;
@@ -339,6 +357,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         asset,
         atlas,
         *selected,
+        frame->fullbright,
         next,
         tween,
         global,
@@ -378,6 +397,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboardForcedRot(
         asset,
         atlas,
         *selected,
+        frame->fullbright,
         next,
         tween,
         global,
@@ -463,6 +483,7 @@ std::optional<SpriteBillboard> resolveSpriteBillboard(
         *asset,
         *atlas,
         *selected,
+        frame->fullbright,
         next,
         tween,
         global,
@@ -534,6 +555,11 @@ std::optional<ViewSpriteFrame> resolveViewSpriteFrame(
     result.animScaleY = selected->animScaleY;
     result.animTranslateX = selected->animTranslateX;
     result.animTranslateY = selected->animTranslateY;
+    result.fullbright = asset.fullbright || frame->fullbright;
+    const auto brightIt = atlas.brightTextures.find(selected->texturePath);
+    if (brightIt != atlas.brightTextures.end() && brightIt->second.id != 0) {
+        result.brightTexture = &brightIt->second;
+    }
     if (result.pixelWidth <= 0 || result.pixelHeight <= 0) {
         return std::nullopt;
     }

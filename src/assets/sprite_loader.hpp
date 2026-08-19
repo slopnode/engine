@@ -47,28 +47,32 @@ struct SpriteRotation {
     int pixelHeight = 0;
 };
 
+/** Named offset point on a frame, e.g. a weapon muzzle or ejection port. */
+struct SpriteAttachPoint {
+    std::string name;
+    float x = 0.0f;
+    float y = 0.0f;
+    int zIndex = 0;
+};
+
 /** Named frame with up to nine Doom-style rotations. */
 struct SpriteFrame {
     std::string id;
+    bool fullbright = false;
     std::optional<SpriteRotation> rotations[kSpriteRotationCount];
+    std::vector<SpriteAttachPoint> attachPoints;
 };
 
 /** Optional first-person view defaults stored in a .spr (view …) block. */
 struct SpriteViewDefaults {
     bool present = false;
-    float canvasX = 160.0f;
-    float canvasY = 200.0f;
+    float anchorX = 160.0f;
+    float anchorY = 200.0f;
     float scaleX = 1.0f;
     float scaleY = 1.0f;
     float rotationDeg = 0.0f;
     float originX = 0.5f;
     float originY = 1.0f;
-    float eyeOffsetX = 0.0f;
-    float eyeOffsetY = 0.0f;
-    float eyeOffsetZ = 0.0f;
-    bool hasMuzzle = false;
-    float muzzleX = 0.0f;
-    float muzzleY = 0.0f;
 };
 
 enum class SpriteBillboardMode {
@@ -116,6 +120,9 @@ struct SpriteAtlas {
     std::unordered_map<std::string, SpriteHitmask> hitmasks;
     /** Grayscale brightmaps keyed by albedo texture path (standalone textures). */
     std::unordered_map<std::string, Texture2D> brightTextures;
+    /** GPU part-index masks (R8, one texel per albedo pixel) keyed by albedo texture path.
+     *  Only present for frames with an authored multi-part hit mask. */
+    std::unordered_map<std::string, Texture2D> partMaskTextures;
 };
 
 /** Parses .spr text into @p asset. */
@@ -134,6 +141,12 @@ void unloadSpriteAtlas(SpriteAtlas& atlas);
 
 /** Finds a frame by id, or nullptr. */
 const SpriteFrame* findSpriteFrame(const SpriteAsset& asset, std::string_view frameId);
+
+/** Finds a named (attach ...) point on a specific frame, or nullptr. */
+const SpriteAttachPoint* findSpriteAttachPoint(
+    const SpriteAsset& asset,
+    std::string_view frameId,
+    const std::string& name);
 
 /** Picks a rotation with fallbacks when the requested angle is missing. */
 const SpriteRotation* selectSpriteRotation(const SpriteFrame& frame, int rotation);

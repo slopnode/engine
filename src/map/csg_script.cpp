@@ -368,6 +368,60 @@ bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
     return true;
 }
 
+s7_pointer g_tint(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
+        return s7_wrong_type_arg_error(sc, "tint", 0, args, "r g b");
+    }
+    return makeTaggedList(
+        sc,
+        "tint",
+        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
+}
+
+s7_pointer g_wobble(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "wobble", 1, args, "amount");
+    }
+    return makeTaggedList(sc, "wobble", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_vignette(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "vignette", 1, args, "amount");
+    }
+    return makeTaggedList(sc, "vignette", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_water(s7_scheme* sc, s7_pointer args) {
+    return makeTaggedList(sc, "water", args);
+}
+
+bool parseBrushWater(s7_scheme* sc, s7_pointer rest, BrushWater& out) {
+    BrushWater water{};
+    for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer clause = s7_car(cursor);
+        if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+            continue;
+        }
+        const char* tag = s7_symbol_name(s7_car(clause));
+        s7_pointer args = s7_cdr(clause);
+        if (std::strcmp(tag, "tint") == 0 &&
+            s7_is_pair(args) &&
+            s7_is_pair(s7_cdr(args)) &&
+            s7_is_pair(s7_cddr(args))) {
+            water.haveTint = readVec3(sc, s7_car(args), s7_cadr(args), s7_caddr(args), water.tint);
+        } else if (std::strcmp(tag, "wobble") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            water.wobble = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            water.haveWobble = true;
+        } else if (std::strcmp(tag, "vignette") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            water.vignette = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            water.haveVignette = true;
+        }
+    }
+    out = std::move(water);
+    return true;
+}
+
 s7_pointer g_uv_lock(s7_scheme* sc, s7_pointer args) {
     (void)args;
     return makeTaggedList(sc, "uv-lock", s7_nil(sc));
@@ -748,6 +802,8 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     BrushBlockParseState blockState{};
     bool haveDoorClause = false;
     BrushDoor door{};
+    bool haveWaterClause = false;
+    BrushWater water{};
     std::vector<std::pair<BrushBoxSide, BrushFace>> overrides;
 
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -775,6 +831,10 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
         } else if (std::strcmp(tag, "door") == 0) {
             if (parseBrushDoor(sc, rest, door)) {
                 haveDoorClause = true;
+            }
+        } else if (std::strcmp(tag, "water") == 0) {
+            if (parseBrushWater(sc, rest, water)) {
+                haveWaterClause = true;
             }
         } else if (std::strcmp(tag, "mins") == 0 &&
                    s7_is_pair(rest) &&
@@ -807,10 +867,16 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
     if (haveDoorClause) {
         role = BrushRole::Door;
     }
+    if (haveWaterClause) {
+        role = BrushRole::Water;
+    }
     Brush brush = makeBrushBox(std::move(id), mins, maxs, material, overrides, role);
     setBrushBlocks(brush, blockState.resolve(role));
     if (role == BrushRole::Door) {
         brush.door = haveDoorClause ? std::move(door) : BrushDoor{};
+    }
+    if (role == BrushRole::Water) {
+        brush.water = haveWaterClause ? std::move(water) : BrushWater{};
     }
     g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
@@ -900,6 +966,8 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     BrushBlockParseState blockState{};
     bool haveDoorClause = false;
     BrushDoor door{};
+    bool haveWaterClause = false;
+    BrushWater water{};
     std::vector<BrushFace> faces;
 
     for (s7_pointer cursor = args; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -926,6 +994,10 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
             if (parseBrushDoor(sc, rest, door)) {
                 haveDoorClause = true;
             }
+        } else if (std::strcmp(tag, "water") == 0) {
+            if (parseBrushWater(sc, rest, water)) {
+                haveWaterClause = true;
+            }
         } else if (std::strcmp(tag, "faces") == 0) {
             for (s7_pointer faceCursor = rest; s7_is_pair(faceCursor); faceCursor = s7_cdr(faceCursor)) {
                 BrushFace face{};
@@ -949,10 +1021,16 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     if (haveDoorClause) {
         role = BrushRole::Door;
     }
+    if (haveWaterClause) {
+        role = BrushRole::Water;
+    }
     Brush brush = finalizeBrushFaces(std::move(id), std::move(faces), role);
     setBrushBlocks(brush, blockState.resolve(role));
     if (role == BrushRole::Door) {
         brush.door = haveDoorClause ? std::move(door) : BrushDoor{};
+    }
+    if (role == BrushRole::Water) {
+        brush.water = haveWaterClause ? std::move(water) : BrushWater{};
     }
     g_builder->brushes.push_back(std::move(brush));
     return s7_t(sc);
@@ -979,6 +1057,10 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
     s7_define_function(sc, "auto-close", g_auto_close, 1, 0, false, "(auto-close seconds)");
     s7_define_function(sc, "door", g_door, 0, 0, true, "(door clauses...)");
+    s7_define_function(sc, "tint", g_tint, 3, 0, false, "(tint r g b)");
+    s7_define_function(sc, "wobble", g_wobble, 1, 0, false, "(wobble amount)");
+    s7_define_function(sc, "vignette", g_vignette, 1, 0, false, "(vignette amount)");
+    s7_define_function(sc, "water", g_water, 0, 0, true, "(water clauses...)");
     s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
     s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
     s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
@@ -1330,12 +1412,14 @@ std::optional<LoadedMap> loadAndCompileMap(
     }
 
     FacFile fac{};
+    FacFile doorFac{};
     bool haveFac = false;
     if (assets.hasMapFac(virtualPath)) {
         if (const auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath)) {
             if (auto loadedFac = readFacFile(*facPath)) {
                 fac = std::move(*loadedFac);
                 haveFac = true;
+                doorFac = extractFacFacesForMoverBrushes(fac, moverBrushIds);
                 eraseFacFacesForMoverBrushes(fac, moverBrushIds);
                 TraceLog(
                     LOG_INFO,
@@ -1491,19 +1575,45 @@ std::optional<LoadedMap> loadAndCompileMap(
             }
         }
     }
-    const CsgCompileResult compiled = haveFac
-        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
-        : compileBrushesToGeo(
-              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
-              resolveUv,
-              lightmaps);
-    result.fac = std::move(fac);
-    result.pvs = std::move(pvs);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const LightmapChart& chart : rad.charts) {
         faceAtlasById[chart.faceId] = chart.atlasIndex;
     }
+    std::unordered_set<std::string> detailBrushIds;
+    for (const Brush& brush : *brushes) {
+        if (brush.role == BrushRole::Detail && !brush.id.empty()) {
+            detailBrushIds.insert(brush.id);
+        }
+    }
+
+    CsgCompileResult compiled = haveFac
+        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
+        : compileBrushesToGeo(
+              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+              resolveUv,
+              lightmaps);
+
+    // Batch same-material static geometry into fewer, larger draw calls.
+    // Transparent faces stay unmerged (per-mesh back-to-front sort in the
+    // transparent pass); atlas index and detail status are part of the key
+    // since a merged mesh can only carry one lightmap page / offset mode.
+    mergeGeoPrimitivesByKey(compiled.asset, compiled.buffer, [&](const GeoPrimitive& primitive) {
+        if (primitive.transparent) {
+            return "t:" + primitive.name;
+        }
+        std::int32_t atlasIndex = -1;
+        if (const auto it = faceAtlasById.find(primitive.name); it != faceAtlasById.end()) {
+            atlasIndex = it->second;
+        }
+        const bool detail = faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds);
+        return primitive.material + '|' + std::to_string(atlasIndex) + '|' + (detail ? "1" : "0") +
+               '|' + (primitive.twoSided ? "1" : "0");
+    });
+
+    result.fac = std::move(fac);
+    result.doorFac = std::move(doorFac);
+    result.pvs = std::move(pvs);
 
     Model model = buildModelFromGeo(
         compiled.asset,
@@ -1548,12 +1658,8 @@ std::optional<LoadedMap> loadAndCompileMap(
     result.skyMeshIndices.reserve(compiled.asset.primitives.size());
     result.detailMeshIndices.clear();
     result.detailMeshIndices.reserve(compiled.asset.primitives.size());
-    std::unordered_set<std::string> detailBrushIds;
-    for (const Brush& brush : *brushes) {
-        if (brush.role == BrushRole::Detail && !brush.id.empty()) {
-            detailBrushIds.insert(brush.id);
-        }
-    }
+    result.twoSidedMeshIndices.clear();
+    result.twoSidedMeshIndices.reserve(compiled.asset.primitives.size());
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         const GeoPrimitive& primitive =
             compiled.asset.primitives[static_cast<std::size_t>(meshIndex)];
@@ -1562,6 +1668,9 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
         if (faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds)) {
             result.detailMeshIndices.push_back(meshIndex);
+        }
+        if (primitive.twoSided) {
+            result.twoSidedMeshIndices.push_back(meshIndex);
         }
         const MaterialAsset* materialAsset = assets.getMaterialAsset(primitive.material);
         if (materialAsset != nullptr && materialAsset->sky) {

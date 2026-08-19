@@ -8,12 +8,18 @@
 
 namespace slopengine {
 
+/** A package dependency: an id, with an optional semver constraint. */
+struct PackageDependency {
+    std::string id;                /**< Package id that must be mounted. */
+    std::string versionConstraint; /**< e.g. ">=1.2.0"; empty means any version. */
+};
+
 /** Fields from a package.meta file. */
 struct PackageMeta {
     std::string id;       /**< Unique package id (required). */
     std::string name;     /**< Display name. */
     std::string version;  /**< Version string. */
-    std::vector<std::string> depends; /**< Package ids that must be mounted. */
+    std::vector<PackageDependency> depends; /**< Packages that must be mounted. */
 };
 
 /** Parses package.meta text into @p out. */

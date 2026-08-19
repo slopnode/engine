@@ -108,7 +108,8 @@ void drawModelMeshes(
     const Model& model,
     const std::unordered_set<int>* skipMeshIndices,
     const std::unordered_set<int>* onlyMeshIndices,
-    const std::unordered_set<int>* polygonOffsetBackMeshIndices) {
+    const std::unordered_set<int>* polygonOffsetBackMeshIndices,
+    const std::unordered_set<int>* twoSidedMeshIndices = nullptr) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -123,7 +124,15 @@ void drawModelMeshes(
             glEnable(GL_POLYGON_OFFSET_FILL);
             glPolygonOffset(kDetailMeshPolygonOffsetFactor, kDetailMeshPolygonOffsetUnits);
         }
+        const bool twoSided =
+            twoSidedMeshIndices != nullptr && twoSidedMeshIndices->count(meshIndex) > 0;
+        if (twoSided) {
+            rlDisableBackfaceCulling();
+        }
         DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+        if (twoSided) {
+            rlEnableBackfaceCulling();
+        }
         if (offsetBack) {
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
@@ -143,19 +152,87 @@ float viewDepthAlongAxis(Vector3 point, Vector3 cameraPos, Vector3 cameraForward
     return Vector3DotProduct(Vector3Subtract(point, cameraPos), cameraForward);
 }
 
-float meshCenterViewDepth(
-    const Mesh& mesh,
-    const Matrix& worldMatrix,
+float boundsCenterViewDepth(
+    const BoundingBox& worldBounds, Vector3 cameraPos, Vector3 cameraForward) {
+    const Vector3 center{
+        (worldBounds.min.x + worldBounds.max.x) * 0.5f,
+        (worldBounds.min.y + worldBounds.max.y) * 0.5f,
+        (worldBounds.min.z + worldBounds.max.z) * 0.5f,
+    };
+    return viewDepthAlongAxis(center, cameraPos, cameraForward);
+}
+
+// Depth of the point on `worldBounds` closest to `referencePos` — i.e. the face's local
+// depth right where the other item actually is, rather than one depth for the whole face.
+// A long transparent surface (e.g. a walkway grate spanning a whole corridor) has wildly
+// different depth at each end, so a single per-face key can't order it against a sprite
+// correctly no matter where on the surface that sprite stands.
+float boundsNearestPointViewDepth(
+    const BoundingBox& worldBounds,
+    Vector3 referencePos,
     Vector3 cameraPos,
     Vector3 cameraForward) {
-    const BoundingBox bounds = GetMeshBoundingBox(mesh);
-    const Vector3 localCenter{
-        (bounds.min.x + bounds.max.x) * 0.5f,
-        (bounds.min.y + bounds.max.y) * 0.5f,
-        (bounds.min.z + bounds.max.z) * 0.5f,
+    const Vector3 closest{
+        std::clamp(referencePos.x, worldBounds.min.x, worldBounds.max.x),
+        std::clamp(referencePos.y, worldBounds.min.y, worldBounds.max.y),
+        std::clamp(referencePos.z, worldBounds.min.z, worldBounds.max.z),
     };
-    const Vector3 worldCenter = Vector3Transform(localCenter, worldMatrix);
-    return viewDepthAlongAxis(worldCenter, cameraPos, cameraForward);
+    return viewDepthAlongAxis(closest, cameraPos, cameraForward);
+}
+
+// Plane of a (near-)flat face, derived from its actual vertices rather than assumed from
+// bounding-box axis alignment, so an angled face still gets a correct normal.
+struct FacePlane {
+    Vector3 normal{0.0f, 1.0f, 0.0f};
+    float d = 0.0f;
+};
+
+FacePlane computeFacePlane(const Mesh& mesh, const Matrix& worldMatrix, const BoundingBox& worldBounds) {
+    FacePlane plane{};
+    if (mesh.vertexCount >= 3 && mesh.vertices != nullptr) {
+        const Vector3 v0 = Vector3Transform(
+            Vector3{mesh.vertices[0], mesh.vertices[1], mesh.vertices[2]}, worldMatrix);
+        for (int i = 1; i + 1 < mesh.vertexCount; ++i) {
+            const Vector3 v1 = Vector3Transform(
+                Vector3{
+                    mesh.vertices[i * 3 + 0], mesh.vertices[i * 3 + 1], mesh.vertices[i * 3 + 2]},
+                worldMatrix);
+            const Vector3 v2 = Vector3Transform(
+                Vector3{
+                    mesh.vertices[(i + 1) * 3 + 0],
+                    mesh.vertices[(i + 1) * 3 + 1],
+                    mesh.vertices[(i + 1) * 3 + 2]},
+                worldMatrix);
+            const Vector3 candidate =
+                Vector3CrossProduct(Vector3Subtract(v1, v0), Vector3Subtract(v2, v0));
+            if (Vector3LengthSqr(candidate) > 1e-8f) {
+                plane.normal = Vector3Normalize(candidate);
+                plane.d = Vector3DotProduct(plane.normal, v0);
+                return plane;
+            }
+        }
+    }
+    // Degenerate/unavailable geometry: fall back to the bounding box's thinnest axis, which
+    // for an axis-aligned brush face is the true face normal anyway.
+    const Vector3 extent{
+        worldBounds.max.x - worldBounds.min.x,
+        worldBounds.max.y - worldBounds.min.y,
+        worldBounds.max.z - worldBounds.min.z,
+    };
+    if (extent.x <= extent.y && extent.x <= extent.z) {
+        plane.normal = {1.0f, 0.0f, 0.0f};
+    } else if (extent.y <= extent.x && extent.y <= extent.z) {
+        plane.normal = {0.0f, 1.0f, 0.0f};
+    } else {
+        plane.normal = {0.0f, 0.0f, 1.0f};
+    }
+    const Vector3 center{
+        (worldBounds.min.x + worldBounds.max.x) * 0.5f,
+        (worldBounds.min.y + worldBounds.max.y) * 0.5f,
+        (worldBounds.min.z + worldBounds.max.z) * 0.5f,
+    };
+    plane.d = Vector3DotProduct(plane.normal, center);
+    return plane;
 }
 
 struct SpriteDrawItem {
@@ -164,6 +241,7 @@ struct SpriteDrawItem {
     const SpriteAnimator* animator = nullptr;
     float viewDepth = 0.0f;
     int layer = 0;
+    std::uint32_t hiddenParts = 0;
 };
 
 enum class TransparentDrawKind {
@@ -177,6 +255,8 @@ struct TransparentDrawItem {
     int sortLayer = 0;
     TransparentDrawKind kind = TransparentDrawKind::MapMesh;
     int mapMeshIndex = -1;
+    BoundingBox worldBounds{};
+    FacePlane facePlane{};
     SpriteDrawItem sprite{};
     ParticleDrawItem particle{};
 };
@@ -222,7 +302,7 @@ void renderWorldModel(
             prepareLightmapShaderDraw(
                 mapLightmaps->lightmapShader,
                 mapLightmaps->useLightmapLoc,
-                0,
+                entity.has<BakedLightmapModel>() ? mapUseLightmap : 0,
                 globalTransform.matrix,
                 world);
         }
@@ -251,6 +331,8 @@ void renderWorldModel(
     if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
+        const std::unordered_set<int>* twoSided = nullptr;
+        std::unordered_set<int> twoSidedOffset;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.detailMeshIndices.empty()) {
@@ -259,11 +341,19 @@ void renderWorldModel(
                     lightmaps.detailMeshIndices.end());
                 polygonOffsetBack = &detailOffset;
             }
+            if (!lightmaps.twoSidedMeshIndices.empty()) {
+                twoSidedOffset.insert(
+                    lightmaps.twoSidedMeshIndices.begin(),
+                    lightmaps.twoSidedMeshIndices.end());
+                twoSided = &twoSidedOffset;
+            }
         }
-        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack);
+        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
+        const std::unordered_set<int>* twoSided = nullptr;
+        std::unordered_set<int> twoSidedOffset;
         if (entity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
             if (!lightmaps.detailMeshIndices.empty()) {
@@ -272,9 +362,15 @@ void renderWorldModel(
                     lightmaps.detailMeshIndices.end());
                 polygonOffsetBack = &detailOffset;
             }
+            if (!lightmaps.twoSidedMeshIndices.empty()) {
+                twoSidedOffset.insert(
+                    lightmaps.twoSidedMeshIndices.begin(),
+                    lightmaps.twoSidedMeshIndices.end());
+                twoSided = &twoSidedOffset;
+            }
         }
-        if (polygonOffsetBack != nullptr) {
-            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack);
+        if (polygonOffsetBack != nullptr || twoSided != nullptr) {
+            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack, twoSided);
         } else {
             DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
         }
@@ -344,6 +440,9 @@ struct SpriteBillboardShader {
     int atlasSizeLoc = -1;
     int useBrightmapLoc = -1;
     int brightMapLoc = -1;
+    int usePartMaskLoc = -1;
+    int partMaskLoc = -1;
+    int hiddenPartsMaskLoc = -1;
     bool ready = false;
 };
 
@@ -366,6 +465,9 @@ SpriteBillboardShader& spriteBillboardShader(AssetStore& assets) {
     state.albedoRectLoc = GetShaderLocation(state.shader, "albedoRect");
     state.atlasSizeLoc = GetShaderLocation(state.shader, "atlasSize");
     state.useBrightmapLoc = GetShaderLocation(state.shader, "useBrightmap");
+    state.partMaskLoc = GetShaderLocation(state.shader, "texture2");
+    state.usePartMaskLoc = GetShaderLocation(state.shader, "usePartMask");
+    state.hiddenPartsMaskLoc = GetShaderLocation(state.shader, "hiddenPartsMask");
     state.ready = true;
     return state;
 }
@@ -379,7 +481,8 @@ void drawWorldSprite(
     const std::vector<RankedDynamicLight>* dynamicLights,
     const FxLightFrameState* fxLights,
     bool unlit,
-    const SpriteAnimator* animator) {
+    const SpriteAnimator* animator,
+    std::uint32_t hiddenPartsMask) {
     SpriteAnimTween tween{};
     const SpriteAnimTween* tweenPtr = nullptr;
     if (animator != nullptr && animator->hasTween() && !animator->nextFrame.empty()) {
@@ -395,7 +498,8 @@ void drawWorldSprite(
         return;
     }
 
-    const bool useBrightmap = billboard->brightTexture != nullptr && billboard->brightTexture->id != 0;
+    const bool hasBrightMask = billboard->brightTexture != nullptr && billboard->brightTexture->id != 0;
+    const bool useBrightmap = billboard->fullbright && hasBrightMask;
     const bool forceFullbright = billboard->fullbright && !useBrightmap;
 
     Color colorFeet = WHITE;
@@ -408,9 +512,11 @@ void drawWorldSprite(
                 billboard->position.x,
                 billboard->position.y + 0.05f,
                 billboard->position.z};
-            if (auto feet =
-                    sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            if (auto feet = sampleLightProbe(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f})) {
                 colorFeet = *feet;
+            } else if (auto feetRay =
+                           sampleMapLight(*lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                colorFeet = *feetRay;
             }
 
             const Vector3 headPos{
@@ -425,8 +531,10 @@ void drawWorldSprite(
             const float headLenSq = Vector3LengthSqr(headDir);
             if (headLenSq > 1e-8f) {
                 headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
-                if (auto head = sampleMapLight(*lighting, headPos, headDir, 4.0f)) {
+                if (auto head = sampleLightProbe(*lighting, headPos, headDir)) {
                     colorHead = *head;
+                } else if (auto headRay = sampleMapLight(*lighting, headPos, headDir, 4.0f)) {
+                    colorHead = *headRay;
                 } else {
                     colorHead = colorFeet;
                 }
@@ -463,11 +571,6 @@ void drawWorldSprite(
             evaluateOverlayLightsAtPoint(
                 dynamicLights, fxLights, headPoint, normal, occlusionBvh, occlusionSkip));
     }
-    if (billboard->fullbright && useBrightmap) {
-        colorFeet = WHITE;
-        colorHead = WHITE;
-    }
-
     auto multiplyTint = [](Color lit, Color tint) {
         return Color{
             static_cast<unsigned char>(
@@ -537,6 +640,34 @@ void drawWorldSprite(
                 billboardShader->brightMapLoc,
                 *billboard->brightTexture);
         }
+
+        const bool usePartMask =
+            hiddenPartsMask != 0 && billboard->partMaskTexture != nullptr &&
+            billboard->partMaskTexture->id != 0;
+        const int usePartMaskInt = usePartMask ? 1 : 0;
+        if (billboardShader->usePartMaskLoc >= 0) {
+            SetShaderValue(
+                billboardShader->shader,
+                billboardShader->usePartMaskLoc,
+                &usePartMaskInt,
+                SHADER_UNIFORM_INT);
+        }
+        if (usePartMask) {
+            if (billboardShader->hiddenPartsMaskLoc >= 0) {
+                const int hiddenPartsMaskInt = static_cast<int>(hiddenPartsMask);
+                SetShaderValue(
+                    billboardShader->shader,
+                    billboardShader->hiddenPartsMaskLoc,
+                    &hiddenPartsMaskInt,
+                    SHADER_UNIFORM_INT);
+            }
+            if (billboardShader->partMaskLoc >= 0) {
+                SetShaderValueTexture(
+                    billboardShader->shader,
+                    billboardShader->partMaskLoc,
+                    *billboard->partMaskTexture);
+            }
+        }
     }
 
     rlSetTexture(texture.id);
@@ -562,6 +693,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     const Frustum& frustum,
     bool unlit,
     bool enableDynamicLights,
+    int maxLights,
     int maxShadowed) {
     std::vector<RankedDynamicLight> rankedLights;
     if (unlit || !enableDynamicLights) {
@@ -599,7 +731,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
     rankedLights = rankDynamicLights(
         candidates,
         lens.camera.position,
-        kMaxDynamicLights,
+        maxLights,
         maxShadowed);
     return rankedLights;
 }
@@ -672,23 +804,25 @@ void drawWorldModels(
             if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
                 return;
             }
-            const Matrix* closedMatrix = nullptr;
-            Matrix closedMatrixStorage{};
-            if (modelEntity.has<RigidMover>()) {
-                Vector3 scale{1.0f, 1.0f, 1.0f};
-                if (modelEntity.has<LocalTransformation>()) {
-                    scale = modelEntity.get<LocalTransformation>().scale;
+            if (!modelEntity.has<BakedLightmapModel>()) {
+                const Matrix* closedMatrix = nullptr;
+                Matrix closedMatrixStorage{};
+                if (modelEntity.has<RigidMover>()) {
+                    Vector3 scale{1.0f, 1.0f, 1.0f};
+                    if (modelEntity.has<LocalTransformation>()) {
+                        scale = modelEntity.get<LocalTransformation>().scale;
+                    }
+                    closedMatrixStorage =
+                        moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
+                    closedMatrix = &closedMatrixStorage;
                 }
-                closedMatrixStorage =
-                    moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
-                closedMatrix = &closedMatrixStorage;
-            }
-            if (mapLightmapState(world) != nullptr) {
-                model.color = sampleBakeTintColorForModel(
-                    world, model.model, global.matrix, unlit, closedMatrix);
-            } else {
-                model.color = sampleReceiverTintColorForModel(
-                    world, model.model, global.matrix, unlit, closedMatrix);
+                if (mapLightmapState(world) != nullptr) {
+                    model.color = sampleBakeTintColorForModel(
+                        world, model.model, global.matrix, unlit, closedMatrix);
+                } else {
+                    model.color = sampleReceiverTintColorForModel(
+                        world, model.model, global.matrix, unlit, closedMatrix);
+                }
             }
         }
         const std::unordered_set<int>* skipMeshes = nullptr;
@@ -771,6 +905,8 @@ void collectWorldSpriteDrawItems(
                                                    : nullptr,
                 viewDepthAlongAxis(position, lens.camera.position, camForward),
                 spriteEntity.has<SpriteOverlay>() ? spriteEntity.get<SpriteOverlay>().layer : 0,
+                spriteEntity.has<SpriteHiddenParts>() ? spriteEntity.get<SpriteHiddenParts>().mask
+                                                       : 0,
             });
         });
 }
@@ -796,7 +932,7 @@ void collectWorldDepthParticleDrawItems(
     out.clear();
     out.reserve(256);
     world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
-        if (entity.has<ParticleFollowViewMuzzle>()) {
+        if (entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
         appendParticleDrawItems(instance, assets, camera, out);
@@ -857,11 +993,12 @@ std::string drawWorldTransparentPass(
                 TransparentDrawItem item{};
                 item.kind = TransparentDrawKind::MapMesh;
                 item.mapMeshIndex = meshIndex;
-                item.viewDepth = meshCenterViewDepth(
-                    mapModel.model.meshes[meshIndex],
-                    mapGlobal.matrix,
-                    lens.camera.position,
-                    camForward);
+                item.worldBounds = transformAabb(
+                    GetMeshBoundingBox(mapModel.model.meshes[meshIndex]), mapGlobal.matrix);
+                item.facePlane = computeFacePlane(
+                    mapModel.model.meshes[meshIndex], mapGlobal.matrix, item.worldBounds);
+                item.viewDepth =
+                    boundsCenterViewDepth(item.worldBounds, lens.camera.position, camForward);
                 drawList.push_back(item);
             }
         }
@@ -900,14 +1037,54 @@ std::string drawWorldTransparentPass(
         return spriteAimStatus;
     }
 
+    const auto itemPosition = [](const TransparentDrawItem& item) -> Vector3 {
+        switch (item.kind) {
+            case TransparentDrawKind::Sprite:
+                return translationFromMatrix(item.sprite.global->matrix);
+            case TransparentDrawKind::Particle:
+                return item.particle.position;
+            default:
+                return Vector3Zero();
+        }
+    };
+    // A flat face can only occlude something that's on the far side of its plane from the
+    // camera. A sprite standing just above a floor-level grate is on the *same* side as the
+    // camera looking down at it, so the grate geometrically cannot be between them — no
+    // matter how close their forward-axis depths land (which, for a near-level camera, can
+    // be an near-exact tie that floating-point rounding resolves the wrong way).
+    const auto meshCanOcclude = [](const TransparentDrawItem& mesh, Vector3 cameraPos, Vector3 otherPos) {
+        const float sideCamera =
+            Vector3DotProduct(mesh.facePlane.normal, cameraPos) - mesh.facePlane.d;
+        const float sideOther =
+            Vector3DotProduct(mesh.facePlane.normal, otherPos) - mesh.facePlane.d;
+        return (sideCamera > 0.0f) != (sideOther > 0.0f);
+    };
     std::sort(
         drawList.begin(),
         drawList.end(),
-        [](const TransparentDrawItem& a, const TransparentDrawItem& b) {
-            if (a.viewDepth > b.viewDepth) {
+        [&](const TransparentDrawItem& a, const TransparentDrawItem& b) {
+            float depthA = a.viewDepth;
+            float depthB = b.viewDepth;
+            if (a.kind == TransparentDrawKind::MapMesh &&
+                b.kind != TransparentDrawKind::MapMesh) {
+                const Vector3 otherPos = itemPosition(b);
+                depthA = meshCanOcclude(a, lens.camera.position, otherPos)
+                    ? boundsNearestPointViewDepth(
+                          a.worldBounds, otherPos, lens.camera.position, camForward)
+                    : depthB + 1.0f;
+            } else if (
+                b.kind == TransparentDrawKind::MapMesh &&
+                a.kind != TransparentDrawKind::MapMesh) {
+                const Vector3 otherPos = itemPosition(a);
+                depthB = meshCanOcclude(b, lens.camera.position, otherPos)
+                    ? boundsNearestPointViewDepth(
+                          b.worldBounds, otherPos, lens.camera.position, camForward)
+                    : depthA + 1.0f;
+            }
+            if (depthA > depthB) {
                 return true;
             }
-            if (b.viewDepth > a.viewDepth) {
+            if (depthB > depthA) {
                 return false;
             }
             return a.sortLayer < b.sortLayer;
@@ -988,7 +1165,8 @@ std::string drawWorldTransparentPass(
                 dynamicLights,
                 fxLights,
                 unlit,
-                item.sprite.animator);
+                item.sprite.animator,
+                item.sprite.hiddenParts);
         } else if (item.kind == TransparentDrawKind::Particle) {
             const ParticleDrawItem& particle = item.particle;
             if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {

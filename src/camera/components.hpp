@@ -54,4 +54,18 @@ struct ViewEyeOffset {
     float z = 0.0f;
 };
 
+/** Detached debug spectator camera, driven independently of the Player entity.
+ *  Singleton; only moves/renders from when DebugUiState::freeCamera is set.
+ *  @ingroup camera_components
+ */
+struct FreeFlyCamera {
+    bool active = false;
+    Vector3 position{0.0f, 0.0f, 0.0f};
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    float moveSpeed = 8.0f;
+    float fastMultiplier = 3.0f;
+    float lookSensitivity = 0.003f;
+};
+
 }

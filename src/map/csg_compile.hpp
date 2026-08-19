@@ -39,4 +39,14 @@ CsgCompileResult compileVisibleFacesToGeo(
     const MaterialUvResolver& resolveMaterialUv = {},
     const RadFile* lightmaps = nullptr);
 
+using PrimitiveKeyFn = std::function<std::string(const GeoPrimitive&)>;
+
+/**
+ * Repacks primitives sharing the same @p keyOf result into fewer, larger
+ * contiguous windows in @p buffer, splitting a group whenever the merged
+ * vertex count would exceed the 16-bit mesh index cap. Primitive order
+ * within a group, and group order, both follow first occurrence.
+ */
+void mergeGeoPrimitivesByKey(GeoAsset& asset, VertBuffer& buffer, const PrimitiveKeyFn& keyOf);
+
 }

@@ -7,12 +7,14 @@
 #include "camera/components.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
+#include "game/user_settings.hpp"
 #include "input/input_context.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/csg_script.hpp"
 #include "map/nav_graph.hpp"
 #include "map/graph.hpp"
+#include "navigation/nav_module.hpp"
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
@@ -20,6 +22,7 @@
 #include "map/things_spawn.hpp"
 #include "map/fac.hpp"
 #include "map/pvs.hpp"
+#include "map/water_volumes.hpp"
 #include "render/material_anim.hpp"
 #include "physics/components.hpp"
 #include "physics/map_collision.hpp"
@@ -164,6 +167,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapNavigation>()) {
         world.remove<MapNavigation>();
     }
+    if (world.has<MapWaterVolumes>()) {
+        world.remove<MapWaterVolumes>();
+    }
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
     }
@@ -209,6 +215,7 @@ bool registerMapScene(
     lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
     lightmapState.skyMeshIndices = std::move(loaded->skyMeshIndices);
     lightmapState.detailMeshIndices = std::move(loaded->detailMeshIndices);
+    lightmapState.twoSidedMeshIndices = std::move(loaded->twoSidedMeshIndices);
     lightmapState.skyShader = loaded->skyShader;
 
     world.entity("MapStatic")
@@ -228,7 +235,10 @@ bool registerMapScene(
     }
 
     if (loaded->hasLightmaps) {
-        world.set<DynamicLightShadowState>(createDynamicLightShadowState(assets));
+        const int shadowMapResolution = world.has<UserSettings>()
+            ? world.get<UserSettings>().graphics.shadowMapResolution
+            : kDefaultDynamicShadowMapResolution;
+        world.set<DynamicLightShadowState>(createDynamicLightShadowState(assets, shadowMapResolution));
     }
     {
         DynamicLightFrameState frameState{};
@@ -248,7 +258,7 @@ bool registerMapScene(
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
         facForLighting,
-        std::move(loaded->rad),
+        loaded->rad,
         std::move(loaded->lightmapAtlasImages),
         BLACK));
 
@@ -270,7 +280,9 @@ bool registerMapScene(
             bspForNav.tree,
             hullAnalysis.sealed ? &hullAnalysis.exteriorEmpty : nullptr);
         world.set<MapNavigation>(std::move(mapNav));
+        resetNavFlowFieldCache(world);
     }
+    world.set<MapWaterVolumes>(buildMapWaterVolumes(loaded->brushes));
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
@@ -282,8 +294,16 @@ bool registerMapScene(
         }
     }
 
-    const PlayerStart playerStart =
-        spawnMapThings(scheme, world, assets, mapName, loaded->brushes);
+    const PlayerStart playerStart = spawnMapThings(
+        scheme,
+        world,
+        assets,
+        mapName,
+        loaded->brushes,
+        &loaded->doorFac,
+        &loaded->rad,
+        &loaded->lightmapAtlases,
+        loaded->hasLightmaps);
     if (world.has<MapLighting>()) {
         MapLighting& lighting = world.get_mut<MapLighting>();
         bool foundAmbient = false;

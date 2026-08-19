@@ -1,6 +1,6 @@
 @page tut_scheme Introduction to Scheme (s7)
 
-# History of Scheme & Lisp
+# History of Scheme & Lisp {#history-of-scheme-and-lisp}
 
 I won't dive into the entire background of Lisp and Scheme because it's a very long and complicated history. If it's something you find interesting it's definitely worth reading more about. I'll just cover enough to explain why Scheme looks the way it does.
 
@@ -16,7 +16,7 @@ Today Common Lisp, Clojure, and Racket are some of the more popular descendants 
 - [SCHEME An Interpreter For Extended Lambda Calculus - 1975](https://research.scheme.org/lambda-papers/lambda-papers-scheme-report.html)
 - [Scheme Registry](https://registry.scheme.org/)
 
-## s7 Scheme
+## s7 Scheme {#s7-dialect}
 
 To be honest I haven't dug into the history, the authors, or the reason this language was created. It was only until I started writing this document that I decided to read into it.
 
@@ -28,7 +28,7 @@ Considering this now, the choice for s7 Scheme in this engine might make a littl
 
  - [s7 Website](https://ccrma.stanford.edu/software/s7/s7.html)
 
-## Functional programming
+## Functional programming {#functional-programming}
 
 Developers coming from C, C++, Java, or C# are often used to describing software in terms of objects with associated methods and state. Functional programming instead focuses on describing behavior as functions that transform data. Rather than building large object hierarchies, data is passed through chains of functions that each perform a specific operation.
 
@@ -36,7 +36,7 @@ This doesn't mean data structures disappear. Instead, the emphasis shifts away f
 
 This style fits Scheme well. Functions are treated as first-class values, can be passed around like any other object, and make it easy to build higher-level abstractions from a very small language core.
 
-## Engine architecture
+## Engine architecture {#engine-architecture}
 
 The engine itself follows a similar philosophy. Internally it uses flecs and an Entity Component System (ECS) to represent game objects. Instead of describing objects with inheritance ("is a"), entities are composed from components ("has a"). Systems then operate on every entity containing the components they care about.
 
@@ -44,15 +44,15 @@ The interface between the engine and packages is intentionally minimal. Rather t
 
 Callbacks can be defined on a composite type, overridden for individual thing instances, or even replaced at run time to change behavior dynamically. As long as a callback implements the expected signature, package authors are free to build whatever abstractions best suit their application.
 
-# Features
+# Features {#features}
 
-## REPL
+## REPL {#repl}
 
 Before integrating Scheme into the engine it's often useful to experiment interactively. The engine includes a small REPL called `sloprepl` for exactly this purpose.
 
 REPL stands for read-eval-print loop and you see this commonly with languages like JavaScript or Python. By default the program starts up just an interactive prompt. You can with the argument `--load` provide a file to prepare the REPL environment, or `--exec` to run the file and exit.
 
-## Symbolic expressions
+## Symbolic expressions {#symbolic-expressions}
 
 At the core of Scheme are what people call symbolic expressions, or s-expressions (often shortened to s-exprs). An s-expression is the notation Scheme uses to represent both data and code. Unlike languages such as C or Java where code and data have different syntax, Scheme uses the same notation for everything.
 
@@ -91,7 +91,7 @@ You might hear this described as Reverse Polish notation, although it's more acc
 The engine also uses symbolic expressions to describe package assets such as sprites, geometry, maps, and other resources. This keeps the majority of assets in a single consistent format that can be edited with any text editor without requiring additional parsers. Although these files are treated as data rather than executable Scheme, they are still valid symbolic expressions and are checked for proper structure.
 
 
-## Variables
+## Variables {#variables}
 
 Variables in s7 are dynamically typed. They can be defined via the keyword `define`. Variable (and function) names can use symbols and Unicode characters for variable names.
 
@@ -122,7 +122,7 @@ A convention in Scheme is if a function returns a boolean value the name will ha
 (null? 10)        ; #f
 </code></pre>
 
-## Lists
+## Lists {#lists}
 
 Lists are special in Scheme because behind the scenes everything is a list. You will commonly see the shorthand notation `'(...)` for `(list ...)`. The convention for `null` in Scheme is also an empty list.
 
@@ -171,7 +171,7 @@ Even though this might not reflect what is happening, the names have managed to 
 
 Dialects and implementations of scheme today often implement macros like `first`, `second`, or `list-ref` as convience functions. This might make its way into the engine to make the scripts easier to read and write. 
 
-## Conditionals
+## Conditionals {#conditionals}
 
 If conditions are similar to other languages. 
 
@@ -221,7 +221,7 @@ For statements with multiple conditions (if/elseif/else) Scheme includes the `co
        (and (not ,a) ,b)))
 </code></pre>
 
-## Functions
+## Functions {#defining-functions}
 
 Functions are also defined via `define` or as `lambda`, where like other languages the function is anonymous.  
 
@@ -240,7 +240,7 @@ When defining functions in Scheme that mutate data it is a convention to append 
 (set! my-var 20) ; Changes my-var to 20
 </code></pre>
 
-## Higher order functions
+## Higher order functions {#higher-order-functions}
 
 Higher order functions are functions that take other functions as arguments or return functions. 
 
@@ -260,7 +260,7 @@ Higher order functions are functions that take other functions as arguments or r
 ; Returns: 8
 </code></pre>
 
-## Iteration
+## Iteration {#iteration}
 
 Scheme doesn't have traditional for loops like C or Java. Instead, it uses recursion and built-in iteration functions.
 
@@ -285,25 +285,25 @@ For explicit recursion, you can define recursive functions:
 (factorial 5) ; Returns: 120
 </code></pre>
 
-## Local Bindings
+## Local Bindings {#local-bindings}
 
 Local bindings in Scheme are created using `let`, `let*`, and `define` constructs. Each has different scoping rules and use cases:
 
-### `let` bindings
+### `let` bindings {#let-bindings}
 <pre><code class="language-scheme">(let ((x 1) (y 2))
   (+ x y)) ; Returns: 3
 </code></pre>
 
 `let` creates bindings that are all available simultaneously within the body. Variables defined in the binding list cannot reference each other. They are evaluated before any of the bindings take effect.
 
-### `let*` bindings
+### `let*` bindings {#let-star-bindings}
 <pre><code class="language-scheme">(let* ((x 1) (y (+ x 1)))
   (+ x y)) ; Returns: 3
 </code></pre>
 
 `let*` creates bindings sequentially, where each binding can reference previous bindings in the same list. 
 
-### `define` bindings
+### `define` bindings {#define-bindings}
 <pre><code class="language-scheme">(define (my-function)
   (let ((x 1) (y 2))
     (+ x y))) ; Returns: 3
@@ -316,7 +316,7 @@ The choice between these constructs depends on your specific needs:
 - Use `let*` when you need sequential binding where later bindings can reference earlier ones
 - Use `define` for creating functions or when you want the binding to be available in the current scope
 
-## Macros
+## Macros {#macros}
 
 Macros let you extend the language itself by generating Scheme code before it is evaluated. Unlike C/C++ macros that are expanded at compile time, macros in scheme are expanded at run-time first in the definition environment and then evaluated. Because everything is an s-expr and this is evaluated during run-time it is possible to create code that can change itself based on data expression on the fly.
 

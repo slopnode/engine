@@ -7,7 +7,9 @@
 #include "physics/physics_world.hpp"
 #include "physics/rigid_mover.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace slopengine {
@@ -592,6 +594,123 @@ void runFlightTests() {
     }
 }
 
+void runSwimClimbTests() {
+    // Pool floor the character starts resting on (feet at y=-10), a tall wall it swims into
+    // (blocking forward at z=3, extending from below the floor up to y=0.25 -- 0.25 above the
+    // water surface at y=0, matching the E1M1 exposed lip this reproduces), and a ledge just past
+    // the wall whose top lines up with the wall's crest, within stepHeight of the water surface.
+    constexpr float kWaterSurfaceY = 0.0f;
+    const Brush floor = makeBrushBox("floor", {-3.0f, -10.5f, -3.0f}, {3.0f, -10.0f, 3.0f}, "mat/a", {});
+    const Brush wall = makeBrushBox("wall", {-3.0f, -10.0f, 3.0f}, {3.0f, 0.25f, 3.3f}, "mat/a", {});
+    const Brush ledge = makeBrushBox("ledge", {-3.0f, -2.0f, 3.3f}, {3.0f, 0.25f, 6.0f}, "mat/a", {});
+
+    PhysicsWorld world;
+    world.addStaticBrushes({floor, wall, ledge});
+    constexpr std::uint64_t kCharId = 9;
+    world.setPlayerId(kCharId);
+
+    CharacterMotor motor{};
+    // Spawn already pressed against the wall face (z=3) while still deep, so forward progress is
+    // blocked from tick one.
+    world.createCharacter(kCharId, 0.0f, -10.0f, 2.9f, motor);
+    motor.wishY = 1.0f;
+    motor.wishZ = 1.0f;
+
+    // Submersion as a function of current feet height against a fixed water surface, the same
+    // shape computeSubmersion (physics_module.cpp) produces by sampling the BSP water leaf up the
+    // character's body -- crucially, this reaches 0 once the character is above the surface, so
+    // buoyancy actually stops there like it does in real gameplay. An earlier version of this test
+    // fed PhysicsWorld a constant submersion=1.0 for the whole run instead (PhysicsWorld itself
+    // only consumes whatever fraction it's given, so that's all it takes to drive it directly);
+    // that let the character simply float over the wall on undying buoyancy before WalkStairs was
+    // ever needed, passing every assertion without exercising the mechanism this test exists to
+    // check -- the real bug only shows up once buoyancy actually cuts out at the surface and the
+    // character has to close the last stretch to the ledge via WalkStairs or fall back in.
+    const float totalHeight = characterTotalHeight(motor);
+    auto submersionAt = [&](float feetY) {
+        return std::clamp((kWaterSurfaceY - feetY) / totalHeight, 0.0f, 1.0f);
+    };
+
+    auto stepWet = [&](int ticks) {
+        for (int i = 0; i < ticks; ++i) {
+            const float feetY = static_cast<float>(world.characterPosition(kCharId).GetY());
+            CharacterStep step{};
+            step.id = kCharId;
+            step.motor = &motor;
+            step.submersion = submersionAt(feetY);
+            world.update(kFixedDt, {step});
+        }
+    };
+
+    // Regression for "touched the bottom and could not ascend": starting grounded on the pool
+    // floor, holding ascend must lift the character off it right away.
+    stepWet(30);
+    const float earlyY = static_cast<float>(world.characterPosition(kCharId).GetY());
+    CHECK(earlyY > -9.5f);
+
+    // Regression for "stuck against the wall, never gets out": walk the simulation forward one
+    // tick at a time and record the character's y the moment it first gets past the wall's z
+    // face. A genuine WalkStairs climb lands within stepHeight of the ledge (y=0.25); floating
+    // over the wall on undying buoyancy instead -- the failure mode an earlier, looser version of
+    // this test missed -- overshoots that by a wide margin since nothing would have bounded it.
+    float crossingY = std::numeric_limits<float>::quiet_NaN();
+    for (int i = 0; i < 300 && std::isnan(crossingY); ++i) {
+        stepWet(1);
+        const JPH::RVec3 p = world.characterPosition(kCharId);
+        if (static_cast<float>(p.GetZ()) > 3.3f) {
+            crossingY = static_cast<float>(p.GetY());
+        }
+    }
+    CHECK_FALSE(std::isnan(crossingY));
+    if (!std::isnan(crossingY)) {
+        CHECK(crossingY > -0.25f);
+        CHECK(crossingY < 0.75f);
+    }
+
+    // And it should actually stay there, not slide back off the ledge into the pool.
+    stepWet(60);
+    const float settledZ = static_cast<float>(world.characterPosition(kCharId).GetZ());
+    CHECK(settledZ > 3.3f);
+
+    // Regression for "requires a particular upward velocity, has to sink and launch": a character
+    // holding a slow, steady ascend the whole time -- never dipping down first to build momentum,
+    // the way a "sink and launch" technique would -- must still climb out, and promptly (within a
+    // couple of seconds), not just eventually. The deterministic up/forward/down probe in
+    // tryClimbBlockedStep only checks whether there's room to stand, not how fast the character is
+    // moving, so it doesn't care either way; this is here to pin that down. (Jolt's own WalkStairs,
+    // used here previously, gated success on a "made real forward progress" check performed at the
+    // up-swept height: if that height hadn't already cleared the obstacle, forward progress there
+    // was zero and the whole attempt was silently discarded -- in effect requiring the up-sweep,
+    // capped at stepHeight from wherever the character *currently* was, to already reach past the
+    // lip, which in practice took a burst of built-up vertical speed rather than steady swimming.)
+    {
+        PhysicsWorld slowWorld;
+        slowWorld.addStaticBrushes({floor, wall, ledge});
+        slowWorld.setPlayerId(kCharId);
+
+        CharacterMotor slowMotor{};
+        slowWorld.createCharacter(kCharId, 0.0f, -10.0f, 2.9f, slowMotor);
+        slowMotor.wishZ = 1.0f;
+        slowMotor.wishY = 0.3f; // a light, steady hold on ascend -- well short of full push
+
+        float slowCrossingY = std::numeric_limits<float>::quiet_NaN();
+        for (int i = 0; i < 300 && std::isnan(slowCrossingY); ++i) {
+            const float feetY = static_cast<float>(slowWorld.characterPosition(kCharId).GetY());
+            CharacterStep step{};
+            step.id = kCharId;
+            step.motor = &slowMotor;
+            step.submersion = submersionAt(feetY);
+            slowWorld.update(kFixedDt, {step});
+
+            const JPH::RVec3 p = slowWorld.characterPosition(kCharId);
+            if (static_cast<float>(p.GetZ()) > 3.3f) {
+                slowCrossingY = static_cast<float>(p.GetY());
+            }
+        }
+        CHECK_FALSE(std::isnan(slowCrossingY));
+    }
+}
+
 } // namespace
 
 void runPhysicsTests() {
@@ -602,6 +721,7 @@ void runPhysicsTests() {
     runMoverPushSlideTests();
     runBrushBlockFilterTests();
     runFlightTests();
+    runSwimClimbTests();
 }
 
 }

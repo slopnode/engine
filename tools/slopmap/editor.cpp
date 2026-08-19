@@ -1240,6 +1240,7 @@ bool Editor::redo(slopengine::AssetStore& assets) {
 
 void Editor::markDirty() {
     doc().dirty = true;
+    previewDirty = true;
 }
 
 void Editor::markBspDirty() {
@@ -1454,6 +1455,7 @@ void Editor::rebuildPreview(slopengine::AssetStore& assets) {
         }
     }
     preview.rebuild(assets, combined);
+    previewDirty = false;
 }
 
 bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {

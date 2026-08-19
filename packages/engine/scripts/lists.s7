@@ -1,0 +1,28 @@
+(define-macro (first lst) `(list-ref ,lst 0))
+(define-macro (second lst) `(list-ref ,lst 1))
+(define-macro (third lst) `(list-ref ,lst 2))
+(define-macro (fourth lst) `(list-ref ,lst 3))
+(define-macro (fifth lst) `(list-ref ,lst 4))
+(define-macro (sixth lst) `(list-ref ,lst 5))
+(define-macro (seventh lst) `(list-ref ,lst 6))
+(define-macro (eighth lst) `(list-ref ,lst 7))
+(define-macro (ninth lst) `(list-ref ,lst 8))
+(define-macro (tenth lst) `(list-ref ,lst 9))
+
+(define (alist-remove key lst)
+  (cond
+    ((null? lst) '())
+    ((equal? (car (car lst)) key) (alist-remove key (cdr lst)))
+    (else (cons (car lst) (alist-remove key (cdr lst))))))
+
+(define (alist-ref alist key . default)
+  (cond
+    ((assoc key alist) => cdr)
+    ((pair? default) (car default))
+    (else #f)))
+
+(define (alist-set alist key val)
+  (cons (cons key val) (alist-remove key alist)))
+
+(define (hash-ref table key . default)
+  (or (hash-table-ref table key) (and (pair? default) (car default))))

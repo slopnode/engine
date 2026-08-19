@@ -59,6 +59,14 @@ A package is a folder of game content with a root `package.meta`:
   (depends))
 ```
 
+`depends` lists package ids that must be mounted alongside this one; each entry may pin a version with `id@constraint` (`=`, `>=`, `>`, `<=`, `<`, no operator meaning `=`), e.g.:
+
+```
+(depends "slopengine.engine@>=0.4.0")
+```
+
+An id with no `@constraint` accepts any mounted version, same as before.
+
 The engine looks up assets by type:
 
 ```

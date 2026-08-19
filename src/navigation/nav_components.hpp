@@ -30,8 +30,11 @@ struct NavigationAgent {
     Vector3 lastGoalPos{};
     bool haveLastGoalPos = false;
     float stuckTimer = 0.0f;
-    float lastWpHorizDist = -1.0f;
+    Vector3 stuckLastPos{};
+    bool haveStuckLastPos = false;
     float stuckSkipTime = 0.45f;
+    float lateralBias = 0.0f;
+    bool haveLateralBias = false;
 };
 
 }

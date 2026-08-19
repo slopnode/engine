@@ -8,7 +8,6 @@ const float kMinCastLuminance = 0.03;
 const int kLightKindPoint = 0;
 const int kLightKindSpot = 1;
 const int kLightKindSun = 2;
-const float kSunRayDistance = 1000.0;
 const float kEmitterNormalOffset = 0.02;
 
 struct Luxel {
@@ -51,7 +50,7 @@ struct EmissiveFace {
     int gridWidth;
     int gridHeight;
     int gridOffset;
-    int pad1;
+    int directSampleOffset;
     float peakR;
     float peakG;
     float peakB;
@@ -59,11 +58,12 @@ struct EmissiveFace {
     float aabbMinX;
     float aabbMinY;
     float aabbMinZ;
-    float pad3;
+    int directSampleCount;
     float aabbMaxX;
     float aabbMaxY;
     float aabbMaxZ;
-    float pad4;
+    // 0 = use params.emitterDirectSamples; set per-face for precise-emission materials.
+    int directSampleAxis;
 };
 
 struct GridSample {
@@ -71,6 +71,21 @@ struct GridSample {
     float g;
     float b;
     float pad;
+};
+
+// One stratified direct-light sample, precomputed CPU-side per emissive face from the fine
+// emission grid (see EmitterDirectSample in radiosity_emitters.hpp / bakeRadiosity()'s
+// collection loop) so this shader's gather pass finds real content even for a mask feature
+// much smaller than emitterDirectSamples^2 fixed query points would otherwise resolve.
+struct DirectSample {
+    float u;
+    float v;
+    float r;
+    float g;
+    float b;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct Light {
@@ -167,6 +182,7 @@ struct Params {
     int materialRectCount;
     int alphaAtlasWidth;
     int alphaAtlasHeight;
+    float sunRayMaxDistance;
 };
 
 struct FaceOcclusion {
@@ -184,6 +200,10 @@ struct FaceOcclusion {
     float uvScaleY;
     float pixelsPerMeter;
     float baseColorAlpha;
+    float baseColorR;
+    float baseColorG;
+    float baseColorB;
+    float ior;
     float pad0;
     float pad1;
 };
@@ -261,6 +281,10 @@ layout(std430, binding = 11) readonly buffer EmissionGridBuffer {
     GridSample emissionGrid[];
 };
 
+layout(std430, binding = 14) readonly buffer DirectSampleBuffer {
+    DirectSample directSamples[];
+};
+
 bool isSkyFace(int faceIndex) {
     if (faceIndex < 0 || faceIndex >= params.faceCount) {
         return false;
@@ -273,6 +297,33 @@ bool isTransparentFace(int faceIndex) {
         return false;
     }
     return faceTransparent[faceIndex] != 0;
+}
+
+vec3 sampleMaterialTint(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
+        return vec3(1.0);
+    }
+    FaceOcclusion face = faceOcclusion[faceIndex];
+    return vec3(face.baseColorR, face.baseColorG, face.baseColorB);
+}
+
+float sampleMaterialIor(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
+        return 1.0;
+    }
+    return faceOcclusion[faceIndex].ior;
+}
+
+vec3 sampleFaceNormal(int faceIndex) {
+    if (faceIndex < 0 || faceIndex >= params.faceCount) {
+        return vec3(0.0, 1.0, 0.0);
+    }
+    FaceOcclusion face = faceOcclusion[faceIndex];
+    vec3 uAxis = vec3(face.uvUAxisX, face.uvUAxisY, face.uvUAxisZ);
+    vec3 vAxis = vec3(face.uvVAxisX, face.uvVAxisY, face.uvVAxisZ);
+    vec3 n = cross(vAxis, uAxis);
+    float len = length(n);
+    return len > 1e-8 ? n / len : vec3(0.0, 1.0, 0.0);
 }
 
 bool leavesReachable(int a, int b) {
@@ -489,7 +540,8 @@ bool raycastAny(
     float maxDistance,
     int ignoreFaceA,
     int ignoreFaceB,
-    out int hitFaceIndex) {
+    out int hitFaceIndex,
+    inout vec3 tint) {
     hitFaceIndex = -1;
     if (params.bvhRoot < 0 || maxDistance <= 0.0) {
         return false;
@@ -521,19 +573,77 @@ bool raycastAny(
             hitFaceIndex = hitFace;
             return true;
         }
+        tint *= sampleMaterialTint(hitFace);
         traveled += hitT + kRayAdvanceEpsilon;
     }
     return false;
 }
 
-bool segmentOccluded(vec3 from, vec3 to, int ignoreFaceA, int ignoreFaceB) {
+bool raycastSunAny(
+    vec3 origin,
+    vec3 direction,
+    float maxDistance,
+    int ignoreFaceA,
+    int ignoreFaceB,
+    out int hitFaceIndex,
+    inout vec3 tint) {
+    hitFaceIndex = -1;
+    if (params.bvhRoot < 0 || maxDistance <= 0.0) {
+        return false;
+    }
+    float dirLen = length(direction);
+    if (dirLen < 1e-8) {
+        return false;
+    }
+    vec3 dir = direction / dirLen;
+    vec3 rayOrigin = origin;
+    float traveled = 0.0;
+    bool bent = false;
+
+    for (int step = 0; step < kMaxAlphaOcclusionSteps; ++step) {
+        if (traveled >= maxDistance) {
+            return false;
+        }
+        float remaining = maxDistance - traveled;
+        int hitFace = -1;
+        float hitT = 0.0;
+        if (!raycastClosestSegment(rayOrigin, dir, remaining, hitFace, hitT)) {
+            return false;
+        }
+        if (hitFace == ignoreFaceA || hitFace == ignoreFaceB) {
+            rayOrigin += dir * (hitT + kRayAdvanceEpsilon);
+            traveled += hitT + kRayAdvanceEpsilon;
+            continue;
+        }
+        vec3 hitPoint = rayOrigin + dir * hitT;
+        if (hitBlocksLight(hitFace, hitPoint)) {
+            hitFaceIndex = hitFace;
+            return true;
+        }
+        tint *= sampleMaterialTint(hitFace);
+        float faceIor = sampleMaterialIor(hitFace);
+        if (!bent && faceIor > 1.0) {
+            vec3 normal = sampleFaceNormal(hitFace);
+            vec3 refracted = refract(dir, normal, 1.0 / faceIor);
+            if (dot(refracted, refracted) > 1e-8) {
+                dir = refracted;
+            }
+            bent = true;
+        }
+        rayOrigin = hitPoint + dir * kRayAdvanceEpsilon;
+        traveled += hitT + kRayAdvanceEpsilon;
+    }
+    return false;
+}
+
+bool segmentOccluded(vec3 from, vec3 to, int ignoreFaceA, int ignoreFaceB, inout vec3 tint) {
     vec3 delta = to - from;
     float distance = length(delta);
     if (distance < 1e-5) {
         return false;
     }
     int hitFace = -1;
-    if (!raycastAny(from, delta, distance * 0.999, ignoreFaceA, ignoreFaceB, hitFace)) {
+    if (!raycastAny(from, delta, distance * 0.999, ignoreFaceA, ignoreFaceB, hitFace, tint)) {
         return false;
     }
     return hitFace != -1;
@@ -581,6 +691,50 @@ vec3 sampleEmissionGridBilinear(EmissiveFace face, float u, float v) {
     return mix(c0, c1, ty);
 }
 
+// Precomputed samples (built CPU-side once per face; see DirectSample above) are already
+// guaranteed to be real emissive content or nothing, so they skip straight to the cast gate.
+// Falls back to the blind fixed fu/fv grid for faces with no precomputed samples (solid-color
+// emitters, where any point on the face is equally valid).
+bool getDirectSample(
+    EmissiveFace face, int sampleCount, int flatIndex, out float u, out float v, out vec3 radiance) {
+    if (face.directSampleCount > 0) {
+        int index = face.directSampleOffset + flatIndex;
+        if (index < 0 || index >= directSamples.length()) {
+            u = 0.0;
+            v = 0.0;
+            radiance = vec3(0.0);
+            return false;
+        }
+        DirectSample entry = directSamples[index];
+        radiance = vec3(entry.r, entry.g, entry.b);
+        u = entry.u;
+        v = entry.v;
+        return passesCastGate(radiance);
+    }
+    int sx = flatIndex % sampleCount;
+    int sy = flatIndex / sampleCount;
+    if (face.directSampleOffset >= 0) {
+        int index = face.directSampleOffset + sy * sampleCount + sx;
+        if (index < 0 || index >= directSamples.length()) {
+            u = 0.0;
+            v = 0.0;
+            radiance = vec3(0.0);
+            return false;
+        }
+        DirectSample entry = directSamples[index];
+        radiance = vec3(entry.r, entry.g, entry.b);
+        u = entry.u;
+        v = entry.v;
+        return passesCastGate(radiance);
+    }
+    float fu = (float(sx) + 0.5) / float(sampleCount);
+    float fv = (float(sy) + 0.5) / float(sampleCount);
+    u = face.uMin + (face.uMax - face.uMin) * fu;
+    v = face.vMin + (face.vMax - face.vMin) * fv;
+    radiance = sampleEmissionGridBilinear(face, u, v);
+    return passesCastGate(radiance);
+}
+
 vec3 planePointFromUv(EmissiveFace face, float u, float v) {
     vec3 uAxis = vec3(face.uAxisX, face.uAxisY, face.uAxisZ);
     vec3 vAxis = vec3(face.vAxisX, face.vAxisY, face.vAxisZ);
@@ -618,18 +772,14 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
         return;
     }
 
-    int sampleCount = max(params.emitterDirectSamples, 1);
+    int sampleCount = max(face.directSampleAxis > 0 ? face.directSampleAxis : params.emitterDirectSamples, 1);
+    int flatCount = face.directSampleCount > 0 ? face.directSampleCount : sampleCount * sampleCount;
     int validSamples = 0;
-    for (int sy = 0; sy < sampleCount; ++sy) {
-        for (int sx = 0; sx < sampleCount; ++sx) {
-            float fu = (float(sx) + 0.5) / float(sampleCount);
-            float fv = (float(sy) + 0.5) / float(sampleCount);
-            float u = face.uMin + (face.uMax - face.uMin) * fu;
-            float v = face.vMin + (face.vMax - face.vMin) * fv;
-            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
-            if (passesCastGate(radiance)) {
-                validSamples += 1;
-            }
+    for (int i = 0; i < flatCount; ++i) {
+        float u, v;
+        vec3 radiance;
+        if (getDirectSample(face, sampleCount, i, u, v, radiance)) {
+            validSamples += 1;
         }
     }
     if (validSamples <= 0) {
@@ -640,61 +790,57 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
     vec3 faceNormal = vec3(face.nx, face.ny, face.nz);
     const float kCoplanarAlignMin = 0.85;
 
-    for (int sy = 0; sy < sampleCount; ++sy) {
-        for (int sx = 0; sx < sampleCount; ++sx) {
-            float fu = (float(sx) + 0.5) / float(sampleCount);
-            float fv = (float(sy) + 0.5) / float(sampleCount);
-            float u = face.uMin + (face.uMax - face.uMin) * fu;
-            float v = face.vMin + (face.vMax - face.vMin) * fv;
-            vec3 radiance = sampleEmissionGridBilinear(face, u, v);
-            if (!passesCastGate(radiance)) {
-                continue;
-            }
+    for (int i = 0; i < flatCount; ++i) {
+        float u, v;
+        vec3 radiance;
+        if (!getDirectSample(face, sampleCount, i, u, v, radiance)) {
+            continue;
+        }
 
-            vec3 samplePos = planePointFromUv(face, u, v) + faceNormal * kEmitterNormalOffset;
-            vec3 delta = samplePos - luxelPos;
-            float sampleDist2Raw = dot(delta, delta);
-            if (sampleDist2Raw < 1e-6) {
-                continue;
-            }
-            float sampleDist = sqrt(sampleDist2Raw);
-            if (face.castRange > 0.0 && sampleDist > face.castRange) {
-                continue;
-            }
-            vec3 toLight = delta / sampleDist;
-            float dist2 = max(sampleDist2Raw, minDist2);
-            float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
-            float nDotV = wrapCosine(-dot(faceNormal, toLight), wrap);
-            bool formOk = nDotL > 0.0 && nDotV > 0.0;
-            float align = 0.0;
-            bool fillOk = false;
-            if (coplanarFill > 0.0) {
-                align = dot(luxelNormal, faceNormal);
-                fillOk = align > kCoplanarAlignMin;
-            }
-            if (!formOk && !fillOk) {
-                continue;
-            }
-            if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex)) {
-                continue;
-            }
+        vec3 samplePos = planePointFromUv(face, u, v) + faceNormal * kEmitterNormalOffset;
+        vec3 delta = samplePos - luxelPos;
+        float sampleDist2Raw = dot(delta, delta);
+        if (sampleDist2Raw < 1e-6) {
+            continue;
+        }
+        float sampleDist = sqrt(sampleDist2Raw);
+        if (face.castRange > 0.0 && sampleDist > face.castRange) {
+            continue;
+        }
+        vec3 toLight = delta / sampleDist;
+        float dist2 = max(sampleDist2Raw, minDist2);
+        float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
+        float nDotV = wrapCosine(-dot(faceNormal, toLight), wrap);
+        bool formOk = nDotL > 0.0 && nDotV > 0.0;
+        float align = 0.0;
+        bool fillOk = false;
+        if (coplanarFill > 0.0) {
+            align = dot(luxelNormal, faceNormal);
+            fillOk = align > kCoplanarAlignMin;
+        }
+        if (!formOk && !fillOk) {
+            continue;
+        }
+        vec3 segmentTint = vec3(1.0);
+        if (segmentOccluded(luxelPos, samplePos, luxelFaceIndex, face.faceIndex, segmentTint)) {
+            continue;
+        }
 
-            if (formOk) {
-                float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
-                float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                if (!isnan(form) && !isinf(form)) {
-                    irradiance += radiance * form * atten;
-                }
+        if (formOk) {
+            float form = nDotL * nDotV * sampleArea / (dist2 * kPi);
+            float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+            if (!isnan(form) && !isinf(form)) {
+                irradiance += radiance * form * atten * segmentTint;
             }
-            if (fillOk) {
-                float planeSep = abs(dot(delta, luxelNormal));
-                float lateral2 = max(0.0, sampleDist2Raw - planeSep * planeSep);
-                float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
-                float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
-                float atten = emitterRangeAttenuation(sampleDist, face.castRange);
-                if (!isnan(fill) && !isinf(fill)) {
-                    irradiance += radiance * fill * atten;
-                }
+        }
+        if (fillOk) {
+            float planeSep = abs(dot(delta, luxelNormal));
+            float lateral2 = max(0.0, sampleDist2Raw - planeSep * planeSep);
+            float weight = align * exp(-planeSep / coplanarSoft) / (lateral2 + minDist2);
+            float fill = sampleArea * coplanarFill * weight / (4.0 * kPi);
+            float atten = emitterRangeAttenuation(sampleDist, face.castRange);
+            if (!isnan(fill) && !isinf(fill)) {
+                irradiance += radiance * fill * atten * segmentTint;
             }
         }
     }
@@ -782,17 +928,22 @@ float sunSkyVisibility(
     int luxelFaceIndex,
     vec3 toLight,
     vec3 tangent,
-    vec3 bitangent) {
+    vec3 bitangent,
+    out vec3 tintOut) {
+    tintOut = vec3(1.0);
     if (params.sunRayCount <= 1 || params.sunAngularSpread <= 0.0) {
         int hitFace = -1;
-        if (!raycastAny(luxelPos, toLight, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+        vec3 rayTint = vec3(1.0);
+        if (!raycastSunAny(luxelPos, toLight, params.sunRayMaxDistance, luxelFaceIndex, -1, hitFace, rayTint)
             || !isSkyFace(hitFace)) {
             return 0.0;
         }
+        tintOut = rayTint;
         return 1.0;
     }
 
     float hits = 0.0;
+    vec3 tintSum = vec3(0.0);
     for (int ray = 0; ray < params.sunRayCount; ++ray) {
         vec3 rayDir = sampleSunRayDirection(
             toLight,
@@ -802,12 +953,17 @@ float sunSkyVisibility(
             ray,
             params.sunRayCount);
         int hitFace = -1;
-        if (raycastAny(luxelPos, rayDir, kSunRayDistance, luxelFaceIndex, -1, hitFace)
+        vec3 rayTint = vec3(1.0);
+        if (raycastSunAny(luxelPos, rayDir, params.sunRayMaxDistance, luxelFaceIndex, -1, hitFace, rayTint)
             && isSkyFace(hitFace)) {
             hits += 1.0;
+            tintSum += rayTint;
         }
     }
     float visibility = hits / float(params.sunRayCount);
+    if (hits > 0.0) {
+        tintOut = tintSum / hits;
+    }
     if (visibility <= params.sunLeakThreshold) {
         return 0.0;
     }
@@ -868,11 +1024,12 @@ void main() {
             vec3 tangent;
             vec3 bitangent;
             buildSunBasis(toLight, tangent, bitangent);
-            float visibility = sunSkyVisibility(luxelPos, luxel.faceIndex, toLight, tangent, bitangent);
+            vec3 sunTint;
+            float visibility = sunSkyVisibility(luxelPos, luxel.faceIndex, toLight, tangent, bitangent, sunTint);
             if (visibility <= 0.0) {
                 continue;
             }
-            vec3 contrib = intensity * (nDotL * visibility);
+            vec3 contrib = intensity * (nDotL * visibility) * sunTint;
             if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
                 && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
                 irradiance += contrib;
@@ -916,7 +1073,8 @@ void main() {
             }
         }
 
-        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1)) {
+        vec3 pointTint = vec3(1.0);
+        if (segmentOccluded(luxelPos, lightPos, luxel.faceIndex, -1, pointTint)) {
             continue;
         }
 
@@ -924,7 +1082,7 @@ void main() {
         float atten = max(0.0, 1.0 - t * t);
         atten *= atten;
 
-        vec3 contrib = intensity * (nDotL * atten * spot / dist2);
+        vec3 contrib = intensity * (nDotL * atten * spot / dist2) * pointTint;
         if (!isnan(contrib.x) && !isnan(contrib.y) && !isnan(contrib.z)
             && !isinf(contrib.x) && !isinf(contrib.y) && !isinf(contrib.z)) {
             irradiance += contrib;

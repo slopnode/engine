@@ -886,7 +886,10 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
     }
 
     const bool showRange = allKindsMatch(doc, targets, [](slopengine::ThingKind kind) {
-        return kind == slopengine::ThingKind::PointLight || kind == slopengine::ThingKind::SpotLight;
+        return kind == slopengine::ThingKind::PointLight ||
+            kind == slopengine::ThingKind::SpotLight ||
+            kind == slopengine::ThingKind::DynamicPointLight ||
+            kind == slopengine::ThingKind::DynamicSpotLight;
     });
     if (showRange) {
         const auto rangeCommon = commonValue<float>(
@@ -909,7 +912,8 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
     }
 
     const bool showCone = allKindsMatch(doc, targets, [](slopengine::ThingKind kind) {
-        return kind == slopengine::ThingKind::SpotLight;
+        return kind == slopengine::ThingKind::SpotLight ||
+            kind == slopengine::ThingKind::DynamicSpotLight;
     });
     if (showCone) {
         const auto coneCommon = commonValue<float>(
@@ -937,6 +941,26 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
                 })) {
                 changed = true;
                 editor.statusMessage = "Set spot cone";
+            }
+        }
+    }
+
+    const bool showCastShadows = allKindsMatch(doc, targets, [](slopengine::ThingKind kind) {
+        return kind == slopengine::ThingKind::DynamicPointLight ||
+            kind == slopengine::ThingKind::DynamicSpotLight;
+    });
+    if (showCastShadows) {
+        const auto castShadowsCommon = commonValue<bool>(
+            doc,
+            targets,
+            [](const slopengine::Thing& t) { return t.dynamicCastShadows; });
+        bool castShadows = castShadowsCommon.value_or(false);
+        if (checkboxMixed("Cast Shadows", &castShadows, !castShadowsCommon.has_value())) {
+            if (forEachLight(editor, targets, [castShadows](slopengine::Thing& thing) {
+                    thing.dynamicCastShadows = castShadows;
+                })) {
+                changed = true;
+                editor.statusMessage = "Set light cast shadows";
             }
         }
     }
@@ -1824,13 +1848,13 @@ bool drawSkyTextureField(
     const auto pathCommon = commonValue<std::string>(doc, targets, getter);
     const char* preview =
         !pathCommon.has_value() ? "(mixed)" : (pathCommon->empty() ? "(none)" : pathCommon->c_str());
+    ImGui::PushID(label);
     ImGui::Text("%s", label);
     ImGui::SameLine();
     ImGui::TextUnformatted(preview);
     ImGui::SameLine();
     if (slopengine::buttonWithIcon(
             assets, slopengine::kDefaultIconSet, "folder_page", "Browse…")) {
-        ImGui::PushID(label);
         materialBrowser.openPicker(
             AssetPickerKind::Texture,
             [&editor, targets, setter](const std::string& path) {
@@ -1841,8 +1865,8 @@ bool drawSkyTextureField(
                 }
             },
             AssetPickerOptions{.allowNone = true});
-        ImGui::PopID();
     }
+    ImGui::PopID();
     return false;
 }
 
@@ -2157,7 +2181,201 @@ bool drawPickupSection(
     return changed;
 }
 
+int findSingletonThingIndex(const EditorDocument& doc, slopengine::ThingKind kind) {
+    for (std::size_t i = 0; i < doc.things.size(); ++i) {
+        if (doc.things[i].kind == kind) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+void drawMapPropertyExtrasWarning(
+    Editor& editor,
+    slopengine::ThingKind kind,
+    int keepIndex,
+    const char* label) {
+    const EditorDocument& doc = editor.doc();
+    int extra = 0;
+    for (std::size_t i = 0; i < doc.things.size(); ++i) {
+        if (static_cast<int>(i) != keepIndex && doc.things[i].kind == kind) {
+            ++extra;
+        }
+    }
+    if (extra == 0) {
+        return;
+    }
+    ImGui::TextColored(
+        ImVec4(1.0f, 0.55f, 0.2f, 1.0f),
+        "%d extra %s thing(s) elsewhere in this map",
+        extra,
+        label);
+    if (ImGui::Button("Remove extras")) {
+        editor.prepareEdit();
+        EditorDocument& mut = editor.doc();
+        std::vector<slopengine::Thing> kept;
+        kept.reserve(mut.things.size());
+        bool keptOne = false;
+        for (std::size_t i = 0; i < mut.things.size(); ++i) {
+            if (mut.things[i].kind == kind) {
+                if (!keptOne) {
+                    kept.push_back(mut.things[i]);
+                    keptOne = true;
+                }
+                continue;
+            }
+            kept.push_back(mut.things[i]);
+        }
+        mut.things = std::move(kept);
+        mut.selectedEntities.clear();
+        mut.activeEntity = {};
+        editor.markDirty();
+        editor.markThingCompileDirty(kind);
+        editor.endEdit();
+        editor.statusMessage = std::string("Removed extra ") + label + " thing(s)";
+    }
+}
+
+bool drawMapPropertyToggle(
+    Editor& editor,
+    const char* checkboxLabel,
+    slopengine::ThingKind kind,
+    const std::function<slopengine::Thing()>& makeDefault,
+    int& index) {
+    bool changed = false;
+    bool enabled = index >= 0;
+    if (ImGui::Checkbox(checkboxLabel, &enabled)) {
+        EditorDocument& doc = editor.doc();
+        if (enabled && index < 0) {
+            editor.prepareEdit();
+            slopengine::Thing thing = makeDefault();
+            thing.id = editor.allocateThingId(slopengine::thingKindName(kind));
+            doc.things.push_back(std::move(thing));
+            index = static_cast<int>(doc.things.size()) - 1;
+            editor.markDirty();
+            editor.markThingCompileDirty(kind);
+            editor.endEdit();
+            editor.statusMessage = std::string("Added ") + slopengine::thingKindName(kind);
+            changed = true;
+        } else if (!enabled && index >= 0) {
+            editor.prepareEdit();
+            doc.things.erase(doc.things.begin() + index);
+            doc.selectedEntities.clear();
+            doc.activeEntity = {};
+            editor.markDirty();
+            editor.markThingCompileDirty(kind);
+            editor.endEdit();
+            editor.statusMessage = std::string("Removed ") + slopengine::thingKindName(kind);
+            index = -1;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 } // namespace
+
+ThingPanelResult ThingPanel::drawMapSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    MaterialBrowser& materialBrowser,
+    float bodyHeight) {
+    ThingPanelResult result{};
+    if (!ImGui::BeginChild("##mapsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+        ImGui::EndChild();
+        return result;
+    }
+
+    ImGui::Separator();
+
+    ImGui::PushID("mapSun");
+    {
+        int index = findSingletonThingIndex(editor.doc(), slopengine::ThingKind::Sun);
+        if (drawMapPropertyToggle(
+                editor,
+                "Sun",
+                slopengine::ThingKind::Sun,
+                [] {
+                    slopengine::Thing t = slopengine::makeDefaultLightThing(slopengine::ThingKind::Sun);
+                    t.haveAngles = true;
+                    t.angles = {-0.7f, 0.4f, 0.0f};
+                    t.yaw = t.angles.y;
+                    return t;
+                },
+                index)) {
+            result.changed = true;
+        }
+        if (index >= 0) {
+            ImGui::Indent();
+            const std::vector<int> targets{index};
+            if (drawWorldPoseSection(editor, targets)) {
+                result.changed = true;
+            }
+            if (drawLightSection(editor, targets)) {
+                result.changed = true;
+            }
+            drawMapPropertyExtrasWarning(editor, slopengine::ThingKind::Sun, index, "sun");
+            ImGui::Unindent();
+        }
+    }
+    ImGui::PopID();
+    ImGui::Separator();
+
+    ImGui::PushID("mapAmbient");
+    {
+        int index = findSingletonThingIndex(editor.doc(), slopengine::ThingKind::AmbientLight);
+        if (drawMapPropertyToggle(
+                editor,
+                "Ambient Light",
+                slopengine::ThingKind::AmbientLight,
+                [] {
+                    slopengine::Thing t =
+                        slopengine::makeDefaultLightThing(slopengine::ThingKind::AmbientLight);
+                    t.color = {0.08f, 0.08f, 0.09f};
+                    return t;
+                },
+                index)) {
+            result.changed = true;
+        }
+        if (index >= 0) {
+            ImGui::Indent();
+            const std::vector<int> targets{index};
+            if (drawLightSection(editor, targets)) {
+                result.changed = true;
+            }
+            drawMapPropertyExtrasWarning(editor, slopengine::ThingKind::AmbientLight, index, "ambient-light");
+            ImGui::Unindent();
+        }
+    }
+    ImGui::PopID();
+    ImGui::Separator();
+
+    ImGui::PushID("mapSky");
+    {
+        int index = findSingletonThingIndex(editor.doc(), slopengine::ThingKind::Skybox);
+        if (drawMapPropertyToggle(
+                editor,
+                "Sky",
+                slopengine::ThingKind::Skybox,
+                [] { return slopengine::makeDefaultSkyboxThing(); },
+                index)) {
+            result.changed = true;
+        }
+        if (index >= 0) {
+            ImGui::Indent();
+            const std::vector<int> targets{index};
+            if (drawSkyboxSection(editor, assets, materialBrowser, targets)) {
+                result.changed = true;
+            }
+            drawMapPropertyExtrasWarning(editor, slopengine::ThingKind::Skybox, index, "skybox");
+            ImGui::Unindent();
+        }
+    }
+    ImGui::PopID();
+
+    ImGui::EndChild();
+    return result;
+}
 
 ThingPanelResult ThingPanel::drawSection(
     Editor& editor,

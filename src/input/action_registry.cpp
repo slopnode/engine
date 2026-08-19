@@ -27,6 +27,7 @@ constexpr CoreActionInfo kCoreActions[] = {
     {Action::MoveLeft, "MoveLeft", "Move Left", KEY_A},
     {Action::MoveRight, "MoveRight", "Move Right", KEY_D},
     {Action::Jump, "Jump", "Jump", KEY_SPACE},
+    {Action::Descend, "Descend", "Descend", KEY_LEFT_CONTROL},
     {Action::Pause, "Pause", "Pause", KEY_NULL},
     {Action::Interact, "Interact", "Interact", KEY_E},
     {Action::Console, "Console", "Console", KEY_GRAVE},

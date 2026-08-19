@@ -1,11 +1,12 @@
 #include "game/user_settings.hpp"
 
-#include "core/user_paths.hpp"
 #include "input/action_registry.hpp"
 #include "input/bind_code.hpp"
+#include "render/dynamic_light.hpp"
 
 #include <raylib.h>
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <optional>
@@ -103,10 +104,9 @@ UserSettings UserSettings::defaults() {
     return UserSettings{};
 }
 
-GraphicsSettings UserSettings::loadGraphicsOrDefault() {
+GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path& settingsFilePath) {
     GraphicsSettings graphics = defaults().graphics;
-    const std::filesystem::path path = userSettingsPath();
-    std::ifstream input(path);
+    std::ifstream input(settingsFilePath);
     if (!input) {
         return graphics;
     }
@@ -155,6 +155,12 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault() {
             parseBool(value, graphics.dynamicLights);
         } else if (key == "dynamic_light_shadows") {
             parseBool(value, graphics.dynamicLightShadows);
+        } else if (key == "max_dynamic_lights") {
+            parseInt(value, graphics.maxDynamicLights);
+        } else if (key == "max_shadowed_dynamic_lights") {
+            parseInt(value, graphics.maxShadowedDynamicLights);
+        } else if (key == "shadow_map_resolution") {
+            parseInt(value, graphics.shadowMapResolution);
         }
     }
 
@@ -164,13 +170,24 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault() {
     if (graphics.height < 360) {
         graphics.height = 360;
     }
+    graphics.maxDynamicLights =
+        std::clamp(graphics.maxDynamicLights, 0, kMaxDynamicLights);
+    graphics.maxShadowedDynamicLights = std::clamp(
+        graphics.maxShadowedDynamicLights,
+        0,
+        std::min(graphics.maxDynamicLights, kMaxShadowedDynamicLights));
+    graphics.shadowMapResolution = std::clamp(
+        graphics.shadowMapResolution,
+        kMinDynamicShadowMapResolution,
+        kMaxDynamicShadowMapResolution);
 
     return graphics;
 }
 
-void UserSettings::mergeControlsFromDisk(ControlsSettings& controls) {
-    const std::filesystem::path path = userSettingsPath();
-    std::ifstream input(path);
+void UserSettings::mergeControlsFromDisk(
+    ControlsSettings& controls,
+    const std::filesystem::path& settingsFilePath) {
+    std::ifstream input(settingsFilePath);
     if (!input) {
         return;
     }
@@ -206,16 +223,8 @@ void UserSettings::mergeControlsFromDisk(ControlsSettings& controls) {
     }
 }
 
-UserSettings UserSettings::loadOrDefault() {
-    UserSettings settings = defaults();
-    settings.graphics = loadGraphicsOrDefault();
-    settings.controls = ControlsSettings::defaults();
-    mergeControlsFromDisk(settings.controls);
-    return settings;
-}
-
 bool UserSettings::save() const {
-    const std::filesystem::path directory = userConfigDirectory();
+    const std::filesystem::path directory = settingsFilePath.parent_path();
     std::error_code ec;
     std::filesystem::create_directories(directory, ec);
     if (ec) {
@@ -223,10 +232,9 @@ bool UserSettings::save() const {
         return false;
     }
 
-    const std::filesystem::path path = userSettingsPath();
-    std::ofstream output(path, std::ios::trunc);
+    std::ofstream output(settingsFilePath, std::ios::trunc);
     if (!output) {
-        TraceLog(LOG_WARNING, "SETTINGS: failed to write %s", path.string().c_str());
+        TraceLog(LOG_WARNING, "SETTINGS: failed to write %s", settingsFilePath.string().c_str());
         return false;
     }
 
@@ -236,7 +244,10 @@ bool UserSettings::save() const {
            << "mode=" << windowModeId(graphics.mode) << '\n'
            << "vsync=" << (graphics.vsync ? "1" : "0") << '\n'
            << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
-           << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << "\n\n"
+           << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << '\n'
+           << "max_dynamic_lights=" << graphics.maxDynamicLights << '\n'
+           << "max_shadowed_dynamic_lights=" << graphics.maxShadowedDynamicLights << '\n'
+           << "shadow_map_resolution=" << graphics.shadowMapResolution << "\n\n"
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

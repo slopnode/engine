@@ -25,6 +25,10 @@ struct VisibleFace {
     bool uvLock = false;
     std::int32_t interiorLeaf = -1;
     bool transparent = false;
+    /** True for Water-role brush faces not touching another brush (the open
+     *  top surface) — rendered without backface culling so it reads from
+     *  both above and below the waterline. */
+    bool twoSided = false;
 };
 
 /** In-memory / on-disk face set (FAC1). */
@@ -43,17 +47,23 @@ struct FacBuildResult {
     std::vector<std::string> inferredNodrawFaceIds;
 };
 
-/** Clips hull and detail faces to sealed interior empty leaves; then welds, culls, merges, sorts. */
+/** Clips hull and detail faces to sealed interior empty leaves; then welds, culls, merges, sorts.
+ *  @p movableBrushIds brushes (door/mover claims) still emit their own faces for baking, but
+ *  never occlude other brushes' faces (they can open) and never merge across a brush boundary. */
 FacBuildResult buildVisibleFaces(
     const BspTree& tree,
     const MapHullAnalysis& analysis,
     const std::vector<Brush>& brushes,
-    const std::unordered_set<std::string>* skipBrushIds = nullptr);
+    const std::unordered_set<std::string>* movableBrushIds = nullptr);
 
 /** Inserts T-junction vertices on shared edges. */
 void weldVisibleFaceTJunctions(std::vector<VisibleFace>& faces);
 
-/** Merges coplanar adjacent faces that share material and UV frame. */
-void mergeCoplanarVisibleFaces(std::vector<VisibleFace>& faces);
+/** Merges coplanar adjacent faces that share material and UV frame.
+ *  @p movableBrushIds faces only merge with other faces of the same movable brush, never
+ *  across a brush boundary (a door face must stay extractable as standalone geometry). */
+void mergeCoplanarVisibleFaces(
+    std::vector<VisibleFace>& faces,
+    const std::unordered_set<std::string>* movableBrushIds = nullptr);
 
 }

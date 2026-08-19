@@ -36,6 +36,27 @@ void runPvsBuildTests() {
     }
 
     {
+        // A real Door brush filling the doorway must not sever PVS
+        // connectivity between the rooms it separates: PVS is a static,
+        // precomputed set with no live door-state query, so it has to stay
+        // conservatively visible through a doorway regardless of whether the
+        // door happens to be open or closed at runtime. Otherwise anything
+        // behind an open door gets permanently culled.
+        const std::vector<Brush> brushes = mapfixtures::sealedRoomWithInteriorDoor();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const PvsFile pvs = buildPvs(tree, &analysis.exteriorEmpty);
+        const std::int32_t north = pointLeaf(tree, {0.0f, 1.0f, -3.0f});
+        const std::int32_t south = pointLeaf(tree, {0.0f, 1.0f, 3.0f});
+        CHECK(north >= 0);
+        CHECK(south >= 0);
+        CHECK(pvsCanSee(pvs, north, south));
+        CHECK(pvsCanSee(pvs, south, north));
+    }
+
+    {
         std::vector<Brush> brushes = mapfixtures::sealedHollowRoom();
         brushes.push_back(makeBrushBox(
             "wall-mid",

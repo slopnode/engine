@@ -1,12 +1,15 @@
 add_executable(sloptests
     test_main.cpp
     test_sexpr.cpp
+    test_package_search.cpp
+    test_package_meta.cpp
     test_assets.cpp
     test_script_scope.cpp
     test_scheme_harden.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
     test_fac_build.cpp
+    test_csg_compile.cpp
     test_pvs_build.cpp
     test_nav_graph.cpp
     test_physics.cpp
@@ -50,12 +53,15 @@ else()
 endif()
 
 add_test(NAME sloptests.sexpr COMMAND sloptests sexpr)
+add_test(NAME sloptests.package_search COMMAND sloptests package_search)
+add_test(NAME sloptests.package_meta COMMAND sloptests package_meta)
 add_test(NAME sloptests.assets COMMAND sloptests assets)
 add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.fac_build COMMAND sloptests fac_build)
+add_test(NAME sloptests.csg_compile COMMAND sloptests csg_compile)
 add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
 add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
 add_test(NAME sloptests.physics COMMAND sloptests physics)

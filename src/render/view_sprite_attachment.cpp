@@ -1,4 +1,4 @@
-#include "render/view_sprite_muzzle.hpp"
+#include "render/view_sprite_attachment.hpp"
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
@@ -16,9 +16,10 @@
 
 namespace slopengine {
 
-std::optional<Vector3> resolveViewSpriteMuzzleWorld(
+std::optional<Vector3> resolveViewSpriteAttachmentWorld(
     flecs::world& world,
     flecs::entity host,
+    const std::string& attachName,
     float depth) {
     if (!host.is_valid() || !host.has<ViewSprite>() || !host.has<SpriteInstance>()) {
         return std::nullopt;
@@ -29,7 +30,11 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
     AssetStore& assets = *world.get_mut<AssetServices>().store;
     const SpriteInstance& sprite = host.get<SpriteInstance>();
     const SpriteAsset* asset = assets.getSpriteAsset(sprite.sprite);
-    if (asset == nullptr || !asset->view.hasMuzzle) {
+    if (asset == nullptr) {
+        return std::nullopt;
+    }
+    const SpriteAttachPoint* attachPoint = findSpriteAttachPoint(*asset, sprite.frame, attachName);
+    if (attachPoint == nullptr) {
         return std::nullopt;
     }
 
@@ -40,8 +45,12 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
     }
 
     float rotationDeg = frame->rotationDeg + frame->animRotationDeg;
+    float scaleX = frame->scaleX * frame->animScaleX;
+    float scaleY = frame->scaleY * frame->animScaleY;
     float translateX = frame->translateX + frame->animTranslateX;
     float translateY = frame->translateY + frame->animTranslateY;
+    float attachX = attachPoint->x;
+    float attachY = attachPoint->y;
 
     if (host.has<SpriteAnimator>()) {
         const SpriteAnimator& animator = host.get<SpriteAnimator>();
@@ -53,6 +62,8 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
                 const float blend = animator.transformBlend;
                 const float nextRotation =
                     nextFrame->rotationDeg + nextFrame->animRotationDeg;
+                const float nextScaleX = nextFrame->scaleX * nextFrame->animScaleX;
+                const float nextScaleY = nextFrame->scaleY * nextFrame->animScaleY;
                 const float nextTranslateX =
                     nextFrame->translateX + nextFrame->animTranslateX;
                 const float nextTranslateY =
@@ -60,24 +71,35 @@ std::optional<Vector3> resolveViewSpriteMuzzleWorld(
                 if (animator.tweenRotation) {
                     rotationDeg = rotationDeg + (nextRotation - rotationDeg) * blend;
                 }
+                if (animator.tweenScale) {
+                    scaleX = scaleX + (nextScaleX - scaleX) * blend;
+                    scaleY = scaleY + (nextScaleY - scaleY) * blend;
+                }
                 if (animator.tweenTranslate) {
                     translateX = translateX + (nextTranslateX - translateX) * blend;
                     translateY = translateY + (nextTranslateY - translateY) * blend;
+                }
+                const SpriteAttachPoint* nextAttachPoint =
+                    findSpriteAttachPoint(*asset, animator.nextFrame, attachName);
+                if (nextAttachPoint != nullptr) {
+                    attachX = attachX + (nextAttachPoint->x - attachX) * blend;
+                    attachY = attachY + (nextAttachPoint->y - attachY) * blend;
                 }
             }
         }
     }
 
-    const float pinX = viewSprite.canvasX + viewSprite.offsetX + translateX;
-    const float pinY = viewSprite.canvasY + viewSprite.offsetY + translateY;
+    attachX *= scaleX;
+    attachY *= scaleY;
+
+    const float pinX = viewSprite.anchorX + viewSprite.offsetX + translateX;
+    const float pinY = viewSprite.anchorY + viewSprite.offsetY + translateY;
     const float theta =
         (viewSprite.rotationDeg + rotationDeg) * (static_cast<float>(DEG2RAD));
     const float cosT = std::cos(theta);
     const float sinT = std::sin(theta);
-    const float muzzleX = asset->view.muzzleX;
-    const float muzzleY = asset->view.muzzleY;
-    const float canvasX = pinX + muzzleX * cosT - muzzleY * sinT;
-    const float canvasY = pinY + muzzleX * sinT + muzzleY * cosT;
+    const float canvasX = pinX + attachX * cosT - attachY * sinT;
+    const float canvasY = pinY + attachX * sinT + attachY * cosT;
 
     ViewCanvas viewCanvas{};
     if (world.has<ViewCanvas>()) {

@@ -105,6 +105,11 @@ public:
         const SteamAudioListenerPose& listener,
         const std::vector<SteamAudioSourcePose>& sources);
 
+    // Fades a lowpass filter on the Sfx bus only (music stays dry) to muffle
+    // world sound while the listener is underwater. amount01 0 = dry, 1 = fully
+    // muffled; the filter attaches lazily on first non-zero call.
+    bool setUnderwaterMuffle(float amount01);
+
     bool attachBuiltinFilter(AudioBusKind bus, std::string_view name, unsigned int slot = 0);
     bool attachGlobalFilter(std::string_view name, unsigned int slot = 0);
     void registerSchemeFilter(std::string name, void* proc);
@@ -171,6 +176,7 @@ private:
     std::vector<ListenerAttachedVoice> listenerAttached_;
     unsigned int sfxFilterCount_ = 0;
     unsigned int musicFilterCount_ = 0;
+    int underwaterFilterSlot_ = -1;
     std::unordered_map<std::string, void*> schemeFilters_;
     unsigned int globalFilterCount_ = 0;
 

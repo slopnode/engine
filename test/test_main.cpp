@@ -6,12 +6,15 @@
 namespace slopengine {
 
 void runSexprTests();
+void runPackageSearchTests();
+void runPackageMetaTests();
 void runAssetTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
 void runFacBuildTests();
+void runCsgCompileTests();
 void runPvsBuildTests();
 void runNavGraphTests();
 void runPhysicsTests();
@@ -42,12 +45,15 @@ struct Suite {
 
 const Suite kSuites[] = {
     {"sexpr", slopengine::runSexprTests},
+    {"package_search", slopengine::runPackageSearchTests},
+    {"package_meta", slopengine::runPackageMetaTests},
     {"assets", slopengine::runAssetTests},
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
     {"fac_build", slopengine::runFacBuildTests},
+    {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
     {"nav_graph", slopengine::runNavGraphTests},
     {"physics", slopengine::runPhysicsTests},

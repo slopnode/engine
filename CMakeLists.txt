@@ -58,12 +58,29 @@ configure_file(
     @ONLY
 )
 
+set(SLOPENGINE_APP_SEARCH_PATHS "" CACHE STRING
+    "Semicolon-separated default directories to search for game/mod packages by name \
+(e.g. --base-game <name>). A downstream build (packaging a specific game, CI, etc.) \
+sets this to point at wherever it lays out game/mod directories.")
+
+list(JOIN SLOPENGINE_APP_SEARCH_PATHS "\n" SLOPENGINE_APP_SEARCH_PATHS_JOINED)
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/app_search_paths.hpp.in"
+    "${CMAKE_BINARY_DIR}/generated/core/app_search_paths.hpp"
+    @ONLY
+)
+
 add_subdirectory(lib)
 
 set(SLOPLIB_SOURCES
     src/core/engine_package.cpp
     src/core/package.cpp
+    src/core/package_discovery.cpp
     src/core/package_meta.cpp
+    src/core/package_search.cpp
+    src/core/process_launch.cpp
+    src/core/semver.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
     src/core/vfs.cpp
@@ -100,6 +117,7 @@ set(SLOPLIB_SOURCES
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_occlusion.cpp
+    src/map/light_probes.cpp
     src/map/light_sample.cpp
     src/map/map_meta.cpp
     src/map/prefab.cpp
@@ -116,6 +134,7 @@ set(SLOPLIB_SOURCES
     src/map/pvs_build.cpp
     src/map/pvs_io.cpp
     src/map/nav_graph.cpp
+    src/map/sound_propagation.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
     src/render/skybox.cpp
@@ -161,12 +180,15 @@ add_executable(slopengine
     src/physics/rigid_mover_motion.cpp
     src/physics/map_collision.cpp
     src/particles/particle_module.cpp
-    src/render/view_sprite_muzzle.cpp
+    src/fx/trail.cpp
+    src/render/view_sprite_attachment.cpp
+    src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
     src/map/brush_door.cpp
     src/map/face_triggers.cpp
+    src/map/water_volumes.cpp
     src/map/map_scene.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
@@ -184,7 +206,9 @@ add_executable(slopengine
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
     src/render/render_pass_fp.cpp
+    src/render/render_pass_extra_eye.cpp
     src/render/post_process.cpp
+    src/render/underwater_effect.cpp
     src/render/skybox_world.cpp
     src/render/render_module.cpp
     src/render/hud.cpp
@@ -327,6 +351,42 @@ if(MSVC)
     target_compile_options(slopsprite PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopthing
+    tools/slopthing/main.cpp
+    tools/slopthing/sexpr.cpp
+    tools/slopthing/things_doc.cpp
+    tools/slopthing/editor.cpp
+    tools/slopthing/package_scan.cpp
+    tools/slopthing/browser_panel.cpp
+    tools/slopthing/inspector_panel.cpp
+    tools/slopthing/collider_preview.cpp
+    src/ui/imgui_fonts.cpp
+)
+target_include_directories(slopthing PRIVATE tools/slopthing)
+target_link_libraries(slopthing PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopthing PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopthing PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(sloplauncher
+    tools/sloplauncher/main.cpp
+    tools/sloplauncher/launcher_state.cpp
+    tools/sloplauncher/packages_panel.cpp
+    tools/sloplauncher/game_tab.cpp
+    tools/sloplauncher/development_tab.cpp
+    tools/sloplauncher/package_details_tab.cpp
+    src/game/package_cli.cpp
+)
+target_include_directories(sloplauncher PRIVATE tools/sloplauncher)
+target_link_libraries(sloplauncher PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(sloplauncher PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(sloplauncher PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopicons tools/slopicons/main.cpp)

@@ -1,11 +1,14 @@
 #include "map/pvs.hpp"
 
+#include <raylib.h>
 #include <raymath.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -100,6 +103,27 @@ float windingArea(const std::vector<Vector3>& winding) {
     return 0.5f * Vector3Length(accum);
 }
 
+// Every source leaf floods on its own thread, and a symmetric bit write can
+// land in a row owned by a *different* thread's source (B discovering A
+// touches row A, which A's own thread is concurrently writing to). Every
+// write during the parallel flood therefore has to be atomic; word-level
+// fetch_or via atomic_ref is cheap enough that it's simplest to always use
+// it rather than special-case the "own row" writes.
+void pvsSetBitAtomic(PvsFile& pvs, int fromLeaf, int toLeaf) {
+    if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= pvs.leafCount || toLeaf >= pvs.leafCount) {
+        return;
+    }
+    const std::size_t index =
+        static_cast<std::size_t>(fromLeaf * pvs.wordsPerRow + (toLeaf >> 5));
+    std::atomic_ref<std::uint32_t> word(pvs.bits[index]);
+    word.fetch_or(1u << (toLeaf & 31), std::memory_order_relaxed);
+}
+
+void pvsSetBitSymmetricAtomic(PvsFile& pvs, int a, int b) {
+    pvsSetBitAtomic(pvs, a, b);
+    pvsSetBitAtomic(pvs, b, a);
+}
+
 void floodFromPortal(
     const std::vector<DirectedPortal>& portals,
     const std::vector<std::vector<LeafPortalRef>>& leafPortals,
@@ -109,7 +133,7 @@ void floodFromPortal(
     const DirectedPortal& basePortal,
     const std::vector<Vector3>& pass,
     std::vector<float>& bestPassArea) {
-    pvsSetBitSymmetric(pvs, sourceLeaf, leaf);
+    pvsSetBitSymmetricAtomic(pvs, sourceLeaf, leaf);
     if (leaf < 0 || leaf >= static_cast<int>(leafPortals.size())) {
         return;
     }
@@ -183,8 +207,8 @@ PvsFile buildPvs(const BspTree& tree, const std::vector<std::uint8_t>* exteriorE
         if (portal.leafA >= n || portal.leafB >= n) {
             continue;
         }
-        if (!leafIsOpen(tree.leaves[static_cast<std::size_t>(portal.leafA)].contents)
-            || !leafIsOpen(tree.leaves[static_cast<std::size_t>(portal.leafB)].contents)) {
+        if (!leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(portal.leafA)].contents)
+            || !leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(portal.leafB)].contents)) {
             continue;
         }
 
@@ -220,27 +244,57 @@ PvsFile buildPvs(const BspTree& tree, const std::vector<std::uint8_t>* exteriorE
             LeafPortalRef{baIndex, portal.leafA});
     }
 
-    std::vector<float> bestPassArea(static_cast<std::size_t>(n), 0.0f);
-    for (int source = 0; source < n; ++source) {
-        if (!isPvsSourceLeaf(tree, source, exteriorEmpty)) {
-            continue;
+    // Per-source flood cost varies wildly (an open source leaf can flood the
+    // whole level; a closet floods almost nothing), so leaves are handed out
+    // one at a time from a shared counter rather than split into static
+    // ranges — a fixed chunk-per-thread split would leave fast threads idle
+    // while one thread is still stuck on a big open area.
+    const unsigned hwThreads = std::max(1u, std::thread::hardware_concurrency());
+    const int threadCount = std::min<int>(static_cast<int>(hwThreads), n);
+
+    std::atomic<int> nextSource{0};
+    auto worker = [&]() {
+        std::vector<float> bestPassArea(static_cast<std::size_t>(n), 0.0f);
+        for (;;) {
+            const int source = nextSource.fetch_add(1, std::memory_order_relaxed);
+            if (source >= n) {
+                break;
+            }
+            if (!isPvsSourceLeaf(tree, source, exteriorEmpty)) {
+                continue;
+            }
+            pvsSetBitAtomic(pvs, source, source);
+            std::fill(bestPassArea.begin(), bestPassArea.end(), 0.0f);
+            bestPassArea[static_cast<std::size_t>(source)] = std::numeric_limits<float>::infinity();
+            for (const LeafPortalRef& ref : leafPortals[static_cast<std::size_t>(source)]) {
+                const DirectedPortal& portal = portals[static_cast<std::size_t>(ref.portalIndex)];
+                floodFromPortal(
+                    portals,
+                    leafPortals,
+                    pvs,
+                    source,
+                    portal.toLeaf,
+                    portal,
+                    portal.winding,
+                    bestPassArea);
+            }
         }
-        pvsSetBit(pvs, source, source);
-        std::fill(bestPassArea.begin(), bestPassArea.end(), 0.0f);
-        bestPassArea[static_cast<std::size_t>(source)] = std::numeric_limits<float>::infinity();
-        for (const LeafPortalRef& ref : leafPortals[static_cast<std::size_t>(source)]) {
-            const DirectedPortal& portal = portals[static_cast<std::size_t>(ref.portalIndex)];
-            floodFromPortal(
-                portals,
-                leafPortals,
-                pvs,
-                source,
-                portal.toLeaf,
-                portal,
-                portal.winding,
-                bestPassArea);
+    };
+
+    if (threadCount <= 1) {
+        worker();
+    } else {
+        std::vector<std::thread> workers;
+        workers.reserve(static_cast<std::size_t>(threadCount));
+        for (int t = 0; t < threadCount; ++t) {
+            workers.emplace_back(worker);
+        }
+        for (std::thread& t : workers) {
+            t.join();
         }
     }
+
+    TraceLog(LOG_INFO, "slopvis: flooded %d leaves using %d threads", n, threadCount);
 
     return pvs;
 }

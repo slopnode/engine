@@ -205,6 +205,24 @@ inline std::vector<Brush> sealedRoomWithInteriorDoorway(BrushRole partitionRole 
     return brushes;
 }
 
+/**
+ * sealedRoomWithInteriorDoorway (hull jambs/lintel) plus an actual closed Door
+ * brush ("door-1") filling the doorway gap, matching how a door is really
+ * authored: a thin slab spanning the opening, not just a role change on the
+ * jambs. North room centers around z=-3, south room around z=3.
+ */
+inline std::vector<Brush> sealedRoomWithInteriorDoor() {
+    std::vector<Brush> brushes = sealedRoomWithInteriorDoorway(BrushRole::Hull);
+    brushes.push_back(makeBrushBox(
+        "door-1",
+        {-1.0f, 0.0f, -0.15f},
+        {1.0f, 2.2f, 0.15f},
+        "mat/a",
+        {},
+        BrushRole::Door));
+    return brushes;
+}
+
 /** sealedHollowRoom with a 4-step stair block in the northwest corner (y 0..1). */
 inline std::vector<Brush> sealedHollowRoomWithStairs() {
     std::vector<Brush> brushes = sealedHollowRoom();
@@ -216,6 +234,31 @@ inline std::vector<Brush> sealedHollowRoomWithStairs() {
         "mat/a",
         BrushRole::Hull);
     brushes.insert(brushes.end(), stairs.begin(), stairs.end());
+    return brushes;
+}
+
+/** A tall sealed room plus a thin decorative beam along one wall, spanning
+ *  the room's width at half its height but only a shallow depth. The beam's
+ *  own AABB overlaps the room in all three axes, so its horizontal face
+ *  plane is a valid BSP split candidate for the room's whole cell — splitting
+ *  the room at that height everywhere, not just where the beam is actually
+ *  solid. The far side of the room, well away from the beam, ends up with a
+ *  leaf whose floor is a phantom split with nothing solid beneath it —
+ *  reproducing the step navigation floor height must see through. */
+inline std::vector<Brush> tallRoomWithDistantHorizontalSplitter() {
+    Brush shell = makeBrushBox(
+        "shell",
+        {-2.0f, -0.25f, -2.0f},
+        {2.0f, 4.25f, 2.0f},
+        "mat/a",
+        {});
+    std::vector<Brush> brushes = hollowBrushBox(shell, 0.25f, idAllocator("wall-"));
+    brushes.push_back(makeBrushBox(
+        "beam",
+        {-1.75f, 2.0f, -1.75f},
+        {1.75f, 2.25f, -1.5f},
+        "mat/a",
+        {}));
     return brushes;
 }
 

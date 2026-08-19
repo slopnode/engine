@@ -2,12 +2,14 @@
 
 #include "assets/asset_store.hpp"
 
+#include <cstdint>
 #include <flecs.h>
 #include <raylib.h>
 
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace slopengine {
 
@@ -23,19 +25,52 @@ struct PostUniformValue {
     float data[4]{};
 };
 
-struct PostProcessState {
-    RenderTexture2D scene{};
-    int sceneW = 0;
-    int sceneH = 0;
+enum class PostPassTarget {
+    Scene,
+    Hud,
+    Both,
+};
 
+using PostPassHandle = std::uint64_t;
+
+struct PostPass {
+    PostPassHandle handle = 0;
     Shader shader{};
     std::string fragPath;
-    bool enabled = false;
+    bool enabled = true;
 
     std::unordered_map<std::string, PostUniformValue> uniforms;
     std::unordered_map<std::string, int> locationCache;
     int resolutionLoc = -1;
     int timeLoc = -1;
+};
+
+struct PostProcessState {
+    RenderTexture2D scene{};
+    int sceneW = 0;
+    int sceneH = 0;
+
+    RenderTexture2D hud{};
+    int hudW = 0;
+    int hudH = 0;
+
+    RenderTexture2D sceneScratch[2]{};
+    int sceneScratchW = 0;
+    int sceneScratchH = 0;
+
+    RenderTexture2D hudScratch[2]{};
+    int hudScratchW = 0;
+    int hudScratchH = 0;
+
+    RenderTexture2D bothScratch[2]{};
+    int bothScratchW = 0;
+    int bothScratchH = 0;
+
+    std::vector<PostPass> scenePasses;
+    std::vector<PostPass> hudPasses;
+    std::vector<PostPass> bothPasses;
+
+    PostPassHandle nextHandle = 1;
 
     PostProcessState() = default;
     PostProcessState(const PostProcessState&) = delete;
@@ -45,19 +80,45 @@ struct PostProcessState {
     PostProcessState& operator=(PostProcessState&& other) noexcept;
     ~PostProcessState();
 
-    void unloadScene();
-    void unloadShader();
     void unload();
 };
 
 PostProcessState& ensurePostProcessState(flecs::world& world);
 
 bool ensurePostProcessScene(PostProcessState& state, int width, int height);
+bool ensurePostProcessHud(PostProcessState& state, int width, int height);
 
-bool loadPostProcessShader(PostProcessState& state, AssetStore& assets, std::string_view fragPath);
+// True when the Hud or Both stacks have at least one active pass, meaning the
+// full capture-composite pipeline is needed instead of the scene-only fast path.
+bool postProcessNeedsCompositePipeline(const PostProcessState& state);
 
-void clearPostProcessShader(PostProcessState& state);
+// Pushes a new shader pass onto the given target's stack. Returns a handle
+// (0 on failure) used to address the pass with the functions below.
+PostPassHandle pushPostShader(
+    PostProcessState& state,
+    AssetStore& assets,
+    PostPassTarget target,
+    std::string_view fragPath);
 
-void presentPostProcess(PostProcessState& state);
+bool removePostShader(PostProcessState& state, PostPassHandle handle);
+bool clearPostShaders(PostProcessState& state, PostPassTarget target);
+
+bool setPostPassEnabled(PostProcessState& state, PostPassHandle handle, bool enabled);
+bool setPostPassUniform(
+    PostProcessState& state,
+    PostPassHandle handle,
+    std::string_view name,
+    const PostUniformValue& value);
+
+// Fast path used when only the Scene stack is active: runs it straight onto
+// the backbuffer (or passes the scene through unshaded if the stack is empty).
+void presentPostProcessSceneOnly(PostProcessState& state);
+
+// Full path used when the Hud or Both stacks are active. Caller renders HUD
+// content between beginHudCapture()/endHudCapture(), then calls
+// presentPostProcessComposite() to run Scene -> Hud -> composite -> Both -> backbuffer.
+void beginHudCapture(PostProcessState& state);
+void endHudCapture(PostProcessState& state);
+void presentPostProcessComposite(PostProcessState& state);
 
 }

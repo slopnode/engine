@@ -26,6 +26,15 @@ struct RadiositySettings {
     bool gpuSafeMode = false;
     /** N×N stratified UV samples per receiver–emissive-face pair in direct lighting. */
     int emitterDirectSamples = 4;
+    /** For materials with MaterialAsset::preciseEmission: direct-sample axis density per meter
+     *  of face length (replaces emitterDirectSamples for that face, scaled to length so long
+     *  faces keep separate mask features distinct instead of averaging them into one block). */
+    float precisionDirectSamplesPerMeter = 2.0f;
+    /** Upper bound on the scaled axis count from @ref precisionDirectSamplesPerMeter, so a very
+     *  long precise-emission face can't blow up bake time or the direct-sample buffer size. */
+    int precisionMaxDirectSamples = 16;
+    int exactEmissionGridMaxSize = 256;
+    int exactEmissionMaxSamples = 8192;
     /** World-space resolution for pre-baked per-face emission cast grids. */
     float emitterGridLuxelsPerMeter = 8.0f;
     /** Maximum emission grid dimension per emissive face axis. */
@@ -35,6 +44,12 @@ struct RadiositySettings {
     float seamStitchRadiusLuxels = 1.5f;
     std::string directComputeShaderSource;
     std::string bounceComputeShaderSource;
+    /** Volumetric light probe grid: coarse cell spacing covering all open space. */
+    float probeCellSize = 4.0f;
+    /** Fine probe cell spacing, populated only near geometry (walls/corners/doorways). */
+    float probeFineCellSize = 2.0f;
+    /** Sphere samples gathered per probe for the SH L1 projection. */
+    int probeSampleCount = 32;
 };
 
 /** Resolved bake parameters derived from @ref RadiositySettings::sunShadowSoftness. */
@@ -45,6 +60,7 @@ struct SunShadowSoftnessParams {
     float sunDenoiseSpatialSigma = 1.0f;
     float sunDenoiseRangeSigma = 0.35f;
     int sunDenoiseKernelRadius = 1;
+    float maxRayDistance = 1000.0f;
 };
 
 SunShadowSoftnessParams resolveSunShadowSoftness(float softness);

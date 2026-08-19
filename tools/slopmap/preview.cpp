@@ -77,6 +77,40 @@ float meshMinViewDepth(
     return minDepth;
 }
 
+Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false) {
+    const Vector3 lightDir = Vector3Normalize(Vector3{0.45f, 0.85f, 0.35f});
+    const float nLen = Vector3Length(normal);
+    Vector3 n = nLen > 1e-6f ? Vector3Scale(normal, 1.0f / nLen) : Vector3{0.0f, 1.0f, 0.0f};
+    float ndotl = Vector3DotProduct(n, lightDir);
+    if (ndotl < 0.55f) {
+        ndotl = 0.55f;
+    }
+    if (ndotl > 1.0f) {
+        ndotl = 1.0f;
+    }
+    return Color{
+        static_cast<unsigned char>(std::lround(static_cast<float>(base.r) * ndotl)),
+        static_cast<unsigned char>(std::lround(static_cast<float>(base.g) * ndotl)),
+        static_cast<unsigned char>(std::lround(static_cast<float>(base.b) * ndotl)),
+        preserveAlpha ? base.a : static_cast<unsigned char>(255),
+    };
+}
+
+void drawMeshFaux(const Model& model, int meshIndex, bool fauxShade) {
+    const Mesh& mesh = model.meshes[meshIndex];
+    Material& material = model.materials[meshIndex];
+    if (!fauxShade || mesh.normals == nullptr || mesh.vertexCount <= 0) {
+        DrawMesh(mesh, material, MatrixIdentity());
+        return;
+    }
+    MaterialMap& albedoMap = material.maps[MATERIAL_MAP_ALBEDO];
+    const Color original = albedoMap.color;
+    const Vector3 normal{mesh.normals[0], mesh.normals[1], mesh.normals[2]};
+    albedoMap.color = applyFauxShade(original, normal, true);
+    DrawMesh(mesh, material, MatrixIdentity());
+    albedoMap.color = original;
+}
+
 slopengine::MaterialUvInfo resolveMaterialUv(slopengine::AssetStore& assets, std::string_view materialPath) {
     slopengine::MaterialUvInfo info{};
     const slopengine::MaterialAsset* asset = assets.getMaterialAsset(materialPath);
@@ -191,7 +225,8 @@ void drawModelMeshesSplit(
     const Model& model,
     const std::vector<int>& transparentMeshIndices,
     const std::vector<int>& skyMeshIndices,
-    bool transparentPass) {
+    bool transparentPass,
+    bool fauxShade = false) {
     if (model.meshCount <= 0) {
         return;
     }
@@ -207,7 +242,7 @@ void drawModelMeshesSplit(
         if (!transparentPass && skySet.count(meshIndex) > 0) {
             continue;
         }
-        DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+        drawMeshFaux(model, meshIndex, fauxShade);
     }
 }
 
@@ -216,8 +251,9 @@ void drawPreviewModelTextured(
     const std::vector<int>& transparentMeshIndices,
     const std::vector<int>& skyMeshIndices,
     Vector3 cameraPos,
-    Vector3 cameraForward) {
-    drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false);
+    Vector3 cameraForward,
+    bool fauxShade = false) {
+    drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false, fauxShade);
     if (transparentMeshIndices.empty()) {
         return;
     }
@@ -243,10 +279,7 @@ void drawPreviewModelTextured(
     rlDisableDepthMask();
     BeginBlendMode(BLEND_ALPHA);
     for (const SortItem& item : sorted) {
-        DrawMesh(
-            model.meshes[item.meshIndex],
-            model.materials[item.meshIndex],
-            MatrixIdentity());
+        drawMeshFaux(model, item.meshIndex, fauxShade);
     }
     EndBlendMode();
     rlEnableDepthMask();
@@ -287,25 +320,6 @@ Color solidBaseColor(const FaceSolidInfo& info) {
         mixChannel(70, hash, 0, 35),
         mixChannel(120, hash, 8, 40),
         mixChannel(210, hash, 16, 35),
-        255,
-    };
-}
-
-Color applyFauxShade(Color base, Vector3 normal) {
-    const Vector3 lightDir = Vector3Normalize(Vector3{0.45f, 0.85f, 0.35f});
-    const float nLen = Vector3Length(normal);
-    Vector3 n = nLen > 1e-6f ? Vector3Scale(normal, 1.0f / nLen) : Vector3{0.0f, 1.0f, 0.0f};
-    float ndotl = Vector3DotProduct(n, lightDir);
-    if (ndotl < 0.2f) {
-        ndotl = 0.2f;
-    }
-    if (ndotl > 1.0f) {
-        ndotl = 1.0f;
-    }
-    return Color{
-        static_cast<unsigned char>(std::lround(static_cast<float>(base.r) * ndotl)),
-        static_cast<unsigned char>(std::lround(static_cast<float>(base.g) * ndotl)),
-        static_cast<unsigned char>(std::lround(static_cast<float>(base.b) * ndotl)),
         255,
     };
 }
@@ -357,6 +371,36 @@ void drawEditModelSolid(
     UnloadMaterial(flat);
 }
 
+void drawNodrawFace(const slopengine::BrushFace& face, Color color) {
+    if (!face.nodraw || face.vertices.size() < 3) {
+        return;
+    }
+    const Color shaded = applyFauxShade(color, face.normal, true);
+    const Vector3& v0 = face.vertices[0];
+    for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+        const Vector3& v1 = face.vertices[i];
+        const Vector3& v2 = face.vertices[i + 1];
+        DrawTriangle3D(v0, v1, v2, shaded);
+        DrawTriangle3D(v0, v2, v1, shaded);
+    }
+}
+
+void drawNodrawFacesOverlay(
+    const std::vector<slopengine::Brush>& brushes,
+    const std::vector<slopengine::Brush>& instanceBrushes,
+    Color color) {
+    for (const slopengine::Brush& brush : brushes) {
+        for (const slopengine::BrushFace& face : brush.faces) {
+            drawNodrawFace(face, color);
+        }
+    }
+    for (const slopengine::Brush& brush : instanceBrushes) {
+        for (const slopengine::BrushFace& face : brush.faces) {
+            drawNodrawFace(face, color);
+        }
+    }
+}
+
 } // namespace
 
 void MapPreview::clearLit() {
@@ -386,8 +430,8 @@ void MapPreview::clearLit() {
     }
     useLightmapLoc = -1;
     solidLitLoc = -1;
-    transparentMeshIndices.clear();
-    skyMeshIndices.clear();
+    litTransparentMeshIndices.clear();
+    litSkyMeshIndices.clear();
     if (skyShader.id != 0) {
         UnloadShader(skyShader);
         skyShader = {};
@@ -404,7 +448,8 @@ void MapPreview::clearVis() {
     }
     visModel = {};
     visValid = false;
-    transparentMeshIndices.clear();
+    visTransparentMeshIndices.clear();
+    visSkyMeshIndices.clear();
     if (!litValid) {
         pickFac = {};
     }
@@ -417,6 +462,8 @@ void MapPreview::clear() {
     model = {};
     valid = false;
     editFaceIds.clear();
+    modelTransparentMeshIndices.clear();
+    modelSkyMeshIndices.clear();
     clearVis();
     clearLit();
     clearMoverOverlay(moverOverlayModel, moverOverlayValid);
@@ -429,6 +476,8 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     model = {};
     valid = false;
     editFaceIds.clear();
+    modelTransparentMeshIndices.clear();
+    modelSkyMeshIndices.clear();
     if (brushes.empty()) {
         return;
     }
@@ -447,8 +496,8 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
 
-    collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, skyMeshIndices);
+    collectTransparentMeshIndices(compiled.asset, modelTransparentMeshIndices);
+    collectSkyMeshIndices(assets, compiled.asset, modelSkyMeshIndices);
     valid = model.meshCount > 0;
 }
 
@@ -490,8 +539,8 @@ bool MapPreview::reloadVisPreview(
         compiled.asset,
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
-    collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, skyMeshIndices);
+    collectTransparentMeshIndices(compiled.asset, visTransparentMeshIndices);
+    collectSkyMeshIndices(assets, compiled.asset, visSkyMeshIndices);
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
@@ -566,6 +615,7 @@ bool MapPreview::reloadBake(
         if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
             if (auto loadedFac = slopengine::readFacFile(*visPath)) {
                 vis = std::move(*loadedFac);
+                slopengine::eraseFacFacesForMoverBrushes(vis, moverBrushIds);
                 haveVis = true;
             }
         }
@@ -618,9 +668,9 @@ bool MapPreview::reloadBake(
             }
             litModel.materials[meshIndex].shader = lightmapShader;
         }
-        collectTransparentMeshIndices(compiled.asset, transparentMeshIndices);
-        collectSkyMeshIndices(assets, compiled.asset, skyMeshIndices);
-        for (int meshIndex : skyMeshIndices) {
+        collectTransparentMeshIndices(compiled.asset, litTransparentMeshIndices);
+        collectSkyMeshIndices(assets, compiled.asset, litSkyMeshIndices);
+        for (int meshIndex : litSkyMeshIndices) {
             if (meshIndex >= 0 && meshIndex < litModel.meshCount && skyShader.id != 0) {
                 litModel.materials[meshIndex].shader = skyShader;
             }
@@ -791,7 +841,8 @@ void MapPreview::draw(
     float lineWidth,
     const Camera3D* camera,
     slopengine::AssetStore* assets,
-    const std::vector<slopengine::Thing>* things) const {
+    const std::vector<slopengine::Thing>* things,
+    bool showNodraw) const {
     auto outlineBrush = [&](const slopengine::Brush& brush, bool selected) {
         drawBrushFaceOutlines(brush, brushOutlineColor(brush, selected), eye, lineWidth);
     };
@@ -813,8 +864,8 @@ void MapPreview::draw(
                 SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
-            drawModelMeshesSplit(litModel, transparentMeshIndices, skyMeshIndices, false);
-            drawPreviewModelTextured(litModel, transparentMeshIndices, skyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(litModel, litTransparentMeshIndices, litSkyMeshIndices, false);
+            drawPreviewModelTextured(litModel, litTransparentMeshIndices, litSkyMeshIndices, eye, cameraForward);
             if (camera != nullptr && assets != nullptr && things != nullptr && skyShader.id != 0) {
                 const slopengine::SkyboxSettings* skySettings = nullptr;
                 slopengine::SkyboxSettings localSettings{};
@@ -825,7 +876,7 @@ void MapPreview::draw(
                         break;
                     }
                 }
-                if (skySettings != nullptr && !skyMeshIndices.empty()) {
+                if (skySettings != nullptr && !litSkyMeshIndices.empty()) {
                     slopengine::SkyboxShaderState& shaderState =
                         slopengine::ensureSkyboxShaders(*assets);
                     slopengine::applySkyShaderUniforms(
@@ -848,7 +899,7 @@ void MapPreview::draw(
                     if (matViewRotLoc >= 0) {
                         SetShaderValueMatrix(skyShader, matViewRotLoc, viewRot);
                     }
-                    for (int meshIndex : skyMeshIndices) {
+                    for (int meshIndex : litSkyMeshIndices) {
                         if (meshIndex < 0 || meshIndex >= litModel.meshCount) {
                             continue;
                         }
@@ -866,18 +917,21 @@ void MapPreview::draw(
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
-            drawModelMeshesSplit(visModel, transparentMeshIndices, skyMeshIndices, false);
-            drawPreviewModelTextured(visModel, transparentMeshIndices, skyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(visModel, visTransparentMeshIndices, visSkyMeshIndices, false);
+            drawPreviewModelTextured(visModel, visTransparentMeshIndices, visSkyMeshIndices, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
-            break;
+        } else if (valid) {
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false);
+            drawPreviewModelTextured(model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward);
         }
-        [[fallthrough]];
+        break;
     case PreviewFill::Textures:
         if (valid) {
-            drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false);
-            drawPreviewModelTextured(model, transparentMeshIndices, skyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false, true);
+            drawPreviewModelTextured(
+                model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward, true);
         }
         break;
     case PreviewFill::Solid:
@@ -885,6 +939,12 @@ void MapPreview::draw(
             drawEditModelSolid(model, editFaceIds, brushes, instanceBrushes);
         }
         break;
+    }
+
+    if (showNodraw) {
+        rlDrawRenderBatchActive();
+        drawNodrawFacesOverlay(brushes, instanceBrushes, Color{255, 214, 0, 255});
+        rlDrawRenderBatchActive();
     }
 
     if (fill == PreviewFill::Wireframe || wireframe == WireframeOverlay::Off) {

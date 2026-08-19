@@ -4,7 +4,7 @@ The Data API is a core component that provides a flexible and extensible system 
 
 Package data is defined using Scheme symbolic expressions and stored in `.s7` files within the `data/` directory of each package.
 
-# Folder Structure
+# Folder Structure {#folder-structure}
 
 All package data files should be placed in the `data/` directory of your package and named according to their purpose:
 
@@ -15,7 +15,7 @@ All package data files should be placed in the `data/` directory of your package
 - `cli.s7` - CLI flags
 - `title.s7` - Title screen layers
 
-# Actions 
+# Actions {#actions}
 
 Symbol `*package-actions*`
 
@@ -34,7 +34,7 @@ Actions define gameplay actions that can be bound to input devices. These are ty
         (type . "toggle")))))
 </code></pre>
 
-# Handlers
+# Handlers {#handlers}
 
 Symbol `*package-map-handlers*`
 
@@ -51,7 +51,7 @@ Map handlers define event handlers for map interactions. These are used to creat
            (target thing)))))))
 </code></pre>
 
-# Items
+# Items {#items}
 
 Symbol `*item-catalog*`
 
@@ -72,7 +72,7 @@ Item catalog defines items that can be used by the package, including their prop
            (speed . 1.2)))))))
 </code></pre>
 
-# View
+# View {#view}
 
 Symbol `*view-canvas*`
 
@@ -81,7 +81,7 @@ View canvas defines the resolution and presentation properties for the main game
 <pre><code class="language-scheme">(define *view-canvas* '(1920 1080))
 </code></pre>
 
-# Canvas
+# Canvas {#canvas}
 
 Symbol `*hud-canvas*`
 
@@ -90,7 +90,7 @@ HUD canvas defines the resolution and presentation properties for the heads-up d
 <pre><code class="language-scheme">(define *hud-canvas* '(1920 1080))
 </code></pre>
 
-# CLI
+# CLI {#package-cli}
 
 Symbol `*package-cli*`
 
@@ -104,7 +104,7 @@ CLI flags define additional command-line arguments that can be used when launchi
       ((level . "Set difficulty level")))))
 </code></pre>
 
-# Title
+# Title {#title}
 
 Symbol `*package-title*`
 

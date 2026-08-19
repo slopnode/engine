@@ -6,7 +6,10 @@
 
 #include <cmath>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace slopengine {
@@ -14,8 +17,21 @@ namespace slopengine {
 struct NavPortalLink {
     int neighborLeaf = -1;
     Vector3 portalCenter{};
+    /** Unit horizontal direction along the portal's widest span; only meaningful when
+     *  portalHalfWidth > 0. */
+    Vector3 portalTangent{1.0f, 0.0f, 0.0f};
+    /** How far a waypoint may be nudged off-center along portalTangent and still clear
+     *  the portal's edges, in world units. Zero for portals too narrow to spread agents
+     *  across (doorways, thin gaps). */
+    float portalHalfWidth = 0.0f;
     float cost = 0.0f;
+    /** Brush id of the Door gating this link, or empty if the link is ungated. */
+    std::string doorBrushId;
 };
+
+/** Answers whether the door with the given brush id currently allows sound/nav to pass.
+ *  An empty/unset query treats every gated link as open (no gating). */
+using DoorOpenQuery = std::function<bool(const std::string& doorBrushId)>;
 
 /** Leaf portal graph built from sealed BSP hull. */
 struct MapNavigation {
@@ -25,6 +41,13 @@ struct MapNavigation {
     std::vector<float> leafFloorY;
     std::vector<float> leafCeilingY;
     std::vector<std::vector<NavPortalLink>> adjacency;
+    std::vector<std::vector<NavPortalLink>> reverseAdjacency;
+};
+
+struct NavFlowField {
+    int goalLeaf = -1;
+    float maxClimb = 0.0f;
+    std::vector<int> nextLeaf;
 };
 
 /** Builds walkable leaf adjacency from BSP portals (interior open leaves only). */
@@ -32,18 +55,45 @@ MapNavigation buildMapNavigation(
     const BspTree& tree,
     const std::vector<std::uint8_t>* exteriorEmpty = nullptr);
 
-/** A* path over walkable leaves; empty if unreachable. */
-std::vector<int> findLeafPath(const MapNavigation& nav, int fromLeaf, int toLeaf);
+/** A* path over walkable leaves; empty if unreachable. Links gated by a closed door
+ *  (per @p isDoorOpen) are skipped, same as an unwalkable leaf. @p maxClimb caps how far
+ *  a step can rise from one leaf's floor to the next (a ground actor's step-height); pass
+ *  infinity for flyers. Descending is never restricted. */
+std::vector<int> findLeafPath(
+    const MapNavigation& nav,
+    int fromLeaf,
+    int toLeaf,
+    const DoorOpenQuery& isDoorOpen = {},
+    float maxClimb = std::numeric_limits<float>::infinity());
 
-/** Portal centers between consecutive leaves, ending at goalPos. */
+NavFlowField buildNavFlowField(
+    const MapNavigation& nav,
+    int goalLeaf,
+    const DoorOpenQuery& isDoorOpen = {},
+    float maxClimb = std::numeric_limits<float>::infinity());
+
+std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf);
+
+/** Portal centers between consecutive leaves, ending at goalPos. @p lateralBias in
+ *  [-1, 1] nudges each portal-crossing waypoint off-center along that portal's
+ *  tangent (scaled by its portalHalfWidth), so agents sharing a route don't all
+ *  converge on the exact same point; 0 reproduces the plain portal center. */
 std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
     Vector3 goalPos,
-    bool flyerWaypoints = false);
+    bool flyerWaypoints = false,
+    float lateralBias = 0.0f);
 
 /** Portal center on the edge between two adjacent leaves, if linked. */
 std::optional<Vector3> portalCenterBetween(
+    const MapNavigation& nav,
+    int leafA,
+    int leafB);
+
+/** Full portal link (center, tangent, half-width) between two adjacent leaves, if linked.
+ *  Returned pointer aliases @p nav's adjacency storage. */
+const NavPortalLink* portalLinkBetween(
     const MapNavigation& nav,
     int leafA,
     int leafB);
@@ -141,19 +191,6 @@ inline bool navWaypointCompleted(
     const float arriveRadiusSq = arriveRadius * arriveRadius;
     if (navHorizontalDistSq(agentPos, wp) <= arriveRadiusSq) {
         return true;
-    }
-
-    constexpr float kStairVertPassed = 0.25f;
-    constexpr float kStairVertAlign = 0.05f;
-    constexpr float kStairHorizScale = 1.5f;
-    if (agentPos.y >= wp.y + kStairVertPassed) {
-        return true;
-    }
-    if (agentPos.y >= wp.y - kStairVertAlign) {
-        const float relaxed = arriveRadius * kStairHorizScale;
-        if (navHorizontalDistSq(agentPos, wp) <= relaxed * relaxed) {
-            return true;
-        }
     }
 
     const int lastIndex = static_cast<int>(waypoints.size()) - 1;

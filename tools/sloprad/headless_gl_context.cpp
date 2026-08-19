@@ -205,8 +205,16 @@ bool InitHeadlessGLContext(int width, int height) {
     }
 
     rlLoadExtensions(reinterpret_cast<void*>(&loadGLProc));
+
     rlglInit(width, height);
     rlglReady = true;
+
+    using GetErrorFn = unsigned int (*)();
+    if (GetErrorFn getError =
+            reinterpret_cast<GetErrorFn>(rlGetProcAddress("glGetError"))) {
+        while (getError() != 0) {
+        }
+    }
 
     return true;
 }
@@ -227,14 +235,8 @@ void CloseHeadlessGLContext() {
         egl.Terminate(display);
         display = EGL_NO_DISPLAY;
     }
-    if (glLibrary != nullptr) {
-        dlclose(glLibrary);
-        glLibrary = nullptr;
-    }
-    if (eglLibrary != nullptr) {
-        dlclose(eglLibrary);
-        eglLibrary = nullptr;
-    }
+    glLibrary = nullptr;
+    eglLibrary = nullptr;
     egl = EglApi{};
 }
 

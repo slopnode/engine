@@ -9,7 +9,8 @@
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
 #include "render/fx_local_light.hpp"
-#include "render/view_sprite_muzzle.hpp"
+#include "render/view_sprite_attachment.hpp"
+#include "render/world_sprite_attachment.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -81,9 +82,9 @@ void applyWorldPoseAimed(flecs::entity entity, Vector3 position, Vector3 directi
     entity.set<GlobalTransformation>(global);
 }
 
-void syncFollowViewMuzzle(flecs::world& world) {
+void syncFollowAttachPoints(flecs::world& world) {
     world.each([&](flecs::entity entity,
-                   ParticleFollowViewMuzzle& follow,
+                   ParticleFollowAttachPoint& follow,
                    ParticleSystemInstance& instance,
                    LocalTransformation& local,
                    GlobalTransformation& global) {
@@ -96,7 +97,30 @@ void syncFollowViewMuzzle(flecs::world& world) {
             entity.destruct();
             return;
         }
-        const auto tip = resolveViewSpriteMuzzleWorld(world, host, follow.depth);
+        const auto tip = resolveViewSpriteAttachmentWorld(world, host, follow.name, follow.depth);
+        if (!tip) {
+            return;
+        }
+        writeWorldPose(local, global, *tip, 0.0f);
+    });
+}
+
+void syncFollowWorldAttachPoints(flecs::world& world) {
+    world.each([&](flecs::entity entity,
+                   ParticleFollowWorldAttachPoint& follow,
+                   ParticleSystemInstance& instance,
+                   LocalTransformation& local,
+                   GlobalTransformation& global) {
+        if (!instance.playing) {
+            entity.destruct();
+            return;
+        }
+        flecs::entity host = world.entity(static_cast<flecs::entity_t>(follow.host));
+        if (!host.is_valid()) {
+            entity.destruct();
+            return;
+        }
+        const auto tip = resolveWorldSpriteAttachmentWorld(world, host, follow.name);
         if (!tip) {
             return;
         }
@@ -159,17 +183,19 @@ flecs::entity spawnParticleSystemFp(
     AssetStore& assets,
     const char* id,
     flecs::entity hostViewSprite,
+    const std::string& attachName,
     std::string_view path,
     float depth,
     bool mapOwned) {
     if (!hostViewSprite.is_valid()) {
         return {};
     }
-    const auto tip = resolveViewSpriteMuzzleWorld(world, hostViewSprite, depth);
+    const auto tip = resolveViewSpriteAttachmentWorld(world, hostViewSprite, attachName, depth);
     if (!tip) {
         TraceLog(
             LOG_WARNING,
-            "spawnParticleSystemFp: host missing muzzle or view pose");
+            "spawnParticleSystemFp: host missing attach point '%s' or view pose",
+            attachName.c_str());
         return {};
     }
 
@@ -178,9 +204,42 @@ flecs::entity spawnParticleSystemFp(
     if (!entity.is_valid()) {
         return {};
     }
-    entity.set<ParticleFollowViewMuzzle>({
+    entity.set<ParticleFollowAttachPoint>({
         .host = static_cast<std::uint64_t>(hostViewSprite.id()),
+        .name = attachName,
         .depth = depth > 0.0f ? depth : 0.35f,
+    });
+    return entity;
+}
+
+flecs::entity spawnParticleSystemWorldAttach(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity hostSprite,
+    const std::string& attachName,
+    std::string_view path,
+    bool mapOwned) {
+    if (!hostSprite.is_valid()) {
+        return {};
+    }
+    const auto tip = resolveWorldSpriteAttachmentWorld(world, hostSprite, attachName);
+    if (!tip) {
+        TraceLog(
+            LOG_WARNING,
+            "spawnParticleSystemWorldAttach: host missing attach point '%s' or sprite pose",
+            attachName.c_str());
+        return {};
+    }
+
+    flecs::entity entity =
+        spawnParticleSystem(world, assets, id, *tip, 0.0f, path, true, mapOwned);
+    if (!entity.is_valid()) {
+        return {};
+    }
+    entity.set<ParticleFollowWorldAttachPoint>({
+        .host = static_cast<std::uint64_t>(hostSprite.id()),
+        .name = attachName,
     });
     return entity;
 }
@@ -194,7 +253,8 @@ void updateParticleSystems(
         return;
     }
 
-    syncFollowViewMuzzle(world);
+    syncFollowAttachPoints(world);
+    syncFollowWorldAttachPoints(world);
 
     ParticleRaycastFn raycast;
     if (physics != nullptr) {
@@ -222,7 +282,7 @@ void drawParticleSystems(
     items.reserve(256);
 
     world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
-        if (entity.has<ParticleFollowViewMuzzle>()) {
+        if (entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
         appendParticleDrawItems(instance, assets, camera, items);
@@ -259,7 +319,7 @@ void drawMuzzleParticleSystems(
     items.reserve(64);
 
     world.each([&](flecs::entity entity, const ParticleSystemInstance& instance) {
-        if (!entity.has<ParticleFollowViewMuzzle>()) {
+        if (!entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
         appendParticleDrawItems(instance, assets, camera, items);
@@ -278,7 +338,8 @@ void drawMuzzleParticleSystems(
 
 void registerParticleModule(flecs::world& world, AssetStore& assets) {
     world.component<ParticleSystemInstance>();
-    world.component<ParticleFollowViewMuzzle>();
+    world.component<ParticleFollowAttachPoint>();
+    world.component<ParticleFollowWorldAttachPoint>();
 
     world.system("ParticleSystemUpdate")
         .kind(flecs::OnUpdate)

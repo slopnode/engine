@@ -26,6 +26,9 @@ bool faceIdBelongsToAnyMoverBrush(
 
 void eraseFacFacesForMoverBrushes(FacFile& fac, const std::unordered_set<std::string>& brushIds);
 
+/** Faces belonging to any of @p brushIds (inverse of eraseFacFacesForMoverBrushes). */
+FacFile extractFacFacesForMoverBrushes(const FacFile& fac, const std::unordered_set<std::string>& brushIds);
+
 const Brush* findBrushById(const std::vector<Brush>& brushes, std::string_view id);
 
 }

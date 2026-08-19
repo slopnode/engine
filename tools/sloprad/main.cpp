@@ -131,6 +131,28 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.emitterGridMaxSize = parsed;
+        } else if (arg == "--exact-emission-grid-max-size") {
+            const char* value = needValue("--exact-emission-grid-max-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 256;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.exactEmissionGridMaxSize = parsed;
+        } else if (arg == "--exact-emission-max-samples") {
+            const char* value = needValue("--exact-emission-max-samples");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 8192;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.exactEmissionMaxSamples = parsed;
         } else if (arg == "--sun-shadow-softness") {
             const char* value = needValue("--sun-shadow-softness");
             if (value == nullptr) {
@@ -207,7 +229,8 @@ int main(int argc, char* argv[]) {
             << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
             << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n"
             << "       [--emitter-direct-samples N] [--emitter-grid-luxels-per-meter N]\n"
-            << "       [--emitter-grid-max-size N] [--sun-shadow-softness N]\n"
+            << "       [--emitter-grid-max-size N] [--exact-emission-grid-max-size N]\n"
+            << "       [--exact-emission-max-samples N] [--sun-shadow-softness N]\n"
             << "       [--seam-stitch-radius N]\n"
             << "       [--gpu|--cpu]\n"
             << "       [--gpu-safe|--gpu-fast]\n";

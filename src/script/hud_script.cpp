@@ -276,6 +276,59 @@ s7_pointer g_hud_text(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_hud_draw_eye(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
+    HudDrawList* list = hudList();
+    if (list == nullptr) {
+        return s7_f(sc);
+    }
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+    if (!readNumber(sc, args, x) || !readNumber(sc, args, y) || !readNumber(sc, args, w) ||
+        !readNumber(sc, args, h)) {
+        return s7_wrong_type_arg_error(sc, "hud-draw-eye", 1, args, "x y w h numbers");
+    }
+
+    std::string maskPath;
+    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+        maskPath = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+
+    if (g_hudWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_hudWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<ExtraEye>()) {
+        TraceLog(LOG_WARNING, "SCOPE-DEBUG: hud-draw-eye: no ExtraEye on Player (valid=%d)",
+                 player.is_valid());
+        return s7_f(sc);
+    }
+    const ExtraEye& eye = player.get<ExtraEye>();
+    if (eye.target.id == 0) {
+        TraceLog(LOG_WARNING, "SCOPE-DEBUG: hud-draw-eye: target.id==0 active=%d w=%d h=%d",
+                 eye.active, eye.width, eye.height);
+        return s7_f(sc);
+    }
+    TraceLog(LOG_INFO, "SCOPE-DEBUG: hud-draw-eye: drawing target id=%u tex=%dx%d",
+             eye.target.id, eye.target.texture.width, eye.target.texture.height);
+
+    HudCmd cmd{};
+    cmd.kind = HudCmdKind::Texture;
+    resolveCmdOrigin(*list, x, y, cmd.x, cmd.y);
+    cmd.w = w;
+    cmd.h = h;
+    cmd.rawTexture = eye.target.texture;
+    cmd.maskPath = maskPath;
+    list->commands.push_back(std::move(cmd));
+    return s7_t(sc);
+}
+
 } // namespace
 
 void setHudCanvasOverride(int width, int height) {
@@ -307,6 +360,8 @@ void bindHudApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "hud-image", g_hud_image, 3, 6, false,
                        "(hud-image tex-path x y [w h] [r g b a])");
     s7_define_function(scheme, "hud-text", g_hud_text, 4, 4, false, "(hud-text str x y size [r g b a])");
+    s7_define_function(scheme, "hud-draw-eye", g_hud_draw_eye, 4, 1, false,
+                       "(hud-draw-eye x y w h [mask-path])");
 }
 
 }

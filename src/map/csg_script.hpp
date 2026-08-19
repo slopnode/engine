@@ -29,6 +29,7 @@ struct LoadedMap {
     std::unordered_set<std::string> moverBrushIds;
     BspTree bsp{};
     FacFile fac{};
+    FacFile doorFac{}; /**< Movable-brush faces snapshotted before erasure from @c fac. */
     PvsFile pvs{};
     RadFile rad{};
     MapMeta meta{};
@@ -40,6 +41,7 @@ struct LoadedMap {
     std::vector<int> transparentMeshIndices;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
+    std::vector<int> twoSidedMeshIndices;
     Shader skyShader{};
     MaterialAnimTargets materialAnimTargets{};
 };

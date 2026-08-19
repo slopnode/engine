@@ -10,3 +10,4 @@
 - @subpage sloprepl
 - @subpage blender
 - @subpage vscode
+- @subpage nvim
