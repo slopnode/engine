@@ -2457,13 +2457,15 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
             continue;
         }
         slopengine::Brush copy = d.brushes[static_cast<std::size_t>(index)];
+        const std::string oldId = copy.id;
         copy.id = editor.allocateBrushId();
-        if (copy.box) {
-            for (slopengine::BrushFace& face : copy.faces) {
-                const auto slash = face.id.rfind('/');
-                if (slash != std::string::npos) {
-                    face.id = copy.id + face.id.substr(slash);
-                }
+        const std::string oldPrefix = oldId + "/";
+        const std::string newPrefix = copy.id + "/";
+        for (slopengine::BrushFace& face : copy.faces) {
+            if (face.id.rfind(oldPrefix, 0) == 0) {
+                face.id = newPrefix + face.id.substr(oldPrefix.size());
+            } else if (face.id == oldId) {
+                face.id = copy.id;
             }
         }
         role = copy.role;

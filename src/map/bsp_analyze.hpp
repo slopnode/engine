@@ -16,6 +16,7 @@ struct MapHullAnalysis {
     std::vector<std::string> leakPathFaceIds;
     std::vector<std::string> inferredNodrawFaceIds;
     std::vector<std::string> detailOutsideWarnings;
+    std::vector<std::string> duplicateFaceIdWarnings;
 };
 
 /** Analyzes whether hull brushes seal interior empty space. */
