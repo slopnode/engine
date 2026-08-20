@@ -172,6 +172,13 @@ Brush makeBrushBox(
     const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides,
     BrushRole role = BrushRole::Hull);
 
+/** If @p brush's current faces geometrically form an axis-aligned box
+ *  (regardless of its current @c box flag), rebuilds it via makeBrushBox
+ *  (preserving id/role/blocks/door/water and each face's material/uv/nodraw
+ *  by side) and sets @c box = true. Leaves @p brush untouched and returns
+ *  false otherwise. */
+bool reclassifyBrushAsBox(Brush& brush);
+
 /** Builds a convex brush from faces, or nullopt with @p errorOut. */
 std::optional<Brush> makeBrushConvex(
     std::string id,

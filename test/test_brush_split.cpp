@@ -110,6 +110,67 @@ void runBrushSplitTests() {
         const bool frontIsTetra = split->front.faces.size() == 4;
         const bool backIsTetra = split->back.faces.size() == 4;
         CHECK(frontIsTetra || backIsTetra);
+
+        // A diagonal corner clip destroys the box shape on both sides.
+        CHECK(!split->front.box);
+        CHECK(!split->back.box);
+    }
+
+    {
+        std::vector<std::pair<BrushBoxSide, BrushFace>> overrides;
+        auto matFace = [](const char* mat) {
+            BrushFace f{};
+            f.material = mat;
+            return f;
+        };
+        overrides.emplace_back(BrushBoxSide::Top, matFace("mat/top"));
+        overrides.emplace_back(BrushBoxSide::Bottom, matFace("mat/bottom"));
+        overrides.emplace_back(BrushBoxSide::North, matFace("mat/north"));
+        overrides.emplace_back(BrushBoxSide::South, matFace("mat/south"));
+        overrides.emplace_back(BrushBoxSide::East, matFace("mat/east"));
+        overrides.emplace_back(BrushBoxSide::West, matFace("mat/west"));
+        const Brush box =
+            makeBrushBox("multibox", {0.0f, 0.0f, 0.0f}, {4.0f, 4.0f, 4.0f}, "mat/default", overrides);
+
+        const Vector3 planePoint{2.0f, 0.0f, 0.0f};
+        const Vector3 planeNormal{1.0f, 0.0f, 0.0f};
+        std::string error;
+        auto split =
+            splitBrushByPlane(box, planePoint, planeNormal, makeIdAllocator("axisclip"), error);
+        CHECK(split.has_value());
+        if (!split) {
+            return;
+        }
+        CHECK(error.empty());
+
+        // An axis-aligned clip of a box keeps both halves box-shaped, not
+        // generic convex, so downstream tools (punch/hollow) still accept
+        // them and the map writer serializes them as brush-box.
+        CHECK(split->front.box);
+        CHECK(split->back.box);
+        CHECK(split->front.faces.size() == 6);
+        CHECK(split->back.faces.size() == 6);
+
+        CHECK(split->front.mins.x == 2.0f);
+        CHECK(split->front.maxs.x == 4.0f);
+        CHECK(split->back.mins.x == 0.0f);
+        CHECK(split->back.maxs.x == 2.0f);
+
+        bool frontHasEastMat = false;
+        for (const BrushFace& face : split->front.faces) {
+            if (face.material == "mat/east") {
+                frontHasEastMat = true;
+            }
+        }
+        CHECK(frontHasEastMat);
+
+        bool backHasWestMat = false;
+        for (const BrushFace& face : split->back.faces) {
+            if (face.material == "mat/west") {
+                backHasWestMat = true;
+            }
+        }
+        CHECK(backHasWestMat);
     }
 
     {

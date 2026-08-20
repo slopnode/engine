@@ -782,7 +782,7 @@ void drawScene(
     rlDisableDepthMask();
     createTool.drawPreview(eye, lineWidth);
     placeTool.drawPreview(eye, lineWidth);
-    punchTool.drawPreview();
+    punchTool.drawPreview(eye, lineWidth);
     clipTool.drawPreview(editor, eye, lineWidth);
     rlDrawRenderBatchActive();
     rlEnableDepthMask();

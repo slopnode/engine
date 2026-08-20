@@ -1619,6 +1619,120 @@ BrushBoxSide brushBoxSideFromNormal(Vector3 normal) {
     return normal.x >= 0.0f ? BrushBoxSide::East : BrushBoxSide::West;
 }
 
+namespace {
+
+/** True when @p faces exactly forms an axis-aligned box: 6 planar quads,
+ *  one per +-X/+-Y/+-Z direction, each lying on the vertex-extent AABB.
+ *  A convex brush with exactly this face set is necessarily that box
+ *  (convexity makes each face the full AABB rectangle, not a sub-region). */
+bool facesFormAxisAlignedBox(const std::vector<BrushFace>& faces, Vector3& outMins, Vector3& outMaxs) {
+    if (faces.size() != 6) {
+        return false;
+    }
+
+    outMins = {
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+    };
+    outMaxs = {
+        std::numeric_limits<float>::lowest(),
+        std::numeric_limits<float>::lowest(),
+        std::numeric_limits<float>::lowest(),
+    };
+    for (const BrushFace& face : faces) {
+        for (const Vector3& v : face.vertices) {
+            outMins.x = std::min(outMins.x, v.x);
+            outMins.y = std::min(outMins.y, v.y);
+            outMins.z = std::min(outMins.z, v.z);
+            outMaxs.x = std::max(outMaxs.x, v.x);
+            outMaxs.y = std::max(outMaxs.y, v.y);
+            outMaxs.z = std::max(outMaxs.z, v.z);
+        }
+    }
+    if (outMaxs.x - outMins.x <= kPlaneEps || outMaxs.y - outMins.y <= kPlaneEps ||
+        outMaxs.z - outMins.z <= kPlaneEps) {
+        return false;
+    }
+
+    bool seenSide[6] = {};
+    for (const BrushFace& face : faces) {
+        if (face.vertices.size() != 4) {
+            return false;
+        }
+        const Vector3 n = faceNormalFromVertices(face.vertices);
+        int axis = -1;
+        float sign = 0.0f;
+        if (std::fabs(std::fabs(n.x) - 1.0f) < 1e-3f) {
+            axis = 0;
+            sign = n.x;
+        } else if (std::fabs(std::fabs(n.y) - 1.0f) < 1e-3f) {
+            axis = 1;
+            sign = n.y;
+        } else if (std::fabs(std::fabs(n.z) - 1.0f) < 1e-3f) {
+            axis = 2;
+            sign = n.z;
+        } else {
+            return false;
+        }
+        const int sideIndex = axis * 2 + (sign > 0.0f ? 1 : 0);
+        if (seenSide[sideIndex]) {
+            return false;
+        }
+        seenSide[sideIndex] = true;
+
+        const float lo = axis == 0 ? outMins.x : axis == 1 ? outMins.y : outMins.z;
+        const float hi = axis == 0 ? outMaxs.x : axis == 1 ? outMaxs.y : outMaxs.z;
+        const float expected = sign > 0.0f ? hi : lo;
+        for (const Vector3& v : face.vertices) {
+            const float coord = axis == 0 ? v.x : axis == 1 ? v.y : v.z;
+            if (std::fabs(coord - expected) > kPlaneEps) {
+                return false;
+            }
+        }
+    }
+    for (bool seen : seenSide) {
+        if (!seen) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+bool reclassifyBrushAsBox(Brush& brush) {
+    Vector3 boxMins{};
+    Vector3 boxMaxs{};
+    if (!facesFormAxisAlignedBox(brush.faces, boxMins, boxMaxs)) {
+        return false;
+    }
+
+    std::vector<std::pair<BrushBoxSide, BrushFace>> overrides;
+    overrides.reserve(brush.faces.size());
+    for (const BrushFace& face : brush.faces) {
+        BrushFace overrideFace = face;
+        overrideFace.id.clear(); // let makeBrushBox assign the canonical "<id>/<side>" id.
+        overrides.emplace_back(
+            brushBoxSideFromNormal(faceNormalFromVertices(face.vertices)), std::move(overrideFace));
+    }
+    const std::string material = brush.faces.empty() ? std::string{} : brush.faces.front().material;
+
+    const std::string id = brush.id;
+    const BrushRole role = brush.role;
+    const std::uint8_t blocks = brush.blocks;
+    const BrushDoor door = brush.door;
+    const BrushWater water = brush.water;
+
+    brush = makeBrushBox(id, boxMins, boxMaxs, material, overrides, role);
+    brush.blocks = blocks;
+    brush.door = door;
+    brush.water = water;
+    syncBrushNocollide(brush);
+    recomputeBrushBounds(brush);
+    return true;
+}
+
 std::optional<BrushSplitResult> splitBrushByPlane(
     const Brush& source,
     Vector3 planePoint,
@@ -1706,6 +1820,7 @@ std::optional<BrushSplitResult> splitBrushByPlane(
             ensureFaceUvAxes(face);
         }
         recomputeBrushBounds(brush);
+        reclassifyBrushAsBox(brush);
         return brush;
     };
 
