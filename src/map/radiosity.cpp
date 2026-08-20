@@ -107,7 +107,16 @@ float luxelFaceParam(int index, int luxelCount) {
     if (luxelCount <= 1) {
         return 0.5f;
     }
-    return static_cast<float>(index) / static_cast<float>(luxelCount - 1);
+    // Half-texel-centered, matching the atlas packing convention (packLightmapCharts computes
+    // u0 as (cursorX + 0.5) / atlasSize, not cursorX / atlasSize). The old index/(count-1) form
+    // put the border row/column's *sample point* exactly on the face's true geometric edge -
+    // i.e. exactly on any seam shared with a neighboring brush (a closed door, an adjacent wall
+    // segment). A shadow ray fired from a point coincident with the occluder's own boundary is a
+    // classic acne case: floating-point rounding can put the ray origin a hair on the wrong side
+    // of the occluder, so it never registers as blocked. That produced thin bright edge lines on
+    // surfaces that should read as fully shadowed. Insetting every sample by half a texel keeps
+    // border luxels safely inside the face instead of balanced exactly on its silhouette.
+    return (static_cast<float>(index) + 0.5f) / static_cast<float>(luxelCount);
 }
 
 Vector3 planePointFromUv(

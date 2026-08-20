@@ -899,13 +899,28 @@ void buildSunBasis(vec3 toLight, out vec3 tangentOut, out vec3 bitangentOut) {
     bitangentOut = normalize(cross(toLight, tangentOut));
 }
 
+uint hashU(uint x) {
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float hashToUnit(uint x) {
+    return float(hashU(x) & 0x00ffffffu) / float(0x01000000u);
+}
+
 vec3 sampleSunRayDirection(
     vec3 toLight,
     vec3 tangent,
     vec3 bitangent,
     float angularSpreadRad,
     int rayIndex,
-    int rayCount) {
+    int rayCount,
+    float jitterU,
+    float jitterV) {
     if (rayCount <= 1 || angularSpreadRad <= 0.0) {
         return toLight;
     }
@@ -913,8 +928,13 @@ vec3 sampleSunRayDirection(
     int strataM = max(1, (rayCount + strataN - 1) / strataN);
     int sy = rayIndex / strataN;
     int sx = rayIndex % strataN;
-    float fu = (float(sx) + 0.5) / float(strataN);
-    float fv = (float(sy) + 0.5) / float(strataM);
+    // Cranley-Patterson rotation, unique per luxel (see caller) - matches the CPU fallback in
+    // light_occlusion.cpp's sampleSunRayDirection. Without it every luxel samples the identical
+    // fixed stratified pattern, so a penumbra's per-stratum hit/miss boundary falls on the same
+    // coherent line across many texels, producing a repeating hatch ("cross-stitch") pattern in
+    // soft shadow edges instead of smooth (or at least incoherently noisy) falloff.
+    float fu = fract((float(sx) + 0.5) / float(strataN) + jitterU);
+    float fv = fract((float(sy) + 0.5) / float(strataM) + jitterV);
     float r = sqrt(fu);
     float theta = fv * 6.28318530718;
     float dx = r * cos(theta);
@@ -942,6 +962,15 @@ float sunSkyVisibility(
         return 1.0;
     }
 
+    // Per-luxel seed (position + face) so neighboring texels rotate the stratified sun-sample
+    // pattern differently - see the comment on sampleSunRayDirection for why this matters.
+    uint sunSeed = hashU(uint(luxelFaceIndex))
+        ^ hashU(floatBitsToUint(luxelPos.x))
+        ^ hashU(floatBitsToUint(luxelPos.y) * 0x9e3779b9u)
+        ^ hashU(floatBitsToUint(luxelPos.z) * 0x85ebca6bu);
+    float jitterU = hashToUnit(sunSeed);
+    float jitterV = hashToUnit(sunSeed ^ 0x27d4eb2du);
+
     float hits = 0.0;
     vec3 tintSum = vec3(0.0);
     for (int ray = 0; ray < params.sunRayCount; ++ray) {
@@ -951,7 +980,9 @@ float sunSkyVisibility(
             bitangent,
             params.sunAngularSpread,
             ray,
-            params.sunRayCount);
+            params.sunRayCount,
+            jitterU,
+            jitterV);
         int hitFace = -1;
         vec3 rayTint = vec3(1.0);
         if (raycastSunAny(luxelPos, rayDir, params.sunRayMaxDistance, luxelFaceIndex, -1, hitFace, rayTint)

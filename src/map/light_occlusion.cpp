@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 
 namespace slopengine {
@@ -11,6 +12,28 @@ namespace slopengine {
 namespace {
 
 constexpr float kRayAdvanceEpsilon = 0.001f;
+
+// Mirrors hashU/hashToUnit in rad_bounce_comp.glsl so the CPU fallback path
+// can apply the identical per-luxel Cranley-Patterson rotation the GPU sun
+// sampler uses (see sampleSunRayDirection below).
+std::uint32_t hashU(std::uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float hashToUnit(std::uint32_t x) {
+    return static_cast<float>(hashU(x) & 0x00ffffffu) / static_cast<float>(0x01000000u);
+}
+
+std::uint32_t floatBits(float v) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+    return bits;
+}
 
 float dot3(Vector3 a, Vector3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -85,7 +108,9 @@ Vector3 sampleSunRayDirection(
     Vector3 bitangent,
     float angularSpreadRad,
     int rayIndex,
-    int rayCount) {
+    int rayCount,
+    float jitterU,
+    float jitterV) {
     if (rayCount <= 1 || angularSpreadRad <= 0.0f) {
         return toLight;
     }
@@ -94,8 +119,14 @@ Vector3 sampleSunRayDirection(
     const int strataM = std::max(1, (rayCount + strataN - 1) / strataN);
     const int sy = rayIndex / strataN;
     const int sx = rayIndex % strataN;
-    const float fu = (static_cast<float>(sx) + 0.5f) / static_cast<float>(strataN);
-    const float fv = (static_cast<float>(sy) + 0.5f) / static_cast<float>(strataM);
+    // Cranley-Patterson toroidal rotation, unique per luxel (see caller): without it every
+    // luxel samples the identical fixed stratified pattern, so a penumbra's hit/miss boundary
+    // for each stratum falls on the same coherent line across many texels instead of varying
+    // per-texel - producing a repeating hatch/"cross-stitch" band pattern in soft shadow edges
+    // rather than smooth (or at least incoherently noisy) falloff.
+    auto wrap01 = [](float v) { return v - std::floor(v); };
+    const float fu = wrap01((static_cast<float>(sx) + 0.5f) / static_cast<float>(strataN) + jitterU);
+    const float fv = wrap01((static_cast<float>(sy) + 0.5f) / static_cast<float>(strataM) + jitterV);
     const float r = std::sqrt(fu);
     const float theta = fv * 6.28318530718f;
     const float dx = r * std::cos(theta);
@@ -354,6 +385,15 @@ float sunSkyVisibilityWithAlphaOcclusion(
         return 0.0f;
     }
 
+    // Per-luxel seed (position + face) so neighboring texels rotate the stratified sun-sample
+    // pattern differently - see the comment on sampleSunRayDirection for why this matters.
+    const std::uint32_t sunSeed = hashU(static_cast<std::uint32_t>(luxelFaceIndex))
+        ^ hashU(floatBits(luxelPos.x))
+        ^ hashU(floatBits(luxelPos.y) * 0x9e3779b9u)
+        ^ hashU(floatBits(luxelPos.z) * 0x85ebca6bu);
+    const float jitterU = hashToUnit(sunSeed);
+    const float jitterV = hashToUnit(sunSeed ^ 0x27d4eb2du);
+
     float hits = 0.0f;
     Vector3 tintSum{0.0f, 0.0f, 0.0f};
     for (int ray = 0; ray < sunParams.rayCount; ++ray) {
@@ -363,7 +403,9 @@ float sunSkyVisibilityWithAlphaOcclusion(
             bitangent,
             sunParams.angularSpreadRad,
             ray,
-            sunParams.rayCount);
+            sunParams.rayCount,
+            jitterU,
+            jitterV);
         Vector3 rayTint{1.0f, 1.0f, 1.0f};
         const auto hit = raycastSunWithRefraction(
             occlusionBvh,
