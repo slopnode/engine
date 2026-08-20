@@ -282,6 +282,13 @@ s7_pointer g_angle(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "angle", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_axis(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "axis", 1, args, "pitch|yaw|roll");
+    }
+    return makeTaggedList(sc, "axis", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_hinge(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "hinge", 1, args, "thing-id");
@@ -350,6 +357,15 @@ bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
         } else if (std::strcmp(tag, "travel") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
             door.travel = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
             door.haveTravel = true;
+        } else if (std::strcmp(tag, "axis") == 0 && s7_is_pair(args)) {
+            std::string name;
+            if (readString(sc, s7_car(args), name)) {
+                DoorAxis axis = DoorAxis::Yaw;
+                if (parseDoorAxisName(name, axis)) {
+                    door.axis = axis;
+                    door.haveAxis = true;
+                }
+            }
         } else if (std::strcmp(tag, "hinge") == 0 && s7_is_pair(args)) {
             readString(sc, s7_car(args), door.hingeThingId);
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(args)) {
@@ -1051,6 +1067,7 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "motion", g_motion, 1, 0, false, "(motion raise|slide|swing)");
     s7_define_function(sc, "travel", g_travel, 1, 0, false, "(travel distance)");
     s7_define_function(sc, "angle", g_angle, 1, 0, false, "(angle radians)");
+    s7_define_function(sc, "axis", g_axis, 1, 0, false, "(axis pitch|yaw|roll)");
     s7_define_function(sc, "hinge", g_hinge, 1, 0, false, "(hinge thing-id)");
     s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt string)");

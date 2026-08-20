@@ -113,6 +113,7 @@ int App::run() {
 }
 
 void App::init_window() {
+    SetTraceLogLevel(config_.verbose ? LOG_INFO : LOG_WARNING);
     prepareGraphicsInit(userSettings_.graphics);
     InitWindow(userSettings_.graphics.width, userSettings_.graphics.height, "slopengine");
     SetExitKey(KEY_NULL);

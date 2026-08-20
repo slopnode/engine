@@ -625,6 +625,36 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
             }
         }
 
+        constexpr slopengine::DoorAxis kAxes[] = {
+            slopengine::DoorAxis::Pitch,
+            slopengine::DoorAxis::Yaw,
+            slopengine::DoorAxis::Roll,
+        };
+        const auto axisCommon = commonValue<slopengine::DoorAxis>(
+            doc, targets, [](const slopengine::Brush& b) { return b.door.axis; });
+        const char* axisPreview =
+            axisCommon.has_value() ? slopengine::doorAxisName(*axisCommon) : "—";
+        if (ImGui::BeginCombo("Swing axis", axisPreview)) {
+            for (slopengine::DoorAxis axis : kAxes) {
+                const bool selected = axisCommon.has_value() && *axisCommon == axis;
+                if (ImGui::Selectable(slopengine::doorAxisName(axis), selected)) {
+                    if (forEachBrush(editor, targets, [axis](slopengine::Brush& brush, slopengine::BrushRole) {
+                            if (brush.role != slopengine::BrushRole::Door) {
+                                return;
+                            }
+                            brush.door.axis = axis;
+                            brush.door.haveAxis = true;
+                        })) {
+                        result.changed = true;
+                    }
+                }
+                if (selected) {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+
         const auto hingeCommon = commonValue<std::string>(
             doc, targets, [](const slopengine::Brush& b) { return b.door.hingeThingId; });
         const char* hingePreview = hingeCommon.has_value()

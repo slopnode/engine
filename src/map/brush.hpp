@@ -54,6 +54,13 @@ enum class DoorMotion {
     Swing,
 };
 
+/** Rotation axis for a Swing door, evaluated in the brush's closed-pose local space. */
+enum class DoorAxis {
+    Pitch, /**< Tilts around the local X axis, e.g. a hatch/ramp rotating up. */
+    Yaw, /**< Rotates around the local vertical axis, e.g. a standard swinging door. */
+    Roll, /**< Rotates around the local Z axis. */
+};
+
 /** Underwater screen-effect metadata when role is Water. Read by the runtime
  *  into a MapWaterVolumes entry; unauthored fields keep their engine defaults. */
 struct BrushWater {
@@ -74,6 +81,8 @@ struct BrushDoor {
     bool haveAutoClose = false;
     float angle = 1.5707963267948966f;
     bool haveAngle = false;
+    DoorAxis axis = DoorAxis::Yaw;
+    bool haveAxis = false;
     float travel = 0.0f;
     bool haveTravel = false;
     std::string hingeThingId;
@@ -119,6 +128,8 @@ const char* brushRoleName(BrushRole role);
 bool parseBrushRoleName(std::string_view name, BrushRole& out);
 const char* doorMotionName(DoorMotion motion);
 bool parseDoorMotionName(std::string_view name, DoorMotion& out);
+const char* doorAxisName(DoorAxis axis);
+bool parseDoorAxisName(std::string_view name, DoorAxis& out);
 bool brushRoleContributesSplits(BrushRole role);
 bool brushRoleSeals(BrushRole role);
 bool brushRoleEmitsVisFaces(BrushRole role);

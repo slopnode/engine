@@ -1,13 +1,13 @@
 @page bsp (.bsp) Binary space partition
 
-Magic 0x32505342 (BSP2), version 3. 
+Magic 0x32505342 (BSP2), version 4. 
 
 # Header {#bsp-header}
 
 | Field | Type | Notes |
 |-------|------|-------|
 | magic | u32 | 0x32505342 |
-| version | u32 | 3 |
+| version | u32 | 4 |
 | root | i32 | Root node or leaf index |
 | boundsMins | Vector3 | Tree AABB |
 | boundsMaxs | Vector3 | Tree AABB |
@@ -39,7 +39,7 @@ Each leaf:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| contents | u32 | Bit flags: Solid 1<<0, Glass 1<<1, Water 1<<2, Trigger 1<<3 |
+| contents | u32 | Bit flags: Solid 1<<0, Glass 1<<1, Water 1<<2, Trigger 1<<3, Door 1<<4 |
 | mins | Vector3 | Leaf AABB |
 | maxs | Vector3 | Leaf AABB |
 | faceCount | u32 |  |
@@ -61,6 +61,7 @@ Each portal:
 | leafA | i32 |  |
 | leafB | i32 |  |
 | vertices | Polygon | Portal polygon |
+| doorBrushIdIndex | u32 | Index into string table; brush id of the Door whose closed shape produced this portal, or the empty string (index 0) if none (v4+) |
 
 # Surface faces {#surface-faces}
 

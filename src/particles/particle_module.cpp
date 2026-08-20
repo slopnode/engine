@@ -43,7 +43,7 @@ void writeWorldPose(
     const Matrix s = MatrixScale(local.scale.x, local.scale.y, local.scale.z);
     const Matrix r = QuaternionToMatrix(local.rotation);
     const Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
-    global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+    global.matrix = MatrixMultiply(s, MatrixMultiply(r, t));
 }
 
 void writeWorldPoseAimed(
@@ -63,7 +63,7 @@ void writeWorldPoseAimed(
     const Matrix s = MatrixScale(local.scale.x, local.scale.y, local.scale.z);
     const Matrix r = QuaternionToMatrix(local.rotation);
     const Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
-    global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+    global.matrix = MatrixMultiply(s, MatrixMultiply(r, t));
 }
 
 void applyWorldPose(flecs::entity entity, Vector3 position, float yaw) {

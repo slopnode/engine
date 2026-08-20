@@ -201,7 +201,7 @@ flecs::entity spawnDynamicLight(
     Matrix r = QuaternionToMatrix(local.rotation);
     Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
     GlobalTransformation global{};
-    global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+    global.matrix = MatrixMultiply(s, MatrixMultiply(r, t));
     entity.add<WorldSpace>()
         .set<LocalTransformation>(local)
         .set<GlobalTransformation>(global)

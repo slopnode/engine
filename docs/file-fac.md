@@ -1,13 +1,13 @@
 @page fac (.fac) Faces
 
-Magic 0x31434146 (FAC1), version 2.
+Magic 0x31434146 (FAC1), version 3.
 
 # Header {#fac-header}
 
 | Field | Type | Notes |
 |-------|------|-------|
 | magic | u32 | 0x31434146 |
-| version | u32 | 2 (or 1) |
+| version | u32 | 3 (or 2, or 1) |
 | faceCount | u32 |  |
 
 # Faces {#faces}
@@ -24,6 +24,7 @@ Each face (repeated faceCount times):
 | uvVAxis | Vector3 |  |
 | uvLock | u8 | 0 or 1 |
 | interiorLeaf | i32 | Hint leaf index |
+| transparent | u8 | 0 or 1; present only when version >= 3. See [Transparent alpha occlusion](#transparent-alpha-occlusion-sloprad) |
 | idIndex | u32 | String table |
 | sourceFaceIdIndex | u32 | String table |
 | materialIndex | u32 | String table |

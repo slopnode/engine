@@ -566,6 +566,34 @@ bool parseDoorMotionName(std::string_view name, DoorMotion& out) {
     return false;
 }
 
+const char* doorAxisName(DoorAxis axis) {
+    switch (axis) {
+    case DoorAxis::Pitch:
+        return "pitch";
+    case DoorAxis::Yaw:
+        return "yaw";
+    case DoorAxis::Roll:
+        return "roll";
+    }
+    return "yaw";
+}
+
+bool parseDoorAxisName(std::string_view name, DoorAxis& out) {
+    if (name == "pitch") {
+        out = DoorAxis::Pitch;
+        return true;
+    }
+    if (name == "yaw") {
+        out = DoorAxis::Yaw;
+        return true;
+    }
+    if (name == "roll") {
+        out = DoorAxis::Roll;
+        return true;
+    }
+    return false;
+}
+
 bool brushRoleContributesSplits(BrushRole role) {
     switch (role) {
     case BrushRole::Hull:

@@ -20,6 +20,18 @@ const Thing* findThingById(const ThingDocument* doc, std::string_view id) {
     return nullptr;
 }
 
+MoverRotAxis toMoverRotAxis(DoorAxis axis) {
+    switch (axis) {
+    case DoorAxis::Pitch:
+        return MoverRotAxis::Pitch;
+    case DoorAxis::Roll:
+        return MoverRotAxis::Roll;
+    case DoorAxis::Yaw:
+    default:
+        return MoverRotAxis::Yaw;
+    }
+}
+
 } // namespace
 
 void configureBrushDoorMover(
@@ -62,7 +74,7 @@ void configureBrushDoorMover(
     case DoorMotion::Swing: {
         mover.openAngleRadians =
             door.haveAngle ? door.angle : PI * 0.5f;
-        mover.rotAxis = MoverRotAxis::Yaw;
+        mover.rotAxis = toMoverRotAxis(door.axis);
         if (!door.hingeThingId.empty()) {
             const Thing* hinge = findThingById(things, door.hingeThingId);
             if (hinge != nullptr && hinge->haveAt) {

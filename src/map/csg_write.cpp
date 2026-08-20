@@ -162,6 +162,9 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     if (door.haveAngle) {
         out << "    (angle " << formatFloat(door.angle) << ")\n";
     }
+    if (door.haveAxis) {
+        out << "    (axis \"" << doorAxisName(door.axis) << "\")\n";
+    }
     if (door.haveTravel) {
         out << "    (travel " << formatFloat(door.travel) << ")\n";
     }
