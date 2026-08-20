@@ -1,4 +1,5 @@
 #include "assets/asset_store.hpp"
+#include "core/log.hpp"
 #include "game/app_config.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
@@ -20,7 +21,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    Log::init(config->verbose ? LogLevel::Info : LogLevel::Warning);
+    Log::addDefaultConsoleSink();
     AssetStore assets(*config);
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {

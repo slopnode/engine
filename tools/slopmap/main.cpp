@@ -22,6 +22,7 @@
 #include "render/skybox.hpp"
 #include "render/skybox_render.hpp"
 #include "assets/asset_store.hpp"
+#include "core/log.hpp"
 #include "core/package.hpp"
 #include "core/package_meta.hpp"
 #include "core/package_search.hpp"
@@ -220,7 +221,8 @@ void printUsage() {
         << "  --base-game   Base game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory that receives map/prefab saves (required)\n"
-        << "  --map         Optional map under maps/ to open (default: new untitled map)\n";
+        << "  --map         Optional map under maps/ to open (default: new untitled map)\n"
+        << "  --verbose     Raise the trace log level to show INFO messages\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -267,6 +269,10 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
                 return std::nullopt;
             }
             config.mount.map = value;
+            continue;
+        }
+        if (arg == "--verbose") {
+            config.mount.verbose = true;
             continue;
         }
         return std::nullopt;
@@ -1010,7 +1016,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Info : slopengine::LogLevel::Warning);
+    slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1600, 900, "slopmap");
     if (!IsWindowReady()) {

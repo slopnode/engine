@@ -75,6 +75,7 @@ add_subdirectory(lib)
 
 set(SLOPLIB_SOURCES
     src/core/engine_package.cpp
+    src/core/log.cpp
     src/core/package.cpp
     src/core/package_discovery.cpp
     src/core/package_meta.cpp

@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+struct ImFont;
+
 namespace slopengine {
 
 /** Static session info set once at startup, for display in the UI.
@@ -22,6 +24,7 @@ struct ConsoleState {
     bool open = false;
     char inputBuffer[512]{};
     std::vector<std::string> log;
+    ImFont* monoFont = nullptr;
 };
 
 /** Singleton set when the player requests application quit.

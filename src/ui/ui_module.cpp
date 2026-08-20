@@ -3,6 +3,7 @@
 #include "assets/asset_services.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "core/log.hpp"
 #include "game/game_state.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
@@ -42,6 +43,7 @@
 #include <cstring>
 #include <raylib.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace slopengine {
@@ -67,6 +69,19 @@ void logConsoleMessage(ConsoleState& console, const std::string& message) {
     if (console.log.size() > 200) {
         console.log.erase(console.log.begin());
     }
+}
+
+ImVec4 consoleLogLineColor(std::string_view line) {
+    if (line.rfind("[ERROR]", 0) == 0 || line.rfind("[FATAL]", 0) == 0) {
+        return ImVec4(1.0f, 0.38f, 0.38f, 1.0f);
+    }
+    if (line.rfind("[WARN]", 0) == 0) {
+        return ImVec4(1.0f, 0.82f, 0.2f, 1.0f);
+    }
+    if (line.rfind("[TRACE]", 0) == 0 || line.rfind("[DEBUG]", 0) == 0) {
+        return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    }
+    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
 }
 
 std::vector<ResolutionOption> buildResolutionOptions(const GraphicsSettings& draft) {
@@ -1127,8 +1142,16 @@ void drawConsole(ConsoleState& console, InputContextStack& contexts) {
     ImGui::SetNextWindowSize({640.0f, 360.0f}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Console", &console.open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::BeginChild("ConsoleLog", {0.0f, -ImGui::GetFrameHeightWithSpacing()}, false);
+        if (console.monoFont != nullptr) {
+            ImGui::PushFont(console.monoFont, 0.0f);
+        }
         for (const std::string& line : console.log) {
+            ImGui::PushStyleColor(ImGuiCol_Text, consoleLogLineColor(line));
             ImGui::TextUnformatted(line.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (console.monoFont != nullptr) {
+            ImGui::PopFont();
         }
         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
             ImGui::SetScrollHereY(1.0f);
@@ -1319,9 +1342,15 @@ void registerSystems(flecs::world& world) {
 
 }
 
-void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile) {
+void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile, ImFont* monoFont) {
     registerComponents(world);
-    world.set<ConsoleState>({});
+    ConsoleState console{};
+    console.monoFont = monoFont;
+    world.set<ConsoleState>(console);
+    Log::addDeferredSink([world](const LogEntry& entry) mutable {
+        ConsoleState& console = world.get_mut<ConsoleState>();
+        logConsoleMessage(console, std::string("[") + Log::levelLabel(entry.level) + "] " + entry.text);
+    });
     world.set<QuitRequest>({});
     world.set<ScreenshotRequest>({});
     world.set<SettingsUiState>({});
@@ -1342,6 +1371,7 @@ void prepareUiInput(flecs::world world) {
 }
 
 void drawUi(flecs::world world) {
+    Log::pump();
     InputContextStack& contexts = world.get_mut<InputContextStack>();
     InteractionTarget& target = world.get_mut<InteractionTarget>();
     ConsoleState& console = world.get_mut<ConsoleState>();

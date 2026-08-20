@@ -4,6 +4,7 @@
 #include "inspector_panel.hpp"
 
 #include "assets/asset_store.hpp"
+#include "core/log.hpp"
 #include "core/package_meta.hpp"
 #include "core/package_search.hpp"
 #include "core/user_paths.hpp"
@@ -43,7 +44,8 @@ void printUsage() {
         << "\n"
         << "  --base-game   Base game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
-        << "  --target      Package directory whose data/things.s7 is edited\n";
+        << "  --target      Package directory whose data/things.s7 is edited\n"
+        << "  --verbose     Raise the trace log level to show INFO messages\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -81,6 +83,10 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             config.target = slopengine::resolveApplicationPackagePath(
                 value,
                 slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
+            continue;
+        }
+        if (arg == "--verbose") {
+            config.mount.verbose = true;
             continue;
         }
         return std::nullopt;
@@ -123,7 +129,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Info : slopengine::LogLevel::Warning);
+    slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1500, 880, "slopthing");
     if (!IsWindowReady()) {

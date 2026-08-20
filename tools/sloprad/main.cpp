@@ -1,5 +1,6 @@
 #include "assets/asset_store.hpp"
 #include "assets/material_loader.hpp"
+#include "core/log.hpp"
 #include "game/app_config.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
@@ -183,6 +184,8 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
             cli.gpuSafeOverride = true;
         } else if (arg == "--gpu-fast") {
             cli.gpuSafeOverride = false;
+        } else if (arg == "--verbose") {
+            cli.config.verbose = true;
         } else {
             return std::nullopt;
         }
@@ -237,7 +240,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    Log::init(cli->config.verbose ? LogLevel::Info : LogLevel::Warning);
+    Log::addDefaultConsoleSink();
     if (!initGLContext()) {
         std::cerr << "sloprad: failed to create OpenGL context\n";
         return 1;

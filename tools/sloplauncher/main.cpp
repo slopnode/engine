@@ -4,13 +4,16 @@
 #include "package_details_tab.hpp"
 #include "packages_panel.hpp"
 
+#include "core/log.hpp"
+
 #include "imgui.h"
 #include "rlImGui.h"
 
 #include <raylib.h>
 
 int main() {
-    SetTraceLogLevel(LOG_INFO);
+    slopengine::Log::init(slopengine::LogLevel::Warning);
+    slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1100, 720, "slopengine launcher");
     if (!IsWindowReady()) {

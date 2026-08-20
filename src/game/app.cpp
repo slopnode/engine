@@ -2,6 +2,7 @@
 
 #include "audio/audio_module.hpp"
 #include "camera/camera_module.hpp"
+#include "core/log.hpp"
 #include "core/package.hpp"
 #include "core/user_paths.hpp"
 #include "game/game_state.hpp"
@@ -63,7 +64,7 @@ App::App(AppConfig config)
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
     }
-    setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true);
+    ImFont* consoleMonoFont = setupImGuiWithUiAndMonoFont(assetStore_, kDefaultUiFontPath, kMonoUiFontPath, true);
     init_script();
     userSettings_.controls = ControlsSettings::defaults();
     UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);
@@ -77,7 +78,7 @@ App::App(AppConfig config)
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
     registerInputModule(world_);
-    registerUiModule(world_, config_.debug, config_.profile);
+    registerUiModule(world_, config_.debug, config_.profile, consoleMonoFont);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
     registerNavModule(world_);
@@ -113,7 +114,8 @@ int App::run() {
 }
 
 void App::init_window() {
-    SetTraceLogLevel(config_.verbose ? LOG_INFO : LOG_WARNING);
+    Log::init(config_.verbose ? LogLevel::Info : LogLevel::Warning);
+    Log::addDefaultConsoleSink();
     prepareGraphicsInit(userSettings_.graphics);
     InitWindow(userSettings_.graphics.width, userSettings_.graphics.height, "slopengine");
     SetExitKey(KEY_NULL);
