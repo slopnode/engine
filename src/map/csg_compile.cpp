@@ -230,33 +230,6 @@ CsgCompileResult compileBrushesToGeo(
     return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);
 }
 
-CsgCompileResult compileVisibleFacesToGeo(
-    const FacFile& vis,
-    const MaterialUvResolver& resolveMaterialUv,
-    const RadFile* lightmaps) {
-    std::vector<FaceCompileInput> faces;
-    faces.reserve(vis.faces.size());
-    for (const VisibleFace& face : vis.faces) {
-        if (face.vertices.size() < 3) {
-            continue;
-        }
-        FaceCompileInput input;
-        input.id = face.id;
-        input.material = face.material;
-        input.normal = face.normal;
-        input.vertices = &face.vertices;
-        input.uvShiftPixels = face.uvShiftPixels;
-        input.uvScale = face.uvScale;
-        input.uvUAxis = face.uvUAxis;
-        input.uvVAxis = face.uvVAxis;
-        input.uvLock = face.uvLock;
-        input.transparent = face.transparent;
-        input.twoSided = face.twoSided;
-        faces.push_back(std::move(input));
-    }
-    return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);
-}
-
 void mergeGeoPrimitivesByKey(GeoAsset& asset, VertBuffer& buffer, const PrimitiveKeyFn& keyOf) {
     constexpr std::size_t kMaxVertsPerPrimitive = 65535;
 

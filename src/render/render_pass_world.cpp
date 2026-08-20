@@ -6,7 +6,6 @@
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
-#include "map/fac.hpp"
 #include "map/pvs.hpp"
 #include "particles/particle_sim.hpp"
 #include "render/animation_player.hpp"
@@ -1253,9 +1252,6 @@ void drawWorldDebugOverlays(flecs::world& world) {
                 currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
             }
             drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
-        }
-        if (world.has<MapFac>()) {
-            drawFacDebugOverlays(world.get<MapFac>().fac, debugUi, currentLeaf);
         }
     }
 

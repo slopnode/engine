@@ -14,7 +14,6 @@
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
-#include "map/fac.hpp"
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
@@ -441,11 +440,6 @@ void drawMainMenuBar(
             ImGui::MenuItem("Portals", nullptr, &debugUi.showBspPortals);
             ImGui::MenuItem("Surface Faces", nullptr, &debugUi.showBspSurfaceFaces);
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
-            ImGui::EndMenu();
-        }
-        if (beginMenuWithIcon(assets, kIcons, "shape_ungroup", "VIS")) {
-            ImGui::MenuItem("Faces", nullptr, &debugUi.showVisFaces);
-            ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showVisCurrentLeafOnly);
             ImGui::EndMenu();
         }
         if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
@@ -1009,9 +1003,6 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
             ImGui::Text("Current leaf %d", static_cast<int>(currentLeaf));
         }
 
-        if (world.has<MapFac>()) {
-            ImGui::Text("FAC faces %zu", world.get<MapFac>().fac.faces.size());
-        }
         if (world.has<MapPvs>()) {
             ImGui::Text("PVS leaves %d", world.get<MapPvs>().pvs.leafCount);
         }

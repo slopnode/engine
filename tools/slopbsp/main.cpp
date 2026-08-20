@@ -94,7 +94,6 @@ int main(int argc, char* argv[]) {
         "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d",
         exteriorEmpty,
         interiorEmpty);
-    TraceLog(LOG_INFO, "slopbsp: slopfac is optional (authored faces default; run slopfac to auto-cull)");
     for (const std::string& warning : analysis.detailOutsideWarnings) {
         TraceLog(LOG_WARNING, "slopbsp: %s", warning.c_str());
     }

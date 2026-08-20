@@ -14,8 +14,6 @@
 #include "map/map_meta.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/prefab.hpp"
-#include "map/fac.hpp"
-#include "map/fac_io.hpp"
 #include "map/pvs_io.hpp"
 #include "map/things_script.hpp"
 
@@ -1428,31 +1426,6 @@ std::optional<LoadedMap> loadAndCompileMap(
         TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
     }
 
-    FacFile fac{};
-    FacFile doorFac{};
-    bool haveFac = false;
-    if (assets.hasMapFac(virtualPath)) {
-        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath)) {
-            if (auto loadedFac = readFacFile(*facPath)) {
-                fac = std::move(*loadedFac);
-                haveFac = true;
-                doorFac = extractFacFacesForMoverBrushes(fac, moverBrushIds);
-                eraseFacFacesForMoverBrushes(fac, moverBrushIds);
-                TraceLog(
-                    LOG_INFO,
-                    "MAP: loaded opt-in fac faces=%d",
-                    static_cast<int>(fac.faces.size()));
-            } else {
-                TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.fac", virtualPath.c_str());
-            }
-        }
-    }
-    if (!haveFac) {
-        TraceLog(
-            LOG_INFO,
-            "MAP: using authored brush faces (explicit nodraw only; run slopfac for auto-cull)");
-    }
-
     PvsFile pvs{};
     if (assets.hasMapVis(virtualPath)) {
         if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
@@ -1584,7 +1557,7 @@ std::optional<LoadedMap> loadAndCompileMap(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
     std::vector<Brush> staticBrushes;
-    if (!haveFac && !moverBrushIds.empty()) {
+    if (!moverBrushIds.empty()) {
         staticBrushes.reserve(brushes->size());
         for (const Brush& brush : *brushes) {
             if (moverBrushIds.count(brush.id) == 0) {
@@ -1604,12 +1577,10 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
     }
 
-    CsgCompileResult compiled = haveFac
-        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
-        : compileBrushesToGeo(
-              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
-              resolveUv,
-              lightmaps);
+    CsgCompileResult compiled = compileBrushesToGeo(
+        staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+        resolveUv,
+        lightmaps);
 
     // Batch same-material static geometry into fewer, larger draw calls.
     // Transparent faces stay unmerged (per-mesh back-to-front sort in the
@@ -1628,8 +1599,6 @@ std::optional<LoadedMap> loadAndCompileMap(
                '|' + (primitive.twoSided ? "1" : "0");
     });
 
-    result.fac = std::move(fac);
-    result.doorFac = std::move(doorFac);
     result.pvs = std::move(pvs);
 
     Model model = buildModelFromGeo(

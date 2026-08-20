@@ -2,7 +2,6 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
-#include "map/fac.hpp"
 #include "map/lightmap.hpp"
 #include "map/thing.hpp"
 
@@ -43,7 +42,6 @@ struct MapPreview {
 
     Model visModel{};
     bool visValid = false;
-    slopengine::FacFile pickFac{};
     std::vector<int> visTransparentMeshIndices;
 
     Model moverOverlayModel{};

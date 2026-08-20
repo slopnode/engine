@@ -719,13 +719,16 @@ bool AudioWorld::steamAudioEnabled() const {
 #endif
 }
 
-void AudioWorld::setSteamAudioScene(const FacFile& vis) {
+void AudioWorld::setSteamAudioScene(
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* excludeBrushIds) {
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
     if (steamAudioEnabled()) {
-        steamAudio_->setSceneFromFac(vis);
+        steamAudio_->setSceneFromBrushes(brushes, excludeBrushIds);
     }
 #else
-    (void)vis;
+    (void)brushes;
+    (void)excludeBrushIds;
 #endif
 }
 

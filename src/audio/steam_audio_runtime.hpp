@@ -5,7 +5,7 @@
 #include "core/win32.hpp"
 
 #include "audio/steam_audio_types.hpp"
-#include "map/fac.hpp"
+#include "map/brush.hpp"
 
 #include <phonon.h>
 #include <soloud.h>
@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace slopengine {
@@ -61,7 +63,9 @@ public:
 
     SteamAudioSpatializeFilter& spatializeFilter();
 
-    bool setSceneFromFac(const FacFile& vis);
+    bool setSceneFromBrushes(
+        const std::vector<Brush>& brushes,
+        const std::unordered_set<std::string>* excludeBrushIds);
     void clearScene();
 
     int trackVoice(

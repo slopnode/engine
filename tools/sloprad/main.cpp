@@ -9,7 +9,6 @@
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
 #include "map/radiosity_lights.hpp"
-#include "map/fac_io.hpp"
 #if defined(__linux__)
 #include "headless_gl_context.hpp"
 #endif
@@ -419,31 +418,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::vector<LightmapFace> faces;
-    if (assets.hasMapFac(bspVirtualPath)) {
-        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath)) {
-            TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
-            std::fflush(stdout);
-            if (auto vis = readFacFile(*facPath)) {
-                faces = collectLightmapFaces(*vis);
-                TraceLog(
-                    LOG_INFO,
-                    "sloprad: lightmap faces=%d (from opt-in fac)",
-                    static_cast<int>(faces.size()));
-            } else {
-                std::cerr << "sloprad: failed to read " << *facPath << "\n";
-                closeGLContext();
-                return 1;
-            }
-        }
-    }
-    if (faces.empty()) {
-        faces = collectLightmapFaces(*brushes);
-        TraceLog(
-            LOG_INFO,
-            "sloprad: lightmap faces=%d (from authored brushes)",
-            static_cast<int>(faces.size()));
-    }
+    std::vector<LightmapFace> faces = collectLightmapFaces(*brushes);
+    TraceLog(
+        LOG_INFO,
+        "sloprad: lightmap faces=%d (from authored brushes)",
+        static_cast<int>(faces.size()));
     std::fflush(stdout);
 
     auto resolveMaterial = [&assets](std::string_view materialPath) {

@@ -303,34 +303,6 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
     EndBlendMode();
 }
 
-void drawFacDebugOverlays(const FacFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
-    if (!debugUi.showVisFaces) {
-        return;
-    }
-
-    BeginBlendMode(BLEND_ALPHA);
-    rlDisableDepthMask();
-
-    for (std::size_t faceIndex = 0; faceIndex < vis.faces.size(); ++faceIndex) {
-        const VisibleFace& face = vis.faces[faceIndex];
-        if (face.vertices.size() < 3) {
-            continue;
-        }
-        if (debugUi.showVisCurrentLeafOnly
-            && (face.interiorLeaf < 0 || face.interiorLeaf != currentLeaf)) {
-            continue;
-        }
-        const bool inCurrentLeaf = face.interiorLeaf == currentLeaf;
-        const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 80);
-        const Color outline = inCurrentLeaf ? Color{255, 160, 40, 255} : Color{255, 120, 40, 220};
-        drawDebugPolygon(face.vertices, fill);
-        drawDebugPolygonOutline(face.vertices, outline);
-    }
-
-    rlEnableDepthMask();
-    EndBlendMode();
-}
-
 Ray spriteAimRay(const Lens& lens) {
     Ray ray{};
     ray.position = lens.camera.position;

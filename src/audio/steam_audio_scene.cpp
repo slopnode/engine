@@ -24,27 +24,35 @@ IPLMaterial defaultMaterial() {
 
 }
 
-bool buildSteamAudioMeshFromFac(const FacFile& vis, SteamAudioSceneMesh& out) {
+bool buildSteamAudioMeshFromBrushes(
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* excludeBrushIds,
+    SteamAudioSceneMesh& out) {
     out.vertices.clear();
     out.triangles.clear();
     out.materialIndices.clear();
     out.material = defaultMaterial();
 
-    for (const VisibleFace& face : vis.faces) {
-        if (face.vertices.size() < 3) {
+    for (const Brush& brush : brushes) {
+        if (excludeBrushIds != nullptr && !brush.id.empty() && excludeBrushIds->count(brush.id) != 0) {
             continue;
         }
-        const IPLint32 base = static_cast<IPLint32>(out.vertices.size());
-        for (const Vector3& v : face.vertices) {
-            out.vertices.push_back(IPLVector3{v.x, v.y, v.z});
-        }
-        for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
-            IPLTriangle tri{};
-            tri.indices[0] = base;
-            tri.indices[1] = base + static_cast<IPLint32>(i);
-            tri.indices[2] = base + static_cast<IPLint32>(i + 1);
-            out.triangles.push_back(tri);
-            out.materialIndices.push_back(0);
+        for (const BrushFace& face : brush.faces) {
+            if (face.nodraw || face.vertices.size() < 3) {
+                continue;
+            }
+            const IPLint32 base = static_cast<IPLint32>(out.vertices.size());
+            for (const Vector3& v : face.vertices) {
+                out.vertices.push_back(IPLVector3{v.x, v.y, v.z});
+            }
+            for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
+                IPLTriangle tri{};
+                tri.indices[0] = base;
+                tri.indices[1] = base + static_cast<IPLint32>(i);
+                tri.indices[2] = base + static_cast<IPLint32>(i + 1);
+                out.triangles.push_back(tri);
+                out.materialIndices.push_back(0);
+            }
         }
     }
 
@@ -54,7 +62,8 @@ bool buildSteamAudioMeshFromFac(const FacFile& vis, SteamAudioSceneMesh& out) {
 bool createSteamAudioScene(
     IPLContext context,
     IPLSimulator simulator,
-    const FacFile& vis,
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* excludeBrushIds,
     IPLScene* outScene,
     IPLStaticMesh* outMesh) {
     if (context == nullptr || simulator == nullptr || outScene == nullptr || outMesh == nullptr) {
@@ -64,7 +73,7 @@ bool createSteamAudioScene(
     destroySteamAudioScene(simulator, outScene, outMesh);
 
     SteamAudioSceneMesh mesh;
-    if (!buildSteamAudioMeshFromFac(vis, mesh)) {
+    if (!buildSteamAudioMeshFromBrushes(brushes, excludeBrushIds, mesh)) {
         return false;
     }
 

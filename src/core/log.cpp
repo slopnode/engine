@@ -50,7 +50,6 @@ constexpr TagCategory kTagTable[] = {
     {"BSP", LogCategory::Compile},
     {"sloprad", LogCategory::Compile},
     {"slopbsp", LogCategory::Compile},
-    {"slopfac", LogCategory::Compile},
     {"slopvis", LogCategory::Compile},
     {"slopmap", LogCategory::Compile},
 };

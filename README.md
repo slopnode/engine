@@ -78,7 +78,7 @@ my-package/
   fonts/        .ttf
   geometry/     .geo, .vert, .weights
   icons/        .png, .iconmap
-  maps/         <map>/map.meta, <map>/static.csg (+ compiled .bsp/.fac/.vis, optional rad/)
+  maps/         <map>/map.meta, <map>/static.csg (+ compiled .bsp/.vis, optional rad/)
   materials/    .mat
   prefabs/      .csg, .s7
   scripts/      .s7
@@ -89,7 +89,7 @@ my-package/
   textures/     .png
 ```
 
-Maps live under a package's `maps/` folder (ownership is the package directory). Compile authored CSG with `slopbsp` -> `slopfac` -> `slopvis` -> `sloprad` (or Compile -> Run All in `slopmap`); see `docs/maps.md` and `docs/slopmap.md`. `map.meta` only lists other packages when needed:
+Maps live under a package's `maps/` folder (ownership is the package directory). Compile authored CSG with `slopbsp` -> `slopvis` -> `sloprad` (or Compile -> Run All in `slopmap`); see `docs/maps.md` and `docs/slopmap.md`. `map.meta` only lists other packages when needed:
 
 ```
 (map

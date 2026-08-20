@@ -3,7 +3,6 @@
 #include "assets/geo_loader.hpp"
 #include "assets/material_loader.hpp"
 #include "map/csg_compile.hpp"
-#include "map/fac_io.hpp"
 #include "map/lightmap.hpp"
 #include "map/mover_brushes.hpp"
 #include "render/skybox.hpp"
@@ -437,9 +436,6 @@ void MapPreview::clearLit() {
         skyShader = {};
     }
     rad = {};
-    if (!visValid) {
-        pickFac = {};
-    }
 }
 
 void MapPreview::clearVis() {
@@ -449,9 +445,6 @@ void MapPreview::clearVis() {
     visModel = {};
     visValid = false;
     visTransparentMeshIndices.clear();
-    if (!litValid) {
-        pickFac = {};
-    }
 }
 
 void MapPreview::clear() {
@@ -510,26 +503,10 @@ bool MapPreview::reloadVisPreview(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
 
-    const std::string visVirtualPath = mapName + "/static";
-    slopengine::CsgCompileResult compiled{};
-    if (assets.hasMapFac(visVirtualPath)) {
-        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
-            if (auto loadedFac = slopengine::readFacFile(*visPath)) {
-                if (!loadedFac->faces.empty()) {
-                    pickFac = *loadedFac;
-                    slopengine::eraseFacFacesForMoverBrushes(pickFac, moverBrushIds);
-                    compiled = slopengine::compileVisibleFacesToGeo(pickFac, resolveUv, nullptr);
-                }
-            }
-        }
-    }
-    if (compiled.asset.primitives.empty()) {
-        pickFac = {};
-        compiled = slopengine::compileBrushesToGeo(
-            staticBrushesForPreview(brushes, moverBrushIds),
-            resolveUv,
-            nullptr);
-    }
+    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+        staticBrushesForPreview(brushes, moverBrushIds),
+        resolveUv,
+        nullptr);
 
     visModel = slopengine::buildModelFromGeo(
         compiled.asset,
@@ -603,30 +580,10 @@ bool MapPreview::reloadBake(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
 
-    slopengine::FacFile vis{};
-    bool haveVis = false;
-    const std::string visVirtualPath = mapName + "/static";
-    if (assets.hasMapFac(visVirtualPath)) {
-        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
-            if (auto loadedFac = slopengine::readFacFile(*visPath)) {
-                vis = std::move(*loadedFac);
-                slopengine::eraseFacFacesForMoverBrushes(vis, moverBrushIds);
-                haveVis = true;
-            }
-        }
-    }
-
-    if (haveVis) {
-        pickFac = vis;
-    } else if (!visValid) {
-        pickFac = {};
-    }
-    const slopengine::CsgCompileResult compiled = haveVis
-        ? slopengine::compileVisibleFacesToGeo(vis, resolveUv, &rad)
-        : slopengine::compileBrushesToGeo(
-              staticBrushesForPreview(brushes, moverBrushIds),
-              resolveUv,
-              &rad);
+    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+        staticBrushesForPreview(brushes, moverBrushIds),
+        resolveUv,
+        &rad);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const slopengine::LightmapChart& chart : rad.charts) {

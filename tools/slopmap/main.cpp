@@ -1255,7 +1255,6 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-        editor.dropOptInFacArtifact(assets);
         slopmap::CompileMountArgs mounts;
         mounts.baseGame = config->mount.base_game;
         mounts.mods = config->mount.mods;

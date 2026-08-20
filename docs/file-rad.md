@@ -2,7 +2,7 @@
 
 Magic 0x31444152 (RAD1), version 5 (readable back to version 2).
 
-Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match FAC fragment ids. Strings in this file are inline length-prefixed (no trailing string table).
+Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match authored brush face ids. Strings in this file are inline length-prefixed (no trailing string table).
 
 # Header {#rad-header}
 
@@ -39,8 +39,8 @@ Each chart:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| faceIndex | u32 | Index into the VIS face list |
-| faceId | string | VIS fragment id |
+| faceIndex | u32 | Index into the baked face list |
+| faceId | string | Authored brush face id |
 | atlasIndex | u32 |  |
 | luxelWidth | u32 |  |
 | luxelHeight | u32 |  |

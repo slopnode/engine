@@ -9,7 +9,6 @@
 ---
 
 - @subpage bsp
-- @subpage fac
 - @subpage vis
 - @subpage rad
 - @subpage filegeo

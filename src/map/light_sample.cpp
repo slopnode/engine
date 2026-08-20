@@ -193,7 +193,6 @@ std::vector<LightmapFace> probeFacesFromBsp(const BspTree& bsp) {
 
 MapLighting buildMapLighting(
     const BspTree& bsp,
-    const FacFile* fac,
     RadFile rad,
     std::vector<Image> atlasImages,
     Color ambient) {
@@ -202,11 +201,7 @@ MapLighting buildMapLighting(
     lighting.atlasImages = std::move(atlasImages);
     lighting.ambient = ambient;
 
-    if (fac != nullptr && !fac->faces.empty()) {
-        lighting.probeFaces = collectLightmapFaces(*fac);
-    } else {
-        lighting.probeFaces = probeFacesFromBsp(bsp);
-    }
+    lighting.probeFaces = probeFacesFromBsp(bsp);
     lighting.faceTransparentSkip.assign(lighting.probeFaces.size(), 0);
     for (std::size_t i = 0; i < lighting.probeFaces.size(); ++i) {
         if (lighting.probeFaces[i].transparent) {

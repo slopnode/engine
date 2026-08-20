@@ -312,7 +312,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
 
     TraceLog(
         LOG_INFO,
-        "BSP: analyze done detailWarnings=%d (nodraw via slopfac)",
+        "BSP: analyze done detailWarnings=%d",
         static_cast<int>(analysis.detailOutsideWarnings.size()));
     return analysis;
 }

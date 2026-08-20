@@ -206,30 +206,6 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
     return faces;
 }
 
-std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis) {
-    std::vector<LightmapFace> faces;
-    faces.reserve(vis.faces.size());
-    for (const VisibleFace& visible : vis.faces) {
-        if (visible.vertices.size() < 3) {
-            continue;
-        }
-        LightmapFace face;
-        face.id = visible.id;
-        face.material = visible.material;
-        face.normal = visible.normal;
-        face.vertices = visible.vertices;
-        face.uvShiftPixels = visible.uvShiftPixels;
-        face.uvScale = visible.uvScale;
-        face.uvUAxis = visible.uvUAxis;
-        face.uvVAxis = visible.uvVAxis;
-        face.uvLock = visible.uvLock;
-        face.interiorLeaf = visible.interiorLeaf;
-        face.transparent = visible.transparent;
-        faces.push_back(std::move(face));
-    }
-    return faces;
-}
-
 std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<LightmapFace>& faces) {
     const std::size_t n = faces.size();
     std::vector<std::int32_t> parent(n);

@@ -2,7 +2,6 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
-#include "map/fac.hpp"
 
 #include <raylib.h>
 
@@ -117,9 +116,6 @@ struct LightmapPackResult {
 
 /** Collects drawable faces from brushes for packing / bake. */
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
-
-/** Collects drawable faces from a VIS visible-face set. */
-std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis);
 
 /** Clusters coplanar, UV-frame-matching, edge-adjacent faces so they can share one chart. */
 std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<LightmapFace>& faces);

@@ -138,16 +138,19 @@ SteamAudioSpatializeFilter& SteamAudioRuntime::spatializeFilter() {
     return *spatializeFilter_;
 }
 
-bool SteamAudioRuntime::setSceneFromFac(const FacFile& vis) {
+bool SteamAudioRuntime::setSceneFromBrushes(
+    const std::vector<Brush>& brushes,
+    const std::unordered_set<std::string>* excludeBrushIds) {
     if (!ready_) {
         return false;
     }
-    const bool ok = createSteamAudioScene(context_, simulator_, vis, &scene_, &staticMesh_);
+    const bool ok =
+        createSteamAudioScene(context_, simulator_, brushes, excludeBrushIds, &scene_, &staticMesh_);
     sceneReady_ = ok;
     if (ok) {
-        TraceLog(LOG_INFO, "STEAM AUDIO: scene built from VIS faces");
+        TraceLog(LOG_INFO, "STEAM AUDIO: scene built from brushes");
     } else {
-        TraceLog(LOG_WARNING, "STEAM AUDIO: failed to build scene from VIS");
+        TraceLog(LOG_WARNING, "STEAM AUDIO: failed to build scene from brushes");
     }
     return ok;
 }

@@ -6,7 +6,6 @@
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
 #include "map/prefab.hpp"
-#include "map/fac.hpp"
 #include "map/pvs.hpp"
 #include "render/material_anim_types.hpp"
 
@@ -28,8 +27,6 @@ struct LoadedMap {
     std::vector<Brush> brushes;
     std::unordered_set<std::string> moverBrushIds;
     BspTree bsp{};
-    FacFile fac{};
-    FacFile doorFac{}; /**< Movable-brush faces snapshotted before erasure from @c fac. */
     PvsFile pvs{};
     RadFile rad{};
     MapMeta meta{};

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "map/brush.hpp"
-#include "map/fac.hpp"
 #include "map/thing.hpp"
 
 #include <string>
@@ -23,11 +22,6 @@ bool faceIdBelongsToBrush(std::string_view faceId, std::string_view brushId);
 bool faceIdBelongsToAnyMoverBrush(
     std::string_view faceId,
     const std::unordered_set<std::string>& brushIds);
-
-void eraseFacFacesForMoverBrushes(FacFile& fac, const std::unordered_set<std::string>& brushIds);
-
-/** Faces belonging to any of @p brushIds (inverse of eraseFacFacesForMoverBrushes). */
-FacFile extractFacFacesForMoverBrushes(const FacFile& fac, const std::unordered_set<std::string>& brushIds);
 
 const Brush* findBrushById(const std::vector<Brush>& brushes, std::string_view id);
 

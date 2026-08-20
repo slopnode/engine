@@ -2,7 +2,6 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
-#include "map/fac.hpp"
 #include "map/lightmap.hpp"
 #include "map/thing.hpp"
 
@@ -41,7 +40,6 @@ PlayerStart spawnMapThings(
     AssetStore& assets,
     std::string_view mapName,
     const std::vector<Brush>& brushes,
-    const FacFile* doorFac = nullptr,
     const RadFile* rad = nullptr,
     const std::vector<Texture2D>* lightmapAtlases = nullptr,
     bool hasLightmaps = false);

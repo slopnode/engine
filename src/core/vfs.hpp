@@ -29,7 +29,6 @@ enum class AssetKind {
     MapCsg,        /**< maps/<name>/static.csg */
     MapMeta,       /**< maps/<name>/map.meta */
     MapBsp,        /**< maps/<name>/static.bsp */
-    MapFac,        /**< maps/<name>/static.fac */
     MapVis,        /**< maps/<name>/static.vis (PVS) */
     MapRad,        /**< maps/<name>/rad/static.rad */
     MapLightmap,   /**< maps/<name>/rad/atlas PNGs */

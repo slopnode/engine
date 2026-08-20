@@ -1363,7 +1363,6 @@ bool Editor::cleanCompileData(
         compileDirty.bsp = true;
     }
     if (cleanVis) {
-        removePath(mapDir / "static.fac", false);
         removePath(mapDir / "static.vis", false);
         preview.clearVis();
         compileDirty.vis = true;
@@ -1406,33 +1405,6 @@ bool Editor::cleanCompileData(
     }
     statusMessage = "Cleaned " + cleaned + " for " + mapName;
     return true;
-}
-
-void Editor::dropOptInFacArtifact(slopengine::AssetStore& assets) {
-    if (scene != EditorScene::Level) {
-        return;
-    }
-    const std::string& mapName = levelDoc.assetPath;
-    if (mapName.empty() || mapName == "untitled") {
-        return;
-    }
-
-    std::filesystem::path packageRoot = writePackageRoot;
-    auto existing = assets.resolveOwned(slopengine::AssetKind::MapCsg, mapName + "/static");
-    if (existing && existing->package != nullptr) {
-        packageRoot = existing->package->root();
-    }
-    if (packageRoot.empty()) {
-        return;
-    }
-
-    std::error_code ec;
-    const std::filesystem::path facPath = packageRoot / "maps" / mapName / "static.fac";
-    if (std::filesystem::exists(facPath, ec)) {
-        std::filesystem::remove(facPath, ec);
-        preview.clearVis();
-        compileDirty.vis = true;
-    }
 }
 
 void Editor::rebuildPreview(slopengine::AssetStore& assets) {
