@@ -55,8 +55,14 @@ constexpr TagCategory kTagTable[] = {
     {"slopmap", LogCategory::Compile},
 };
 
+constexpr std::string_view kRaylibNativeTags[] = {
+    "AUDIO", "AUTOMATION", "FBO", "FILEIO", "FONT", "IMAGE", "MESH",
+    "MODEL", "SOUND", "STREAM", "SYSTEM", "TEXTURE", "TIMER", "VAO", "VBO", "WAVE",
+};
+
 struct LogState {
     std::mutex mutex;
+    LogLevel minLevel = LogLevel::Info;
     std::unordered_set<LogCategory> disabledCategories;
     std::vector<LogSink> immediateSinks;
     std::vector<LogSink> deferredSinks;
@@ -81,18 +87,6 @@ LogLevel fromRaylibLevel(int level) {
     }
 }
 
-int toRaylibLevel(LogLevel level) {
-    switch (level) {
-        case LogLevel::Trace: return LOG_TRACE;
-        case LogLevel::Debug: return LOG_DEBUG;
-        case LogLevel::Info: return LOG_INFO;
-        case LogLevel::Warning: return LOG_WARNING;
-        case LogLevel::Error: return LOG_ERROR;
-        case LogLevel::Fatal: return LOG_FATAL;
-    }
-    return LOG_INFO;
-}
-
 LogCategory categoryFromPrefix(std::string_view text) {
     const std::size_t colon = text.find(':');
     if (colon == std::string_view::npos) {
@@ -105,6 +99,20 @@ LogCategory categoryFromPrefix(std::string_view text) {
         }
     }
     return LogCategory::General;
+}
+
+bool isRaylibNativeTag(std::string_view text) {
+    const std::size_t colon = text.find(':');
+    if (colon == std::string_view::npos) {
+        return false;
+    }
+    const std::string_view tag = text.substr(0, colon);
+    for (const std::string_view& entry : kRaylibNativeTags) {
+        if (tag == entry) {
+            return true;
+        }
+    }
+    return false;
 }
 
 const char* levelAnsiColor(LogLevel level) {
@@ -126,7 +134,7 @@ void emit(LogLevel level, LogCategory category, std::string text) {
     std::vector<LogSink> immediateCopy;
     {
         std::lock_guard<std::mutex> lock(s.mutex);
-        if (s.disabledCategories.count(category) != 0) {
+        if (level < s.minLevel || s.disabledCategories.count(category) != 0) {
             return;
         }
         immediateCopy = s.immediateSinks;
@@ -156,13 +164,22 @@ void onRaylibTraceLog(int logLevel, const char* text, va_list args) {
     }
     std::array<char, kMaxFormattedLength> buffer{};
     std::vsnprintf(buffer.data(), buffer.size(), text, args);
-    emit(fromRaylibLevel(logLevel), categoryFromPrefix(buffer.data()), std::string(buffer.data()));
+    LogLevel level = fromRaylibLevel(logLevel);
+    if (level == LogLevel::Info && isRaylibNativeTag(buffer.data())) {
+        level = LogLevel::Debug;
+    }
+    emit(level, categoryFromPrefix(buffer.data()), std::string(buffer.data()));
 }
 
 }
 
 void Log::init(LogLevel minLevel) {
-    SetTraceLogLevel(toRaylibLevel(minLevel));
+    LogState& s = state();
+    {
+        std::lock_guard<std::mutex> lock(s.mutex);
+        s.minLevel = minLevel;
+    }
+    SetTraceLogLevel(LOG_TRACE);
     SetTraceLogCallback(&onRaylibTraceLog);
 }
 

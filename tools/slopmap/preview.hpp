@@ -40,13 +40,11 @@ struct MapPreview {
     bool valid = false;
     std::vector<std::string> editFaceIds;
     std::vector<int> modelTransparentMeshIndices;
-    std::vector<int> modelSkyMeshIndices;
 
     Model visModel{};
     bool visValid = false;
     slopengine::FacFile pickFac{};
     std::vector<int> visTransparentMeshIndices;
-    std::vector<int> visSkyMeshIndices;
 
     Model moverOverlayModel{};
     bool moverOverlayValid = false;

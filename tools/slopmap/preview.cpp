@@ -449,7 +449,6 @@ void MapPreview::clearVis() {
     visModel = {};
     visValid = false;
     visTransparentMeshIndices.clear();
-    visSkyMeshIndices.clear();
     if (!litValid) {
         pickFac = {};
     }
@@ -463,7 +462,6 @@ void MapPreview::clear() {
     valid = false;
     editFaceIds.clear();
     modelTransparentMeshIndices.clear();
-    modelSkyMeshIndices.clear();
     clearVis();
     clearLit();
     clearMoverOverlay(moverOverlayModel, moverOverlayValid);
@@ -477,7 +475,6 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     valid = false;
     editFaceIds.clear();
     modelTransparentMeshIndices.clear();
-    modelSkyMeshIndices.clear();
     if (brushes.empty()) {
         return;
     }
@@ -497,7 +494,6 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
 
     collectTransparentMeshIndices(compiled.asset, modelTransparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, modelSkyMeshIndices);
     valid = model.meshCount > 0;
 }
 
@@ -540,7 +536,6 @@ bool MapPreview::reloadVisPreview(
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
     collectTransparentMeshIndices(compiled.asset, visTransparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, visSkyMeshIndices);
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
@@ -917,21 +912,21 @@ void MapPreview::draw(
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
-            drawModelMeshesSplit(visModel, visTransparentMeshIndices, visSkyMeshIndices, false);
-            drawPreviewModelTextured(visModel, visTransparentMeshIndices, visSkyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(visModel, visTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(visModel, visTransparentMeshIndices, {}, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
         } else if (valid) {
-            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false);
-            drawPreviewModelTextured(model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
         }
         break;
     case PreviewFill::Textures:
         if (valid) {
-            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false, true);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false, true);
             drawPreviewModelTextured(
-                model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward, true);
+                model, modelTransparentMeshIndices, {}, eye, cameraForward, true);
         }
         break;
     case PreviewFill::Solid:

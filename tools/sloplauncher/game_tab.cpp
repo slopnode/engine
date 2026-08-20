@@ -31,7 +31,7 @@ void drawGameTab(LauncherState& state) {
 
     ImGui::Spacing();
     ImGui::Checkbox("--debug (developer UI)", &state.debugMode);
-    ImGui::Checkbox("--verbose (INFO log messages)", &state.verboseMode);
+    ImGui::Checkbox("--verbose (DEBUG log messages)", &state.verboseMode);
 
     ImGui::Spacing();
     ImGui::TextDisabled("Options");

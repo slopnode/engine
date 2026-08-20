@@ -12,7 +12,7 @@
 #include <raylib.h>
 
 int main() {
-    slopengine::Log::init(slopengine::LogLevel::Warning);
+    slopengine::Log::init(slopengine::LogLevel::Info);
     slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1100, 720, "slopengine launcher");

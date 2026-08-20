@@ -29,7 +29,9 @@ bool leafTouchesBounds(const BspLeaf& leaf, Vector3 boundsMins, Vector3 boundsMa
         || std::fabs(leaf.maxs.z - boundsMaxs.z) <= kEps;
 }
 
-void floodExterior(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty) {
+} // namespace
+
+void floodExteriorLeaves(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty) {
     const std::size_t leafCount = tree.leaves.size();
     exteriorEmpty.assign(leafCount, 0);
     std::queue<std::int32_t> queue;
@@ -63,6 +65,8 @@ void floodExterior(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty
         }
     }
 }
+
+namespace {
 
 bool isInteriorEmpty(
     const BspTree& tree,
@@ -266,7 +270,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
         static_cast<int>(brushes.size()),
         static_cast<int>(analysis.duplicateFaceIdWarnings.size()));
 
-    floodExterior(tree, analysis.exteriorEmpty);
+    floodExteriorLeaves(tree, analysis.exteriorEmpty);
 
     int exteriorEmpty = 0;
     int interiorEmpty = 0;

@@ -57,7 +57,7 @@ void printUsage() {
         << "  --base-game   Base game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory that receives sprite saves (required)\n"
-        << "  --verbose     Raise the trace log level to show INFO messages\n";
+        << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -1366,7 +1366,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Info : slopengine::LogLevel::Warning);
+    slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Debug : slopengine::LogLevel::Info);
     slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1600, 900, "slopsprite");

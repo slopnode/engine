@@ -114,7 +114,7 @@ int App::run() {
 }
 
 void App::init_window() {
-    Log::init(config_.verbose ? LogLevel::Info : LogLevel::Warning);
+    Log::init(config_.verbose ? LogLevel::Debug : LogLevel::Info);
     Log::addDefaultConsoleSink();
     prepareGraphicsInit(userSettings_.graphics);
     InitWindow(userSettings_.graphics.width, userSettings_.graphics.height, "slopengine");

@@ -1,4 +1,5 @@
 #include "map/bsp.hpp"
+#include "map/bsp_analyze.hpp"
 
 #include <raylib.h>
 
@@ -492,18 +493,6 @@ std::uint32_t terminalLeafContents(
     return softContentsAtPoint(polyCentroid(poly), brushes.water, brushes.trigger);
 }
 
-std::int32_t encodeLeaf(std::int32_t leafIndex) {
-    return -leafIndex - 1;
-}
-
-bool isLeafChild(std::int32_t child) {
-    return child < 0;
-}
-
-std::int32_t decodeLeaf(std::int32_t child) {
-    return -child - 1;
-}
-
 std::int32_t emitLeaf(
     BspTree& tree,
     const Polyhedron& poly,
@@ -515,7 +504,7 @@ std::int32_t emitLeaf(
     leaf.contents = contents;
     const std::int32_t leafIndex = static_cast<std::int32_t>(tree.leaves.size());
     tree.leaves.push_back(std::move(leaf));
-    return encodeLeaf(leafIndex);
+    return bspEncodeLeaf(leafIndex);
 }
 
 struct SplitScore {
@@ -525,15 +514,24 @@ struct SplitScore {
     int onPlaneFaces = 0;
 };
 
+struct SplitPlaneBounds {
+    Vector3 mins{};
+    Vector3 maxs{};
+};
+
 struct SplitPlane {
     BspPlane plane{};
     bool hintOnly = false;
-    // Union of the AABBs of every brush that contributed this plane. A plane
-    // can only ever separate solid from open space within reach of the
-    // brush(es) it came from, so this bounds where the plane is worth trying
-    // as a splitter — see the relevance check in buildNode.
-    Vector3 mins{};
-    Vector3 maxs{};
+    // AABB of each distinct brush that contributed this plane, kept apart
+    // rather than unioned together. A plane can only ever separate solid
+    // from open space within reach of the brush it came from, so this bounds
+    // where the plane is worth trying as a splitter — see the relevance
+    // check in buildNode. Keeping bounds per-contributor (instead of one
+    // union box) matters because unrelated brushes routinely share a plane
+    // (e.g. every room's floor at the same height): unioning their boxes
+    // would mark the plane "relevant" across the dead space between them,
+    // including exterior void far from either brush.
+    std::vector<SplitPlaneBounds> contributors;
 };
 
 SplitScore scoreSplitPlane(const BspPlane& plane, const Polyhedron& poly) {
@@ -640,6 +638,67 @@ bool planeCutsPolyhedron(const BspPlane& plane, const Polyhedron& poly) {
     return false;
 }
 
+// Cap on SplitPlane::contributors so the O(k) scan in splitPlaneRelevantToCell
+// stays cheap even for a plane shared by an unbounded number of disjoint
+// brushes (e.g. a pathological map with hundreds of unrelated same-height
+// floor islands). Past this many distinct islands, mergeContributorBounds
+// falls back to a single union box for the plane — same behavior as before
+// per-contributor tracking existed, but only for that one outlier plane.
+constexpr std::size_t kMaxSplitPlaneContributors = 24;
+
+bool boundsOverlapOrTouch(Vector3 aMins, Vector3 aMaxs, Vector3 bMins, Vector3 bMaxs) {
+    constexpr float kTouchPad = 1e-3f;
+    return aMins.x <= bMaxs.x + kTouchPad && aMaxs.x >= bMins.x - kTouchPad
+        && aMins.y <= bMaxs.y + kTouchPad && aMaxs.y >= bMins.y - kTouchPad
+        && aMins.z <= bMaxs.z + kTouchPad && aMaxs.z >= bMins.z - kTouchPad;
+}
+
+// Folds a new brush AABB into the contributor list, merging it with any
+// existing entries it overlaps/touches (cascading, since the merged box can
+// then reach entries the original didn't) instead of appending unboundedly.
+// This keeps contributors sized to the number of spatially separate islands
+// on the plane rather than the number of brushes on it: a building with one
+// contiguous floor at a shared height collapses to one box (its floor really
+// is relevant everywhere in that box); two unrelated rooms that merely share
+// a height stay as two boxes, so the gap between them still reads as
+// irrelevant. Runs once per brush face at split-collection time, not on the
+// buildNode hot path, so the O(k) cost here is a non-issue.
+void mergeContributorBounds(
+    std::vector<SplitPlaneBounds>& contributors,
+    Vector3 brushMins,
+    Vector3 brushMaxs) {
+    Vector3 mergedMins = brushMins;
+    Vector3 mergedMaxs = brushMaxs;
+    for (std::size_t i = 0; i < contributors.size();) {
+        if (boundsOverlapOrTouch(mergedMins, mergedMaxs, contributors[i].mins, contributors[i].maxs)) {
+            mergedMins.x = std::min(mergedMins.x, contributors[i].mins.x);
+            mergedMins.y = std::min(mergedMins.y, contributors[i].mins.y);
+            mergedMins.z = std::min(mergedMins.z, contributors[i].mins.z);
+            mergedMaxs.x = std::max(mergedMaxs.x, contributors[i].maxs.x);
+            mergedMaxs.y = std::max(mergedMaxs.y, contributors[i].maxs.y);
+            mergedMaxs.z = std::max(mergedMaxs.z, contributors[i].maxs.z);
+            contributors.erase(contributors.begin() + static_cast<std::ptrdiff_t>(i));
+            i = 0;
+        } else {
+            ++i;
+        }
+    }
+    contributors.push_back(SplitPlaneBounds{mergedMins, mergedMaxs});
+
+    if (contributors.size() > kMaxSplitPlaneContributors) {
+        SplitPlaneBounds unioned = contributors.front();
+        for (std::size_t i = 1; i < contributors.size(); ++i) {
+            unioned.mins.x = std::min(unioned.mins.x, contributors[i].mins.x);
+            unioned.mins.y = std::min(unioned.mins.y, contributors[i].mins.y);
+            unioned.mins.z = std::min(unioned.mins.z, contributors[i].mins.z);
+            unioned.maxs.x = std::max(unioned.maxs.x, contributors[i].maxs.x);
+            unioned.maxs.y = std::max(unioned.maxs.y, contributors[i].maxs.y);
+            unioned.maxs.z = std::max(unioned.maxs.z, contributors[i].maxs.z);
+        }
+        contributors.assign(1, unioned);
+    }
+}
+
 void addUniqueSplit(
     std::vector<SplitPlane>& out,
     const BspPlane& plane,
@@ -654,16 +713,11 @@ void addUniqueSplit(
             if (!hintOnly) {
                 existing.hintOnly = false;
             }
-            existing.mins.x = std::min(existing.mins.x, brushMins.x);
-            existing.mins.y = std::min(existing.mins.y, brushMins.y);
-            existing.mins.z = std::min(existing.mins.z, brushMins.z);
-            existing.maxs.x = std::max(existing.maxs.x, brushMaxs.x);
-            existing.maxs.y = std::max(existing.maxs.y, brushMaxs.y);
-            existing.maxs.z = std::max(existing.maxs.z, brushMaxs.z);
+            mergeContributorBounds(existing.contributors, brushMins, brushMaxs);
             return;
         }
     }
-    out.push_back(SplitPlane{plane, hintOnly, brushMins, brushMaxs});
+    out.push_back(SplitPlane{plane, hintOnly, {SplitPlaneBounds{brushMins, brushMaxs}}});
 }
 
 void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& out) {
@@ -686,9 +740,14 @@ void collectSplits(const std::vector<Brush>& brushes, std::vector<SplitPlane>& o
 // scoring below, so it also cuts scoring work, not just tree size.
 bool splitPlaneRelevantToCell(const SplitPlane& split, const Polyhedron& poly) {
     constexpr float kRelevancePad = 1e-3f;
-    return poly.mins.x <= split.maxs.x + kRelevancePad && poly.maxs.x >= split.mins.x - kRelevancePad
-        && poly.mins.y <= split.maxs.y + kRelevancePad && poly.maxs.y >= split.mins.y - kRelevancePad
-        && poly.mins.z <= split.maxs.z + kRelevancePad && poly.maxs.z >= split.mins.z - kRelevancePad;
+    for (const SplitPlaneBounds& b : split.contributors) {
+        if (poly.mins.x <= b.maxs.x + kRelevancePad && poly.maxs.x >= b.mins.x - kRelevancePad
+            && poly.mins.y <= b.maxs.y + kRelevancePad && poly.maxs.y >= b.mins.y - kRelevancePad
+            && poly.mins.z <= b.maxs.z + kRelevancePad && poly.maxs.z >= b.mins.z - kRelevancePad) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::int32_t buildNode(
@@ -916,8 +975,8 @@ static bool tryMakePortal(
 /** Open leaves plus Door-brush leaves: the set of leaves BspPortals should
  *  connect (see leafParticipatesInPortalGraph). */
 static void collectPortalGraphLeaves(const BspTree& tree, std::int32_t child, std::vector<std::int32_t>& out) {
-    if (isLeafChild(child)) {
-        const std::int32_t li = decodeLeaf(child);
+    if (bspIsLeafChild(child)) {
+        const std::int32_t li = bspDecodeLeaf(child);
         if (leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(li)].contents)) {
             out.push_back(li);
         }
@@ -939,7 +998,7 @@ static void linkNeighbors(BspLeaf& a, BspLeaf& b, std::int32_t ai, std::int32_t 
 }
 
 static void buildAdjacencyWalk(BspTree& tree, std::int32_t child) {
-    if (isLeafChild(child)) {
+    if (bspIsLeafChild(child)) {
         return;
     }
     const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
@@ -982,6 +1041,121 @@ void buildAdjacency(BspTree& tree) {
         return;
     }
     buildAdjacencyWalk(tree, tree.root);
+}
+
+bool hasInteriorOpenLeaf(const BspTree& tree, const std::vector<std::uint8_t>& exteriorEmpty) {
+    for (std::size_t i = 0; i < tree.leaves.size(); ++i) {
+        if (leafBlocksFlood(tree.leaves[i].contents)) {
+            continue;
+        }
+        if (i >= exteriorEmpty.size() || exteriorEmpty[i] == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Bottom-up classification used by mergeExteriorLeaves: whether every leaf
+ *  under a subtree is open and exterior, plus the subtree's combined bounds. */
+struct SubtreeClass {
+    bool fullyExteriorOpen = false;
+    Vector3 mins{};
+    Vector3 maxs{};
+};
+
+SubtreeClass classifyExteriorSubtree(
+    const BspTree& tree,
+    std::int32_t child,
+    const std::vector<std::uint8_t>& exteriorEmpty,
+    std::vector<SubtreeClass>& nodeClass) {
+    if (bspIsLeafChild(child)) {
+        const std::int32_t li = bspDecodeLeaf(child);
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(li)];
+        SubtreeClass c;
+        c.fullyExteriorOpen = leafIsOpen(leaf.contents)
+            && static_cast<std::size_t>(li) < exteriorEmpty.size()
+            && exteriorEmpty[static_cast<std::size_t>(li)] != 0;
+        c.mins = leaf.mins;
+        c.maxs = leaf.maxs;
+        return c;
+    }
+    const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
+    const SubtreeClass front = classifyExteriorSubtree(tree, node.front, exteriorEmpty, nodeClass);
+    const SubtreeClass back = classifyExteriorSubtree(tree, node.back, exteriorEmpty, nodeClass);
+    SubtreeClass c;
+    c.fullyExteriorOpen = front.fullyExteriorOpen && back.fullyExteriorOpen;
+    c.mins = {
+        std::min(front.mins.x, back.mins.x),
+        std::min(front.mins.y, back.mins.y),
+        std::min(front.mins.z, back.mins.z),
+    };
+    c.maxs = {
+        std::max(front.maxs.x, back.maxs.x),
+        std::max(front.maxs.y, back.maxs.y),
+        std::max(front.maxs.z, back.maxs.z),
+    };
+    nodeClass[static_cast<std::size_t>(child)] = c;
+    return c;
+}
+
+std::int32_t rebuildMergedChild(
+    const BspTree& src,
+    std::int32_t child,
+    const std::vector<SubtreeClass>& nodeClass,
+    BspTree& dst) {
+    if (bspIsLeafChild(child)) {
+        BspLeaf copy = src.leaves[static_cast<std::size_t>(bspDecodeLeaf(child))];
+        copy.neighbors.clear();
+        const std::int32_t newIndex = static_cast<std::int32_t>(dst.leaves.size());
+        dst.leaves.push_back(std::move(copy));
+        return bspEncodeLeaf(newIndex);
+    }
+
+    const SubtreeClass& c = nodeClass[static_cast<std::size_t>(child)];
+    if (c.fullyExteriorOpen) {
+        // Whole subtree is unreachable exterior void: collapse it to a single
+        // leaf. Faces are left empty — nothing downstream (pointLeaf, PVS,
+        // nav) needs exact void polyhedron shape, and buildAdjacency will
+        // skip generating portals for it since it has no faces to match.
+        BspLeaf merged;
+        merged.contents = 0;
+        merged.mins = c.mins;
+        merged.maxs = c.maxs;
+        const std::int32_t newIndex = static_cast<std::int32_t>(dst.leaves.size());
+        dst.leaves.push_back(std::move(merged));
+        return bspEncodeLeaf(newIndex);
+    }
+
+    const BspNode& node = src.nodes[static_cast<std::size_t>(child)];
+    const std::int32_t front = rebuildMergedChild(src, node.front, nodeClass, dst);
+    const std::int32_t back = rebuildMergedChild(src, node.back, nodeClass, dst);
+    const std::int32_t newNodeIndex = static_cast<std::int32_t>(dst.nodes.size());
+    dst.nodes.push_back({});
+    dst.nodes[static_cast<std::size_t>(newNodeIndex)].plane = node.plane;
+    dst.nodes[static_cast<std::size_t>(newNodeIndex)].front = front;
+    dst.nodes[static_cast<std::size_t>(newNodeIndex)].back = back;
+    return newNodeIndex;
+}
+
+/** Collapses every maximal subtree that is entirely unreachable exterior
+ *  void (per @p exteriorEmpty) into a single leaf. Only called once the hull
+ *  is confirmed sealed, so exterior can never touch interior gameplay space —
+ *  see hasInteriorOpenLeaf at the call site. Portals/neighbors are stale
+ *  after this and must be rebuilt via buildAdjacency. */
+void mergeExteriorLeaves(BspTree& tree, const std::vector<std::uint8_t>& exteriorEmpty) {
+    if (tree.root < 0 || bspIsLeafChild(tree.root)) {
+        return;
+    }
+    std::vector<SubtreeClass> nodeClass(tree.nodes.size());
+    classifyExteriorSubtree(tree, tree.root, exteriorEmpty, nodeClass);
+
+    BspTree rebuilt;
+    rebuilt.boundsMins = tree.boundsMins;
+    rebuilt.boundsMaxs = tree.boundsMaxs;
+    rebuilt.root = rebuildMergedChild(tree, tree.root, nodeClass, rebuilt);
+    tree.nodes = std::move(rebuilt.nodes);
+    tree.leaves = std::move(rebuilt.leaves);
+    tree.root = rebuilt.root;
 }
 
 void orientSurfaceWinding(BspSurfaceFace& face) {
@@ -1268,6 +1442,25 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
     TraceLog(LOG_INFO, "BSP: nodes=%d leaves=%d", static_cast<int>(tree.nodes.size()), static_cast<int>(tree.leaves.size()));
     TraceLog(LOG_INFO, "BSP: building adjacency...");
     buildAdjacency(tree);
+
+    std::vector<std::uint8_t> exteriorFlood;
+    floodExteriorLeaves(tree, exteriorFlood);
+    if (hasInteriorOpenLeaf(tree, exteriorFlood)) {
+        const int preNodes = static_cast<int>(tree.nodes.size());
+        const int preLeaves = static_cast<int>(tree.leaves.size());
+        mergeExteriorLeaves(tree, exteriorFlood);
+        TraceLog(
+            LOG_INFO,
+            "BSP: exterior merge nodes=%d->%d leaves=%d->%d",
+            preNodes,
+            static_cast<int>(tree.nodes.size()),
+            preLeaves,
+            static_cast<int>(tree.leaves.size()));
+        buildAdjacency(tree);
+    } else {
+        TraceLog(LOG_INFO, "BSP: exterior merge skipped (unsealed hull)");
+    }
+
     linkDoorPortals(tree, brushes);
     TraceLog(LOG_INFO, "BSP: building surface faces...");
     buildSurfaceFaces(tree, buildBrushes.surface);
@@ -1306,12 +1499,12 @@ std::int32_t pointLeaf(const BspTree& tree, Vector3 point) {
     }
 
     std::int32_t child = tree.root;
-    while (!isLeafChild(child)) {
+    while (!bspIsLeafChild(child)) {
         const BspNode& node = tree.nodes[static_cast<std::size_t>(child)];
         const float value = planeDistance(node.plane, point);
         child = value >= 0.0f ? node.front : node.back;
     }
-    return decodeLeaf(child);
+    return bspDecodeLeaf(child);
 }
 
 bool leafIsEmpty(const BspTree& tree, std::int32_t leafIndex) {

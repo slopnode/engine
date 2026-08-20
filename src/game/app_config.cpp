@@ -14,7 +14,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "                --base-game (repeatable)\n"
               << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
               << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n"
-              << "  --verbose     Raise the trace log level to show INFO messages\n";
+              << "  --verbose     Raise the trace log level to show DEBUG messages\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
         return;

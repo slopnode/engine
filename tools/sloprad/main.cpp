@@ -240,7 +240,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Log::init(cli->config.verbose ? LogLevel::Info : LogLevel::Warning);
+    Log::init(cli->config.verbose ? LogLevel::Debug : LogLevel::Info);
     Log::addDefaultConsoleSink();
     if (!initGLContext()) {
         std::cerr << "sloprad: failed to create OpenGL context\n";

@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Log::init(config->verbose ? LogLevel::Info : LogLevel::Warning);
+    Log::init(config->verbose ? LogLevel::Debug : LogLevel::Info);
     Log::addDefaultConsoleSink();
     AssetStore assets(*config);
     s7_scheme* scheme = s7_init();
