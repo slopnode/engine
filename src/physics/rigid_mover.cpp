@@ -406,6 +406,7 @@ void registerRigidMoverSystem(flecs::world& world) {
         });
 
     world.system<RigidMover, Model3D, GlobalTransformation>("RigidMoverRadTint")
+        .without<BakedLightmapModel>()
         .kind(flecs::PreUpdate)
         .each([](flecs::entity entity, RigidMover& mover, Model3D& model, const GlobalTransformation& global) {
             flecs::world world = entity.world();

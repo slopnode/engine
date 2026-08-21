@@ -218,6 +218,28 @@ Vector3 luxelWorldPos(const FaceBasis& basis, int luxelWidth, int luxelHeight, i
     return planePointFromUv(basis.uAxis, basis.vAxis, basis.normal, u, v, basis.planeD);
 }
 
+/** Multi-point fallback for luxels whose single 0.02-unit surface nudge lands in a leaf the
+ *  reachability graph doesn't know about (buildOpenLeafReachability only ever visits leafIsOpen()
+ *  leaves, so a Door brush's own Solid|Door leaf never appears in it - any luxel classified into
+ *  that leaf sees canSee() return false for every light, direct and bounced). Mirrors the
+ *  multi-point probing buildSurfaceFaces() already does for ordinary static faces via
+ *  collectFaceEmptyProbes(), which mover/door faces never get since they're excluded from
+ *  tree.surfaceFaces and so never inherit a precomputed emptyLeaf. */
+std::int32_t resolveOpenInteriorLeaf(
+    const BspTree& tree,
+    const std::vector<Vector3>& vertices,
+    Vector3 normal) {
+    std::vector<Vector3> probes;
+    collectFaceEmptyProbes(vertices, normal, probes);
+    for (const Vector3& probe : probes) {
+        const std::int32_t leafIndex = pointLeaf(tree, probe);
+        if (leafIndex >= 0 && leafIsOpen(tree.leaves[static_cast<std::size_t>(leafIndex)].contents)) {
+            return leafIndex;
+        }
+    }
+    return -1;
+}
+
 struct FaceLuxelGrid {
     bool valid = false;
     std::size_t luxelBase = 0;
@@ -2181,6 +2203,9 @@ RadiosityBakeResult bakeRadiosity(
             faceGrids[static_cast<std::size_t>(memberIndex)] = grid;
         }
 
+        bool robustFallbackReady = false;
+        std::int32_t robustFallbackLeaf = -1;
+
         for (int y = 0; y < group.luxelHeight; ++y) {
             for (int x = 0; x < group.luxelWidth; ++x) {
                 LuxelSample sample;
@@ -2193,7 +2218,18 @@ RadiosityBakeResult bakeRadiosity(
                 sample.faceIndex = representativeIndex;
                 sample.interiorLeaf = representative.interiorLeaf;
                 if (sample.interiorLeaf < 0 && tree != nullptr) {
-                    sample.interiorLeaf = pointLeaf(*tree, sample.position);
+                    const std::int32_t probed = pointLeaf(*tree, sample.position);
+                    if (probed >= 0
+                        && leafIsOpen(tree->leaves[static_cast<std::size_t>(probed)].contents)) {
+                        sample.interiorLeaf = probed;
+                    } else {
+                        if (!robustFallbackReady) {
+                            robustFallbackLeaf = resolveOpenInteriorLeaf(
+                                *tree, representative.vertices, representative.normal);
+                            robustFallbackReady = true;
+                        }
+                        sample.interiorLeaf = robustFallbackLeaf;
+                    }
                 }
                 sample.atlasIndex = group.atlasIndex;
                 sample.atlasX = group.atlasX + x;
