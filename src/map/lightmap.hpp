@@ -117,6 +117,10 @@ struct LightmapPackResult {
 /** Collects drawable faces from brushes for packing / bake. */
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
 
+/** Collects nodraw faces from solid-occluding brush roles (see brushRoleOccludesVisFaces),
+ *  for light-occlusion raycasts only. These never get baked lightmaps. */
+std::vector<LightmapFace> collectNodrawOcclusionFaces(const std::vector<Brush>& brushes);
+
 /** Clusters coplanar, UV-frame-matching, edge-adjacent faces so they can share one chart. */
 std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<LightmapFace>& faces);
 

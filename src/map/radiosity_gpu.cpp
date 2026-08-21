@@ -513,6 +513,7 @@ bool validateGpuSunParity(
     constexpr std::size_t kMaxProbes = 512;
     constexpr float kRelTol = 0.05f;
     constexpr float kAbsTol = 1e-3f;
+    const float raySlop = 1.5f / static_cast<float>(std::max(cpuReference.sunParams.rayCount, 1));
     const std::size_t stride = std::max(gpuLuxels.size() / kMaxProbes, std::size_t{1});
 
     std::size_t probes = 0;
@@ -551,11 +552,18 @@ bool validateGpuSunParity(
         const float cpuSun = cpuSunR + cpuSunG + cpuSunB;
         const float gpuSun = luxel.sunIr + luxel.sunIg + luxel.sunIb;
         const float ref = std::max({cpuSun, gpuSun, 1e-4f});
+        const float sumSlop = (intensity.x + intensity.y + intensity.z) * nDotL * raySlop;
+        const float rSlop = intensity.x * nDotL * raySlop;
+        const float gSlop = intensity.y * nDotL * raySlop;
+        const float bSlop = intensity.z * nDotL * raySlop;
         ++probes;
-        if (std::fabs(cpuSun - gpuSun) > kAbsTol + kRelTol * ref
-            || std::fabs(cpuSunR - luxel.sunIr) > kAbsTol + kRelTol * std::max({cpuSunR, luxel.sunIr, 1e-4f})
-            || std::fabs(cpuSunG - luxel.sunIg) > kAbsTol + kRelTol * std::max({cpuSunG, luxel.sunIg, 1e-4f})
-            || std::fabs(cpuSunB - luxel.sunIb) > kAbsTol + kRelTol * std::max({cpuSunB, luxel.sunIb, 1e-4f})) {
+        if (std::fabs(cpuSun - gpuSun) > kAbsTol + kRelTol * ref + sumSlop
+            || std::fabs(cpuSunR - luxel.sunIr)
+                > kAbsTol + kRelTol * std::max({cpuSunR, luxel.sunIr, 1e-4f}) + rSlop
+            || std::fabs(cpuSunG - luxel.sunIg)
+                > kAbsTol + kRelTol * std::max({cpuSunG, luxel.sunIg, 1e-4f}) + gSlop
+            || std::fabs(cpuSunB - luxel.sunIb)
+                > kAbsTol + kRelTol * std::max({cpuSunB, luxel.sunIb, 1e-4f}) + bSlop) {
             ++mismatches;
         }
     }

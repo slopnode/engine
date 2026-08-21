@@ -100,7 +100,10 @@ struct RadiosityLight {
     float coneAngle = 0.7f;
 };
 
-/** Runs radiosity on @p faces and returns atlases + rad metadata. */
+/** Runs radiosity on @p faces and returns atlases + rad metadata.
+ *  @p nodrawOcclusionFaces are additional faces (typically nodraw sides of solid brushes)
+ *  that block light-occlusion raycasts but are never chart-packed or shaded themselves —
+ *  see collectNodrawOcclusionFaces(). */
 RadiosityBakeResult bakeRadiosity(
     const std::vector<LightmapFace>& faces,
     const MapMeta& meta,
@@ -108,6 +111,7 @@ RadiosityBakeResult bakeRadiosity(
     const RadiositySettings& settings,
     const std::vector<RadiosityLight>& lights = {},
     const BspTree* tree = nullptr,
-    bool hullSealed = false);
+    bool hullSealed = false,
+    const std::vector<LightmapFace>& nodrawOcclusionFaces = {});
 
 }

@@ -182,6 +182,25 @@ std::int32_t findGroupRoot(std::vector<std::int32_t>& parent, std::int32_t x) {
 
 } // namespace
 
+namespace {
+
+LightmapFace makeLightmapFace(const Brush& brush, const BrushFace& brushFace) {
+    LightmapFace face;
+    face.id = brushFace.id;
+    face.material = brushFace.material;
+    face.normal = brushFace.normal;
+    face.vertices = brushFace.vertices;
+    face.uvShiftPixels = brushFace.uvShiftPixels;
+    face.uvScale = brushFace.uvScale;
+    face.uvUAxis = brushFace.uvUAxis;
+    face.uvVAxis = brushFace.uvVAxis;
+    face.uvLock = brushFace.uvLock;
+    face.transparent = brush.role == BrushRole::Transparent;
+    return face;
+}
+
+} // namespace
+
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes) {
     std::vector<LightmapFace> faces;
     for (const Brush& brush : brushes) {
@@ -189,18 +208,23 @@ std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes
             if (brushFace.nodraw) {
                 continue;
             }
-            LightmapFace face;
-            face.id = brushFace.id;
-            face.material = brushFace.material;
-            face.normal = brushFace.normal;
-            face.vertices = brushFace.vertices;
-            face.uvShiftPixels = brushFace.uvShiftPixels;
-            face.uvScale = brushFace.uvScale;
-            face.uvUAxis = brushFace.uvUAxis;
-            face.uvVAxis = brushFace.uvVAxis;
-            face.uvLock = brushFace.uvLock;
-            face.transparent = brush.role == BrushRole::Transparent;
-            faces.push_back(std::move(face));
+            faces.push_back(makeLightmapFace(brush, brushFace));
+        }
+    }
+    return faces;
+}
+
+std::vector<LightmapFace> collectNodrawOcclusionFaces(const std::vector<Brush>& brushes) {
+    std::vector<LightmapFace> faces;
+    for (const Brush& brush : brushes) {
+        if (!brushRoleOccludesVisFaces(brush.role)) {
+            continue;
+        }
+        for (const BrushFace& brushFace : brush.faces) {
+            if (!brushFace.nodraw) {
+                continue;
+            }
+            faces.push_back(makeLightmapFace(brush, brushFace));
         }
     }
     return faces;

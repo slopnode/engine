@@ -419,10 +419,12 @@ int main(int argc, char* argv[]) {
     }
 
     std::vector<LightmapFace> faces = collectLightmapFaces(*brushes);
+    const std::vector<LightmapFace> nodrawOcclusionFaces = collectNodrawOcclusionFaces(*brushes);
     TraceLog(
         LOG_INFO,
-        "sloprad: lightmap faces=%d (from authored brushes)",
-        static_cast<int>(faces.size()));
+        "sloprad: lightmap faces=%d (from authored brushes), nodraw occlusion faces=%d",
+        static_cast<int>(faces.size()),
+        static_cast<int>(nodrawOcclusionFaces.size()));
     std::fflush(stdout);
 
     auto resolveMaterial = [&assets](std::string_view materialPath) {
@@ -470,7 +472,8 @@ int main(int argc, char* argv[]) {
         cli->settings,
         lights,
         &*tree,
-        analysis.sealed);
+        analysis.sealed,
+        nodrawOcclusionFaces);
 
     const auto radPath = radDir / "static.rad";
     TraceLog(LOG_INFO, "sloprad: writing %s", radPath.string().c_str());
