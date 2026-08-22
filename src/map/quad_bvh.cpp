@@ -3,6 +3,7 @@
 #include "map/brush.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -118,6 +119,21 @@ bool rayAabb(
     return true;
 }
 
+float aabbSurfaceArea(Vector3 mins, Vector3 maxs) {
+    const float dx = std::max(0.0f, maxs.x - mins.x);
+    const float dy = std::max(0.0f, maxs.y - mins.y);
+    const float dz = std::max(0.0f, maxs.z - mins.z);
+    return 2.0f * (dx * dy + dy * dz + dz * dx);
+}
+
+constexpr int kSahBinCount = 16;
+
+struct SahBin {
+    Vector3 mins{1e30f, 1e30f, 1e30f};
+    Vector3 maxs{-1e30f, -1e30f, -1e30f};
+    int count = 0;
+};
+
 std::int32_t buildRecursive(
     QuadBvh& bvh,
     std::vector<std::int32_t>& indices,
@@ -148,26 +164,103 @@ std::int32_t buildRecursive(
         centroidMins = min3(centroidMins, c);
         centroidMaxs = max3(centroidMaxs, c);
     }
-    const Vector3 extent = sub3(centroidMaxs, centroidMins);
-    int axis = 0;
-    if (extent.y > extent.x) {
-        axis = 1;
-    }
-    if (extent.z > (axis == 0 ? extent.x : extent.y)) {
-        axis = 2;
-    }
-    const float mid =
-        0.5f
-        * ((axis == 0 ? centroidMins.x : (axis == 1 ? centroidMins.y : centroidMins.z))
-           + (axis == 0 ? centroidMaxs.x : (axis == 1 ? centroidMaxs.y : centroidMaxs.z)));
 
+    const float parentSA = aabbSurfaceArea(node.mins, node.maxs);
+    float bestCost = std::numeric_limits<float>::infinity();
+    int bestAxis = -1;
+    float bestSplit = 0.0f;
+
+    for (int axis = 0; axis < 3; ++axis) {
+        const float lo = axis == 0 ? centroidMins.x : (axis == 1 ? centroidMins.y : centroidMins.z);
+        const float hi = axis == 0 ? centroidMaxs.x : (axis == 1 ? centroidMaxs.y : centroidMaxs.z);
+        if (hi - lo < 1e-6f) {
+            continue;
+        }
+        std::array<SahBin, kSahBinCount> bins;
+        const float binScale = static_cast<float>(kSahBinCount) / (hi - lo);
+        for (std::int32_t i = start; i < end; ++i) {
+            const QuadBvh::Prim& prim = bvh.prims[static_cast<std::size_t>(indices[static_cast<std::size_t>(i)])];
+            const float c = axis == 0 ? prim.centroid.x : (axis == 1 ? prim.centroid.y : prim.centroid.z);
+            const int binIndex = std::clamp(static_cast<int>((c - lo) * binScale), 0, kSahBinCount - 1);
+            SahBin& bin = bins[static_cast<std::size_t>(binIndex)];
+            bin.mins = min3(bin.mins, prim.mins);
+            bin.maxs = max3(bin.maxs, prim.maxs);
+            ++bin.count;
+        }
+
+        std::array<int, kSahBinCount> leftCount{};
+        std::array<float, kSahBinCount> leftSA{};
+        Vector3 sweepMins = {1e30f, 1e30f, 1e30f};
+        Vector3 sweepMaxs = {-1e30f, -1e30f, -1e30f};
+        int running = 0;
+        for (int i = 0; i < kSahBinCount; ++i) {
+            const SahBin& bin = bins[static_cast<std::size_t>(i)];
+            if (bin.count > 0) {
+                sweepMins = min3(sweepMins, bin.mins);
+                sweepMaxs = max3(sweepMaxs, bin.maxs);
+            }
+            running += bin.count;
+            leftCount[static_cast<std::size_t>(i)] = running;
+            leftSA[static_cast<std::size_t>(i)] = aabbSurfaceArea(sweepMins, sweepMaxs);
+        }
+
+        sweepMins = {1e30f, 1e30f, 1e30f};
+        sweepMaxs = {-1e30f, -1e30f, -1e30f};
+        int rightRunning = 0;
+        for (int i = kSahBinCount - 1; i >= 1; --i) {
+            const SahBin& bin = bins[static_cast<std::size_t>(i)];
+            if (bin.count > 0) {
+                sweepMins = min3(sweepMins, bin.mins);
+                sweepMaxs = max3(sweepMaxs, bin.maxs);
+            }
+            rightRunning += bin.count;
+            const int lc = leftCount[static_cast<std::size_t>(i - 1)];
+            if (lc == 0 || rightRunning == 0) {
+                continue;
+            }
+            const float rightSA = aabbSurfaceArea(sweepMins, sweepMaxs);
+            const float cost =
+                leftSA[static_cast<std::size_t>(i - 1)] * static_cast<float>(lc)
+                + rightSA * static_cast<float>(rightRunning);
+            if (cost < bestCost) {
+                bestCost = cost;
+                bestAxis = axis;
+                bestSplit = lo + (hi - lo) * static_cast<float>(i) / static_cast<float>(kSahBinCount);
+            }
+        }
+    }
+
+    const float leafCost = parentSA * static_cast<float>(count);
     std::int32_t pivot = start;
-    for (std::int32_t i = start; i < end; ++i) {
-        const Vector3 c = bvh.prims[static_cast<std::size_t>(indices[static_cast<std::size_t>(i)])].centroid;
-        const float value = axis == 0 ? c.x : (axis == 1 ? c.y : c.z);
-        if (value < mid) {
-            std::swap(indices[static_cast<std::size_t>(pivot)], indices[static_cast<std::size_t>(i)]);
-            ++pivot;
+    if (bestAxis < 0 || bestCost >= leafCost) {
+        const Vector3 extent = sub3(centroidMaxs, centroidMins);
+        int axis = 0;
+        if (extent.y > extent.x) {
+            axis = 1;
+        }
+        if (extent.z > (axis == 0 ? extent.x : extent.y)) {
+            axis = 2;
+        }
+        const float mid =
+            0.5f
+            * ((axis == 0 ? centroidMins.x : (axis == 1 ? centroidMins.y : centroidMins.z))
+               + (axis == 0 ? centroidMaxs.x : (axis == 1 ? centroidMaxs.y : centroidMaxs.z)));
+        for (std::int32_t i = start; i < end; ++i) {
+            const Vector3 c = bvh.prims[static_cast<std::size_t>(indices[static_cast<std::size_t>(i)])].centroid;
+            const float value = axis == 0 ? c.x : (axis == 1 ? c.y : c.z);
+            if (value < mid) {
+                std::swap(indices[static_cast<std::size_t>(pivot)], indices[static_cast<std::size_t>(i)]);
+                ++pivot;
+            }
+        }
+    } else {
+        for (std::int32_t i = start; i < end; ++i) {
+            const QuadBvh::Prim& prim = bvh.prims[static_cast<std::size_t>(indices[static_cast<std::size_t>(i)])];
+            const float c = bestAxis == 0 ? prim.centroid.x : (bestAxis == 1 ? prim.centroid.y : prim.centroid.z);
+            if (c < bestSplit) {
+                std::swap(indices[static_cast<std::size_t>(pivot)], indices[static_cast<std::size_t>(i)]);
+                ++pivot;
+            }
         }
     }
     if (pivot == start || pivot == end) {
@@ -257,6 +350,38 @@ bool faceShouldSkip(std::int32_t faceIndex, const std::vector<char>* skipFaces) 
         && (*skipFaces)[static_cast<std::size_t>(faceIndex)] != 0;
 }
 
+void pushChildrenNearFirst(
+    const QuadBvh& bvh,
+    const QuadBvh::Node& node,
+    Vector3 origin,
+    Vector3 dir,
+    std::int32_t* stack,
+    int& stackSize) {
+    if (node.left >= 0 && node.right >= 0) {
+        const QuadBvh::Node& leftNode = bvh.nodes[static_cast<std::size_t>(node.left)];
+        const QuadBvh::Node& rightNode = bvh.nodes[static_cast<std::size_t>(node.right)];
+        const Vector3 leftCenter = scale3(add3(leftNode.mins, leftNode.maxs), 0.5f);
+        const Vector3 rightCenter = scale3(add3(rightNode.mins, rightNode.maxs), 0.5f);
+        const float tLeft = dot3(sub3(leftCenter, origin), dir);
+        const float tRight = dot3(sub3(rightCenter, origin), dir);
+        const std::int32_t nearChild = tLeft <= tRight ? node.left : node.right;
+        const std::int32_t farChild = tLeft <= tRight ? node.right : node.left;
+        if (stackSize < 64) {
+            stack[stackSize++] = farChild;
+        }
+        if (stackSize < 64) {
+            stack[stackSize++] = nearChild;
+        }
+        return;
+    }
+    if (node.right >= 0 && stackSize < 64) {
+        stack[stackSize++] = node.right;
+    }
+    if (node.left >= 0 && stackSize < 64) {
+        stack[stackSize++] = node.left;
+    }
+}
+
 } // namespace
 
 std::optional<QuadBvhHit> raycastQuadBvh(
@@ -319,15 +444,68 @@ std::optional<QuadBvhHit> raycastQuadBvh(
             }
             continue;
         }
-        if (node.right >= 0 && stackSize < 64) {
-            stack[stackSize++] = node.right;
-        }
-        if (node.left >= 0 && stackSize < 64) {
-            stack[stackSize++] = node.left;
-        }
+        pushChildrenNearFirst(bvh, node, origin, dir, stack, stackSize);
     }
     return best;
 }
+
+namespace {
+
+bool anyHitQuadBvh(
+    const QuadBvh& bvh,
+    Vector3 origin,
+    Vector3 direction,
+    float maxDistance,
+    std::int32_t ignoreFaceA,
+    std::int32_t ignoreFaceB,
+    const std::vector<char>* skipFaces) {
+    if (bvh.empty()) {
+        return false;
+    }
+    const float dirLen = std::sqrt(dot3(direction, direction));
+    if (dirLen < 1e-8f || maxDistance <= 0.0f) {
+        return false;
+    }
+    const Vector3 dir = scale3(direction, 1.0f / dirLen);
+    const Vector3 invDir{
+        std::fabs(dir.x) < 1e-20f ? (dir.x >= 0.0f ? 1e20f : -1e20f) : 1.0f / dir.x,
+        std::fabs(dir.y) < 1e-20f ? (dir.y >= 0.0f ? 1e20f : -1e20f) : 1.0f / dir.y,
+        std::fabs(dir.z) < 1e-20f ? (dir.z >= 0.0f ? 1e20f : -1e20f) : 1.0f / dir.z,
+    };
+
+    std::int32_t stack[64];
+    int stackSize = 0;
+    stack[stackSize++] = bvh.root;
+
+    while (stackSize > 0) {
+        const std::int32_t nodeIndex = stack[--stackSize];
+        const QuadBvh::Node& node = bvh.nodes[static_cast<std::size_t>(nodeIndex)];
+        if (!rayAabb(origin, invDir, node.mins, node.maxs, maxDistance)) {
+            continue;
+        }
+        if (node.primCount > 0) {
+            for (std::int32_t i = 0; i < node.primCount; ++i) {
+                const QuadBvh::Prim& prim =
+                    bvh.prims[static_cast<std::size_t>(node.firstPrim + i)];
+                if (prim.faceIndex == ignoreFaceA || prim.faceIndex == ignoreFaceB) {
+                    continue;
+                }
+                if (faceShouldSkip(prim.faceIndex, skipFaces)) {
+                    continue;
+                }
+                float t = 0.0f;
+                if (rayTriangle(origin, dir, prim.tri[0], prim.tri[1], prim.tri[2], maxDistance, t)) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        pushChildrenNearFirst(bvh, node, origin, dir, stack, stackSize);
+    }
+    return false;
+}
+
+} // namespace
 
 bool quadSegmentOccluded(
     const QuadBvh& bvh,
@@ -341,12 +519,7 @@ bool quadSegmentOccluded(
     if (distance < 1e-5f) {
         return false;
     }
-    const auto hit =
-        raycastQuadBvh(bvh, from, delta, distance * 0.999f, ignoreFaceA, skipFaces);
-    if (!hit) {
-        return false;
-    }
-    return hit->faceIndex != ignoreFaceB;
+    return anyHitQuadBvh(bvh, from, delta, distance * 0.999f, ignoreFaceA, ignoreFaceB, skipFaces);
 }
 
 }
