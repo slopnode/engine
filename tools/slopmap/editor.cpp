@@ -2087,8 +2087,6 @@ void Editor::setSelectedBrushesAsDoors() {
             brush.door.motion = slopengine::DoorMotion::Raise;
             brush.door.haveDuration = true;
             brush.door.duration = 0.6f;
-            brush.door.havePrompt = true;
-            brush.door.prompt = "Open";
         }
         markBrushCompileDirty(previous);
         markBrushCompileDirty(brush.role);

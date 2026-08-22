@@ -368,10 +368,6 @@ bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
             readString(sc, s7_car(args), door.hingeThingId);
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(args)) {
             readString(sc, s7_car(args), door.group);
-        } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(args)) {
-            if (readString(sc, s7_car(args), door.prompt)) {
-                door.havePrompt = true;
-            }
         } else if (std::strcmp(tag, "can-use") == 0 && s7_is_pair(args)) {
             if (parseHandlerBinding(sc, args, door.canUse)) {
                 mapHandlerRegistry().refineBinding(door.canUse, MapHandlerKind::CanUse);

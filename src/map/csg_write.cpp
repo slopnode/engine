@@ -174,9 +174,6 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     if (!door.group.empty()) {
         out << "    (group " << escapeSchemeString(door.group) << ")\n";
     }
-    if (door.havePrompt) {
-        out << "    (prompt " << escapeSchemeString(door.prompt) << ")\n";
-    }
     if (!door.canUse.empty()) {
         out << "    " << formatHandlerBindingClause("can-use", door.canUse) << "\n";
     }
