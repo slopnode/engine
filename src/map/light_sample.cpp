@@ -85,8 +85,10 @@ std::optional<Color> sampleChartAtPoint(
     const float v = dot3(point, vAxis);
     const float fu = std::clamp((u - uMin) / uSpan, 0.0f, 1.0f);
     const float fv = std::clamp((v - vMin) / vSpan, 0.0f, 1.0f);
-    const float atlasU = chart.u0 + (chart.u1 - chart.u0) * fu;
-    const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fv;
+    const float fx = chart.rotated ? fv : fu;
+    const float fy = chart.rotated ? fu : fv;
+    const float atlasU = chart.u0 + (chart.u1 - chart.u0) * fx;
+    const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fy;
 
     Color color = sampleAtlasNearest(
         lighting,

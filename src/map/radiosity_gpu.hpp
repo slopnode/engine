@@ -8,6 +8,7 @@
 #include <raylib.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -154,15 +155,60 @@ struct RadGpuBounceParams {
     bool gpuSafeMode = false;
 };
 
-bool accumulateBounceLightingGpu(
-    std::vector<RadGpuBounceLuxel>& luxels,
-    std::vector<Vector3>& gatheredRgb,
-    const std::vector<Vector3>& shootRgb,
+/** Owns everything that's invariant across a bake's bounce loop (compiled shader,
+ *  uploaded BVH/luxel/face-grid/material SSBOs) so createBounceGpuSession() only runs
+ *  once per bake instead of once per bounce. Only the `shoot` buffer changes bounce to
+ *  bounce; runBounceGpuPass() updates it in place. */
+struct RadGpuBounceSession {
+    unsigned int program = 0;
+    unsigned int luxelSsbo = 0;
+    unsigned int gatherSsbo = 0;
+    unsigned int shootSsbo = 0;
+    unsigned int faceSsbo = 0;
+    unsigned int nodeSsbo = 0;
+    unsigned int primSsbo = 0;
+    unsigned int paramsSsbo = 0;
+    unsigned int faceTransparentSsbo = 0;
+    unsigned int faceOcclusionSsbo = 0;
+    unsigned int materialRectSsbo = 0;
+    int luxelCount = 0;
+    int faceCount = 0;
+    std::int32_t bvhRoot = -1;
+    int luxelBatch = 0;
+    int dispatchesPerSync = 0;
+    /** Not owned; caller (bakeRadiosity) keeps this alive for the whole bake. */
+    const RadGpuOcclusionResources* occlusionResources = nullptr;
+};
+
+/** One-time setup: compiles the bounce shader and uploads everything that doesn't
+ *  change between bounces (scene BVH, luxel positions/normals, face grids, material/
+ *  occlusion data). Returns nullopt on failure (missing GL context, compile failure,
+ *  SSBO allocation failure) — caller should fall back to the CPU bounce path for the
+ *  whole bake. `luxels` and `faceGrids` are read-only static per-luxel/per-face data;
+ *  none of it is mutated during the bounce loop. */
+std::optional<RadGpuBounceSession> createBounceGpuSession(
+    const std::vector<RadGpuBounceLuxel>& luxels,
     const std::vector<RadGpuFaceGrid>& faceGrids,
     const QuadBvh& sceneBvh,
     std::string_view computeShaderSource,
-    const RadGpuBounceParams& params,
-    const std::vector<char>& faceTransparent = {},
-    const RadGpuOcclusionResources& occlusionResources = {});
+    const std::vector<char>& faceTransparent,
+    const RadGpuOcclusionResources& occlusionResources,
+    bool gpuSafeMode);
+
+/** Runs one bounce: uploads `shootRgb` (the only per-bounce input), dispatches, reads
+ *  back `gatheredRgb`. Returns false on GL error or non-finite output — on failure the
+ *  caller should call destroyBounceGpuSession() and fall back to CPU for this bounce
+ *  and all remaining ones (a GPU failure is generally persistent; retrying would mean
+ *  rebuilding the whole session anyway). */
+bool runBounceGpuPass(
+    RadGpuBounceSession& session,
+    std::vector<Vector3>& gatheredRgb,
+    const std::vector<Vector3>& shootRgb,
+    const RadGpuBounceParams& bounceParams);
+
+/** Frees everything owned by the session. Must be called exactly once when the bounce
+ *  loop finishes (or aborts on failure). Safe to call on a default-constructed or
+ *  already-destroyed session (all handles are 0). */
+void destroyBounceGpuSession(RadGpuBounceSession& session);
 
 }

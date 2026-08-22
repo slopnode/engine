@@ -60,6 +60,30 @@ DirectDispatchConfig directDispatchConfig(int luxelCount, int lightCount, bool g
     return config;
 }
 
+struct BounceDispatchConfig {
+    int luxelBatch = kLuxelBatchSize;
+    int dispatchesPerSync = kDispatchesPerSync;
+};
+
+/** Mirrors directDispatchConfig(): without this, bounce dispatches stay at the small
+ *  default batch/sync size no matter how large the scene is, which at millions of
+ *  luxels turns into tens of thousands of tiny dispatches and thousands of glFinish
+ *  stalls per bounce. */
+BounceDispatchConfig bounceDispatchConfig(int luxelCount, bool gpuSafeMode) {
+    BounceDispatchConfig config;
+    if (gpuSafeMode) {
+        config.luxelBatch = 256;
+        config.dispatchesPerSync = 1;
+        return config;
+    }
+    config.luxelBatch = std::min(kLuxelBatchSize, luxelCount);
+    if (luxelCount > kLargeLuxelThreshold) {
+        config.luxelBatch = 2048;
+        config.dispatchesPerSync = 32;
+    }
+    return config;
+}
+
 struct GpuLuxelSSBO {
     float px = 0.0f;
     float py = 0.0f;
@@ -1489,40 +1513,37 @@ void unloadBounceResources(
 
 } // namespace
 
-bool accumulateBounceLightingGpu(
-    std::vector<RadGpuBounceLuxel>& luxels,
-    std::vector<Vector3>& gatheredRgb,
-    const std::vector<Vector3>& shootRgb,
+std::optional<RadGpuBounceSession> createBounceGpuSession(
+    const std::vector<RadGpuBounceLuxel>& luxels,
     const std::vector<RadGpuFaceGrid>& faceGrids,
     const QuadBvh& sceneBvh,
     std::string_view computeShaderSource,
-    const RadGpuBounceParams& bounceParams,
     const std::vector<char>& faceTransparent,
-    const RadGpuOcclusionResources& occlusionResources) {
+    const RadGpuOcclusionResources& occlusionResources,
+    bool gpuSafeMode) {
     if (!occlusionResources.valid) {
         TraceLog(LOG_WARNING, "sloprad: GPU bounce lighting requires alpha occlusion resources");
-        return false;
+        return std::nullopt;
     }
     if (!radiosityGpuContextReady()) {
         TraceLog(LOG_WARNING, "sloprad: GPU bounce lighting unavailable (no GL 4.3 context)");
-        return false;
+        return std::nullopt;
     }
+
+    RadGpuBounceSession session;
+    session.occlusionResources = &occlusionResources;
+    session.luxelCount = static_cast<int>(luxels.size());
     if (luxels.empty()) {
-        return true;
-    }
-    if (shootRgb.size() != luxels.size()) {
-        TraceLog(LOG_WARNING, "sloprad: GPU bounce shoot buffer size mismatch");
-        return false;
+        return session;
     }
 
     const unsigned int program = loadComputeProgram(computeShaderSource);
     if (program == 0) {
-        return false;
+        return std::nullopt;
     }
 
     std::vector<GpuBounceLuxelSSBO> gpuLuxels(luxels.size());
     std::vector<GpuRgbSSBO> gpuGather(luxels.size());
-    std::vector<GpuRgbSSBO> gpuShoot(shootRgb.size());
     for (std::size_t i = 0; i < luxels.size(); ++i) {
         const RadGpuBounceLuxel& src = luxels[i];
         GpuBounceLuxelSSBO& dst = gpuLuxels[i];
@@ -1536,9 +1557,6 @@ bool accumulateBounceLightingGpu(
         dst.faceIndex = src.faceIndex;
         dst.localX = src.localX;
         dst.localY = src.localY;
-        gpuShoot[i].r = shootRgb[i].x;
-        gpuShoot[i].g = shootRgb[i].y;
-        gpuShoot[i].b = shootRgb[i].z;
     }
 
     std::vector<GpuFaceGridSSBO> gpuFaces(std::max<std::size_t>(faceGrids.size(), 1));
@@ -1612,9 +1630,11 @@ bool accumulateBounceLightingGpu(
         static_cast<unsigned int>(gpuGather.size() * sizeof(GpuRgbSSBO)),
         gpuGather.data(),
         RL_DYNAMIC_COPY);
+    // shootSsbo starts empty; the first runBounceGpuPass() call fills it via
+    // rlUpdateShaderBuffer before any dispatch reads it.
     const unsigned int shootSsbo = rlLoadShaderBuffer(
-        static_cast<unsigned int>(gpuShoot.size() * sizeof(GpuRgbSSBO)),
-        gpuShoot.data(),
+        static_cast<unsigned int>(gpuGather.size() * sizeof(GpuRgbSSBO)),
+        nullptr,
         RL_DYNAMIC_COPY);
     const unsigned int faceSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuFaces.size() * sizeof(GpuFaceGridSSBO)),
@@ -1630,27 +1650,13 @@ bool accumulateBounceLightingGpu(
         RL_DYNAMIC_COPY);
 
     const int luxelCount = static_cast<int>(gpuLuxels.size());
-    const int bounceLuxelBatch =
-        bounceParams.gpuSafeMode ? 256 : std::min(kLuxelBatchSize, luxelCount);
-    const int bounceDispatchesPerSync = bounceParams.gpuSafeMode ? 1 : kDispatchesPerSync;
-    GpuBounceParamsSSBO initialParams{};
-    initialParams.luxelCount = luxelCount;
-    initialParams.faceCount = static_cast<std::int32_t>(faceGrids.size());
-    initialParams.sampleCount = std::max(1, bounceParams.sampleCount);
-    initialParams.bvhRoot = bvhRoot;
-    initialParams.luxelOffset = 0;
-    initialParams.luxelBatch = std::min(bounceLuxelBatch, luxelCount);
-    initialParams.seed = bounceParams.seed;
-    initialParams.rayMaxDistance = bounceParams.rayMaxDistance;
-    initialParams.ambientR = bounceParams.ambientR;
-    initialParams.ambientG = bounceParams.ambientG;
-    initialParams.ambientB = bounceParams.ambientB;
-    initialParams.materialRectCount =
-        static_cast<std::int32_t>(occlusionResources.materialRects.size());
-    initialParams.alphaAtlasWidth = occlusionResources.atlasWidth;
-    initialParams.alphaAtlasHeight = occlusionResources.atlasHeight;
+    const BounceDispatchConfig dispatchConfig = bounceDispatchConfig(luxelCount, gpuSafeMode);
+
+    // Placeholder content; every dispatch overwrites this buffer in full before use
+    // (see runBounceGpuPass), so the initial contents here are never read.
+    const GpuBounceParamsSSBO placeholderParams{};
     const unsigned int paramsSsbo =
-        rlLoadShaderBuffer(sizeof(GpuBounceParamsSSBO), &initialParams, RL_DYNAMIC_COPY);
+        rlLoadShaderBuffer(sizeof(GpuBounceParamsSSBO), &placeholderParams, RL_DYNAMIC_COPY);
 
     std::vector<std::int32_t> faceTransparentBits(faceTransparent.size(), 0);
     for (std::size_t i = 0; i < faceTransparent.size(); ++i) {
@@ -1733,7 +1739,7 @@ bool accumulateBounceLightingGpu(
             faceOcclusionSsbo,
             materialRectSsbo,
             program);
-        return false;
+        return std::nullopt;
     }
     if (!checkGlError("bounce ssbo allocate")) {
         unloadBounceResources(
@@ -1748,48 +1754,121 @@ bool accumulateBounceLightingGpu(
             faceOcclusionSsbo,
             materialRectSsbo,
             program);
-        return false;
+        return std::nullopt;
     }
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d luxelBatch=%d safeMode=%d",
+        "sloprad: GPU bounce session created luxels=%d faces=%d bvhRoot=%d luxelBatch=%d syncEvery=%d safeMode=%d",
         luxelCount,
-        initialParams.sampleCount,
+        static_cast<int>(faceGrids.size()),
         bvhRoot,
-        bounceLuxelBatch,
-        bounceParams.gpuSafeMode ? 1 : 0);
+        dispatchConfig.luxelBatch,
+        dispatchConfig.dispatchesPerSync,
+        gpuSafeMode ? 1 : 0);
     std::fflush(stdout);
 
-    rlEnableShader(program);
-    rlBindShaderBuffer(luxelSsbo, 0);
-    rlBindShaderBuffer(gatherSsbo, 1);
-    rlBindShaderBuffer(shootSsbo, 2);
-    rlBindShaderBuffer(faceSsbo, 3);
-    rlBindShaderBuffer(nodeSsbo, 4);
-    rlBindShaderBuffer(primSsbo, 5);
-    rlBindShaderBuffer(paramsSsbo, 6);
-    rlBindShaderBuffer(faceTransparentSsbo, 7);
-    rlBindShaderBuffer(faceOcclusionSsbo, 8);
-    rlBindShaderBuffer(materialRectSsbo, 9);
-    bindAlphaAtlasForCompute(program, occlusionResources);
+    session.program = program;
+    session.luxelSsbo = luxelSsbo;
+    session.gatherSsbo = gatherSsbo;
+    session.shootSsbo = shootSsbo;
+    session.faceSsbo = faceSsbo;
+    session.nodeSsbo = nodeSsbo;
+    session.primSsbo = primSsbo;
+    session.paramsSsbo = paramsSsbo;
+    session.faceTransparentSsbo = faceTransparentSsbo;
+    session.faceOcclusionSsbo = faceOcclusionSsbo;
+    session.materialRectSsbo = materialRectSsbo;
+    session.faceCount = static_cast<int>(faceGrids.size());
+    session.bvhRoot = bvhRoot;
+    session.luxelBatch = dispatchConfig.luxelBatch;
+    session.dispatchesPerSync = dispatchConfig.dispatchesPerSync;
+    return session;
+}
+
+bool runBounceGpuPass(
+    RadGpuBounceSession& session,
+    std::vector<Vector3>& gatheredRgb,
+    const std::vector<Vector3>& shootRgb,
+    const RadGpuBounceParams& bounceParams) {
+    if (session.luxelCount == 0) {
+        gatheredRgb.clear();
+        return true;
+    }
+    if (static_cast<int>(shootRgb.size()) != session.luxelCount) {
+        TraceLog(LOG_WARNING, "sloprad: GPU bounce shoot buffer size mismatch");
+        return false;
+    }
+
+    std::vector<GpuRgbSSBO> gpuShoot(shootRgb.size());
+    for (std::size_t i = 0; i < shootRgb.size(); ++i) {
+        gpuShoot[i].r = shootRgb[i].x;
+        gpuShoot[i].g = shootRgb[i].y;
+        gpuShoot[i].b = shootRgb[i].z;
+    }
+    rlUpdateShaderBuffer(
+        session.shootSsbo,
+        gpuShoot.data(),
+        static_cast<unsigned int>(gpuShoot.size() * sizeof(GpuRgbSSBO)),
+        0);
+    memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
+
+    GpuBounceParamsSSBO initialParams{};
+    initialParams.luxelCount = session.luxelCount;
+    initialParams.faceCount = session.faceCount;
+    initialParams.sampleCount = std::max(1, bounceParams.sampleCount);
+    initialParams.bvhRoot = session.bvhRoot;
+    initialParams.luxelOffset = 0;
+    initialParams.luxelBatch = std::min(session.luxelBatch, session.luxelCount);
+    initialParams.seed = bounceParams.seed;
+    initialParams.rayMaxDistance = bounceParams.rayMaxDistance;
+    initialParams.ambientR = bounceParams.ambientR;
+    initialParams.ambientG = bounceParams.ambientG;
+    initialParams.ambientB = bounceParams.ambientB;
+    initialParams.materialRectCount =
+        static_cast<std::int32_t>(session.occlusionResources->materialRects.size());
+    initialParams.alphaAtlasWidth = session.occlusionResources->atlasWidth;
+    initialParams.alphaAtlasHeight = session.occlusionResources->atlasHeight;
+
+    TraceLog(
+        LOG_INFO,
+        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d luxelBatch=%d syncEvery=%d",
+        session.luxelCount,
+        initialParams.sampleCount,
+        session.bvhRoot,
+        session.luxelBatch,
+        session.dispatchesPerSync);
+    std::fflush(stdout);
+
+    rlEnableShader(session.program);
+    rlBindShaderBuffer(session.luxelSsbo, 0);
+    rlBindShaderBuffer(session.gatherSsbo, 1);
+    rlBindShaderBuffer(session.shootSsbo, 2);
+    rlBindShaderBuffer(session.faceSsbo, 3);
+    rlBindShaderBuffer(session.nodeSsbo, 4);
+    rlBindShaderBuffer(session.primSsbo, 5);
+    rlBindShaderBuffer(session.paramsSsbo, 6);
+    rlBindShaderBuffer(session.faceTransparentSsbo, 7);
+    rlBindShaderBuffer(session.faceOcclusionSsbo, 8);
+    rlBindShaderBuffer(session.materialRectSsbo, 9);
+    bindAlphaAtlasForCompute(session.program, *session.occlusionResources);
 
     bool dispatchFailed = false;
     int dispatchesSinceSync = 0;
-    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;
-         luxelOffset += bounceLuxelBatch) {
+    for (int luxelOffset = 0; luxelOffset < session.luxelCount && !dispatchFailed;
+         luxelOffset += session.luxelBatch) {
         GpuBounceParamsSSBO params = initialParams;
         params.luxelOffset = luxelOffset;
-        params.luxelBatch = std::min(bounceLuxelBatch, luxelCount - luxelOffset);
-        rlEnableShader(program);
-        rebindAlphaAtlasTexture(occlusionResources);
-        rlUpdateShaderBuffer(paramsSsbo, &params, sizeof(params), 0);
+        params.luxelBatch = std::min(session.luxelBatch, session.luxelCount - luxelOffset);
+        rlEnableShader(session.program);
+        rebindAlphaAtlasTexture(*session.occlusionResources);
+        rlUpdateShaderBuffer(session.paramsSsbo, &params, sizeof(params), 0);
         memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
         const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
         rlComputeShaderDispatch(groups, 1, 1);
         memoryBarrierBits(kShaderStorageBarrierBit);
         ++dispatchesSinceSync;
-        if (dispatchesSinceSync >= bounceDispatchesPerSync) {
+        if (dispatchesSinceSync >= session.dispatchesPerSync) {
             finishGpu();
             dispatchesSinceSync = 0;
             if (!checkGlError("bounce compute dispatch")) {
@@ -1808,57 +1887,21 @@ bool accumulateBounceLightingGpu(
     rlDisableShader();
     unbindAlphaAtlas();
     if (dispatchFailed) {
-        unloadBounceResources(
-            luxelSsbo,
-            gatherSsbo,
-            shootSsbo,
-            faceSsbo,
-            nodeSsbo,
-            primSsbo,
-            paramsSsbo,
-            faceTransparentSsbo,
-            faceOcclusionSsbo,
-            materialRectSsbo,
-            program);
         return false;
     }
 
+    std::vector<GpuRgbSSBO> gpuGather(static_cast<std::size_t>(session.luxelCount));
     rlReadShaderBuffer(
-        gatherSsbo,
+        session.gatherSsbo,
         gpuGather.data(),
         static_cast<unsigned int>(gpuGather.size() * sizeof(GpuRgbSSBO)),
         0);
     if (!checkGlError("bounce ssbo readback")) {
-        unloadBounceResources(
-            luxelSsbo,
-            gatherSsbo,
-            shootSsbo,
-            faceSsbo,
-            nodeSsbo,
-            primSsbo,
-            paramsSsbo,
-            faceTransparentSsbo,
-            faceOcclusionSsbo,
-            materialRectSsbo,
-            program);
         return false;
     }
 
-    unloadBounceResources(
-        luxelSsbo,
-        gatherSsbo,
-        shootSsbo,
-        faceSsbo,
-        nodeSsbo,
-        primSsbo,
-        paramsSsbo,
-        faceTransparentSsbo,
-        faceOcclusionSsbo,
-        materialRectSsbo,
-        program);
-
-    gatheredRgb.resize(luxels.size());
-    for (std::size_t i = 0; i < luxels.size(); ++i) {
+    gatheredRgb.resize(gpuGather.size());
+    for (std::size_t i = 0; i < gpuGather.size(); ++i) {
         if (!std::isfinite(gpuGather[i].r) || !std::isfinite(gpuGather[i].g)
             || !std::isfinite(gpuGather[i].b)) {
             TraceLog(LOG_WARNING, "sloprad: GPU bounce produced non-finite luxel %zu", i);
@@ -1870,6 +1913,22 @@ bool accumulateBounceLightingGpu(
     TraceLog(LOG_INFO, "sloprad: GPU bounce lighting complete");
     std::fflush(stdout);
     return true;
+}
+
+void destroyBounceGpuSession(RadGpuBounceSession& session) {
+    unloadBounceResources(
+        session.luxelSsbo,
+        session.gatherSsbo,
+        session.shootSsbo,
+        session.faceSsbo,
+        session.nodeSsbo,
+        session.primSsbo,
+        session.paramsSsbo,
+        session.faceTransparentSsbo,
+        session.faceOcclusionSsbo,
+        session.materialRectSsbo,
+        session.program);
+    session = RadGpuBounceSession{};
 }
 
 }

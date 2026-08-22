@@ -28,6 +28,7 @@ void runBrushBlocksTests();
 void runLightmapTransparentTests();
 void runLightmapRgbeTests();
 void runLightmapMergeTests();
+void runLightmapPackTests();
 void runRadiosityEmitterTests();
 void runSunShadowSoftnessTests();
 void runSeamStitchTests();
@@ -66,6 +67,7 @@ const Suite kSuites[] = {
     {"lightmap_transparent", slopengine::runLightmapTransparentTests},
     {"lightmap_rgbe", slopengine::runLightmapRgbeTests},
     {"lightmap_merge", slopengine::runLightmapMergeTests},
+    {"lightmap_pack", slopengine::runLightmapPackTests},
     {"radiosity_emitters", slopengine::runRadiosityEmitterTests},
     {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
