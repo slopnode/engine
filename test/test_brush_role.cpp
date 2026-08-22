@@ -17,9 +17,9 @@ void runBrushRoleTests() {
     CHECK_FALSE(brushRoleOccludesVisFaces(BrushRole::Transparent));
     CHECK_FALSE(brushRoleReceivesVisOcclusion(BrushRole::Transparent));
     CHECK(brushRoleEmitsVisFaces(BrushRole::Transparent));
-    CHECK_FALSE(brushRoleSeals(BrushRole::Transparent));
-    CHECK_FALSE(brushRoleContributesSplits(BrushRole::Transparent));
-    CHECK(brushRoleNeedsInteriorPlacement(BrushRole::Transparent));
+    CHECK(brushRoleSeals(BrushRole::Transparent));
+    CHECK(brushRoleContributesSplits(BrushRole::Transparent));
+    CHECK_FALSE(brushRoleNeedsInteriorPlacement(BrushRole::Transparent));
 
     CHECK(brushRoleOccludesVisFaces(BrushRole::Detail));
     CHECK(brushRoleReceivesVisOcclusion(BrushRole::Detail));
