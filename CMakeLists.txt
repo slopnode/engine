@@ -44,6 +44,27 @@ endif()
 
 include(GNUInstallDirs)
 
+# Build libslop (and everything it statically absorbs: raylib, s7, flecs,
+# Jolt, imgui, rlImGui, soloud) as position-independent so sloplib can be a
+# shared library. Set globally, before add_subdirectory(lib), so the vendored
+# libraries pick it up without editing their own CMakeLists.txt files.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if(WIN32)
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
+
+# Every target's RPATH points at $ORIGIN (its own directory) instead of an
+# absolute build-tree path, so binaries keep finding libslop.so after the
+# whole output directory is copied elsewhere (dist/, an install, etc).
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+
+# Flatten output so libslop.so lands next to every executable, including
+# sloptests (declared in test/CMakeLists.txt, which CMake would otherwise
+# place in build/test/ instead of build/).
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
 set(SLOPENGINE_ENGINE_PACKAGE_DIR "${CMAKE_SOURCE_DIR}/packages/engine"
     CACHE PATH "Fallback directory for the always-mounted engine package")
 
@@ -140,7 +161,7 @@ set(SLOPLIB_SOURCES
     src/render/skybox_render.cpp
 )
 
-add_library(sloplib STATIC ${SLOPLIB_SOURCES})
+add_library(sloplib SHARED ${SLOPLIB_SOURCES})
 target_include_directories(sloplib PUBLIC
     src
     "${CMAKE_BINARY_DIR}/generated"
