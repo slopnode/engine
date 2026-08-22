@@ -64,7 +64,8 @@ App::App(AppConfig config)
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
     }
-    ImFont* consoleMonoFont = setupImGuiWithUiAndMonoFont(assetStore_, kDefaultUiFontPath, kMonoUiFontPath, true);
+    ImFont* consoleMonoFont =
+        setupImGuiWithUiAndMonoFont(assetStore_, kDefaultUiFontPath, kMonoUiFontPath, true, "slopengine");
     init_script();
     userSettings_.controls = ControlsSettings::defaults();
     UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);

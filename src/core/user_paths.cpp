@@ -114,6 +114,10 @@ std::filesystem::path defaultSlopmapThumbnailCacheDirectory() {
     return userCacheDirectory() / "slopmap" / "thumbnails";
 }
 
+std::filesystem::path userImguiIniPath(std::string_view toolName) {
+    return userConfigDirectory() / "imgui" / (std::string(toolName) + ".ini");
+}
+
 std::vector<std::filesystem::path> userConfiguredSearchPaths() {
     std::vector<std::filesystem::path> paths;
 

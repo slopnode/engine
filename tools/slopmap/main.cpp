@@ -1162,7 +1162,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     ImFont* monoFont = setupImGuiWithUiAndMonoFont(
-        assets, kDefaultUiFontPath, kMonoUiFontPath, true);
+        assets, kDefaultUiFontPath, kMonoUiFontPath, true, "slopmap");
     applySharpImGuiStyle();
 
     s7_scheme* scheme = s7_init();

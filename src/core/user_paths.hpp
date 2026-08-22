@@ -24,6 +24,9 @@ std::filesystem::path userScreenshotDirectory();
 std::filesystem::path userSavesDirectory();
 std::filesystem::path defaultSlopmapThumbnailCacheDirectory();
 
+/** Path to the per-tool imgui.ini, so ImGui window layouts persist outside the cwd. */
+std::filesystem::path userImguiIniPath(std::string_view toolName);
+
 /** Additional package search directories from settings.cfg's [paths] section (search_path= lines). */
 std::vector<std::filesystem::path> userConfiguredSearchPaths();
 

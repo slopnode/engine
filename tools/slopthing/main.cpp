@@ -148,7 +148,7 @@ int main(int argc, char* argv[]) {
     }
 
     ImFont* monoFont = slopengine::setupImGuiWithUiAndMonoFont(
-        assets, slopengine::kDefaultUiFontPath, slopengine::kMonoUiFontPath, true);
+        assets, slopengine::kDefaultUiFontPath, slopengine::kMonoUiFontPath, true, "slopthing");
 
     slopthing::Editor editor;
     editor.scheme = s7_init();

@@ -1384,7 +1384,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    slopengine::setupImGuiWithUiFont(assets, slopengine::kDefaultUiFontPath, true);
+    slopengine::setupImGuiWithUiFont(assets, slopengine::kDefaultUiFontPath, true, "slopsprite");
 
     slopsprite::Editor editor;
     editor.targetRoot = config->target;
