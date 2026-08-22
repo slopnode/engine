@@ -1171,11 +1171,11 @@ void drawConsole(ConsoleState& console, InputContextStack& contexts) {
 }
 
 void drawInteractionPrompt(const InteractionTarget& target, const InputContextStack& contexts) {
-    if (!contexts.allowsGameplay() || !target.entity.is_valid()) {
+    if (!contexts.allowsGameplay() || !target.entity.is_valid() || target.prompt.empty()) {
         return;
     }
 
-    const char* prompt = target.prompt.empty() ? "Interact" : target.prompt.c_str();
+    const char* prompt = target.prompt.c_str();
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::SetNextWindowPos(
         {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.88f},

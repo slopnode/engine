@@ -16,11 +16,12 @@
 namespace slopengine {
 
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
-constexpr std::uint32_t kRadVersion = 5;
+constexpr std::uint32_t kRadVersion = 6;
 constexpr std::uint32_t kRadVersionLegacy = 2;
 constexpr std::uint32_t kRadVersionPrevious = 3;
 constexpr std::uint32_t kRadVersionGroups = 4;
 constexpr std::uint32_t kRadVersionProbes = 5;
+constexpr std::uint32_t kRadVersionRotation = 6;
 
 /** Atlas pixel encoding recorded in rad v3+. */
 enum class LightmapEncoding : std::uint32_t {
@@ -60,6 +61,7 @@ struct LightmapChart {
     float groupUMax = 0.0f;
     float groupVMin = 0.0f;
     float groupVMax = 0.0f;
+    bool rotated = false;
 };
 
 /** A cluster of coplanar, UV-frame-matching, edge-adjacent faces sharing one chart. */
@@ -76,6 +78,7 @@ struct LightmapFaceGroup {
     int atlasY = 0;
     int luxelWidth = 0;
     int luxelHeight = 0;
+    bool rotated = false;
 };
 
 /** Atlas texture path and size recorded in a .rad file. */

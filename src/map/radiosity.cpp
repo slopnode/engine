@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -1349,65 +1350,73 @@ void inpaintCoveredLuxels(
     std::vector<LuxelSample>& luxels,
     const std::vector<FaceLuxelGrid>& faceGrids) {
     std::vector<char> hole(luxels.size(), 0);
-    std::size_t holeCount = 0;
+    std::vector<std::size_t> holeIndices;
     for (std::size_t i = 0; i < luxels.size(); ++i) {
         if (luxels[i].covered) {
             hole[i] = 1;
-            ++holeCount;
+            holeIndices.push_back(i);
         }
     }
-    if (holeCount == 0) {
+    if (holeIndices.empty()) {
         return;
     }
 
     constexpr int kMaxPasses = 64;
     const int offsets[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-    for (int pass = 0; pass < kMaxPasses && holeCount > 0; ++pass) {
-        std::vector<Color3> fill(luxels.size());
-        std::vector<char> fillMask(luxels.size(), 0);
-        for (std::size_t i = 0; i < luxels.size(); ++i) {
-            if (!hole[i]) {
-                continue;
-            }
-            const LuxelSample& luxel = luxels[i];
-            if (luxel.faceIndex < 0
-                || luxel.faceIndex >= static_cast<std::int32_t>(faceGrids.size())) {
-                continue;
-            }
-            const FaceLuxelGrid& grid = faceGrids[static_cast<std::size_t>(luxel.faceIndex)];
-            if (!grid.valid) {
-                continue;
-            }
-            Color3 sum{};
-            int count = 0;
-            for (const auto& offset : offsets) {
-                const int nx = luxel.localX + offset[0];
-                const int ny = luxel.localY + offset[1];
-                if (nx < 0 || ny < 0 || nx >= grid.luxelWidth || ny >= grid.luxelHeight) {
+    // Each pass only touches the still-unfilled holes from the previous pass instead
+    // of rescanning every luxel: holeIndices shrinks pass over pass, so total work is
+    // O(N + sum of remaining holes) rather than O(passes * N).
+    for (int pass = 0; pass < kMaxPasses && !holeIndices.empty(); ++pass) {
+        std::vector<Color3> fill(holeIndices.size());
+        std::vector<char> fillMask(holeIndices.size(), 0);
+        parallelFor(holeIndices.size(), [&](std::size_t begin, std::size_t end) {
+            for (std::size_t k = begin; k < end; ++k) {
+                const std::size_t i = holeIndices[k];
+                const LuxelSample& luxel = luxels[i];
+                if (luxel.faceIndex < 0
+                    || luxel.faceIndex >= static_cast<std::int32_t>(faceGrids.size())) {
                     continue;
                 }
-                const std::size_t ni =
-                    grid.luxelBase + static_cast<std::size_t>(ny) * static_cast<std::size_t>(grid.luxelWidth)
-                    + static_cast<std::size_t>(nx);
-                if (ni >= luxels.size() || hole[ni] != 0) {
+                const FaceLuxelGrid& grid = faceGrids[static_cast<std::size_t>(luxel.faceIndex)];
+                if (!grid.valid) {
                     continue;
                 }
-                sum += luxels[ni].irradiance;
-                ++count;
+                Color3 sum{};
+                int count = 0;
+                for (const auto& offset : offsets) {
+                    const int nx = luxel.localX + offset[0];
+                    const int ny = luxel.localY + offset[1];
+                    if (nx < 0 || ny < 0 || nx >= grid.luxelWidth || ny >= grid.luxelHeight) {
+                        continue;
+                    }
+                    const std::size_t ni = grid.luxelBase
+                        + static_cast<std::size_t>(ny) * static_cast<std::size_t>(grid.luxelWidth)
+                        + static_cast<std::size_t>(nx);
+                    if (ni >= luxels.size() || hole[ni] != 0) {
+                        continue;
+                    }
+                    sum += luxels[ni].irradiance;
+                    ++count;
+                }
+                if (count > 0) {
+                    fill[k] = sum * (1.0f / static_cast<float>(count));
+                    fillMask[k] = 1;
+                }
             }
-            if (count > 0) {
-                fill[i] = sum * (1.0f / static_cast<float>(count));
-                fillMask[i] = 1;
+        });
+
+        std::vector<std::size_t> nextHoleIndices;
+        nextHoleIndices.reserve(holeIndices.size());
+        for (std::size_t k = 0; k < holeIndices.size(); ++k) {
+            const std::size_t i = holeIndices[k];
+            if (fillMask[k] != 0) {
+                luxels[i].irradiance = fill[k];
+                hole[i] = 0;
+            } else {
+                nextHoleIndices.push_back(i);
             }
         }
-        for (std::size_t i = 0; i < luxels.size(); ++i) {
-            if (fillMask[i] == 0) {
-                continue;
-            }
-            luxels[i].irradiance = fill[i];
-            hole[i] = 0;
-            --holeCount;
-        }
+        holeIndices = std::move(nextHoleIndices);
     }
 }
 
@@ -1422,49 +1431,51 @@ void bilateralDenoiseColorGrid(
     const float invTwoRange = 1.0f / (2.0f * rangeSigma * rangeSigma);
     std::vector<Color3> filtered(colors.size());
     std::vector<char> writeMask(colors.size(), 0);
-    for (const FaceLuxelGrid& grid : faceGrids) {
-        if (!grid.valid || grid.luxelWidth <= 0 || grid.luxelHeight <= 0) {
-            continue;
-        }
-        for (int y = 0; y < grid.luxelHeight; ++y) {
-            for (int x = 0; x < grid.luxelWidth; ++x) {
-                const std::size_t center =
-                    grid.luxelBase + static_cast<std::size_t>(y) * static_cast<std::size_t>(grid.luxelWidth)
-                    + static_cast<std::size_t>(x);
-                if (center >= colors.size() || center >= luxels.size() || luxels[center].covered) {
-                    continue;
-                }
-                const float centerLum = luminance(colors[center]);
-                Color3 sum{};
-                float weightSum = 0.0f;
-                for (int oy = -kernelRadius; oy <= kernelRadius; ++oy) {
-                    for (int ox = -kernelRadius; ox <= kernelRadius; ++ox) {
-                        const int nx = x + ox;
-                        const int ny = y + oy;
-                        if (nx < 0 || ny < 0 || nx >= grid.luxelWidth || ny >= grid.luxelHeight) {
-                            continue;
-                        }
-                        const std::size_t ni =
-                            grid.luxelBase
-                            + static_cast<std::size_t>(ny) * static_cast<std::size_t>(grid.luxelWidth)
-                            + static_cast<std::size_t>(nx);
-                        if (ni >= colors.size() || ni >= luxels.size() || luxels[ni].covered) {
-                            continue;
-                        }
-                        const float dist2 = static_cast<float>(ox * ox + oy * oy);
-                        const float lumDelta = luminance(colors[ni]) - centerLum;
-                        const float w = std::exp(-dist2 * invTwoSpatial - lumDelta * lumDelta * invTwoRange);
-                        sum += colors[ni] * w;
-                        weightSum += w;
+    parallelFor(luxels.size(), [&](std::size_t begin, std::size_t end) {
+        for (std::size_t center = begin; center < end; ++center) {
+            const LuxelSample& luxel = luxels[center];
+            if (luxel.covered || center >= colors.size()) {
+                continue;
+            }
+            if (luxel.faceIndex < 0 || static_cast<std::size_t>(luxel.faceIndex) >= faceGrids.size()) {
+                continue;
+            }
+            const FaceLuxelGrid& grid = faceGrids[static_cast<std::size_t>(luxel.faceIndex)];
+            if (!grid.valid || grid.luxelWidth <= 0 || grid.luxelHeight <= 0) {
+                continue;
+            }
+            const int x = luxel.localX;
+            const int y = luxel.localY;
+            const float centerLum = luminance(colors[center]);
+            Color3 sum{};
+            float weightSum = 0.0f;
+            for (int oy = -kernelRadius; oy <= kernelRadius; ++oy) {
+                for (int ox = -kernelRadius; ox <= kernelRadius; ++ox) {
+                    const int nx = x + ox;
+                    const int ny = y + oy;
+                    if (nx < 0 || ny < 0 || nx >= grid.luxelWidth || ny >= grid.luxelHeight) {
+                        continue;
                     }
-                }
-                if (weightSum > 0.0f) {
-                    filtered[center] = sum * (1.0f / weightSum);
-                    writeMask[center] = 1;
+                    const std::size_t ni =
+                        grid.luxelBase
+                        + static_cast<std::size_t>(ny) * static_cast<std::size_t>(grid.luxelWidth)
+                        + static_cast<std::size_t>(nx);
+                    if (ni >= colors.size() || ni >= luxels.size() || luxels[ni].covered) {
+                        continue;
+                    }
+                    const float dist2 = static_cast<float>(ox * ox + oy * oy);
+                    const float lumDelta = luminance(colors[ni]) - centerLum;
+                    const float w = std::exp(-dist2 * invTwoSpatial - lumDelta * lumDelta * invTwoRange);
+                    sum += colors[ni] * w;
+                    weightSum += w;
                 }
             }
+            if (weightSum > 0.0f) {
+                filtered[center] = sum * (1.0f / weightSum);
+                writeMask[center] = 1;
+            }
         }
-    }
+    });
     for (std::size_t i = 0; i < colors.size(); ++i) {
         if (writeMask[i] != 0) {
             colors[i] = filtered[i];
@@ -1534,48 +1545,50 @@ void stitchCoplanarSeams(std::vector<LuxelSample>& luxels, float maxDistance) {
     std::vector<Color3> blended(luxels.size());
     std::vector<char> touched(luxels.size(), 0);
 
-    for (std::size_t i = 0; i < luxels.size(); ++i) {
-        const LuxelSample& self = luxels[i];
-        if (self.covered) {
-            continue;
-        }
-        const SeamGridKey center = seamGridKeyOf(self.position, maxDistance);
-        Color3 sum = self.irradiance;
-        float weightSum = 1.0f;
-        for (int dz = -1; dz <= 1; ++dz) {
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dx = -1; dx <= 1; ++dx) {
-                    const auto it = grid.find(SeamGridKey{center.x + dx, center.y + dy, center.z + dz});
-                    if (it == grid.end()) {
-                        continue;
-                    }
-                    for (std::int32_t j : it->second) {
-                        if (j == static_cast<std::int32_t>(i)) {
+    parallelFor(luxels.size(), [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+            const LuxelSample& self = luxels[i];
+            if (self.covered) {
+                continue;
+            }
+            const SeamGridKey center = seamGridKeyOf(self.position, maxDistance);
+            Color3 sum = self.irradiance;
+            float weightSum = 1.0f;
+            for (int dz = -1; dz <= 1; ++dz) {
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const auto it = grid.find(SeamGridKey{center.x + dx, center.y + dy, center.z + dz});
+                        if (it == grid.end()) {
                             continue;
                         }
-                        const LuxelSample& other = luxels[static_cast<std::size_t>(j)];
-                        if (other.faceIndex == self.faceIndex) {
-                            continue;
+                        for (std::int32_t j : it->second) {
+                            if (j == static_cast<std::int32_t>(i)) {
+                                continue;
+                            }
+                            const LuxelSample& other = luxels[static_cast<std::size_t>(j)];
+                            if (other.faceIndex == self.faceIndex) {
+                                continue;
+                            }
+                            if (!luxelsShareSeam(self.position, self.normal, other.position, other.normal, params)) {
+                                continue;
+                            }
+                            const float distance = std::sqrt(dot3(sub3(self.position, other.position), sub3(self.position, other.position)));
+                            const float weight = seamBlendWeight(distance, maxDistance);
+                            if (weight <= 0.0f) {
+                                continue;
+                            }
+                            sum += other.irradiance * weight;
+                            weightSum += weight;
                         }
-                        if (!luxelsShareSeam(self.position, self.normal, other.position, other.normal, params)) {
-                            continue;
-                        }
-                        const float distance = std::sqrt(dot3(sub3(self.position, other.position), sub3(self.position, other.position)));
-                        const float weight = seamBlendWeight(distance, maxDistance);
-                        if (weight <= 0.0f) {
-                            continue;
-                        }
-                        sum += other.irradiance * weight;
-                        weightSum += weight;
                     }
                 }
             }
+            if (weightSum > 1.0f) {
+                blended[i] = sum * (1.0f / weightSum);
+                touched[i] = 1;
+            }
         }
-        if (weightSum > 1.0f) {
-            blended[i] = sum * (1.0f / weightSum);
-            touched[i] = 1;
-        }
-    }
+    });
 
     for (std::size_t i = 0; i < luxels.size(); ++i) {
         if (touched[i] != 0) {
@@ -2354,8 +2367,8 @@ RadiosityBakeResult bakeRadiosity(
                     }
                 }
                 sample.atlasIndex = group.atlasIndex;
-                sample.atlasX = group.atlasX + x;
-                sample.atlasY = group.atlasY + y;
+                sample.atlasX = group.atlasX + (group.rotated ? y : x);
+                sample.atlasY = group.atlasY + (group.rotated ? x : y);
                 sample.localX = x;
                 sample.localY = y;
                 const float fu = luxelFaceParam(x, group.luxelWidth);
@@ -2484,6 +2497,52 @@ RadiosityBakeResult bakeRadiosity(
         shoot[i] = max0(luxel.irradiance - luxel.emission) * luxel.albedo;
     }
 
+    // Static per-luxel/per-face bounce inputs never change between bounces (only
+    // `shoot` does), so the GPU-side conversion vectors and the GPU session (compiled
+    // shader + uploaded BVH/luxel/face-grid/material SSBOs) are built once here instead
+    // of once per bounce.
+    bool preferGpuBounce = settings.preferGpu && !settings.bounceComputeShaderSource.empty();
+    std::vector<RadGpuBounceLuxel> gpuLuxels;
+    std::vector<RadGpuFaceGrid> gpuGrids;
+    std::optional<RadGpuBounceSession> bounceSession;
+    if (preferGpuBounce) {
+        gpuLuxels.resize(luxels.size());
+        for (std::size_t i = 0; i < luxels.size(); ++i) {
+            gpuLuxels[i].position = luxels[i].position;
+            gpuLuxels[i].normal = luxels[i].normal;
+            gpuLuxels[i].faceIndex = luxels[i].faceIndex;
+            gpuLuxels[i].covered = luxels[i].covered ? 1 : 0;
+            gpuLuxels[i].localX = luxels[i].localX;
+            gpuLuxels[i].localY = luxels[i].localY;
+        }
+        gpuGrids.resize(faceGrids.size());
+        for (std::size_t i = 0; i < faceGrids.size(); ++i) {
+            gpuGrids[i].luxelBase = static_cast<std::int32_t>(faceGrids[i].luxelBase);
+            gpuGrids[i].luxelWidth = faceGrids[i].luxelWidth;
+            gpuGrids[i].luxelHeight = faceGrids[i].luxelHeight;
+            gpuGrids[i].valid = faceGrids[i].valid ? 1 : 0;
+            gpuGrids[i].uAxis = bases[i].uAxis;
+            gpuGrids[i].vAxis = bases[i].vAxis;
+            gpuGrids[i].uMin = bases[i].uMin;
+            gpuGrids[i].uMax = bases[i].uMax;
+            gpuGrids[i].vMin = bases[i].vMin;
+            gpuGrids[i].vMax = bases[i].vMax;
+        }
+        bounceSession = createBounceGpuSession(
+            gpuLuxels,
+            gpuGrids,
+            sceneBvh,
+            settings.bounceComputeShaderSource,
+            faceTransparent,
+            gpuOcclusion,
+            settings.gpuSafeMode);
+        if (!bounceSession.has_value()) {
+            TraceLog(LOG_WARNING, "sloprad: GPU bounce session setup failed; using CPU for all bounces");
+            std::fflush(stdout);
+            preferGpuBounce = false;
+        }
+    }
+
     for (int bounce = 0; bounce < settings.bounces; ++bounce) {
         TraceLog(LOG_INFO, "sloprad: bounce %d/%d...", bounce + 1, settings.bounces);
         std::fflush(stdout);
@@ -2491,31 +2550,11 @@ RadiosityBakeResult bakeRadiosity(
         std::vector<Color3> gatheredLuxels(luxels.size());
         const int sampleCount = std::max(1, settings.samples);
         bool usedGpuBounce = false;
-        if (settings.preferGpu && !settings.bounceComputeShaderSource.empty()) {
-            std::vector<RadGpuBounceLuxel> gpuLuxels(luxels.size());
-            std::vector<Vector3> gatheredRgb(luxels.size());
+        if (preferGpuBounce && bounceSession.has_value()) {
+            std::vector<Vector3> gatheredRgb;
             std::vector<Vector3> shootRgb(shoot.size());
-            for (std::size_t i = 0; i < luxels.size(); ++i) {
-                gpuLuxels[i].position = luxels[i].position;
-                gpuLuxels[i].normal = luxels[i].normal;
-                gpuLuxels[i].faceIndex = luxels[i].faceIndex;
-                gpuLuxels[i].covered = luxels[i].covered ? 1 : 0;
-                gpuLuxels[i].localX = luxels[i].localX;
-                gpuLuxels[i].localY = luxels[i].localY;
+            for (std::size_t i = 0; i < shoot.size(); ++i) {
                 shootRgb[i] = {shoot[i].r, shoot[i].g, shoot[i].b};
-            }
-            std::vector<RadGpuFaceGrid> gpuGrids(faceGrids.size());
-            for (std::size_t i = 0; i < faceGrids.size(); ++i) {
-                gpuGrids[i].luxelBase = static_cast<std::int32_t>(faceGrids[i].luxelBase);
-                gpuGrids[i].luxelWidth = faceGrids[i].luxelWidth;
-                gpuGrids[i].luxelHeight = faceGrids[i].luxelHeight;
-                gpuGrids[i].valid = faceGrids[i].valid ? 1 : 0;
-                gpuGrids[i].uAxis = bases[i].uAxis;
-                gpuGrids[i].vAxis = bases[i].vAxis;
-                gpuGrids[i].uMin = bases[i].uMin;
-                gpuGrids[i].uMax = bases[i].uMax;
-                gpuGrids[i].vMin = bases[i].vMin;
-                gpuGrids[i].vMax = bases[i].vMax;
             }
             RadGpuBounceParams bounceParams;
             bounceParams.sampleCount = sampleCount;
@@ -2524,16 +2563,7 @@ RadiosityBakeResult bakeRadiosity(
             bounceParams.ambientB = ambientRaw.b;
             bounceParams.seed = 0xA341316Cu ^ static_cast<std::uint32_t>(bounce * 0x9E3779B9u);
             bounceParams.gpuSafeMode = settings.gpuSafeMode;
-            if (accumulateBounceLightingGpu(
-                    gpuLuxels,
-                    gatheredRgb,
-                    shootRgb,
-                    gpuGrids,
-                    sceneBvh,
-                    settings.bounceComputeShaderSource,
-                    bounceParams,
-                    faceTransparent,
-                    gpuOcclusion)) {
+            if (runBounceGpuPass(*bounceSession, gatheredRgb, shootRgb, bounceParams)) {
                 usedGpuBounce = true;
                 for (std::size_t i = 0; i < luxels.size(); ++i) {
                     if (luxels[i].covered) {
@@ -2545,8 +2575,13 @@ RadiosityBakeResult bakeRadiosity(
                 TraceLog(LOG_INFO, "sloprad: GPU bounce %d/%d complete", bounce + 1, settings.bounces);
                 std::fflush(stdout);
             } else {
-                TraceLog(LOG_WARNING, "sloprad: GPU bounce failed; falling back to CPU");
+                TraceLog(
+                    LOG_WARNING,
+                    "sloprad: GPU bounce failed; falling back to CPU for this and all remaining bounces");
                 std::fflush(stdout);
+                destroyBounceGpuSession(*bounceSession);
+                bounceSession.reset();
+                preferGpuBounce = false;
             }
         }
         if (!usedGpuBounce) {
@@ -2579,6 +2614,11 @@ RadiosityBakeResult bakeRadiosity(
                 shoot[i] = {};
             }
         }
+    }
+
+    if (bounceSession.has_value()) {
+        destroyBounceGpuSession(*bounceSession);
+        bounceSession.reset();
     }
 
     if (const char* dbgEnv = std::getenv("SLOPRAD_DEBUG_IRRADIANCE")) {

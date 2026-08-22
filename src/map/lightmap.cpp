@@ -313,6 +313,119 @@ std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<Ligh
     return groups;
 }
 
+namespace {
+
+/** An unoccupied axis-aligned rect within one atlas bin, in luxel coordinates. */
+struct FreeRect {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+};
+
+/** One atlas texture's free-space bookkeeping during MaxRects packing. */
+struct AtlasBin {
+    std::vector<FreeRect> freeRects;
+};
+
+struct PlacementCandidate {
+    int binIndex = -1;
+    std::size_t rectIndex = 0;
+    bool rotated = false;
+    int shortSide = 0;
+    int longSide = 0;
+};
+
+bool rectFullyContains(const FreeRect& a, const FreeRect& b) {
+    return b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h;
+}
+
+void pruneContainedFreeRects(std::vector<FreeRect>& freeRects) {
+    for (std::size_t i = 0; i < freeRects.size();) {
+        bool removed = false;
+        for (std::size_t j = 0; j < freeRects.size(); ++j) {
+            if (i == j) {
+                continue;
+            }
+            if (rectFullyContains(freeRects[j], freeRects[i])) {
+                freeRects[i] = freeRects.back();
+                freeRects.pop_back();
+                removed = true;
+                break;
+            }
+        }
+        if (!removed) {
+            ++i;
+        }
+    }
+}
+
+/** Classic MaxRects split: shrinks the free-space list to exclude the newly placed rect. */
+void applyPlacementToFreeRects(std::vector<FreeRect>& freeRects, const FreeRect& placed) {
+    std::size_t i = 0;
+    while (i < freeRects.size()) {
+        const FreeRect free = freeRects[i];
+        const bool overlaps = placed.x < free.x + free.w && placed.x + placed.w > free.x
+            && placed.y < free.y + free.h && placed.y + placed.h > free.y;
+        if (!overlaps) {
+            ++i;
+            continue;
+        }
+        freeRects[i] = freeRects.back();
+        freeRects.pop_back();
+        if (placed.x > free.x) {
+            freeRects.push_back({free.x, free.y, placed.x - free.x, free.h});
+        }
+        if (placed.x + placed.w < free.x + free.w) {
+            freeRects.push_back(
+                {placed.x + placed.w, free.y, free.x + free.w - (placed.x + placed.w), free.h});
+        }
+        if (placed.y > free.y) {
+            freeRects.push_back({free.x, free.y, free.w, placed.y - free.y});
+        }
+        if (placed.y + placed.h < free.y + free.h) {
+            freeRects.push_back(
+                {free.x, placed.y + placed.h, free.w, free.y + free.h - (placed.y + placed.h)});
+        }
+    }
+    pruneContainedFreeRects(freeRects);
+}
+
+/** Searches every existing bin/free-rect/orientation for the best-short-side-fit placement. */
+std::optional<PlacementCandidate> findBestPlacement(
+    const std::vector<AtlasBin>& bins,
+    int chartW,
+    int chartH) {
+    std::optional<PlacementCandidate> best;
+    for (int binIndex = 0; binIndex < static_cast<int>(bins.size()); ++binIndex) {
+        const std::vector<FreeRect>& freeRects = bins[static_cast<std::size_t>(binIndex)].freeRects;
+        for (std::size_t rectIndex = 0; rectIndex < freeRects.size(); ++rectIndex) {
+            const FreeRect& rect = freeRects[rectIndex];
+            const int orientations = chartW == chartH ? 1 : 2;
+            for (int orientation = 0; orientation < orientations; ++orientation) {
+                const bool rotated = orientation == 1;
+                const int w = rotated ? chartH : chartW;
+                const int h = rotated ? chartW : chartH;
+                if (w > rect.w || h > rect.h) {
+                    continue;
+                }
+                const int leftoverW = rect.w - w;
+                const int leftoverH = rect.h - h;
+                const int shortSide = std::min(leftoverW, leftoverH);
+                const int longSide = std::max(leftoverW, leftoverH);
+                const bool better = !best.has_value() || shortSide < best->shortSide
+                    || (shortSide == best->shortSide && longSide < best->longSide);
+                if (better) {
+                    best = PlacementCandidate{binIndex, rectIndex, rotated, shortSide, longSide};
+                }
+            }
+        }
+    }
+    return best;
+}
+
+} // namespace
+
 LightmapPackResult packLightmapCharts(
     const std::vector<LightmapFace>& faces,
     float luxelsPerMeter,
@@ -387,22 +500,23 @@ LightmapPackResult packLightmapCharts(
         pending.push_back(std::move(chart));
     }
     std::sort(pending.begin(), pending.end(), [](const PendingChart& a, const PendingChart& b) {
-        if (a.luxelH != b.luxelH) {
-            return a.luxelH > b.luxelH;
+        const int aMax = std::max(a.luxelW, a.luxelH);
+        const int bMax = std::max(b.luxelW, b.luxelH);
+        if (aMax != bMax) {
+            return aMax > bMax;
         }
-        if (a.luxelW != b.luxelW) {
-            return a.luxelW > b.luxelW;
+        const int aArea = a.luxelW * a.luxelH;
+        const int bArea = b.luxelW * b.luxelH;
+        if (aArea != bArea) {
+            return aArea > bArea;
         }
         return a.group.faceIndices.front() < b.group.faceIndices.front();
     });
 
-    int atlasIndex = 0;
-    int cursorX = 0;
-    int cursorY = 0;
-    int rowHeight = 0;
+    std::vector<AtlasBin> bins;
 
-    auto ensureAtlas = [&]() {
-        while (static_cast<int>(result.rad.atlases.size()) <= atlasIndex) {
+    auto ensureAtlasInfo = [&](int index) {
+        while (static_cast<int>(result.rad.atlases.size()) <= index) {
             LightmapAtlasInfo info;
             info.width = atlasSize;
             info.height = atlasSize;
@@ -414,32 +528,33 @@ LightmapPackResult packLightmapCharts(
         }
     };
 
-    auto newAtlas = [&]() {
-        ++atlasIndex;
-        cursorX = 0;
-        cursorY = 0;
-        rowHeight = 0;
-        ensureAtlas();
-    };
-
-    ensureAtlas();
-
     for (PendingChart& pendingChart : pending) {
         const int luxelW = pendingChart.luxelW;
         const int luxelH = pendingChart.luxelH;
-        if (cursorX + luxelW > atlasSize) {
-            cursorX = 0;
-            cursorY += rowHeight;
-            rowHeight = 0;
-        }
-        if (cursorY + luxelH > atlasSize) {
-            newAtlas();
+
+        std::optional<PlacementCandidate> placement = findBestPlacement(bins, luxelW, luxelH);
+        if (!placement.has_value()) {
+            bins.push_back(AtlasBin{{FreeRect{0, 0, atlasSize, atlasSize}}});
+            placement = PlacementCandidate{static_cast<int>(bins.size()) - 1, 0, false, 0, 0};
         }
 
-        const float u0 = (static_cast<float>(cursorX) + 0.5f) / static_cast<float>(atlasSize);
-        const float v0 = (static_cast<float>(cursorY) + 0.5f) / static_cast<float>(atlasSize);
-        const float u1 = (static_cast<float>(cursorX + luxelW) - 0.5f) / static_cast<float>(atlasSize);
-        const float v1 = (static_cast<float>(cursorY + luxelH) - 0.5f) / static_cast<float>(atlasSize);
+        const int atlasIndex = placement->binIndex;
+        ensureAtlasInfo(atlasIndex);
+
+        AtlasBin& bin = bins[static_cast<std::size_t>(atlasIndex)];
+        const FreeRect rect = bin.freeRects[placement->rectIndex];
+        const bool rotated = placement->rotated;
+        const int footprintW = rotated ? luxelH : luxelW;
+        const int footprintH = rotated ? luxelW : luxelH;
+        const FreeRect placed{rect.x, rect.y, footprintW, footprintH};
+        applyPlacementToFreeRects(bin.freeRects, placed);
+
+        const int atlasX = placed.x;
+        const int atlasY = placed.y;
+        const float u0 = (static_cast<float>(atlasX) + 0.5f) / static_cast<float>(atlasSize);
+        const float v0 = (static_cast<float>(atlasY) + 0.5f) / static_cast<float>(atlasSize);
+        const float u1 = (static_cast<float>(atlasX + footprintW) - 0.5f) / static_cast<float>(atlasSize);
+        const float v1 = (static_cast<float>(atlasY + footprintH) - 0.5f) / static_cast<float>(atlasSize);
 
         for (std::int32_t faceIndex : pendingChart.group.faceIndices) {
             const LightmapFace& face = faces[static_cast<std::size_t>(faceIndex)];
@@ -449,8 +564,8 @@ LightmapPackResult packLightmapCharts(
             chart.atlasIndex = atlasIndex;
             chart.luxelWidth = luxelW;
             chart.luxelHeight = luxelH;
-            chart.atlasX = cursorX;
-            chart.atlasY = cursorY;
+            chart.atlasX = atlasX;
+            chart.atlasY = atlasY;
             chart.u0 = u0;
             chart.v0 = v0;
             chart.u1 = u1;
@@ -459,22 +574,21 @@ LightmapPackResult packLightmapCharts(
             chart.groupUMax = pendingChart.group.uMax;
             chart.groupVMin = pendingChart.group.vMin;
             chart.groupVMax = pendingChart.group.vMax;
+            chart.rotated = rotated;
             result.rad.charts.push_back(std::move(chart));
         }
 
         pendingChart.group.atlasIndex = atlasIndex;
-        pendingChart.group.atlasX = cursorX;
-        pendingChart.group.atlasY = cursorY;
+        pendingChart.group.atlasX = atlasX;
+        pendingChart.group.atlasY = atlasY;
         pendingChart.group.luxelWidth = luxelW;
         pendingChart.group.luxelHeight = luxelH;
+        pendingChart.group.rotated = rotated;
         result.groups.push_back(std::move(pendingChart.group));
-
-        cursorX += luxelW;
-        rowHeight = std::max(rowHeight, luxelH);
     }
 
     if (result.rad.atlases.empty()) {
-        ensureAtlas();
+        ensureAtlasInfo(0);
     }
 
     return result;
@@ -553,6 +667,7 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
         writer.writePod(chart.groupUMax);
         writer.writePod(chart.groupVMin);
         writer.writePod(chart.groupVMax);
+        writer.writePod(chart.rotated);
     }
 
     auto writeProbeGrid = [&writer](const LightProbeGridInfo& grid) {
@@ -590,7 +705,8 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     }
     if (magic != kRadMagic
         || (version != kRadVersionLegacy && version != kRadVersionPrevious
-            && version != kRadVersionGroups && version != kRadVersion)) {
+            && version != kRadVersionGroups && version != kRadVersionProbes
+            && version != kRadVersion)) {
         return std::nullopt;
     }
 
@@ -640,6 +756,13 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
                 || !reader.readPod(chart.groupVMin) || !reader.readPod(chart.groupVMax)) {
                 return std::nullopt;
             }
+        }
+        if (version >= kRadVersionRotation) {
+            if (!reader.readPod(chart.rotated)) {
+                return std::nullopt;
+            }
+        } else {
+            chart.rotated = false;
         }
     }
 

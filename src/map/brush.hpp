@@ -87,8 +87,6 @@ struct BrushDoor {
     bool haveTravel = false;
     std::string hingeThingId;
     std::string group;
-    std::string prompt = "Open";
-    bool havePrompt = false;
     HandlerBinding canUse;
 };
 

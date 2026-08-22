@@ -121,8 +121,10 @@ CsgCompileResult compileFacesToGeo(
                 const float v = corner.x * vAxis.x + corner.y * vAxis.y + corner.z * vAxis.z;
                 const float fu = (u - uMin) / uSpan;
                 const float fv = (v - vMin) / vSpan;
-                lightUv.x = chart->u0 + (chart->u1 - chart->u0) * fu;
-                lightUv.y = chart->v0 + (chart->v1 - chart->v0) * fv;
+                const float fx = chart->rotated ? fv : fu;
+                const float fy = chart->rotated ? fu : fv;
+                lightUv.x = chart->u0 + (chart->u1 - chart->u0) * fx;
+                lightUv.y = chart->v0 + (chart->v1 - chart->v0) * fy;
             }
             result.buffer.texcoords2.push_back(lightUv);
         }

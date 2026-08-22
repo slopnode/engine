@@ -340,8 +340,6 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
                             brush.door.motion = slopengine::DoorMotion::Raise;
                             brush.door.haveDuration = true;
                             brush.door.duration = 0.6f;
-                            brush.door.havePrompt = true;
-                            brush.door.prompt = "Open";
                         }
                         if (next == slopengine::BrushRole::Water &&
                             previous != slopengine::BrushRole::Water) {
@@ -708,27 +706,6 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
                         return;
                     }
                     brush.door.group = group;
-                })) {
-                result.changed = true;
-            }
-        }
-
-        const auto promptCommon = commonValue<std::string>(
-            doc, targets, [](const slopengine::Brush& b) { return b.door.prompt; });
-        char promptBuf[128]{};
-        if (promptCommon.has_value()) {
-            std::snprintf(promptBuf, sizeof(promptBuf), "%s", promptCommon->c_str());
-        } else {
-            std::snprintf(promptBuf, sizeof(promptBuf), "Open");
-        }
-        if (ImGui::InputText("Prompt", promptBuf, sizeof(promptBuf))) {
-            const std::string prompt = promptBuf;
-            if (forEachBrush(editor, targets, [prompt](slopengine::Brush& brush, slopengine::BrushRole) {
-                    if (brush.role != slopengine::BrushRole::Door) {
-                        return;
-                    }
-                    brush.door.prompt = prompt;
-                    brush.door.havePrompt = true;
                 })) {
                 result.changed = true;
             }

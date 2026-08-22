@@ -866,7 +866,7 @@ void spawnDoorBrush(
     }
 
     entity.set<Interactable>({
-        .prompt = brush.door.havePrompt ? brush.door.prompt : std::string("Open"),
+        .prompt = {},
         .onUse = {},
         .canUse = brush.door.canUse,
         .engineToggle = true,
