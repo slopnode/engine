@@ -157,6 +157,10 @@ void playMoverSound(flecs::world& world, const Vector3& pos, const std::string& 
     if (ctx.world == nullptr || ctx.assets == nullptr || !ctx.world->ready()) {
         return;
     }
+    if (const AudioDef* def = ctx.assets->getAudioDef(nullptr, sound)) {
+        ctx.world->playAudioDef3d(*ctx.assets, sound, *def, pos.x, pos.y, pos.z, volume);
+        return;
+    }
     ctx.world->playSound3d(*ctx.assets, sound, pos.x, pos.y, pos.z, volume);
 }
 

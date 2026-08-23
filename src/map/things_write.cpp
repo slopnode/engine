@@ -158,6 +158,15 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     if (!p.moverGroup.empty()) {
         writeIndentClause(out, "(group " + escapeSchemeString(p.moverGroup) + ")");
     }
+    if (!p.moverOpenSound.empty()) {
+        writeIndentClause(out, "(open-sound " + escapeSchemeString(p.moverOpenSound) + ")");
+    }
+    if (!p.moverCloseSound.empty()) {
+        writeIndentClause(out, "(close-sound " + escapeSchemeString(p.moverCloseSound) + ")");
+    }
+    if (p.haveMoverSoundVolume) {
+        writeIndentClause(out, "(sound-volume " + formatFloat(p.moverSoundVolume) + ")");
+    }
     if (p.havePrompt || !p.onUse.empty()) {
         writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
         if (!p.onUse.empty()) {

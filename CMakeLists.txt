@@ -329,6 +329,7 @@ add_executable(slopmap
     tools/slopmap/thing_panel.cpp
     tools/slopmap/particle_preview.cpp
     tools/slopmap/brush_panel.cpp
+    tools/slopmap/sound_browser.cpp
     tools/slopmap/handler_ui.cpp
     tools/slopmap/prefab_browser.cpp
     tools/slopmap/layout.cpp

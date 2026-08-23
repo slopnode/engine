@@ -1206,6 +1206,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "slopmap: warning: infinite grid shader failed to load\n";
     }
     slopmap::MaterialBrowser materialBrowser;
+    slopmap::SoundBrowser doorSoundBrowser;
     slopmap::TexturePanel texturePanel;
     slopmap::ThingPanel thingPanel;
     slopmap::BrushPanel brushPanel;
@@ -2972,7 +2973,7 @@ int main(int argc, char* argv[]) {
                         if (d.selectionMode == slopmap::SelectionMode::Entity) {
                             thingPanel.drawSection(editor, assets, materialBrowser, propsH);
                         } else {
-                            brushPanel.drawSection(editor, propsH);
+                            brushPanel.drawSection(editor, assets, doorSoundBrowser, propsH);
                         }
                         ImGui::EndTabItem();
                     }

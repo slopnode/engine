@@ -5,6 +5,7 @@
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
+#include "ui/icon_ui.hpp"
 
 #include "imgui.h"
 
@@ -45,6 +46,15 @@ int roleIndex(slopengine::BrushRole role) {
 bool nearlyEqual(float a, float b, float eps = 1e-4f) {
     return std::fabs(a - b) <= eps;
 }
+
+float iconButtonWidth() {
+    return ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x;
+}
+
+enum class DoorSoundField {
+    Open,
+    Close,
+};
 
 bool vec3Equal(Vector3 a, Vector3 b) {
     return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y) && nearlyEqual(a.z, b.z);
@@ -265,7 +275,11 @@ bool checkboxMixed(const char* label, bool* value, bool mixed) {
     return changed;
 }
 
-BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
+BrushPanelResult drawBrushSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    SoundBrowser& soundBrowser,
+    float bodyHeight) {
     BrushPanelResult result{};
     if (!ImGui::BeginChild("##brushsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
@@ -711,6 +725,110 @@ BrushPanelResult drawBrushSection(Editor& editor, float bodyHeight) {
             }
         }
 
+        static DoorSoundField pendingDoorSoundField = DoorSoundField::Open;
+        constexpr const char* kIcons = slopengine::kDefaultIconSet;
+
+        const auto openSoundCommon = commonValue<std::string>(
+            doc, targets, [](const slopengine::Brush& b) { return b.door.openSound; });
+        char openSoundBuf[128]{};
+        if (openSoundCommon.has_value()) {
+            std::snprintf(openSoundBuf, sizeof(openSoundBuf), "%s", openSoundCommon->c_str());
+        }
+        ImGui::PushID("doorOpenSound");
+        const bool pickOpenSound =
+            slopengine::iconButton(assets, kIcons, "sound", ImVec2(iconButtonWidth(), 0.0f));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Pick sound");
+        }
+        ImGui::SameLine();
+        if (ImGui::InputTextWithHint("Open sound", "sound path", openSoundBuf, sizeof(openSoundBuf))) {
+            const std::string openSound = openSoundBuf;
+            if (forEachBrush(editor, targets, [openSound](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (brush.role != slopengine::BrushRole::Door) {
+                        return;
+                    }
+                    brush.door.openSound = openSound;
+                })) {
+                result.changed = true;
+            }
+        }
+        ImGui::PopID();
+        if (pickOpenSound) {
+            pendingDoorSoundField = DoorSoundField::Open;
+            soundBrowser.rescan(assets);
+            soundBrowser.filter.clear();
+            soundBrowser.open = true;
+        }
+
+        const auto closeSoundCommon = commonValue<std::string>(
+            doc, targets, [](const slopengine::Brush& b) { return b.door.closeSound; });
+        char closeSoundBuf[128]{};
+        if (closeSoundCommon.has_value()) {
+            std::snprintf(closeSoundBuf, sizeof(closeSoundBuf), "%s", closeSoundCommon->c_str());
+        }
+        ImGui::PushID("doorCloseSound");
+        const bool pickCloseSound =
+            slopengine::iconButton(assets, kIcons, "sound", ImVec2(iconButtonWidth(), 0.0f));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Pick sound");
+        }
+        ImGui::SameLine();
+        if (ImGui::InputTextWithHint("Close sound", "sound path", closeSoundBuf, sizeof(closeSoundBuf))) {
+            const std::string closeSound = closeSoundBuf;
+            if (forEachBrush(editor, targets, [closeSound](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (brush.role != slopengine::BrushRole::Door) {
+                        return;
+                    }
+                    brush.door.closeSound = closeSound;
+                })) {
+                result.changed = true;
+            }
+        }
+        ImGui::PopID();
+        if (pickCloseSound) {
+            pendingDoorSoundField = DoorSoundField::Close;
+            soundBrowser.rescan(assets);
+            soundBrowser.filter.clear();
+            soundBrowser.open = true;
+        }
+
+        if (soundBrowser.open) {
+            std::string picked;
+            if (soundBrowser.drawModal(assets, picked)) {
+                const DoorSoundField field = pendingDoorSoundField;
+                if (forEachBrush(editor, targets, [&](slopengine::Brush& brush, slopengine::BrushRole) {
+                        if (brush.role != slopengine::BrushRole::Door) {
+                            return;
+                        }
+                        if (field == DoorSoundField::Open) {
+                            brush.door.openSound = picked;
+                        } else {
+                            brush.door.closeSound = picked;
+                        }
+                    })) {
+                    result.changed = true;
+                }
+            }
+        }
+
+        const auto soundVolumeCommon = commonValue<float>(
+            doc,
+            targets,
+            [](const slopengine::Brush& b) { return b.door.soundVolume; },
+            floatEq);
+        float soundVolume = soundVolumeCommon.value_or(1.0f);
+        if (ImGui::DragFloat("Sound volume", &soundVolume, 0.05f, 0.0f, 4.0f, "%.2f")) {
+            if (forEachBrush(editor, targets, [soundVolume](slopengine::Brush& brush, slopengine::BrushRole) {
+                    if (brush.role != slopengine::BrushRole::Door) {
+                        return;
+                    }
+                    brush.door.soundVolume = soundVolume;
+                    brush.door.haveSoundVolume = true;
+                })) {
+                result.changed = true;
+            }
+        }
+
         const auto canUseCommon = commonValue<slopengine::HandlerBinding>(
             doc, targets, [](const slopengine::Brush& b) { return b.door.canUse; });
         if (drawHandlerBindingEditor(
@@ -864,8 +982,12 @@ bool drawFaceHandlerSection(Editor& editor) {
     return drawFaceHandlerSectionImpl(editor);
 }
 
-BrushPanelResult BrushPanel::drawSection(Editor& editor, float bodyHeight) {
-    return drawBrushSection(editor, bodyHeight);
+BrushPanelResult BrushPanel::drawSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    SoundBrowser& soundBrowser,
+    float bodyHeight) {
+    return drawBrushSection(editor, assets, soundBrowser, bodyHeight);
 }
 
 }

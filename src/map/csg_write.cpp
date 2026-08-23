@@ -174,6 +174,15 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     if (!door.group.empty()) {
         out << "    (group " << escapeSchemeString(door.group) << ")\n";
     }
+    if (!door.openSound.empty()) {
+        out << "    (open-sound " << escapeSchemeString(door.openSound) << ")\n";
+    }
+    if (!door.closeSound.empty()) {
+        out << "    (close-sound " << escapeSchemeString(door.closeSound) << ")\n";
+    }
+    if (door.haveSoundVolume) {
+        out << "    (sound-volume " << formatFloat(door.soundVolume) << ")\n";
+    }
     if (!door.canUse.empty()) {
         out << "    " << formatHandlerBindingClause("can-use", door.canUse) << "\n";
     }
