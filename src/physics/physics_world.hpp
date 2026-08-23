@@ -26,6 +26,10 @@ struct CharacterStep {
     CharacterMotor* motor = nullptr;
     bool noclip = false;
     float submersion = 0.0f; /**< Fraction (0..1) of body height inside a water volume. */
+    /** True if a water surface exists within motor.waterExitReach of the character's body. Gates
+     *  water-exit assistance so it can only ever fire near an actual shoreline/lip, never
+     *  arbitrarily deep underwater. */
+    bool nearWaterSurface = false;
 };
 
 struct RayCastHit {
@@ -144,7 +148,8 @@ private:
         const CharacterMotor& motor,
         bool noclip,
         std::uint64_t characterId,
-        float submersion);
+        float submersion,
+        bool nearWaterSurface);
     void stepCharacterTryMove(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
@@ -166,13 +171,12 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         std::uint64_t characterId,
-        float submersion);
-    void tryClimbBlockedStep(
+        float submersion,
+        bool nearWaterSurface);
+    bool tryWaterExitAssist(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
-        std::uint64_t characterId,
-        JPH::Vec3 desiredVelocity,
-        JPH::RVec3 beforePosition);
+        std::uint64_t characterId);
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;

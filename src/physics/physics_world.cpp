@@ -822,7 +822,8 @@ void PhysicsWorld::stepCharacter(
     const CharacterMotor& motor,
     bool noclip,
     std::uint64_t characterId,
-    float submersion) {
+    float submersion,
+    bool nearWaterSurface) {
     if (noclip) {
         applyCharacterInput(character, motor, motor.wishX, motor.wishZ, kFixedDt, true);
         const JPH::RVec3 pos = character.GetPosition();
@@ -843,14 +844,9 @@ void PhysicsWorld::stepCharacter(
     // happens to be touching a floor. Deferring to the normal walk path while grounded (an earlier
     // version of this gate did `&& !character.IsSupported()`) traps a character that swims down to
     // a pool's floor: there is no jump mechanic in this engine, wishY/ascend is only ever read by
-    // applyBuoyantInput below, so once grounded there was no way to push back off the bottom, and
-    // Jolt's automatic stair-step (CanWalkStairs, CharacterVirtual.cpp) still can't reach a ledge
-    // that's several step-heights above the pool floor. Handling every wet frame through the same
-    // buoyant step -- including its own IsSupported()-independent WalkStairs attempt in
-    // stepCharacterSwim -- keeps both vertical control and the climb-out attempt active no matter
-    // where the character's feet currently are.
+    // applyBuoyantInput below, so once grounded there was no way to push back off the bottom.
     if (submersion > 0.0f) {
-        stepCharacterSwim(character, motor, characterId, submersion);
+        stepCharacterSwim(character, motor, characterId, submersion, nearWaterSurface);
         return;
     }
 
@@ -869,9 +865,6 @@ void PhysicsWorld::stepCharacter(
     JPH::IgnoreMultipleBodiesFilter bodyFilter;
     populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
 
-    const JPH::Vec3 desiredVelocity = character.GetLinearVelocity();
-    const JPH::RVec3 beforePosition = character.GetPosition();
-
     character.ExtendedUpdate(
         kFixedDt,
         -character.GetUp() * system_->GetGravity().Length(),
@@ -881,17 +874,6 @@ void PhysicsWorld::stepCharacter(
         bodyFilter,
         {},
         *tempAllocator_);
-
-    // ExtendedUpdate's own automatic stair-step only fires when IsSupported(), so a character
-    // that just breached the water surface -- dry now, but still floating, not yet grounded on
-    // the ledge -- can be blocked by the last sliver of wall above the surface with no way up:
-    // swim handling stopped (submersion is 0), and the automatic path needs exactly the ground
-    // contact this character doesn't have yet. Retry the same direct WalkStairs used underwater
-    // whenever it's still blocked and airborne; a no-op when ExtendedUpdate already succeeded
-    // (grounded) or there was nothing in the way.
-    if (!character.IsSupported()) {
-        tryClimbBlockedStep(character, motor, characterId, desiredVelocity, beforePosition);
-    }
 }
 
 void PhysicsWorld::applyFlightInput(
@@ -966,12 +948,23 @@ void PhysicsWorld::applyBuoyantInput(
     character.SetLinearVelocity(JPH::Vec3(horiz.GetX(), vertical, horiz.GetZ()));
 }
 
-void PhysicsWorld::tryClimbBlockedStep(
+// Water-exit assistance: a purpose-built ledge probe, not a reuse of stair-step logic. It has its
+// own reach/speed tunables (motor.waterExitReach, motor.waterExitSpeed) instead of motor.stepHeight,
+// it only ever runs when the caller has already confirmed (via a fine-grained BSP surface scan in
+// physics_module.cpp) that a water surface exists within waterExitReach of the character's body --
+// so it can never fire arbitrarily deep underwater -- and it steers the character toward a confirmed
+// ledge at a capped speed instead of teleporting there, so repeated ticks against the same wall
+// cannot compound into an unbounded climb rate.
+bool PhysicsWorld::tryWaterExitAssist(
     JPH::CharacterVirtual& character,
     const CharacterMotor& motor,
-    std::uint64_t characterId,
-    JPH::Vec3 desiredVelocity,
-    JPH::RVec3 beforePosition) {
+    std::uint64_t characterId) {
+    const JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
+    if (wish.LengthSq() < 1.0e-6f) {
+        return false;
+    }
+    const JPH::Vec3 wishDir = wish.Normalized();
+
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
@@ -979,34 +972,8 @@ void PhysicsWorld::tryClimbBlockedStep(
     JPH::IgnoreMultipleBodiesFilter bodyFilter;
     populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
     const JPH::Vec3 up = character.GetUp();
-    const float stepHeight = motor.stepHeight > 0.0f ? motor.stepHeight : 0.4f;
+    const float reach = motor.waterExitReach > 0.0f ? motor.waterExitReach : 0.5f;
 
-    JPH::Vec3 desiredHorizontal = desiredVelocity * kFixedDt;
-    desiredHorizontal -= desiredHorizontal.Dot(up) * up;
-    const float desiredLen = desiredHorizontal.Length();
-    if (desiredLen <= 1.0e-5f) {
-        return;
-    }
-
-    JPH::Vec3 achievedHorizontal = JPH::Vec3(character.GetPosition() - beforePosition);
-    achievedHorizontal -= achievedHorizontal.Dot(up) * up;
-    const JPH::Vec3 dirNormalized = desiredHorizontal / desiredLen;
-    const float achievedLen = std::max(0.0f, achievedHorizontal.Dot(dirNormalized));
-    if (achievedLen + 1.0e-4f >= desiredLen) {
-        return;
-    }
-
-    // Jolt's own WalkStairs (used here previously) gates success on velocity-shaped heuristics --
-    // it only counts a step as climbed if the forward sweep from the up-swept position achieves
-    // "real" horizontal progress at a shallow-enough angle, which in practice meant the up-sweep
-    // had to already clear the obstacle's true height before a single WalkStairs call would ever
-    // report success. Since the up-sweep is capped at stepHeight from wherever the character
-    // currently is, that only happened once buoyancy (or player input) had already pushed the
-    // character close enough -- in effect requiring built-up vertical speed to "launch" over the
-    // lip in one motion, not just steady, low-speed swimming into it. A plain deterministic
-    // three-probe sweep (up, then forward, then down) has no such velocity dependency: it only
-    // asks "is there room to stand here", so it succeeds as soon as the geometry allows it, at any
-    // approach speed.
     const JPH::Shape* shape = character.GetShape();
     JPH::ShapeCastSettings castSettings;
     castSettings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
@@ -1027,36 +994,64 @@ void PhysicsWorld::tryClimbBlockedStep(
         return collector.HadHit() ? collector.mHit.mFraction : 1.0f;
     };
 
+    // Cheap probe at the character's current height: is the wish direction actually blocked by
+    // something solid nearby? Without this, open water above a merely-shallow floor would read as a
+    // climbable ledge the moment the up/forward/down probe below happened to find that floor within
+    // reach -- this is what tells "swimming into a wall" apart from "swimming near the bottom".
+    constexpr float kBlockedProbeDist = 0.4f;
     const JPH::RVec3 currentPos = character.GetPosition();
-    const float upFraction = sweep(currentPos, up * stepHeight);
+    const float blockedFraction = sweep(currentPos, wishDir * kBlockedProbeDist);
+    if (blockedFraction > 0.9f) {
+        return false;
+    }
+
+    const float upFraction = sweep(currentPos, up * reach);
     if (upFraction < 1.0e-3f) {
-        return; // Can't even begin to rise (e.g. a low ceiling) -- no step to take.
+        return false; // Can't even begin to rise (e.g. a low ceiling) -- no ledge to take.
     }
-    const JPH::RVec3 raisedPos = currentPos + up * (stepHeight * upFraction);
+    const JPH::RVec3 raisedPos = currentPos + up * (reach * upFraction);
 
-    const float forwardLen = std::max(0.2f, desiredLen - achievedLen);
-    const JPH::Vec3 stepForward = dirNormalized * forwardLen;
-    const float forwardFraction = sweep(raisedPos, stepForward);
+    const float forwardFraction = sweep(raisedPos, wishDir * reach);
     if (forwardFraction < 1.0e-3f) {
-        return; // Still blocked at the raised height -- not tall enough to clear the obstacle yet.
+        return false; // Still blocked at the raised height -- the wall is taller than our reach.
     }
-    const JPH::RVec3 advancedPos = raisedPos + stepForward * forwardFraction;
+    const JPH::RVec3 advancedPos = raisedPos + wishDir * (reach * forwardFraction);
 
-    const float downFraction = sweep(advancedPos, -up * stepHeight);
+    const float downFraction = sweep(advancedPos, -up * reach);
     if (downFraction >= 1.0f) {
-        return; // No floor within reach below -- would be stepping into open air, don't commit.
+        return false; // No floor within reach on the far side -- would be climbing into open air.
     }
-    const JPH::RVec3 landedPos = advancedPos + (-up) * (stepHeight * downFraction);
+    const JPH::RVec3 landingPos = advancedPos - up * (reach * downFraction);
 
-    character.SetPosition(landedPos);
+    const JPH::Vec3 toLanding = JPH::Vec3(landingPos - currentPos);
+    const float distance = toLanding.Length();
+    const float exitSpeed = motor.waterExitSpeed > 0.0f ? motor.waterExitSpeed : 3.0f;
+    constexpr float kArriveDistance = 0.03f;
+    if (distance <= kArriveDistance) {
+        character.SetPosition(landingPos);
+        character.SetLinearVelocity(JPH::Vec3::sZero());
+        return true;
+    }
+    const float speed = std::min(exitSpeed, distance / kFixedDt);
+    character.SetLinearVelocity((toLanding / distance) * speed);
+    return true;
 }
 
 void PhysicsWorld::stepCharacterSwim(
     JPH::CharacterVirtual& character,
     const CharacterMotor& motor,
     std::uint64_t characterId,
-    float submersion) {
-    applyBuoyantInput(character, motor, kFixedDt, submersion);
+    float submersion,
+    bool nearWaterSurface) {
+    // A floating character is never IsSupported(), so Jolt's automatic stair-step (ExtendedUpdate's
+    // CanWalkStairs check) can never fire for it -- that would leave no way out of a pool bounded by
+    // a vertical wall/lip. tryWaterExitAssist covers that case directly; when it takes over (a ledge
+    // was actually found within reach), it owns this tick's velocity, so the normal buoyant velocity
+    // is skipped rather than immediately overwriting the steer.
+    const bool exiting = nearWaterSurface && tryWaterExitAssist(character, motor, characterId);
+    if (!exiting) {
+        applyBuoyantInput(character, motor, kFixedDt, submersion);
+    }
 
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
@@ -1067,18 +1062,8 @@ void PhysicsWorld::stepCharacterSwim(
     const JPH::ShapeFilter shapeFilter{};
     const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
 
-    const JPH::Vec3 desiredVelocity = character.GetLinearVelocity();
-    const JPH::RVec3 beforePosition = character.GetPosition();
-
     character.Update(
         kFixedDt, gravity, broadPhaseFilter, objectFilter, bodyFilter, shapeFilter, *tempAllocator_);
-
-    // A floating character is never IsSupported(), so Jolt's automatic stair-step (ExtendedUpdate's
-    // CanWalkStairs check) can never fire for it -- that leaves no way out of a pool bounded by a
-    // vertical wall/lip, only ramps a walking character could climb on its own. Detect a shortfall
-    // against the desired horizontal move here and invoke WalkStairs directly; it has no supported-
-    // ground precondition of its own, it just probes up/forward/down.
-    tryClimbBlockedStep(character, motor, characterId, desiredVelocity, beforePosition);
 }
 
 namespace {
@@ -1427,7 +1412,13 @@ void PhysicsWorld::update(float frameDt, const std::vector<CharacterStep>& steps
             if (it == characters_.end() || it->second.character == nullptr) {
                 continue;
             }
-            stepCharacter(*it->second.character, *step.motor, step.noclip, step.id, step.submersion);
+            stepCharacter(
+                *it->second.character,
+                *step.motor,
+                step.noclip,
+                step.id,
+                step.submersion,
+                step.nearWaterSurface);
         }
 
         system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
