@@ -697,6 +697,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             motor.moveMode = placement.motorMoveMode;
             NavigationAgent navAgent{};
             navAgent.flyer = motor.moveMode == CharacterMoveMode::Fly;
+            navAgent.maxFall = placement.motorMaxFall;
+            navAgent.waterCostMultiplier = placement.motorWaterAversion;
             entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {

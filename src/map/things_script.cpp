@@ -784,6 +784,10 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     out.motorHoverHeight = value;
                 } else if (std::strcmp(motorTag, "eye-height") == 0) {
                     out.motorEyeHeight = value;
+                } else if (std::strcmp(motorTag, "max-fall") == 0) {
+                    out.motorMaxFall = value;
+                } else if (std::strcmp(motorTag, "water-aversion") == 0) {
+                    out.motorWaterAversion = value;
                 } else {
                     TraceLog(LOG_WARNING, "THING: unknown motor clause '%s'", motorTag);
                     return false;

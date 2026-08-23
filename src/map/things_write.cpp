@@ -193,6 +193,12 @@ void writeActorFields(std::ostringstream& out, const Thing& p) {
         if (p.motorHoverHeight != 0.0f) {
             clause += " (hover-height " + formatFloat(p.motorHoverHeight) + ")";
         }
+        if (std::isfinite(p.motorMaxFall)) {
+            clause += " (max-fall " + formatFloat(p.motorMaxFall) + ")";
+        }
+        if (p.motorWaterAversion != 1.0f) {
+            clause += " (water-aversion " + formatFloat(p.motorWaterAversion) + ")";
+        }
         clause += ")";
         writeIndentClause(out, clause);
     }

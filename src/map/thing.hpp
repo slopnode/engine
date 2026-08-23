@@ -8,6 +8,7 @@
 #include "map/sky_types.hpp"
 
 #include <array>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,8 @@ struct Thing {
     float motorVerticalSpeed = 3.0f;
     float motorHoverHeight = 0.0f;
     float motorEyeHeight = 0.8f;
+    float motorMaxFall = std::numeric_limits<float>::infinity();
+    float motorWaterAversion = 1.0f;
     CharacterHull motorHull = CharacterHull::Capsule;
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;

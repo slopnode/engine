@@ -12,6 +12,12 @@ namespace slopengine {
 
 namespace {
 
+// How many extra units of routing cost a step "costs" per world-unit of drop beyond an agent's
+// maxFall tolerance. Chosen so a several-meter ledge reliably outweighs a modest detour, without
+// making the penalty effectively infinite (which would degenerate into the hard-block behavior
+// this design deliberately avoids -- see nav_graph.hpp's findLeafPath doc comment).
+constexpr float kExcessFallCostPerUnit = 8.0f;
+
 bool isNavWalkableLeaf(
     const BspTree& tree,
     int leaf,
@@ -149,6 +155,7 @@ MapNavigation buildMapNavigation(
     }
 
     nav.walkable.assign(static_cast<std::size_t>(n), false);
+    nav.leafIsWater.assign(static_cast<std::size_t>(n), false);
     nav.leafCentroids.resize(static_cast<std::size_t>(n));
     nav.leafFloorY.resize(static_cast<std::size_t>(n));
     nav.leafCeilingY.resize(static_cast<std::size_t>(n));
@@ -160,6 +167,7 @@ MapNavigation buildMapNavigation(
         nav.leafFloorY[static_cast<std::size_t>(i)] = leaf.mins.y;
         nav.leafCeilingY[static_cast<std::size_t>(i)] = leaf.maxs.y;
         nav.walkable[static_cast<std::size_t>(i)] = isNavWalkableLeaf(tree, i, exteriorEmpty);
+        nav.leafIsWater[static_cast<std::size_t>(i)] = (leaf.contents & BspContents::Water) != 0;
     }
 
     for (int i = 0; i < n; ++i) {
@@ -248,7 +256,9 @@ std::vector<int> findLeafPath(
     int fromLeaf,
     int toLeaf,
     const DoorOpenQuery& isDoorOpen,
-    float maxClimb) {
+    float maxClimb,
+    float maxFall,
+    float waterCostMultiplier) {
     if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= nav.leafCount || toLeaf >= nav.leafCount) {
         return {};
     }
@@ -308,7 +318,12 @@ std::vector<int> findLeafPath(
             if (rise > maxClimb) {
                 continue;
             }
-            const float tentative = currentG + link.cost;
+            const float drop = -rise;
+            const float fallPenalty =
+                drop > maxFall ? (drop - maxFall) * kExcessFallCostPerUnit : 0.0f;
+            const float destWaterMultiplier =
+                nav.leafIsWater[static_cast<std::size_t>(next)] ? waterCostMultiplier : 1.0f;
+            const float tentative = currentG + link.cost * destWaterMultiplier + fallPenalty;
             const auto it = gScore.find(next);
             if (it != gScore.end() && tentative >= it->second) {
                 continue;
@@ -326,7 +341,9 @@ NavFlowField buildNavFlowField(
     const MapNavigation& nav,
     int goalLeaf,
     const DoorOpenQuery& isDoorOpen,
-    float maxClimb) {
+    float maxClimb,
+    float maxFall,
+    float waterCostMultiplier) {
     NavFlowField field;
     field.goalLeaf = goalLeaf;
     field.maxClimb = maxClimb;
@@ -371,7 +388,12 @@ NavFlowField buildNavFlowField(
             if (rise > maxClimb) {
                 continue;
             }
-            const float tentative = currentG + link.cost;
+            const float drop = -rise;
+            const float fallPenalty =
+                drop > maxFall ? (drop - maxFall) * kExcessFallCostPerUnit : 0.0f;
+            const float destWaterMultiplier =
+                nav.leafIsWater[static_cast<std::size_t>(current)] ? waterCostMultiplier : 1.0f;
+            const float tentative = currentG + link.cost * destWaterMultiplier + fallPenalty;
             if (tentative < gScore[static_cast<std::size_t>(prev)]) {
                 gScore[static_cast<std::size_t>(prev)] = tentative;
                 field.nextLeaf[static_cast<std::size_t>(prev)] = current;
