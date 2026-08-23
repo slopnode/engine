@@ -20,6 +20,35 @@ namespace slopmap {
 
 namespace {
 
+constexpr float kTouchWeldEpsilon = 1e-3f;
+
+bool vertsTouch(Vector3 a, Vector3 b) {
+    return std::fabs(a.x - b.x) <= kTouchWeldEpsilon && std::fabs(a.y - b.y) <= kTouchWeldEpsilon &&
+        std::fabs(a.z - b.z) <= kTouchWeldEpsilon;
+}
+
+/** True if the faces share a full edge (two consecutive vertices in common, in either
+ *  winding order) -- distinct brushes butted against each other will have matching
+ *  edges even though they don't share vertex storage. */
+bool facesShareEdge(const slopengine::BrushFace& a, const slopengine::BrushFace& b) {
+    if (a.vertices.size() < 2 || b.vertices.size() < 2) {
+        return false;
+    }
+    for (std::size_t ai = 0; ai < a.vertices.size(); ++ai) {
+        const Vector3 a0 = a.vertices[ai];
+        const Vector3 a1 = a.vertices[(ai + 1) % a.vertices.size()];
+        for (std::size_t bi = 0; bi < b.vertices.size(); ++bi) {
+            const Vector3 b0 = b.vertices[bi];
+            const Vector3 b1 = b.vertices[(bi + 1) % b.vertices.size()];
+            if ((vertsTouch(a0, b0) && vertsTouch(a1, b1)) ||
+                (vertsTouch(a0, b1) && vertsTouch(a1, b0))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool ensureMapFiles(
     const std::filesystem::path& packageRoot,
     const std::string& mapName,
@@ -926,6 +955,56 @@ void Editor::selectBrushes(const std::vector<int>& indices, int active) {
     if (d.activeBrush < 0 && !d.selectedBrushes.empty()) {
         d.activeBrush = d.selectedBrushes.back();
     }
+}
+
+void Editor::selectTouchingFaces() {
+    EditorDocument& d = doc();
+    if (d.selectionMode != SelectionMode::Face || d.selectedFaces.empty()) {
+        return;
+    }
+
+    std::vector<FaceRef> selected = d.selectedFaces;
+    std::size_t frontier = 0;
+    while (frontier < selected.size()) {
+        const FaceRef current = selected[frontier++];
+        if (current.brush < 0 || current.brush >= static_cast<int>(d.brushes.size())) {
+            continue;
+        }
+        const slopengine::Brush& currentBrush =
+            d.brushes[static_cast<std::size_t>(current.brush)];
+        if (current.face < 0 || current.face >= static_cast<int>(currentBrush.faces.size())) {
+            continue;
+        }
+        const slopengine::BrushFace& currentFace =
+            currentBrush.faces[static_cast<std::size_t>(current.face)];
+        for (std::size_t bi = 0; bi < d.brushes.size(); ++bi) {
+            const slopengine::Brush& brush = d.brushes[bi];
+            for (std::size_t fi = 0; fi < brush.faces.size(); ++fi) {
+                const FaceRef candidate{static_cast<int>(bi), static_cast<int>(fi)};
+                if (candidate == current) {
+                    continue;
+                }
+                if (std::find(selected.begin(), selected.end(), candidate) != selected.end()) {
+                    continue;
+                }
+                if (brush.faces[fi].material != currentFace.material) {
+                    continue;
+                }
+                if (facesShareEdge(currentFace, brush.faces[fi])) {
+                    selected.push_back(candidate);
+                }
+            }
+        }
+    }
+
+    if (selected.size() == d.selectedFaces.size()) {
+        statusMessage = "No touching faces found";
+        return;
+    }
+    d.selectedFaces = std::move(selected);
+    d.activeFace = d.selectedFaces.back();
+    statusMessage =
+        "Selected touching faces (" + std::to_string(d.selectedFaces.size()) + ")";
 }
 
 void Editor::newMap(const std::string& mapName) {

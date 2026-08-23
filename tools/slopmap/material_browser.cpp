@@ -790,6 +790,19 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
     if (editor.doc().selectionMode == SelectionMode::Face &&
         !editor.doc().selectedFaces.empty()) {
         ImGui::Separator();
+        if (slopengine::buttonWithIcon(
+                assets,
+                slopengine::kDefaultIconSet,
+                "wand",
+                "Select Touching",
+                ImVec2(-1.0f, 0.0f))) {
+            editor.selectTouchingFaces();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip(
+                "Grow the face selection to every touching face with the same material, "
+                "across brushes.");
+        }
         if (drawFaceHandlerSection(editor)) {
             result.applied = true;
         }

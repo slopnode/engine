@@ -203,6 +203,7 @@ struct Editor {
     void selectVert(VertRef ref, bool additive);
     void selectEntity(EntityRef ref, bool additive);
     void selectBrushes(const std::vector<int>& indices, int active);
+    void selectTouchingFaces();
     void frameSelection();
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();
