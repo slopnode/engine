@@ -70,11 +70,16 @@ struct PhysicsWorld {
     void destroyCharacter(std::uint64_t id);
     void destroyAllCharacters();
 
+    bool resizeCharacter(std::uint64_t id, const CharacterMotor& motor, float maxPenetrationDepth = 0.05f);
+
     void setPlayerId(std::uint64_t id) { playerId_ = id; }
     std::uint64_t playerId() const { return playerId_; }
 
     void createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor);
     void destroyPlayerCharacter();
+    bool resizePlayerCharacter(const CharacterMotor& motor, float maxPenetrationDepth = 0.05f) {
+        return playerId_ != 0 && resizeCharacter(playerId_, motor, maxPenetrationDepth);
+    }
 
     void setCharacterPosition(std::uint64_t id, float x, float y, float z);
 

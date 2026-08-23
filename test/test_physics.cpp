@@ -711,6 +711,67 @@ void runSwimClimbTests() {
     }
 }
 
+void runResizeCharacterTests() {
+    constexpr std::uint64_t kCharId = 11;
+
+    {
+        PhysicsWorld world;
+        world.setPlayerId(kCharId);
+        CharacterMotor motor{};
+        world.createCharacter(kCharId, 0.0f, 5.0f, 0.0f, motor);
+        for (int i = 0; i < 30; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        const float fallingVelocity = static_cast<float>(world.characterVelocity(kCharId).GetY());
+        CHECK(fallingVelocity < -0.5f);
+        const JPH::RVec3 feetBefore = world.characterPosition(kCharId);
+
+        CharacterMotor crouched = motor;
+        crouched.radius = 0.3f;
+        crouched.height = 0.3f;
+        CHECK(world.resizeCharacter(kCharId, crouched));
+
+        const float velocityAfter = static_cast<float>(world.characterVelocity(kCharId).GetY());
+        CHECK(std::fabs(velocityAfter - fallingVelocity) < 0.01f);
+        const JPH::RVec3 feetAfter = world.characterPosition(kCharId);
+        CHECK(std::fabs(static_cast<float>(feetAfter.GetX() - feetBefore.GetX())) < 1.0e-4f);
+        CHECK(std::fabs(static_cast<float>(feetAfter.GetY() - feetBefore.GetY())) < 1.0e-4f);
+        CHECK(std::fabs(static_cast<float>(feetAfter.GetZ() - feetBefore.GetZ())) < 1.0e-4f);
+    }
+
+    {
+        const Brush floor =
+            makeBrushBox("floor", {-4.0f, -0.25f, -4.0f}, {4.0f, 0.0f, 4.0f}, "mat/a", {});
+        const Brush ceiling =
+            makeBrushBox("ceiling", {-4.0f, 1.0f, -4.0f}, {4.0f, 1.25f, 4.0f}, "mat/a", {});
+
+        PhysicsWorld world;
+        world.addStaticBrushes({floor, ceiling});
+        world.setPlayerId(kCharId);
+
+        CharacterMotor crouched{};
+        crouched.radius = 0.3f;
+        crouched.height = 0.3f;
+        world.createCharacter(kCharId, 0.0f, 0.05f, 0.0f, crouched);
+
+        CharacterMotor standing{};
+        standing.radius = 0.3f;
+        standing.height = 1.1f;
+        CHECK_FALSE(world.resizeCharacter(kCharId, standing));
+
+        CharacterMotor stillLow{};
+        stillLow.radius = 0.25f;
+        stillLow.height = 0.35f;
+        CHECK(world.resizeCharacter(kCharId, stillLow));
+    }
+
+    {
+        PhysicsWorld world;
+        CharacterMotor motor{};
+        CHECK_FALSE(world.resizeCharacter(kCharId, motor));
+    }
+}
+
 } // namespace
 
 void runPhysicsTests() {
@@ -722,6 +783,7 @@ void runPhysicsTests() {
     runBrushBlockFilterTests();
     runFlightTests();
     runSwimClimbTests();
+    runResizeCharacterTests();
 }
 
 }

@@ -332,6 +332,29 @@ bool finiteVec3(Vector3 v) {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
 
+JPH::RefConst<JPH::Shape> makeCharacterShape(const CharacterMotor& motor) {
+    const float radius = characterRadius(motor);
+    const float height = characterBodyHeight(motor);
+    const float cylinderHalf = 0.5f * height;
+    const float halfY = cylinderHalf + radius;
+    if (motor.hull == CharacterHull::Box) {
+        return JPH::RotatedTranslatedShapeSettings(
+            JPH::Vec3(0.0f, halfY, 0.0f),
+            JPH::Quat::sIdentity(),
+            new JPH::BoxShape(JPH::Vec3(radius, halfY, radius))).Create().Get();
+    }
+    if (motor.hull == CharacterHull::Sphere) {
+        return JPH::RotatedTranslatedShapeSettings(
+            JPH::Vec3(0.0f, radius, 0.0f),
+            JPH::Quat::sIdentity(),
+            new JPH::SphereShape(radius)).Create().Get();
+    }
+    return JPH::RotatedTranslatedShapeSettings(
+        JPH::Vec3(0.0f, halfY, 0.0f),
+        JPH::Quat::sIdentity(),
+        new JPH::CapsuleShape(cylinderHalf, radius)).Create().Get();
+}
+
 } // namespace
 
 void PhysicsWorld::createKinematicBox(
@@ -566,26 +589,8 @@ void PhysicsWorld::createCharacter(
     characters_.erase(id);
 
     const float radius = characterRadius(motor);
-    const float height = characterBodyHeight(motor);
-    const float cylinderHalf = 0.5f * height;
-    const float halfY = cylinderHalf + radius;
     CharacterEntry entry{};
-    if (motor.hull == CharacterHull::Box) {
-        entry.shape = JPH::RotatedTranslatedShapeSettings(
-            JPH::Vec3(0.0f, halfY, 0.0f),
-            JPH::Quat::sIdentity(),
-            new JPH::BoxShape(JPH::Vec3(radius, halfY, radius))).Create().Get();
-    } else if (motor.hull == CharacterHull::Sphere) {
-        entry.shape = JPH::RotatedTranslatedShapeSettings(
-            JPH::Vec3(0.0f, radius, 0.0f),
-            JPH::Quat::sIdentity(),
-            new JPH::SphereShape(radius)).Create().Get();
-    } else {
-        entry.shape = JPH::RotatedTranslatedShapeSettings(
-            JPH::Vec3(0.0f, halfY, 0.0f),
-            JPH::Quat::sIdentity(),
-            new JPH::CapsuleShape(cylinderHalf, radius)).Create().Get();
-    }
+    entry.shape = makeCharacterShape(motor);
 
     JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
     settings->mShape = entry.shape;
@@ -613,6 +618,41 @@ void PhysicsWorld::createCharacter(
         motor.moveMode == CharacterMoveMode::TryMove ? "try-move"
         : motor.moveMode == CharacterMoveMode::Fly   ? "fly"
                                                      : "slide");
+}
+
+bool PhysicsWorld::resizeCharacter(std::uint64_t id, const CharacterMotor& motor, float maxPenetrationDepth) {
+    const auto it = characters_.find(id);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return false;
+    }
+
+    const JPH::RefConst<JPH::Shape> newShape = makeCharacterShape(motor);
+    if (newShape == nullptr) {
+        return false;
+    }
+
+    const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
+    const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
+    const std::uint8_t blockMask = id == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+    JPH::IgnoreMultipleBodiesFilter bodyFilter;
+    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const JPH::ShapeFilter shapeFilter{};
+
+    JPH::CharacterVirtual& character = *it->second.character;
+    if (!character.SetShape(
+            newShape,
+            maxPenetrationDepth,
+            broadPhaseFilter,
+            objectFilter,
+            bodyFilter,
+            shapeFilter,
+            *tempAllocator_)) {
+        return false;
+    }
+
+    character.SetSupportingVolume(JPH::Plane(JPH::Vec3::sAxisY(), -characterRadius(motor)));
+    it->second.shape = newShape;
+    return true;
 }
 
 void PhysicsWorld::destroyCharacter(std::uint64_t id) {
