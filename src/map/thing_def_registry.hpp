@@ -4,6 +4,7 @@
 #include "map/thing.hpp"
 #include "physics/components.hpp"
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>

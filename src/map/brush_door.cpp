@@ -47,6 +47,9 @@ void configureBrushDoorMover(
     mover.duration = door.haveDuration ? (door.duration > 0.0f ? door.duration : 0.8f) : 0.6f;
     mover.autoClose = door.haveAutoClose ? std::max(0.0f, door.autoClose) : 0.0f;
     mover.groupId = door.group;
+    mover.openSound = door.openSound;
+    mover.closeSound = door.closeSound;
+    mover.soundVolume = door.haveSoundVolume ? door.soundVolume : 1.0f;
     mover.blockMode = MoverBlockMode::Shove;
     mover.pushMode = MoverPushMode::Horizontal;
     mover.slide = false;

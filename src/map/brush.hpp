@@ -88,6 +88,10 @@ struct BrushDoor {
     std::string hingeThingId;
     std::string group;
     HandlerBinding canUse;
+    std::string openSound;
+    std::string closeSound;
+    float soundVolume = 1.0f;
+    bool haveSoundVolume = false;
 };
 
 /** One polygonal face of a convex brush. */

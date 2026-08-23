@@ -85,6 +85,10 @@ struct Thing {
     bool haveMoverSlide = false;
     std::string onCrush;
     std::string moverGroup;
+    std::string moverOpenSound;
+    std::string moverCloseSound;
+    float moverSoundVolume = 1.0f;
+    bool haveMoverSoundVolume = false;
 
     HandlerBinding onEnter;
     HandlerBinding onExit;

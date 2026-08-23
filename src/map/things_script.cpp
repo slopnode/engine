@@ -676,6 +676,14 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             readString(sc, s7_car(rest), out.onCrush);
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.moverGroup);
+        } else if (std::strcmp(tag, "open-sound") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.moverOpenSound);
+        } else if (std::strcmp(tag, "close-sound") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.moverCloseSound);
+        } else if (std::strcmp(tag, "sound-volume") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.haveMoverSoundVolume = true;
+            out.moverSoundVolume = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "on-enter") == 0 && s7_is_pair(rest)) {
             if (parseHandlerBinding(sc, rest, out.onEnter)) {
                 mapHandlerRegistry().refineBinding(out.onEnter, MapHandlerKind::Enter);

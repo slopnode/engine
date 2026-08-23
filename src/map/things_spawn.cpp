@@ -651,6 +651,9 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             mover.slide = placement.haveMoverSlide ? placement.moverSlide : true;
             mover.onCrush = placement.onCrush;
             mover.groupId = placement.moverGroup;
+            mover.openSound = placement.moverOpenSound;
+            mover.closeSound = placement.moverCloseSound;
+            mover.soundVolume = placement.haveMoverSoundVolume ? placement.moverSoundVolume : 1.0f;
             entity.set<RigidMover>(mover);
             if (entity.has<LocalTransformation>() && placement.haveMoverCollideSize &&
                 !placement.geo.empty()) {

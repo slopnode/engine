@@ -326,6 +326,27 @@ s7_pointer g_door(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "door", args);
 }
 
+s7_pointer g_open_sound(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "open-sound", 1, args, "path");
+    }
+    return makeTaggedList(sc, "open-sound", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_close_sound(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "close-sound", 1, args, "path");
+    }
+    return makeTaggedList(sc, "close-sound", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sound_volume(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "sound-volume", 1, args, "volume");
+    }
+    return makeTaggedList(sc, "sound-volume", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
     BrushDoor door{};
     for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -372,6 +393,13 @@ bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
             if (parseHandlerBinding(sc, args, door.canUse)) {
                 mapHandlerRegistry().refineBinding(door.canUse, MapHandlerKind::CanUse);
             }
+        } else if (std::strcmp(tag, "open-sound") == 0 && s7_is_pair(args)) {
+            readString(sc, s7_car(args), door.openSound);
+        } else if (std::strcmp(tag, "close-sound") == 0 && s7_is_pair(args)) {
+            readString(sc, s7_car(args), door.closeSound);
+        } else if (std::strcmp(tag, "sound-volume") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            door.soundVolume = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            door.haveSoundVolume = true;
         }
     }
     out = std::move(door);
@@ -1067,6 +1095,9 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt string)");
     s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
     s7_define_function(sc, "auto-close", g_auto_close, 1, 0, false, "(auto-close seconds)");
+    s7_define_function(sc, "open-sound", g_open_sound, 1, 0, false, "(open-sound path)");
+    s7_define_function(sc, "close-sound", g_close_sound, 1, 0, false, "(close-sound path)");
+    s7_define_function(sc, "sound-volume", g_sound_volume, 1, 0, false, "(sound-volume volume)");
     s7_define_function(sc, "door", g_door, 0, 0, true, "(door clauses...)");
     s7_define_function(sc, "tint", g_tint, 3, 0, false, "(tint r g b)");
     s7_define_function(sc, "wobble", g_wobble, 1, 0, false, "(wobble amount)");
