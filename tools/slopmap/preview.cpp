@@ -76,7 +76,7 @@ float meshMinViewDepth(
     return minDepth;
 }
 
-Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false) {
+Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false, std::uint32_t faceSeed = 0) {
     const Vector3 lightDir = Vector3Normalize(Vector3{0.45f, 0.85f, 0.35f});
     const float nLen = Vector3Length(normal);
     Vector3 n = nLen > 1e-6f ? Vector3Scale(normal, 1.0f / nLen) : Vector3{0.0f, 1.0f, 0.0f};
@@ -86,6 +86,16 @@ Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false) {
     }
     if (ndotl > 1.0f) {
         ndotl = 1.0f;
+    }
+    if (faceSeed != 0) {
+        const float jitter = (static_cast<float>(faceSeed % 4096u) / 4095.0f - 0.5f) * 0.36f;
+        ndotl += jitter;
+        if (ndotl < 0.32f) {
+            ndotl = 0.32f;
+        }
+        if (ndotl > 1.0f) {
+            ndotl = 1.0f;
+        }
     }
     return Color{
         static_cast<unsigned char>(std::lround(static_cast<float>(base.r) * ndotl)),
@@ -374,7 +384,7 @@ void drawNodrawFace(const slopengine::BrushFace& face, Color color) {
     if (!face.nodraw || face.vertices.size() < 3) {
         return;
     }
-    const Color shaded = applyFauxShade(color, face.normal, true);
+    const Color shaded = applyFauxShade(color, face.normal, true, hashString(face.id));
     const Vector3& v0 = face.vertices[0];
     for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
         const Vector3& v1 = face.vertices[i];
