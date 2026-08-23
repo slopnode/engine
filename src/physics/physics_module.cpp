@@ -346,6 +346,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             });
 
             world.each([&](flecs::entity triggerEntity, TriggerVolume& volume, const LocalTransformation& local) {
+                if (volume.once && volume.fired) {
+                    return;
+                }
+
                 const Aabb volumeBounds = triggerAabb(local.position, volume.size);
                 const std::string thingId = entityIdString(triggerEntity);
 
@@ -370,6 +374,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                             thingId,
                             entityIdString(candidate.entity),
                             ScriptScope::World);
+                        if (volume.once) {
+                            volume.fired = true;
+                            break;
+                        }
                     }
                 }
 

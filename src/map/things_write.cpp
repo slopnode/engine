@@ -327,6 +327,9 @@ void writeTriggerFields(std::ostringstream& out, const Thing& p) {
             "(trigger-size " + formatFloat(p.triggerSize.x) + " " +
                 formatFloat(p.triggerSize.y) + " " + formatFloat(p.triggerSize.z) + ")");
     }
+    if (p.triggerOnce) {
+        writeIndentClause(out, "(once #t)");
+    }
     if (!p.collideTags.empty()) {
         std::string clause = "(collide-tags";
         for (const std::string& tag : p.collideTags) {
@@ -471,7 +474,7 @@ void writeThing(std::ostringstream& out, const Thing& p) {
         writeActorFields(out, p);
     }
     if (p.kind == ThingKind::Trigger || !p.onEnter.empty() || !p.onExit.empty() ||
-        p.haveTriggerSize || !p.collideTags.empty()) {
+        p.haveTriggerSize || p.triggerOnce || !p.collideTags.empty()) {
         writeTriggerFields(out, p);
     }
     if (thingKindIsLight(p.kind)) {

@@ -447,6 +447,7 @@ void applyTriggerVolume(flecs::entity entity, const Thing& placement) {
     volume.onEnter = placement.onEnter;
     volume.onExit = placement.onExit;
     volume.filterTags = placement.collideTags;
+    volume.once = placement.triggerOnce;
     entity.set<TriggerVolume>(std::move(volume));
 }
 

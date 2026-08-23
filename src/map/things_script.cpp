@@ -293,6 +293,13 @@ s7_pointer g_on_exit(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "on-exit", args);
 }
 
+s7_pointer g_once(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "once", 1, args, "bool");
+    }
+    return makeTaggedList(sc, "once", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_trigger_size(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
         return s7_wrong_type_arg_error(sc, "trigger-size", 0, args, "w h d");
@@ -683,6 +690,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                    s7_is_pair(s7_cddr(rest))) {
             out.haveTriggerSize =
                 readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), out.triggerSize);
+        } else if (std::strcmp(tag, "once") == 0 && s7_is_pair(rest)) {
+            readBool(sc, s7_car(rest), out.triggerOnce);
         } else if (std::strcmp(tag, "collide-tags") == 0) {
             out.collideTags.clear();
             for (s7_pointer tagCursor = rest; s7_is_pair(tagCursor); tagCursor = s7_cdr(tagCursor)) {
@@ -1497,6 +1506,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "on-enter", g_on_enter, 1, 0, true, "(on-enter handler arg-clause...)");
     s7_define_function(sc, "on-exit", g_on_exit, 1, 0, true, "(on-exit handler arg-clause...)");
     s7_define_function(sc, "trigger-size", g_trigger_size, 3, 0, false, "(trigger-size w h d)");
+    s7_define_function(sc, "once", g_once, 1, 0, false, "(once bool)");
     s7_define_function(sc, "collide-tags", g_collide_tags, 0, 0, true, "(collide-tags values...)");
     s7_define_function(sc, "tags", g_tags, 0, 0, true, "(tags values...)");
     s7_define_function(sc, "motor", g_motor, 0, 0, true, "(motor clauses...)");

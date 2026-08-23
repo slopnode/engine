@@ -1832,6 +1832,36 @@ bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
         }
     }
 
+    const auto onceCommon = commonValue<bool>(
+        doc, targets, [](const slopengine::Thing& t) { return t.triggerOnce; });
+    const bool mixedOnce = !onceCommon.has_value();
+    const bool onceValue = onceCommon.value_or(false);
+    if (mixedOnce) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    if (ImGui::BeginCombo("Fire", mixedOnce ? "(mixed)" : (onceValue ? "Once" : "Always"))) {
+        const char* fireOptions[] = {"Always", "Once"};
+        for (int i = 0; i < 2; ++i) {
+            const bool optionOnce = i == 1;
+            const bool selected = !mixedOnce && onceValue == optionOnce;
+            if (ImGui::Selectable(fireOptions[i], selected)) {
+                if (forEachTrigger(editor, targets, [optionOnce](slopengine::Thing& thing) {
+                        thing.triggerOnce = optionOnce;
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set trigger fire mode";
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (mixedOnce) {
+        ImGui::PopStyleVar();
+    }
+
     return changed;
 }
 

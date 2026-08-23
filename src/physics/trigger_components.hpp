@@ -27,6 +27,8 @@ struct TriggerVolume {
     HandlerBinding onExit;
     std::vector<std::string> filterTags;
     std::unordered_set<std::uint64_t> inside;
+    bool once = false;
+    bool fired = false;
 };
 
 }

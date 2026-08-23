@@ -90,6 +90,7 @@ struct Thing {
     HandlerBinding onExit;
     Vector3 triggerSize{1.0f, 1.0f, 1.0f};
     bool haveTriggerSize = false;
+    bool triggerOnce = false;
     std::vector<std::string> collideTags;
     std::vector<std::string> tags;
 
