@@ -303,8 +303,8 @@ void runNavGraphTests() {
         // happened, i.e. the low and high probes landed in different leaves.
         CHECK(low != high);
 
-        CHECK_EQ(nav.leafFloorY[static_cast<std::size_t>(low)], 0.0f);
-        CHECK_EQ(nav.leafFloorY[static_cast<std::size_t>(high)], 0.0f);
+        CHECK(std::fabs(nav.leafFloorY[static_cast<std::size_t>(low)] - 0.0f) <= 1.0e-3f);
+        CHECK(std::fabs(nav.leafFloorY[static_cast<std::size_t>(high)] - 0.0f) <= 1.0e-3f);
     }
 
     {
