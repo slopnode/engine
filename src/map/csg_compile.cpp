@@ -224,7 +224,8 @@ CsgCompileResult compileBrushesToGeo(
             input.uvUAxis = face.uvUAxis;
             input.uvVAxis = face.uvVAxis;
             input.uvLock = face.uvLock;
-            input.transparent = brush.role == BrushRole::Transparent;
+            input.transparent =
+                brush.role == BrushRole::Transparent || brush.role == BrushRole::Water;
             input.twoSided = brush.role == BrushRole::Water;
             faces.push_back(std::move(input));
         }

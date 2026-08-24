@@ -1104,6 +1104,7 @@ std::string drawWorldTransparentPass(
 
     rlDrawRenderBatchActive();
     rlDisableDepthMask();
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     BlendMode activeBlend = BLEND_ALPHA;
     BeginBlendMode(activeBlend);
 
@@ -1230,6 +1231,7 @@ std::string drawWorldTransparentPass(
     }
     rlDrawRenderBatchActive();
     EndBlendMode();
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     rlEnableDepthMask();
 
     if (world.has<DebugUiState>()) {

@@ -195,7 +195,7 @@ LightmapFace makeLightmapFace(const Brush& brush, const BrushFace& brushFace) {
     face.uvUAxis = brushFace.uvUAxis;
     face.uvVAxis = brushFace.uvVAxis;
     face.uvLock = brushFace.uvLock;
-    face.transparent = brush.role == BrushRole::Transparent;
+    face.transparent = brush.role == BrushRole::Transparent || brush.role == BrushRole::Water;
     return face;
 }
 
