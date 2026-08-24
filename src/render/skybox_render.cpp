@@ -65,6 +65,57 @@ int locateShaderArray(Shader shader, const char* baseName) {
     return loc;
 }
 
+// Matches UZDoom/GZDoom's sky cap color: a flat average of the texture's
+// top/bottom rows, used to fill the sky above/below the wrapped band instead
+// of stretching or pinching the texture toward the poles.
+Vector3 averageTextureRowBand(Texture2D texture, int rowStart, int rowCount) {
+    Image image = LoadImageFromTexture(texture);
+    if (image.data == nullptr) {
+        return {1.0f, 1.0f, 1.0f};
+    }
+    rowStart = static_cast<int>(Clamp(static_cast<float>(rowStart), 0.0f, static_cast<float>(image.height - 1)));
+    rowCount = static_cast<int>(
+        Clamp(static_cast<float>(rowCount), 1.0f, static_cast<float>(image.height - rowStart)));
+
+    double sumR = 0.0;
+    double sumG = 0.0;
+    double sumB = 0.0;
+    const long long sampleCount = static_cast<long long>(rowCount) * image.width;
+    for (int y = rowStart; y < rowStart + rowCount; ++y) {
+        for (int x = 0; x < image.width; ++x) {
+            const Color pixel = GetImageColor(image, x, y);
+            sumR += pixel.r;
+            sumG += pixel.g;
+            sumB += pixel.b;
+        }
+    }
+    UnloadImage(image);
+
+    if (sampleCount <= 0) {
+        return {1.0f, 1.0f, 1.0f};
+    }
+    return {
+        static_cast<float>(sumR / sampleCount / 255.0),
+        static_cast<float>(sumG / sampleCount / 255.0),
+        static_cast<float>(sumB / sampleCount / 255.0),
+    };
+}
+
+void computeSkyCylinderCapColors(SkyboxShaderState& shaderState) {
+    const Texture2D& texture = shaderState.boundCylinderTexture;
+    if (texture.id == 0) {
+        return;
+    }
+    constexpr int kCapRows = 30;
+    shaderState.boundCylinderTopColor = averageTextureRowBand(texture, 0, kCapRows);
+    if (texture.height > kCapRows) {
+        shaderState.boundCylinderBottomColor =
+            averageTextureRowBand(texture, texture.height - kCapRows, kCapRows);
+    } else {
+        shaderState.boundCylinderBottomColor = shaderState.boundCylinderTopColor;
+    }
+}
+
 } // namespace
 
 void applySkyShaderUniforms(
@@ -96,6 +147,8 @@ void applySkyShaderUniforms(
     const int skyCylinderOffsetLoc = GetShaderLocation(shader, "skyCylinderOffset");
     const int skyCylinderScaleLoc = GetShaderLocation(shader, "skyCylinderScale");
     const int skyCylinderRepeatLoc = GetShaderLocation(shader, "skyCylinderRepeat");
+    const int skyCylinderTopColorLoc = GetShaderLocation(shader, "skyCylinderTopColor");
+    const int skyCylinderBottomColorLoc = GetShaderLocation(shader, "skyCylinderBottomColor");
     const int skyGradientColorsLoc = locateShaderArray(shader, "skyGradientColors");
     const int skyGradientPositionsLoc = locateShaderArray(shader, "skyGradientPositions");
 
@@ -137,12 +190,15 @@ void applySkyShaderUniforms(
             shaderState.boundCylinderTexture = assets.getTexture(settings.cylinderTexture);
             shaderState.boundCylinderTextureKey = settings.cylinderTexture;
             if (shaderState.boundCylinderTexture.id != 0) {
+                // S (yaw) wraps around the horizon like a real cylinder; T (elevation) is
+                // clamped since the shader hard-cuts to a flat cap color past v = [0, 1].
                 rlTextureParameters(
-                    shaderState.boundCylinderTexture.id, RL_TEXTURE_WRAP_S, RL_TEXTURE_WRAP_CLAMP);
+                    shaderState.boundCylinderTexture.id, RL_TEXTURE_WRAP_S, RL_TEXTURE_WRAP_REPEAT);
                 rlTextureParameters(
                     shaderState.boundCylinderTexture.id, RL_TEXTURE_WRAP_T, RL_TEXTURE_WRAP_CLAMP);
                 GenTextureMipmaps(&shaderState.boundCylinderTexture);
                 SetTextureFilter(shaderState.boundCylinderTexture, TEXTURE_FILTER_TRILINEAR);
+                computeSkyCylinderCapColors(shaderState);
             }
         }
         if (shaderState.boundCylinderTexture.id != 0) {
@@ -158,6 +214,22 @@ void applySkyShaderUniforms(
         }
         if (skyCylinderRepeatLoc >= 0) {
             SetShaderValue(shader, skyCylinderRepeatLoc, &settings.cylinderRepeat, SHADER_UNIFORM_INT);
+        }
+        if (skyCylinderTopColorLoc >= 0) {
+            const float topColor[3] = {
+                shaderState.boundCylinderTopColor.x,
+                shaderState.boundCylinderTopColor.y,
+                shaderState.boundCylinderTopColor.z,
+            };
+            SetShaderValue(shader, skyCylinderTopColorLoc, topColor, SHADER_UNIFORM_VEC3);
+        }
+        if (skyCylinderBottomColorLoc >= 0) {
+            const float bottomColor[3] = {
+                shaderState.boundCylinderBottomColor.x,
+                shaderState.boundCylinderBottomColor.y,
+                shaderState.boundCylinderBottomColor.z,
+            };
+            SetShaderValue(shader, skyCylinderBottomColorLoc, bottomColor, SHADER_UNIFORM_VEC3);
         }
     }
 }
