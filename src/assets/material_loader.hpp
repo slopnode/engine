@@ -36,6 +36,10 @@ struct MaterialAsset {
     std::string skyCubeFaces[6];
     std::array<SkyGradientStop, 4> skyGradientStops{};
     int skyGradientStopCount = 0;
+    std::string skyCylinderTexture;
+    float skyCylinderOffset = 0.0f;
+    float skyCylinderScale = 1.0f;
+    int skyCylinderRepeat = 1;
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;

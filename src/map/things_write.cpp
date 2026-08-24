@@ -299,6 +299,12 @@ void writeSkyboxFields(std::ostringstream& out, const Thing& p) {
         writeIndentClause(out, "(nz " + escapeSchemeString(p.skyCubeNz) + ")");
         writeIndentClause(out, ")");
         break;
+    case SkyboxMode::Cylinder:
+        writeIndentClause(out, "(cylinder " + escapeSchemeString(p.skyCylinderTexture) + ")");
+        writeIndentClause(out, "(cylinder-offset " + formatFloat(p.skyCylinderOffset) + ")");
+        writeIndentClause(out, "(cylinder-scale " + formatFloat(p.skyCylinderScale) + ")");
+        writeIndentClause(out, "(cylinder-repeat " + std::to_string(p.skyCylinderRepeat) + ")");
+        break;
     case SkyboxMode::Gradient:
         writeIndentClause(out, "(gradient");
         out << "\n";

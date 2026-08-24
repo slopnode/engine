@@ -153,6 +153,10 @@ struct Thing {
     std::string skyCubeNz;
     std::array<SkyGradientStop, 4> skyGradientStops{};
     int skyGradientStopCount = 0;
+    std::string skyCylinderTexture;
+    float skyCylinderOffset = 0.0f;
+    float skyCylinderScale = 1.0f;
+    int skyCylinderRepeat = 1;
     std::string skyMaterial;
 };
 

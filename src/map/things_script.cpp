@@ -1216,6 +1216,34 @@ s7_pointer g_cube(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "cube", args);
 }
 
+s7_pointer g_sky_cylinder(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "cylinder", 1, args, "path");
+    }
+    return makeTaggedList(sc, "cylinder", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sky_cylinder_offset(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "cylinder-offset", 1, args, "number");
+    }
+    return makeTaggedList(sc, "cylinder-offset", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sky_cylinder_scale(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "cylinder-scale", 1, args, "number");
+    }
+    return makeTaggedList(sc, "cylinder-scale", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sky_cylinder_repeat(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "cylinder-repeat", 1, args, "number");
+    }
+    return makeTaggedList(sc, "cylinder-repeat", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_stop(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args)) ||
         !s7_is_pair(s7_cdddr(args))) {
@@ -1322,6 +1350,23 @@ bool parseSkyboxClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     return false;
                 }
             }
+        } else if (std::strcmp(tag, "cylinder") == 0 && s7_is_pair(rest)) {
+            if (!readString(sc, s7_car(rest), out.skyCylinderTexture)) {
+                TraceLog(LOG_WARNING, "THING: skybox cylinder texture must be a string");
+                return false;
+            }
+            out.skyboxMode = SkyboxMode::Cylinder;
+            out.haveSkyboxMode = true;
+            ++modeCount;
+        } else if (std::strcmp(tag, "cylinder-offset") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.skyCylinderOffset = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "cylinder-scale") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.skyCylinderScale = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        } else if (std::strcmp(tag, "cylinder-repeat") == 0 && s7_is_pair(rest) &&
+                   s7_is_number(s7_car(rest))) {
+            out.skyCylinderRepeat = std::max(1, static_cast<int>(s7_number_to_real(sc, s7_car(rest))));
         } else if (std::strcmp(tag, "gradient") == 0) {
             out.skyboxMode = SkyboxMode::Gradient;
             out.haveSkyboxMode = true;
@@ -1372,11 +1417,11 @@ bool parseSkyboxClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
         }
     }
     if (!out.haveSkyboxMode && out.skyMaterial.empty()) {
-        TraceLog(LOG_WARNING, "THING: skybox requires material, color, cube, or gradient");
+        TraceLog(LOG_WARNING, "THING: skybox requires material, color, cube, gradient, or cylinder");
         return false;
     }
     if (out.haveSkyboxMode && modeCount != 1) {
-        TraceLog(LOG_WARNING, "THING: skybox requires exactly one of color, cube, or gradient");
+        TraceLog(LOG_WARNING, "THING: skybox requires exactly one of color, cube, gradient, or cylinder");
         return false;
     }
     if (out.skyboxMode == SkyboxMode::Cube) {
@@ -1385,6 +1430,10 @@ bool parseSkyboxClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             TraceLog(LOG_WARNING, "THING: skybox cube requires px nx py ny pz nz faces");
             return false;
         }
+    }
+    if (out.skyboxMode == SkyboxMode::Cylinder && out.skyCylinderTexture.empty()) {
+        TraceLog(LOG_WARNING, "THING: skybox cylinder requires a texture path");
+        return false;
     }
     return true;
 }
@@ -1594,6 +1643,13 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "material", g_sky_material, 1, 0, false, "(material path)");
     s7_define_function(sc, "gradient", g_gradient, 0, 0, true, "(gradient (stop ...)...)");
     s7_define_function(sc, "cube", g_cube, 0, 0, true, "(cube (px ...)... (nz ...))");
+    s7_define_function(sc, "cylinder", g_sky_cylinder, 1, 0, false, "(cylinder path)");
+    s7_define_function(
+        sc, "cylinder-offset", g_sky_cylinder_offset, 1, 0, false, "(cylinder-offset value)");
+    s7_define_function(
+        sc, "cylinder-scale", g_sky_cylinder_scale, 1, 0, false, "(cylinder-scale value)");
+    s7_define_function(
+        sc, "cylinder-repeat", g_sky_cylinder_repeat, 1, 0, false, "(cylinder-repeat value)");
     s7_define_function(sc, "stop", g_stop, 4, 0, false, "(stop position r g b)");
     s7_define_function(sc, "px", g_px, 1, 0, false, "(px path)");
     s7_define_function(sc, "nx", g_nx, 1, 0, false, "(nx path)");

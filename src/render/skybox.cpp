@@ -23,6 +23,10 @@ SkyboxSettings settingsFromInlineThing(const Thing& placement) {
     settings.cubeFaces[5] = normalized.skyCubeNz;
     settings.gradientStops = normalized.skyGradientStops;
     settings.gradientStopCount = normalized.skyGradientStopCount;
+    settings.cylinderTexture = normalized.skyCylinderTexture;
+    settings.cylinderOffset = normalized.skyCylinderOffset;
+    settings.cylinderScale = normalized.skyCylinderScale;
+    settings.cylinderRepeat = normalized.skyCylinderRepeat;
     return settings;
 }
 
@@ -56,6 +60,12 @@ SkyboxSettings skyboxSettingsFromMaterial(const MaterialAsset& asset) {
         case SkyboxMode::Gradient:
             settings.gradientStops = asset.skyGradientStops;
             settings.gradientStopCount = asset.skyGradientStopCount;
+            break;
+        case SkyboxMode::Cylinder:
+            settings.cylinderTexture = asset.skyCylinderTexture;
+            settings.cylinderOffset = asset.skyCylinderOffset;
+            settings.cylinderScale = asset.skyCylinderScale;
+            settings.cylinderRepeat = asset.skyCylinderRepeat;
             break;
         }
         return settings;

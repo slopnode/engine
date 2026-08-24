@@ -585,6 +585,23 @@ TextureCubemap AssetStore::getCubemapFaces(
             faceHeight = faceTextures[i].height;
             faceFormat = faceTextures[i].format;
         }
+        if (faceTextures[i].width != faceTextures[i].height) {
+            TraceLog(
+                LOG_WARNING,
+                "ASSET: cubemap face '%.*s' is %dx%d, not square; cube faces must be square and share the same size",
+                static_cast<int>(faces[i].size()), faces[i].data(),
+                faceTextures[i].width, faceTextures[i].height);
+            return {};
+        }
+        if (faceTextures[i].width != faceWidth || faceTextures[i].height != faceHeight) {
+            TraceLog(
+                LOG_WARNING,
+                "ASSET: cubemap face '%.*s' is %dx%d, expected %dx%d to match the other faces",
+                static_cast<int>(faces[i].size()), faces[i].data(),
+                faceTextures[i].width, faceTextures[i].height,
+                faceWidth, faceHeight);
+            return {};
+        }
     }
 
     unsigned int cubemapId = 0;
