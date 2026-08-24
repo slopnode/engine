@@ -447,6 +447,12 @@ void drawMainMenuBar(
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
             ImGui::EndMenu();
         }
+        if (beginMenuWithIcon(assets, kIcons, "color_wheel", "Light Probes")) {
+            ImGui::MenuItem("Fine Grid", nullptr, &debugUi.showLightProbesFine);
+            ImGui::MenuItem("Coarse Grid", nullptr, &debugUi.showLightProbesCoarse);
+            ImGui::MenuItem("Sprite Sample Taps", nullptr, &debugUi.showLightProbeSampleTaps);
+            ImGui::EndMenu();
+        }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
         menuItemWithIcon(assets, kIcons, "arrow_branch", "Nav Paths", nullptr, &debugUi.showNavPaths);
         menuItemWithIcon(

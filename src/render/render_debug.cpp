@@ -394,6 +394,110 @@ std::string drawSpriteDebugOverlays(
     return aimStatus;
 }
 
+constexpr float kLightProbeDebugMaxDistance = 24.0f;
+constexpr float kLightProbeDebugMaxDistanceSq = kLightProbeDebugMaxDistance * kLightProbeDebugMaxDistance;
+
+void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine) {
+    const float radius = fine ? 0.06f : 0.18f;
+    for (const auto& [cell, sh] : grid.probesByCell) {
+        const Vector3 worldPos{
+            static_cast<float>(cell.x) * grid.cellSize,
+            static_cast<float>(cell.y) * grid.cellSize,
+            static_cast<float>(cell.z) * grid.cellSize,
+        };
+        const float dx = worldPos.x - cameraPosition.x;
+        const float dy = worldPos.y - cameraPosition.y;
+        const float dz = worldPos.z - cameraPosition.z;
+        if (dx * dx + dy * dy + dz * dz > kLightProbeDebugMaxDistanceSq) {
+            continue;
+        }
+        const Color color =
+            linearIrradianceToDisplayColor(sh.coeff[0].x, sh.coeff[0].y, sh.coeff[0].z);
+        DrawSphere(worldPos, radius, color);
+    }
+}
+
+void drawSpriteLightSampleTaps(
+    const MapLighting& lighting,
+    const Lens& lens,
+    AssetStore& assets,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
+    const float radius = 0.1f;
+    spriteQuery.each(
+        [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
+            if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {
+                return;
+            }
+            const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
+            if (!billboard) {
+                return;
+            }
+
+            const Vector3 feetOrigin{
+                billboard->position.x,
+                billboard->position.y + 0.05f,
+                billboard->position.z};
+            Color colorFeet = WHITE;
+            if (auto feet = sampleLightProbe(lighting, feetOrigin, {0.0f, -1.0f, 0.0f})) {
+                colorFeet = *feet;
+            } else if (auto feetRay =
+                           sampleMapLight(lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                colorFeet = *feetRay;
+            }
+            DrawSphere(feetOrigin, radius, colorFeet);
+
+            const Vector3 headPos{
+                billboard->position.x,
+                billboard->position.y + billboard->size.y,
+                billboard->position.z};
+            Vector3 headDir{
+                lens.camera.position.x - headPos.x,
+                0.0f,
+                lens.camera.position.z - headPos.z,
+            };
+            Color colorHead = colorFeet;
+            const float headLenSq = Vector3LengthSqr(headDir);
+            if (headLenSq > 1e-8f) {
+                headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
+                if (auto head = sampleLightProbe(lighting, headPos, headDir)) {
+                    colorHead = *head;
+                } else if (auto headRay = sampleMapLight(lighting, headPos, headDir, 4.0f)) {
+                    colorHead = *headRay;
+                }
+            }
+            DrawSphere(headPos, radius, colorHead);
+        });
+}
+
+void drawLightProbeDebugOverlays(
+    const MapLighting* lighting,
+    const DebugUiState& debugUi,
+    const Lens& lens,
+    AssetStore& assets,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
+    const bool any = debugUi.showLightProbesFine || debugUi.showLightProbesCoarse
+        || debugUi.showLightProbeSampleTaps;
+    if (!any || lighting == nullptr || !lighting->available) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    if (debugUi.showLightProbesFine) {
+        drawProbeGridDots(lighting->probeGridFine, lens.camera.position, true);
+    }
+    if (debugUi.showLightProbesCoarse) {
+        drawProbeGridDots(lighting->probeGridCoarse, lens.camera.position, false);
+    }
+    if (debugUi.showLightProbeSampleTaps) {
+        drawSpriteLightSampleTaps(*lighting, lens, assets, spriteQuery);
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
 void drawDebugLinePool(const DebugLinePool& pool) {
     if (pool.lines.empty()) {
         return;

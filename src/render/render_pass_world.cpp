@@ -1235,10 +1235,12 @@ std::string drawWorldTransparentPass(
     rlEnableDepthMask();
 
     if (world.has<DebugUiState>()) {
+        const DebugUiState& debugUi = world.get<DebugUiState>();
+        drawLightProbeDebugOverlays(lighting, debugUi, lens, assets, context.worldSpriteQuery);
         spriteAimStatus = drawSpriteDebugOverlays(
             lens,
             assets,
-            world.get<DebugUiState>(),
+            debugUi,
             context.worldSpriteQuery);
     }
     return spriteAimStatus;

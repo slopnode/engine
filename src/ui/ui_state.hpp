@@ -66,6 +66,9 @@ struct DebugUiState {
     bool showBspCurrentLeafOnly = false;
     bool showSpriteMasks = false;
     bool showSpriteAim = false;
+    bool showLightProbesFine = false;
+    bool showLightProbesCoarse = false;
+    bool showLightProbeSampleTaps = false;
     bool showGraphs = false;
     bool showNavPaths = false;
     bool showPerformance = false;
