@@ -36,9 +36,15 @@ endif()
 
 include(CheckIPOSupported)
 check_ipo_supported(RESULT SLOPENGINE_IPO_SUPPORTED OUTPUT SLOPENGINE_IPO_ERROR)
-if(SLOPENGINE_IPO_SUPPORTED)
+if(SLOPENGINE_IPO_SUPPORTED AND NOT WIN32)
+    # MSVC's IPO/LTCG (/GL) emits "anonymous object" files instead of normal
+    # COFF objects. sloplib is a SHARED library and Windows also turns on
+    # CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS below, which makes CMake auto-generate
+    # its .def file by scanning every .obj with a minimal built-in COFF
+    # parser. That parser can't read /GL's anonymous objects and fails with
+    # "unrecognized file format", so skip IPO on Windows.
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-else()
+elseif(NOT SLOPENGINE_IPO_SUPPORTED)
     message(STATUS "LTO not supported: ${SLOPENGINE_IPO_ERROR}")
 endif()
 
