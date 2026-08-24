@@ -1,0 +1,38 @@
+name: Test Compile Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-compile:
+    runs-on: alma10
+    container:
+      image: git.slopnode.net/containers/engine-linux-builder:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: |
+          set -eux
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSLOPENGINE_USE_STEAM_AUDIO=ON \
+            -DSTEAM_AUDIO_ROOT="${STEAM_AUDIO_ROOT}"
+          cmake --build build --target \
+            slopengine \
+            slopbsp \
+            sloprad \
+            slopvis \
+            slopmap \
+            slopsprite \
+            slopicons \
+            sloptests
+
+      - name: Run unit tests
+        run: |
+          set -eux
+          ctest --test-dir build --output-on-failure
