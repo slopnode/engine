@@ -4422,6 +4422,111 @@ int main(int argc, char* argv[]) {
             if (compile.radOptions.sunShadowSoftness > 1.0f) {
                 compile.radOptions.sunShadowSoftness = 1.0f;
             }
+
+            ImGui::SeparatorText("Emitter Sampling");
+            ImGui::InputInt("Emitter direct samples", &compile.radOptions.emitterDirectSamples);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "NxN stratified UV samples per receiver-emissive-face pair "
+                    "for direct light from emissive materials.");
+            }
+            if (compile.radOptions.emitterDirectSamples < 1) {
+                compile.radOptions.emitterDirectSamples = 1;
+            }
+            ImGui::DragFloat(
+                "Emitter grid luxels/m",
+                &compile.radOptions.emitterGridLuxelsPerMeter,
+                0.25f,
+                0.5f,
+                64.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("World-space resolution of the pre-baked per-face emission cast grid.");
+            }
+            if (compile.radOptions.emitterGridLuxelsPerMeter < 0.5f) {
+                compile.radOptions.emitterGridLuxelsPerMeter = 0.5f;
+            }
+            ImGui::InputInt("Emitter grid max size", &compile.radOptions.emitterGridMaxSize);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Maximum emission grid dimension per emissive face axis.");
+            }
+            if (compile.radOptions.emitterGridMaxSize < 1) {
+                compile.radOptions.emitterGridMaxSize = 1;
+            }
+
+            ImGui::SeparatorText("Exact Emission");
+            ImGui::InputInt("Exact emission grid max size", &compile.radOptions.exactEmissionGridMaxSize);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Upper bound on the per-face exact-emission sample grid dimension.");
+            }
+            if (compile.radOptions.exactEmissionGridMaxSize < 1) {
+                compile.radOptions.exactEmissionGridMaxSize = 1;
+            }
+            ImGui::InputInt("Exact emission max samples", &compile.radOptions.exactEmissionMaxSamples);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Upper bound on total exact-emission samples per face.");
+            }
+            if (compile.radOptions.exactEmissionMaxSamples < 1) {
+                compile.radOptions.exactEmissionMaxSamples = 1;
+            }
+
+            ImGui::SeparatorText("Seam Stitching");
+            ImGui::DragFloat(
+                "Seam stitch radius",
+                &compile.radOptions.seamStitchRadiusLuxels,
+                0.1f,
+                0.0f,
+                16.0f,
+                "%.2f luxels");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Lightmap seam-stitching search radius, in luxels.");
+            }
+            if (compile.radOptions.seamStitchRadiusLuxels < 0.0f) {
+                compile.radOptions.seamStitchRadiusLuxels = 0.0f;
+            }
+
+            ImGui::SeparatorText("Light Probes");
+            ImGui::DragFloat(
+                "Probe cell size",
+                &compile.radOptions.probeCellSize,
+                0.1f,
+                0.25f,
+                32.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Coarse light-probe grid spacing (world units), covering all open space. "
+                    "Smaller = denser grid, slower bake, more memory.");
+            }
+            if (compile.radOptions.probeCellSize < 0.25f) {
+                compile.radOptions.probeCellSize = 0.25f;
+            }
+            ImGui::DragFloat(
+                "Probe fine cell size",
+                &compile.radOptions.probeFineCellSize,
+                0.1f,
+                0.1f,
+                32.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Fine light-probe grid spacing (world units), placed only near geometry "
+                    "(walls/corners/doorways). Clamped to the coarse cell size at bake time.");
+            }
+            if (compile.radOptions.probeFineCellSize < 0.1f) {
+                compile.radOptions.probeFineCellSize = 0.1f;
+            }
+            ImGui::InputInt("Probe sample count", &compile.radOptions.probeSampleCount);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Sphere samples gathered per probe for the SH lighting projection. "
+                    "Higher = smoother probes, slower bake.");
+            }
+            if (compile.radOptions.probeSampleCount < 1) {
+                compile.radOptions.probeSampleCount = 1;
+            }
+
+            ImGui::SeparatorText("GPU");
             if (ImGui::RadioButton("GPU", compile.radOptions.preferGpu)) {
                 compile.radOptions.preferGpu = true;
             }

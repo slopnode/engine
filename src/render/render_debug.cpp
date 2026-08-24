@@ -394,11 +394,15 @@ std::string drawSpriteDebugOverlays(
     return aimStatus;
 }
 
-constexpr float kLightProbeDebugMaxDistance = 24.0f;
+constexpr float kLightProbeDebugMaxDistance = 4.0f;
 constexpr float kLightProbeDebugMaxDistanceSq = kLightProbeDebugMaxDistance * kLightProbeDebugMaxDistance;
+// Probes closer than this sit inside/at the camera's own position; at that range even a small
+// world-space sphere radius fills the screen, so skip them rather than draw a giant blob.
+constexpr float kLightProbeDebugMinDistance = 0.2f;
+constexpr float kLightProbeDebugMinDistanceSq = kLightProbeDebugMinDistance * kLightProbeDebugMinDistance;
 
 void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine) {
-    const float radius = fine ? 0.06f : 0.18f;
+    const float radius = fine ? 0.035f : 0.06f;
     for (const auto& [cell, sh] : grid.probesByCell) {
         const Vector3 worldPos{
             static_cast<float>(cell.x) * grid.cellSize,
@@ -408,7 +412,8 @@ void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine)
         const float dx = worldPos.x - cameraPosition.x;
         const float dy = worldPos.y - cameraPosition.y;
         const float dz = worldPos.z - cameraPosition.z;
-        if (dx * dx + dy * dy + dz * dz > kLightProbeDebugMaxDistanceSq) {
+        const float distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq > kLightProbeDebugMaxDistanceSq || distSq < kLightProbeDebugMinDistanceSq) {
             continue;
         }
         const Color color =
@@ -422,7 +427,7 @@ void drawSpriteLightSampleTaps(
     const Lens& lens,
     AssetStore& assets,
     flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
-    const float radius = 0.1f;
+    const float radius = 0.05f;
     spriteQuery.each(
         [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
             if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {

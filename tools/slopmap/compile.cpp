@@ -168,8 +168,20 @@ std::vector<std::string> CompileController::buildArgs(CompileStage stage) const 
         args.push_back(std::to_string(radOptions.emitterGridLuxelsPerMeter));
         args.emplace_back("--emitter-grid-max-size");
         args.push_back(std::to_string(radOptions.emitterGridMaxSize));
+        args.emplace_back("--exact-emission-grid-max-size");
+        args.push_back(std::to_string(radOptions.exactEmissionGridMaxSize));
+        args.emplace_back("--exact-emission-max-samples");
+        args.push_back(std::to_string(radOptions.exactEmissionMaxSamples));
         args.emplace_back("--sun-shadow-softness");
         args.push_back(std::to_string(radOptions.sunShadowSoftness));
+        args.emplace_back("--seam-stitch-radius");
+        args.push_back(std::to_string(radOptions.seamStitchRadiusLuxels));
+        args.emplace_back("--probe-cell-size");
+        args.push_back(std::to_string(radOptions.probeCellSize));
+        args.emplace_back("--probe-fine-cell-size");
+        args.push_back(std::to_string(radOptions.probeFineCellSize));
+        args.emplace_back("--probe-sample-count");
+        args.push_back(std::to_string(radOptions.probeSampleCount));
         if (radOptions.preferGpu) {
             args.emplace_back("--gpu");
             if (radOptions.forceDiscreteGpu) {

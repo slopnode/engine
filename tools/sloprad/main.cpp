@@ -175,6 +175,39 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.seamStitchRadiusLuxels = parsed;
+        } else if (arg == "--probe-cell-size") {
+            const char* value = needValue("--probe-cell-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 4.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.probeCellSize = parsed;
+        } else if (arg == "--probe-fine-cell-size") {
+            const char* value = needValue("--probe-fine-cell-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 2.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.probeFineCellSize = parsed;
+        } else if (arg == "--probe-sample-count") {
+            const char* value = needValue("--probe-sample-count");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 32;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.probeSampleCount = parsed;
         } else if (arg == "--gpu") {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
@@ -234,6 +267,7 @@ int main(int argc, char* argv[]) {
             << "       [--emitter-grid-max-size N] [--exact-emission-grid-max-size N]\n"
             << "       [--exact-emission-max-samples N] [--sun-shadow-softness N]\n"
             << "       [--seam-stitch-radius N]\n"
+            << "       [--probe-cell-size N] [--probe-fine-cell-size N] [--probe-sample-count N]\n"
             << "       [--gpu|--cpu]\n"
             << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
