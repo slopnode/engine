@@ -1,0 +1,48 @@
+name: Test Compile Windows
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+jobs:
+  test-compile:
+    runs-on: winblows
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch Steam Audio
+        run: |
+          $version = "4.8.1"
+          $url = "https://github.com/ValveSoftware/steam-audio/releases/download/v$version/steamaudio_$version.zip"
+          Invoke-WebRequest -Uri $url -OutFile steamaudio.zip
+          Expand-Archive -Path steamaudio.zip -DestinationPath .
+          $root = (Resolve-Path steamaudio).Path
+          "STEAM_AUDIO_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DSLOPENGINE_USE_STEAM_AUDIO=ON `
+            -DSTEAM_AUDIO_ROOT="$env:STEAM_AUDIO_ROOT"
+          cmake --build build --config Release --target `
+            slopengine `
+            slopbsp `
+            sloprad `
+            slopvis `
+            slopmap `
+            slopsprite `
+            slopicons `
+            sloptests
+
+      - name: Run unit tests
+        run: |
+          ctest --test-dir build -C Release --output-on-failure

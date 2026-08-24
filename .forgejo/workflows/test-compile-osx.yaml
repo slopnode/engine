@@ -1,0 +1,48 @@
+name: Test Compile OSX
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+jobs:
+  test-compile:
+    runs-on: osx
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch Steam Audio
+        run: |
+          set -eux
+          version="4.8.1"
+          url="https://github.com/ValveSoftware/steam-audio/releases/download/v${version}/steamaudio_${version}.zip"
+          curl -sfL "$url" -o steamaudio.zip
+          unzip -q steamaudio.zip
+          echo "STEAM_AUDIO_ROOT=$(pwd)/steamaudio" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          set -eux
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSLOPENGINE_USE_STEAM_AUDIO=ON \
+            -DSTEAM_AUDIO_ROOT="${STEAM_AUDIO_ROOT}"
+          cmake --build build --target \
+            slopengine \
+            slopbsp \
+            sloprad \
+            slopvis \
+            slopmap \
+            slopsprite \
+            slopicons \
+            sloptests
+
+      - name: Run unit tests
+        run: |
+          set -eux
+          ctest --test-dir build --output-on-failure
