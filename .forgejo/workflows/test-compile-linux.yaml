@@ -1,9 +1,6 @@
 name: Test Compile Linux
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_dispatch:
 
 jobs:

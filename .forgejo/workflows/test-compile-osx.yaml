@@ -1,9 +1,6 @@
 name: Test Compile OSX
 
 on:
-  push:
-    branches:
-      - '**'
   workflow_dispatch:
 
 jobs:
