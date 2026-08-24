@@ -1,6 +1,7 @@
 #include "map/light_probes.hpp"
 
 #include "map/bsp_ray.hpp"
+#include "map/light_occlusion.hpp"
 #include "map/uv_math.hpp"
 
 #include <algorithm>
@@ -14,6 +15,50 @@ namespace {
 
 float dot3(Vector3 a, Vector3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+Vector3 normalize3(Vector3 v) {
+    const float len = std::sqrt(dot3(v, v));
+    if (len < 1e-6f) {
+        return {0.0f, 1.0f, 0.0f};
+    }
+    return {v.x / len, v.y / len, v.z / len};
+}
+
+void buildSunBasis(Vector3 toLight, Vector3& tangentOut, Vector3& bitangentOut) {
+    const Vector3 helper = std::abs(toLight.y) < 0.999f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
+    const Vector3 cross1{
+        helper.y * toLight.z - helper.z * toLight.y,
+        helper.z * toLight.x - helper.x * toLight.z,
+        helper.x * toLight.y - helper.y * toLight.x,
+    };
+    tangentOut = normalize3(cross1);
+    const Vector3 cross2{
+        toLight.y * tangentOut.z - toLight.z * tangentOut.y,
+        toLight.z * tangentOut.x - toLight.x * tangentOut.z,
+        toLight.x * tangentOut.y - toLight.y * tangentOut.x,
+    };
+    bitangentOut = normalize3(cross2);
+}
+
+/** Projects a directional (sun) light into the probe's L1 basis {1, x, y, z}.
+ *  The sun is modeled as illuminating the whole hemisphere facing @p toLight at flat
+ *  radiance @p light (matching a clamped-cosine lobe), which is the least-squares-optimal
+ *  fit of a hemisphere step function against this basis: the DC term picks up half the
+ *  hemisphere's average, and the linear term along @p toLight picks up 3/4 of it. Rays in
+ *  the Monte Carlo gather above never see this contribution directly (sky faces have no
+ *  lightmap chart and correctly contribute nothing on their own), so this is added once,
+ *  analytically, per probe. */
+void addSunLobe(Vector3 coeff[4], Vector3 toLight, Vector3 light) {
+    coeff[0].x += light.x * 0.5f;
+    coeff[0].y += light.y * 0.5f;
+    coeff[0].z += light.z * 0.5f;
+    const float axis[3] = {toLight.x, toLight.y, toLight.z};
+    for (int i = 0; i < 3; ++i) {
+        coeff[i + 1].x += light.x * 0.75f * axis[i];
+        coeff[i + 1].y += light.y * 0.75f * axis[i];
+        coeff[i + 1].z += light.z * 0.75f * axis[i];
+    }
 }
 
 bool leafIsOpenAt(const BspTree& tree, Vector3 point) {
@@ -389,7 +434,12 @@ std::vector<LightProbe> bakeLightProbes(
     const RadFile& rad,
     const std::vector<Image>& atlasImages,
     Vector3 ambientFallback,
-    int sampleCount) {
+    int sampleCount,
+    const std::vector<RadiosityLight>& lights,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
     std::vector<LightProbe> result;
     result.reserve(positions.size());
     if (positions.empty() || cellSize <= 0.0f) {
@@ -436,6 +486,47 @@ std::vector<LightProbe> bakeLightProbes(
             }
         }
 
+        for (const RadiosityLight& light : lights) {
+            if (light.kind != RadiosityLightKind::Sun) {
+                continue;
+            }
+            const float forwardLen = std::sqrt(dot3(light.direction, light.direction));
+            if (forwardLen < 1e-6f) {
+                continue;
+            }
+            const Vector3 toLight{
+                -light.direction.x / forwardLen,
+                -light.direction.y / forwardLen,
+                -light.direction.z / forwardLen,
+            };
+            Vector3 tangent{};
+            Vector3 bitangent{};
+            buildSunBasis(toLight, tangent, bitangent);
+            Vector3 sunTint{1.0f, 1.0f, 1.0f};
+            const float visibility = sunSkyVisibilityWithAlphaOcclusion(
+                position,
+                -1,
+                toLight,
+                tangent,
+                bitangent,
+                sunParams,
+                sceneBvh,
+                faceSky,
+                faceTransparent,
+                faces,
+                materialCache,
+                &sunTint);
+            if (visibility <= 0.0f) {
+                continue;
+            }
+            const Vector3 sunRadiance{
+                light.color.x * light.intensity * visibility * sunTint.x,
+                light.color.y * light.intensity * visibility * sunTint.y,
+                light.color.z * light.intensity * visibility * sunTint.z,
+            };
+            addSunLobe(coeff, toLight, sunRadiance);
+        }
+
         LightProbe probe;
         probe.cellX = static_cast<std::int32_t>(std::lround(position.x / cellSize));
         probe.cellY = static_cast<std::int32_t>(std::lround(position.y / cellSize));
@@ -456,7 +547,12 @@ LightProbeBakeResult bakeLightProbeGrids(
     const RadFile& rad,
     const std::vector<Image>& atlasImages,
     Vector3 ambientFallback,
-    const LightProbeBakeSettings& settings) {
+    const LightProbeBakeSettings& settings,
+    const std::vector<RadiosityLight>& lights,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
     LightProbeBakeResult result;
     result.coarse.cellSize = std::max(settings.cellSize, 0.25f);
     result.fine.cellSize = std::clamp(settings.fineCellSize, 0.1f, result.coarse.cellSize);
@@ -475,7 +571,12 @@ LightProbeBakeResult bakeLightProbeGrids(
         rad,
         atlasImages,
         ambientFallback,
-        settings.sampleCount);
+        settings.sampleCount,
+        lights,
+        faceSky,
+        faceTransparent,
+        sunParams,
+        materialCache);
     result.fine.probes = bakeLightProbes(
         finePositions,
         result.fine.cellSize,
@@ -484,7 +585,12 @@ LightProbeBakeResult bakeLightProbeGrids(
         rad,
         atlasImages,
         ambientFallback,
-        settings.sampleCount);
+        settings.sampleCount,
+        lights,
+        faceSky,
+        faceTransparent,
+        sunParams,
+        materialCache);
 
     TraceLog(
         LOG_INFO,

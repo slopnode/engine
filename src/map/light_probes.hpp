@@ -3,10 +3,13 @@
 #include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "map/quad_bvh.hpp"
+#include "map/radiosity.hpp"
 
 #include <raylib.h>
 
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace slopengine {
@@ -36,7 +39,12 @@ std::vector<LightProbe> bakeLightProbes(
     const RadFile& rad,
     const std::vector<Image>& atlasImages,
     Vector3 ambientFallback,
-    int sampleCount);
+    int sampleCount,
+    const std::vector<RadiosityLight>& lights,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache);
 
 struct LightProbeBakeResult {
     LightProbeGridInfo coarse;
@@ -50,6 +58,11 @@ LightProbeBakeResult bakeLightProbeGrids(
     const RadFile& rad,
     const std::vector<Image>& atlasImages,
     Vector3 ambientFallback,
-    const LightProbeBakeSettings& settings);
+    const LightProbeBakeSettings& settings,
+    const std::vector<RadiosityLight>& lights,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache);
 
 }

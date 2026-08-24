@@ -416,8 +416,13 @@ void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine)
         if (distSq > kLightProbeDebugMaxDistanceSq || distSq < kLightProbeDebugMinDistanceSq) {
             continue;
         }
-        const Color color =
-            linearIrradianceToDisplayColor(sh.coeff[0].x, sh.coeff[0].y, sh.coeff[0].z);
+        // Reconstruct toward straight up, matching the {0,1,0} "eye" query used for actual
+        // sprite lighting (see sampleLightProbe callers) — showing only coeff[0] (the DC/average
+        // term) hides the sun-facing lobe entirely and makes sunlit probes look dull.
+        const float r = std::max(0.0f, sh.coeff[0].x + sh.coeff[2].x);
+        const float g = std::max(0.0f, sh.coeff[0].y + sh.coeff[2].y);
+        const float b = std::max(0.0f, sh.coeff[0].z + sh.coeff[2].z);
+        const Color color = linearIrradianceToDisplayColor(r, g, b);
         DrawSphere(worldPos, radius, color);
     }
 }

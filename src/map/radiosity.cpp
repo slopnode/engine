@@ -2776,7 +2776,12 @@ RadiosityBakeResult bakeRadiosity(
             result.rad,
             result.atlasImages,
             meta.ambient,
-            probeSettings);
+            probeSettings,
+            lights,
+            faceSky,
+            faceTransparent,
+            sunParams,
+            materialCache);
         result.rad.probeGridCoarse = probes.coarse;
         result.rad.probeGridFine = probes.fine;
     } else {
