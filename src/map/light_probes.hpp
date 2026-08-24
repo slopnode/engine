@@ -6,6 +6,7 @@
 
 #include <raylib.h>
 
+#include <cstdint>
 #include <vector>
 
 namespace slopengine {
@@ -16,9 +17,16 @@ struct LightProbeBakeSettings {
     int sampleCount = 32;
 };
 
-std::vector<Vector3> placeCoarseLightProbes(const BspTree& tree, float cellSize);
+std::vector<Vector3> placeCoarseLightProbes(
+    const BspTree& tree,
+    float cellSize,
+    const std::vector<std::uint8_t>& reachableLeaves);
 
-std::vector<Vector3> placeFineLightProbes(const BspTree& tree, float cellSize, float fineCellSize);
+std::vector<Vector3> placeFineLightProbes(
+    const BspTree& tree,
+    float cellSize,
+    float fineCellSize,
+    const std::vector<std::uint8_t>& reachableLeaves);
 
 std::vector<LightProbe> bakeLightProbes(
     const std::vector<Vector3>& positions,

@@ -21,6 +21,103 @@ bool leafIsOpenAt(const BspTree& tree, Vector3 point) {
     return leaf >= 0 && leafIsEmpty(tree, leaf);
 }
 
+int findLeafRoot(std::vector<int>& parent, int leaf) {
+    while (parent[static_cast<std::size_t>(leaf)] != leaf) {
+        parent[static_cast<std::size_t>(leaf)] =
+            parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(leaf)])];
+        leaf = parent[static_cast<std::size_t>(leaf)];
+    }
+    return leaf;
+}
+
+void unionLeafRoots(std::vector<int>& parent, std::vector<int>& rank, int a, int b) {
+    a = findLeafRoot(parent, a);
+    b = findLeafRoot(parent, b);
+    if (a == b) {
+        return;
+    }
+    if (rank[static_cast<std::size_t>(a)] < rank[static_cast<std::size_t>(b)]) {
+        std::swap(a, b);
+    }
+    parent[static_cast<std::size_t>(b)] = a;
+    if (rank[static_cast<std::size_t>(a)] == rank[static_cast<std::size_t>(b)]) {
+        rank[static_cast<std::size_t>(a)] += 1;
+    }
+}
+
+std::vector<std::uint8_t> floodMainInteriorLeaves(const BspTree& tree) {
+    const int leafCount = static_cast<int>(tree.leaves.size());
+    std::vector<std::uint8_t> reachable(static_cast<std::size_t>(std::max(leafCount, 0)), 0);
+    if (leafCount <= 0) {
+        return reachable;
+    }
+
+    std::vector<int> parent(static_cast<std::size_t>(leafCount));
+    std::vector<int> rank(static_cast<std::size_t>(leafCount), 0);
+    for (int i = 0; i < leafCount; ++i) {
+        parent[static_cast<std::size_t>(i)] = i;
+    }
+    for (const BspPortal& portal : tree.portals) {
+        if (portal.leafA < 0 || portal.leafB < 0 || portal.leafA >= leafCount || portal.leafB >= leafCount) {
+            continue;
+        }
+        unionLeafRoots(parent, rank, portal.leafA, portal.leafB);
+    }
+
+    std::unordered_map<int, float> openVolumeByRoot;
+    for (int i = 0; i < leafCount; ++i) {
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (!leafIsOpen(leaf.contents)) {
+            continue;
+        }
+        const float volume =
+            std::max(leaf.maxs.x - leaf.mins.x, 0.0f) *
+            std::max(leaf.maxs.y - leaf.mins.y, 0.0f) *
+            std::max(leaf.maxs.z - leaf.mins.z, 0.0f);
+        openVolumeByRoot[findLeafRoot(parent, i)] += volume;
+    }
+
+    int mainRoot = -1;
+    float mainVolume = -1.0f;
+    for (const auto& [root, volume] : openVolumeByRoot) {
+        if (volume > mainVolume) {
+            mainVolume = volume;
+            mainRoot = root;
+        }
+    }
+    if (mainRoot < 0) {
+        return reachable;
+    }
+
+    int openCount = 0;
+    int reachableCount = 0;
+    for (int i = 0; i < leafCount; ++i) {
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (!leafIsOpen(leaf.contents)) {
+            continue;
+        }
+        ++openCount;
+        if (findLeafRoot(parent, i) == mainRoot) {
+            reachable[static_cast<std::size_t>(i)] = 1;
+            ++reachableCount;
+        }
+    }
+    TraceLog(
+        LOG_INFO,
+        "sloprad: light probe leaf reachability open=%d reachable=%d sealedPockets=%d",
+        openCount,
+        reachableCount,
+        openCount - reachableCount);
+
+    return reachable;
+}
+
+bool leafIsReachableAt(const BspTree& tree, const std::vector<std::uint8_t>& reachableLeaves, Vector3 point) {
+    const std::int32_t leaf = pointLeaf(tree, point);
+    return leaf >= 0 && static_cast<std::size_t>(leaf) < reachableLeaves.size() &&
+        reachableLeaves[static_cast<std::size_t>(leaf)] != 0;
+}
+
 constexpr Vector3 kAxisOffsets[6] = {
     {1.0f, 0.0f, 0.0f},
     {-1.0f, 0.0f, 0.0f},
@@ -210,7 +307,10 @@ Vector3 sampleChartLinearRadiance(
 
 } // namespace
 
-std::vector<Vector3> placeCoarseLightProbes(const BspTree& tree, float cellSize) {
+std::vector<Vector3> placeCoarseLightProbes(
+    const BspTree& tree,
+    float cellSize,
+    const std::vector<std::uint8_t>& reachableLeaves) {
     std::vector<Vector3> positions;
     if (tree.root < 0) {
         return positions;
@@ -222,14 +322,22 @@ std::vector<Vector3> placeCoarseLightProbes(const BspTree& tree, float cellSize)
                 if (!grid.isOpen(ix, iy, iz)) {
                     continue;
                 }
-                positions.push_back(nudgeAwayFromSolid(tree, grid.center(ix, iy, iz), grid.cellSize));
+                const Vector3 center = grid.center(ix, iy, iz);
+                if (!leafIsReachableAt(tree, reachableLeaves, center)) {
+                    continue;
+                }
+                positions.push_back(nudgeAwayFromSolid(tree, center, grid.cellSize));
             }
         }
     }
     return positions;
 }
 
-std::vector<Vector3> placeFineLightProbes(const BspTree& tree, float cellSize, float fineCellSize) {
+std::vector<Vector3> placeFineLightProbes(
+    const BspTree& tree,
+    float cellSize,
+    float fineCellSize,
+    const std::vector<std::uint8_t>& reachableLeaves) {
     std::vector<Vector3> positions;
     if (tree.root < 0) {
         return positions;
@@ -261,7 +369,7 @@ std::vector<Vector3> placeFineLightProbes(const BspTree& tree, float cellSize, f
                                 cellMin.y + (static_cast<float>(sy) + 0.5f) * fine,
                                 cellMin.z + (static_cast<float>(sz) + 0.5f) * fine,
                             };
-                            if (leafIsOpenAt(tree, sub)) {
+                            if (leafIsOpenAt(tree, sub) && leafIsReachableAt(tree, reachableLeaves, sub)) {
                                 positions.push_back(nudgeAwayFromSolid(tree, sub, fine));
                             }
                         }
@@ -353,9 +461,11 @@ LightProbeBakeResult bakeLightProbeGrids(
     result.coarse.cellSize = std::max(settings.cellSize, 0.25f);
     result.fine.cellSize = std::clamp(settings.fineCellSize, 0.1f, result.coarse.cellSize);
 
-    const std::vector<Vector3> coarsePositions = placeCoarseLightProbes(tree, result.coarse.cellSize);
+    const std::vector<std::uint8_t> reachableLeaves = floodMainInteriorLeaves(tree);
+    const std::vector<Vector3> coarsePositions =
+        placeCoarseLightProbes(tree, result.coarse.cellSize, reachableLeaves);
     const std::vector<Vector3> finePositions =
-        placeFineLightProbes(tree, result.coarse.cellSize, result.fine.cellSize);
+        placeFineLightProbes(tree, result.coarse.cellSize, result.fine.cellSize, reachableLeaves);
 
     result.coarse.probes = bakeLightProbes(
         coarsePositions,
