@@ -303,6 +303,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                         step.nearWaterSurface = computeNearWaterSurface(mapBsp->tree, pos, motor);
                     }
                 }
+                // Mirror onto the component so script (e.g. actor-submerged?) can read it --
+                // CharacterStep itself is a transient, physics-internal scratch struct.
+                motor.submersion = step.submersion;
+                motor.nearWaterSurface = step.nearWaterSurface;
                 steps.push_back(step);
             });
 

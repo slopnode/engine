@@ -40,6 +40,12 @@ struct CharacterMotor {
                                         ever searched for. */
     float waterExitSpeed = 3.5f;  /**< Capped speed (m/s) at which a character is steered toward a
                                         confirmed water-exit ledge, once found. */
+    float submersion = 0.0f;      /**< Runtime state: fraction (0..1) of body height inside water,
+                                        refreshed each physics tick by the PhysicsStep system. Not
+                                        thing-def config -- read-only from script's perspective. */
+    bool nearWaterSurface = false; /**< Runtime state: mirrors the per-tick water-exit-ledge probe
+                                         (only meaningful while submersion > 0); refreshed alongside
+                                         submersion. */
     CharacterHull hull = CharacterHull::Capsule;
     CharacterMoveMode moveMode = CharacterMoveMode::Slide;
 };

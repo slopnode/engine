@@ -108,6 +108,17 @@ struct PhysicsWorld {
     JPH::Vec3 characterVelocity(std::uint64_t id) const;
     bool characterSupported(std::uint64_t id) const;
 
+    /** Scans a ring of directions for one with a climbable water-exit ledge within
+     *  motor.waterExitReach (the same probe tryWaterExitAssist uses for the character's current
+     *  wish direction). Returns true and fills outDirX/outDirZ (a unit XZ vector) if one is found;
+     *  read-only, does not move the character. For AI that needs to aim itself at a shoreline it
+     *  isn't already facing. */
+    bool findWaterExitDirection(
+        std::uint64_t characterId,
+        const CharacterMotor& motor,
+        float& outDirX,
+        float& outDirZ) const;
+
     template<typename Fn>
     void forEachCharacter(Fn&& fn) const {
         for (const auto& entry : characters_) {
@@ -177,6 +188,11 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         std::uint64_t characterId);
+    std::optional<JPH::RVec3> probeWaterExitLedge(
+        const JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
+        std::uint64_t characterId,
+        JPH::Vec3 wishDir) const;
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;

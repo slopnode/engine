@@ -948,23 +948,17 @@ void PhysicsWorld::applyBuoyantInput(
     character.SetLinearVelocity(JPH::Vec3(horiz.GetX(), vertical, horiz.GetZ()));
 }
 
-// Water-exit assistance: a purpose-built ledge probe, not a reuse of stair-step logic. It has its
-// own reach/speed tunables (motor.waterExitReach, motor.waterExitSpeed) instead of motor.stepHeight,
-// it only ever runs when the caller has already confirmed (via a fine-grained BSP surface scan in
-// physics_module.cpp) that a water surface exists within waterExitReach of the character's body --
-// so it can never fire arbitrarily deep underwater -- and it steers the character toward a confirmed
-// ledge at a capped speed instead of teleporting there, so repeated ticks against the same wall
-// cannot compound into an unbounded climb rate.
-bool PhysicsWorld::tryWaterExitAssist(
-    JPH::CharacterVirtual& character,
+// Pure query half of water-exit assistance: given a direction, is there a climbable ledge within
+// motor.waterExitReach that way? Four sweeps -- blocked-check, up, forward, down -- shared by both
+// tryWaterExitAssist (which commits to the character's current wish direction as it swims) and
+// findWaterExitDirection (which fans this same probe out over a ring of directions so AI can locate
+// an exit it isn't already facing). No side effects: callers decide what, if anything, to do with
+// the landing point.
+std::optional<JPH::RVec3> PhysicsWorld::probeWaterExitLedge(
+    const JPH::CharacterVirtual& character,
     const CharacterMotor& motor,
-    std::uint64_t characterId) {
-    const JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
-    if (wish.LengthSq() < 1.0e-6f) {
-        return false;
-    }
-    const JPH::Vec3 wishDir = wish.Normalized();
-
+    std::uint64_t characterId,
+    JPH::Vec3 wishDir) const {
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
@@ -994,7 +988,7 @@ bool PhysicsWorld::tryWaterExitAssist(
         return collector.HadHit() ? collector.mHit.mFraction : 1.0f;
     };
 
-    // Cheap probe at the character's current height: is the wish direction actually blocked by
+    // Cheap probe at the character's current height: is this direction actually blocked by
     // something solid nearby? Without this, open water above a merely-shallow floor would read as a
     // climbable ledge the moment the up/forward/down probe below happened to find that floor within
     // reach -- this is what tells "swimming into a wall" apart from "swimming near the bottom".
@@ -1002,39 +996,93 @@ bool PhysicsWorld::tryWaterExitAssist(
     const JPH::RVec3 currentPos = character.GetPosition();
     const float blockedFraction = sweep(currentPos, wishDir * kBlockedProbeDist);
     if (blockedFraction > 0.9f) {
-        return false;
+        return std::nullopt;
     }
 
     const float upFraction = sweep(currentPos, up * reach);
     if (upFraction < 1.0e-3f) {
-        return false; // Can't even begin to rise (e.g. a low ceiling) -- no ledge to take.
+        return std::nullopt; // Can't even begin to rise (e.g. a low ceiling) -- no ledge to take.
     }
     const JPH::RVec3 raisedPos = currentPos + up * (reach * upFraction);
 
     const float forwardFraction = sweep(raisedPos, wishDir * reach);
     if (forwardFraction < 1.0e-3f) {
-        return false; // Still blocked at the raised height -- the wall is taller than our reach.
+        return std::nullopt; // Still blocked at the raised height -- the wall is taller than our reach.
     }
     const JPH::RVec3 advancedPos = raisedPos + wishDir * (reach * forwardFraction);
 
     const float downFraction = sweep(advancedPos, -up * reach);
     if (downFraction >= 1.0f) {
-        return false; // No floor within reach on the far side -- would be climbing into open air.
+        return std::nullopt; // No floor within reach on the far side -- would be climbing into open air.
     }
-    const JPH::RVec3 landingPos = advancedPos - up * (reach * downFraction);
+    return advancedPos - up * (reach * downFraction);
+}
 
-    const JPH::Vec3 toLanding = JPH::Vec3(landingPos - currentPos);
+// Water-exit assistance: a purpose-built ledge probe, not a reuse of stair-step logic. It has its
+// own reach/speed tunables (motor.waterExitReach, motor.waterExitSpeed) instead of motor.stepHeight,
+// it only ever runs when the caller has already confirmed (via a fine-grained BSP surface scan in
+// physics_module.cpp) that a water surface exists within waterExitReach of the character's body --
+// so it can never fire arbitrarily deep underwater -- and it steers the character toward a confirmed
+// ledge at a capped speed instead of teleporting there, so repeated ticks against the same wall
+// cannot compound into an unbounded climb rate.
+bool PhysicsWorld::tryWaterExitAssist(
+    JPH::CharacterVirtual& character,
+    const CharacterMotor& motor,
+    std::uint64_t characterId) {
+    const JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
+    if (wish.LengthSq() < 1.0e-6f) {
+        return false;
+    }
+    const JPH::Vec3 wishDir = wish.Normalized();
+
+    const std::optional<JPH::RVec3> landing = probeWaterExitLedge(character, motor, characterId, wishDir);
+    if (!landing.has_value()) {
+        return false;
+    }
+
+    const JPH::RVec3 currentPos = character.GetPosition();
+    const JPH::Vec3 toLanding = JPH::Vec3(*landing - currentPos);
     const float distance = toLanding.Length();
     const float exitSpeed = motor.waterExitSpeed > 0.0f ? motor.waterExitSpeed : 3.0f;
     constexpr float kArriveDistance = 0.03f;
     if (distance <= kArriveDistance) {
-        character.SetPosition(landingPos);
+        character.SetPosition(*landing);
         character.SetLinearVelocity(JPH::Vec3::sZero());
         return true;
     }
     const float speed = std::min(exitSpeed, distance / kFixedDt);
     character.SetLinearVelocity((toLanding / distance) * speed);
     return true;
+}
+
+// AI-facing counterpart to tryWaterExitAssist: rather than committing to whatever direction the
+// character already happens to be facing, fan probeWaterExitLedge out over a ring of directions and
+// report the first one that finds a real ledge. Script-side AI (which has no notion of "wall
+// currently ahead of me", unlike a player choosing where to swim) uses this to aim its wish toward a
+// confirmed exit instead of wandering blindly along a submerged wall.
+bool PhysicsWorld::findWaterExitDirection(
+    std::uint64_t characterId,
+    const CharacterMotor& motor,
+    float& outDirX,
+    float& outDirZ) const {
+    const auto it = characters_.find(characterId);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return false;
+    }
+    const JPH::CharacterVirtual& character = *it->second.character;
+
+    constexpr int kDirectionSamples = 16;
+    constexpr float kTwoPi = 6.28318530718f;
+    for (int i = 0; i < kDirectionSamples; ++i) {
+        const float angle = (kTwoPi * static_cast<float>(i)) / static_cast<float>(kDirectionSamples);
+        const JPH::Vec3 dir(std::sin(angle), 0.0f, std::cos(angle));
+        if (probeWaterExitLedge(character, motor, characterId, dir).has_value()) {
+            outDirX = dir.GetX();
+            outDirZ = dir.GetZ();
+            return true;
+        }
+    }
+    return false;
 }
 
 void PhysicsWorld::stepCharacterSwim(
