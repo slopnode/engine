@@ -1,0 +1,69 @@
+name: Build OSX
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: osx
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch Steam Audio
+        run: |
+          set -eux
+          version="4.8.1"
+          url="https://github.com/ValveSoftware/steam-audio/releases/download/v${version}/steamaudio_${version}.zip"
+          curl -sfL "$url" -o steamaudio.zip
+          unzip -q steamaudio.zip
+          echo "STEAM_AUDIO_ROOT=$(pwd)/steamaudio" >> "$GITHUB_ENV"
+
+      - name: Build release
+        run: |
+          set -eux
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSLOPENGINE_USE_STEAM_AUDIO=ON \
+            -DSTEAM_AUDIO_ROOT="${STEAM_AUDIO_ROOT}"
+          cmake --build build --target \
+            slopengine \
+            slopbsp \
+            sloprad \
+            slopvis \
+            slopmap \
+            slopsprite \
+            slopicons
+
+      - name: Package
+        run: |
+          set -eux
+          DEST=dist/slopengine-osx-arm64
+          mkdir -p "${DEST}/packages"
+          cp "build/libsloplib.dylib" "${DEST}/libsloplib.dylib"
+          strip -x "${DEST}/libsloplib.dylib"
+          for bin in slopengine slopbsp sloprad slopvis slopmap slopsprite slopicons; do
+            cp "build/${bin}" "${DEST}/${bin}"
+            strip -x "${DEST}/${bin}"
+            chmod +x "${DEST}/${bin}"
+          done
+          cp "${STEAM_AUDIO_ROOT}/lib/osx/libphonon.dylib" "${DEST}/"
+          cp -a packages/engine "${DEST}/packages/"
+          cp LICENSE README.md "${DEST}/"
+
+      - name: Name artifact
+        id: artifact
+        run: |
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          TS=$(date -u +%Y%m%d-%H%M%S)
+          echo "name=slopengine-osx-arm64-${VERSION}-${TS}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: dist/slopengine-osx-arm64
+          retention-days: 7
