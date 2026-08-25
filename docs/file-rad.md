@@ -1,6 +1,6 @@
 @page rad (.rad) Radiosity
 
-Magic 0x31444152 (RAD1), version 5 (readable back to version 2).
+Magic 0x31444152 (RAD1), version 6 (readable back to version 2).
 
 Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match authored brush face ids. Strings in this file are inline length-prefixed (no trailing string table).
 
@@ -9,7 +9,7 @@ Atlas pixels are not embedded; they are separate PNGs under rad/ (for example at
 | Field | Type | Notes |
 |-------|------|-------|
 | magic | u32 | 0x31444152 |
-| version | u32 | 5 (or 4, 3, 2) |
+| version | u32 | 6 (or 5, 4, 3, 2) |
 | luxelsPerMeter | f32 | Nominal bake density |
 
 # Atlases {#atlases}
@@ -54,6 +54,7 @@ Each chart:
 | groupUMax | f32 | Present only when version >= 4 |
 | groupVMin | f32 | Present only when version >= 4 |
 | groupVMax | f32 | Present only when version >= 4 |
+| rotated | bool | Whether the chart is rotated 90° in the atlas; present only when version >= 6, else false |
 
 # Light probe grids {#light-probe-grids}
 
@@ -76,7 +77,7 @@ Each probe:
 
 ## RGBE8 encoding {#encodergbe}
 
-Ward-style shared-exponent encoding used for both HDR atlas texels (encoding = Rgbe) and probe SH coefficients: RGB channels are `round(clamp(component * 256 * 2^-exponent, 0, 255))`, and the alpha channel stores `exponent + 128`, where `exponent = floor(log2(max(r, g, b))) + 1`. Alpha 0 decodes to black.
+Ward-style shared-exponent encoding used for both HDR atlas texels (encoding = Rgbe) and probe SH coefficients: RGB channels are `trunc(clamp(component * 256 * 2^-exponent, 0, 255))`, and the alpha channel stores `exponent + 128`, where `exponent = floor(log2(max(r, g, b))) + 1`. Alpha 0 decodes to black.
 
 # Transparent alpha occlusion (sloprad) {#transparent-alpha-occlusion-sloprad}
 

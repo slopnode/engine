@@ -48,7 +48,7 @@ Capability|Description
 
 # Functions {#functions}
 
-Each entry shows the call signature, the type expected for every argument, and what the call returns, followed by a one-sentence description. Optional arguments are shown in `[brackets]`; `= value` marks a default used when the argument is omitted.
+Each entry shows the call signature, the type expected for every argument, and what the call returns. Optional arguments are shown in `[brackets]`; `= value` marks a default used when the argument is omitted.
 
 ## I/O {#i-o}
 
@@ -183,6 +183,17 @@ Returns the player's current eye height above their feet.
   h : real?
 </code></pre>
 Sets the CharacterMotor eye height.
+
+### player-collider {#player-collider}
+<pre><code class="language-scheme">(player-collider) → (list real? real?)
+</code></pre>
+Returns the player's current collider as `(radius height)`.
+
+### player-set-collider {#player-set-collider}
+<pre><code class="language-scheme">(player-set-collider radius height) → boolean?
+  radius, height : real?
+</code></pre>
+Sets the player's collider radius and height.
 
 ### player-set-control {#player-set-control}
 <pre><code class="language-scheme">(player-set-control move? look?) → boolean?
@@ -505,6 +516,25 @@ Toggles the viewmodel faux-lighting shader.
 </code></pre>
 Sets the package's view-space eye offset, in meters.
 
+### fp-set-weapon-hidden! {#fp-set-weapon-hidden}
+<pre><code class="language-scheme">(fp-set-weapon-hidden! hidden) → boolean?
+  hidden : boolean?
+</code></pre>
+Hides or shows the viewmodel weapon.
+
+### extra-eye-configure! {#extra-eye-configure}
+<pre><code class="language-scheme">(extra-eye-configure! width height fovy) → boolean?
+  width, height : integer?
+  fovy          : real?
+</code></pre>
+Configures the resolution and vertical field of view of the player's secondary render eye.
+
+### extra-eye-set-active! {#extra-eye-set-active}
+<pre><code class="language-scheme">(extra-eye-set-active! active) → boolean?
+  active : boolean?
+</code></pre>
+Enables or disables rendering of the player's secondary render eye.
+
 ## HUD {#hud}
 
 ### hud-anchor {#hud-anchor}
@@ -544,6 +574,13 @@ Draws an image on the HUD canvas.
   r, g, b, a : real? = 255
 </code></pre>
 Draws text on the HUD canvas.
+
+### hud-draw-eye {#hud-draw-eye}
+<pre><code class="language-scheme">(hud-draw-eye x y w h [mask-path]) → boolean?
+  x, y, w, h : real?
+  mask-path  : string?
+</code></pre>
+Draws the player's secondary render eye's output onto the HUD canvas, optionally masked by a texture.
 
 ## Post-processing {#post-processing}
 
@@ -767,83 +804,31 @@ Looks up a thing type's default hover height from its catalog definition.
 </code></pre>
 Looks up a thing type's motor collision radius from its catalog definition.
 
-### thing-def-melee-damage {#thing-def-melee-damage}
-<pre><code class="language-scheme">(thing-def-melee-damage type) → (or real? \#f)
+### thing-def-behavior-names {#thing-def-behavior-names}
+<pre><code class="language-scheme">(thing-def-behavior-names type) → (listof string?)
   type : string?
 </code></pre>
-Looks up a thing type's melee damage from its catalog definition.
+Returns the names of every behavior attached to a thing type's catalog definition.
 
-### thing-def-melee-range {#thing-def-melee-range}
-<pre><code class="language-scheme">(thing-def-melee-range type) → (or real? \#f)
+### thing-def-behavior-has? {#thing-def-behavior-has}
+<pre><code class="language-scheme">(thing-def-behavior-has? type name) → boolean?
   type : string?
+  name : string?
 </code></pre>
-Looks up a thing type's melee range from its catalog definition.
+Checks whether a thing type's catalog definition has a behavior with the given name.
 
-### thing-def-melee-cooldown {#thing-def-melee-cooldown}
-<pre><code class="language-scheme">(thing-def-melee-cooldown type) → (or real? \#f)
+### thing-def-behavior-params {#thing-def-behavior-params}
+<pre><code class="language-scheme">(thing-def-behavior-params type name) → (or alist? \#f)
   type : string?
+  name : string?
 </code></pre>
-Looks up a thing type's melee cooldown from its catalog definition.
-
-### thing-def-melee-anim {#thing-def-melee-anim}
-<pre><code class="language-scheme">(thing-def-melee-anim type) → (or string? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's melee animation clip from its catalog definition.
-
-### thing-def-ranged-range {#thing-def-ranged-range}
-<pre><code class="language-scheme">(thing-def-ranged-range type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's max ranged attack distance from its catalog definition.
-
-### thing-def-ranged-min-range {#thing-def-ranged-min-range}
-<pre><code class="language-scheme">(thing-def-ranged-min-range type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's minimum ranged attack distance from its catalog definition.
-
-### thing-def-ranged-cooldown {#thing-def-ranged-cooldown}
-<pre><code class="language-scheme">(thing-def-ranged-cooldown type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's ranged attack cooldown from its catalog definition.
-
-### thing-def-ranged-anim {#thing-def-ranged-anim}
-<pre><code class="language-scheme">(thing-def-ranged-anim type) → (or string? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's ranged attack animation clip from its catalog definition.
+Returns a named behavior's parameters as an association list, or \#f if the type or behavior isn't found.
 
 ### thing-def-speed {#thing-def-speed}
 <pre><code class="language-scheme">(thing-def-speed type) → (or real? \#f)
   type : string?
 </code></pre>
 Looks up a thing type's motor move speed from its catalog definition.
-
-### thing-def-lunge-range {#thing-def-lunge-range}
-<pre><code class="language-scheme">(thing-def-lunge-range type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's lunge trigger range from its catalog definition.
-
-### thing-def-lunge-speed {#thing-def-lunge-speed}
-<pre><code class="language-scheme">(thing-def-lunge-speed type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's lunge speed from its catalog definition.
-
-### thing-def-lunge-cooldown {#thing-def-lunge-cooldown}
-<pre><code class="language-scheme">(thing-def-lunge-cooldown type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's lunge cooldown from its catalog definition.
-
-### thing-def-lunge-duration {#thing-def-lunge-duration}
-<pre><code class="language-scheme">(thing-def-lunge-duration type) → (or real? \#f)
-  type : string?
-</code></pre>
-Looks up a thing type's lunge duration from its catalog definition.
 
 ### thing-def-pain-chance {#thing-def-pain-chance}
 <pre><code class="language-scheme">(thing-def-pain-chance type) → (or real? \#f)
@@ -913,6 +898,38 @@ Spawns a particle system, aimed by either a yaw angle or an explicit direction v
 </code></pre>
 Spawns a view-space particle system pinned to a first-person socket.
 
+### particle-spawn-attach {#particle-spawn-attach}
+<pre><code class="language-scheme">(particle-spawn-attach id target path attach) → boolean?
+  id     : string?
+  target : string?
+  path   : string?
+  attach : string?
+</code></pre>
+Spawns a particle system attached to an existing thing.
+
+### trail-spawn-fp {#trail-spawn-fp}
+<pre><code class="language-scheme">(trail-spawn-fp id socket path attach ex ey ez lifetime [width] [depth]) → boolean?
+  id              : string?
+  socket          : string?
+  path            : string?
+  attach          : string?
+  ex, ey, ez      : real?
+  lifetime        : real?
+  width, depth    : real?
+</code></pre>
+Spawns a trail effect anchored to a first-person socket, stretching toward a world-space endpoint.
+
+### trail-spawn {#trail-spawn}
+<pre><code class="language-scheme">(trail-spawn id sx sy sz ex ey ez path lifetime [width]) → boolean?
+  id            : string?
+  sx, sy, sz    : real?
+  ex, ey, ez    : real?
+  path          : string?
+  lifetime      : real?
+  width         : real?
+</code></pre>
+Spawns a world-space trail effect between two points.
+
 ### particle-play {#particle-play}
 <pre><code class="language-scheme">(particle-play id) → boolean?
   id : string?
@@ -967,6 +984,20 @@ Spawns a shadow-casting dynamic light, composited on top of baked lightmaps.
 </code></pre>
 Attaches a dynamic light to an existing thing.
 
+### dyn-light-set-pos! {#dyn-light-set-pos}
+<pre><code class="language-scheme">(dyn-light-set-pos! id x y z) → boolean?
+  id      : string?
+  x, y, z : real?
+</code></pre>
+Moves an existing dynamic light to a new world position.
+
+### dyn-light-set-hsv! {#dyn-light-set-hsv}
+<pre><code class="language-scheme">(dyn-light-set-hsv! id h s v) → boolean?
+  id      : string?
+  h, s, v : real?
+</code></pre>
+Sets an existing dynamic light's color via hue/saturation/value.
+
 ### actor-spawn {#actor-spawn}
 <pre><code class="language-scheme">(actor-spawn id x y z yaw kind path [radius height speed gravity tags-list]) → boolean?
   id             : string?
@@ -1019,11 +1050,36 @@ Overrides an actor's move speed.
 </code></pre>
 Converts an actor into a non-colliding corpse, kept for visuals.
 
+### sprite-hide-part! {#sprite-hide-part}
+<pre><code class="language-scheme">(sprite-hide-part! id part-name) → boolean?
+  id        : string?
+  part-name : string?
+</code></pre>
+Hides a named part of an actor's multi-part sprite.
+
 ### actor-grounded? {#actor-grounded}
 <pre><code class="language-scheme">(actor-grounded? id) → boolean?
   id : string?
 </code></pre>
 Checks whether an actor is currently grounded.
+
+### actor-submerged? {#actor-submerged}
+<pre><code class="language-scheme">(actor-submerged? id) → boolean?
+  id : string?
+</code></pre>
+Checks whether an actor is currently submerged in water.
+
+### actor-near-water-exit? {#actor-near-water-exit}
+<pre><code class="language-scheme">(actor-near-water-exit? id) → boolean?
+  id : string?
+</code></pre>
+Checks whether a submerged actor is near a water surface it can climb out at.
+
+### actor-water-exit-dir {#actor-water-exit-dir}
+<pre><code class="language-scheme">(actor-water-exit-dir id) → (or (list real? real? real?) \#f)
+  id : string?
+</code></pre>
+Returns the direction toward the nearest water exit for a submerged actor, or \#f if none applies.
 
 ### actor-play-anim {#actor-play-anim}
 <pre><code class="language-scheme">(actor-play-anim id clip [loop]) → boolean?
@@ -1102,6 +1158,14 @@ Clears all queued debug lines.
   x1, y1, z1 : real?
 </code></pre>
 Checks whether two points' BSP leaves are mutually visible in the map's precomputed PVS.
+
+### sound-emit! {#sound-emit}
+<pre><code class="language-scheme">(sound-emit! x y z loudness [falloff-per-unit]) → (listof (list string? real?))
+  x, y, z           : real?
+  loudness          : real?
+  falloff-per-unit  : real? = 1.0
+</code></pre>
+Floods a gameplay sound outward through the map's navigation graph; returns `(id perceived-loudness)` pairs for every actor that could hear it.
 
 ### actor-los? {#actor-los}
 <pre><code class="language-scheme">(actor-los? from-id to-id) → boolean?
