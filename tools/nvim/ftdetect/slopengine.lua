@@ -11,6 +11,8 @@ vim.filetype.add({
     spanim = "slopengine",
     prt = "slopengine",
     iconmap = "slopengine",
+    texanim = "slopengine",
+    saudio = "slopengine",
     glsl = "slopengine_glsl",
   },
 })

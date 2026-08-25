@@ -1,8 +1,8 @@
 {
   "name": "slopengine",
   "displayName": "Slopengine",
-  "description": "Syntax highlighting for Slopengine package assets (.csg, .meta, .mat, .s7, .geo, .anim, .skel, .spr, .spanim, .prt, .iconmap, .glsl)",
-  "version": "0.2.0",
+  "description": "Syntax highlighting for Slopengine package assets (.csg, .meta, .mat, .s7, .geo, .anim, .skel, .spr, .spanim, .prt, .iconmap, .texanim, .saudio, .glsl)",
+  "version": "0.2.1",
   "publisher": "slopengine",
   "engines": {
     "vscode": "^1.74.0"
@@ -29,7 +29,9 @@
           ".spr",
           ".spanim",
           ".prt",
-          ".iconmap"
+          ".iconmap",
+          ".texanim",
+          ".saudio"
         ],
         "configuration": "./language-configuration.json"
       },
