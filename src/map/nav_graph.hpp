@@ -37,6 +37,10 @@ using DoorOpenQuery = std::function<bool(const std::string& doorBrushId)>;
 struct MapNavigation {
     int leafCount = 0;
     std::vector<bool> walkable;
+    /** True for leaves whose BSP contents include Water. Read by pathing to apply a per-agent
+     *  routing cost preference (see findLeafPath/buildNavFlowField's @p waterCostMultiplier) --
+     *  water leaves stay walkable either way, this only biases which route is cheaper. */
+    std::vector<bool> leafIsWater;
     std::vector<Vector3> leafCentroids;
     std::vector<float> leafFloorY;
     std::vector<float> leafCeilingY;
@@ -58,19 +62,26 @@ MapNavigation buildMapNavigation(
 /** A* path over walkable leaves; empty if unreachable. Links gated by a closed door
  *  (per @p isDoorOpen) are skipped, same as an unwalkable leaf. @p maxClimb caps how far
  *  a step can rise from one leaf's floor to the next (a ground actor's step-height); pass
- *  infinity for flyers. Descending is never restricted. */
+ *  infinity for flyers. Descending is never blocked -- instead, a drop exceeding @p maxFall
+ *  accrues a routing cost penalty, and a step landing in a Water-content leaf has its cost
+ *  scaled by @p waterCostMultiplier. Both default to a no-op (infinity / 1.0) so an agent
+ *  that doesn't opt in reproduces the prior distance-only routing exactly. */
 std::vector<int> findLeafPath(
     const MapNavigation& nav,
     int fromLeaf,
     int toLeaf,
     const DoorOpenQuery& isDoorOpen = {},
-    float maxClimb = std::numeric_limits<float>::infinity());
+    float maxClimb = std::numeric_limits<float>::infinity(),
+    float maxFall = std::numeric_limits<float>::infinity(),
+    float waterCostMultiplier = 1.0f);
 
 NavFlowField buildNavFlowField(
     const MapNavigation& nav,
     int goalLeaf,
     const DoorOpenQuery& isDoorOpen = {},
-    float maxClimb = std::numeric_limits<float>::infinity());
+    float maxClimb = std::numeric_limits<float>::infinity(),
+    float maxFall = std::numeric_limits<float>::infinity(),
+    float waterCostMultiplier = 1.0f);
 
 std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf);
 

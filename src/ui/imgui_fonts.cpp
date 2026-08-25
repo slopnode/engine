@@ -1,11 +1,15 @@
 #include "ui/imgui_fonts.hpp"
 
+#include "core/user_paths.hpp"
+
 #include "rlImGui.h"
 
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <string>
 #include <vector>
 
 namespace slopengine {
@@ -24,6 +28,18 @@ float defaultFontSizePixels() {
 }
 
 } // namespace
+
+void setImGuiIniPath(std::string_view toolName) {
+    // ImGui keeps the pointer, not a copy, so the backing string must outlive the context.
+    static std::string iniPath;
+
+    const std::filesystem::path path = userImguiIniPath(toolName);
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+
+    iniPath = path.string();
+    ImGui::GetIO().IniFilename = iniPath.c_str();
+}
 
 ImFont* loadImGuiFont(AssetStore& assets, std::string_view path, float sizePixels) {
     if (!assets.hasFont(path)) {
@@ -65,8 +81,13 @@ ImFont* loadImGuiFont(AssetStore& assets, std::string_view path, float sizePixel
     return font;
 }
 
-bool setupImGuiWithUiFont(AssetStore& assets, std::string_view uiFontPath, bool darkTheme) {
+bool setupImGuiWithUiFont(
+    AssetStore& assets,
+    std::string_view uiFontPath,
+    bool darkTheme,
+    std::string_view toolName) {
     rlImGuiBeginInitImGui();
+    setImGuiIniPath(toolName);
 
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->ClearFonts();
@@ -97,8 +118,10 @@ ImFont* setupImGuiWithUiAndMonoFont(
     AssetStore& assets,
     std::string_view uiFontPath,
     std::string_view monoFontPath,
-    bool darkTheme) {
+    bool darkTheme,
+    std::string_view toolName) {
     rlImGuiBeginInitImGui();
+    setImGuiIniPath(toolName);
 
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->ClearFonts();

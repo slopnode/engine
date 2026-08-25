@@ -631,6 +631,15 @@ void runSwimClimbTests() {
         return std::clamp((kWaterSurfaceY - feetY) / totalHeight, 0.0f, 1.0f);
     };
 
+    // Mirrors physics_module.cpp's computeNearWaterSurface: true once a water surface (here, the
+    // flat plane at kWaterSurfaceY) falls within motor.waterExitReach of the top of the character's
+    // body. False while deep -- e.g. still resting on the pool floor at feetY=-10 -- which is exactly
+    // what keeps water-exit assistance from firing arbitrarily far underwater.
+    auto nearSurfaceAt = [&](const CharacterMotor& m, float feetY) {
+        const float reach = m.waterExitReach > 0.0f ? m.waterExitReach : 0.5f;
+        return feetY + characterTotalHeight(m) + reach >= kWaterSurfaceY;
+    };
+
     auto stepWet = [&](int ticks) {
         for (int i = 0; i < ticks; ++i) {
             const float feetY = static_cast<float>(world.characterPosition(kCharId).GetY());
@@ -638,6 +647,7 @@ void runSwimClimbTests() {
             step.id = kCharId;
             step.motor = &motor;
             step.submersion = submersionAt(feetY);
+            step.nearWaterSurface = nearSurfaceAt(motor, feetY);
             world.update(kFixedDt, {step});
         }
     };
@@ -650,7 +660,7 @@ void runSwimClimbTests() {
 
     // Regression for "stuck against the wall, never gets out": walk the simulation forward one
     // tick at a time and record the character's y the moment it first gets past the wall's z
-    // face. A genuine WalkStairs climb lands within stepHeight of the ledge (y=0.25); floating
+    // face. A genuine water-exit climb lands within waterExitReach of the ledge (y=0.25); floating
     // over the wall on undying buoyancy instead -- the failure mode an earlier, looser version of
     // this test missed -- overshoots that by a wide margin since nothing would have bounded it.
     float crossingY = std::numeric_limits<float>::quiet_NaN();
@@ -676,13 +686,13 @@ void runSwimClimbTests() {
     // holding a slow, steady ascend the whole time -- never dipping down first to build momentum,
     // the way a "sink and launch" technique would -- must still climb out, and promptly (within a
     // couple of seconds), not just eventually. The deterministic up/forward/down probe in
-    // tryClimbBlockedStep only checks whether there's room to stand, not how fast the character is
-    // moving, so it doesn't care either way; this is here to pin that down. (Jolt's own WalkStairs,
-    // used here previously, gated success on a "made real forward progress" check performed at the
-    // up-swept height: if that height hadn't already cleared the obstacle, forward progress there
-    // was zero and the whole attempt was silently discarded -- in effect requiring the up-sweep,
-    // capped at stepHeight from wherever the character *currently* was, to already reach past the
-    // lip, which in practice took a burst of built-up vertical speed rather than steady swimming.)
+    // tryWaterExitAssist only checks whether there's room to stand, not how fast the character is
+    // moving, so it doesn't care either way; this is here to pin that down. (Jolt's own WalkStairs
+    // gates success on a "made real forward progress" check performed at the up-swept height: if
+    // that height hadn't already cleared the obstacle, forward progress there was zero and the
+    // whole attempt was silently discarded -- in effect requiring the up-sweep to already reach past
+    // the lip, which in practice took a burst of built-up vertical speed rather than steady
+    // swimming. That's exactly what this custom probe avoids.)
     {
         PhysicsWorld slowWorld;
         slowWorld.addStaticBrushes({floor, wall, ledge});
@@ -700,6 +710,7 @@ void runSwimClimbTests() {
             step.id = kCharId;
             step.motor = &slowMotor;
             step.submersion = submersionAt(feetY);
+            step.nearWaterSurface = nearSurfaceAt(slowMotor, feetY);
             slowWorld.update(kFixedDt, {step});
 
             const JPH::RVec3 p = slowWorld.characterPosition(kCharId);
@@ -708,6 +719,137 @@ void runSwimClimbTests() {
             }
         }
         CHECK_FALSE(std::isnan(slowCrossingY));
+    }
+
+    // Regression for "climbs a wall like a ladder from deep underwater": with nearWaterSurface
+    // forced false the whole time (as physics_module.cpp reports when no real water surface is
+    // anywhere near the character), swimming full-speed into a wall too tall to simply swim over
+    // within this test's budget must leave the character blocked like any other obstacle -- the
+    // water-exit assist must never fire just because a shape-cast finds room to stand somewhere
+    // within reach, regardless of how deep underwater that happens.
+    {
+        const Brush deepFloor =
+            makeBrushBox("deep-floor", {-3.0f, -10.5f, -3.0f}, {3.0f, -10.0f, 3.0f}, "mat/a", {});
+        const Brush tallWall =
+            makeBrushBox("tall-wall", {-3.0f, -20.0f, 3.0f}, {3.0f, 100.0f, 3.3f}, "mat/a", {});
+
+        PhysicsWorld deepWorld;
+        deepWorld.addStaticBrushes({deepFloor, tallWall});
+        deepWorld.setPlayerId(kCharId);
+
+        CharacterMotor deepMotor{};
+        deepWorld.createCharacter(kCharId, 0.0f, -10.0f, 2.9f, deepMotor);
+        deepMotor.wishY = 1.0f;
+        deepMotor.wishZ = 1.0f;
+
+        for (int i = 0; i < 300; ++i) {
+            CharacterStep step{};
+            step.id = kCharId;
+            step.motor = &deepMotor;
+            step.submersion = 1.0f; // fully submerged the whole time -- a genuinely deep pool
+            step.nearWaterSurface = false; // no real surface within waterExitReach
+            deepWorld.update(kFixedDt, {step});
+        }
+        const JPH::RVec3 p = deepWorld.characterPosition(kCharId);
+        CHECK(static_cast<float>(p.GetZ()) <= 3.3f);
+    }
+
+    // Regression for "rocket speed": once genuinely near the surface and climbing out (the
+    // fast-ascend case above), no single tick should move the character further than
+    // motor.waterExitSpeed allows. The old teleport-based step could jump a full stepHeight (0.5m)
+    // in a single 1/60s tick -- roughly 30 m/s -- since it called SetPosition directly with no speed
+    // cap at all; the capped steer here must stay within waterExitSpeed plus ordinary buoyant/ascend
+    // drift (a generous fixed slack covers that, while still being far tighter than the old jump).
+    {
+        PhysicsWorld speedWorld;
+        speedWorld.addStaticBrushes({floor, wall, ledge});
+        speedWorld.setPlayerId(kCharId);
+
+        CharacterMotor speedMotor{};
+        speedWorld.createCharacter(kCharId, 0.0f, -10.0f, 2.9f, speedMotor);
+        speedMotor.wishY = 1.0f;
+        speedMotor.wishZ = 1.0f;
+
+        const float maxAllowedStep = speedMotor.waterExitSpeed * kFixedDt + 0.1f;
+        float prevY = -10.0f;
+        bool crossed = false;
+        for (int i = 0; i < 300 && !crossed; ++i) {
+            const float feetY = static_cast<float>(speedWorld.characterPosition(kCharId).GetY());
+            CharacterStep step{};
+            step.id = kCharId;
+            step.motor = &speedMotor;
+            step.submersion = submersionAt(feetY);
+            step.nearWaterSurface = nearSurfaceAt(speedMotor, feetY);
+            speedWorld.update(kFixedDt, {step});
+
+            const JPH::RVec3 p = speedWorld.characterPosition(kCharId);
+            const float newY = static_cast<float>(p.GetY());
+            CHECK(std::fabs(newY - prevY) <= maxAllowedStep);
+            prevY = newY;
+            crossed = static_cast<float>(p.GetZ()) > 3.3f;
+        }
+        CHECK(crossed);
+    }
+}
+
+void runResizeCharacterTests() {
+    constexpr std::uint64_t kCharId = 11;
+
+    {
+        PhysicsWorld world;
+        world.setPlayerId(kCharId);
+        CharacterMotor motor{};
+        world.createCharacter(kCharId, 0.0f, 5.0f, 0.0f, motor);
+        for (int i = 0; i < 30; ++i) {
+            stepWithCharacter(world, kCharId, motor, kFixedDt);
+        }
+        const float fallingVelocity = static_cast<float>(world.characterVelocity(kCharId).GetY());
+        CHECK(fallingVelocity < -0.5f);
+        const JPH::RVec3 feetBefore = world.characterPosition(kCharId);
+
+        CharacterMotor crouched = motor;
+        crouched.radius = 0.3f;
+        crouched.height = 0.3f;
+        CHECK(world.resizeCharacter(kCharId, crouched));
+
+        const float velocityAfter = static_cast<float>(world.characterVelocity(kCharId).GetY());
+        CHECK(std::fabs(velocityAfter - fallingVelocity) < 0.01f);
+        const JPH::RVec3 feetAfter = world.characterPosition(kCharId);
+        CHECK(std::fabs(static_cast<float>(feetAfter.GetX() - feetBefore.GetX())) < 1.0e-4f);
+        CHECK(std::fabs(static_cast<float>(feetAfter.GetY() - feetBefore.GetY())) < 1.0e-4f);
+        CHECK(std::fabs(static_cast<float>(feetAfter.GetZ() - feetBefore.GetZ())) < 1.0e-4f);
+    }
+
+    {
+        const Brush floor =
+            makeBrushBox("floor", {-4.0f, -0.25f, -4.0f}, {4.0f, 0.0f, 4.0f}, "mat/a", {});
+        const Brush ceiling =
+            makeBrushBox("ceiling", {-4.0f, 1.0f, -4.0f}, {4.0f, 1.25f, 4.0f}, "mat/a", {});
+
+        PhysicsWorld world;
+        world.addStaticBrushes({floor, ceiling});
+        world.setPlayerId(kCharId);
+
+        CharacterMotor crouched{};
+        crouched.radius = 0.3f;
+        crouched.height = 0.3f;
+        world.createCharacter(kCharId, 0.0f, 0.05f, 0.0f, crouched);
+
+        CharacterMotor standing{};
+        standing.radius = 0.3f;
+        standing.height = 1.1f;
+        CHECK_FALSE(world.resizeCharacter(kCharId, standing));
+
+        CharacterMotor stillLow{};
+        stillLow.radius = 0.25f;
+        stillLow.height = 0.35f;
+        CHECK(world.resizeCharacter(kCharId, stillLow));
+    }
+
+    {
+        PhysicsWorld world;
+        CharacterMotor motor{};
+        CHECK_FALSE(world.resizeCharacter(kCharId, motor));
     }
 }
 
@@ -722,6 +864,7 @@ void runPhysicsTests() {
     runBrushBlockFilterTests();
     runFlightTests();
     runSwimClimbTests();
+    runResizeCharacterTests();
 }
 
 }

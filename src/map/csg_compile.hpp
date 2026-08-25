@@ -4,7 +4,6 @@
 #include "assets/rigged_assets.hpp"
 #include "map/brush.hpp"
 #include "map/lightmap.hpp"
-#include "map/fac.hpp"
 
 #include <functional>
 #include <string_view>
@@ -30,12 +29,6 @@ struct CsgCompileResult {
 /** Triangulates brushes into geo; embeds lightmap UV2 when @p lightmaps is set. */
 CsgCompileResult compileBrushesToGeo(
     const std::vector<Brush>& brushes,
-    const MaterialUvResolver& resolveMaterialUv = {},
-    const RadFile* lightmaps = nullptr);
-
-/** Triangulates VIS faces into geo; embeds lightmap UV2 when @p lightmaps is set. */
-CsgCompileResult compileVisibleFacesToGeo(
-    const FacFile& vis,
     const MaterialUvResolver& resolveMaterialUv = {},
     const RadFile* lightmaps = nullptr);
 

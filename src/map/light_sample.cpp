@@ -85,8 +85,10 @@ std::optional<Color> sampleChartAtPoint(
     const float v = dot3(point, vAxis);
     const float fu = std::clamp((u - uMin) / uSpan, 0.0f, 1.0f);
     const float fv = std::clamp((v - vMin) / vSpan, 0.0f, 1.0f);
-    const float atlasU = chart.u0 + (chart.u1 - chart.u0) * fu;
-    const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fv;
+    const float fx = chart.rotated ? fv : fu;
+    const float fy = chart.rotated ? fu : fv;
+    const float atlasU = chart.u0 + (chart.u1 - chart.u0) * fx;
+    const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fy;
 
     Color color = sampleAtlasNearest(
         lighting,
@@ -193,7 +195,6 @@ std::vector<LightmapFace> probeFacesFromBsp(const BspTree& bsp) {
 
 MapLighting buildMapLighting(
     const BspTree& bsp,
-    const FacFile* fac,
     RadFile rad,
     std::vector<Image> atlasImages,
     Color ambient) {
@@ -202,11 +203,7 @@ MapLighting buildMapLighting(
     lighting.atlasImages = std::move(atlasImages);
     lighting.ambient = ambient;
 
-    if (fac != nullptr && !fac->faces.empty()) {
-        lighting.probeFaces = collectLightmapFaces(*fac);
-    } else {
-        lighting.probeFaces = probeFacesFromBsp(bsp);
-    }
+    lighting.probeFaces = probeFacesFromBsp(bsp);
     lighting.faceTransparentSkip.assign(lighting.probeFaces.size(), 0);
     for (std::size_t i = 0; i < lighting.probeFaces.size(); ++i) {
         if (lighting.probeFaces[i].transparent) {

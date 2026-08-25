@@ -16,6 +16,10 @@ struct SkyboxShaderState {
     int faceCameraPosLoc = -1;
     TextureCubemap boundCubemap{};
     std::string boundCubemapKey;
+    Texture2D boundCylinderTexture{};
+    std::string boundCylinderTextureKey;
+    Vector3 boundCylinderTopColor{1.0f, 1.0f, 1.0f};
+    Vector3 boundCylinderBottomColor{1.0f, 1.0f, 1.0f};
 };
 
 /** Loads or returns cached skybox draw shaders. */

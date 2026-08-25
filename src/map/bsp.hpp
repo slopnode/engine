@@ -61,6 +61,21 @@ struct BspLeaf {
     std::vector<std::int32_t> neighbors;
 };
 
+/** BspNode::front/back encode a leaf as a negative index; these are the
+ *  single source of truth for that convention so callers outside bsp_build.cpp
+ *  (e.g. a tree-guided leaf query) don't have to duplicate it. */
+inline bool bspIsLeafChild(std::int32_t child) {
+    return child < 0;
+}
+
+inline std::int32_t bspEncodeLeaf(std::int32_t leafIndex) {
+    return -leafIndex - 1;
+}
+
+inline std::int32_t bspDecodeLeaf(std::int32_t child) {
+    return -child - 1;
+}
+
 /** Portal polygon between two open leaves. */
 struct BspPortal {
     std::int32_t leafA = -1;

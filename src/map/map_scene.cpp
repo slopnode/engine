@@ -20,7 +20,6 @@
 #include "map/light_sample.hpp"
 #include "map/face_triggers.hpp"
 #include "map/things_spawn.hpp"
-#include "map/fac.hpp"
 #include "map/pvs.hpp"
 #include "map/water_volumes.hpp"
 #include "render/material_anim.hpp"
@@ -158,9 +157,6 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapBsp>()) {
         world.remove<MapBsp>();
     }
-    if (world.has<MapFac>()) {
-        world.remove<MapFac>();
-    }
     if (world.has<MapPvs>()) {
         world.remove<MapPvs>();
     }
@@ -253,11 +249,8 @@ bool registerMapScene(
     }
 
     MapBsp mapBsp{std::move(loaded->bsp)};
-    MapFac mapFac{std::move(loaded->fac)};
-    const FacFile* facForLighting = mapFac.fac.faces.empty() ? nullptr : &mapFac.fac;
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
-        facForLighting,
         loaded->rad,
         std::move(loaded->lightmapAtlasImages),
         BLACK));
@@ -266,12 +259,13 @@ bool registerMapScene(
         AudioContext& audioCtx = world.get_mut<AudioContext>();
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
-            audioCtx.world->setSteamAudioScene(mapFac.fac);
+            audioCtx.world->setSteamAudioScene(
+                loaded->brushes,
+                loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
         }
     }
 
     world.set<MapBsp>(std::move(mapBsp));
-    world.set<MapFac>(std::move(mapFac));
     world.set<MapPvs>(MapPvs{std::move(loaded->pvs)});
     {
         const MapBsp& bspForNav = world.get<MapBsp>();
@@ -300,7 +294,6 @@ bool registerMapScene(
         assets,
         mapName,
         loaded->brushes,
-        &loaded->doorFac,
         &loaded->rad,
         &loaded->lightmapAtlases,
         loaded->hasLightmaps);

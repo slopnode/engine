@@ -45,6 +45,7 @@ struct LauncherState {
     std::unordered_map<std::string, bool> cliFlagValues;
 
     bool debugMode = false;
+    bool verboseMode = false;
     std::string statusMessage;
     bool statusIsError = false;
 

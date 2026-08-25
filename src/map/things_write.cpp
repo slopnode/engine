@@ -158,6 +158,15 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
     if (!p.moverGroup.empty()) {
         writeIndentClause(out, "(group " + escapeSchemeString(p.moverGroup) + ")");
     }
+    if (!p.moverOpenSound.empty()) {
+        writeIndentClause(out, "(open-sound " + escapeSchemeString(p.moverOpenSound) + ")");
+    }
+    if (!p.moverCloseSound.empty()) {
+        writeIndentClause(out, "(close-sound " + escapeSchemeString(p.moverCloseSound) + ")");
+    }
+    if (p.haveMoverSoundVolume) {
+        writeIndentClause(out, "(sound-volume " + formatFloat(p.moverSoundVolume) + ")");
+    }
     if (p.havePrompt || !p.onUse.empty()) {
         writeIndentClause(out, "(prompt " + escapeSchemeString(p.prompt) + ")");
         if (!p.onUse.empty()) {
@@ -192,6 +201,12 @@ void writeActorFields(std::ostringstream& out, const Thing& p) {
         }
         if (p.motorHoverHeight != 0.0f) {
             clause += " (hover-height " + formatFloat(p.motorHoverHeight) + ")";
+        }
+        if (std::isfinite(p.motorMaxFall)) {
+            clause += " (max-fall " + formatFloat(p.motorMaxFall) + ")";
+        }
+        if (p.motorWaterAversion != 1.0f) {
+            clause += " (water-aversion " + formatFloat(p.motorWaterAversion) + ")";
         }
         clause += ")";
         writeIndentClause(out, clause);
@@ -284,6 +299,12 @@ void writeSkyboxFields(std::ostringstream& out, const Thing& p) {
         writeIndentClause(out, "(nz " + escapeSchemeString(p.skyCubeNz) + ")");
         writeIndentClause(out, ")");
         break;
+    case SkyboxMode::Cylinder:
+        writeIndentClause(out, "(cylinder " + escapeSchemeString(p.skyCylinderTexture) + ")");
+        writeIndentClause(out, "(cylinder-offset " + formatFloat(p.skyCylinderOffset) + ")");
+        writeIndentClause(out, "(cylinder-scale " + formatFloat(p.skyCylinderScale) + ")");
+        writeIndentClause(out, "(cylinder-repeat " + std::to_string(p.skyCylinderRepeat) + ")");
+        break;
     case SkyboxMode::Gradient:
         writeIndentClause(out, "(gradient");
         out << "\n";
@@ -326,6 +347,9 @@ void writeTriggerFields(std::ostringstream& out, const Thing& p) {
             out,
             "(trigger-size " + formatFloat(p.triggerSize.x) + " " +
                 formatFloat(p.triggerSize.y) + " " + formatFloat(p.triggerSize.z) + ")");
+    }
+    if (p.triggerOnce) {
+        writeIndentClause(out, "(once #t)");
     }
     if (!p.collideTags.empty()) {
         std::string clause = "(collide-tags";
@@ -471,7 +495,7 @@ void writeThing(std::ostringstream& out, const Thing& p) {
         writeActorFields(out, p);
     }
     if (p.kind == ThingKind::Trigger || !p.onEnter.empty() || !p.onExit.empty() ||
-        p.haveTriggerSize || !p.collideTags.empty()) {
+        p.haveTriggerSize || p.triggerOnce || !p.collideTags.empty()) {
         writeTriggerFields(out, p);
     }
     if (thingKindIsLight(p.kind)) {

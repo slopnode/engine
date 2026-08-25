@@ -13,7 +13,8 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --mod         Additional mod package: path or name, same lookup as\n"
               << "                --base-game (repeatable)\n"
               << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
-              << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n";
+              << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n"
+              << "  --verbose     Raise the trace log level to show DEBUG messages\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
         return;
@@ -58,6 +59,11 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
 
         if (arg == "--debug") {
             config.debug = true;
+            continue;
+        }
+
+        if (arg == "--verbose") {
+            config.verbose = true;
             continue;
         }
 

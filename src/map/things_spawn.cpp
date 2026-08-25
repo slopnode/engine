@@ -49,8 +49,8 @@ struct SpawnContext {
     AssetStore* assets = nullptr;
     s7_scheme* scheme = nullptr;
     const std::vector<Brush>* brushes = nullptr;
-    const FacFile* doorFac = nullptr;
     const RadFile* rad = nullptr;
+    std::unordered_set<std::string> chartFaceIds;
     const std::vector<Texture2D>* lightmapAtlases = nullptr;
     bool hasLightmaps = false;
     PlayerStart playerStart{};
@@ -204,21 +204,18 @@ LocalTransformation makeLocalTransform(const Thing& placement, const SpawnContex
     return local;
 }
 
-/** This brush's baked, chart-backed faces (closed/authored pose), or empty if the map hasn't
- *  been rebaked with sloprad since this brush started being claimed by a door/mover. */
-FacFile bakedFacesForBrush(const SpawnContext& ctx, std::string_view brushId) {
-    FacFile subset;
-    if (!ctx.hasLightmaps || ctx.doorFac == nullptr || ctx.rad == nullptr || ctx.lightmapAtlases == nullptr) {
-        return subset;
+/** True if any of this brush's own faces has a baked lightmap chart, i.e. the map has been
+ *  rebaked with sloprad since this brush was authored. */
+bool brushHasLightmapChart(const Brush& brush, const SpawnContext& ctx) {
+    if (!ctx.hasLightmaps || ctx.rad == nullptr || ctx.lightmapAtlases == nullptr) {
+        return false;
     }
-    for (const VisibleFace& face : ctx.doorFac->faces) {
-        const std::string_view source =
-            face.sourceFaceId.empty() ? std::string_view(face.id) : std::string_view(face.sourceFaceId);
-        if (faceIdBelongsToBrush(source, brushId) || faceIdBelongsToBrush(face.id, brushId)) {
-            subset.faces.push_back(face);
+    for (const BrushFace& face : brush.faces) {
+        if (ctx.chartFaceIds.count(face.id) != 0) {
+            return true;
         }
     }
-    return subset;
+    return false;
 }
 
 /** Binds each mesh's baked atlas texture (per its lightmap chart); mirrors the static-mesh
@@ -260,11 +257,9 @@ bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnC
         return resolveThingMaterialUv(*assets, materialPath);
     };
 
-    const FacFile bakedFaces = bakedFacesForBrush(ctx, placement.brush);
-    const bool baked = !bakedFaces.faces.empty();
-    CsgCompileResult compiled = baked
-        ? compileVisibleFacesToGeo(bakedFaces, resolveUv, ctx.rad)
-        : compileBrushesToGeo({*source}, resolveUv, nullptr);
+    const bool baked = brushHasLightmapChart(*source, ctx);
+    CsgCompileResult compiled =
+        compileBrushesToGeo({*source}, resolveUv, baked ? ctx.rad : nullptr);
     for (Vector3& pos : compiled.buffer.positions) {
         pos = Vector3Subtract(pos, origin);
     }
@@ -452,6 +447,7 @@ void applyTriggerVolume(flecs::entity entity, const Thing& placement) {
     volume.onEnter = placement.onEnter;
     volume.onExit = placement.onExit;
     volume.filterTags = placement.collideTags;
+    volume.once = placement.triggerOnce;
     entity.set<TriggerVolume>(std::move(volume));
 }
 
@@ -655,6 +651,9 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             mover.slide = placement.haveMoverSlide ? placement.moverSlide : true;
             mover.onCrush = placement.onCrush;
             mover.groupId = placement.moverGroup;
+            mover.openSound = placement.moverOpenSound;
+            mover.closeSound = placement.moverCloseSound;
+            mover.soundVolume = placement.haveMoverSoundVolume ? placement.moverSoundVolume : 1.0f;
             entity.set<RigidMover>(mover);
             if (entity.has<LocalTransformation>() && placement.haveMoverCollideSize &&
                 !placement.geo.empty()) {
@@ -698,6 +697,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             motor.moveMode = placement.motorMoveMode;
             NavigationAgent navAgent{};
             navAgent.flyer = motor.moveMode == CharacterMoveMode::Fly;
+            navAgent.maxFall = placement.motorMaxFall;
+            navAgent.waterCostMultiplier = placement.motorWaterAversion;
             entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {
@@ -797,7 +798,7 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         Matrix r = QuaternionToMatrix(local.rotation);
         Matrix t = MatrixTranslate(local.position.x, local.position.y, local.position.z);
         GlobalTransformation global{};
-        global.matrix = MatrixMultiply(t, MatrixMultiply(r, s));
+        global.matrix = MatrixMultiply(s, MatrixMultiply(r, t));
         entity.add<WorldSpace>()
             .set<LocalTransformation>(local)
             .set<GlobalTransformation>(global)
@@ -871,7 +872,7 @@ void spawnDoorBrush(
     }
 
     entity.set<Interactable>({
-        .prompt = brush.door.havePrompt ? brush.door.prompt : std::string("Open"),
+        .prompt = {},
         .onUse = {},
         .canUse = brush.door.canUse,
         .engineToggle = true,
@@ -917,7 +918,6 @@ PlayerStart spawnMapThings(
     AssetStore& assets,
     std::string_view mapName,
     const std::vector<Brush>& brushes,
-    const FacFile* doorFac,
     const RadFile* rad,
     const std::vector<Texture2D>* lightmapAtlases,
     bool hasLightmaps) {
@@ -931,8 +931,14 @@ PlayerStart spawnMapThings(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = &brushes;
-    ctx.doorFac = doorFac;
     ctx.rad = rad;
+    if (rad != nullptr) {
+        for (const LightmapChart& chart : rad->charts) {
+            if (!chart.faceId.empty()) {
+                ctx.chartFaceIds.insert(chart.faceId);
+            }
+        }
+    }
     ctx.lightmapAtlases = lightmapAtlases;
     ctx.hasLightmaps = hasLightmaps;
 

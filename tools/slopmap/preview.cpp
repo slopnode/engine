@@ -3,7 +3,6 @@
 #include "assets/geo_loader.hpp"
 #include "assets/material_loader.hpp"
 #include "map/csg_compile.hpp"
-#include "map/fac_io.hpp"
 #include "map/lightmap.hpp"
 #include "map/mover_brushes.hpp"
 #include "render/skybox.hpp"
@@ -77,7 +76,7 @@ float meshMinViewDepth(
     return minDepth;
 }
 
-Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false) {
+Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false, std::uint32_t faceSeed = 0) {
     const Vector3 lightDir = Vector3Normalize(Vector3{0.45f, 0.85f, 0.35f});
     const float nLen = Vector3Length(normal);
     Vector3 n = nLen > 1e-6f ? Vector3Scale(normal, 1.0f / nLen) : Vector3{0.0f, 1.0f, 0.0f};
@@ -87,6 +86,16 @@ Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false) {
     }
     if (ndotl > 1.0f) {
         ndotl = 1.0f;
+    }
+    if (faceSeed != 0) {
+        const float jitter = (static_cast<float>(faceSeed % 4096u) / 4095.0f - 0.5f) * 0.36f;
+        ndotl += jitter;
+        if (ndotl < 0.32f) {
+            ndotl = 0.32f;
+        }
+        if (ndotl > 1.0f) {
+            ndotl = 1.0f;
+        }
     }
     return Color{
         static_cast<unsigned char>(std::lround(static_cast<float>(base.r) * ndotl)),
@@ -375,7 +384,7 @@ void drawNodrawFace(const slopengine::BrushFace& face, Color color) {
     if (!face.nodraw || face.vertices.size() < 3) {
         return;
     }
-    const Color shaded = applyFauxShade(color, face.normal, true);
+    const Color shaded = applyFauxShade(color, face.normal, true, hashString(face.id));
     const Vector3& v0 = face.vertices[0];
     for (std::size_t i = 1; i + 1 < face.vertices.size(); ++i) {
         const Vector3& v1 = face.vertices[i];
@@ -437,9 +446,6 @@ void MapPreview::clearLit() {
         skyShader = {};
     }
     rad = {};
-    if (!visValid) {
-        pickFac = {};
-    }
 }
 
 void MapPreview::clearVis() {
@@ -449,10 +455,6 @@ void MapPreview::clearVis() {
     visModel = {};
     visValid = false;
     visTransparentMeshIndices.clear();
-    visSkyMeshIndices.clear();
-    if (!litValid) {
-        pickFac = {};
-    }
 }
 
 void MapPreview::clear() {
@@ -463,7 +465,6 @@ void MapPreview::clear() {
     valid = false;
     editFaceIds.clear();
     modelTransparentMeshIndices.clear();
-    modelSkyMeshIndices.clear();
     clearVis();
     clearLit();
     clearMoverOverlay(moverOverlayModel, moverOverlayValid);
@@ -477,7 +478,6 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     valid = false;
     editFaceIds.clear();
     modelTransparentMeshIndices.clear();
-    modelSkyMeshIndices.clear();
     if (brushes.empty()) {
         return;
     }
@@ -497,7 +497,6 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
 
     collectTransparentMeshIndices(compiled.asset, modelTransparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, modelSkyMeshIndices);
     valid = model.meshCount > 0;
 }
 
@@ -514,33 +513,16 @@ bool MapPreview::reloadVisPreview(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
 
-    const std::string visVirtualPath = mapName + "/static";
-    slopengine::CsgCompileResult compiled{};
-    if (assets.hasMapFac(visVirtualPath)) {
-        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
-            if (auto loadedFac = slopengine::readFacFile(*visPath)) {
-                if (!loadedFac->faces.empty()) {
-                    pickFac = *loadedFac;
-                    slopengine::eraseFacFacesForMoverBrushes(pickFac, moverBrushIds);
-                    compiled = slopengine::compileVisibleFacesToGeo(pickFac, resolveUv, nullptr);
-                }
-            }
-        }
-    }
-    if (compiled.asset.primitives.empty()) {
-        pickFac = {};
-        compiled = slopengine::compileBrushesToGeo(
-            staticBrushesForPreview(brushes, moverBrushIds),
-            resolveUv,
-            nullptr);
-    }
+    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+        staticBrushesForPreview(brushes, moverBrushIds),
+        resolveUv,
+        nullptr);
 
     visModel = slopengine::buildModelFromGeo(
         compiled.asset,
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
     collectTransparentMeshIndices(compiled.asset, visTransparentMeshIndices);
-    collectSkyMeshIndices(assets, compiled.asset, visSkyMeshIndices);
     visValid = visModel.meshCount > 0;
     if (!visValid) {
         clearVis();
@@ -608,30 +590,10 @@ bool MapPreview::reloadBake(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
 
-    slopengine::FacFile vis{};
-    bool haveVis = false;
-    const std::string visVirtualPath = mapName + "/static";
-    if (assets.hasMapFac(visVirtualPath)) {
-        if (const auto visPath = assets.resolvePath(slopengine::AssetKind::MapFac, visVirtualPath)) {
-            if (auto loadedFac = slopengine::readFacFile(*visPath)) {
-                vis = std::move(*loadedFac);
-                slopengine::eraseFacFacesForMoverBrushes(vis, moverBrushIds);
-                haveVis = true;
-            }
-        }
-    }
-
-    if (haveVis) {
-        pickFac = vis;
-    } else if (!visValid) {
-        pickFac = {};
-    }
-    const slopengine::CsgCompileResult compiled = haveVis
-        ? slopengine::compileVisibleFacesToGeo(vis, resolveUv, &rad)
-        : slopengine::compileBrushesToGeo(
-              staticBrushesForPreview(brushes, moverBrushIds),
-              resolveUv,
-              &rad);
+    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+        staticBrushesForPreview(brushes, moverBrushIds),
+        resolveUv,
+        &rad);
 
     std::unordered_map<std::string, std::int32_t> faceAtlasById;
     for (const slopengine::LightmapChart& chart : rad.charts) {
@@ -917,21 +879,21 @@ void MapPreview::draw(
         [[fallthrough]];
     case PreviewFill::Unlit:
         if (visValid) {
-            drawModelMeshesSplit(visModel, visTransparentMeshIndices, visSkyMeshIndices, false);
-            drawPreviewModelTextured(visModel, visTransparentMeshIndices, visSkyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(visModel, visTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(visModel, visTransparentMeshIndices, {}, eye, cameraForward);
             if (moverOverlayValid) {
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
         } else if (valid) {
-            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false);
-            drawPreviewModelTextured(model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
         }
         break;
     case PreviewFill::Textures:
         if (valid) {
-            drawModelMeshesSplit(model, modelTransparentMeshIndices, modelSkyMeshIndices, false, true);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false, true);
             drawPreviewModelTextured(
-                model, modelTransparentMeshIndices, modelSkyMeshIndices, eye, cameraForward, true);
+                model, modelTransparentMeshIndices, {}, eye, cameraForward, true);
         }
         break;
     case PreviewFill::Solid:

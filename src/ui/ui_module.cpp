@@ -3,6 +3,7 @@
 #include "assets/asset_services.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "core/log.hpp"
 #include "game/game_state.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
@@ -13,7 +14,6 @@
 #include "input/input_state.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
-#include "map/fac.hpp"
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
@@ -42,6 +42,7 @@
 #include <cstring>
 #include <raylib.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace slopengine {
@@ -67,6 +68,19 @@ void logConsoleMessage(ConsoleState& console, const std::string& message) {
     if (console.log.size() > 200) {
         console.log.erase(console.log.begin());
     }
+}
+
+ImVec4 consoleLogLineColor(std::string_view line) {
+    if (line.rfind("[ERROR]", 0) == 0 || line.rfind("[FATAL]", 0) == 0) {
+        return ImVec4(1.0f, 0.38f, 0.38f, 1.0f);
+    }
+    if (line.rfind("[WARN]", 0) == 0) {
+        return ImVec4(1.0f, 0.82f, 0.2f, 1.0f);
+    }
+    if (line.rfind("[TRACE]", 0) == 0 || line.rfind("[DEBUG]", 0) == 0) {
+        return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    }
+    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
 }
 
 std::vector<ResolutionOption> buildResolutionOptions(const GraphicsSettings& draft) {
@@ -428,14 +442,15 @@ void drawMainMenuBar(
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
             ImGui::EndMenu();
         }
-        if (beginMenuWithIcon(assets, kIcons, "shape_ungroup", "VIS")) {
-            ImGui::MenuItem("Faces", nullptr, &debugUi.showVisFaces);
-            ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showVisCurrentLeafOnly);
-            ImGui::EndMenu();
-        }
         if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
             ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
+            ImGui::EndMenu();
+        }
+        if (beginMenuWithIcon(assets, kIcons, "color_wheel", "Light Probes")) {
+            ImGui::MenuItem("Fine Grid", nullptr, &debugUi.showLightProbesFine);
+            ImGui::MenuItem("Coarse Grid", nullptr, &debugUi.showLightProbesCoarse);
+            ImGui::MenuItem("Sprite Sample Taps", nullptr, &debugUi.showLightProbeSampleTaps);
             ImGui::EndMenu();
         }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
@@ -994,9 +1009,6 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
             ImGui::Text("Current leaf %d", static_cast<int>(currentLeaf));
         }
 
-        if (world.has<MapFac>()) {
-            ImGui::Text("FAC faces %zu", world.get<MapFac>().fac.faces.size());
-        }
         if (world.has<MapPvs>()) {
             ImGui::Text("PVS leaves %d", world.get<MapPvs>().pvs.leafCount);
         }
@@ -1127,8 +1139,16 @@ void drawConsole(ConsoleState& console, InputContextStack& contexts) {
     ImGui::SetNextWindowSize({640.0f, 360.0f}, ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Console", &console.open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::BeginChild("ConsoleLog", {0.0f, -ImGui::GetFrameHeightWithSpacing()}, false);
+        if (console.monoFont != nullptr) {
+            ImGui::PushFont(console.monoFont, 0.0f);
+        }
         for (const std::string& line : console.log) {
+            ImGui::PushStyleColor(ImGuiCol_Text, consoleLogLineColor(line));
             ImGui::TextUnformatted(line.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (console.monoFont != nullptr) {
+            ImGui::PopFont();
         }
         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
             ImGui::SetScrollHereY(1.0f);
@@ -1157,11 +1177,11 @@ void drawConsole(ConsoleState& console, InputContextStack& contexts) {
 }
 
 void drawInteractionPrompt(const InteractionTarget& target, const InputContextStack& contexts) {
-    if (!contexts.allowsGameplay() || !target.entity.is_valid()) {
+    if (!contexts.allowsGameplay() || !target.entity.is_valid() || target.prompt.empty()) {
         return;
     }
 
-    const char* prompt = target.prompt.empty() ? "Interact" : target.prompt.c_str();
+    const char* prompt = target.prompt.c_str();
     ImGui::SetNextWindowBgAlpha(0.35f);
     ImGui::SetNextWindowPos(
         {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.88f},
@@ -1319,9 +1339,15 @@ void registerSystems(flecs::world& world) {
 
 }
 
-void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile) {
+void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile, ImFont* monoFont) {
     registerComponents(world);
-    world.set<ConsoleState>({});
+    ConsoleState console{};
+    console.monoFont = monoFont;
+    world.set<ConsoleState>(console);
+    Log::addDeferredSink([world](const LogEntry& entry) mutable {
+        ConsoleState& console = world.get_mut<ConsoleState>();
+        logConsoleMessage(console, std::string("[") + Log::levelLabel(entry.level) + "] " + entry.text);
+    });
     world.set<QuitRequest>({});
     world.set<ScreenshotRequest>({});
     world.set<SettingsUiState>({});
@@ -1335,13 +1361,14 @@ void registerUiModule(flecs::world& world, bool debugEnabled, std::string profil
 
 void prepareUiInput(flecs::world world) {
     const InputContextStack& contexts = world.get<InputContextStack>();
-    syncCursorCapture(contexts);
+    syncCursorCapture(contexts, world.get_mut<InputState>());
     if (ImGui::GetCurrentContext() != nullptr) {
         applyImGuiCursorPolicy(contexts);
     }
 }
 
 void drawUi(flecs::world world) {
+    Log::pump();
     InputContextStack& contexts = world.get_mut<InputContextStack>();
     InteractionTarget& target = world.get_mut<InteractionTarget>();
     ConsoleState& console = world.get_mut<ConsoleState>();

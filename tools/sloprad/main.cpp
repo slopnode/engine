@@ -1,5 +1,6 @@
 #include "assets/asset_store.hpp"
 #include "assets/material_loader.hpp"
+#include "core/log.hpp"
 #include "game/app_config.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
@@ -8,7 +9,6 @@
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
 #include "map/radiosity_lights.hpp"
-#include "map/fac_io.hpp"
 #if defined(__linux__)
 #include "headless_gl_context.hpp"
 #endif
@@ -175,6 +175,39 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
                 return std::nullopt;
             }
             cli.settings.seamStitchRadiusLuxels = parsed;
+        } else if (arg == "--probe-cell-size") {
+            const char* value = needValue("--probe-cell-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 4.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.probeCellSize = parsed;
+        } else if (arg == "--probe-fine-cell-size") {
+            const char* value = needValue("--probe-fine-cell-size");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 2.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.probeFineCellSize = parsed;
+        } else if (arg == "--probe-sample-count") {
+            const char* value = needValue("--probe-sample-count");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 32;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{}) {
+                return std::nullopt;
+            }
+            cli.settings.probeSampleCount = parsed;
         } else if (arg == "--gpu") {
             cli.settings.preferGpu = true;
         } else if (arg == "--cpu") {
@@ -183,6 +216,8 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
             cli.gpuSafeOverride = true;
         } else if (arg == "--gpu-fast") {
             cli.gpuSafeOverride = false;
+        } else if (arg == "--verbose") {
+            cli.config.verbose = true;
         } else {
             return std::nullopt;
         }
@@ -232,12 +267,14 @@ int main(int argc, char* argv[]) {
             << "       [--emitter-grid-max-size N] [--exact-emission-grid-max-size N]\n"
             << "       [--exact-emission-max-samples N] [--sun-shadow-softness N]\n"
             << "       [--seam-stitch-radius N]\n"
+            << "       [--probe-cell-size N] [--probe-fine-cell-size N] [--probe-sample-count N]\n"
             << "       [--gpu|--cpu]\n"
             << "       [--gpu-safe|--gpu-fast]\n";
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    Log::init(cli->config.verbose ? LogLevel::Debug : LogLevel::Info);
+    Log::addDefaultConsoleSink();
     if (!initGLContext()) {
         std::cerr << "sloprad: failed to create OpenGL context\n";
         return 1;
@@ -415,31 +452,13 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::vector<LightmapFace> faces;
-    if (assets.hasMapFac(bspVirtualPath)) {
-        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, bspVirtualPath)) {
-            TraceLog(LOG_INFO, "sloprad: loading %s", facPath->string().c_str());
-            std::fflush(stdout);
-            if (auto vis = readFacFile(*facPath)) {
-                faces = collectLightmapFaces(*vis);
-                TraceLog(
-                    LOG_INFO,
-                    "sloprad: lightmap faces=%d (from opt-in fac)",
-                    static_cast<int>(faces.size()));
-            } else {
-                std::cerr << "sloprad: failed to read " << *facPath << "\n";
-                closeGLContext();
-                return 1;
-            }
-        }
-    }
-    if (faces.empty()) {
-        faces = collectLightmapFaces(*brushes);
-        TraceLog(
-            LOG_INFO,
-            "sloprad: lightmap faces=%d (from authored brushes)",
-            static_cast<int>(faces.size()));
-    }
+    std::vector<LightmapFace> faces = collectLightmapFaces(*brushes);
+    const std::vector<LightmapFace> nodrawOcclusionFaces = collectNodrawOcclusionFaces(*brushes);
+    TraceLog(
+        LOG_INFO,
+        "sloprad: lightmap faces=%d (from authored brushes), nodraw occlusion faces=%d",
+        static_cast<int>(faces.size()),
+        static_cast<int>(nodrawOcclusionFaces.size()));
     std::fflush(stdout);
 
     auto resolveMaterial = [&assets](std::string_view materialPath) {
@@ -487,7 +506,8 @@ int main(int argc, char* argv[]) {
         cli->settings,
         lights,
         &*tree,
-        analysis.sealed);
+        analysis.sealed,
+        nodrawOcclusionFaces);
 
     const auto radPath = radDir / "static.rad";
     TraceLog(LOG_INFO, "sloprad: writing %s", radPath.string().c_str());

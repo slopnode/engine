@@ -306,6 +306,38 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
     if (tag == "sky-cube") {
         return applySkyCubeField(form, asset, error);
     }
+    if (tag == "sky-cylinder") {
+        if (!readStringField(form, asset.skyCylinderTexture)) {
+            error = {"(sky-cylinder \"path\")", form.line, form.column};
+            return false;
+        }
+        asset.skyMode = SkyboxMode::Cylinder;
+        asset.haveSkyMode = true;
+        return true;
+    }
+    if (tag == "sky-cylinder-offset") {
+        if (!readNumberField(form, 1, &asset.skyCylinderOffset)) {
+            error = {"(sky-cylinder-offset n)", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
+    if (tag == "sky-cylinder-scale") {
+        if (!readNumberField(form, 1, &asset.skyCylinderScale)) {
+            error = {"(sky-cylinder-scale n)", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
+    if (tag == "sky-cylinder-repeat") {
+        float repeat = 1.0f;
+        if (!readNumberField(form, 1, &repeat)) {
+            error = {"(sky-cylinder-repeat n)", form.line, form.column};
+            return false;
+        }
+        asset.skyCylinderRepeat = std::max(1, static_cast<int>(repeat));
+        return true;
+    }
 
     error = {"unknown material field '" + tag + "'", form.line, form.column};
     return false;
@@ -331,7 +363,7 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
         const Sexpr& field = root.list[i];
         if (field.isList() && !field.list.empty() && field.list[0].kind == SexprKind::Atom) {
             const std::string& tag = field.list[0].text;
-            if (tag == "sky-color" || tag == "sky-gradient" || tag == "sky-cube") {
+            if (tag == "sky-color" || tag == "sky-gradient" || tag == "sky-cube" || tag == "sky-cylinder") {
                 ++skyAppearanceCount;
             }
         }

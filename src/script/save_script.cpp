@@ -451,6 +451,71 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_player_collider(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_saveWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_saveWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    const CharacterMotor& motor = player.get<CharacterMotor>();
+    return s7_list(
+        sc,
+        2,
+        s7_make_real(sc, static_cast<double>(motor.radius)),
+        s7_make_real(sc, static_cast<double>(motor.height)));
+}
+
+s7_pointer g_player_set_collider(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::MapControl)) {
+        return s7_f(sc);
+    }
+    if (g_saveWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "player-set-collider", 1, args, "number");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "player-set-collider", 2, rest, "number");
+    }
+    flecs::entity player = g_saveWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+
+    const float radius = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    const float height = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+    if (!(radius > 0.0f) || !(height > 0.0f)) {
+        return s7_f(sc);
+    }
+
+    if (!g_saveWorld->has<PhysicsContext>()) {
+        return s7_f(sc);
+    }
+    PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
+    if (physics == nullptr || !physics->hasPlayer()) {
+        return s7_f(sc);
+    }
+
+    CharacterMotor resized = player.get<CharacterMotor>();
+    resized.radius = radius;
+    resized.height = height;
+    if (!physics->resizePlayerCharacter(resized)) {
+        return s7_f(sc);
+    }
+
+    CharacterMotor& motor = player.get_mut<CharacterMotor>();
+    motor.radius = radius;
+    motor.height = height;
+    return s7_t(sc);
+}
+
 s7_pointer g_player_set_control(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::MapControl)) {
         return s7_f(sc);
@@ -761,6 +826,16 @@ void bindSaveApi(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
         0,
         false,
         "(player-set-eye-height h)");
+    s7_define_function(scheme, "player-collider", g_player_collider, 0, 0, false,
+                       "(player-collider) -> (radius height)");
+    s7_define_function(
+        scheme,
+        "player-set-collider",
+        g_player_set_collider,
+        2,
+        0,
+        false,
+        "(player-set-collider radius height)");
     s7_define_function(
         scheme,
         "player-set-control",

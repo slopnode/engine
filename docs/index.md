@@ -1,8 +1,13 @@
 @mainpage Slopengine
 
-slopengine is a C++/Scheme hobby project for making first-person games. It is aimed at non-commercial use: personal experiments, learning projects, and weekend games rather than studio pipelines or commercial shipping.
+<table border=0>
+<tr>
+<td width="50%"><img src="demo-tier1.png" alt="Sprite sample points used for faux-shading, marked at the top and bottom of each sprite" style="width:100%"/><br/><center>Gen1 Demo - Wolfenstein-like</center></td>
+<td width="50%"><img src="demo-tier2.png" alt="Volumetric light probe grid visualized as points scattered through a room" style="width:100%"/><br/><center>Gen2 Demo - Doom/Duke Nukem</center></td>
+</tr>
+</table>
 
-Despite the name, it is not a large self-contained engine. It is an assembly of popular free libraries, with a thin project layer that defines how content is stored, how first-person levels are built, and how tools like Blender feed into a running game. Most of what you would expect from an "engine" (a window, drawing, physics, gameplay structure, scripting) comes from those libraries. What this repository adds is the packaging, formats, and wiring that hold the assembly together.
+slopengine is a C++/Scheme hobby project for making first-person games. It is aimed at non-commercial use: personal experiments, learning projects, and weekend games rather than studio pipelines or commercial shipping.
 
 <table width=100%>
     <tr>
@@ -50,17 +55,22 @@ Despite the name, it is not a large self-contained engine. It is an assembly of 
         <td>Settings, screenshots, and save blobs keyed by persistence.</td>
     </tr>
 </table>
+
+The engine also includes a number of tools specifically for handling level design and game assets.
+
+<table border=0>
+<tr>
+<td width="33.33%"><img src="tool-slopmap.png" alt="Sprite sample points used for faux-shading, marked at the top and bottom of each sprite" style="width:100%"/><br/><center>slopmap - utility for making 3D levels</center></td>
+<td width="33.33%"><img src="tool-slopsprite.png" alt="Volumetric light probe grid visualized as points scattered through a room" style="width:100%"/><br/><center>slopsprite - aligning and styling sprites</center></td>
+<td width="33.33%"><img src="tool-slopthing.png" alt="Volumetric light probe grid visualized as points scattered through a room" style="width:100%"/><br/><center>slopthing - help with defining things for your mods</center></td>
+</tr>
+</table>
+
 &nbsp;
 
-![Screenshot of slopdoom - created using assets from Freedoom](images/screenshot-freedoom.png)
-
+- @subpage installing
 - @subpage tutorials
-- @subpage cli
-- @subpage profiles
-- @subpage packages
-- @subpage assets
+- @subpage engine
 - @subpage tools
 - @subpage libraries
-- @subpage scriptingapi
-- @subpage dataapi
 

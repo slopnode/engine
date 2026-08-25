@@ -1,6 +1,7 @@
 #include "map/light_probes.hpp"
 
 #include "map/bsp_ray.hpp"
+#include "map/light_occlusion.hpp"
 #include "map/uv_math.hpp"
 
 #include <algorithm>
@@ -16,9 +17,150 @@ float dot3(Vector3 a, Vector3 b) {
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+Vector3 normalize3(Vector3 v) {
+    const float len = std::sqrt(dot3(v, v));
+    if (len < 1e-6f) {
+        return {0.0f, 1.0f, 0.0f};
+    }
+    return {v.x / len, v.y / len, v.z / len};
+}
+
+void buildSunBasis(Vector3 toLight, Vector3& tangentOut, Vector3& bitangentOut) {
+    const Vector3 helper = std::abs(toLight.y) < 0.999f ? Vector3{0.0f, 1.0f, 0.0f} : Vector3{1.0f, 0.0f, 0.0f};
+    const Vector3 cross1{
+        helper.y * toLight.z - helper.z * toLight.y,
+        helper.z * toLight.x - helper.x * toLight.z,
+        helper.x * toLight.y - helper.y * toLight.x,
+    };
+    tangentOut = normalize3(cross1);
+    const Vector3 cross2{
+        toLight.y * tangentOut.z - toLight.z * tangentOut.y,
+        toLight.z * tangentOut.x - toLight.x * tangentOut.z,
+        toLight.x * tangentOut.y - toLight.y * tangentOut.x,
+    };
+    bitangentOut = normalize3(cross2);
+}
+
+/** Projects a directional (sun) light into the probe's L1 basis {1, x, y, z}.
+ *  The sun is modeled as illuminating the whole hemisphere facing @p toLight at flat
+ *  radiance @p light (matching a clamped-cosine lobe), which is the least-squares-optimal
+ *  fit of a hemisphere step function against this basis: the DC term picks up half the
+ *  hemisphere's average, and the linear term along @p toLight picks up 3/4 of it. Rays in
+ *  the Monte Carlo gather above never see this contribution directly (sky faces have no
+ *  lightmap chart and correctly contribute nothing on their own), so this is added once,
+ *  analytically, per probe. */
+void addSunLobe(Vector3 coeff[4], Vector3 toLight, Vector3 light) {
+    coeff[0].x += light.x * 0.5f;
+    coeff[0].y += light.y * 0.5f;
+    coeff[0].z += light.z * 0.5f;
+    const float axis[3] = {toLight.x, toLight.y, toLight.z};
+    for (int i = 0; i < 3; ++i) {
+        coeff[i + 1].x += light.x * 0.75f * axis[i];
+        coeff[i + 1].y += light.y * 0.75f * axis[i];
+        coeff[i + 1].z += light.z * 0.75f * axis[i];
+    }
+}
+
 bool leafIsOpenAt(const BspTree& tree, Vector3 point) {
     const std::int32_t leaf = pointLeaf(tree, point);
     return leaf >= 0 && leafIsEmpty(tree, leaf);
+}
+
+int findLeafRoot(std::vector<int>& parent, int leaf) {
+    while (parent[static_cast<std::size_t>(leaf)] != leaf) {
+        parent[static_cast<std::size_t>(leaf)] =
+            parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(leaf)])];
+        leaf = parent[static_cast<std::size_t>(leaf)];
+    }
+    return leaf;
+}
+
+void unionLeafRoots(std::vector<int>& parent, std::vector<int>& rank, int a, int b) {
+    a = findLeafRoot(parent, a);
+    b = findLeafRoot(parent, b);
+    if (a == b) {
+        return;
+    }
+    if (rank[static_cast<std::size_t>(a)] < rank[static_cast<std::size_t>(b)]) {
+        std::swap(a, b);
+    }
+    parent[static_cast<std::size_t>(b)] = a;
+    if (rank[static_cast<std::size_t>(a)] == rank[static_cast<std::size_t>(b)]) {
+        rank[static_cast<std::size_t>(a)] += 1;
+    }
+}
+
+std::vector<std::uint8_t> floodMainInteriorLeaves(const BspTree& tree) {
+    const int leafCount = static_cast<int>(tree.leaves.size());
+    std::vector<std::uint8_t> reachable(static_cast<std::size_t>(std::max(leafCount, 0)), 0);
+    if (leafCount <= 0) {
+        return reachable;
+    }
+
+    std::vector<int> parent(static_cast<std::size_t>(leafCount));
+    std::vector<int> rank(static_cast<std::size_t>(leafCount), 0);
+    for (int i = 0; i < leafCount; ++i) {
+        parent[static_cast<std::size_t>(i)] = i;
+    }
+    for (const BspPortal& portal : tree.portals) {
+        if (portal.leafA < 0 || portal.leafB < 0 || portal.leafA >= leafCount || portal.leafB >= leafCount) {
+            continue;
+        }
+        unionLeafRoots(parent, rank, portal.leafA, portal.leafB);
+    }
+
+    std::unordered_map<int, float> openVolumeByRoot;
+    for (int i = 0; i < leafCount; ++i) {
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (!leafIsOpen(leaf.contents)) {
+            continue;
+        }
+        const float volume =
+            std::max(leaf.maxs.x - leaf.mins.x, 0.0f) *
+            std::max(leaf.maxs.y - leaf.mins.y, 0.0f) *
+            std::max(leaf.maxs.z - leaf.mins.z, 0.0f);
+        openVolumeByRoot[findLeafRoot(parent, i)] += volume;
+    }
+
+    int mainRoot = -1;
+    float mainVolume = -1.0f;
+    for (const auto& [root, volume] : openVolumeByRoot) {
+        if (volume > mainVolume) {
+            mainVolume = volume;
+            mainRoot = root;
+        }
+    }
+    if (mainRoot < 0) {
+        return reachable;
+    }
+
+    int openCount = 0;
+    int reachableCount = 0;
+    for (int i = 0; i < leafCount; ++i) {
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (!leafIsOpen(leaf.contents)) {
+            continue;
+        }
+        ++openCount;
+        if (findLeafRoot(parent, i) == mainRoot) {
+            reachable[static_cast<std::size_t>(i)] = 1;
+            ++reachableCount;
+        }
+    }
+    TraceLog(
+        LOG_INFO,
+        "sloprad: light probe leaf reachability open=%d reachable=%d sealedPockets=%d",
+        openCount,
+        reachableCount,
+        openCount - reachableCount);
+
+    return reachable;
+}
+
+bool leafIsReachableAt(const BspTree& tree, const std::vector<std::uint8_t>& reachableLeaves, Vector3 point) {
+    const std::int32_t leaf = pointLeaf(tree, point);
+    return leaf >= 0 && static_cast<std::size_t>(leaf) < reachableLeaves.size() &&
+        reachableLeaves[static_cast<std::size_t>(leaf)] != 0;
 }
 
 constexpr Vector3 kAxisOffsets[6] = {
@@ -181,8 +323,10 @@ Vector3 sampleChartLinearRadiance(
     const float v = dot3(point, vAxis);
     const float fu = std::clamp((u - uMin) / uSpan, 0.0f, 1.0f);
     const float fv = std::clamp((v - vMin) / vSpan, 0.0f, 1.0f);
-    const float atlasU = chart.u0 + (chart.u1 - chart.u0) * fu;
-    const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fv;
+    const float fx = chart.rotated ? fv : fu;
+    const float fy = chart.rotated ? fu : fv;
+    const float atlasU = chart.u0 + (chart.u1 - chart.u0) * fx;
+    const float atlasV = chart.v0 + (chart.v1 - chart.v0) * fy;
 
     const Image& image = atlasImages[static_cast<std::size_t>(chart.atlasIndex)];
     if (image.data == nullptr || image.width <= 0 || image.height <= 0) {
@@ -208,7 +352,10 @@ Vector3 sampleChartLinearRadiance(
 
 } // namespace
 
-std::vector<Vector3> placeCoarseLightProbes(const BspTree& tree, float cellSize) {
+std::vector<Vector3> placeCoarseLightProbes(
+    const BspTree& tree,
+    float cellSize,
+    const std::vector<std::uint8_t>& reachableLeaves) {
     std::vector<Vector3> positions;
     if (tree.root < 0) {
         return positions;
@@ -220,14 +367,22 @@ std::vector<Vector3> placeCoarseLightProbes(const BspTree& tree, float cellSize)
                 if (!grid.isOpen(ix, iy, iz)) {
                     continue;
                 }
-                positions.push_back(nudgeAwayFromSolid(tree, grid.center(ix, iy, iz), grid.cellSize));
+                const Vector3 center = grid.center(ix, iy, iz);
+                if (!leafIsReachableAt(tree, reachableLeaves, center)) {
+                    continue;
+                }
+                positions.push_back(nudgeAwayFromSolid(tree, center, grid.cellSize));
             }
         }
     }
     return positions;
 }
 
-std::vector<Vector3> placeFineLightProbes(const BspTree& tree, float cellSize, float fineCellSize) {
+std::vector<Vector3> placeFineLightProbes(
+    const BspTree& tree,
+    float cellSize,
+    float fineCellSize,
+    const std::vector<std::uint8_t>& reachableLeaves) {
     std::vector<Vector3> positions;
     if (tree.root < 0) {
         return positions;
@@ -259,7 +414,7 @@ std::vector<Vector3> placeFineLightProbes(const BspTree& tree, float cellSize, f
                                 cellMin.y + (static_cast<float>(sy) + 0.5f) * fine,
                                 cellMin.z + (static_cast<float>(sz) + 0.5f) * fine,
                             };
-                            if (leafIsOpenAt(tree, sub)) {
+                            if (leafIsOpenAt(tree, sub) && leafIsReachableAt(tree, reachableLeaves, sub)) {
                                 positions.push_back(nudgeAwayFromSolid(tree, sub, fine));
                             }
                         }
@@ -279,7 +434,12 @@ std::vector<LightProbe> bakeLightProbes(
     const RadFile& rad,
     const std::vector<Image>& atlasImages,
     Vector3 ambientFallback,
-    int sampleCount) {
+    int sampleCount,
+    const std::vector<RadiosityLight>& lights,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
     std::vector<LightProbe> result;
     result.reserve(positions.size());
     if (positions.empty() || cellSize <= 0.0f) {
@@ -326,6 +486,47 @@ std::vector<LightProbe> bakeLightProbes(
             }
         }
 
+        for (const RadiosityLight& light : lights) {
+            if (light.kind != RadiosityLightKind::Sun) {
+                continue;
+            }
+            const float forwardLen = std::sqrt(dot3(light.direction, light.direction));
+            if (forwardLen < 1e-6f) {
+                continue;
+            }
+            const Vector3 toLight{
+                -light.direction.x / forwardLen,
+                -light.direction.y / forwardLen,
+                -light.direction.z / forwardLen,
+            };
+            Vector3 tangent{};
+            Vector3 bitangent{};
+            buildSunBasis(toLight, tangent, bitangent);
+            Vector3 sunTint{1.0f, 1.0f, 1.0f};
+            const float visibility = sunSkyVisibilityWithAlphaOcclusion(
+                position,
+                -1,
+                toLight,
+                tangent,
+                bitangent,
+                sunParams,
+                sceneBvh,
+                faceSky,
+                faceTransparent,
+                faces,
+                materialCache,
+                &sunTint);
+            if (visibility <= 0.0f) {
+                continue;
+            }
+            const Vector3 sunRadiance{
+                light.color.x * light.intensity * visibility * sunTint.x,
+                light.color.y * light.intensity * visibility * sunTint.y,
+                light.color.z * light.intensity * visibility * sunTint.z,
+            };
+            addSunLobe(coeff, toLight, sunRadiance);
+        }
+
         LightProbe probe;
         probe.cellX = static_cast<std::int32_t>(std::lround(position.x / cellSize));
         probe.cellY = static_cast<std::int32_t>(std::lround(position.y / cellSize));
@@ -346,14 +547,21 @@ LightProbeBakeResult bakeLightProbeGrids(
     const RadFile& rad,
     const std::vector<Image>& atlasImages,
     Vector3 ambientFallback,
-    const LightProbeBakeSettings& settings) {
+    const LightProbeBakeSettings& settings,
+    const std::vector<RadiosityLight>& lights,
+    const std::vector<char>& faceSky,
+    const std::vector<char>& faceTransparent,
+    const SunShadowSoftnessParams& sunParams,
+    const std::unordered_map<std::string, MaterialBakeInfo>& materialCache) {
     LightProbeBakeResult result;
     result.coarse.cellSize = std::max(settings.cellSize, 0.25f);
     result.fine.cellSize = std::clamp(settings.fineCellSize, 0.1f, result.coarse.cellSize);
 
-    const std::vector<Vector3> coarsePositions = placeCoarseLightProbes(tree, result.coarse.cellSize);
+    const std::vector<std::uint8_t> reachableLeaves = floodMainInteriorLeaves(tree);
+    const std::vector<Vector3> coarsePositions =
+        placeCoarseLightProbes(tree, result.coarse.cellSize, reachableLeaves);
     const std::vector<Vector3> finePositions =
-        placeFineLightProbes(tree, result.coarse.cellSize, result.fine.cellSize);
+        placeFineLightProbes(tree, result.coarse.cellSize, result.fine.cellSize, reachableLeaves);
 
     result.coarse.probes = bakeLightProbes(
         coarsePositions,
@@ -363,7 +571,12 @@ LightProbeBakeResult bakeLightProbeGrids(
         rad,
         atlasImages,
         ambientFallback,
-        settings.sampleCount);
+        settings.sampleCount,
+        lights,
+        faceSky,
+        faceTransparent,
+        sunParams,
+        materialCache);
     result.fine.probes = bakeLightProbes(
         finePositions,
         result.fine.cellSize,
@@ -372,7 +585,12 @@ LightProbeBakeResult bakeLightProbeGrids(
         rad,
         atlasImages,
         ambientFallback,
-        settings.sampleCount);
+        settings.sampleCount,
+        lights,
+        faceSky,
+        faceTransparent,
+        sunParams,
+        materialCache);
 
     TraceLog(
         LOG_INFO,

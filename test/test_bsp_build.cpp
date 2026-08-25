@@ -18,7 +18,7 @@ void runBspBuildTests() {
         CHECK(tree.root >= 0);
         CHECK_FALSE(tree.nodes.empty());
         CHECK_FALSE(tree.leaves.empty());
-        CHECK_FALSE(tree.portals.empty());
+        CHECK(tree.portals.empty());
 
         const std::int32_t interiorLeaf = pointLeaf(tree, {0.0f, 1.25f, 0.0f});
         CHECK(interiorLeaf >= 0);
@@ -119,6 +119,40 @@ void runBspBuildTests() {
         CHECK_FALSE(hasSurface("inner/west"));
         CHECK_FALSE(hasSurface("inner/top"));
         CHECK_FALSE(hasSurface("inner/bottom"));
+    }
+
+    {
+        const std::vector<Brush> brushes = mapfixtures::sealedHollowRoomWithStairs();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        CHECK(tree.root >= 0);
+        CHECK(mapfixtures::countOpenLeaves(tree) > 1);
+        CHECK_FALSE(tree.portals.empty());
+        for (const BspPortal& portal : tree.portals) {
+            CHECK(leafIsEmpty(tree, portal.leafA) || (tree.leaves[static_cast<std::size_t>(portal.leafA)].contents & BspContents::Door) != 0);
+            CHECK(leafIsEmpty(tree, portal.leafB) || (tree.leaves[static_cast<std::size_t>(portal.leafB)].contents & BspContents::Door) != 0);
+        }
+    }
+
+    {
+        const std::vector<Brush> brushes = mapfixtures::sealedHollowRoomWithStairs();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        CHECK(analysis.sealed);
+
+        const int interiorOpenLeaves = mapfixtures::countInteriorOpenLeaves(tree, analysis);
+        CHECK(interiorOpenLeaves > 1);
+
+        int exteriorLeafCount = 0;
+        for (std::uint8_t bit : analysis.exteriorEmpty) {
+            if (bit != 0) {
+                ++exteriorLeafCount;
+            }
+        }
+        // Exterior void covers far more volume than the stairwell interior
+        // but, once merged, should not carry more leaves than it: pre-merge
+        // it split one leaf per stair-plane crossing extended out into open
+        // space, well past the interior's own leaf count.
+        CHECK(exteriorLeafCount <= interiorOpenLeaves);
     }
 }
 

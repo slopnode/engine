@@ -6,7 +6,6 @@
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
-#include "map/fac.hpp"
 #include "map/pvs.hpp"
 #include "particles/particle_sim.hpp"
 #include "render/animation_player.hpp"
@@ -1059,32 +1058,45 @@ std::string drawWorldTransparentPass(
             Vector3DotProduct(mesh.facePlane.normal, otherPos) - mesh.facePlane.d;
         return (sideCamera > 0.0f) != (sideOther > 0.0f);
     };
+    // Resolve each mesh's sort depth once, up front, instead of recomputing it inside the
+    // comparator against whichever other item it's currently being weighed against. A depth
+    // that depends on the specific pairing isn't a fixed property of the item — the same face
+    // can come out "farther than sprite A" and "nearer than sprite B" while A also sorts farther
+    // than B, a cycle no comparator can resolve consistently. std::sort assumes a strict weak
+    // ordering; a cyclic one just makes the result depend on the pivot/partition choices, so the
+    // draw order flips based on camera angle and whatever else happens to be in the list — the
+    // intermittent misordering seen when a few sprites stand near the same transparent surface.
+    for (TransparentDrawItem& mesh : drawList) {
+        if (mesh.kind != TransparentDrawKind::MapMesh) {
+            continue;
+        }
+        float nearest = mesh.viewDepth;
+        bool haveNearest = false;
+        for (const TransparentDrawItem& other : drawList) {
+            if (other.kind == TransparentDrawKind::MapMesh) {
+                continue;
+            }
+            const Vector3 otherPos = itemPosition(other);
+            if (!meshCanOcclude(mesh, lens.camera.position, otherPos)) {
+                continue;
+            }
+            const float candidate = boundsNearestPointViewDepth(
+                mesh.worldBounds, otherPos, lens.camera.position, camForward);
+            if (!haveNearest || candidate < nearest) {
+                nearest = candidate;
+                haveNearest = true;
+            }
+        }
+        mesh.viewDepth = nearest;
+    }
     std::sort(
         drawList.begin(),
         drawList.end(),
-        [&](const TransparentDrawItem& a, const TransparentDrawItem& b) {
-            float depthA = a.viewDepth;
-            float depthB = b.viewDepth;
-            if (a.kind == TransparentDrawKind::MapMesh &&
-                b.kind != TransparentDrawKind::MapMesh) {
-                const Vector3 otherPos = itemPosition(b);
-                depthA = meshCanOcclude(a, lens.camera.position, otherPos)
-                    ? boundsNearestPointViewDepth(
-                          a.worldBounds, otherPos, lens.camera.position, camForward)
-                    : depthB + 1.0f;
-            } else if (
-                b.kind == TransparentDrawKind::MapMesh &&
-                a.kind != TransparentDrawKind::MapMesh) {
-                const Vector3 otherPos = itemPosition(a);
-                depthB = meshCanOcclude(b, lens.camera.position, otherPos)
-                    ? boundsNearestPointViewDepth(
-                          b.worldBounds, otherPos, lens.camera.position, camForward)
-                    : depthA + 1.0f;
-            }
-            if (depthA > depthB) {
+        [](const TransparentDrawItem& a, const TransparentDrawItem& b) {
+            if (a.viewDepth > b.viewDepth) {
                 return true;
             }
-            if (depthB > depthA) {
+            if (b.viewDepth > a.viewDepth) {
                 return false;
             }
             return a.sortLayer < b.sortLayer;
@@ -1092,6 +1104,7 @@ std::string drawWorldTransparentPass(
 
     rlDrawRenderBatchActive();
     rlDisableDepthMask();
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
     BlendMode activeBlend = BLEND_ALPHA;
     BeginBlendMode(activeBlend);
 
@@ -1218,13 +1231,16 @@ std::string drawWorldTransparentPass(
     }
     rlDrawRenderBatchActive();
     EndBlendMode();
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     rlEnableDepthMask();
 
     if (world.has<DebugUiState>()) {
+        const DebugUiState& debugUi = world.get<DebugUiState>();
+        drawLightProbeDebugOverlays(lighting, debugUi, lens, assets, context.worldSpriteQuery);
         spriteAimStatus = drawSpriteDebugOverlays(
             lens,
             assets,
-            world.get<DebugUiState>(),
+            debugUi,
             context.worldSpriteQuery);
     }
     return spriteAimStatus;
@@ -1253,9 +1269,6 @@ void drawWorldDebugOverlays(flecs::world& world) {
                 currentLeaf = pointLeaf(mapBsp.tree, camera.get<Lens>().camera.position);
             }
             drawBspDebugOverlays(mapBsp.tree, debugUi, currentLeaf);
-        }
-        if (world.has<MapFac>()) {
-            drawFacDebugOverlays(world.get<MapFac>().fac, debugUi, currentLeaf);
         }
     }
 

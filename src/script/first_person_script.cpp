@@ -40,7 +40,7 @@ Matrix makeTrsMatrix(Vector3 position, Quaternion rotation, Vector3 scale) {
     const Matrix s = MatrixScale(scale.x, scale.y, scale.z);
     const Matrix r = QuaternionToMatrix(rotation);
     const Matrix t = MatrixTranslate(position.x, position.y, position.z);
-    return MatrixMultiply(t, MatrixMultiply(r, s));
+    return MatrixMultiply(s, MatrixMultiply(r, t));
 }
 
 flecs::entity socketByName(flecs::world& world, const FirstPersonScene& scene, const char* name) {

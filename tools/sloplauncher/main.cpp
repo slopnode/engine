@@ -4,13 +4,20 @@
 #include "package_details_tab.hpp"
 #include "packages_panel.hpp"
 
+#include "core/log.hpp"
+#include "core/user_paths.hpp"
+
 #include "imgui.h"
 #include "rlImGui.h"
 
 #include <raylib.h>
 
+#include <filesystem>
+#include <string>
+
 int main() {
-    SetTraceLogLevel(LOG_INFO);
+    slopengine::Log::init(slopengine::LogLevel::Info);
+    slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1100, 720, "slopengine launcher");
     if (!IsWindowReady()) {
@@ -20,6 +27,14 @@ int main() {
     SetTargetFPS(60);
 
     rlImGuiSetup(true);
+
+    // ImGui keeps the pointer, not a copy, so the backing string must outlive the context.
+    static std::string iniPath;
+    const std::filesystem::path iniFsPath = slopengine::userImguiIniPath("sloplauncher");
+    std::error_code ec;
+    std::filesystem::create_directories(iniFsPath.parent_path(), ec);
+    iniPath = iniFsPath.string();
+    ImGui::GetIO().IniFilename = iniPath.c_str();
 
     sloplauncher::LauncherState state;
     state.init();

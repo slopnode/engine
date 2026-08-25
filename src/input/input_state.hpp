@@ -15,6 +15,7 @@ struct InputState {
     std::vector<char> actionPressed;
     std::vector<char> actionDown;
     Vector2 mouseDelta{};
+    int mouseCaptureGraceFrames = 0;
 
     void resize(int count) {
         actionPressed.assign(static_cast<std::size_t>(count), 0);

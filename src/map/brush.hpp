@@ -54,6 +54,13 @@ enum class DoorMotion {
     Swing,
 };
 
+/** Rotation axis for a Swing door, evaluated in the brush's closed-pose local space. */
+enum class DoorAxis {
+    Pitch, /**< Tilts around the local X axis, e.g. a hatch/ramp rotating up. */
+    Yaw, /**< Rotates around the local vertical axis, e.g. a standard swinging door. */
+    Roll, /**< Rotates around the local Z axis. */
+};
+
 /** Underwater screen-effect metadata when role is Water. Read by the runtime
  *  into a MapWaterVolumes entry; unauthored fields keep their engine defaults. */
 struct BrushWater {
@@ -74,13 +81,17 @@ struct BrushDoor {
     bool haveAutoClose = false;
     float angle = 1.5707963267948966f;
     bool haveAngle = false;
+    DoorAxis axis = DoorAxis::Yaw;
+    bool haveAxis = false;
     float travel = 0.0f;
     bool haveTravel = false;
     std::string hingeThingId;
     std::string group;
-    std::string prompt = "Open";
-    bool havePrompt = false;
     HandlerBinding canUse;
+    std::string openSound;
+    std::string closeSound;
+    float soundVolume = 1.0f;
+    bool haveSoundVolume = false;
 };
 
 /** One polygonal face of a convex brush. */
@@ -119,6 +130,8 @@ const char* brushRoleName(BrushRole role);
 bool parseBrushRoleName(std::string_view name, BrushRole& out);
 const char* doorMotionName(DoorMotion motion);
 bool parseDoorMotionName(std::string_view name, DoorMotion& out);
+const char* doorAxisName(DoorAxis axis);
+bool parseDoorAxisName(std::string_view name, DoorAxis& out);
 bool brushRoleContributesSplits(BrushRole role);
 bool brushRoleSeals(BrushRole role);
 bool brushRoleEmitsVisFaces(BrushRole role);
@@ -160,6 +173,13 @@ Brush makeBrushBox(
     const std::string& defaultMaterial,
     const std::vector<std::pair<BrushBoxSide, BrushFace>>& faceOverrides,
     BrushRole role = BrushRole::Hull);
+
+/** If @p brush's current faces geometrically form an axis-aligned box
+ *  (regardless of its current @c box flag), rebuilds it via makeBrushBox
+ *  (preserving id/role/blocks/door/water and each face's material/uv/nodraw
+ *  by side) and sets @c box = true. Leaves @p brush untouched and returns
+ *  false otherwise. */
+bool reclassifyBrushAsBox(Brush& brush);
 
 /** Builds a convex brush from faces, or nullopt with @p errorOut. */
 std::optional<Brush> makeBrushConvex(

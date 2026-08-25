@@ -3,7 +3,7 @@
 #include "assets/asset_store.hpp"
 #include "map/bsp.hpp"
 #include "map/graph.hpp"
-#include "map/fac.hpp"
+#include "map/light_sample.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/debug_line_pool.hpp"
@@ -21,11 +21,16 @@ void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPla
 void drawGraphDebugOverlays(const GraphDocument& document);
 void drawNavDebugOverlays(flecs::world& world, const DebugUiState& debugUi);
 void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std::int32_t currentLeaf);
-void drawFacDebugOverlays(const FacFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf);
 std::string drawSpriteDebugOverlays(
     const Lens& lens,
     AssetStore& assets,
     const DebugUiState& debugUi,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery);
+void drawLightProbeDebugOverlays(
+    const MapLighting* lighting,
+    const DebugUiState& debugUi,
+    const Lens& lens,
+    AssetStore& assets,
     flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery);
 
 }

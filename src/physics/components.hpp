@@ -32,6 +32,20 @@ struct CharacterMotor {
     float swimSpeed = 3.0f;  /**< Horizontal move speed while submerged past the swim threshold. */
     float waterDrag = 1.0f;  /**< Vertical velocity damping rate (1/s) while swimming. */
     float buoyancy = 2.0f;   /**< Upward accel (m/s^2) at full submersion; blended with gravity by submersion fraction. */
+    float waterExitReach = 0.6f;  /**< Max reach (m) of the water-exit ledge probe, both for how far
+                                        above the true water surface a lip can still be detected and
+                                        how far below a found lip the standable floor can be. Also
+                                        bounds how close to the surface the character must be before
+                                        exiting is attempted at all -- deeper than this, no ledge is
+                                        ever searched for. */
+    float waterExitSpeed = 3.5f;  /**< Capped speed (m/s) at which a character is steered toward a
+                                        confirmed water-exit ledge, once found. */
+    float submersion = 0.0f;      /**< Runtime state: fraction (0..1) of body height inside water,
+                                        refreshed each physics tick by the PhysicsStep system. Not
+                                        thing-def config -- read-only from script's perspective. */
+    bool nearWaterSurface = false; /**< Runtime state: mirrors the per-tick water-exit-ledge probe
+                                         (only meaningful while submersion > 0); refreshed alongside
+                                         submersion. */
     CharacterHull hull = CharacterHull::Capsule;
     CharacterMoveMode moveMode = CharacterMoveMode::Slide;
 };

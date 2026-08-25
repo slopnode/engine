@@ -6,10 +6,10 @@ namespace slopengine {
 
 void updateTransform(flecs::entity entity, LocalTransformation& local, GlobalTransformation& global) {
     const Matrix mLocal = MatrixMultiply(
-        MatrixTranslate(local.position.x, local.position.y, local.position.z),
+        MatrixScale(local.scale.x, local.scale.y, local.scale.z),
         MatrixMultiply(
             QuaternionToMatrix(local.rotation),
-            MatrixScale(local.scale.x, local.scale.y, local.scale.z)));
+            MatrixTranslate(local.position.x, local.position.y, local.position.z)));
 
     if (entity.parent().is_valid()) {
         const flecs::entity parent = entity.parent();

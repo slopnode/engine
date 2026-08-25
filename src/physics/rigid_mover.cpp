@@ -1,5 +1,6 @@
 #include "physics/rigid_mover.hpp"
 
+#include "audio/audio_module.hpp"
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "physics/components.hpp"
@@ -148,6 +149,21 @@ void syncKinematic(PhysicsWorld* physics, flecs::entity entity, RigidMover& move
         dt);
 }
 
+void playMoverSound(flecs::world& world, const Vector3& pos, const std::string& sound, float volume) {
+    if (sound.empty() || !world.has<AudioContext>()) {
+        return;
+    }
+    AudioContext& ctx = world.get_mut<AudioContext>();
+    if (ctx.world == nullptr || ctx.assets == nullptr || !ctx.world->ready()) {
+        return;
+    }
+    if (const AudioDef* def = ctx.assets->getAudioDef(nullptr, sound)) {
+        ctx.world->playAudioDef3d(*ctx.assets, sound, *def, pos.x, pos.y, pos.z, volume);
+        return;
+    }
+    ctx.world->playSound3d(*ctx.assets, sound, pos.x, pos.y, pos.z, volume);
+}
+
 bool requestTarget(flecs::entity entity, float target) {
     if (!entity.is_valid() || !entity.has<RigidMover>()) {
         return false;
@@ -261,6 +277,7 @@ void moverApplyState(flecs::entity entity, bool open, float progress, bool setLo
     RigidMover& mover = entity.get_mut<RigidMover>();
     mover.progress = std::clamp(progress, 0.0f, 1.0f);
     mover.target = open ? 1.0f : 0.0f;
+    mover.lastTarget = mover.target;
     if (open && mover.progress < 1.0f && std::fabs(mover.progress - 1.0f) < 1.0e-4f) {
         mover.progress = 1.0f;
     }
@@ -303,6 +320,7 @@ void registerRigidMoverSystem(flecs::world& world) {
             }
 
             const float dt = GetFrameTime();
+            const float prevTarget = mover.lastTarget;
             tickRigidMover(mover, dt);
 
             Vector3 pos{};
@@ -310,6 +328,16 @@ void registerRigidMoverSystem(flecs::world& world) {
             computeMoverPose(mover, mover.progress, pos, rot);
             local.position = pos;
             local.rotation = rot;
+
+            if (mover.target != prevTarget) {
+                mover.lastTarget = mover.target;
+                playMoverSound(
+                    world,
+                    pos,
+                    mover.target >= 0.5f ? mover.openSound : mover.closeSound,
+                    mover.soundVolume);
+            }
+
             const float physDt = (dt > 1.0e-4f && dt <= 0.25f) ? dt : (1.0f / 60.0f);
             syncKinematic(physics, entity, mover, physDt);
         });
@@ -406,6 +434,7 @@ void registerRigidMoverSystem(flecs::world& world) {
         });
 
     world.system<RigidMover, Model3D, GlobalTransformation>("RigidMoverRadTint")
+        .without<BakedLightmapModel>()
         .kind(flecs::PreUpdate)
         .each([](flecs::entity entity, RigidMover& mover, Model3D& model, const GlobalTransformation& global) {
             flecs::world world = entity.world();

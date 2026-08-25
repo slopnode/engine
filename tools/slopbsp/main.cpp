@@ -1,10 +1,10 @@
 #include "assets/asset_store.hpp"
+#include "core/log.hpp"
 #include "game/app_config.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_script.hpp"
-#include "map/fac.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -20,7 +20,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    Log::init(config->verbose ? LogLevel::Debug : LogLevel::Info);
+    Log::addDefaultConsoleSink();
     AssetStore assets(*config);
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
@@ -88,15 +89,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const FacBuildResult vis = buildVisibleFaces(tree, analysis, *brushes);
     TraceLog(
         LOG_INFO,
-        "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d visibleFaces=%d inferredNodraw=%d",
+        "slopbsp: sealed exteriorEmpty=%d interiorEmpty=%d",
         exteriorEmpty,
-        interiorEmpty,
-        static_cast<int>(vis.fac.faces.size()),
-        static_cast<int>(vis.inferredNodrawFaceIds.size()));
-    TraceLog(LOG_INFO, "slopbsp: slopfac is optional (authored faces default; run slopfac to auto-cull)");
+        interiorEmpty);
     for (const std::string& warning : analysis.detailOutsideWarnings) {
         TraceLog(LOG_WARNING, "slopbsp: %s", warning.c_str());
     }

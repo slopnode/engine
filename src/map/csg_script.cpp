@@ -14,8 +14,6 @@
 #include "map/map_meta.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/prefab.hpp"
-#include "map/fac.hpp"
-#include "map/fac_io.hpp"
 #include "map/pvs_io.hpp"
 #include "map/things_script.hpp"
 
@@ -282,6 +280,13 @@ s7_pointer g_angle(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "angle", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_axis(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "axis", 1, args, "pitch|yaw|roll");
+    }
+    return makeTaggedList(sc, "axis", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_hinge(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "hinge", 1, args, "thing-id");
@@ -321,6 +326,27 @@ s7_pointer g_door(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "door", args);
 }
 
+s7_pointer g_open_sound(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "open-sound", 1, args, "path");
+    }
+    return makeTaggedList(sc, "open-sound", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_close_sound(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "close-sound", 1, args, "path");
+    }
+    return makeTaggedList(sc, "close-sound", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
+s7_pointer g_sound_volume(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "sound-volume", 1, args, "volume");
+    }
+    return makeTaggedList(sc, "sound-volume", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
     BrushDoor door{};
     for (s7_pointer cursor = rest; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
@@ -350,18 +376,30 @@ bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
         } else if (std::strcmp(tag, "travel") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
             door.travel = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
             door.haveTravel = true;
+        } else if (std::strcmp(tag, "axis") == 0 && s7_is_pair(args)) {
+            std::string name;
+            if (readString(sc, s7_car(args), name)) {
+                DoorAxis axis = DoorAxis::Yaw;
+                if (parseDoorAxisName(name, axis)) {
+                    door.axis = axis;
+                    door.haveAxis = true;
+                }
+            }
         } else if (std::strcmp(tag, "hinge") == 0 && s7_is_pair(args)) {
             readString(sc, s7_car(args), door.hingeThingId);
         } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(args)) {
             readString(sc, s7_car(args), door.group);
-        } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(args)) {
-            if (readString(sc, s7_car(args), door.prompt)) {
-                door.havePrompt = true;
-            }
         } else if (std::strcmp(tag, "can-use") == 0 && s7_is_pair(args)) {
             if (parseHandlerBinding(sc, args, door.canUse)) {
                 mapHandlerRegistry().refineBinding(door.canUse, MapHandlerKind::CanUse);
             }
+        } else if (std::strcmp(tag, "open-sound") == 0 && s7_is_pair(args)) {
+            readString(sc, s7_car(args), door.openSound);
+        } else if (std::strcmp(tag, "close-sound") == 0 && s7_is_pair(args)) {
+            readString(sc, s7_car(args), door.closeSound);
+        } else if (std::strcmp(tag, "sound-volume") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
+            door.soundVolume = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+            door.haveSoundVolume = true;
         }
     }
     out = std::move(door);
@@ -1051,11 +1089,15 @@ void bindCsgApi(s7_scheme* sc) {
     s7_define_function(sc, "motion", g_motion, 1, 0, false, "(motion raise|slide|swing)");
     s7_define_function(sc, "travel", g_travel, 1, 0, false, "(travel distance)");
     s7_define_function(sc, "angle", g_angle, 1, 0, false, "(angle radians)");
+    s7_define_function(sc, "axis", g_axis, 1, 0, false, "(axis pitch|yaw|roll)");
     s7_define_function(sc, "hinge", g_hinge, 1, 0, false, "(hinge thing-id)");
     s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt string)");
     s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
     s7_define_function(sc, "auto-close", g_auto_close, 1, 0, false, "(auto-close seconds)");
+    s7_define_function(sc, "open-sound", g_open_sound, 1, 0, false, "(open-sound path)");
+    s7_define_function(sc, "close-sound", g_close_sound, 1, 0, false, "(close-sound path)");
+    s7_define_function(sc, "sound-volume", g_sound_volume, 1, 0, false, "(sound-volume volume)");
     s7_define_function(sc, "door", g_door, 0, 0, true, "(door clauses...)");
     s7_define_function(sc, "tint", g_tint, 3, 0, false, "(tint r g b)");
     s7_define_function(sc, "wobble", g_wobble, 1, 0, false, "(wobble amount)");
@@ -1411,31 +1453,6 @@ std::optional<LoadedMap> loadAndCompileMap(
         TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
     }
 
-    FacFile fac{};
-    FacFile doorFac{};
-    bool haveFac = false;
-    if (assets.hasMapFac(virtualPath)) {
-        if (const auto facPath = assets.resolvePath(AssetKind::MapFac, virtualPath)) {
-            if (auto loadedFac = readFacFile(*facPath)) {
-                fac = std::move(*loadedFac);
-                haveFac = true;
-                doorFac = extractFacFacesForMoverBrushes(fac, moverBrushIds);
-                eraseFacFacesForMoverBrushes(fac, moverBrushIds);
-                TraceLog(
-                    LOG_INFO,
-                    "MAP: loaded opt-in fac faces=%d",
-                    static_cast<int>(fac.faces.size()));
-            } else {
-                TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.fac", virtualPath.c_str());
-            }
-        }
-    }
-    if (!haveFac) {
-        TraceLog(
-            LOG_INFO,
-            "MAP: using authored brush faces (explicit nodraw only; run slopfac for auto-cull)");
-    }
-
     PvsFile pvs{};
     if (assets.hasMapVis(virtualPath)) {
         if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
@@ -1567,7 +1584,7 @@ std::optional<LoadedMap> loadAndCompileMap(
     const auto resolveUv =
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
     std::vector<Brush> staticBrushes;
-    if (!haveFac && !moverBrushIds.empty()) {
+    if (!moverBrushIds.empty()) {
         staticBrushes.reserve(brushes->size());
         for (const Brush& brush : *brushes) {
             if (moverBrushIds.count(brush.id) == 0) {
@@ -1587,12 +1604,10 @@ std::optional<LoadedMap> loadAndCompileMap(
         }
     }
 
-    CsgCompileResult compiled = haveFac
-        ? compileVisibleFacesToGeo(fac, resolveUv, lightmaps)
-        : compileBrushesToGeo(
-              staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
-              resolveUv,
-              lightmaps);
+    CsgCompileResult compiled = compileBrushesToGeo(
+        staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+        resolveUv,
+        lightmaps);
 
     // Batch same-material static geometry into fewer, larger draw calls.
     // Transparent faces stay unmerged (per-mesh back-to-front sort in the
@@ -1611,8 +1626,6 @@ std::optional<LoadedMap> loadAndCompileMap(
                '|' + (primitive.twoSided ? "1" : "0");
     });
 
-    result.fac = std::move(fac);
-    result.doorFac = std::move(doorFac);
     result.pvs = std::move(pvs);
 
     Model model = buildModelFromGeo(

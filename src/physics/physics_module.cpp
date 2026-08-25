@@ -51,6 +51,35 @@ float computeSubmersion(const BspTree& tree, JPH::RVec3 feetPos, const Character
     return static_cast<float>(wet) / static_cast<float>(kSamples);
 }
 
+/** True if a water surface (a Water-content leaf giving way to a non-water leaf) exists within
+ *  motor.waterExitReach above the top of the character's body. This is the gate that lets water-exit
+ *  assistance run only near an actual shoreline/lip -- never arbitrarily deep underwater, where a
+ *  vertical wall should just block the swimmer like any other obstacle. Scanned in fine steps (not
+ *  the coarse 5-point sampling computeSubmersion uses) so a lip only centimeters above the water line
+ *  is still found reliably. */
+bool computeNearWaterSurface(const BspTree& tree, JPH::RVec3 feetPos, const CharacterMotor& motor) {
+    constexpr float kScanStep = 0.03f;
+    const float totalHeight = characterTotalHeight(motor);
+    const float reach = motor.waterExitReach > 0.0f ? motor.waterExitReach : 0.5f;
+    const float baseX = static_cast<float>(feetPos.GetX());
+    const float baseY = static_cast<float>(feetPos.GetY());
+    const float baseZ = static_cast<float>(feetPos.GetZ());
+    const float top = baseY + totalHeight + reach;
+
+    bool wasWet = false;
+    for (float y = baseY - kScanStep; y <= top; y += kScanStep) {
+        const Vector3 sample{baseX, y, baseZ};
+        const std::int32_t leaf = pointLeaf(tree, sample);
+        const bool wet =
+            leaf >= 0 && (tree.leaves[static_cast<std::size_t>(leaf)].contents & BspContents::Water) != 0;
+        if (wasWet && !wet) {
+            return true;
+        }
+        wasWet = wet;
+    }
+    return false;
+}
+
 Vector3 forwardFromYawPitch(float yaw, float pitch) {
     const float cosPitch = std::cos(pitch);
     return Vector3Normalize({
@@ -268,9 +297,16 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 step.motor = &motor;
                 step.noclip = entity.has<PlayerCamera>() && playerNoclip;
                 if (mapBsp != nullptr) {
-                    step.submersion =
-                        computeSubmersion(mapBsp->tree, physics.world->characterPosition(id), motor);
+                    const JPH::RVec3 pos = physics.world->characterPosition(id);
+                    step.submersion = computeSubmersion(mapBsp->tree, pos, motor);
+                    if (step.submersion > 0.0f) {
+                        step.nearWaterSurface = computeNearWaterSurface(mapBsp->tree, pos, motor);
+                    }
                 }
+                // Mirror onto the component so script (e.g. actor-submerged?) can read it --
+                // CharacterStep itself is a transient, physics-internal scratch struct.
+                motor.submersion = step.submersion;
+                motor.nearWaterSurface = step.nearWaterSurface;
                 steps.push_back(step);
             });
 
@@ -346,6 +382,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             });
 
             world.each([&](flecs::entity triggerEntity, TriggerVolume& volume, const LocalTransformation& local) {
+                if (volume.once && volume.fired) {
+                    return;
+                }
+
                 const Aabb volumeBounds = triggerAabb(local.position, volume.size);
                 const std::string thingId = entityIdString(triggerEntity);
 
@@ -370,6 +410,10 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                             thingId,
                             entityIdString(candidate.entity),
                             ScriptScope::World);
+                        if (volume.once) {
+                            volume.fired = true;
+                            break;
+                        }
                     }
                 }
 

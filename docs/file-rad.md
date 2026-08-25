@@ -1,15 +1,15 @@
 @page rad (.rad) Radiosity
 
-Magic 0x31444152 (RAD1)
+Magic 0x31444152 (RAD1), version 6 (readable back to version 2).
 
-Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match FAC fragment ids. Strings in this file are inline length-prefixed (no trailing string table).
+Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match authored brush face ids. Strings in this file are inline length-prefixed (no trailing string table).
 
 # Header {#rad-header}
 
 | Field | Type | Notes |
 |-------|------|-------|
 | magic | u32 | 0x31444152 |
-| version | u32 | 2 |
+| version | u32 | 6 (or 5, 4, 3, 2) |
 | luxelsPerMeter | f32 | Nominal bake density |
 
 # Atlases {#atlases}
@@ -26,6 +26,7 @@ Each atlas:
 | texturePath | string | Virtual path stem for the PNG |
 | width | u32 |  |
 | height | u32 |  |
+| encoding | u32 | 0 = Ldr (legacy Reinhard-baked RGB), 1 = Rgbe (HDR shared-exponent linear); present only when version >= 3, else Ldr |
 
 # Charts {#charts}
 
@@ -38,8 +39,8 @@ Each chart:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| faceIndex | u32 | Index into the VIS face list |
-| faceId | string | VIS fragment id |
+| faceIndex | u32 | Index into the baked face list |
+| faceId | string | Authored brush face id |
 | atlasIndex | u32 |  |
 | luxelWidth | u32 |  |
 | luxelHeight | u32 |  |
@@ -49,6 +50,34 @@ Each chart:
 | v0 | f32 |  |
 | u1 | f32 |  |
 | v1 | f32 |  |
+| groupUMin | f32 | Bounds of the coplanar face group this chart belongs to; present only when version >= 4 |
+| groupUMax | f32 | Present only when version >= 4 |
+| groupVMin | f32 | Present only when version >= 4 |
+| groupVMax | f32 | Present only when version >= 4 |
+| rotated | bool | Whether the chart is rotated 90° in the atlas; present only when version >= 6, else false |
+
+# Light probe grids {#light-probe-grids}
+
+Present only when version >= 5. Two grids follow back to back, coarse then fine, each with the same layout:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| cellSize | f32 | World-space grid cell size in meters |
+| probeCount | u32 |  |
+| probes[probeCount] | … |  |
+
+Each probe:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| cellX | i32 | Grid cell coordinate |
+| cellY | i32 |  |
+| cellZ | i32 |  |
+| shRgbe | Color[4] | 4× RGBA8, spherical-harmonics L1 coefficients (DC + 3 directional) each RGBE8-encoded per [encodeRgbe](#encodergbe) |
+
+## RGBE8 encoding {#encodergbe}
+
+Ward-style shared-exponent encoding used for both HDR atlas texels (encoding = Rgbe) and probe SH coefficients: RGB channels are `trunc(clamp(component * 256 * 2^-exponent, 0, 255))`, and the alpha channel stores `exponent + 128`, where `exponent = floor(log2(max(r, g, b))) + 1`. Alpha 0 decodes to black.
 
 # Transparent alpha occlusion (sloprad) {#transparent-alpha-occlusion-sloprad}
 

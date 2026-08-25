@@ -224,6 +224,10 @@ std::vector<std::string> LauncherState::buildLaunchArgs() const {
         args.push_back("--debug");
     }
 
+    if (verboseMode) {
+        args.push_back("--verbose");
+    }
+
     for (const slopengine::PackageCliFlag& flag : cliSchema) {
         if (flag.kind == slopengine::PackageCliValueKind::Flag) {
             const auto it = cliFlagValues.find(flag.name);

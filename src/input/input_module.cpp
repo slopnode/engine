@@ -19,6 +19,8 @@ namespace slopengine {
 
 namespace {
 
+constexpr int kMouseCaptureGraceFrames = 2;
+
 void pollBind(int bind, bool& down, bool& pressed) {
     if (bind == KEY_NULL) {
         down = false;
@@ -50,6 +52,10 @@ void pollInput(InputState& input, const ControlsSettings& controls) {
     }
 
     input.mouseDelta = GetMouseDelta();
+    if (input.mouseCaptureGraceFrames > 0) {
+        input.mouseDelta = {0.0f, 0.0f};
+        input.mouseCaptureGraceFrames -= 1;
+    }
 }
 
 void registerComponents(flecs::world& world) {
@@ -111,7 +117,7 @@ void registerSystems(flecs::world& world) {
 
 }
 
-void syncCursorCapture(const InputContextStack& contexts) {
+void syncCursorCapture(const InputContextStack& contexts, InputState& input) {
     static bool uiCursorActive = false;
     const bool wantUiCursor = contexts.blocksWorldInput() || !IsWindowFocused();
 
@@ -128,11 +134,13 @@ void syncCursorCapture(const InputContextStack& contexts) {
     if (uiCursorActive) {
         DisableCursor();
         uiCursorActive = false;
+        input.mouseCaptureGraceFrames = kMouseCaptureGraceFrames;
         return;
     }
 
     if (!IsCursorHidden()) {
         DisableCursor();
+        input.mouseCaptureGraceFrames = kMouseCaptureGraceFrames;
     }
 }
 

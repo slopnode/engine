@@ -1,7 +1,10 @@
 #include "test_assert.hpp"
 
+#include <raylib.h>
+
 #include <iostream>
 #include <string_view>
+#include <vector>
 
 namespace slopengine {
 
@@ -13,7 +16,6 @@ void runScriptScopeTests();
 void runSchemeHardenTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
-void runFacBuildTests();
 void runCsgCompileTests();
 void runPvsBuildTests();
 void runNavGraphTests();
@@ -29,6 +31,7 @@ void runBrushBlocksTests();
 void runLightmapTransparentTests();
 void runLightmapRgbeTests();
 void runLightmapMergeTests();
+void runLightmapPackTests();
 void runRadiosityEmitterTests();
 void runSunShadowSoftnessTests();
 void runSeamStitchTests();
@@ -52,7 +55,6 @@ const Suite kSuites[] = {
     {"scheme_harden", slopengine::runSchemeHardenTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
-    {"fac_build", slopengine::runFacBuildTests},
     {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
     {"nav_graph", slopengine::runNavGraphTests},
@@ -68,6 +70,7 @@ const Suite kSuites[] = {
     {"lightmap_transparent", slopengine::runLightmapTransparentTests},
     {"lightmap_rgbe", slopengine::runLightmapRgbeTests},
     {"lightmap_merge", slopengine::runLightmapMergeTests},
+    {"lightmap_pack", slopengine::runLightmapPackTests},
     {"radiosity_emitters", slopengine::runRadiosityEmitterTests},
     {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
@@ -88,7 +91,7 @@ bool runSuite(const Suite& suite) {
 }
 
 void printUsage(const char* argv0) {
-    std::cerr << "Usage: " << argv0 << " [suite...]\nSuites:";
+    std::cerr << "Usage: " << argv0 << " [--verbose] [suite...]\nSuites:";
     for (const Suite& suite : kSuites) {
         std::cerr << ' ' << suite.name;
     }
@@ -98,7 +101,23 @@ void printUsage(const char* argv0) {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc <= 1) {
+    std::vector<std::string_view> suiteNames;
+    bool verbose = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view name = argv[i];
+        if (name == "-h" || name == "--help") {
+            printUsage(argv[0]);
+            return 0;
+        }
+        if (name == "-v" || name == "--verbose") {
+            verbose = true;
+            continue;
+        }
+        suiteNames.push_back(name);
+    }
+    SetTraceLogLevel(verbose ? LOG_INFO : LOG_NONE);
+
+    if (suiteNames.empty()) {
         bool ok = true;
         for (const Suite& suite : kSuites) {
             ok = runSuite(suite) && ok;
@@ -113,12 +132,7 @@ int main(int argc, char** argv) {
     }
 
     bool ok = true;
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view name = argv[i];
-        if (name == "-h" || name == "--help") {
-            printUsage(argv[0]);
-            return 0;
-        }
+    for (const std::string_view& name : suiteNames) {
         const Suite* found = nullptr;
         for (const Suite& suite : kSuites) {
             if (name == suite.name) {
@@ -127,7 +141,7 @@ int main(int argc, char** argv) {
             }
         }
         if (found == nullptr) {
-            std::cerr << "Unknown suite: " << argv[i] << '\n';
+            std::cerr << "Unknown suite: " << name << '\n';
             printUsage(argv[0]);
             return 2;
         }

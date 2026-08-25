@@ -34,7 +34,6 @@ jobs:
             slopengine `
             slopbsp `
             sloprad `
-            slopfac `
             slopvis `
             slopmap `
             slopsprite `
@@ -44,11 +43,11 @@ jobs:
         run: |
           $dest = "dist/slopengine-win64"
           New-Item -ItemType Directory -Force -Path "$dest/packages" | Out-Null
+          Copy-Item "build/Release/sloplib.dll" "$dest/"
           $bins = @(
             "slopengine",
             "slopbsp",
             "sloprad",
-            "slopfac",
             "slopvis",
             "slopmap",
             "slopsprite",
@@ -61,6 +60,8 @@ jobs:
           Copy-Item "$env:STEAM_AUDIO_ROOT/lib/windows-x64/GPUUtilities.dll" "$dest/"
           Copy-Item "$env:STEAM_AUDIO_ROOT/lib/windows-x64/TrueAudioNext.dll" "$dest/"
           Copy-Item -Recurse "packages/engine" "$dest/packages/engine"
+          Copy-Item "LICENSE" "$dest/"
+          Copy-Item "README.md" "$dest/"
 
       - name: Name artifact
         id: artifact

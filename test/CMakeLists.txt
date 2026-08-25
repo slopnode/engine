@@ -8,7 +8,6 @@ add_executable(sloptests
     test_scheme_harden.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
-    test_fac_build.cpp
     test_csg_compile.cpp
     test_pvs_build.cpp
     test_nav_graph.cpp
@@ -24,6 +23,7 @@ add_executable(sloptests
     test_lightmap_transparent.cpp
     test_lightmap_rgbe.cpp
     test_lightmap_merge.cpp
+    test_lightmap_pack.cpp
     test_radiosity_emitters.cpp
     test_sun_shadow_softness.cpp
     test_seam_stitch.cpp
@@ -60,7 +60,6 @@ add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
-add_test(NAME sloptests.fac_build COMMAND sloptests fac_build)
 add_test(NAME sloptests.csg_compile COMMAND sloptests csg_compile)
 add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
 add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
@@ -75,6 +74,7 @@ add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
 add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)
 add_test(NAME sloptests.lightmap_rgbe COMMAND sloptests lightmap_rgbe)
+add_test(NAME sloptests.lightmap_pack COMMAND sloptests lightmap_pack)
 add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
 add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)

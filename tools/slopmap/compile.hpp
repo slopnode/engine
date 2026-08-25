@@ -38,7 +38,16 @@ struct RadCompileOptions {
     int emitterDirectSamples = 4;
     float emitterGridLuxelsPerMeter = 8.0f;
     int emitterGridMaxSize = 32;
+    int exactEmissionGridMaxSize = 256;
+    int exactEmissionMaxSamples = 8192;
     float sunShadowSoftness = 0.0f;
+    float seamStitchRadiusLuxels = 1.5f;
+    /** Coarse light-probe grid spacing (world units), covering all open space. */
+    float probeCellSize = 4.0f;
+    /** Fine light-probe grid spacing (world units), placed only near geometry. */
+    float probeFineCellSize = 2.0f;
+    /** Sphere samples gathered per probe for the SH lighting projection. */
+    int probeSampleCount = 32;
     bool preferGpu = true;
     /** On hybrid systems, request the discrete GPU for sloprad (Linux DRI_PRIME / Windows shim). */
     bool forceDiscreteGpu = true;

@@ -68,6 +68,8 @@ void registerSystems(flecs::world& world) {
             Vector3 pos{0.0f, 0.0f, 0.0f};
             if (entity.has<GlobalTransformation>()) {
                 pos = translationFromMatrix(entity.get<GlobalTransformation>().matrix);
+            } else if (entity.has<Lens>()) {
+                pos = entity.get<Lens>().camera.position;
             }
 
             if (!source.audio.empty()) {
@@ -174,10 +176,14 @@ void registerSystems(flecs::world& world) {
                 if (!source.spatial || source.voice == 0 || !source.playing) {
                     return;
                 }
-                if (!entity.has<GlobalTransformation>()) {
+                Vector3 pos{};
+                if (entity.has<GlobalTransformation>()) {
+                    pos = translationFromMatrix(entity.get<GlobalTransformation>().matrix);
+                } else if (entity.has<Lens>()) {
+                    pos = entity.get<Lens>().camera.position;
+                } else {
                     return;
                 }
-                const Vector3 pos = translationFromMatrix(entity.get<GlobalTransformation>().matrix);
                 ctx.world->setSourcePosition(
                     static_cast<SoLoud::handle>(source.voice),
                     pos.x,

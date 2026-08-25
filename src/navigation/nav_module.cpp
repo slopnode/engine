@@ -96,6 +96,17 @@ float agentMaxClimb(const NavigationAgent& agent, const CharacterMotor& motor) {
     return agent.flyer ? std::numeric_limits<float>::infinity() : motor.stepHeight;
 }
 
+// Flyers hover under their own vertical control (see actors.md's hover-height controller) so
+// floor drops and water leaves underneath them are not a routing concern -- both resolve to
+// their neutral value, same treatment agentMaxClimb already gives flyers.
+float agentMaxFall(const NavigationAgent& agent) {
+    return agent.flyer ? std::numeric_limits<float>::infinity() : agent.maxFall;
+}
+
+float agentWaterCostMultiplier(const NavigationAgent& agent) {
+    return agent.flyer ? 1.0f : agent.waterCostMultiplier;
+}
+
 float navLateralBiasForEntity(flecs::entity_t id) {
     std::uint64_t h = static_cast<std::uint64_t>(id) * 0x9E3779B97F4A7C15ULL;
     h ^= h >> 33;
@@ -117,16 +128,24 @@ float agentLateralBias(flecs::entity entity, NavigationAgent& agent) {
 struct NavFlowFieldKey {
     int goalLeaf = -1;
     float maxClimb = 0.0f;
+    float maxFall = 0.0f;
+    float waterCostMultiplier = 1.0f;
     bool operator==(const NavFlowFieldKey& other) const {
-        return goalLeaf == other.goalLeaf && maxClimb == other.maxClimb;
+        return goalLeaf == other.goalLeaf && maxClimb == other.maxClimb &&
+            maxFall == other.maxFall && waterCostMultiplier == other.waterCostMultiplier;
     }
 };
 
 struct NavFlowFieldKeyHash {
     std::size_t operator()(const NavFlowFieldKey& key) const {
-        const std::size_t h1 = std::hash<int>{}(key.goalLeaf);
-        const std::size_t h2 = std::hash<float>{}(key.maxClimb);
-        return h1 ^ (h2 + 0x9e3779b9u + (h1 << 6) + (h1 >> 2));
+        std::size_t h = std::hash<int>{}(key.goalLeaf);
+        const auto mix = [&h](float v) {
+            h ^= std::hash<float>{}(v) + 0x9e3779b9u + (h << 6) + (h >> 2);
+        };
+        mix(key.maxClimb);
+        mix(key.maxFall);
+        mix(key.waterCostMultiplier);
+        return h;
     }
 };
 
@@ -149,7 +168,9 @@ const NavFlowField& getOrBuildFlowField(
     flecs::world& world,
     const MapNavigation& nav,
     int goalLeaf,
-    float maxClimb) {
+    float maxClimb,
+    float maxFall,
+    float waterCostMultiplier) {
     NavFlowFieldCache& cache = world.get_mut<NavFlowFieldCache>();
     const std::int64_t currentFrame = world.get_info()->frame_count_total;
 
@@ -169,12 +190,14 @@ const NavFlowField& getOrBuildFlowField(
             nav,
             goalLeaf,
             [&world](const std::string& doorBrushId) { return isDoorPortalOpen(world, doorBrushId); },
-            maxClimb);
+            maxClimb,
+            maxFall,
+            waterCostMultiplier);
         entry.refreshTimer = kFlowFieldRefreshInterval;
         entry.refreshFrame = currentFrame;
     };
 
-    const NavFlowFieldKey key{goalLeaf, maxClimb};
+    const NavFlowFieldKey key{goalLeaf, maxClimb, maxFall, waterCostMultiplier};
     auto it = cache.entries.find(key);
     if (it == cache.entries.end()) {
         NavFlowFieldEntry entry;
@@ -267,7 +290,8 @@ void replanAgent(
     const Vector3 oldStuckLastPos = agent.stuckLastPos;
     const bool oldHaveStuckLastPos = agent.haveStuckLastPos;
 
-    const NavFlowField& flowField = getOrBuildFlowField(world, nav, toLeaf, maxClimb);
+    const NavFlowField& flowField = getOrBuildFlowField(
+        world, nav, toLeaf, maxClimb, agentMaxFall(agent), agentWaterCostMultiplier(agent));
     const std::vector<int> leafPath = flowFieldPathFrom(flowField, fromLeaf);
     if (leafPath.empty()) {
         if (logNav) {
@@ -494,7 +518,8 @@ const char* needsReplan(
             return nullptr;
         }
         if (goalLeaf >= 0) {
-            const NavFlowField& flowField = getOrBuildFlowField(world, nav, goalLeaf, maxClimb);
+            const NavFlowField& flowField = getOrBuildFlowField(
+                world, nav, goalLeaf, maxClimb, agentMaxFall(agent), agentWaterCostMultiplier(agent));
             const std::vector<int> newPath = flowFieldPathFrom(flowField, agentLeaf);
             if (navLeafPathRouteUnchanged(agent.leafPath, agentLeaf, newPath)) {
                 if (logNav) {

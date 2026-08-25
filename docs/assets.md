@@ -30,7 +30,6 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | MapCsg | `maps/<name>/` | `static.csg` | Authored map geometry; see @ref tut_csg. |
 | MapMeta | `maps/<name>/` | `map.meta` | |
 | MapBsp | `maps/<name>/` | `static.bsp` | Compiled; see @ref bsp. |
-| MapFac | `maps/<name>/` | `static.fac` | Compiled; see @ref fac. |
 | MapVis | `maps/<name>/` | `static.vis` | Compiled PVS; see @ref vis. |
 | MapRad | `maps/<name>/rad/` | `static.rad` | Compiled lightmap data; see @ref rad. |
 | MapLightmap | `maps/<name>/rad/` | `.png` | Baked lightmap atlas images. |

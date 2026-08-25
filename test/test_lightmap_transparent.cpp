@@ -1,7 +1,6 @@
 #include "test_assert.hpp"
 
 #include "map/brush.hpp"
-#include "map/fac.hpp"
 #include "map/light_occlusion.hpp"
 #include "map/lightmap.hpp"
 #include "map/quad_bvh.hpp"
@@ -63,29 +62,29 @@ std::unordered_map<std::string, MaterialBakeInfo> makeMaterialCache(
 }
 
 void testCollectLightmapFacesPreservesTransparent() {
-    FacFile fac;
-    VisibleFace opaque;
-    opaque.id = "opaque";
-    opaque.material = "mat/a";
-    opaque.normal = {0.0f, 1.0f, 0.0f};
-    opaque.vertices = {
+    Brush opaqueBrush;
+    opaqueBrush.role = BrushRole::Hull;
+    BrushFace opaqueFace;
+    opaqueFace.id = "opaque";
+    opaqueFace.material = "mat/a";
+    opaqueFace.normal = {0.0f, 1.0f, 0.0f};
+    opaqueFace.vertices = {
         {0.0f, 0.0f, 0.0f},
         {1.0f, 0.0f, 0.0f},
         {1.0f, 0.0f, 1.0f},
     };
-    opaque.transparent = false;
+    opaqueBrush.faces.push_back(std::move(opaqueFace));
 
-    VisibleFace glass;
-    glass.id = "glass";
-    glass.material = "mat/glass";
-    glass.normal = {0.0f, 1.0f, 0.0f};
-    glass.vertices = opaque.vertices;
-    glass.transparent = true;
+    Brush glassBrush;
+    glassBrush.role = BrushRole::Transparent;
+    BrushFace glassFace;
+    glassFace.id = "glass";
+    glassFace.material = "mat/glass";
+    glassFace.normal = {0.0f, 1.0f, 0.0f};
+    glassFace.vertices = opaqueBrush.faces[0].vertices;
+    glassBrush.faces.push_back(std::move(glassFace));
 
-    fac.faces.push_back(std::move(opaque));
-    fac.faces.push_back(std::move(glass));
-
-    const std::vector<LightmapFace> faces = collectLightmapFaces(fac);
+    const std::vector<LightmapFace> faces = collectLightmapFaces({opaqueBrush, glassBrush});
     CHECK(faces.size() == 2);
     CHECK_FALSE(faces[0].transparent);
     CHECK(faces[1].transparent);

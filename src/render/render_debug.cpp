@@ -303,34 +303,6 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
     EndBlendMode();
 }
 
-void drawFacDebugOverlays(const FacFile& vis, const DebugUiState& debugUi, std::int32_t currentLeaf) {
-    if (!debugUi.showVisFaces) {
-        return;
-    }
-
-    BeginBlendMode(BLEND_ALPHA);
-    rlDisableDepthMask();
-
-    for (std::size_t faceIndex = 0; faceIndex < vis.faces.size(); ++faceIndex) {
-        const VisibleFace& face = vis.faces[faceIndex];
-        if (face.vertices.size() < 3) {
-            continue;
-        }
-        if (debugUi.showVisCurrentLeafOnly
-            && (face.interiorLeaf < 0 || face.interiorLeaf != currentLeaf)) {
-            continue;
-        }
-        const bool inCurrentLeaf = face.interiorLeaf == currentLeaf;
-        const Color fill = bspLeafDebugColor(static_cast<std::int32_t>(faceIndex), false, 80);
-        const Color outline = inCurrentLeaf ? Color{255, 160, 40, 255} : Color{255, 120, 40, 220};
-        drawDebugPolygon(face.vertices, fill);
-        drawDebugPolygonOutline(face.vertices, outline);
-    }
-
-    rlEnableDepthMask();
-    EndBlendMode();
-}
-
 Ray spriteAimRay(const Lens& lens) {
     Ray ray{};
     ray.position = lens.camera.position;
@@ -420,6 +392,120 @@ std::string drawSpriteDebugOverlays(
     rlEnableDepthTest();
     EndBlendMode();
     return aimStatus;
+}
+
+constexpr float kLightProbeDebugMaxDistance = 4.0f;
+constexpr float kLightProbeDebugMaxDistanceSq = kLightProbeDebugMaxDistance * kLightProbeDebugMaxDistance;
+// Probes closer than this sit inside/at the camera's own position; at that range even a small
+// world-space sphere radius fills the screen, so skip them rather than draw a giant blob.
+constexpr float kLightProbeDebugMinDistance = 0.2f;
+constexpr float kLightProbeDebugMinDistanceSq = kLightProbeDebugMinDistance * kLightProbeDebugMinDistance;
+
+void drawProbeGridDots(const ProbeGrid& grid, Vector3 cameraPosition, bool fine) {
+    const float radius = fine ? 0.035f : 0.06f;
+    for (const auto& [cell, sh] : grid.probesByCell) {
+        const Vector3 worldPos{
+            static_cast<float>(cell.x) * grid.cellSize,
+            static_cast<float>(cell.y) * grid.cellSize,
+            static_cast<float>(cell.z) * grid.cellSize,
+        };
+        const float dx = worldPos.x - cameraPosition.x;
+        const float dy = worldPos.y - cameraPosition.y;
+        const float dz = worldPos.z - cameraPosition.z;
+        const float distSq = dx * dx + dy * dy + dz * dz;
+        if (distSq > kLightProbeDebugMaxDistanceSq || distSq < kLightProbeDebugMinDistanceSq) {
+            continue;
+        }
+        // Reconstruct toward straight up, matching the {0,1,0} "eye" query used for actual
+        // sprite lighting (see sampleLightProbe callers) — showing only coeff[0] (the DC/average
+        // term) hides the sun-facing lobe entirely and makes sunlit probes look dull.
+        const float r = std::max(0.0f, sh.coeff[0].x + sh.coeff[2].x);
+        const float g = std::max(0.0f, sh.coeff[0].y + sh.coeff[2].y);
+        const float b = std::max(0.0f, sh.coeff[0].z + sh.coeff[2].z);
+        const Color color = linearIrradianceToDisplayColor(r, g, b);
+        DrawSphere(worldPos, radius, color);
+    }
+}
+
+void drawSpriteLightSampleTaps(
+    const MapLighting& lighting,
+    const Lens& lens,
+    AssetStore& assets,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
+    const float radius = 0.05f;
+    spriteQuery.each(
+        [&](flecs::entity entity, SpriteInstance& sprite, GlobalTransformation& global) {
+            if (!entity.has<WorldSpace>() || entity.has<ViewSprite>()) {
+                return;
+            }
+            const auto billboard = resolveSpriteBillboard(sprite, global, lens, assets);
+            if (!billboard) {
+                return;
+            }
+
+            const Vector3 feetOrigin{
+                billboard->position.x,
+                billboard->position.y + 0.05f,
+                billboard->position.z};
+            Color colorFeet = WHITE;
+            if (auto feet = sampleLightProbe(lighting, feetOrigin, {0.0f, -1.0f, 0.0f})) {
+                colorFeet = *feet;
+            } else if (auto feetRay =
+                           sampleMapLight(lighting, feetOrigin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+                colorFeet = *feetRay;
+            }
+            DrawSphere(feetOrigin, radius, colorFeet);
+
+            const Vector3 headPos{
+                billboard->position.x,
+                billboard->position.y + billboard->size.y,
+                billboard->position.z};
+            Vector3 headDir{
+                lens.camera.position.x - headPos.x,
+                0.0f,
+                lens.camera.position.z - headPos.z,
+            };
+            Color colorHead = colorFeet;
+            const float headLenSq = Vector3LengthSqr(headDir);
+            if (headLenSq > 1e-8f) {
+                headDir = Vector3Scale(headDir, 1.0f / std::sqrt(headLenSq));
+                if (auto head = sampleLightProbe(lighting, headPos, headDir)) {
+                    colorHead = *head;
+                } else if (auto headRay = sampleMapLight(lighting, headPos, headDir, 4.0f)) {
+                    colorHead = *headRay;
+                }
+            }
+            DrawSphere(headPos, radius, colorHead);
+        });
+}
+
+void drawLightProbeDebugOverlays(
+    const MapLighting* lighting,
+    const DebugUiState& debugUi,
+    const Lens& lens,
+    AssetStore& assets,
+    flecs::query<SpriteInstance, GlobalTransformation>& spriteQuery) {
+    const bool any = debugUi.showLightProbesFine || debugUi.showLightProbesCoarse
+        || debugUi.showLightProbeSampleTaps;
+    if (!any || lighting == nullptr || !lighting->available) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    if (debugUi.showLightProbesFine) {
+        drawProbeGridDots(lighting->probeGridFine, lens.camera.position, true);
+    }
+    if (debugUi.showLightProbesCoarse) {
+        drawProbeGridDots(lighting->probeGridCoarse, lens.camera.position, false);
+    }
+    if (debugUi.showLightProbeSampleTaps) {
+        drawSpriteLightSampleTaps(*lighting, lens, assets, spriteQuery);
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
 }
 
 void drawDebugLinePool(const DebugLinePool& pool) {

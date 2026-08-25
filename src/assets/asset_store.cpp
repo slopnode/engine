@@ -392,10 +392,6 @@ bool AssetStore::hasMapBsp(std::string_view path) const {
     return vfs_.exists(AssetKind::MapBsp, path);
 }
 
-bool AssetStore::hasMapFac(std::string_view path) const {
-    return vfs_.exists(AssetKind::MapFac, path);
-}
-
 bool AssetStore::hasMapVis(std::string_view path) const {
     return vfs_.exists(AssetKind::MapVis, path);
 }
@@ -588,6 +584,23 @@ TextureCubemap AssetStore::getCubemapFaces(
             faceWidth = faceTextures[i].width;
             faceHeight = faceTextures[i].height;
             faceFormat = faceTextures[i].format;
+        }
+        if (faceTextures[i].width != faceTextures[i].height) {
+            TraceLog(
+                LOG_WARNING,
+                "ASSET: cubemap face '%.*s' is %dx%d, not square; cube faces must be square and share the same size",
+                static_cast<int>(faces[i].size()), faces[i].data(),
+                faceTextures[i].width, faceTextures[i].height);
+            return {};
+        }
+        if (faceTextures[i].width != faceWidth || faceTextures[i].height != faceHeight) {
+            TraceLog(
+                LOG_WARNING,
+                "ASSET: cubemap face '%.*s' is %dx%d, expected %dx%d to match the other faces",
+                static_cast<int>(faces[i].size()), faces[i].data(),
+                faceTextures[i].width, faceTextures[i].height,
+                faceWidth, faceHeight);
+            return {};
         }
     }
 

@@ -5,7 +5,7 @@
 #include "assets/asset_store.hpp"
 #include "assets/audio_def.hpp"
 #include "audio/steam_audio_types.hpp"
-#include "map/fac.hpp"
+#include "map/brush.hpp"
 
 #include <soloud.h>
 #include <soloud_bus.h>
@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace slopengine {
@@ -99,7 +100,9 @@ public:
     void updateListenerAttachedSources(const SteamAudioListenerPose& listener);
 
     bool steamAudioEnabled() const;
-    void setSteamAudioScene(const FacFile& vis);
+    void setSteamAudioScene(
+        const std::vector<Brush>& brushes,
+        const std::unordered_set<std::string>* excludeBrushIds);
     void clearSteamAudioScene();
     void updateSteamAudio(
         const SteamAudioListenerPose& listener,

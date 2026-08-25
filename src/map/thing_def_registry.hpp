@@ -4,6 +4,7 @@
 #include "map/thing.hpp"
 #include "physics/components.hpp"
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -63,6 +64,15 @@ struct ThingDef {
     float motorStepHeight = 0.4f;
     float motorVerticalSpeed = 3.0f;
     float motorHoverHeight = 0.0f;
+    /** Nav pathing preference, not a physics clamp: excess drop beyond this (in world units)
+     *  onto the next leaf accrues a routing cost penalty rather than blocking the step outright,
+     *  so a ground actor prefers detouring around ledges without ever getting stranded when the
+     *  drop is the only route. Infinity (default) reproduces pre-existing behavior exactly. */
+    float motorMaxFall = std::numeric_limits<float>::infinity();
+    /** Nav pathing cost multiplier applied to routing through Water-content leaves; 1.0 (default)
+     *  is no preference. Values above 1 make an actor prefer a dry detour when one exists, while
+     *  still crossing water leaves rather than failing to path at all. */
+    float motorWaterAversion = 1.0f;
     CharacterHull motorHull = CharacterHull::Capsule;
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;

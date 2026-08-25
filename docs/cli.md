@@ -57,7 +57,7 @@ Note that this schema is only known once the base package's own scripts have loa
 
 # Tool binaries {#tool-binaries}
 
-`slopbsp`, `slopfac`, and `slopvis` accept the same `--base-game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process:
+`slopbsp`, `slopvis`, and `sloprad` accept the same `--base-game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process:
 
 ```
 slopbsp --base-game path/to/game --map my-room

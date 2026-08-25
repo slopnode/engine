@@ -8,6 +8,7 @@
 #include "map/sky_types.hpp"
 
 #include <array>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -85,11 +86,16 @@ struct Thing {
     bool haveMoverSlide = false;
     std::string onCrush;
     std::string moverGroup;
+    std::string moverOpenSound;
+    std::string moverCloseSound;
+    float moverSoundVolume = 1.0f;
+    bool haveMoverSoundVolume = false;
 
     HandlerBinding onEnter;
     HandlerBinding onExit;
     Vector3 triggerSize{1.0f, 1.0f, 1.0f};
     bool haveTriggerSize = false;
+    bool triggerOnce = false;
     std::vector<std::string> collideTags;
     std::vector<std::string> tags;
 
@@ -101,6 +107,8 @@ struct Thing {
     float motorVerticalSpeed = 3.0f;
     float motorHoverHeight = 0.0f;
     float motorEyeHeight = 0.8f;
+    float motorMaxFall = std::numeric_limits<float>::infinity();
+    float motorWaterAversion = 1.0f;
     CharacterHull motorHull = CharacterHull::Capsule;
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
     bool haveMotor = false;
@@ -145,6 +153,10 @@ struct Thing {
     std::string skyCubeNz;
     std::array<SkyGradientStop, 4> skyGradientStops{};
     int skyGradientStopCount = 0;
+    std::string skyCylinderTexture;
+    float skyCylinderOffset = 0.0f;
+    float skyCylinderScale = 1.0f;
+    int skyCylinderRepeat = 1;
     std::string skyMaterial;
 };
 

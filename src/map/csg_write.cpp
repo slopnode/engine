@@ -162,6 +162,9 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     if (door.haveAngle) {
         out << "    (angle " << formatFloat(door.angle) << ")\n";
     }
+    if (door.haveAxis) {
+        out << "    (axis \"" << doorAxisName(door.axis) << "\")\n";
+    }
     if (door.haveTravel) {
         out << "    (travel " << formatFloat(door.travel) << ")\n";
     }
@@ -171,8 +174,14 @@ void writeBrushDoor(std::ostringstream& out, const BrushDoor& door) {
     if (!door.group.empty()) {
         out << "    (group " << escapeSchemeString(door.group) << ")\n";
     }
-    if (door.havePrompt) {
-        out << "    (prompt " << escapeSchemeString(door.prompt) << ")\n";
+    if (!door.openSound.empty()) {
+        out << "    (open-sound " << escapeSchemeString(door.openSound) << ")\n";
+    }
+    if (!door.closeSound.empty()) {
+        out << "    (close-sound " << escapeSchemeString(door.closeSound) << ")\n";
+    }
+    if (door.haveSoundVolume) {
+        out << "    (sound-volume " << formatFloat(door.soundVolume) << ")\n";
     }
     if (!door.canUse.empty()) {
         out << "    " << formatHandlerBindingClause("can-use", door.canUse) << "\n";

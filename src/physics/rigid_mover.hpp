@@ -42,8 +42,12 @@ struct RigidMover {
     float duration = 0.8f;
     float progress = 0.0f;
     float target = 0.0f;
+    float lastTarget = 0.0f;
     float autoClose = 0.0f;
     float autoCloseTimer = 0.0f;
+    std::string openSound;
+    std::string closeSound;
+    float soundVolume = 1.0f;
     MoverBlockMode blockMode = MoverBlockMode::Shove;
     MoverPushMode pushMode = MoverPushMode::Full;
     bool slide = true;

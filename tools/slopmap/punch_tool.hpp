@@ -28,11 +28,13 @@ struct PunchTool {
     bool depthFromNumeric = false;
     Vector2 depthGrabScreen{};
     float depthAtGrab = 0.0f;
+    Vector3 hoverPoint{};
+    bool hoverValid = false;
 
     void reset();
     void beginFromSelection(Editor& editor);
     void update(Editor& editor, const Camera3D& camera, bool uiWantsMouse, bool uiWantsKeyboard);
-    void drawPreview() const;
+    void drawPreview(Vector3 eye, float lineWidth) const;
     bool active() const { return phase != PunchPhase::Idle; }
 
 private:

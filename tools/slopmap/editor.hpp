@@ -174,8 +174,6 @@ struct Editor {
     bool cleanCompileData(
         slopengine::AssetStore& assets,
         const std::vector<CompileStage>& stages);
-    /** Remove static.fac so authored brush faces are used (silent if already absent). */
-    void dropOptInFacArtifact(slopengine::AssetStore& assets);
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);
@@ -205,6 +203,7 @@ struct Editor {
     void selectVert(VertRef ref, bool additive);
     void selectEntity(EntityRef ref, bool additive);
     void selectBrushes(const std::vector<int>& indices, int active);
+    void selectTouchingFaces();
     void frameSelection();
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();

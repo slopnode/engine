@@ -26,6 +26,10 @@ struct CharacterStep {
     CharacterMotor* motor = nullptr;
     bool noclip = false;
     float submersion = 0.0f; /**< Fraction (0..1) of body height inside a water volume. */
+    /** True if a water surface exists within motor.waterExitReach of the character's body. Gates
+     *  water-exit assistance so it can only ever fire near an actual shoreline/lip, never
+     *  arbitrarily deep underwater. */
+    bool nearWaterSurface = false;
 };
 
 struct RayCastHit {
@@ -70,11 +74,16 @@ struct PhysicsWorld {
     void destroyCharacter(std::uint64_t id);
     void destroyAllCharacters();
 
+    bool resizeCharacter(std::uint64_t id, const CharacterMotor& motor, float maxPenetrationDepth = 0.05f);
+
     void setPlayerId(std::uint64_t id) { playerId_ = id; }
     std::uint64_t playerId() const { return playerId_; }
 
     void createPlayerCharacter(float x, float y, float z, const CharacterMotor& motor);
     void destroyPlayerCharacter();
+    bool resizePlayerCharacter(const CharacterMotor& motor, float maxPenetrationDepth = 0.05f) {
+        return playerId_ != 0 && resizeCharacter(playerId_, motor, maxPenetrationDepth);
+    }
 
     void setCharacterPosition(std::uint64_t id, float x, float y, float z);
 
@@ -98,6 +107,17 @@ struct PhysicsWorld {
     JPH::RVec3 characterPosition(std::uint64_t id) const;
     JPH::Vec3 characterVelocity(std::uint64_t id) const;
     bool characterSupported(std::uint64_t id) const;
+
+    /** Scans a ring of directions for one with a climbable water-exit ledge within
+     *  motor.waterExitReach (the same probe tryWaterExitAssist uses for the character's current
+     *  wish direction). Returns true and fills outDirX/outDirZ (a unit XZ vector) if one is found;
+     *  read-only, does not move the character. For AI that needs to aim itself at a shoreline it
+     *  isn't already facing. */
+    bool findWaterExitDirection(
+        std::uint64_t characterId,
+        const CharacterMotor& motor,
+        float& outDirX,
+        float& outDirZ) const;
 
     template<typename Fn>
     void forEachCharacter(Fn&& fn) const {
@@ -139,7 +159,8 @@ private:
         const CharacterMotor& motor,
         bool noclip,
         std::uint64_t characterId,
-        float submersion);
+        float submersion,
+        bool nearWaterSurface);
     void stepCharacterTryMove(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
@@ -161,13 +182,17 @@ private:
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
         std::uint64_t characterId,
-        float submersion);
-    void tryClimbBlockedStep(
+        float submersion,
+        bool nearWaterSurface);
+    bool tryWaterExitAssist(
         JPH::CharacterVirtual& character,
         const CharacterMotor& motor,
+        std::uint64_t characterId);
+    std::optional<JPH::RVec3> probeWaterExitLedge(
+        const JPH::CharacterVirtual& character,
+        const CharacterMotor& motor,
         std::uint64_t characterId,
-        JPH::Vec3 desiredVelocity,
-        JPH::RVec3 beforePosition);
+        JPH::Vec3 wishDir) const;
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
     static constexpr float kFixedDt = 1.0f / 60.0f;

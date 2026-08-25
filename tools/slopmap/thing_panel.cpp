@@ -1832,6 +1832,36 @@ bool drawTriggerSection(Editor& editor, const std::vector<int>& targets) {
         }
     }
 
+    const auto onceCommon = commonValue<bool>(
+        doc, targets, [](const slopengine::Thing& t) { return t.triggerOnce; });
+    const bool mixedOnce = !onceCommon.has_value();
+    const bool onceValue = onceCommon.value_or(false);
+    if (mixedOnce) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+    }
+    if (ImGui::BeginCombo("Fire", mixedOnce ? "(mixed)" : (onceValue ? "Once" : "Always"))) {
+        const char* fireOptions[] = {"Always", "Once"};
+        for (int i = 0; i < 2; ++i) {
+            const bool optionOnce = i == 1;
+            const bool selected = !mixedOnce && onceValue == optionOnce;
+            if (ImGui::Selectable(fireOptions[i], selected)) {
+                if (forEachTrigger(editor, targets, [optionOnce](slopengine::Thing& thing) {
+                        thing.triggerOnce = optionOnce;
+                    })) {
+                    changed = true;
+                    editor.statusMessage = "Set trigger fire mode";
+                }
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    if (mixedOnce) {
+        ImGui::PopStyleVar();
+    }
+
     return changed;
 }
 
@@ -1878,6 +1908,8 @@ const char* skyModeLabel(slopengine::SkyboxMode mode) {
         return "Cube";
     case slopengine::SkyboxMode::Gradient:
         return "Gradient";
+    case slopengine::SkyboxMode::Cylinder:
+        return "Cylindrical";
     }
     return "Unknown";
 }
@@ -1941,7 +1973,7 @@ bool drawSkyboxSection(
             doc, targets, [](const slopengine::Thing& t) { return t.haveSkyboxMode; });
 
         int modeIndex = modeCommon.has_value() ? static_cast<int>(*modeCommon) : 0;
-        const char* modeLabels[] = {"Solid", "Cube", "Gradient"};
+        const char* modeLabels[] = {"Solid", "Cube", "Gradient", "Cylindrical"};
         if (!modeCommon.has_value()) {
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
         }
@@ -2087,6 +2119,74 @@ bool drawSkyboxSection(
                             thing.haveSkyboxMode = true;
                             thing.skyboxMode = slopengine::SkyboxMode::Cube;
                         });
+                }
+            } else if (editMode == slopengine::SkyboxMode::Cylinder) {
+                drawSkyTextureField(
+                    editor,
+                    assets,
+                    materialBrowser,
+                    targets,
+                    "Sky texture",
+                    [](const slopengine::Thing& thing) { return thing.skyCylinderTexture; },
+                    [](slopengine::Thing& thing, const std::string& path) {
+                        thing.skyCylinderTexture = path;
+                        thing.haveSkyboxMode = true;
+                        thing.skyboxMode = slopengine::SkyboxMode::Cylinder;
+                    });
+
+                const auto offsetCommon = commonValue<float>(
+                    doc, targets, [](const slopengine::Thing& t) { return t.skyCylinderOffset; });
+                float offset = offsetCommon.value_or(0.0f);
+                if (dragFloatMixed(
+                        "Vertical offset", &offset, !offsetCommon.has_value(), 0.01f, -2.0f, 2.0f)) {
+                    if (forEachSkybox(editor, targets, [offset](slopengine::Thing& thing) {
+                            thing.skyCylinderOffset = offset;
+                            thing.haveSkyboxMode = true;
+                            thing.skyboxMode = slopengine::SkyboxMode::Cylinder;
+                        })) {
+                        changed = true;
+                        editor.statusMessage = "Set sky cylinder offset";
+                    }
+                }
+
+                const auto scaleCommon = commonValue<float>(
+                    doc, targets, [](const slopengine::Thing& t) { return t.skyCylinderScale; });
+                float scale = scaleCommon.value_or(1.0f);
+                if (dragFloatMixed(
+                        "Vertical scale", &scale, !scaleCommon.has_value(), 0.01f, 0.05f, 10.0f)) {
+                    if (forEachSkybox(editor, targets, [scale](slopengine::Thing& thing) {
+                            thing.skyCylinderScale = scale;
+                            thing.haveSkyboxMode = true;
+                            thing.skyboxMode = slopengine::SkyboxMode::Cylinder;
+                        })) {
+                        changed = true;
+                        editor.statusMessage = "Set sky cylinder scale";
+                    }
+                }
+
+                const auto repeatCommon = commonValue<int>(
+                    doc, targets, [](const slopengine::Thing& t) { return t.skyCylinderRepeat; });
+                int repeat = repeatCommon.value_or(1);
+                if (!repeatCommon.has_value()) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
+                }
+                const bool repeatChanged = ImGui::InputInt("Repeat count", &repeat);
+                if (!repeatCommon.has_value()) {
+                    ImGui::PopStyleVar();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip("mixed values");
+                    }
+                }
+                if (repeatChanged) {
+                    repeat = std::max(1, repeat);
+                    if (forEachSkybox(editor, targets, [repeat](slopengine::Thing& thing) {
+                            thing.skyCylinderRepeat = repeat;
+                            thing.haveSkyboxMode = true;
+                            thing.skyboxMode = slopengine::SkyboxMode::Cylinder;
+                        })) {
+                        changed = true;
+                        editor.statusMessage = "Set sky cylinder repeat";
+                    }
                 }
             }
         }

@@ -198,6 +198,10 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
             def.motorVerticalSpeed = value;
         } else if (std::strcmp(tag, "hover-height") == 0) {
             def.motorHoverHeight = value;
+        } else if (std::strcmp(tag, "max-fall") == 0) {
+            def.motorMaxFall = value;
+        } else if (std::strcmp(tag, "water-aversion") == 0) {
+            def.motorWaterAversion = value;
         } else {
             return false;
         }
@@ -455,6 +459,8 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.motorStepHeight = def.motorStepHeight;
     out.motorVerticalSpeed = def.motorVerticalSpeed;
     out.motorHoverHeight = def.motorHoverHeight;
+    out.motorMaxFall = def.motorMaxFall;
+    out.motorWaterAversion = def.motorWaterAversion;
     out.motorHull = def.motorHull;
     out.motorMoveMode = def.motorMoveMode;
     out.tags = def.tags;

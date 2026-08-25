@@ -26,7 +26,6 @@ jobs:
             slopengine \
             slopbsp \
             sloprad \
-            slopfac \
             slopvis \
             slopmap \
             slopsprite \
@@ -37,13 +36,16 @@ jobs:
           set -eux
           DEST=dist/slopengine-linux-x64
           mkdir -p "${DEST}/packages"
-          for bin in slopengine slopbsp sloprad slopfac slopvis slopmap slopsprite slopicons; do
+          cp "build/libsloplib.so" "${DEST}/libsloplib.so"
+          strip --strip-unneeded "${DEST}/libsloplib.so"
+          for bin in slopengine slopbsp sloprad slopvis slopmap slopsprite slopicons; do
             cp "build/${bin}" "${DEST}/${bin}"
             strip --strip-unneeded "${DEST}/${bin}"
             chmod +x "${DEST}/${bin}"
           done
           cp "${STEAM_AUDIO_ROOT}/lib/linux-x64/libphonon.so" "${DEST}/"
           cp -a packages/engine "${DEST}/packages/"
+          cp LICENSE README.md "${DEST}/"
 
       - name: Name artifact
         id: artifact

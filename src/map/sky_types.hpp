@@ -11,6 +11,7 @@ enum class SkyboxMode {
     Solid,
     Cube,
     Gradient,
+    Cylinder,
 };
 
 struct SkyGradientStop {
@@ -25,6 +26,10 @@ struct SkyboxSettings {
     std::string cubeFaces[6];
     std::array<SkyGradientStop, 4> gradientStops{};
     int gradientStopCount = 0;
+    std::string cylinderTexture;
+    float cylinderOffset = 0.0f;
+    float cylinderScale = 1.0f;
+    int cylinderRepeat = 1;
 };
 
 }

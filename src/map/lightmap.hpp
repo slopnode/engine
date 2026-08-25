@@ -2,7 +2,6 @@
 
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
-#include "map/fac.hpp"
 
 #include <raylib.h>
 
@@ -17,11 +16,12 @@
 namespace slopengine {
 
 constexpr std::uint32_t kRadMagic = 0x31444152u; // "RAD1" LE
-constexpr std::uint32_t kRadVersion = 5;
+constexpr std::uint32_t kRadVersion = 6;
 constexpr std::uint32_t kRadVersionLegacy = 2;
 constexpr std::uint32_t kRadVersionPrevious = 3;
 constexpr std::uint32_t kRadVersionGroups = 4;
 constexpr std::uint32_t kRadVersionProbes = 5;
+constexpr std::uint32_t kRadVersionRotation = 6;
 
 /** Atlas pixel encoding recorded in rad v3+. */
 enum class LightmapEncoding : std::uint32_t {
@@ -61,6 +61,7 @@ struct LightmapChart {
     float groupUMax = 0.0f;
     float groupVMin = 0.0f;
     float groupVMax = 0.0f;
+    bool rotated = false;
 };
 
 /** A cluster of coplanar, UV-frame-matching, edge-adjacent faces sharing one chart. */
@@ -77,6 +78,7 @@ struct LightmapFaceGroup {
     int atlasY = 0;
     int luxelWidth = 0;
     int luxelHeight = 0;
+    bool rotated = false;
 };
 
 /** Atlas texture path and size recorded in a .rad file. */
@@ -118,8 +120,9 @@ struct LightmapPackResult {
 /** Collects drawable faces from brushes for packing / bake. */
 std::vector<LightmapFace> collectLightmapFaces(const std::vector<Brush>& brushes);
 
-/** Collects drawable faces from a VIS visible-face set. */
-std::vector<LightmapFace> collectLightmapFaces(const FacFile& vis);
+/** Collects nodraw faces from solid-occluding brush roles (see brushRoleOccludesVisFaces),
+ *  for light-occlusion raycasts only. These never get baked lightmaps. */
+std::vector<LightmapFace> collectNodrawOcclusionFaces(const std::vector<Brush>& brushes);
 
 /** Clusters coplanar, UV-frame-matching, edge-adjacent faces so they can share one chart. */
 std::vector<LightmapFaceGroup> groupCoplanarLightmapFaces(const std::vector<LightmapFace>& faces);

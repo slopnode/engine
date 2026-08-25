@@ -191,7 +191,7 @@ slopengine::MaterialUvInfo resolveMaterialUv(
     return info;
 }
 
-void fitFaceTexture(slopengine::BrushFace& face, slopengine::AssetStore& assets) {
+void fitFaceTextureImpl(slopengine::BrushFace& face, slopengine::AssetStore& assets, bool preserveAspect) {
     if (face.vertices.size() < 3) {
         return;
     }
@@ -222,12 +222,22 @@ void fitFaceTexture(slopengine::BrushFace& face, slopengine::AssetStore& assets)
     const float ppm = uvInfo.pixelsPerMeter > 0.0f ? uvInfo.pixelsPerMeter : 64.0f;
     const float texW = uvInfo.textureWidth > 0.0f ? uvInfo.textureWidth : 64.0f;
     const float texH = uvInfo.textureHeight > 0.0f ? uvInfo.textureHeight : 64.0f;
-    const float scaleU = texW / (rangeU * ppm);
-    const float scaleV = texH / (rangeV * ppm);
-    const float scale = std::min(scaleU, scaleV);
-    face.uvScale = {scale, scale};
-    face.uvShiftPixels.x = -0.5f * (minU + maxU) * ppm * scale + 0.5f * texW;
-    face.uvShiftPixels.y = -0.5f * (minV + maxV) * ppm * scale + 0.5f * texH;
+    float scaleU = texW / (rangeU * ppm);
+    float scaleV = texH / (rangeV * ppm);
+    if (preserveAspect) {
+        scaleU = scaleV = std::min(scaleU, scaleV);
+    }
+    face.uvScale = {scaleU, scaleV};
+    face.uvShiftPixels.x = -0.5f * (minU + maxU) * ppm * scaleU + 0.5f * texW;
+    face.uvShiftPixels.y = -0.5f * (minV + maxV) * ppm * scaleV + 0.5f * texH;
+}
+
+void fitFaceTexture(slopengine::BrushFace& face, slopengine::AssetStore& assets) {
+    fitFaceTextureImpl(face, assets, false);
+}
+
+void fitFaceTextureAspect(slopengine::BrushFace& face, slopengine::AssetStore& assets) {
+    fitFaceTextureImpl(face, assets, true);
 }
 
 void resetFaceUv(slopengine::BrushFace& face) {
@@ -653,6 +663,15 @@ TexturePanelResult TexturePanel::drawUvSection(
             })) {
             result.changed = true;
             editor.statusMessage = "Fit texture to face(s)";
+        }
+    }
+    ImGui::SameLine();
+    if (slopengine::buttonWithIcon(assets, slopengine::kDefaultIconSet, "shape_handles", "Fit Aspect")) {
+        if (forEachTarget(editor, targets, [&assets](slopengine::BrushFace& face) {
+                fitFaceTextureAspect(face, assets);
+            })) {
+            result.changed = true;
+            editor.statusMessage = "Fit texture to face(s) preserving aspect";
         }
     }
     ImGui::SameLine();

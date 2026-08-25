@@ -343,20 +343,10 @@ void registerRenderSystems(flecs::world& world) {
             request.pending = false;
             std::filesystem::path path;
             std::string error;
-            ConsoleState& console = it.world().get_mut<ConsoleState>();
             if (saveScreenshotPng(path, error)) {
-                const std::string message = "Screenshot saved: " + path.string();
-                TraceLog(LOG_INFO, "SCREENSHOT: %s", path.string().c_str());
-                console.log.push_back(message);
-                if (console.log.size() > 200) {
-                    console.log.erase(console.log.begin());
-                }
+                TraceLog(LOG_INFO, "SCREENSHOT: Screenshot saved: %s", path.string().c_str());
             } else {
-                TraceLog(LOG_WARNING, "SCREENSHOT: %s", error.c_str());
-                console.log.push_back("Screenshot failed: " + error);
-                if (console.log.size() > 200) {
-                    console.log.erase(console.log.begin());
-                }
+                TraceLog(LOG_WARNING, "SCREENSHOT: Screenshot failed: %s", error.c_str());
             }
         });
 }

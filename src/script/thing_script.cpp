@@ -1521,6 +1521,62 @@ s7_pointer g_actor_grounded(s7_scheme* sc, s7_pointer args) {
                                                                                 : s7_f(sc);
 }
 
+s7_pointer g_actor_submerged(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-submerged?", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    return entity.get<CharacterMotor>().submersion > 0.0f ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_actor_near_water_exit(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-near-water-exit?", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    const CharacterMotor& motor = entity.get<CharacterMotor>();
+    return (motor.submersion > 0.0f && motor.nearWaterSurface) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_actor_water_exit_dir(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-water-exit-dir", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    const CharacterMotor& motor = entity.get<CharacterMotor>();
+    if (motor.submersion <= 0.0f || !motor.nearWaterSurface) {
+        return s7_f(sc);
+    }
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_f(sc);
+    }
+    float dirX = 0.0f;
+    float dirZ = 0.0f;
+    if (!physics->findWaterExitDirection(static_cast<std::uint64_t>(entity.id()), motor, dirX, dirZ)) {
+        return s7_f(sc);
+    }
+    return s7_list(sc, 2, s7_make_real(sc, dirX), s7_make_real(sc, dirZ));
+}
+
 s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -3080,6 +3136,24 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(sprite-hide-part! id part-name)");
     s7_define_function(
         scheme, "actor-grounded?", g_actor_grounded, 1, 0, false, "(actor-grounded? id)");
+    s7_define_function(
+        scheme, "actor-submerged?", g_actor_submerged, 1, 0, false, "(actor-submerged? id)");
+    s7_define_function(
+        scheme,
+        "actor-near-water-exit?",
+        g_actor_near_water_exit,
+        1,
+        0,
+        false,
+        "(actor-near-water-exit? id)");
+    s7_define_function(
+        scheme,
+        "actor-water-exit-dir",
+        g_actor_water_exit_dir,
+        1,
+        0,
+        false,
+        "(actor-water-exit-dir id)");
     s7_define_function(
         scheme,
         "actor-play-anim",

@@ -114,6 +114,8 @@ void PunchTool::reset() {
     depthFromNumeric = false;
     depthGrabScreen = {};
     depthAtGrab = 0.0f;
+    hoverPoint = {};
+    hoverValid = false;
 }
 
 void PunchTool::setDepthStatus(Editor& editor) const {
@@ -339,8 +341,10 @@ void PunchTool::update(
 
     if (phase == PunchPhase::DrawingRect) {
         Vector3 hit{};
-        if (rayPlaneIntersection(ray, plane.origin, plane.normal, hit)) {
+        hoverValid = rayPlaneIntersection(ray, plane.origin, plane.normal, hit);
+        if (hoverValid) {
             hit = snapToGrid(hit, editor.gridSize);
+            hoverPoint = hit;
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 corner0 = hit;
                 corner1 = hit;
@@ -390,11 +394,18 @@ void PunchTool::update(
     }
 }
 
-void PunchTool::drawPreview() const {
+void PunchTool::drawPreview(Vector3 eye, float lineWidth) const {
     if (!active() || brushIndex < 0) {
         return;
     }
     if (phase == PunchPhase::DrawingRect) {
+        if (hoverValid) {
+            constexpr Color kUCross{255, 90, 90, 255};
+            constexpr Color kVCross{90, 255, 90, 255};
+            const float crossHalf = std::max(0.12f, lineWidth * 10.0f);
+            drawPlaneCrosshair(
+                hoverPoint, plane.axisU, plane.axisV, crossHalf, kUCross, kVCross, eye, lineWidth);
+        }
         float pu0 = 0.0f;
         float pv0 = 0.0f;
         float pu1 = 0.0f;

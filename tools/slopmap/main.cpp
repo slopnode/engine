@@ -22,6 +22,7 @@
 #include "render/skybox.hpp"
 #include "render/skybox_render.hpp"
 #include "assets/asset_store.hpp"
+#include "core/log.hpp"
 #include "core/package.hpp"
 #include "core/package_meta.hpp"
 #include "core/package_search.hpp"
@@ -145,6 +146,134 @@ ImVec4 compileLogLineColor(std::string_view line) {
     return ImGui::GetStyleColorVec4(ImGuiCol_Text);
 }
 
+// Maps standard ANSI SGR color codes (30-37 normal, 90-97 bright) to ImGui colors.
+// Returns a negative-alpha sentinel for codes it doesn't recognize as a color.
+ImVec4 ansiSgrColor(int code) {
+    switch (code) {
+        case 30: return ImVec4(0.35f, 0.35f, 0.35f, 1.0f);
+        case 31: return ImVec4(0.86f, 0.30f, 0.30f, 1.0f);
+        case 32: return ImVec4(0.40f, 0.75f, 0.35f, 1.0f);
+        case 33: return ImVec4(0.85f, 0.70f, 0.25f, 1.0f);
+        case 34: return ImVec4(0.35f, 0.55f, 0.90f, 1.0f);
+        case 35: return ImVec4(0.75f, 0.40f, 0.80f, 1.0f);
+        case 36: return ImVec4(0.30f, 0.75f, 0.75f, 1.0f);
+        case 37: return ImVec4(0.80f, 0.80f, 0.80f, 1.0f);
+        case 90: return ImVec4(0.50f, 0.50f, 0.50f, 1.0f);
+        case 91: return ImVec4(1.00f, 0.45f, 0.45f, 1.0f);
+        case 92: return ImVec4(0.55f, 0.90f, 0.45f, 1.0f);
+        case 93: return ImVec4(1.00f, 0.85f, 0.35f, 1.0f);
+        case 94: return ImVec4(0.50f, 0.65f, 1.00f, 1.0f);
+        case 95: return ImVec4(0.90f, 0.55f, 0.95f, 1.0f);
+        case 96: return ImVec4(0.45f, 0.90f, 0.90f, 1.0f);
+        case 97: return ImVec4(1.00f, 1.00f, 1.00f, 1.0f);
+        default: return ImVec4(0.0f, 0.0f, 0.0f, -1.0f);
+    }
+}
+
+struct AnsiSpan {
+    std::string text;
+    ImVec4 color;
+};
+
+// Splits a line containing ANSI "\x1b[...m" SGR escapes (as written by
+// slopbsp/slopvis/sloprad via Log::addDefaultConsoleSink) into colored spans.
+std::vector<AnsiSpan> parseAnsiSpans(std::string_view line, ImVec4 defaultColor) {
+    std::vector<AnsiSpan> spans;
+    ImVec4 current = defaultColor;
+    bool bold = false;
+    std::string buf;
+    const auto flush = [&]() {
+        if (!buf.empty()) {
+            spans.push_back(AnsiSpan{buf, current});
+            buf.clear();
+        }
+    };
+    std::size_t i = 0;
+    while (i < line.size()) {
+        if (line[i] == '\x1b' && i + 1 < line.size() && line[i + 1] == '[') {
+            std::size_t j = i + 2;
+            while (j < line.size() && line[j] != 'm') {
+                ++j;
+            }
+            if (j >= line.size()) {
+                break;
+            }
+            flush();
+            const std::string_view params = line.substr(i + 2, j - (i + 2));
+            if (params.empty()) {
+                current = defaultColor;
+                bold = false;
+            }
+            std::size_t start = 0;
+            while (start <= params.size() && !params.empty()) {
+                const std::size_t sep = params.find(';', start);
+                const std::string_view codeStr = params.substr(
+                    start, sep == std::string_view::npos ? std::string_view::npos : sep - start);
+                int code = -1;
+                if (!codeStr.empty()) {
+                    code = 0;
+                    for (char c : codeStr) {
+                        if (c < '0' || c > '9') {
+                            code = -1;
+                            break;
+                        }
+                        code = code * 10 + (c - '0');
+                    }
+                }
+                if (code == 0) {
+                    current = defaultColor;
+                    bold = false;
+                } else if (code == 1) {
+                    bold = true;
+                } else if (code == 22) {
+                    bold = false;
+                } else if (code == 39) {
+                    current = defaultColor;
+                } else if (code >= 30 && code <= 37) {
+                    current = ansiSgrColor(bold ? code + 60 : code);
+                } else if (code >= 90 && code <= 97) {
+                    current = ansiSgrColor(code);
+                }
+                if (sep == std::string_view::npos) {
+                    break;
+                }
+                start = sep + 1;
+            }
+            i = j + 1;
+            continue;
+        }
+        buf.push_back(line[i]);
+        ++i;
+    }
+    flush();
+    return spans;
+}
+
+// Renders one compile-log line, honoring embedded ANSI colors when present and
+// falling back to the prefix-based heuristic for plain text lines.
+void renderCompileLogLine(std::string_view line) {
+    if (line.find('\x1b') == std::string_view::npos) {
+        const ImVec4 color = compileLogLineColor(line);
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextWrapped("%.*s", static_cast<int>(line.size()), line.data());
+        ImGui::PopStyleColor();
+        return;
+    }
+    const std::vector<AnsiSpan> spans = parseAnsiSpans(line, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+    if (spans.empty()) {
+        ImGui::NewLine();
+        return;
+    }
+    for (std::size_t i = 0; i < spans.size(); ++i) {
+        ImGui::PushStyleColor(ImGuiCol_Text, spans[i].color);
+        ImGui::TextWrapped("%s", spans[i].text.c_str());
+        ImGui::PopStyleColor();
+        if (i + 1 < spans.size()) {
+            ImGui::SameLine(0.0f, 0.0f);
+        }
+    }
+}
+
 struct ToolConfig {
     slopengine::AppConfig mount;
     std::filesystem::path target;
@@ -220,7 +349,8 @@ void printUsage() {
         << "  --base-game   Base game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory that receives map/prefab saves (required)\n"
-        << "  --map         Optional map under maps/ to open (default: new untitled map)\n";
+        << "  --map         Optional map under maps/ to open (default: new untitled map)\n"
+        << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -267,6 +397,10 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
                 return std::nullopt;
             }
             config.mount.map = value;
+            continue;
+        }
+        if (arg == "--verbose") {
+            config.mount.verbose = true;
             continue;
         }
         return std::nullopt;
@@ -776,7 +910,7 @@ void drawScene(
     rlDisableDepthMask();
     createTool.drawPreview(eye, lineWidth);
     placeTool.drawPreview(eye, lineWidth);
-    punchTool.drawPreview();
+    punchTool.drawPreview(eye, lineWidth);
     clipTool.drawPreview(editor, eye, lineWidth);
     rlDrawRenderBatchActive();
     rlEnableDepthMask();
@@ -1010,7 +1144,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    SetTraceLogLevel(LOG_INFO);
+    slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Debug : slopengine::LogLevel::Info);
+    slopengine::Log::addDefaultConsoleSink();
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1600, 900, "slopmap");
     if (!IsWindowReady()) {
@@ -1027,7 +1162,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     ImFont* monoFont = setupImGuiWithUiAndMonoFont(
-        assets, kDefaultUiFontPath, kMonoUiFontPath, true);
+        assets, kDefaultUiFontPath, kMonoUiFontPath, true, "slopmap");
     applySharpImGuiStyle();
 
     s7_scheme* scheme = s7_init();
@@ -1071,6 +1206,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "slopmap: warning: infinite grid shader failed to load\n";
     }
     slopmap::MaterialBrowser materialBrowser;
+    slopmap::SoundBrowser doorSoundBrowser;
     slopmap::TexturePanel texturePanel;
     slopmap::ThingPanel thingPanel;
     slopmap::BrushPanel brushPanel;
@@ -1120,7 +1256,6 @@ int main(int argc, char* argv[]) {
                 break;
             }
         }
-        editor.dropOptInFacArtifact(assets);
         slopmap::CompileMountArgs mounts;
         mounts.baseGame = config->mount.base_game;
         mounts.mods = config->mount.mods;
@@ -2838,7 +2973,7 @@ int main(int argc, char* argv[]) {
                         if (d.selectionMode == slopmap::SelectionMode::Entity) {
                             thingPanel.drawSection(editor, assets, materialBrowser, propsH);
                         } else {
-                            brushPanel.drawSection(editor, propsH);
+                            brushPanel.drawSection(editor, assets, doorSoundBrowser, propsH);
                         }
                         ImGui::EndTabItem();
                     }
@@ -4287,6 +4422,111 @@ int main(int argc, char* argv[]) {
             if (compile.radOptions.sunShadowSoftness > 1.0f) {
                 compile.radOptions.sunShadowSoftness = 1.0f;
             }
+
+            ImGui::SeparatorText("Emitter Sampling");
+            ImGui::InputInt("Emitter direct samples", &compile.radOptions.emitterDirectSamples);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "NxN stratified UV samples per receiver-emissive-face pair "
+                    "for direct light from emissive materials.");
+            }
+            if (compile.radOptions.emitterDirectSamples < 1) {
+                compile.radOptions.emitterDirectSamples = 1;
+            }
+            ImGui::DragFloat(
+                "Emitter grid luxels/m",
+                &compile.radOptions.emitterGridLuxelsPerMeter,
+                0.25f,
+                0.5f,
+                64.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("World-space resolution of the pre-baked per-face emission cast grid.");
+            }
+            if (compile.radOptions.emitterGridLuxelsPerMeter < 0.5f) {
+                compile.radOptions.emitterGridLuxelsPerMeter = 0.5f;
+            }
+            ImGui::InputInt("Emitter grid max size", &compile.radOptions.emitterGridMaxSize);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Maximum emission grid dimension per emissive face axis.");
+            }
+            if (compile.radOptions.emitterGridMaxSize < 1) {
+                compile.radOptions.emitterGridMaxSize = 1;
+            }
+
+            ImGui::SeparatorText("Exact Emission");
+            ImGui::InputInt("Exact emission grid max size", &compile.radOptions.exactEmissionGridMaxSize);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Upper bound on the per-face exact-emission sample grid dimension.");
+            }
+            if (compile.radOptions.exactEmissionGridMaxSize < 1) {
+                compile.radOptions.exactEmissionGridMaxSize = 1;
+            }
+            ImGui::InputInt("Exact emission max samples", &compile.radOptions.exactEmissionMaxSamples);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Upper bound on total exact-emission samples per face.");
+            }
+            if (compile.radOptions.exactEmissionMaxSamples < 1) {
+                compile.radOptions.exactEmissionMaxSamples = 1;
+            }
+
+            ImGui::SeparatorText("Seam Stitching");
+            ImGui::DragFloat(
+                "Seam stitch radius",
+                &compile.radOptions.seamStitchRadiusLuxels,
+                0.1f,
+                0.0f,
+                16.0f,
+                "%.2f luxels");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Lightmap seam-stitching search radius, in luxels.");
+            }
+            if (compile.radOptions.seamStitchRadiusLuxels < 0.0f) {
+                compile.radOptions.seamStitchRadiusLuxels = 0.0f;
+            }
+
+            ImGui::SeparatorText("Light Probes");
+            ImGui::DragFloat(
+                "Probe cell size",
+                &compile.radOptions.probeCellSize,
+                0.1f,
+                0.25f,
+                32.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Coarse light-probe grid spacing (world units), covering all open space. "
+                    "Smaller = denser grid, slower bake, more memory.");
+            }
+            if (compile.radOptions.probeCellSize < 0.25f) {
+                compile.radOptions.probeCellSize = 0.25f;
+            }
+            ImGui::DragFloat(
+                "Probe fine cell size",
+                &compile.radOptions.probeFineCellSize,
+                0.1f,
+                0.1f,
+                32.0f,
+                "%.2f");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Fine light-probe grid spacing (world units), placed only near geometry "
+                    "(walls/corners/doorways). Clamped to the coarse cell size at bake time.");
+            }
+            if (compile.radOptions.probeFineCellSize < 0.1f) {
+                compile.radOptions.probeFineCellSize = 0.1f;
+            }
+            ImGui::InputInt("Probe sample count", &compile.radOptions.probeSampleCount);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Sphere samples gathered per probe for the SH lighting projection. "
+                    "Higher = smoother probes, slower bake.");
+            }
+            if (compile.radOptions.probeSampleCount < 1) {
+                compile.radOptions.probeSampleCount = 1;
+            }
+
+            ImGui::SeparatorText("GPU");
             if (ImGui::RadioButton("GPU", compile.radOptions.preferGpu)) {
                 compile.radOptions.preferGpu = true;
             }
@@ -4335,10 +4575,7 @@ int main(int argc, char* argv[]) {
                                 }
                                 ImGui::PushTextWrapPos(0.0f);
                                 for (const std::string& line : compile.logLines(stage)) {
-                                    const ImVec4 color = compileLogLineColor(line);
-                                    ImGui::PushStyleColor(ImGuiCol_Text, color);
-                                    ImGui::TextWrapped("%s", line.c_str());
-                                    ImGui::PopStyleColor();
+                                    renderCompileLogLine(line);
                                 }
                                 ImGui::PopTextWrapPos();
                                 if (compile.logDirty(stage)) {

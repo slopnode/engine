@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <queue>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -28,7 +29,9 @@ bool leafTouchesBounds(const BspLeaf& leaf, Vector3 boundsMins, Vector3 boundsMa
         || std::fabs(leaf.maxs.z - boundsMaxs.z) <= kEps;
 }
 
-void floodExterior(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty) {
+} // namespace
+
+void floodExteriorLeaves(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty) {
     const std::size_t leafCount = tree.leaves.size();
     exteriorEmpty.assign(leafCount, 0);
     std::queue<std::int32_t> queue;
@@ -62,6 +65,8 @@ void floodExterior(const BspTree& tree, std::vector<std::uint8_t>& exteriorEmpty
         }
     }
 }
+
+namespace {
 
 bool isInteriorEmpty(
     const BspTree& tree,
@@ -222,10 +227,36 @@ void collectInteriorPlacementWarnings(
     }
 }
 
+void collectDuplicateFaceIdWarnings(
+    const std::vector<Brush>& brushes,
+    std::vector<std::string>& warnings) {
+    std::unordered_map<std::string, std::string> ownerByFaceId;
+    for (const Brush& brush : brushes) {
+        for (const BrushFace& face : brush.faces) {
+            if (face.id.empty()) {
+                continue;
+            }
+            const auto [it, inserted] = ownerByFaceId.try_emplace(face.id, brush.id);
+            if (!inserted && it->second != brush.id) {
+                warnings.push_back(
+                    "face id '" + face.id + "' authored on both brush '" + it->second
+                    + "' and brush '" + brush.id
+                    + "' — lightmap/UV chart lookups key by this id and will collide");
+            }
+        }
+    }
+}
+
 } // namespace
 
 MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& brushes) {
     MapHullAnalysis analysis;
+
+    collectDuplicateFaceIdWarnings(brushes, analysis.duplicateFaceIdWarnings);
+    for (const std::string& warning : analysis.duplicateFaceIdWarnings) {
+        TraceLog(LOG_WARNING, "BSP: %s", warning.c_str());
+    }
+
     if (tree.leaves.empty()) {
         TraceLog(LOG_WARNING, "BSP: analyze skipped (empty tree)");
         return analysis;
@@ -233,12 +264,13 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
 
     TraceLog(
         LOG_INFO,
-        "BSP: analyze start leaves=%d surfaces=%d brushes=%d",
+        "BSP: analyze start leaves=%d surfaces=%d brushes=%d duplicateFaceIds=%d",
         static_cast<int>(tree.leaves.size()),
         static_cast<int>(tree.surfaceFaces.size()),
-        static_cast<int>(brushes.size()));
+        static_cast<int>(brushes.size()),
+        static_cast<int>(analysis.duplicateFaceIdWarnings.size()));
 
-    floodExterior(tree, analysis.exteriorEmpty);
+    floodExteriorLeaves(tree, analysis.exteriorEmpty);
 
     int exteriorEmpty = 0;
     int interiorEmpty = 0;
@@ -280,7 +312,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
 
     TraceLog(
         LOG_INFO,
-        "BSP: analyze done detailWarnings=%d (nodraw via slopfac)",
+        "BSP: analyze done detailWarnings=%d",
         static_cast<int>(analysis.detailOutsideWarnings.size()));
     return analysis;
 }

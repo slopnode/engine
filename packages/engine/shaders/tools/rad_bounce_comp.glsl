@@ -340,11 +340,28 @@ bool raycastClosestSegment(
             }
             continue;
         }
-        if (node.right >= 0 && stackSize < 64) {
-            stack[stackSize++] = node.right;
-        }
-        if (node.left >= 0 && stackSize < 64) {
-            stack[stackSize++] = node.left;
+        if (node.left >= 0 && node.right >= 0) {
+            BvhNode leftNode = nodes[node.left];
+            BvhNode rightNode = nodes[node.right];
+            vec3 leftCenter = 0.5 * (vec3(leftNode.minx, leftNode.miny, leftNode.minz) + vec3(leftNode.maxx, leftNode.maxy, leftNode.maxz));
+            vec3 rightCenter = 0.5 * (vec3(rightNode.minx, rightNode.miny, rightNode.minz) + vec3(rightNode.maxx, rightNode.maxy, rightNode.maxz));
+            float tLeft = dot(leftCenter - origin, dir);
+            float tRight = dot(rightCenter - origin, dir);
+            int nearChild = tLeft <= tRight ? node.left : node.right;
+            int farChild = tLeft <= tRight ? node.right : node.left;
+            if (stackSize < 64) {
+                stack[stackSize++] = farChild;
+            }
+            if (stackSize < 64) {
+                stack[stackSize++] = nearChild;
+            }
+        } else {
+            if (node.right >= 0 && stackSize < 64) {
+                stack[stackSize++] = node.right;
+            }
+            if (node.left >= 0 && stackSize < 64) {
+                stack[stackSize++] = node.left;
+            }
         }
     }
 

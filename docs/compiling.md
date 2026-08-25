@@ -164,7 +164,6 @@ From here run the build command and all of the binaries including the tools will
 [ 70%] Built target Jolt
 [ 76%] Built target sloplib
 [ 81%] Built target slopbsp
-[ 81%] Built target slopfac
 [ 81%] Built target sloprad
 [ 81%] Built target slopvis
 [ 89%] Built target slopsprite
@@ -189,7 +188,6 @@ lib
 libsloplib.a
 slopbsp
 slopengine
-slopfac
 slopicons
 slopmap
 sloprad

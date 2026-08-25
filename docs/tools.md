@@ -2,7 +2,6 @@
 
 - @subpage slopmap
 - @subpage slopbsp
-- @subpage slopfac
 - @subpage slopvis
 - @subpage sloprad
 - @subpage slopsprite

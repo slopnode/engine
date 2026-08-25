@@ -1,7 +1,6 @@
 #pragma once
 
 #include "map/bsp.hpp"
-#include "map/fac.hpp"
 #include "map/lightmap.hpp"
 #include "map/quad_bvh.hpp"
 
@@ -115,10 +114,9 @@ struct MapLighting {
     }
 };
 
-/** Builds MapLighting from FAC (preferred) or BSP surfaces, rad data, and atlases. */
+/** Builds MapLighting from BSP surfaces, rad data, and atlases. */
 MapLighting buildMapLighting(
     const BspTree& bsp,
-    const FacFile* fac,
     RadFile rad,
     std::vector<Image> atlasImages,
     Color ambient);

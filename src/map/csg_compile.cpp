@@ -121,8 +121,10 @@ CsgCompileResult compileFacesToGeo(
                 const float v = corner.x * vAxis.x + corner.y * vAxis.y + corner.z * vAxis.z;
                 const float fu = (u - uMin) / uSpan;
                 const float fv = (v - vMin) / vSpan;
-                lightUv.x = chart->u0 + (chart->u1 - chart->u0) * fu;
-                lightUv.y = chart->v0 + (chart->v1 - chart->v0) * fv;
+                const float fx = chart->rotated ? fv : fu;
+                const float fy = chart->rotated ? fu : fv;
+                lightUv.x = chart->u0 + (chart->u1 - chart->u0) * fx;
+                lightUv.y = chart->v0 + (chart->v1 - chart->v0) * fy;
             }
             result.buffer.texcoords2.push_back(lightUv);
         }
@@ -222,37 +224,11 @@ CsgCompileResult compileBrushesToGeo(
             input.uvUAxis = face.uvUAxis;
             input.uvVAxis = face.uvVAxis;
             input.uvLock = face.uvLock;
-            input.transparent = brush.role == BrushRole::Transparent;
+            input.transparent =
+                brush.role == BrushRole::Transparent || brush.role == BrushRole::Water;
             input.twoSided = brush.role == BrushRole::Water;
             faces.push_back(std::move(input));
         }
-    }
-    return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);
-}
-
-CsgCompileResult compileVisibleFacesToGeo(
-    const FacFile& vis,
-    const MaterialUvResolver& resolveMaterialUv,
-    const RadFile* lightmaps) {
-    std::vector<FaceCompileInput> faces;
-    faces.reserve(vis.faces.size());
-    for (const VisibleFace& face : vis.faces) {
-        if (face.vertices.size() < 3) {
-            continue;
-        }
-        FaceCompileInput input;
-        input.id = face.id;
-        input.material = face.material;
-        input.normal = face.normal;
-        input.vertices = &face.vertices;
-        input.uvShiftPixels = face.uvShiftPixels;
-        input.uvScale = face.uvScale;
-        input.uvUAxis = face.uvUAxis;
-        input.uvVAxis = face.uvVAxis;
-        input.uvLock = face.uvLock;
-        input.transparent = face.transparent;
-        input.twoSided = face.twoSided;
-        faces.push_back(std::move(input));
     }
     return compileFacesToGeo(faces, resolveMaterialUv, lightmaps);
 }
