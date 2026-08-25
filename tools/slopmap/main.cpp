@@ -1158,6 +1158,7 @@ int main(int argc, char* argv[]) {
     AssetStore assets(config->mount);
     if (!targetIsMounted(assets, config->target)) {
         std::cerr << "slopmap: --target must be one of the mounted packages\n";
+        assets.releaseGpuResources();
         CloseWindow();
         return 1;
     }
@@ -1168,6 +1169,7 @@ int main(int argc, char* argv[]) {
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
         std::cerr << "slopmap: failed to init scheme\n";
+        assets.releaseGpuResources();
         rlImGuiShutdown();
         CloseWindow();
         return 1;
@@ -1188,6 +1190,7 @@ int main(int argc, char* argv[]) {
         if (!editor.load(assets, scheme, *config->mount.map)) {
             std::cerr << "slopmap: failed to load map '" << *config->mount.map << "'\n";
             s7_quit(scheme);
+            assets.releaseGpuResources();
             rlImGuiShutdown();
             CloseWindow();
             return 1;
@@ -4636,6 +4639,7 @@ int main(int argc, char* argv[]) {
     editor.preview.clear();
     infiniteGrid.unload();
     s7_quit(scheme);
+    assets.releaseGpuResources();
     rlImGuiShutdown();
     CloseWindow();
     return 0;

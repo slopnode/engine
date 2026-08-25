@@ -208,8 +208,17 @@ void App::init_script() {
 }
 
 void App::shutdown() {
+    unloadMapScene(world_);
+
     unregisterAudioModule(world_);
     unregisterPhysicsModule(world_);
+
+    // Finalizes flecs now, while the GL context is still alive, so any
+    // remaining ECS singleton with GPU-owning state (e.g. PostProcessState,
+    // DynamicLightShadowState) unloads its textures/shaders here instead of
+    // later when world_ is destroyed as an App member, after CloseWindow().
+    world_.release();
+
     if (audioWorld_) {
         audioWorld_->deinit();
         audioWorld_.reset();

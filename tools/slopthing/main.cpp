@@ -143,6 +143,7 @@ int main(int argc, char* argv[]) {
     slopengine::AssetStore assets(config->mount);
     if (!targetIsMounted(assets, config->target)) {
         std::cerr << "slopthing: --target must be one of the mounted packages\n";
+        assets.releaseGpuResources();
         CloseWindow();
         return 1;
     }
@@ -280,6 +281,7 @@ int main(int argc, char* argv[]) {
     if (colliderTarget.id != 0) {
         UnloadRenderTexture(colliderTarget);
     }
+    assets.releaseGpuResources();
     CloseWindow();
     return 0;
 }

@@ -1380,6 +1380,7 @@ int main(int argc, char* argv[]) {
     slopengine::AssetStore assets(config->mount);
     if (!targetIsMounted(assets, config->target)) {
         std::cerr << "slopsprite: --target must be one of the mounted packages\n";
+        assets.releaseGpuResources();
         CloseWindow();
         return 1;
     }
@@ -1798,6 +1799,7 @@ int main(int argc, char* argv[]) {
     slopengine::unloadSpriteAtlas(editor.doc.atlas);
     slopengine::unloadSpriteAtlas(editor.onionRefAtlas);
     audioWorld.deinit();
+    assets.releaseGpuResources();
     rlImGuiShutdown();
     CloseWindow();
     return 0;

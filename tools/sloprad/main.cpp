@@ -340,6 +340,7 @@ int main(int argc, char* argv[]) {
     auto mapMeta = loadMapMeta(assets, *cli->config.map);
     if (!mapMeta) {
         std::cerr << "sloprad: failed to load map meta\n";
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -357,6 +358,7 @@ int main(int argc, char* argv[]) {
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, bspVirtualPath);
     if (!bspPath) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".bsp (run slopbsp first)\n";
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -366,6 +368,7 @@ int main(int argc, char* argv[]) {
     auto tree = readBspFile(*bspPath);
     if (!tree) {
         std::cerr << "sloprad: failed to read " << *bspPath << "\n";
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -380,6 +383,7 @@ int main(int argc, char* argv[]) {
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
         std::cerr << "sloprad: failed to init scheme\n";
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -389,6 +393,7 @@ int main(int argc, char* argv[]) {
     if (!brushes) {
         s7_quit(scheme);
         std::cerr << "sloprad: failed to load map brushes\n";
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -434,6 +439,7 @@ int main(int argc, char* argv[]) {
 
     if (!assets.hasMapVis(bspVirtualPath)) {
         std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -517,6 +523,7 @@ int main(int argc, char* argv[]) {
         for (Image& image : baked.atlasImages) {
             UnloadImage(image);
         }
+        assets.releaseGpuResources();
         closeGLContext();
         return 1;
     }
@@ -529,6 +536,7 @@ int main(int argc, char* argv[]) {
             for (Image& image : baked.atlasImages) {
                 UnloadImage(image);
             }
+            assets.releaseGpuResources();
             closeGLContext();
             return 1;
         }
@@ -544,6 +552,7 @@ int main(int argc, char* argv[]) {
         static_cast<int>(baked.rad.atlases.size()),
         static_cast<int>(baked.rad.charts.size()));
     std::fflush(stdout);
+    assets.releaseGpuResources();
     closeGLContext();
     return 0;
 }
