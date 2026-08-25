@@ -1806,11 +1806,16 @@ bool runBounceGpuPass(
         gpuShoot[i].g = shootRgb[i].y;
         gpuShoot[i].b = shootRgb[i].z;
     }
-    rlUpdateShaderBuffer(
-        session.shootSsbo,
-        gpuShoot.data(),
+    // glBufferSubData onto an SSBO that was allocated empty (glBufferData with NULL data,
+    // then glClearBufferData) silently loses the write on at least some drivers - the shoot
+    // buffer would read back all-zero every bounce pass, forever, even though the upload
+    // reported success. Recreating the buffer with the actual data each pass (mirroring how
+    // every other SSBO here is allocated) avoids that path entirely.
+    rlUnloadShaderBuffer(session.shootSsbo);
+    session.shootSsbo = rlLoadShaderBuffer(
         static_cast<unsigned int>(gpuShoot.size() * sizeof(GpuRgbSSBO)),
-        0);
+        gpuShoot.data(),
+        RL_DYNAMIC_COPY);
     memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
 
     GpuBounceParamsSSBO initialParams{};

@@ -1361,7 +1361,7 @@ void registerUiModule(flecs::world& world, bool debugEnabled, std::string profil
 
 void prepareUiInput(flecs::world world) {
     const InputContextStack& contexts = world.get<InputContextStack>();
-    syncCursorCapture(contexts);
+    syncCursorCapture(contexts, world.get_mut<InputState>());
     if (ImGui::GetCurrentContext() != nullptr) {
         applyImGuiCursorPolicy(contexts);
     }
