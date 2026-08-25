@@ -1344,8 +1344,10 @@ void registerUiModule(flecs::world& world, bool debugEnabled, std::string profil
     ConsoleState console{};
     console.monoFont = monoFont;
     world.set<ConsoleState>(console);
-    Log::addDeferredSink([world](const LogEntry& entry) mutable {
-        ConsoleState& console = world.get_mut<ConsoleState>();
+    flecs::world_t* worldPtr = world.c_ptr();
+    Log::addDeferredSink([worldPtr](const LogEntry& entry) {
+        flecs::world scopedWorld(worldPtr);
+        ConsoleState& console = scopedWorld.get_mut<ConsoleState>();
         logConsoleMessage(console, std::string("[") + Log::levelLabel(entry.level) + "] " + entry.text);
     });
     world.set<QuitRequest>({});
