@@ -1,4 +1,4 @@
-@page profiles Profiles & settings
+@page profiles Profiles & Settings
 
 The engine keeps two different kinds of persistent user data on disk: a global settings file that isn't scoped to any particular game, and a per-profile tree of settings and saves that is. Both live under a per-OS config directory (`src/core/user_paths.cpp`):
 

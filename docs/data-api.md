@@ -10,6 +10,7 @@ All package data files should be placed in the `data/` directory of your package
 
 - `actions.s7` - Package actions
 - `map-handlers.s7` - Map event handlers  
+- `things.s7` - Thing templates
 - `items.s7` - Item catalog
 - `view.s7` - View canvas configuration
 - `cli.s7` - CLI flags
@@ -19,26 +20,23 @@ All package data files should be placed in the `data/` directory of your package
 
 Symbol `*package-actions*`
 
-Actions define gameplay actions that can be bound to input devices. These are typically used for key bindings, controller buttons, or other user input events.
+Actions define gameplay actions that can be bound to input devices. Each entry accepts a `label` and a `default` bind token (a key or mouse button name); the default bind is used until the player rebinds the action.
 
 <pre><code class="language-scheme">(define *package-actions*
   (list
-    (cons "fire"
-      '((label . "Fire weapon")
-        (type . "button")))
-    (cons "jump"
-      '((label . "Jump")
-        (type . "button")))
-    (cons "run"
-      '((label . "Run")
-        (type . "toggle")))))
+    (cons "attack"
+      '((label . "Attack")
+        (default . "mouse1")))
+    (cons "weapon-1"
+      '((label . "Weapon 1")
+        (default . "1")))))
 </code></pre>
 
 # Handlers {#handlers}
 
 Symbol `*package-map-handlers*`
 
-Map handlers define event handlers for map interactions. These are used to create custom behavior for map elements like triggers, use events, or other interactive components.
+Map handlers define event handlers for map interactions. These are used to create custom behavior for map elements like triggers, use events, or other interactive components. Valid kinds are `enter`, `exit`, `touch`, `use`, and `can-use`. Param types are `int`, `float`, `bool`, `string`, `color`, `vec3`, `thing`, `brush`, and `face`; a param may include a default value, in which case it becomes optional.
 
 <pre><code class="language-scheme">(define *package-map-handlers*
   (list
@@ -51,25 +49,73 @@ Map handlers define event handlers for map interactions. These are used to creat
            (target thing)))))))
 </code></pre>
 
+# Things {#things}
+
+Symbols `*package-things*` and `*package-thing-folders*`
+
+Thing templates are the props, pickups, and actors that map authors can place from `slopmap` or `slopsprite`. Each entry needs an id and a `kind` of `prop`, `pickup`, or `actor`; which other keys apply depends on the kind.
+
+- `label`, `icon`, `path` - browser presentation; `path` groups the thing under a folder declared in `*package-thing-folders*`
+- `sprite` or `geo`, `frame`, `anim` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`
+- `motor (radius ...) (height ...) (speed ...) (gravity ...) (step-height ...) (hover-height ...) (max-fall ...) (water-aversion ...) (hull box|capsule|sphere) (move try-move|slide|fly)` - a physics-driven movement capsule; implied for `actor`, optional for the others
+- `tags` - a list of string tags, matched against `see-tags`/`ignore-tags` on other things and used by handlers
+- `on-enter`, `on-use` - handler bindings from the map handler catalog; a pickup requires at least one
+- `trigger-size` - the enter/use detection box as `(x y z)`, defaults to `1 1.5 1`
+- `health`, `pain-chance`, `pain-threshold`, `idle-anim`, `behavior`, `behaviors` - actor combat and AI state; each entry under `behaviors` is a named clause of its own params
+- `sight (range ...) (fov ...) (eye-lift ...) (see-tags ...) (ignore-tags ...) (filter ...) (enabled ...)` - actor perception config
+
+<pre><code class="language-scheme">(define *package-thing-folders*
+  '(("ammo" . "bullet_black")
+    ("monsters" (icon . "group") (label . "Monsters"))))
+
+(define *package-things*
+  (list
+    (cons "red-square"
+      '((label . "Red Square")
+        (path . "props")
+        (kind . prop)
+        (sprite . "red-square")
+        (frame . "still")))
+    (cons "clip"
+      '((label . "Clip")
+        (path . "ammo")
+        (icon . "bullet_black")
+        (kind . pickup)
+        (sprite . "items/clip")
+        (frame . "A")
+        (on-enter "on-enter-ammo" (ammo "clip"))
+        (trigger-size 1 1.5 1)))
+    (cons "poss"
+      '((label . "Zombieman")
+        (path . "monsters")
+        (kind . actor)
+        (sprite . "monsters/poss")
+        (anim . "walk")
+        (anim-loop . #t)
+        (motor (radius 0.3) (height 1.0) (speed 3.5) (gravity 9.81) (hull capsule) (move slide))
+        (tags "actor" "team:hell")
+        (health . 20)
+        (pain-chance 0.78)
+        (idle-anim . "walk")
+        (behavior . "idle")
+        (behaviors
+          (ranged (cooldown 2.2) (range 24) (anim "attack") (recipe "hitscan")))
+        (sight (range 28) (fov 160) (see-tags "player") (ignore-tags "team:hell") (enabled #t))))))
+</code></pre>
+
 # Items {#items}
 
 Symbol `*item-catalog*`
 
-Item catalog defines items that can be used by the package, including their properties and behaviors.
+The engine loads `data/items.s7` into the script environment but does not interpret its contents; the shape of `*item-catalog*` and any accessors like `item-def` are entirely up to the package. A common convention is a small alist of item properties such as whether the item is unique or how many can be stacked, with helper functions to read them.
 
 <pre><code class="language-scheme">(define *item-catalog*
   (list
-    (cons "health-potion"
-      '((label . "Health Potion")
-        (type . "consumable")
-        (effects .
-          ((health . 50)))))
-    (cons "sword"
-      '((label . "Sword")
-        (type . "weapon")
-        (stats .
-          ((damage . 10)
-           (speed . 1.2)))))))
+    (cons "key-blue" '((unique . #t)))
+    (cons "shells" '((stack . 50)))))
+
+(define (item-def id)
+  (assoc id *item-catalog*))
 </code></pre>
 
 # View {#view}
@@ -94,24 +140,26 @@ HUD canvas defines the resolution and presentation properties for the heads-up d
 
 Symbol `*package-cli*`
 
-CLI flags define additional command-line arguments that can be used when launching the package.
+CLI flags define additional command-line arguments that can be used when launching the package. Each flag has a name, a value kind of either `string` or `flag`, and a help string.
 
 <pre><code class="language-scheme">(define *package-cli*
   '((flags
-      (("--debug" . "Enable debug mode")
-       ("--verbose" . "Enable verbose logging")))
-    (args
-      ((level . "Set difficulty level")))))
+      ((name "map") (value "string") (help "Initial map folder under maps/"))
+      ((name "god-mode") (value "flag") (help "Player takes no damage")))))
 </code></pre>
 
 # Title {#title}
 
 Symbol `*package-title*`
 
-Title screen layers define the elements that make up the title screen.
+Title screen configuration defines the background shown behind the title screen. Use `image` for a static picture, with a fit mode of `fit`, `cover`, or `stretch`, or `map` to render a live map as the background. `canvas` sets the virtual resolution the title screen is drawn at.
 
 <pre><code class="language-scheme">(define *package-title*
   '((image "freedom/TITLEPIC" fit)
-    (text "SlopEngine Demo" center)
-    (logo "freedom/LOGO")))
+    (canvas 320 200)))
+</code></pre>
+
+<pre><code class="language-scheme">(define *package-title*
+  '((map "test")
+    (canvas 320 240)))
 </code></pre>
