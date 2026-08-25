@@ -39,6 +39,14 @@ public:
     AssetStore(const AssetStore&) = delete;
     AssetStore& operator=(const AssetStore&) = delete;
 
+    /**
+     * Unloads every GPU-backed resource (textures, atlases, models, the
+     * skinning shader). Must be called while the GL context is still alive,
+     * i.e. before CloseWindow(). Safe to call more than once; the destructor
+     * calls it again as a no-op if this was already done.
+     */
+    void releaseGpuResources();
+
     /** Returns true when a texture exists at @p path. */
     bool hasTexture(std::string_view path) const;
 

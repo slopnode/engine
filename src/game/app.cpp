@@ -225,6 +225,7 @@ void App::shutdown() {
     }
 
     if (IsWindowReady()) {
+        assetStore_.releaseGpuResources();
         rlImGuiShutdown();
         CloseWindow();
     }

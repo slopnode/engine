@@ -69,6 +69,7 @@ The engine also includes a number of tools specifically for handling level desig
 &nbsp;
 
 - @subpage installing
+- @subpage demos
 - @subpage tutorials
 - @subpage engine
 - @subpage tools

@@ -104,6 +104,10 @@ AssetStore::AssetStore(const AppConfig& config) {
 }
 
 AssetStore::~AssetStore() {
+    releaseGpuResources();
+}
+
+void AssetStore::releaseGpuResources() {
     if (skinningShader_.id != 0) {
         UnloadShader(skinningShader_);
         skinningShader_ = {};
@@ -111,28 +115,35 @@ AssetStore::~AssetStore() {
     for (auto& [_, bank] : animBanks_) {
         unloadAnimBank(bank);
     }
+    animBanks_.clear();
     for (auto& [_, atlas] : spriteAtlases_) {
         unloadSpriteAtlas(atlas);
     }
+    spriteAtlases_.clear();
     for (auto& [_, atlas] : iconAtlases_) {
         unloadIconAtlas(atlas);
     }
+    iconAtlases_.clear();
     for (auto& [_, texture] : textures_) {
         UnloadTexture(texture);
     }
+    textures_.clear();
     for (auto& [_, cubemap] : cubemaps_) {
         UnloadTexture(cubemap);
     }
+    cubemaps_.clear();
     for (auto& [_, model] : models_) {
         if (model.meshCount > 0) {
             UnloadModel(model);
         }
     }
+    models_.clear();
     for (auto& [_, model] : geos_) {
         if (model.meshCount > 0) {
             UnloadModel(model);
         }
     }
+    geos_.clear();
 }
 
 void AssetStore::mountPackages(const AppConfig& config) {
