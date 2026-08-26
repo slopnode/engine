@@ -2079,6 +2079,10 @@ int main(int argc, char* argv[]) {
                         slopmap::CompileStage::Rad,
                     });
                 }
+                if (menuItemWithIcon(
+                        assets, kIcons, "cancel", "Cancel Compile", nullptr, false, compile.running())) {
+                    compile.cancel();
+                }
                 ImGui::Separator();
                 const bool canClean =
                     canRun && editor.scene == slopmap::EditorScene::Level &&
@@ -4630,6 +4634,13 @@ int main(int argc, char* argv[]) {
         if (compile.showOutputWindow) {
             ImGui::SetNextWindowSize(ImVec2(720.0f, 360.0f), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Compile Output", &compile.showOutputWindow)) {
+                if (compile.running()) {
+                    constexpr const char* kIcons = kDefaultIconSet;
+                    if (buttonWithIcon(assets, kIcons, "cancel", "Cancel Compile")) {
+                        compile.cancel();
+                    }
+                    ImGui::Separator();
+                }
                 if (ImGui::BeginTabBar("##compile_tabs")) {
                     auto drawStageLog =
                         [&](slopmap::CompileStage stage, const char* label, const char* childId) {
