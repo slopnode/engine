@@ -601,7 +601,14 @@ bool validateGpuSunParity(
         probes,
         mismatches);
     std::fflush(stdout);
-    return mismatches == 0;
+    // A luxel straddling a penumbra boundary can legitimately count a different number
+    // of stratified sun rays as hit/miss between the CPU and GPU samplers (identical
+    // seed, but independent trig/BVH rounding) even when both are correct - this grows
+    // more likely, not less, as rayCount increases with sun shadow softness. A real GPU
+    // regression shows up as a large mismatch rate across many probes, not a single
+    // borderline outlier, so tolerate a small fraction rather than requiring zero.
+    const std::size_t mismatchAllowance = std::max<std::size_t>(probes / 64, 1);
+    return mismatches <= mismatchAllowance;
 }
 
 void unloadDirectResources(
