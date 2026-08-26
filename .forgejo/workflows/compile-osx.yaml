@@ -43,29 +43,37 @@ jobs:
           set -eux
           DEST=dist/slopengine-osx-arm64
           mkdir -p "${DEST}/packages"
+
+          # CMAKE_BUILD_RPATH_USE_ORIGIN isn't taking effect for this
+          # generator/toolchain, so every target's rpath comes out as the
+          # absolute build directory of this runner (and, for slopengine,
+          # the absolute Steam Audio path CMakeLists.txt pins it to too) —
+          # neither exists on the machine that eventually installs this
+          # tarball. Strip whatever rpaths got baked in and repoint at
+          # @loader_path so each binary finds libsloplib.dylib/
+          # libphonon.dylib next to itself wherever it's unpacked/installed.
+          fix_rpath() {
+            local f="$1"
+            local existing_rpaths
+            existing_rpaths=$(otool -l "$f" | awk '/cmd LC_RPATH/{getline; getline; print $2}')
+            for rpath in $existing_rpaths; do
+              install_name_tool -delete_rpath "$rpath" "$f"
+            done
+            install_name_tool -add_rpath "@loader_path" "$f"
+          }
+
           cp "build/libsloplib.dylib" "${DEST}/libsloplib.dylib"
           strip -x "${DEST}/libsloplib.dylib"
+          fix_rpath "${DEST}/libsloplib.dylib"
           for bin in slopengine slopbsp sloprad slopvis slopmap slopsprite slopicons; do
             cp "build/${bin}" "${DEST}/${bin}"
             strip -x "${DEST}/${bin}"
             chmod +x "${DEST}/${bin}"
+            fix_rpath "${DEST}/${bin}"
           done
           cp "${STEAM_AUDIO_ROOT}/lib/osx/libphonon.dylib" "${DEST}/"
           cp -a packages/engine "${DEST}/packages/"
           cp LICENSE README.md "${DEST}/"
-
-          # slopengine's CMake target pins BUILD_RPATH/INSTALL_RPATH to the
-          # absolute Steam Audio path on this runner (see CMakeLists.txt),
-          # which breaks dyld on any other machine. Strip whatever rpaths
-          # got baked in and repoint at @loader_path so it finds
-          # libsloplib.dylib/libphonon.dylib next to itself wherever this
-          # tarball is unpacked/installed.
-          existing_rpaths=$(otool -l "${DEST}/slopengine" \
-            | awk '/cmd LC_RPATH/{getline; getline; print $2}')
-          for rpath in $existing_rpaths; do
-            install_name_tool -delete_rpath "$rpath" "${DEST}/slopengine"
-          done
-          install_name_tool -add_rpath "@loader_path" "${DEST}/slopengine"
 
       - name: Name artifact
         id: artifact
