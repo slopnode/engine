@@ -1,6 +1,8 @@
 #include "editor.hpp"
 
 #include "core/vfs.hpp"
+#include "map/bsp.hpp"
+#include "map/bsp_analyze.hpp"
 #include "map/csg_script.hpp"
 #include "map/csg_write.hpp"
 #include "map/mover_brushes.hpp"
@@ -1509,6 +1511,47 @@ void Editor::rebuildPreview(slopengine::AssetStore& assets) {
     previewDirty = false;
 }
 
+void Editor::detectLeak() {
+    EditorDocument& d = doc();
+    std::vector<slopengine::Brush> combined = d.brushes;
+    combined.insert(combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
+
+    const slopengine::BspTree tree = slopengine::buildBspFromHullBrushes(combined);
+    const slopengine::MapHullAnalysis analysis = slopengine::analyzeMapHull(tree, combined);
+
+    leakChecked = true;
+    leakTotal = !analysis.sealed;
+    leakPathPoints = analysis.leakPath;
+
+    // Re-derive the same interior-placement check analyzeMapHull already ran
+    // (its detailOutsideWarnings are plain log strings), but keep id/role/
+    // center as data so the leak window can offer Select/Frame buttons
+    // instead of re-parsing text.
+    leakOffendingBrushes.clear();
+    for (const slopengine::Brush& brush : combined) {
+        if (!slopengine::brushRoleNeedsInteriorPlacement(brush.role)) {
+            continue;
+        }
+        const Vector3 center{
+            0.5f * (brush.mins.x + brush.maxs.x),
+            0.5f * (brush.mins.y + brush.maxs.y),
+            0.5f * (brush.mins.z + brush.maxs.z),
+        };
+        const std::int32_t leafIndex = slopengine::pointLeaf(tree, center);
+        const bool interior = leafIndex >= 0
+            && leafIndex < static_cast<std::int32_t>(analysis.exteriorEmpty.size())
+            && analysis.exteriorEmpty[static_cast<std::size_t>(leafIndex)] == 0
+            && !slopengine::leafBlocksFlood(tree.leaves[static_cast<std::size_t>(leafIndex)].contents);
+        if (!interior) {
+            leakOffendingBrushes.push_back(
+                {brush.id, std::string(slopengine::brushRoleName(brush.role)), center});
+        }
+    }
+
+    leakFound = leakTotal || !leakOffendingBrushes.empty();
+    showLeakWindow = true;
+}
+
 bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
     if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
         return false;
@@ -1809,7 +1852,10 @@ bool Editor::renameBrush(int index, std::string_view newId) {
 }
 
 void Editor::frameSelection() {
-    const Vector3 center = selectionCenter();
+    frameWorldPoint(selectionCenter());
+}
+
+void Editor::frameWorldPoint(Vector3 center) {
     syncBankFromActiveCamera();
     orthoFocus = center;
     applyOrthoPoses();

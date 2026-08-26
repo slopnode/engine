@@ -779,6 +779,27 @@ void drawBrushFaceOutlines(
     }
 }
 
+void drawLeakPath(const std::vector<Vector3>& points, Vector3 eye, float lineWidth) {
+    if (points.size() < 2) {
+        return;
+    }
+    constexpr Color kOutsideColor{255, 230, 60, 255};
+    constexpr Color kLeakColor{255, 60, 60, 255};
+    const float markerRadius = std::max(lineWidth * 2.0f, 0.1f);
+    for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(points.size() - 1);
+        const Color segColor{
+            static_cast<unsigned char>(kOutsideColor.r + t * (kLeakColor.r - kOutsideColor.r)),
+            static_cast<unsigned char>(kOutsideColor.g + t * (kLeakColor.g - kOutsideColor.g)),
+            static_cast<unsigned char>(kOutsideColor.b + t * (kLeakColor.b - kOutsideColor.b)),
+            255,
+        };
+        drawThickLine3D(points[i], points[i + 1], segColor, lineWidth, eye);
+        DrawSphere(points[i], markerRadius, segColor);
+    }
+    DrawSphere(points.back(), markerRadius * 1.5f, kLeakColor);
+}
+
 void drawBrushFaceOutlinesXray(const slopengine::Brush& brush, Color color) {
     for (const slopengine::BrushFace& face : brush.faces) {
         if (face.vertices.size() < 2) {

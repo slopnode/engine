@@ -63,7 +63,33 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const PvsFile pvs = buildPvs(*tree, &analysis.exteriorEmpty);
+    // analysis.sealed only catches a TOTAL leak (every open leaf flooding
+    // exterior). A partial leak — real interior content reachable from the
+    // "exterior" flood through an unsealed opening — leaves analysis.sealed
+    // true while analysis.exteriorEmpty still wrongly excludes every leaf on
+    // the leaked side from ever being a PVS source (isPvsSourceLeaf in
+    // pvs_build.cpp), which is exactly what breaks sprite/actor visibility
+    // there. detailOutsideWarnings is already the leak signal for that case;
+    // if it's non-empty, the exterior classification isn't trustworthy
+    // enough to use for exclusion, so fall back to treating every open leaf
+    // as a valid source rather than silently blinding a chunk of the map.
+    const std::vector<std::uint8_t>* exteriorForPvs = &analysis.exteriorEmpty;
+    if (!analysis.detailOutsideWarnings.empty()) {
+        TraceLog(
+            LOG_ERROR,
+            "slopvis: %d brush(es) needing interior placement resolve into leaves "
+            "flagged exterior void — this map has an unsealed opening leaking real "
+            "interior space to the outside. Building PVS without exterior exclusion "
+            "(no culling optimization) so visibility stays correct; seal the opening "
+            "and re-run slopvis to restore normal culling.",
+            static_cast<int>(analysis.detailOutsideWarnings.size()));
+        for (const std::string& warning : analysis.detailOutsideWarnings) {
+            TraceLog(LOG_ERROR, "slopvis:   %s", warning.c_str());
+        }
+        exteriorForPvs = nullptr;
+    }
+
+    const PvsFile pvs = buildPvs(*tree, exteriorForPvs);
     const auto visPath = bspPath->parent_path() / "static.vis";
     if (!writePvsFile(visPath, pvs)) {
         std::cerr << "slopvis: failed to write " << visPath << "\n";
