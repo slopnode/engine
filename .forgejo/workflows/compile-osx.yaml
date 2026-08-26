@@ -54,6 +54,19 @@ jobs:
           cp -a packages/engine "${DEST}/packages/"
           cp LICENSE README.md "${DEST}/"
 
+          # slopengine's CMake target pins BUILD_RPATH/INSTALL_RPATH to the
+          # absolute Steam Audio path on this runner (see CMakeLists.txt),
+          # which breaks dyld on any other machine. Strip whatever rpaths
+          # got baked in and repoint at @loader_path so it finds
+          # libsloplib.dylib/libphonon.dylib next to itself wherever this
+          # tarball is unpacked/installed.
+          existing_rpaths=$(otool -l "${DEST}/slopengine" \
+            | awk '/cmd LC_RPATH/{getline; getline; print $2}')
+          for rpath in $existing_rpaths; do
+            install_name_tool -delete_rpath "$rpath" "${DEST}/slopengine"
+          done
+          install_name_tool -add_rpath "@loader_path" "${DEST}/slopengine"
+
       - name: Name artifact
         id: artifact
         run: |
