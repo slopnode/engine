@@ -120,6 +120,7 @@ public:
 
     void requestRun(std::vector<CompileStage> stages, const CompileMountArgs& mounts);
     void tick();
+    void cancel();
     void shutdown();
 
 private:

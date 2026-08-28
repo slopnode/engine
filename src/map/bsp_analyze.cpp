@@ -122,27 +122,14 @@ float distSq(Vector3 a, Vector3 b) {
     return dx * dx + dy * dy + dz * dz;
 }
 
-void buildLeakPath(
-    const BspTree& tree,
-    const std::vector<Brush>& brushes,
-    std::vector<std::string>& leakPathFaceIds) {
-    leakPathFaceIds.clear();
-    const Vector3 target = hullCenter(brushes);
-    std::int32_t goal = -1;
-    float bestDist = std::numeric_limits<float>::max();
-    for (std::int32_t i = 0; i < static_cast<std::int32_t>(tree.leaves.size()); ++i) {
-        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
-        if (leafBlocksFlood(leaf.contents)) {
-            continue;
-        }
-        const float d = distSq(leafCentroid(leaf), target);
-        if (d < bestDist) {
-            bestDist = d;
-            goal = i;
-        }
-    }
+// BFS from every leaf touching the world bounds (true exterior) to a single
+// goal leaf, returning the walk-order chain of leaf indices from bounds to
+// goal (empty if unreachable). Shared by the total-leak trace (goal = leaf
+// nearest the hull's own center) and the partial-leak trace (goal = the
+// first leaf a detailOutsideWarnings brush landed in).
+std::vector<std::int32_t> traceLeafChainToGoal(const BspTree& tree, std::int32_t goal) {
     if (goal < 0) {
-        return;
+        return {};
     }
 
     std::vector<std::int32_t> parent(tree.leaves.size(), -2);
@@ -181,7 +168,7 @@ void buildLeakPath(
     }
 
     if (parent[static_cast<std::size_t>(goal)] == -2) {
-        return;
+        return {};
     }
 
     std::vector<std::int32_t> chain;
@@ -189,9 +176,18 @@ void buildLeakPath(
         chain.push_back(cursor);
     }
     std::reverse(chain.begin(), chain.end());
+    return chain;
+}
 
+void fillLeakPathFromChain(
+    const BspTree& tree,
+    const std::vector<std::int32_t>& chain,
+    MapHullAnalysis& analysis) {
+    analysis.leakPath.clear();
+    analysis.leakPathFaceIds.clear();
     for (std::int32_t leafIndex : chain) {
         const Vector3 c = leafCentroid(tree.leaves[static_cast<std::size_t>(leafIndex)]);
+        analysis.leakPath.push_back(c);
         char buffer[96];
         std::snprintf(
             buffer,
@@ -201,30 +197,29 @@ void buildLeakPath(
             c.x,
             c.y,
             c.z);
-        leakPathFaceIds.emplace_back(buffer);
+        analysis.leakPathFaceIds.emplace_back(buffer);
     }
 }
 
-void collectInteriorPlacementWarnings(
+void buildLeakPath(
     const BspTree& tree,
-    const std::vector<std::uint8_t>& exteriorEmpty,
     const std::vector<Brush>& brushes,
-    std::vector<std::string>& warnings) {
-    for (const Brush& brush : brushes) {
-        if (!brushRoleNeedsInteriorPlacement(brush.role)) {
+    MapHullAnalysis& analysis) {
+    const Vector3 target = hullCenter(brushes);
+    std::int32_t goal = -1;
+    float bestDist = std::numeric_limits<float>::max();
+    for (std::int32_t i = 0; i < static_cast<std::int32_t>(tree.leaves.size()); ++i) {
+        const BspLeaf& leaf = tree.leaves[static_cast<std::size_t>(i)];
+        if (leafBlocksFlood(leaf.contents)) {
             continue;
         }
-        const Vector3 center{
-            0.5f * (brush.mins.x + brush.maxs.x),
-            0.5f * (brush.mins.y + brush.maxs.y),
-            0.5f * (brush.mins.z + brush.maxs.z),
-        };
-        const std::int32_t leafIndex = pointLeaf(tree, center);
-        if (!isInteriorEmpty(tree, exteriorEmpty, leafIndex)) {
-            warnings.push_back(
-                std::string(brushRoleName(brush.role)) + " '" + brush.id + "' is outside sealed hull");
+        const float d = distSq(leafCentroid(leaf), target);
+        if (d < bestDist) {
+            bestDist = d;
+            goal = i;
         }
     }
+    fillLeakPathFromChain(tree, traceLeafChainToGoal(tree, goal), analysis);
 }
 
 void collectDuplicateFaceIdWarnings(
@@ -248,6 +243,32 @@ void collectDuplicateFaceIdWarnings(
 }
 
 } // namespace
+
+void collectInteriorPlacementWarnings(
+    const BspTree& tree,
+    const std::vector<std::uint8_t>& exteriorEmpty,
+    const std::vector<Brush>& brushes,
+    std::vector<std::string>& warnings,
+    std::int32_t* firstOffendingLeaf) {
+    for (const Brush& brush : brushes) {
+        if (!brushRoleNeedsInteriorPlacement(brush.role)) {
+            continue;
+        }
+        const Vector3 center{
+            0.5f * (brush.mins.x + brush.maxs.x),
+            0.5f * (brush.mins.y + brush.maxs.y),
+            0.5f * (brush.mins.z + brush.maxs.z),
+        };
+        const std::int32_t leafIndex = pointLeaf(tree, center);
+        if (!isInteriorEmpty(tree, exteriorEmpty, leafIndex)) {
+            warnings.push_back(
+                std::string(brushRoleName(brush.role)) + " '" + brush.id + "' is outside sealed hull");
+            if (firstOffendingLeaf != nullptr && *firstOffendingLeaf < 0) {
+                *firstOffendingLeaf = leafIndex;
+            }
+        }
+    }
+}
 
 MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& brushes) {
     MapHullAnalysis analysis;
@@ -300,7 +321,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
         analysis.sealed ? "yes" : "no");
 
     if (!analysis.sealed) {
-        buildLeakPath(tree, brushes, analysis.leakPathFaceIds);
+        buildLeakPath(tree, brushes, analysis);
         TraceLog(
             LOG_WARNING,
             "BSP: leak detected pathSteps=%d",
@@ -308,7 +329,12 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
         return analysis;
     }
 
-    collectInteriorPlacementWarnings(tree, analysis.exteriorEmpty, brushes, analysis.detailOutsideWarnings);
+    std::int32_t firstOffendingLeaf = -1;
+    collectInteriorPlacementWarnings(
+        tree, analysis.exteriorEmpty, brushes, analysis.detailOutsideWarnings, &firstOffendingLeaf);
+    if (!analysis.detailOutsideWarnings.empty()) {
+        fillLeakPathFromChain(tree, traceLeafChainToGoal(tree, firstOffendingLeaf), analysis);
+    }
 
     TraceLog(
         LOG_INFO,

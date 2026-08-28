@@ -59,6 +59,16 @@ struct EntityRef {
     }
 };
 
+/** One brush that Editor::detectLeak() found sitting in exterior-flagged
+ *  space (i.e. flagged by MapHullAnalysis::detailOutsideWarnings). Kept as
+ *  data rather than just the warning string so the leak window can offer a
+ *  "Select" button without re-parsing text. */
+struct LeakBrushHit {
+    std::string id;
+    std::string role;
+    Vector3 center{};
+};
+
 struct EditorDocument {
     std::string assetPath;
     std::vector<slopengine::Brush> brushes;

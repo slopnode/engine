@@ -912,6 +912,9 @@ void drawScene(
     placeTool.drawPreview(eye, lineWidth);
     punchTool.drawPreview(eye, lineWidth);
     clipTool.drawPreview(editor, eye, lineWidth);
+    if (editor.leakFound) {
+        slopmap::drawLeakPath(editor.leakPathPoints, eye, lineWidth);
+    }
     rlDrawRenderBatchActive();
     rlEnableDepthMask();
     rlEnableDepthTest();
@@ -1660,6 +1663,9 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(assets, kIcons, "error", "Validate Brushes")) {
                     editor.showValidateBrushesWindow = true;
                 }
+                if (menuItemWithIcon(assets, kIcons, "find", "Detect Leak")) {
+                    editor.detectLeak();
+                }
                 ImGui::Separator();
                 if (menuItemWithIcon(
                         assets,
@@ -2072,6 +2078,10 @@ int main(int argc, char* argv[]) {
                         slopmap::CompileStage::Vis,
                         slopmap::CompileStage::Rad,
                     });
+                }
+                if (menuItemWithIcon(
+                        assets, kIcons, "cancel", "Cancel Compile", nullptr, false, compile.running())) {
+                    compile.cancel();
                 }
                 ImGui::Separator();
                 const bool canClean =
@@ -4206,6 +4216,76 @@ int main(int argc, char* argv[]) {
             ImGui::End();
         }
 
+        if (editor.showLeakWindow) {
+            ImGui::SetNextWindowSize(ImVec2(560, 360), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Detect Leak", &editor.showLeakWindow, ImGuiWindowFlags_None)) {
+                constexpr const char* kIcons = kDefaultIconSet;
+                if (!editor.leakChecked) {
+                    ImGui::TextUnformatted("Not checked yet.");
+                } else if (!editor.leakFound) {
+                    ImGui::TextUnformatted("Sealed — no leak detected.");
+                } else {
+                    if (editor.leakTotal) {
+                        ImGui::TextColored(
+                            ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                            "Hull is not sealed: exterior void reaches every open leaf.");
+                    } else {
+                        ImGui::TextColored(
+                            ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                            "Partial leak: exterior void reaches real interior content below.");
+                    }
+                    if (!editor.leakPathPoints.empty()) {
+                        ImGui::Text(
+                            "Leak path: %zu point(s), drawn in the 3D view as a line from the "
+                            "outside to the leak.",
+                            editor.leakPathPoints.size());
+                        if (buttonWithIcon(
+                                assets, kIcons, "magnifier", "Frame Leak Path", ImVec2(160, 0))) {
+                            editor.frameWorldPoint(editor.leakPathPoints.back());
+                        }
+                    }
+                    ImGui::Separator();
+                    const slopmap::EditorDocument& d = editor.doc();
+                    for (std::size_t i = 0; i < editor.leakOffendingBrushes.size(); ++i) {
+                        const slopmap::LeakBrushHit& hit = editor.leakOffendingBrushes[i];
+                        ImGui::PushID(static_cast<int>(i));
+                        ImGui::Text(
+                            "%s '%s' @ (%.1f,%.1f,%.1f)",
+                            hit.role.c_str(),
+                            hit.id.c_str(),
+                            hit.center.x,
+                            hit.center.y,
+                            hit.center.z);
+                        ImGui::SameLine();
+                        int brushIndex = -1;
+                        for (std::size_t b = 0; b < d.brushes.size(); ++b) {
+                            if (d.brushes[b].id == hit.id) {
+                                brushIndex = static_cast<int>(b);
+                                break;
+                            }
+                        }
+                        if (brushIndex >= 0) {
+                            if (buttonWithIcon(assets, kIcons, "cursor", "Select", ImVec2(80, 0))) {
+                                editor.mode = slopmap::EditorMode::Select;
+                                editor.setSelectionMode(slopmap::SelectionMode::Brush);
+                                editor.selectBrushes({brushIndex}, brushIndex);
+                                editor.frameSelection();
+                            }
+                        } else if (buttonWithIcon(
+                                       assets, kIcons, "magnifier", "Frame", ImVec2(80, 0))) {
+                            editor.frameWorldPoint(hit.center);
+                        }
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::Separator();
+                if (buttonWithIcon(assets, kIcons, "find", "Re-check", ImVec2(100, 0))) {
+                    editor.detectLeak();
+                }
+            }
+            ImGui::End();
+        }
+
         if (editor.showSaveAsModal) {
             ImGui::OpenPopup("Save Map As");
             editor.showSaveAsModal = false;
@@ -4554,6 +4634,13 @@ int main(int argc, char* argv[]) {
         if (compile.showOutputWindow) {
             ImGui::SetNextWindowSize(ImVec2(720.0f, 360.0f), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Compile Output", &compile.showOutputWindow)) {
+                if (compile.running()) {
+                    constexpr const char* kIcons = kDefaultIconSet;
+                    if (buttonWithIcon(assets, kIcons, "cancel", "Cancel Compile")) {
+                        compile.cancel();
+                    }
+                    ImGui::Separator();
+                }
                 if (ImGui::BeginTabBar("##compile_tabs")) {
                     auto drawStageLog =
                         [&](slopmap::CompileStage stage, const char* label, const char* childId) {

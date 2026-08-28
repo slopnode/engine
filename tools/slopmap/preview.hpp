@@ -115,6 +115,13 @@ void drawBrushFaceOutlines(
     Color color,
     Vector3 eye,
     float lineWidth);
+/**
+ * Draws Editor::leakPathPoints as a connected "pointfile" line with a small
+ * marker at each point, brightest at the leak end (last point) — the
+ * classic Quake-editor way to visually walk from the outside to a hull leak.
+ * No-op if fewer than 2 points.
+ */
+void drawLeakPath(const std::vector<Vector3>& points, Vector3 eye, float lineWidth);
 void drawBrushAabbWires(const slopengine::Brush& brush, Color color);
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color);
 void drawAabbSolid(Vector3 mins, Vector3 maxs, Color color);

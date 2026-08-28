@@ -110,6 +110,12 @@ struct Editor {
     bool showHollowModal = false;
     bool showPrimitiveParamsModal = false;
     bool showValidateBrushesWindow = false;
+    bool showLeakWindow = false;
+    bool leakChecked = false;
+    bool leakFound = false;
+    bool leakTotal = false;
+    std::vector<Vector3> leakPathPoints;
+    std::vector<LeakBrushHit> leakOffendingBrushes;
     float hollowThickness = 0.1f;
     bool hollowOutward = false;
     int createCylinderSides = 16;
@@ -177,6 +183,13 @@ struct Editor {
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);
+    /**
+     * Builds a BSP from the current doc().brushes in-process (no disk I/O)
+     * and runs the hull-seal analysis. Stores the result leak path (if any,
+     * total or partial) into leakPathPoints for drawLeakPath to render, and
+     * a summary into leakSealed/leakDetailWarnings for showLeakWindow.
+     */
+    void detectLeak();
     void cycleGrid(int direction);
     const char* gridSizeLabel() const;
     void cycleGridPlane();
@@ -205,6 +218,7 @@ struct Editor {
     void selectBrushes(const std::vector<int>& indices, int active);
     void selectTouchingFaces();
     void frameSelection();
+    void frameWorldPoint(Vector3 center);
     Vector3 selectionCenter() const;
     void toggleSelectedBrushRole();
     void convertSelectedBrushesToTriggers();

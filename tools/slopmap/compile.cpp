@@ -640,6 +640,30 @@ void CompileController::tick() {
     startNextStage();
 }
 
+void CompileController::cancel() {
+    if (!running_) {
+        return;
+    }
+    const char* tool = stageToolName(currentStage_);
+#if defined(_WIN32)
+    if (child_.process != nullptr) {
+        TerminateProcess(static_cast<HANDLE>(child_.process), 1);
+        int code = 0;
+        reapChild(&code);
+    }
+#else
+    if (child_.pid > 0) {
+        ::kill(child_.pid, SIGTERM);
+        int code = 0;
+        reapChild(&code);
+    }
+#endif
+    closeChildPipes();
+    flushLineBuffer();
+    child_ = {};
+    abortQueue(std::string("Compile canceled (") + tool + ")");
+}
+
 void CompileController::shutdown() {
     queue_.clear();
 #if defined(_WIN32)

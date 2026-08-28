@@ -1445,7 +1445,33 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
 
     std::vector<std::uint8_t> exteriorFlood;
     floodExteriorLeaves(tree, exteriorFlood);
-    if (hasInteriorOpenLeaf(tree, exteriorFlood)) {
+
+    // The flood only knows "touches the padded world bounds"; it can't tell
+    // a genuinely empty void apart from a real room that just happens to be
+    // open to that boundary (a Doom-style sky sector missing its sealing
+    // roof brush, say). Cross-check against brushes that are known to need
+    // real interior placement (Detail/Hint/Trigger/Water) before trusting the
+    // flood enough to destroy leaf data over it: if any of those brushes'
+    // centroids land inside the "exterior" set, the flood has reached actual
+    // interior content, not void, and merging would silently shred real
+    // portal connectivity around it.
+    std::vector<std::string> exteriorLeakWarnings;
+    collectInteriorPlacementWarnings(tree, exteriorFlood, brushes, exteriorLeakWarnings);
+
+    if (!exteriorLeakWarnings.empty()) {
+        TraceLog(
+            LOG_ERROR,
+            "BSP: exterior merge skipped — %d brush(es) needing interior placement "
+            "resolve into leaves flagged as exterior void, meaning that flood reached "
+            "real interior content instead of true void. The map most likely has an "
+            "unsealed opening (e.g. a sky sector missing its roof/hull brush) leaking "
+            "that space to the outside. Seal it and re-run slopbsp; leaving the tree "
+            "unmerged for now so portals/PVS stay intact.",
+            static_cast<int>(exteriorLeakWarnings.size()));
+        for (const std::string& warning : exteriorLeakWarnings) {
+            TraceLog(LOG_ERROR, "BSP:   %s", warning.c_str());
+        }
+    } else if (hasInteriorOpenLeaf(tree, exteriorFlood)) {
         const int preNodes = static_cast<int>(tree.nodes.size());
         const int preLeaves = static_cast<int>(tree.leaves.size());
         mergeExteriorLeaves(tree, exteriorFlood);
