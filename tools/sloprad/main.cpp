@@ -216,6 +216,28 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
             cli.gpuSafeOverride = true;
         } else if (arg == "--gpu-fast") {
             cli.gpuSafeOverride = false;
+        } else if (arg == "--gpu-watchdog-limit") {
+            const char* value = needValue("--gpu-watchdog-limit");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            float parsed = 2.0f;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{} || !(parsed > 0.0f)) {
+                return std::nullopt;
+            }
+            cli.settings.gpuWatchdogLimitSeconds = parsed;
+        } else if (arg == "--gpu-max-luxel-batch") {
+            const char* value = needValue("--gpu-max-luxel-batch");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            int parsed = 0;
+            const auto result = std::from_chars(value, value + std::strlen(value), parsed);
+            if (result.ec != std::errc{} || parsed <= 0) {
+                return std::nullopt;
+            }
+            cli.settings.gpuMaxLuxelBatch = parsed;
         } else if (arg == "--verbose") {
             cli.config.verbose = true;
         } else {
@@ -269,7 +291,8 @@ int main(int argc, char* argv[]) {
             << "       [--seam-stitch-radius N]\n"
             << "       [--probe-cell-size N] [--probe-fine-cell-size N] [--probe-sample-count N]\n"
             << "       [--gpu|--cpu]\n"
-            << "       [--gpu-safe|--gpu-fast]\n";
+            << "       [--gpu-safe|--gpu-fast] [--gpu-watchdog-limit SECONDS]\n"
+            << "       [--gpu-max-luxel-batch N]\n";
         return 1;
     }
 
@@ -295,6 +318,18 @@ int main(int argc, char* argv[]) {
         }
         if (cli->settings.gpuSafeMode) {
             TraceLog(LOG_INFO, "sloprad: GPU safe mode enabled (smaller batches)");
+            std::fflush(stdout);
+        }
+        TraceLog(
+            LOG_INFO,
+            "sloprad: GPU watchdog limit %.2fs",
+            cli->settings.gpuWatchdogLimitSeconds);
+        std::fflush(stdout);
+        if (cli->settings.gpuMaxLuxelBatch > 0) {
+            TraceLog(
+                LOG_INFO,
+                "sloprad: GPU max luxel batch %d",
+                cli->settings.gpuMaxLuxelBatch);
             std::fflush(stdout);
         }
     }

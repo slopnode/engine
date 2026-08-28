@@ -4621,8 +4621,62 @@ int main(int argc, char* argv[]) {
                 ImGui::Checkbox("Discrete GPU", &compile.radOptions.forceDiscreteGpu);
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip(
-                        "Prefer the dedicated GPU on hybrid laptops (sets DRI_PRIME=1 on Linux). "
-                        "Disable to use integrated graphics with safe-mode throttling.");
+                        "Prefer the dedicated GPU on hybrid laptops (sets DRI_PRIME=1 on Linux).");
+                }
+
+                ImGui::TextUnformatted("Batch safety");
+                ImGui::SameLine();
+                if (ImGui::RadioButton(
+                        "Auto", compile.radOptions.gpuSafetyMode == slopmap::GpuSafetyMode::Auto)) {
+                    compile.radOptions.gpuSafetyMode = slopmap::GpuSafetyMode::Auto;
+                }
+                ImGui::SameLine();
+                if (ImGui::RadioButton(
+                        "Fast", compile.radOptions.gpuSafetyMode == slopmap::GpuSafetyMode::Fast)) {
+                    compile.radOptions.gpuSafetyMode = slopmap::GpuSafetyMode::Fast;
+                }
+                ImGui::SameLine();
+                if (ImGui::RadioButton(
+                        "Safe", compile.radOptions.gpuSafetyMode == slopmap::GpuSafetyMode::Safe)) {
+                    compile.radOptions.gpuSafetyMode = slopmap::GpuSafetyMode::Safe;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Auto: sloprad picks safe (smaller) batches on integrated GPUs, fast "
+                        "otherwise.\n"
+                        "Fast: largest batches; best throughput, more likely to trip the GPU "
+                        "watchdog on weak GPUs.\n"
+                        "Safe: smaller batches; use on integrated/weak GPUs.");
+                }
+
+                ImGui::DragFloat(
+                    "GPU watchdog limit",
+                    &compile.radOptions.gpuWatchdogLimitSeconds,
+                    0.1f,
+                    0.25f,
+                    120.0f,
+                    "%.2f s");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "How long a single GPU dispatch can run before the platform's driver "
+                        "watchdog resets it (Windows TDR default is 2s). Raise this to match a "
+                        "higher TDR delay configured on the machine; sloprad paces GPU batches "
+                        "to stay well under this limit.");
+                }
+                if (compile.radOptions.gpuWatchdogLimitSeconds < 0.1f) {
+                    compile.radOptions.gpuWatchdogLimitSeconds = 0.1f;
+                }
+
+                ImGui::InputInt("Max luxel batch", &compile.radOptions.gpuMaxLuxelBatch);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(
+                        "Hard ceiling on luxels per GPU dispatch group. 0 = auto (1024, or "
+                        "2048 for large maps). Larger batches mean fewer syncs and better "
+                        "throughput, at the cost of longer individual GPU submissions - stay "
+                        "under the watchdog limit above. Ignored in Safe batch mode.");
+                }
+                if (compile.radOptions.gpuMaxLuxelBatch < 0) {
+                    compile.radOptions.gpuMaxLuxelBatch = 0;
                 }
             }
             if (buttonWithIcon(assets, kIcons, "accept", "OK", ImVec2(120, 0))) {

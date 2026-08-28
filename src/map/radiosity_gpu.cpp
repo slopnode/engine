@@ -26,17 +26,21 @@ constexpr int kLuxelBatchSize = 1024;
 constexpr int kLightBatchSize = 512;
 constexpr int kLargeLuxelThreshold = 8192;
 
-// Target wall-clock duration for one un-synced GPU submission. Windows' GPU watchdog
-// (TDR) resets the driver at ~2s and kills the process (STATUS_STACK_BUFFER_OVERRUN /
-// 0xC0000409 out of the vendor GL driver) before any GL error can be observed; Linux
-// desktop drivers have no equivalent limit. 250ms leaves ~8x margin under the 2s
-// Windows default. GpuBatchPacer measures each group with a GPU timer query and sizes
-// the next luxel batch to hit this budget.
-constexpr double kGpuSyncBudgetSecondsDefault = 0.25;
-// If any group's measured GPU time exceeds this, the pacer aborts the GPU pass (the
-// caller then finishes on the CPU). Comfortably under the 2s Windows TDR default, so a
+// Target wall-clock duration for one un-synced GPU submission, and the abort threshold
+// above it, are both fractions of the platform's GPU watchdog limit (RadGpuDirectParams /
+// RadGpuBounceParams::gpuWatchdogLimitSeconds - Windows' TDR kills the driver process with
+// STATUS_STACK_BUFFER_OVERRUN / 0xC0000409 once a submission runs past that limit; Linux
+// desktop drivers have no equivalent). The budget fraction leaves ~8x margin under the
+// limit; GpuBatchPacer measures each group with a GPU timer query and sizes the next luxel
+// batch to hit it. The danger fraction is the point past which the pacer aborts the GPU
+// pass and the caller finishes on the CPU - comfortably under the limit, so a
 // somewhat-more-expensive next group of the same size still would not reset the driver.
-constexpr double kGpuGroupDangerSeconds = 1.2;
+// Default limit matches Windows' stock 2s TDR delay; --gpu-watchdog-limit (sloprad) /
+// RadiositySettings::gpuWatchdogLimitSeconds raises it to match a longer delay configured
+// on the machine.
+constexpr double kGpuWatchdogLimitSecondsDefault = 2.0;
+constexpr double kGpuSyncBudgetFraction = 0.125;
+constexpr double kGpuGroupDangerFraction = 0.6;
 // Floor on adaptive luxels-per-dispatch. Below this the per-dispatch overhead dominates;
 // if even this batch cannot fit the time budget the workload is a poor GPU fit.
 constexpr int kMinAdaptiveLuxelBatch = 8;
@@ -86,12 +90,17 @@ struct DirectDispatchConfig {
     int lightBatch = kLightBatchSize;
 };
 
-DirectDispatchConfig directDispatchConfig(int luxelCount, int lightCount, bool gpuSafeMode) {
+DirectDispatchConfig directDispatchConfig(
+    int luxelCount, int lightCount, bool gpuSafeMode, int maxLuxelBatchOverride) {
     (void)lightCount;
     DirectDispatchConfig config;
     if (gpuSafeMode) {
         config.luxelBatch = 256;
         config.lightBatch = 128;
+        return config;
+    }
+    if (maxLuxelBatchOverride > 0) {
+        config.luxelBatch = maxLuxelBatchOverride;
         return config;
     }
     if (luxelCount > 2048) {
@@ -104,10 +113,14 @@ struct BounceDispatchConfig {
     int luxelBatch = kLuxelBatchSize;
 };
 
-BounceDispatchConfig bounceDispatchConfig(int luxelCount, bool gpuSafeMode) {
+BounceDispatchConfig bounceDispatchConfig(int luxelCount, bool gpuSafeMode, int maxLuxelBatchOverride) {
     BounceDispatchConfig config;
     if (gpuSafeMode) {
         config.luxelBatch = 256;
+        return config;
+    }
+    if (maxLuxelBatchOverride > 0) {
+        config.luxelBatch = maxLuxelBatchOverride;
         return config;
     }
     config.luxelBatch = std::min(kLuxelBatchSize, luxelCount);
@@ -455,10 +468,17 @@ bool checkGlError(const char* stage) {
  *  so it falls back to a small fixed batch with a glFinish() per group. */
 class GpuBatchPacer {
 public:
-    GpuBatchPacer(int hardMaxBatch, bool safeMode, const char* label)
+    GpuBatchPacer(int hardMaxBatch, bool safeMode, double watchdogLimitSeconds, const char* label)
         : label_(label),
+          watchdogLimitSeconds_(
+              watchdogLimitSeconds > 0.0 ? watchdogLimitSeconds : kGpuWatchdogLimitSecondsDefault),
+          dangerSeconds_(watchdogLimitSeconds_ * kGpuGroupDangerFraction),
           budgetNs_(static_cast<std::uint64_t>(
-              envSeconds("SLOPRAD_GPU_SYNC_BUDGET_MS", kGpuSyncBudgetSecondsDefault, 0.01, 5.0)
+              envSeconds(
+                  "SLOPRAD_GPU_SYNC_BUDGET_MS",
+                  watchdogLimitSeconds_ * kGpuSyncBudgetFraction,
+                  0.01,
+                  std::max(5.0, watchdogLimitSeconds_))
               * 1.0e9)),
           minBatch_(std::clamp(
               envInt("SLOPRAD_GPU_MIN_LUXEL_BATCH", kMinAdaptiveLuxelBatch, 1, 4096),
@@ -514,17 +534,19 @@ public:
             getQueryObjectUi64vFn()(query_, kGlQueryResult, &elapsedNs);
             if (elapsedNs > 0) {
                 const double elapsedSec = static_cast<double>(elapsedNs) / 1.0e9;
-                if (elapsedSec > kGpuGroupDangerSeconds) {
+                if (elapsedSec > dangerSeconds_) {
                     TraceLog(
                         LOG_WARNING,
                         "sloprad: GPU %s group of %d luxels took %.2fs (>%.1fs danger limit); "
                         "aborting GPU lighting to avoid a driver watchdog reset - finishing on "
-                        "the CPU. Lower --luxels-per-meter / --exact-emission-max-samples, or "
-                        "pass --gpu-safe, to keep this on the GPU.",
+                        "the CPU. Lower --luxels-per-meter / --exact-emission-max-samples, pass "
+                        "--gpu-safe, or raise --gpu-watchdog-limit if your machine's TDR delay "
+                        "is higher than %.1fs, to keep this on the GPU.",
                         label_,
                         groupLuxels_,
                         elapsedSec,
-                        kGpuGroupDangerSeconds);
+                        dangerSeconds_,
+                        watchdogLimitSeconds_);
                     std::fflush(stdout);
                     failed = true;
                     return false;
@@ -541,7 +563,7 @@ public:
                 // approaches the danger limit even if the estimate is optimistic.
                 const double budgetTarget = static_cast<double>(budgetNs_) / safePerLuxel;
                 const double dangerCap =
-                    kGpuGroupDangerSeconds * 0.5 * 1.0e9 / safePerLuxel;
+                    dangerSeconds_ * 0.5 * 1.0e9 / safePerLuxel;
                 double targetD = std::min(budgetTarget, dangerCap);
                 int next = targetD >= 1.0 ? static_cast<int>(targetD) : 1;
                 next = std::min(next, std::max(batch_ * 2, minBatch_));  // capped growth
@@ -607,6 +629,8 @@ private:
     }
 
     const char* label_ = "";
+    double watchdogLimitSeconds_ = kGpuWatchdogLimitSecondsDefault;
+    double dangerSeconds_ = kGpuWatchdogLimitSecondsDefault * kGpuGroupDangerFraction;
     std::uint64_t budgetNs_ = 0;
     int minBatch_ = 1;
     int maxBatch_ = 1;
@@ -1407,8 +1431,8 @@ bool accumulateDirectLightingGpu(
             break;
         }
     }
-    const DirectDispatchConfig dispatchConfig =
-        directDispatchConfig(luxelCount, lightCount, directParams.gpuSafeMode);
+    const DirectDispatchConfig dispatchConfig = directDispatchConfig(
+        luxelCount, lightCount, directParams.gpuSafeMode, directParams.gpuMaxLuxelBatch);
 
     GpuParamsSSBO initialParams{};
     fillBaseParams(
@@ -1473,7 +1497,11 @@ bool accumulateDirectLightingGpu(
         return false;
     }
 
-    GpuBatchPacer pacer(dispatchConfig.luxelBatch, directParams.gpuSafeMode, "direct");
+    GpuBatchPacer pacer(
+        dispatchConfig.luxelBatch,
+        directParams.gpuSafeMode,
+        directParams.gpuWatchdogLimitSeconds,
+        "direct");
 
     TraceLog(
         LOG_INFO,
@@ -1767,7 +1795,8 @@ std::optional<RadGpuBounceSession> createBounceGpuSession(
     std::string_view computeShaderSource,
     const std::vector<char>& faceTransparent,
     const RadGpuOcclusionResources& occlusionResources,
-    bool gpuSafeMode) {
+    bool gpuSafeMode,
+    int gpuMaxLuxelBatch) {
     if (!occlusionResources.valid) {
         TraceLog(LOG_WARNING, "sloprad: GPU bounce lighting requires alpha occlusion resources");
         return std::nullopt;
@@ -1897,7 +1926,8 @@ std::optional<RadGpuBounceSession> createBounceGpuSession(
         RL_DYNAMIC_COPY);
 
     const int luxelCount = static_cast<int>(gpuLuxels.size());
-    const BounceDispatchConfig dispatchConfig = bounceDispatchConfig(luxelCount, gpuSafeMode);
+    const BounceDispatchConfig dispatchConfig =
+        bounceDispatchConfig(luxelCount, gpuSafeMode, gpuMaxLuxelBatch);
 
     // Placeholder content; every dispatch overwrites this buffer in full before use
     // (see runBounceGpuPass), so the initial contents here are never read.
@@ -2080,7 +2110,11 @@ bool runBounceGpuPass(
     initialParams.alphaAtlasWidth = session.occlusionResources->atlasWidth;
     initialParams.alphaAtlasHeight = session.occlusionResources->atlasHeight;
 
-    GpuBatchPacer pacer(session.luxelBatch, bounceParams.gpuSafeMode, "bounce");
+    GpuBatchPacer pacer(
+        session.luxelBatch,
+        bounceParams.gpuSafeMode,
+        bounceParams.gpuWatchdogLimitSeconds,
+        "bounce");
 
     TraceLog(
         LOG_INFO,

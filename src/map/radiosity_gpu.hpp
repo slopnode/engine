@@ -93,6 +93,14 @@ struct RadGpuDirectParams {
     float sunLeakThreshold = 0.0f;
     float sunRayMaxDistance = 1000.0f;
     bool gpuSafeMode = false;
+    /** Seconds a single unsynced GPU dispatch can run before the platform driver watchdog
+     *  resets it (Windows TDR default 2.0; raise to match a higher TDR delay). GpuBatchPacer
+     *  paces batches to stay well under this. */
+    float gpuWatchdogLimitSeconds = 2.0f;
+    /** Hard ceiling on luxels per dispatch group (GpuBatchPacer still adapts below this).
+     *  0 = auto (1024, or 2048 for large luxel counts); ignored when gpuSafeMode is set,
+     *  which always caps at 256. */
+    int gpuMaxLuxelBatch = 0;
 };
 
 /** CPU reference data used to validate/fallback GPU direct lighting. */
@@ -153,6 +161,10 @@ struct RadGpuBounceParams {
     float ambientB = 0.0f;
     std::uint32_t seed = 1;
     bool gpuSafeMode = false;
+    /** Seconds a single unsynced GPU dispatch can run before the platform driver watchdog
+     *  resets it (Windows TDR default 2.0; raise to match a higher TDR delay). GpuBatchPacer
+     *  paces batches to stay well under this. */
+    float gpuWatchdogLimitSeconds = 2.0f;
 };
 
 /** Owns everything that's invariant across a bake's bounce loop (compiled shader,
@@ -192,7 +204,10 @@ std::optional<RadGpuBounceSession> createBounceGpuSession(
     std::string_view computeShaderSource,
     const std::vector<char>& faceTransparent,
     const RadGpuOcclusionResources& occlusionResources,
-    bool gpuSafeMode);
+    bool gpuSafeMode,
+    /** Hard ceiling on luxels per dispatch group. 0 = auto (1024, or 2048 for large luxel
+     *  counts); ignored when gpuSafeMode is set, which always caps at 256. */
+    int gpuMaxLuxelBatch = 0);
 
 /** Runs one bounce: uploads `shootRgb` (the only per-bounce input), dispatches, reads
  *  back `gatheredRgb`. Returns false on GL error or non-finite output — on failure the

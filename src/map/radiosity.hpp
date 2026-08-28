@@ -24,6 +24,16 @@ struct RadiositySettings {
     bool preferGpu = true;
     /** Conservative GPU dispatch when set (auto-enabled on integrated GPUs). */
     bool gpuSafeMode = false;
+    /** Seconds a single unsynced GPU dispatch can run before the platform driver watchdog
+     *  resets it (Windows TDR default 2.0). Raise to match a higher TDR delay configured
+     *  on the machine; GPU batch pacing scales its sync budget and abort threshold off
+     *  this value. */
+    float gpuWatchdogLimitSeconds = 2.0f;
+    /** Hard ceiling on luxels per GPU dispatch group. 0 = auto (1024, or 2048 for large luxel
+     *  counts); ignored when gpuSafeMode is set, which always caps at 256. Larger batches
+     *  mean fewer glFinish() syncs and better throughput, at the cost of longer individual
+     *  GPU submissions - stay under @ref gpuWatchdogLimitSeconds. */
+    int gpuMaxLuxelBatch = 0;
     /** N×N stratified UV samples per receiver–emissive-face pair in direct lighting. */
     int emitterDirectSamples = 4;
     /** For materials with MaterialAsset::preciseEmission: direct-sample axis density per meter

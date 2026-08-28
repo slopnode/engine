@@ -1270,6 +1270,8 @@ bool accumulateDirectLighting(
         gpuParams.emissionGridFloats =
             static_cast<int>(emissionGrid.size() * 3);
         gpuParams.gpuSafeMode = settings.gpuSafeMode;
+        gpuParams.gpuWatchdogLimitSeconds = settings.gpuWatchdogLimitSeconds;
+        gpuParams.gpuMaxLuxelBatch = settings.gpuMaxLuxelBatch;
         SunShadowSoftnessParams sunParams = resolveSunShadowSoftness(settings.sunShadowSoftness);
         sunParams.maxRayDistance = sunRayMaxDistanceForScene(occlusionBvh);
         gpuParams.sunRayCount = sunParams.rayCount;
@@ -2535,7 +2537,8 @@ RadiosityBakeResult bakeRadiosity(
             settings.bounceComputeShaderSource,
             faceTransparent,
             gpuOcclusion,
-            settings.gpuSafeMode);
+            settings.gpuSafeMode,
+            settings.gpuMaxLuxelBatch);
         if (!bounceSession.has_value()) {
             TraceLog(LOG_WARNING, "sloprad: GPU bounce session setup failed; using CPU for all bounces");
             std::fflush(stdout);
@@ -2563,6 +2566,7 @@ RadiosityBakeResult bakeRadiosity(
             bounceParams.ambientB = ambientRaw.b;
             bounceParams.seed = 0xA341316Cu ^ static_cast<std::uint32_t>(bounce * 0x9E3779B9u);
             bounceParams.gpuSafeMode = settings.gpuSafeMode;
+            bounceParams.gpuWatchdogLimitSeconds = settings.gpuWatchdogLimitSeconds;
             if (runBounceGpuPass(*bounceSession, gatheredRgb, shootRgb, bounceParams)) {
                 usedGpuBounce = true;
                 for (std::size_t i = 0; i < luxels.size(); ++i) {

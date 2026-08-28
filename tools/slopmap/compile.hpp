@@ -31,6 +31,14 @@ inline const char* compileStageLabel(CompileStage stage) {
 
 inline constexpr int kCompileStageCount = 3;
 
+/** Mirrors sloprad's --gpu-safe/--gpu-fast: how conservatively GPU batches are sized.
+ *  Auto leaves it to sloprad, which enables safe mode on integrated GPUs. */
+enum class GpuSafetyMode {
+    Auto,
+    Fast,
+    Safe,
+};
+
 struct RadCompileOptions {
     float luxelsPerMeter = 16.0f;
     int bounces = 2;
@@ -51,6 +59,16 @@ struct RadCompileOptions {
     bool preferGpu = true;
     /** On hybrid systems, request the discrete GPU for sloprad (Linux DRI_PRIME / Windows shim). */
     bool forceDiscreteGpu = true;
+    /** How conservatively sloprad sizes GPU dispatch batches; independent of which physical
+     *  GPU is used. */
+    GpuSafetyMode gpuSafetyMode = GpuSafetyMode::Auto;
+    /** Seconds a single unsynced GPU dispatch can run before the platform driver watchdog
+     *  resets it. Windows TDR defaults to 2s; raise to match a higher TDR delay configured
+     *  on the machine. */
+    float gpuWatchdogLimitSeconds = 2.0f;
+    /** Hard ceiling on luxels per GPU dispatch group. 0 = auto (sloprad picks 1024, or 2048
+     *  for large luxel counts); ignored in Safe batch mode, which always caps at 256. */
+    int gpuMaxLuxelBatch = 0;
 };
 
 struct CompileMountArgs {

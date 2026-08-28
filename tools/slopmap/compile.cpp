@@ -184,8 +184,21 @@ std::vector<std::string> CompileController::buildArgs(CompileStage stage) const 
         args.push_back(std::to_string(radOptions.probeSampleCount));
         if (radOptions.preferGpu) {
             args.emplace_back("--gpu");
-            if (radOptions.forceDiscreteGpu) {
+            switch (radOptions.gpuSafetyMode) {
+            case GpuSafetyMode::Fast:
                 args.emplace_back("--gpu-fast");
+                break;
+            case GpuSafetyMode::Safe:
+                args.emplace_back("--gpu-safe");
+                break;
+            case GpuSafetyMode::Auto:
+                break;
+            }
+            args.emplace_back("--gpu-watchdog-limit");
+            args.push_back(std::to_string(radOptions.gpuWatchdogLimitSeconds));
+            if (radOptions.gpuMaxLuxelBatch > 0) {
+                args.emplace_back("--gpu-max-luxel-batch");
+                args.push_back(std::to_string(radOptions.gpuMaxLuxelBatch));
             }
         } else {
             args.emplace_back("--cpu");
