@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
     s7_scheme * sc = s7_init();
 
     if (options->eval || options->load) {
-        s7_pointer eval_result = s7_load(sc, options->file.c_str());
+        s7_pointer eval_result = s7_load(sc, options->file.string().c_str());
         s7_display(sc, eval_result, s7_current_output_port(sc));
         std::cout << std::endl;
     }

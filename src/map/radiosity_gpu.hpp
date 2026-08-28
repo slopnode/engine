@@ -175,7 +175,6 @@ struct RadGpuBounceSession {
     int faceCount = 0;
     std::int32_t bvhRoot = -1;
     int luxelBatch = 0;
-    int dispatchesPerSync = 0;
     /** Not owned; caller (bakeRadiosity) keeps this alive for the whole bake. */
     const RadGpuOcclusionResources* occlusionResources = nullptr;
 };

@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -22,64 +24,95 @@ constexpr unsigned int kShaderStorageBarrierBit = 0x00002000u;
 constexpr unsigned int kBufferUpdateBarrierBit = 0x00000200u;
 constexpr int kLuxelBatchSize = 1024;
 constexpr int kLightBatchSize = 512;
-constexpr int kDispatchesPerSync = 4;
 constexpr int kLargeLuxelThreshold = 8192;
 
+// Target wall-clock duration for one un-synced GPU submission. Windows' GPU watchdog
+// (TDR) resets the driver at ~2s and kills the process (STATUS_STACK_BUFFER_OVERRUN /
+// 0xC0000409 out of the vendor GL driver) before any GL error can be observed; Linux
+// desktop drivers have no equivalent limit. 250ms leaves ~8x margin under the 2s
+// Windows default. GpuBatchPacer measures each group with a GPU timer query and sizes
+// the next luxel batch to hit this budget.
+constexpr double kGpuSyncBudgetSecondsDefault = 0.25;
+// If any group's measured GPU time exceeds this, the pacer aborts the GPU pass (the
+// caller then finishes on the CPU). Comfortably under the 2s Windows TDR default, so a
+// somewhat-more-expensive next group of the same size still would not reset the driver.
+constexpr double kGpuGroupDangerSeconds = 1.2;
+// Floor on adaptive luxels-per-dispatch. Below this the per-dispatch overhead dominates;
+// if even this batch cannot fit the time budget the workload is a poor GPU fit.
+constexpr int kMinAdaptiveLuxelBatch = 8;
+// Consecutive groups pinned at the floor and still over budget before the pacer gives
+// up and aborts to the CPU path. Keeps a pathological map (dense receivers against a
+// high-sample precise-emission face) from crawling on the GPU for hours.
+constexpr int kMaxFloorGroupsBeforeAbort = 24;
+// Fixed luxel batch when GPU timer queries are unavailable (no adaptation possible):
+// conservative, since a dense cluster could still be expensive.
+constexpr int kUntimedLuxelBatch = 128;
+// Maximum luxels per dispatch in --gpu-safe mode (the adaptive path still shrinks below
+// this and still aborts to the CPU on a dangerous group).
+constexpr int kSafeModeLuxelBatch = 256;
+
+constexpr unsigned int kGlTimeElapsed = 0x88BFu;
+constexpr unsigned int kGlQueryResult = 0x8866u;
+
+double envSeconds(const char* name, double fallback, double lo, double hi) {
+    const char* raw = std::getenv(name);
+    if (raw == nullptr || raw[0] == '\0') {
+        return fallback;
+    }
+    const double ms = std::atof(raw);
+    if (!(ms > 0.0) || !std::isfinite(ms)) {
+        return fallback;
+    }
+    return std::clamp(ms / 1000.0, lo, hi);
+}
+
+int envInt(const char* name, int fallback, int lo, int hi) {
+    const char* raw = std::getenv(name);
+    if (raw == nullptr || raw[0] == '\0') {
+        return fallback;
+    }
+    const long parsed = std::strtol(raw, nullptr, 10);
+    if (parsed <= 0) {
+        return fallback;
+    }
+    return std::clamp(static_cast<int>(parsed), lo, hi);
+}
+
+/** Per-dispatch work sizing. How many dispatches are batched between glFinish() calls
+ *  is no longer decided here: GpuDispatchPacer measures real GPU time and adapts it so
+ *  no un-synced submission runs long enough to trip a GPU watchdog on any platform. */
 struct DirectDispatchConfig {
     int luxelBatch = kLuxelBatchSize;
     int lightBatch = kLightBatchSize;
-    int dispatchesPerSync = kDispatchesPerSync;
 };
 
 DirectDispatchConfig directDispatchConfig(int luxelCount, int lightCount, bool gpuSafeMode) {
+    (void)lightCount;
     DirectDispatchConfig config;
     if (gpuSafeMode) {
         config.luxelBatch = 256;
         config.lightBatch = 128;
-        config.dispatchesPerSync = 1;
         return config;
     }
-    if (luxelCount > kLargeLuxelThreshold) {
+    if (luxelCount > 2048) {
         config.luxelBatch = 2048;
-        config.dispatchesPerSync = 32;
-    } else if (luxelCount > 2048) {
-        config.luxelBatch = 2048;
-        config.dispatchesPerSync = 16;
-    }
-
-    const int luxelBatches = (luxelCount + config.luxelBatch - 1) / config.luxelBatch;
-    const int lightBatches =
-        lightCount > 0 ? (lightCount + config.lightBatch - 1) / config.lightBatch : 0;
-    const int totalDispatches = luxelBatches * (1 + lightBatches);
-    if (totalDispatches > 4096 && config.dispatchesPerSync < 16) {
-        config.dispatchesPerSync = 16;
-    }
-    if (totalDispatches > 16384 && config.dispatchesPerSync < 32) {
-        config.dispatchesPerSync = 32;
     }
     return config;
 }
 
 struct BounceDispatchConfig {
     int luxelBatch = kLuxelBatchSize;
-    int dispatchesPerSync = kDispatchesPerSync;
 };
 
-/** Mirrors directDispatchConfig(): without this, bounce dispatches stay at the small
- *  default batch/sync size no matter how large the scene is, which at millions of
- *  luxels turns into tens of thousands of tiny dispatches and thousands of glFinish
- *  stalls per bounce. */
 BounceDispatchConfig bounceDispatchConfig(int luxelCount, bool gpuSafeMode) {
     BounceDispatchConfig config;
     if (gpuSafeMode) {
         config.luxelBatch = 256;
-        config.dispatchesPerSync = 1;
         return config;
     }
     config.luxelBatch = std::min(kLuxelBatchSize, luxelCount);
     if (luxelCount > kLargeLuxelThreshold) {
         config.luxelBatch = 2048;
-        config.dispatchesPerSync = 32;
     }
     return config;
 }
@@ -303,7 +336,13 @@ static_assert(sizeof(GpuParamsSSBO) == 104);
 
 using MemoryBarrierFn = void (*)(unsigned int);
 using FinishFn = void (*)();
+using FlushFn = void (*)();
 using GetErrorFn = unsigned int (*)();
+using GenQueriesFn = void (*)(int, unsigned int*);
+using DeleteQueriesFn = void (*)(int, const unsigned int*);
+using BeginQueryFn = void (*)(unsigned int, unsigned int);
+using EndQueryFn = void (*)(unsigned int);
+using GetQueryObjectUi64vFn = void (*)(unsigned int, unsigned int, std::uint64_t*);
 
 MemoryBarrierFn memoryBarrierFn() {
     static MemoryBarrierFn fn =
@@ -316,8 +355,40 @@ FinishFn finishFn() {
     return fn;
 }
 
+FlushFn flushFn() {
+    static FlushFn fn = reinterpret_cast<FlushFn>(rlGetProcAddress("glFlush"));
+    return fn;
+}
+
 GetErrorFn getErrorFn() {
     static GetErrorFn fn = reinterpret_cast<GetErrorFn>(rlGetProcAddress("glGetError"));
+    return fn;
+}
+
+GenQueriesFn genQueriesFn() {
+    static GenQueriesFn fn = reinterpret_cast<GenQueriesFn>(rlGetProcAddress("glGenQueries"));
+    return fn;
+}
+
+DeleteQueriesFn deleteQueriesFn() {
+    static DeleteQueriesFn fn =
+        reinterpret_cast<DeleteQueriesFn>(rlGetProcAddress("glDeleteQueries"));
+    return fn;
+}
+
+BeginQueryFn beginQueryFn() {
+    static BeginQueryFn fn = reinterpret_cast<BeginQueryFn>(rlGetProcAddress("glBeginQuery"));
+    return fn;
+}
+
+EndQueryFn endQueryFn() {
+    static EndQueryFn fn = reinterpret_cast<EndQueryFn>(rlGetProcAddress("glEndQuery"));
+    return fn;
+}
+
+GetQueryObjectUi64vFn getQueryObjectUi64vFn() {
+    static GetQueryObjectUi64vFn fn =
+        reinterpret_cast<GetQueryObjectUi64vFn>(rlGetProcAddress("glGetQueryObjectui64v"));
     return fn;
 }
 
@@ -330,6 +401,13 @@ void memoryBarrierBits(unsigned int bits) {
 
 void finishGpu() {
     FinishFn fn = finishFn();
+    if (fn != nullptr) {
+        fn();
+    }
+}
+
+void flushGpu() {
+    FlushFn fn = flushFn();
     if (fn != nullptr) {
         fn();
     }
@@ -349,6 +427,198 @@ bool checkGlError(const char* stage) {
     }
     return false;
 }
+
+/** Chooses how many luxels to process per compute dispatch so that no single GPU
+ *  submission runs long enough to trip a platform GPU watchdog. Windows TDR resets the
+ *  driver at ~2s and kills the process (STATUS_STACK_BUFFER_OVERRUN / 0xC0000409 out of
+ *  the vendor GL driver) before any GL error can be seen; Linux desktop drivers have no
+ *  such limit, which is why an un-throttled bake that dies on a fast discrete GPU under
+ *  Windows can grind to completion on a slow integrated GPU under Linux.
+ *
+ *  Per-luxel cost in this bake is wildly non-uniform: a luxel far from every emitter is
+ *  nearly free, while one sitting next to a high-sample precise-emission face runs
+ *  thousands of occlusion raycasts (see accumulateEmissiveFace in rad_direct_comp.glsl).
+ *  A fixed luxel batch that is fine for open areas becomes a multi-second submission in a
+ *  dense cluster. So each group is wrapped in a GL_TIME_ELAPSED query and followed by a
+ *  glFinish(); the measured per-luxel GPU time feeds an EMA, and the next group's luxel
+ *  count is chosen so its predicted time hits a wall-time budget (default 250ms, ~8x
+ *  under the 2s Windows watchdog) while never being predicted to approach the danger
+ *  limit. The first group is a single floor-sized batch so a safe estimate exists before
+ *  any large group goes out; growth is capped per step so a cheap patch cannot overshoot
+ *  into a dense region; shrink is immediate.
+ *
+ *  If the batch is at its floor and still over budget, or a group's measured time crosses
+ *  the danger limit anyway (a very sharp cost gradient between groups), the pass aborts
+ *  and the caller finishes on the CPU - slower, but it always terminates and never
+ *  crashes. --gpu-safe just lowers the maximum batch; it adapts and aborts the same way.
+ *  Without GL timer queries (should not happen on a 4.3 context) there is no measurement,
+ *  so it falls back to a small fixed batch with a glFinish() per group. */
+class GpuBatchPacer {
+public:
+    GpuBatchPacer(int hardMaxBatch, bool safeMode, const char* label)
+        : label_(label),
+          budgetNs_(static_cast<std::uint64_t>(
+              envSeconds("SLOPRAD_GPU_SYNC_BUDGET_MS", kGpuSyncBudgetSecondsDefault, 0.01, 5.0)
+              * 1.0e9)),
+          minBatch_(std::clamp(
+              envInt("SLOPRAD_GPU_MIN_LUXEL_BATCH", kMinAdaptiveLuxelBatch, 1, 4096),
+              1,
+              std::max(1, hardMaxBatch))) {
+        int cap = std::min(hardMaxBatch, safeMode ? kSafeModeLuxelBatch : hardMaxBatch);
+        cap = envInt("SLOPRAD_GPU_MAX_LUXEL_BATCH", cap, 1, 1 << 20);
+        maxBatch_ = std::max(minBatch_, std::min(hardMaxBatch, cap));
+        timed_ = initTimer();
+        batch_ = timed_ ? minBatch_ : std::clamp(kUntimedLuxelBatch, minBatch_, maxBatch_);
+    }
+
+    ~GpuBatchPacer() {
+        if (query_ != 0) {
+            DeleteQueriesFn del = deleteQueriesFn();
+            if (del != nullptr) {
+                del(1, &query_);
+            }
+        }
+    }
+
+    GpuBatchPacer(const GpuBatchPacer&) = delete;
+    GpuBatchPacer& operator=(const GpuBatchPacer&) = delete;
+
+    /** Luxels to cover in the next group of dispatches. */
+    int batch() const { return batch_; }
+    const char* mode() const { return timed_ ? "adaptive" : "fixed-untimed"; }
+    double budgetMs() const { return static_cast<double>(budgetNs_) / 1.0e6; }
+
+    /** Call once before issuing the group's dispatch(es) for `luxelsInGroup` luxels. */
+    void beginGroup(int luxelsInGroup) {
+        groupLuxels_ = std::max(luxelsInGroup, 1);
+        if (timed_) {
+            beginQueryFn()(kGlTimeElapsed, query_);
+            queryOpen_ = true;
+        }
+    }
+
+    /** Call once after the group's dispatch(es) + final memory barrier. Runs glFinish(),
+     *  measures GPU time, resizes the next batch, and checks for a GL error. Returns false
+     *  and sets `failed` when the pass must not continue on the GPU (GL error, a group
+     *  over the danger limit, or the batch stuck at the floor and over budget). The caller
+     *  then finishes the pass on the CPU. */
+    bool endGroup(const char* stage, bool& failed) {
+        if (queryOpen_) {
+            endQueryFn()(kGlTimeElapsed);
+            queryOpen_ = false;
+        }
+        finishGpu();
+
+        if (timed_ && groupLuxels_ > 0) {
+            std::uint64_t elapsedNs = 0;
+            getQueryObjectUi64vFn()(query_, kGlQueryResult, &elapsedNs);
+            if (elapsedNs > 0) {
+                const double elapsedSec = static_cast<double>(elapsedNs) / 1.0e9;
+                if (elapsedSec > kGpuGroupDangerSeconds) {
+                    TraceLog(
+                        LOG_WARNING,
+                        "sloprad: GPU %s group of %d luxels took %.2fs (>%.1fs danger limit); "
+                        "aborting GPU lighting to avoid a driver watchdog reset - finishing on "
+                        "the CPU. Lower --luxels-per-meter / --exact-emission-max-samples, or "
+                        "pass --gpu-safe, to keep this on the GPU.",
+                        label_,
+                        groupLuxels_,
+                        elapsedSec,
+                        kGpuGroupDangerSeconds);
+                    std::fflush(stdout);
+                    failed = true;
+                    return false;
+                }
+
+                const double perLuxelNs =
+                    static_cast<double>(elapsedNs) / static_cast<double>(groupLuxels_);
+                emaPerLuxelNs_ = emaPerLuxelNs_ > 0.0
+                    ? 0.5 * emaPerLuxelNs_ + 0.5 * perLuxelNs
+                    : perLuxelNs;
+
+                const double safePerLuxel = std::max(emaPerLuxelNs_, 1.0e-3);
+                // Size the next group to the budget, but never to a predicted time that
+                // approaches the danger limit even if the estimate is optimistic.
+                const double budgetTarget = static_cast<double>(budgetNs_) / safePerLuxel;
+                const double dangerCap =
+                    kGpuGroupDangerSeconds * 0.5 * 1.0e9 / safePerLuxel;
+                double targetD = std::min(budgetTarget, dangerCap);
+                int next = targetD >= 1.0 ? static_cast<int>(targetD) : 1;
+                next = std::min(next, std::max(batch_ * 2, minBatch_));  // capped growth
+                const int adapted = std::clamp(next, minBatch_, maxBatch_);
+                if (adapted != batch_) {
+                    TraceLog(
+                        LOG_DEBUG,
+                        "sloprad: GPU %s luxel batch %d -> %d (%.3fms/1k luxels, budget %.0fms)",
+                        label_,
+                        batch_,
+                        adapted,
+                        emaPerLuxelNs_ * 1.0e-6 * 1000.0,
+                        static_cast<double>(budgetNs_) / 1.0e6);
+                    batch_ = adapted;
+                }
+
+                const bool floorOverBudget = batch_ <= minBatch_
+                    && emaPerLuxelNs_ * static_cast<double>(minBatch_)
+                        > static_cast<double>(budgetNs_);
+                floorGroups_ = floorOverBudget ? floorGroups_ + 1 : 0;
+                if (floorOverBudget && !warnedFloor_) {
+                    warnedFloor_ = true;
+                    TraceLog(
+                        LOG_WARNING,
+                        "sloprad: GPU %s pinned at the minimum luxel batch (%d) and still over "
+                        "the %.0fms budget - a dense emitter cluster. Will fall back to the CPU "
+                        "if this persists; lower --luxels-per-meter / --exact-emission-max-samples "
+                        "or pass --gpu-safe.",
+                        label_,
+                        minBatch_,
+                        static_cast<double>(budgetNs_) / 1.0e6);
+                    std::fflush(stdout);
+                }
+                if (floorGroups_ >= kMaxFloorGroupsBeforeAbort) {
+                    TraceLog(
+                        LOG_WARNING,
+                        "sloprad: GPU %s cannot fit the time budget even at the minimum luxel "
+                        "batch after %d groups; aborting GPU lighting and finishing on the CPU.",
+                        label_,
+                        floorGroups_);
+                    std::fflush(stdout);
+                    failed = true;
+                    return false;
+                }
+            }
+        }
+
+        if (!checkGlError(stage)) {
+            failed = true;
+            return false;
+        }
+        return true;
+    }
+
+private:
+    bool initTimer() {
+        if (genQueriesFn() == nullptr || deleteQueriesFn() == nullptr || beginQueryFn() == nullptr
+            || endQueryFn() == nullptr || getQueryObjectUi64vFn() == nullptr) {
+            return false;
+        }
+        genQueriesFn()(1, &query_);
+        return query_ != 0;
+    }
+
+    const char* label_ = "";
+    std::uint64_t budgetNs_ = 0;
+    int minBatch_ = 1;
+    int maxBatch_ = 1;
+    int batch_ = 1;
+    int groupLuxels_ = 0;
+    int floorGroups_ = 0;
+    bool timed_ = false;
+    bool queryOpen_ = false;
+    bool warnedFloor_ = false;
+    unsigned int query_ = 0;
+    double emaPerLuxelNs_ = 0.0;
+};
 
 unsigned int loadComputeProgram(std::string_view source) {
     if (source.empty()) {
@@ -681,13 +951,13 @@ void fillBaseParams(
     params.alphaAtlasHeight = occlusionResources.atlasHeight;
 }
 
-bool dispatchBatch(
+// Issues one direct-lighting dispatch. The enclosing GpuBatchPacer group (beginGroup /
+// endGroup around the whole luxel batch, including every light sub-dispatch) owns the
+// glFinish, GPU timing, and error check.
+void issueDirectDispatch(
     unsigned int program,
     unsigned int paramsSsbo,
     const GpuParamsSSBO& params,
-    int dispatchesPerSync,
-    int& dispatchesSinceSync,
-    bool& dispatchFailed,
     const RadGpuOcclusionResources& occlusionResources) {
     rlEnableShader(program);
     rebindAlphaAtlasTexture(occlusionResources);
@@ -696,17 +966,6 @@ bool dispatchBatch(
     const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
     rlComputeShaderDispatch(groups, 1, 1);
     memoryBarrierBits(kShaderStorageBarrierBit);
-
-    ++dispatchesSinceSync;
-    if (dispatchesSinceSync >= dispatchesPerSync) {
-        finishGpu();
-        dispatchesSinceSync = 0;
-        if (!checkGlError("compute dispatch")) {
-            dispatchFailed = true;
-            return false;
-        }
-    }
-    return true;
 }
 
 } // namespace
@@ -1207,15 +1466,18 @@ bool accumulateDirectLightingGpu(
         return false;
     }
 
+    GpuBatchPacer pacer(dispatchConfig.luxelBatch, directParams.gpuSafeMode, "direct");
+
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU direct lighting luxels=%d emissiveFaces=%d lights=%d luxelBatch=%d lightBatch=%d syncEvery=%d bvhRoot=%d emitterBvhRoot=%d leafCull=%d safeMode=%d",
+        "sloprad: GPU direct lighting luxels=%d emissiveFaces=%d lights=%d luxelBatch<=%d lightBatch=%d sync=%s(budget=%.0fms) bvhRoot=%d emitterBvhRoot=%d leafCull=%d safeMode=%d",
         luxelCount,
         emitterCount,
         lightCount,
         dispatchConfig.luxelBatch,
         dispatchConfig.lightBatch,
-        dispatchConfig.dispatchesPerSync,
+        pacer.mode(),
+        pacer.budgetMs(),
         bvhRoot,
         emitterBvhRoot,
         reachability.leafCount > 0 ? 1 : 0,
@@ -1241,12 +1503,11 @@ bool accumulateDirectLightingGpu(
     bindAlphaAtlasForCompute(program, occlusionResources);
 
     bool dispatchFailed = false;
-    int dispatchesSinceSync = 0;
     int lastLoggedLuxels = -1;
-    const int logLuxelStep = std::max(dispatchConfig.luxelBatch * 4, 1);
-    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;
-         luxelOffset += dispatchConfig.luxelBatch) {
-        const int luxelBatch = std::min(dispatchConfig.luxelBatch, luxelCount - luxelOffset);
+    const int logLuxelStep = std::max(luxelCount / 50, 1);
+    for (int luxelOffset = 0; luxelOffset < luxelCount && !dispatchFailed;) {
+        const int luxelBatch = std::min(pacer.batch(), luxelCount - luxelOffset);
+        pacer.beginGroup(luxelBatch);
 
         if (emitterBvhRoot >= 0 && emitterCount > 0) {
             GpuParamsSSBO params{};
@@ -1263,19 +1524,10 @@ bool accumulateDirectLightingGpu(
                 occlusionResources,
                 directParams,
                 reachability);
-            if (!dispatchBatch(
-                    program,
-                    paramsSsbo,
-                    params,
-                    dispatchConfig.dispatchesPerSync,
-                    dispatchesSinceSync,
-                    dispatchFailed,
-                    occlusionResources)) {
-                break;
-            }
+            issueDirectDispatch(program, paramsSsbo, params, occlusionResources);
         }
 
-        for (int lightOffset = 0; lightOffset < lightCount && !dispatchFailed;
+        for (int lightOffset = 0; lightOffset < lightCount;
              lightOffset += dispatchConfig.lightBatch) {
             GpuParamsSSBO params{};
             fillBaseParams(
@@ -1293,36 +1545,24 @@ bool accumulateDirectLightingGpu(
                 reachability);
             params.lightOffset = lightOffset;
             params.lightBatch = std::min(dispatchConfig.lightBatch, lightCount - lightOffset);
-            if (!dispatchBatch(
-                    program,
-                    paramsSsbo,
-                    params,
-                    dispatchConfig.dispatchesPerSync,
-                    dispatchesSinceSync,
-                    dispatchFailed,
-                    occlusionResources)) {
-                break;
-            }
+            issueDirectDispatch(program, paramsSsbo, params, occlusionResources);
         }
 
-        const int luxelsDone = std::min(luxelOffset + luxelBatch, luxelCount);
-        if (!dispatchFailed
-            && (luxelsDone == luxelCount || luxelsDone / logLuxelStep != lastLoggedLuxels)) {
-            lastLoggedLuxels = luxelsDone / logLuxelStep;
+        if (!pacer.endGroup("compute dispatch", dispatchFailed)) {
+            break;
+        }
+
+        luxelOffset += luxelBatch;
+        if (luxelOffset == luxelCount || luxelOffset / logLuxelStep != lastLoggedLuxels) {
+            lastLoggedLuxels = luxelOffset / logLuxelStep;
             TraceLog(
                 LOG_INFO,
-                "sloprad: GPU direct %d/%d (%.0f%%)",
-                luxelsDone,
+                "sloprad: GPU direct %d/%d (%.0f%%) batch=%d",
+                luxelOffset,
                 luxelCount,
-                100.0 * static_cast<double>(luxelsDone) / static_cast<double>(luxelCount));
+                100.0 * static_cast<double>(luxelOffset) / static_cast<double>(luxelCount),
+                pacer.batch());
             std::fflush(stdout);
-        }
-    }
-
-    if (!dispatchFailed && dispatchesSinceSync > 0) {
-        finishGpu();
-        if (!checkGlError("compute dispatch")) {
-            dispatchFailed = true;
         }
     }
 
@@ -1759,12 +1999,11 @@ std::optional<RadGpuBounceSession> createBounceGpuSession(
 
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU bounce session created luxels=%d faces=%d bvhRoot=%d luxelBatch=%d syncEvery=%d safeMode=%d",
+        "sloprad: GPU bounce session created luxels=%d faces=%d bvhRoot=%d luxelBatch=%d safeMode=%d",
         luxelCount,
         static_cast<int>(faceGrids.size()),
         bvhRoot,
         dispatchConfig.luxelBatch,
-        dispatchConfig.dispatchesPerSync,
         gpuSafeMode ? 1 : 0);
     std::fflush(stdout);
 
@@ -1782,7 +2021,6 @@ std::optional<RadGpuBounceSession> createBounceGpuSession(
     session.faceCount = static_cast<int>(faceGrids.size());
     session.bvhRoot = bvhRoot;
     session.luxelBatch = dispatchConfig.luxelBatch;
-    session.dispatchesPerSync = dispatchConfig.dispatchesPerSync;
     return session;
 }
 
@@ -1835,14 +2073,17 @@ bool runBounceGpuPass(
     initialParams.alphaAtlasWidth = session.occlusionResources->atlasWidth;
     initialParams.alphaAtlasHeight = session.occlusionResources->atlasHeight;
 
+    GpuBatchPacer pacer(session.luxelBatch, bounceParams.gpuSafeMode, "bounce");
+
     TraceLog(
         LOG_INFO,
-        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d luxelBatch=%d syncEvery=%d",
+        "sloprad: GPU bounce lighting luxels=%d samples=%d bvhRoot=%d luxelBatch<=%d sync=%s(budget=%.0fms)",
         session.luxelCount,
         initialParams.sampleCount,
         session.bvhRoot,
         session.luxelBatch,
-        session.dispatchesPerSync);
+        pacer.mode(),
+        pacer.budgetMs());
     std::fflush(stdout);
 
     rlEnableShader(session.program);
@@ -1859,34 +2100,23 @@ bool runBounceGpuPass(
     bindAlphaAtlasForCompute(session.program, *session.occlusionResources);
 
     bool dispatchFailed = false;
-    int dispatchesSinceSync = 0;
-    for (int luxelOffset = 0; luxelOffset < session.luxelCount && !dispatchFailed;
-         luxelOffset += session.luxelBatch) {
+    for (int luxelOffset = 0; luxelOffset < session.luxelCount && !dispatchFailed;) {
+        const int luxelBatch = std::min(pacer.batch(), session.luxelCount - luxelOffset);
         GpuBounceParamsSSBO params = initialParams;
         params.luxelOffset = luxelOffset;
-        params.luxelBatch = std::min(session.luxelBatch, session.luxelCount - luxelOffset);
+        params.luxelBatch = luxelBatch;
         rlEnableShader(session.program);
         rebindAlphaAtlasTexture(*session.occlusionResources);
         rlUpdateShaderBuffer(session.paramsSsbo, &params, sizeof(params), 0);
         memoryBarrierBits(kBufferUpdateBarrierBit | kShaderStorageBarrierBit);
         const unsigned int groups = static_cast<unsigned int>((params.luxelBatch + 63) / 64);
+        pacer.beginGroup(luxelBatch);
         rlComputeShaderDispatch(groups, 1, 1);
         memoryBarrierBits(kShaderStorageBarrierBit);
-        ++dispatchesSinceSync;
-        if (dispatchesSinceSync >= session.dispatchesPerSync) {
-            finishGpu();
-            dispatchesSinceSync = 0;
-            if (!checkGlError("bounce compute dispatch")) {
-                dispatchFailed = true;
-            }
+        if (!pacer.endGroup("bounce compute dispatch", dispatchFailed)) {
+            break;
         }
-    }
-
-    if (!dispatchFailed && dispatchesSinceSync > 0) {
-        finishGpu();
-        if (!checkGlError("bounce compute dispatch")) {
-            dispatchFailed = true;
-        }
+        luxelOffset += luxelBatch;
     }
 
     rlDisableShader();

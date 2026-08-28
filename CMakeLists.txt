@@ -173,7 +173,20 @@ set(SLOPLIB_SOURCES
     src/render/skybox_render.cpp
 )
 
-add_library(sloplib SHARED ${SLOPLIB_SOURCES})
+# On Windows sloplib is STATIC. As a SHARED library it (and the vendored libs it
+# absorbs -- raylib, s7, ...) end up duplicated: once inside sloplib.dll and once
+# more statically linked into each tool exe, because a Windows DLL does not
+# interpose symbols the way an ELF .so does. Each copy then carries its own
+# uninitialised global state -- s7's char tables (white_space == NULL -> AV in
+# the reader), raylib's RLGL GL-state ("GPU is not ready to load data" from every
+# texture load made inside sloplib) -- and calls split across the copies. A
+# static sloplib collapses everything to one copy per exe. Linux/macOS keep the
+# shared library (ELF interposition already makes the single-copy guarantee).
+if(WIN32)
+    add_library(sloplib STATIC ${SLOPLIB_SOURCES})
+else()
+    add_library(sloplib SHARED ${SLOPLIB_SOURCES})
+endif()
 target_include_directories(sloplib PUBLIC
     src
     "${CMAKE_BINARY_DIR}/generated"
