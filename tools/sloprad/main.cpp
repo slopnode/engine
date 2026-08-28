@@ -370,6 +370,11 @@ int main(int argc, char* argv[]) {
     }
 
     TraceLog(LOG_INFO, "sloprad: map='%s'", cli->config.map->c_str());
+    TraceLog(
+        LOG_INFO,
+        "sloprad: directWrap=%.3f coplanarFill=%.3f",
+        cli->settings.directWrap,
+        cli->settings.coplanarFill);
     std::fflush(stdout);
 
     auto mapMeta = loadMapMeta(assets, *cli->config.map);

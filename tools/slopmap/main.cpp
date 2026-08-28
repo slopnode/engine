@@ -30,6 +30,7 @@
 #include "game/app_config.hpp"
 #include "map/csg_script.hpp"
 #include "map/map_handler_registry.hpp"
+#include "map/map_meta.hpp"
 #include "map/thing_def_registry.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/imgui_fonts.hpp"
@@ -47,11 +48,13 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <iterator>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -453,6 +456,101 @@ std::vector<std::string> listTargetMaps(const std::filesystem::path& target) {
     }
     std::sort(maps.begin(), maps.end());
     return maps;
+}
+
+std::filesystem::path mapMetaPathFor(const std::filesystem::path& packageRoot, const std::string& mapName) {
+    return packageRoot / "maps" / mapName / "map.meta";
+}
+
+bool loadMapMetaRaw(const std::filesystem::path& metaPath, slopengine::MapMeta& out) {
+    std::ifstream file(metaPath, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return slopengine::parseMapMeta(buffer.str(), out);
+}
+
+void applyRadOptionsFromMapMeta(const slopengine::MapMeta& meta, slopmap::RadCompileOptions& radOptions) {
+    if (!meta.hasRad) {
+        return;
+    }
+    const slopengine::MapRadOptions& rad = meta.rad;
+    radOptions.luxelsPerMeter = rad.luxelsPerMeter;
+    radOptions.bounces = rad.bounces;
+    radOptions.samples = rad.samples;
+    radOptions.emitterDirectSamples = rad.emitterDirectSamples;
+    radOptions.emitterGridLuxelsPerMeter = rad.emitterGridLuxelsPerMeter;
+    radOptions.emitterGridMaxSize = rad.emitterGridMaxSize;
+    radOptions.exactEmissionGridMaxSize = rad.exactEmissionGridMaxSize;
+    radOptions.exactEmissionMaxSamples = rad.exactEmissionMaxSamples;
+    radOptions.sunShadowSoftness = rad.sunShadowSoftness;
+    radOptions.seamStitchRadiusLuxels = rad.seamStitchRadiusLuxels;
+    radOptions.probeCellSize = rad.probeCellSize;
+    radOptions.probeFineCellSize = rad.probeFineCellSize;
+    radOptions.probeSampleCount = rad.probeSampleCount;
+    radOptions.preferGpu = rad.preferGpu;
+    radOptions.forceDiscreteGpu = rad.forceDiscreteGpu;
+    radOptions.gpuSafetyMode = static_cast<slopmap::GpuSafetyMode>(rad.gpuSafetyMode);
+    radOptions.gpuWatchdogLimitSeconds = rad.gpuWatchdogLimitSeconds;
+    radOptions.gpuMaxLuxelBatch = rad.gpuMaxLuxelBatch;
+}
+
+/** Loads saved RAD options for @p mapName from its map.meta, or resets to defaults if the
+ *  map hasn't been saved yet or has no saved RAD options. */
+void loadRadOptionsForMap(
+    const std::filesystem::path& packageRoot,
+    const std::string& mapName,
+    slopmap::RadCompileOptions& radOptions) {
+    radOptions = slopmap::RadCompileOptions{};
+    if (mapName.empty() || mapName == "untitled") {
+        return;
+    }
+    slopengine::MapMeta meta;
+    if (loadMapMetaRaw(mapMetaPathFor(packageRoot, mapName), meta)) {
+        applyRadOptionsFromMapMeta(meta, radOptions);
+    }
+}
+
+/** Persists @p radOptions into @p mapName's map.meta, preserving its other fields. */
+bool saveRadOptionsForMap(
+    const std::filesystem::path& packageRoot,
+    const std::string& mapName,
+    const slopmap::RadCompileOptions& radOptions) {
+    if (mapName.empty() || mapName == "untitled") {
+        return false;
+    }
+    const std::filesystem::path metaPath = mapMetaPathFor(packageRoot, mapName);
+    slopengine::MapMeta meta;
+    loadMapMetaRaw(metaPath, meta);
+    if (meta.id.empty()) {
+        meta.id = mapName;
+    }
+    if (meta.name.empty()) {
+        meta.name = mapName;
+    }
+    meta.hasRad = true;
+    slopengine::MapRadOptions& rad = meta.rad;
+    rad.luxelsPerMeter = radOptions.luxelsPerMeter;
+    rad.bounces = radOptions.bounces;
+    rad.samples = radOptions.samples;
+    rad.emitterDirectSamples = radOptions.emitterDirectSamples;
+    rad.emitterGridLuxelsPerMeter = radOptions.emitterGridLuxelsPerMeter;
+    rad.emitterGridMaxSize = radOptions.emitterGridMaxSize;
+    rad.exactEmissionGridMaxSize = radOptions.exactEmissionGridMaxSize;
+    rad.exactEmissionMaxSamples = radOptions.exactEmissionMaxSamples;
+    rad.sunShadowSoftness = radOptions.sunShadowSoftness;
+    rad.seamStitchRadiusLuxels = radOptions.seamStitchRadiusLuxels;
+    rad.probeCellSize = radOptions.probeCellSize;
+    rad.probeFineCellSize = radOptions.probeFineCellSize;
+    rad.probeSampleCount = radOptions.probeSampleCount;
+    rad.preferGpu = radOptions.preferGpu;
+    rad.forceDiscreteGpu = radOptions.forceDiscreteGpu;
+    rad.gpuSafetyMode = static_cast<int>(radOptions.gpuSafetyMode);
+    rad.gpuWatchdogLimitSeconds = radOptions.gpuWatchdogLimitSeconds;
+    rad.gpuMaxLuxelBatch = radOptions.gpuMaxLuxelBatch;
+    return slopengine::writeMapMeta(metaPath, meta);
 }
 
 struct MapStats {
@@ -1218,6 +1316,7 @@ int main(int argc, char* argv[]) {
     slopmap::BrushPanel brushPanel;
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
+    loadRadOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.radOptions);
     slopmap::EditorSettings editorSettings = slopmap::EditorSettings::loadOrDefault();
     materialBrowser.rescan(assets);
     prefabBrowser.rescan(assets);
@@ -1383,6 +1482,7 @@ int main(int argc, char* argv[]) {
                     } else {
                         cancelTools(createTool, selectTool, punchTool, clipTool, editor);
                         editor.newMap("untitled");
+                        compile.radOptions = slopmap::RadCompileOptions{};
                         previewNeedsRebuild = true;
                     }
                 }
@@ -2220,6 +2320,7 @@ int main(int argc, char* argv[]) {
                 } else {
                     cancelTools(createTool, selectTool, punchTool, clipTool, editor);
                     editor.newMap("untitled");
+                    compile.radOptions = slopmap::RadCompileOptions{};
                     previewNeedsRebuild = true;
                 }
             }
@@ -4133,6 +4234,7 @@ int main(int argc, char* argv[]) {
                 if (!editor.load(assets, scheme, name)) {
                     return false;
                 }
+                loadRadOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.radOptions);
                 previewNeedsRebuild = false;
                 return true;
             };
@@ -4366,6 +4468,7 @@ int main(int argc, char* argv[]) {
             if (buttonWithIcon(assets, kIcons, "page_add", "Discard & New", ImVec2(140, 0))) {
                 cancelTools(createTool, selectTool, punchTool, clipTool, editor);
                 editor.newMap("untitled");
+                compile.radOptions = slopmap::RadCompileOptions{};
                 previewNeedsRebuild = true;
                 ImGui::CloseCurrentPopup();
             }
@@ -4680,6 +4783,7 @@ int main(int argc, char* argv[]) {
                 }
             }
             if (buttonWithIcon(assets, kIcons, "accept", "OK", ImVec2(120, 0))) {
+                saveRadOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.radOptions);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();

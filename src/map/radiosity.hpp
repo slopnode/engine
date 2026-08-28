@@ -19,7 +19,7 @@ struct RadiositySettings {
     int samples = 16;
     int atlasSize = 1024;
     float directWrap = 0.35f;
-    float coplanarFill = 0.15f;
+    float coplanarFill = 0.0f;
     float ambientScale = 1.25f;
     bool preferGpu = true;
     /** Conservative GPU dispatch when set (auto-enabled on integrated GPUs). */

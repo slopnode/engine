@@ -728,7 +728,6 @@ void accumulateEmissiveFaceContribution(
     std::span<const EmitterDirectSample> directSampleData,
     const LightmapFace& faceGeom,
     int directSamples,
-    float wrap,
     float coplanarFill,
     float minDist2,
     const QuadBvh& occlusionBvh,
@@ -863,8 +862,8 @@ void accumulateEmissiveFaceContribution(
         }
         const Vector3 toLight = scale3(delta, 1.0f / sampleDist);
         const float dist2 = std::max(sampleDist2Raw, minDist2);
-        const float nDotL = wrapCosine(dot3(luxel.normal, toLight), wrap);
-        const float nDotV = wrapCosine(-dot3(face.normal, toLight), wrap);
+        const float nDotL = std::max(0.0f, dot3(luxel.normal, toLight));
+        const float nDotV = std::max(0.0f, -dot3(face.normal, toLight));
         const bool formOk = nDotL > 0.0f && nDotV > 0.0f;
         float align = 0.0f;
         bool fillOk = false;
@@ -1132,7 +1131,6 @@ void accumulateDirectLightingCpu(
                             directSampleData,
                             faceGeom,
                             directSamples,
-                            wrap,
                             coplanarFill,
                             minDist2,
                             occlusionBvh,

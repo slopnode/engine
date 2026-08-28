@@ -768,7 +768,7 @@ vec3 planePointFromUv(EmissiveFace face, float u, float v) {
 }
 
 void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int luxelLeaf,
-                            float wrap, float coplanarFill, float coplanarSoft, float minDist2,
+                            float coplanarFill, float coplanarSoft, float minDist2,
                             inout vec3 irradiance) {
     if (faceIndex < 0 || faceIndex >= params.emitterCount) {
         return;
@@ -826,8 +826,8 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
         }
         vec3 toLight = delta / sampleDist;
         float dist2 = max(sampleDist2Raw, minDist2);
-        float nDotL = wrapCosine(dot(luxelNormal, toLight), wrap);
-        float nDotV = wrapCosine(-dot(faceNormal, toLight), wrap);
+        float nDotL = max(0.0, dot(luxelNormal, toLight));
+        float nDotV = max(0.0, -dot(faceNormal, toLight));
         bool formOk = nDotL > 0.0 && nDotV > 0.0;
         float align = 0.0;
         bool fillOk = false;
@@ -864,7 +864,7 @@ void accumulateEmissiveFace(int faceIndex, vec3 luxelPos, vec3 luxelNormal, int 
 }
 
 void traverseEmitterBvh(vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int luxelLeaf,
-                        float wrap, float coplanarFill, float coplanarSoft, float minDist2,
+                        float coplanarFill, float coplanarSoft, float minDist2,
                         inout vec3 irradiance) {
     if (params.emitterBvhRoot < 0 || params.emitterQueryRadius <= 0.0) {
         return;
@@ -889,7 +889,7 @@ void traverseEmitterBvh(vec3 luxelPos, vec3 luxelNormal, int luxelFaceIndex, int
                     continue;
                 }
                 accumulateEmissiveFace(prim.emitterIndex, luxelPos, luxelNormal, luxelFaceIndex, luxelLeaf,
-                                       wrap, coplanarFill, coplanarSoft, minDist2, irradiance);
+                                       coplanarFill, coplanarSoft, minDist2, irradiance);
             }
             continue;
         }
@@ -1045,7 +1045,7 @@ void main() {
 
     if (params.emitterBvhRoot >= 0) {
         traverseEmitterBvh(luxelPos, luxelNormal, luxel.faceIndex, luxel.leafIndex,
-                           wrap, coplanarFill, coplanarSoft, minDist2, irradiance);
+                           coplanarFill, coplanarSoft, minDist2, irradiance);
     }
 
     int lightBegin = params.lightOffset;
