@@ -1,0 +1,211 @@
+(define (make-node type id children props)
+  (let ((n (make-hash-table)))
+    (hash-table-set! n 'node-type type)
+    (hash-table-set! n 'node-id id)
+    (hash-table-set! n 'node-children children)
+    (for-each (lambda (kv) (hash-table-set! n (car kv) (cdr kv))) props)
+    n))
+
+(define (node-type node) (hash-table-ref node 'node-type))
+(define (node-id node) (hash-table-ref node 'node-id))
+(define (node-children node) (hash-table-ref node 'node-children))
+(define (node-children-set! node children) (hash-table-set! node 'node-children children))
+(define (node-prop node key) (hash-table-ref node key))
+(define (node-prop-set! node key value) (hash-table-set! node key value))
+
+(define (when-visible? getter node)
+  (node-prop-set! node 'visible-getter getter)
+  node)
+
+(define (window title . children)
+  (make-node 'window #f children (list (cons 'title title))))
+
+(define (modal title width height . children)
+  (make-node 'modal #f children (list (cons 'title title) (cons 'width width) (cons 'height height))))
+
+(define (vbox . children)
+  (make-node 'vbox #f children '()))
+
+(define (hbox . children)
+  (make-node 'hbox #f children '()))
+
+(define (indent . children)
+  (make-node 'indent #f children '()))
+
+(define (ui-child id height . children)
+  (make-node 'child id children (list (cons 'height height))))
+
+(define (text label)
+  (make-node 'text #f '() (list (cons 'label label))))
+
+(define (dynamic-text label-getter)
+  (make-node 'dynamic-text #f '() (list (cons 'label-getter label-getter))))
+
+(define (separator)
+  (make-node 'separator #f '() '()))
+
+(define (dynamic builder)
+  (make-node 'dynamic #f '() (list (cons 'builder builder))))
+
+(define (button id label on-click)
+  (make-node 'button id '() (list (cons 'label label) (cons 'on-click on-click))))
+
+(define (menu-item id label enabled-getter on-click)
+  (make-node 'menu-item id '() (list (cons 'label label) (cons 'enabled-getter enabled-getter) (cons 'on-click on-click))))
+
+(define (menu-check id label checked-getter on-toggle)
+  (make-node 'menu-check id '() (list (cons 'label label) (cons 'checked-getter checked-getter) (cons 'on-toggle on-toggle))))
+
+(define (selectable id label selected-getter on-click)
+  (make-node 'selectable id '() (list (cons 'label label) (cons 'selected-getter selected-getter) (cons 'on-click on-click))))
+
+(define (input-text id initial on-change)
+  (make-node 'input-text id '() (list (cons 'value initial) (cons 'on-change on-change))))
+
+(define (combo id preview-getter . items)
+  (make-node 'combo id items (list (cons 'preview-getter preview-getter))))
+
+(define (combo-item label selected-getter on-click)
+  (make-node 'combo-item #f '() (list (cons 'label label) (cons 'selected-getter selected-getter) (cons 'on-click on-click))))
+
+(define (render-children node)
+  (for-each render-node (node-children node)))
+
+(define (render-hbox-children node)
+  (let ((children (node-children node)))
+    (if (pair? children)
+        (begin
+          (render-node (car children))
+          (for-each
+            (lambda (child)
+              (ui-same-line)
+              (render-node child))
+            (cdr children)))
+        #f)))
+
+(define (render-node node)
+  (let ((visible-getter (node-prop node 'visible-getter)))
+    (if (and visible-getter (not (visible-getter)))
+        #f
+        (render-node* node))))
+
+(define (render-node* node)
+  (let ((type (node-type node)))
+    (cond
+      ((eq? type 'window)
+       (let ((open (ui-begin (node-prop node 'title))))
+         (if open (render-children node) #f)
+         (ui-end)))
+      ((eq? type 'modal)
+       (ui-set-next-window-size (node-prop node 'width) (node-prop node 'height))
+       (ui-center-next-window)
+       (let ((open (ui-begin (node-prop node 'title))))
+         (if open (render-children node) #f)
+         (ui-end)))
+      ((eq? type 'child)
+       (let ((open (ui-begin-child (node-id node) (node-prop node 'height))))
+         (if open (render-children node) #f)
+         (ui-end-child)))
+      ((eq? type 'vbox) (render-children node))
+      ((eq? type 'hbox) (render-hbox-children node))
+      ((eq? type 'indent)
+       (ui-indent)
+       (render-children node)
+       (ui-unindent))
+      ((eq? type 'text) (ui-text (node-prop node 'label)))
+      ((eq? type 'dynamic-text) (ui-text ((node-prop node 'label-getter))))
+      ((eq? type 'separator) (ui-separator))
+      ((eq? type 'dynamic) (for-each render-node ((node-prop node 'builder))))
+      ((eq? type 'button)
+       (let ((clicked (ui-button (node-prop node 'label))))
+         (node-prop-set! node 'clicked? clicked)
+         (if clicked ((node-prop node 'on-click)) #f)))
+      ((eq? type 'menu-item)
+       (let ((clicked (ui-menu-item (node-prop node 'label) ((node-prop node 'enabled-getter)))))
+         (node-prop-set! node 'clicked? clicked)
+         (if clicked ((node-prop node 'on-click)) #f)))
+      ((eq? type 'menu-check)
+       (let* ((current ((node-prop node 'checked-getter)))
+              (next (ui-menu-check (node-prop node 'label) current)))
+         (if (eq? next current)
+             #f
+             ((node-prop node 'on-toggle) next))))
+      ((eq? type 'selectable)
+       (let ((clicked (ui-selectable (node-prop node 'label) ((node-prop node 'selected-getter)))))
+         (node-prop-set! node 'clicked? clicked)
+         (if clicked ((node-prop node 'on-click)) #f)))
+      ((eq? type 'input-text)
+       (let* ((current (node-prop node 'value))
+              (next (ui-input-text (node-id node) current)))
+         (if (string=? next current)
+             #f
+             (begin
+               (node-prop-set! node 'value next)
+               ((node-prop node 'on-change) next)))))
+      ((eq? type 'combo)
+       (let ((open (ui-begin-combo (node-id node) ((node-prop node 'preview-getter)))))
+         (if open
+             (begin
+               (render-children node)
+               (ui-end-combo))
+             #f)))
+      ((eq? type 'combo-item)
+       (let ((clicked (ui-combo-item (node-prop node 'label) ((node-prop node 'selected-getter)))))
+         (node-prop-set! node 'clicked? clicked)
+         (if clicked ((node-prop node 'on-click)) #f)))
+      (else (error 'render-node "unknown ui node type: ~A" type)))))
+
+(define *ui-screens* (make-hash-table))
+
+(define (define-screen name builder)
+  (let ((entry (make-hash-table)))
+    (hash-table-set! entry 'builder builder)
+    (hash-table-set! entry 'root #f)
+    (hash-table-set! entry 'index #f)
+    (hash-table-set! *ui-screens* name entry)))
+
+(define (ui-screen-entry name)
+  (or (hash-table-ref *ui-screens* name)
+      (error 'ui-screen-entry "unknown ui screen: ~A" name)))
+
+(define (index-node! index node)
+  (if (node-id node)
+      (hash-table-set! index (node-id node) node)
+      #f)
+  (for-each (lambda (child) (index-node! index child)) (node-children node)))
+
+(define (rebuild-index! entry)
+  (let ((index (make-hash-table)))
+    (index-node! index (hash-table-ref entry 'root))
+    (hash-table-set! entry 'index index)))
+
+(define (ensure-screen-built! entry)
+  (if (hash-table-ref entry 'root)
+      #f
+      (begin
+        (hash-table-set! entry 'root ((hash-table-ref entry 'builder)))
+        (rebuild-index! entry))))
+
+(define (ui-screen-render name)
+  (let ((entry (ui-screen-entry name)))
+    (ensure-screen-built! entry)
+    (render-node (hash-table-ref entry 'root))))
+
+(define (ui-screen-append! name node)
+  (let ((entry (ui-screen-entry name)))
+    (ensure-screen-built! entry)
+    (let ((root (hash-table-ref entry 'root)))
+      (node-children-set! root (append (node-children root) (list node))))
+    (rebuild-index! entry)))
+
+(define (ui-screen-node name id)
+  (let ((entry (ui-screen-entry name)))
+    (ensure-screen-built! entry)
+    (or (hash-table-ref (hash-table-ref entry 'index) id)
+        (error 'ui-screen-node "unknown ui element ~A in screen ~A" id name))))
+
+(define (ui-set! name id key value)
+  (node-prop-set! (ui-screen-node name id) key value))
+
+(define (ui-get name id key)
+  (node-prop (ui-screen-node name id) key))
