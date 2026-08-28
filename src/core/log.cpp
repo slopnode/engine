@@ -39,7 +39,6 @@ constexpr TagCategory kTagTable[] = {
     {"HUD", LogCategory::Render},
     {"SKY", LogCategory::Render},
     {"RIG", LogCategory::Render},
-    {"SCOPE-DEBUG", LogCategory::Render},
     {"SCREENSHOT", LogCategory::Render},
     {"TITLE", LogCategory::Ui},
     {"SETTINGS", LogCategory::Ui},

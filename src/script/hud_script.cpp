@@ -305,18 +305,12 @@ s7_pointer g_hud_draw_eye(s7_scheme* sc, s7_pointer args) {
     }
     flecs::entity player = g_hudWorld->lookup("Player");
     if (!player.is_valid() || !player.has<ExtraEye>()) {
-        TraceLog(LOG_WARNING, "SCOPE-DEBUG: hud-draw-eye: no ExtraEye on Player (valid=%d)",
-                 player.is_valid());
         return s7_f(sc);
     }
     const ExtraEye& eye = player.get<ExtraEye>();
     if (eye.target.id == 0) {
-        TraceLog(LOG_WARNING, "SCOPE-DEBUG: hud-draw-eye: target.id==0 active=%d w=%d h=%d",
-                 eye.active, eye.width, eye.height);
         return s7_f(sc);
     }
-    TraceLog(LOG_INFO, "SCOPE-DEBUG: hud-draw-eye: drawing target id=%u tex=%dx%d",
-             eye.target.id, eye.target.texture.width, eye.target.texture.height);
 
     HudCmd cmd{};
     cmd.kind = HudCmdKind::Texture;

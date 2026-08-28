@@ -951,13 +951,10 @@ s7_pointer g_extra_eye_set_active(s7_scheme* sc, s7_pointer args) {
     }
     flecs::entity player = g_fpWorld->lookup("Player");
     if (!player.is_valid() || !player.has<ExtraEye>()) {
-        TraceLog(LOG_WARNING, "SCOPE-DEBUG: extra-eye-set-active!: no ExtraEye on Player (valid=%d)",
-                 player.is_valid());
         return s7_f(sc);
     }
     const bool active = s7_boolean(sc, s7_car(args));
     player.get_mut<ExtraEye>().active = active;
-    TraceLog(LOG_INFO, "SCOPE-DEBUG: extra-eye-set-active!: set active=%d", active);
     return s7_t(sc);
 }
 

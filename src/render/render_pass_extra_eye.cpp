@@ -50,12 +50,8 @@ void registerExtraEyeSystems(flecs::world& world) {
                 return;
             }
             if (!ensureExtraEyeTarget(eye)) {
-                TraceLog(LOG_WARNING, "SCOPE-DEBUG: ExtraEyeRender: ensureExtraEyeTarget failed w=%d h=%d",
-                         eye.width, eye.height);
                 return;
             }
-            TraceLog(LOG_INFO, "SCOPE-DEBUG: ExtraEyeRender: rendering target id=%u %dx%d",
-                     eye.target.id, eye.width, eye.height);
 
             const Lens& lens = player.get<Lens>();
             eye.camera.position = lens.camera.position;
