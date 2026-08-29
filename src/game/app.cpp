@@ -6,6 +6,7 @@
 #include "core/package.hpp"
 #include "core/user_paths.hpp"
 #include "game/game_state.hpp"
+#include "game/loading_session.hpp"
 #include "game/package_cli.hpp"
 #include "game/script_boot.hpp"
 #include "script/hook_registry.hpp"
@@ -89,6 +90,7 @@ App::App(AppConfig config)
     registerParticleModule(world_, assetStore_);
     registerTrailModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
+    registerLoadingSessionModule(world_);
     registerUnderwaterEffectModule(world_);
     registerMotoredBodySystem(world_);
     registerScriptBoot(world_, assetStore_, scheme_);
@@ -102,8 +104,14 @@ App::~App() {
 
 int App::run() {
     while (running_ && !WindowShouldClose()) {
-        if (auto pendingMap = takeRequestedMapLoad()) {
-            changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+        if (hasActiveLoadingSession(world_)) {
+            advanceLoadingSession(world_, assetStore_, scheme_);
+        } else if (auto pendingMap = takeRequestedMapLoad()) {
+            if (shouldShowLoadingScreen(pendingMap->reason)) {
+                beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+            } else {
+                changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+            }
         }
         world_.progress();
         if (world_.get<QuitRequest>().requested) {

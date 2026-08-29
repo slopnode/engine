@@ -203,17 +203,26 @@ bool registerMapScene(
         TraceLog(LOG_WARNING, "MAP: failed to spawn map '%.*s'", static_cast<int>(mapName.size()), mapName.data());
         return false;
     }
+    return assembleMapScene(world, assets, scheme, mapName, reason, std::move(*loaded));
+}
 
+bool assembleMapScene(
+    flecs::world& world,
+    AssetStore& assets,
+    s7_scheme* scheme,
+    std::string_view mapName,
+    std::string_view reason,
+    LoadedMap&& loaded) {
     MapLightmapState lightmapState{};
-    lightmapState.available = loaded->hasLightmaps;
-    lightmapState.useLightmapLoc = loaded->useLightmapLoc;
-    lightmapState.emissionPowerLoc = loaded->emissionPowerLoc;
-    lightmapState.lightmapShader = loaded->lightmapShader;
-    lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
-    lightmapState.skyMeshIndices = std::move(loaded->skyMeshIndices);
-    lightmapState.detailMeshIndices = std::move(loaded->detailMeshIndices);
-    lightmapState.twoSidedMeshIndices = std::move(loaded->twoSidedMeshIndices);
-    lightmapState.skyShader = loaded->skyShader;
+    lightmapState.available = loaded.hasLightmaps;
+    lightmapState.useLightmapLoc = loaded.useLightmapLoc;
+    lightmapState.emissionPowerLoc = loaded.emissionPowerLoc;
+    lightmapState.lightmapShader = loaded.lightmapShader;
+    lightmapState.transparentMeshIndices = std::move(loaded.transparentMeshIndices);
+    lightmapState.skyMeshIndices = std::move(loaded.skyMeshIndices);
+    lightmapState.detailMeshIndices = std::move(loaded.detailMeshIndices);
+    lightmapState.twoSidedMeshIndices = std::move(loaded.twoSidedMeshIndices);
+    lightmapState.skyShader = loaded.skyShader;
 
     world.entity("MapStatic")
         .add<MapOwned>()
@@ -223,15 +232,15 @@ bool registerMapScene(
             .scale = {1.0f, 1.0f, 1.0f},
             .rotation = {0.0f, 0.0f, 0.0f, 1.0f},
         })
-        .set<Model3D>({loaded->model, WHITE})
+        .set<Model3D>({loaded.model, WHITE})
         .set<MapLightmapState>(lightmapState);
 
     flecs::entity mapEntity = world.lookup("MapStatic");
-    if (mapEntity.is_valid() && !loaded->materialAnimTargets.targets.empty()) {
-        attachMaterialAnimTargets(mapEntity, std::move(loaded->materialAnimTargets));
+    if (mapEntity.is_valid() && !loaded.materialAnimTargets.targets.empty()) {
+        attachMaterialAnimTargets(mapEntity, std::move(loaded.materialAnimTargets));
     }
 
-    if (loaded->hasLightmaps) {
+    if (loaded.hasLightmaps) {
         const int shadowMapResolution = world.has<UserSettings>()
             ? world.get<UserSettings>().graphics.shadowMapResolution
             : kDefaultDynamicShadowMapResolution;
@@ -239,8 +248,8 @@ bool registerMapScene(
     }
     {
         DynamicLightFrameState frameState{};
-        if (loaded->hasLightmaps && loaded->lightmapShader.id != 0) {
-            resolveDynamicLightShaderBindings(loaded->lightmapShader, frameState.bindings);
+        if (loaded.hasLightmaps && loaded.lightmapShader.id != 0) {
+            resolveDynamicLightShaderBindings(loaded.lightmapShader, frameState.bindings);
         }
         world.set<DynamicLightFrameState>(std::move(frameState));
     }
@@ -249,11 +258,11 @@ bool registerMapScene(
         world.set<FxLightFrameState>(std::move(fxState));
     }
 
-    MapBsp mapBsp{std::move(loaded->bsp)};
+    MapBsp mapBsp{std::move(loaded.bsp)};
     world.set<MapLighting>(buildMapLighting(
         mapBsp.tree,
-        loaded->rad,
-        std::move(loaded->lightmapAtlasImages),
+        loaded.rad,
+        std::move(loaded.lightmapAtlasImages),
         BLACK));
 
     if (world.has<AudioContext>()) {
@@ -261,31 +270,31 @@ bool registerMapScene(
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
             audioCtx.world->setSteamAudioScene(
-                loaded->brushes,
-                loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
+                loaded.brushes,
+                loaded.moverBrushIds.empty() ? nullptr : &loaded.moverBrushIds);
         }
     }
 
     world.set<MapBsp>(std::move(mapBsp));
-    world.set<MapPvs>(MapPvs{std::move(loaded->pvs)});
+    world.set<MapPvs>(MapPvs{std::move(loaded.pvs)});
     {
         const MapBsp& bspForNav = world.get<MapBsp>();
-        const MapHullAnalysis hullAnalysis = analyzeMapHull(bspForNav.tree, loaded->brushes);
+        const MapHullAnalysis hullAnalysis = analyzeMapHull(bspForNav.tree, loaded.brushes);
         MapNavigation mapNav = buildMapNavigation(
             bspForNav.tree,
             hullAnalysis.sealed ? &hullAnalysis.exteriorEmpty : nullptr);
         world.set<MapNavigation>(std::move(mapNav));
         resetNavFlowFieldCache(world);
     }
-    world.set<MapWaterVolumes>(buildMapWaterVolumes(loaded->brushes));
+    world.set<MapWaterVolumes>(buildMapWaterVolumes(loaded.brushes));
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
         if (physics != nullptr) {
             addStaticBrushes(
                 *physics,
-                loaded->brushes,
-                loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
+                loaded.brushes,
+                loaded.moverBrushIds.empty() ? nullptr : &loaded.moverBrushIds);
         }
     }
 
@@ -294,10 +303,10 @@ bool registerMapScene(
         world,
         assets,
         mapName,
-        loaded->brushes,
-        &loaded->rad,
-        &loaded->lightmapAtlases,
-        loaded->hasLightmaps);
+        loaded.brushes,
+        &loaded.rad,
+        &loaded.lightmapAtlases,
+        loaded.hasLightmaps);
     if (world.has<MapLighting>()) {
         MapLighting& lighting = world.get_mut<MapLighting>();
         bool foundAmbient = false;
@@ -319,8 +328,8 @@ bool registerMapScene(
     }
     spawnFaceUseSurfaces(
         world,
-        loaded->brushes,
-        loaded->moverBrushIds.empty() ? nullptr : &loaded->moverBrushIds);
+        loaded.brushes,
+        loaded.moverBrushIds.empty() ? nullptr : &loaded.moverBrushIds);
 
     {
         MapGraphs mapGraphs{};

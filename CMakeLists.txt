@@ -237,6 +237,7 @@ add_executable(slopengine
     src/map/map_scene.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
+    src/game/loading_session.cpp
     src/render/transform.cpp
     src/render/animation_player.cpp
     src/render/sprite_animator.cpp
@@ -256,6 +257,7 @@ add_executable(slopengine
     src/render/underwater_effect.cpp
     src/render/skybox_world.cpp
     src/render/render_module.cpp
+    src/render/loading_overlay.cpp
     src/render/hud.cpp
     src/script/scheme_call.cpp
     src/script/scheme_harden.cpp

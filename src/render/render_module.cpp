@@ -5,6 +5,7 @@
 #include "core/frame_perf.hpp"
 #include "core/screenshot.hpp"
 #include "game/game_state.hpp"
+#include "game/loading_session.hpp"
 #include "game/menu_background.hpp"
 #include "game/user_settings.hpp"
 #include "map/bsp.hpp"
@@ -17,6 +18,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
+#include "render/loading_overlay.hpp"
 #include "render/render_context.hpp"
 #include "render/material_anim.hpp"
 #include "render/post_process.hpp"
@@ -221,7 +223,8 @@ void registerRenderSystems(flecs::world& world) {
             buildFxLightFrameState(world, &frustum, unlit, fxLights);
             storeFxLightFrameState(world, std::move(fxLights));
 
-            const bool playing = isPlaying(world);
+            const bool crossfading = isLoadingCrossfadeActive(world);
+            const bool playing = isPlaying(world) || crossfading;
             PostProcessState* postState = nullptr;
             bool sceneToTexture = false;
             if (playing) {
@@ -278,7 +281,16 @@ void registerRenderSystems(flecs::world& world) {
                 }
                 if (sceneToTexture) {
                     EndTextureMode();
-                    if (!hideHud && postProcessNeedsCompositePipeline(*postState)) {
+                    if (crossfading && assetStore != nullptr) {
+                        const LoadingSession& session = world.get<LoadingSession>();
+                        presentLoadingCrossfade(
+                            *postState,
+                            *assetStore,
+                            session.snapshotTexture,
+                            session.crossfadeElapsedSeconds / session.crossfadeDurationSeconds);
+                    } else if (crossfading) {
+                        presentPostProcessSceneOnly(*postState);
+                    } else if (!hideHud && postProcessNeedsCompositePipeline(*postState)) {
                         beginHudCapture(*postState);
                         drawHud(world);
                         drawSpriteAimHudText(spriteAimStatus);
@@ -305,12 +317,14 @@ void registerRenderSystems(flecs::world& world) {
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            if (!isMenu(world)) {
+            if (!isMenu(world) || hasActiveLoadingSession(world)) {
                 return;
             }
             drawMenuBackgroundImage(world);
             drawMenuTitleCanvas(world);
         });
+
+    registerLoadingOverlayModule(world);
 
     world.system("ImGuiOverlay")
         .kind(flecs::PostUpdate)
@@ -324,7 +338,9 @@ void registerRenderSystems(flecs::world& world) {
             prepareUiInput(it.world());
             rlImGuiBegin();
             const double uiStart = perfNow();
-            drawUi(it.world());
+            if (!hasActiveLoadingSession(it.world())) {
+                drawUi(it.world());
+            }
             if (perf != nullptr) {
                 perf->uiMs = perfElapsedMs(uiStart);
                 perf->pushSample();

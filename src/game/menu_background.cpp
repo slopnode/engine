@@ -2,6 +2,7 @@
 
 #include "assets/asset_services.hpp"
 #include "game/game_state.hpp"
+#include "game/loading_session.hpp"
 #include "map/bsp.hpp"
 #include "render/hud.hpp"
 #include "script/hook_registry.hpp"
@@ -247,7 +248,7 @@ bool menuTitleMapActive(const flecs::world& world) {
 }
 
 bool shouldDrawWorld(const flecs::world& world) {
-    return isPlaying(world) || menuTitleMapActive(world);
+    return isPlaying(world) || menuTitleMapActive(world) || isLoadingCrossfadeActive(world);
 }
 
 void applyMenuBackground(flecs::world& world, AssetStore& assets) {

@@ -50,6 +50,19 @@ struct MapCsgDocument {
     std::vector<PrefabInstance> instances;
 };
 
+/** Intermediate state carried across loadMapStage* calls. */
+struct MapLoadWork {
+    std::string mapName;
+    std::string virtualPath;
+    std::string radVirtualPath;
+    MapMeta meta{};
+    std::vector<Brush> brushes;
+    std::unordered_set<std::string> moverBrushIds;
+    BspTree bsp{};
+    PvsFile pvs{};
+    RadFile rad{};
+};
+
 /** Load base+mod data/map-handlers.s7 into the registry (for CSG arg clauses). */
 void loadPackageMapHandlers(s7_scheme* scheme, AssetStore& assets);
 
@@ -94,5 +107,21 @@ std::optional<LoadedMap> loadAndCompileMap(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName);
+
+/** Stage 1: meta, brushes, things, BSP. */
+bool loadMapStageBsp(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view mapName,
+    MapLoadWork& work);
+
+/** Stage 2: PVS, validated against the loaded BSP. */
+bool loadMapStageVis(AssetStore& assets, MapLoadWork& work);
+
+/** Stage 3: optional radiosity bake data. */
+bool loadMapStageRad(AssetStore& assets, MapLoadWork& work);
+
+/** Stage 4: lightmap/sky shaders, atlas textures, CSG compile, model build. */
+std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& work);
 
 }

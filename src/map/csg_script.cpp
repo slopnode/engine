@@ -1378,35 +1378,37 @@ std::vector<Brush> expandPrefabInstances(
     return brushes;
 }
 
-std::optional<LoadedMap> loadAndCompileMap(
+bool loadMapStageBsp(
     s7_scheme* scheme,
     AssetStore& assets,
-    std::string_view mapName) {
+    std::string_view mapName,
+    MapLoadWork& work) {
     if (scheme == nullptr) {
         TraceLog(LOG_WARNING, "MAP: no scheme runtime");
-        return std::nullopt;
+        return false;
     }
 
-    const std::string virtualPath = std::string(mapName) + "/static";
-    const std::string radVirtualPath = std::string(mapName) + "/rad/static";
+    work.mapName = std::string(mapName);
+    work.virtualPath = std::string(mapName) + "/static";
+    work.radVirtualPath = std::string(mapName) + "/rad/static";
     const std::string metaPath = std::string(mapName) + "/map";
-    if (!assets.hasMapCsg(virtualPath)) {
-        TraceLog(LOG_WARNING, "MAP: missing maps/%s.csg", virtualPath.c_str());
-        return std::nullopt;
+    if (!assets.hasMapCsg(work.virtualPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s.csg", work.virtualPath.c_str());
+        return false;
     }
     if (!assets.hasMapMeta(metaPath)) {
         TraceLog(LOG_WARNING, "MAP: missing maps/%s.meta", metaPath.c_str());
-        return std::nullopt;
+        return false;
     }
-    if (!assets.hasMapBsp(virtualPath)) {
-        TraceLog(LOG_WARNING, "MAP: missing maps/%s.bsp (run slopbsp)", virtualPath.c_str());
-        return std::nullopt;
+    if (!assets.hasMapBsp(work.virtualPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s.bsp (run slopbsp)", work.virtualPath.c_str());
+        return false;
     }
 
     auto mapMeta = loadMapMeta(assets, mapName);
     if (!mapMeta) {
         TraceLog(LOG_WARNING, "MAP: invalid maps/%s.meta", metaPath.c_str());
-        return std::nullopt;
+        return false;
     }
 
     TraceLog(
@@ -1424,8 +1426,8 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     auto brushes = loadMapBrushes(scheme, assets, mapName);
     if (!brushes) {
-        TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.csg", virtualPath.c_str());
-        return std::nullopt;
+        TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.csg", work.virtualPath.c_str());
+        return false;
     }
 
     std::unordered_set<std::string> moverBrushIds;
@@ -1436,16 +1438,16 @@ std::optional<LoadedMap> loadAndCompileMap(
         moverBrushIds = collectClaimedBrushIds(nullptr, *brushes);
     }
 
-    const auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);
+    const auto bspPath = assets.resolvePath(AssetKind::MapBsp, work.virtualPath);
     if (!bspPath) {
         TraceLog(LOG_WARNING, "MAP: failed to resolve bsp path");
-        return std::nullopt;
+        return false;
     }
 
     auto bsp = readBspFile(*bspPath);
     if (!bsp) {
-        TraceLog(LOG_WARNING, "MAP: failed to read bsp for '%s'", virtualPath.c_str());
-        return std::nullopt;
+        TraceLog(LOG_WARNING, "MAP: failed to read bsp for '%s'", work.virtualPath.c_str());
+        return false;
     }
 
     const MapHullAnalysis analysis = analyzeMapHull(*bsp, *brushes);
@@ -1453,9 +1455,17 @@ std::optional<LoadedMap> loadAndCompileMap(
         TraceLog(LOG_WARNING, "MAP: %s", warning.c_str());
     }
 
+    work.meta = std::move(*mapMeta);
+    work.brushes = std::move(*brushes);
+    work.moverBrushIds = std::move(moverBrushIds);
+    work.bsp = std::move(*bsp);
+    return true;
+}
+
+bool loadMapStageVis(AssetStore& assets, MapLoadWork& work) {
     PvsFile pvs{};
-    if (assets.hasMapVis(virtualPath)) {
-        if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, virtualPath)) {
+    if (assets.hasMapVis(work.virtualPath)) {
+        if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, work.virtualPath)) {
             if (auto loadedPvs = readPvsFile(*pvsPath)) {
                 pvs = std::move(*loadedPvs);
                 TraceLog(
@@ -1463,30 +1473,34 @@ std::optional<LoadedMap> loadAndCompileMap(
                     "MAP: loaded pvs leaves=%d",
                     pvs.leafCount);
             } else {
-                TraceLog(LOG_ERROR, "MAP: failed to read maps/%s.vis", virtualPath.c_str());
-                return std::nullopt;
+                TraceLog(LOG_ERROR, "MAP: failed to read maps/%s.vis", work.virtualPath.c_str());
+                return false;
             }
         }
     } else {
         TraceLog(
             LOG_ERROR,
             "MAP: missing maps/%s.vis (run slopvis)",
-            virtualPath.c_str());
-        return std::nullopt;
+            work.virtualPath.c_str());
+        return false;
     }
-    if (pvs.leafCount != static_cast<int>(bsp->leaves.size())) {
+    if (pvs.leafCount != static_cast<int>(work.bsp.leaves.size())) {
         TraceLog(
             LOG_ERROR,
             "MAP: pvs leafCount=%d does not match bsp leaves=%d (re-run slopvis)",
             pvs.leafCount,
-            static_cast<int>(bsp->leaves.size()));
-        return std::nullopt;
+            static_cast<int>(work.bsp.leaves.size()));
+        return false;
     }
+    work.pvs = std::move(pvs);
+    return true;
+}
 
+bool loadMapStageRad(AssetStore& assets, MapLoadWork& work) {
     RadFile rad{};
-    const bool hasRad = assets.hasMapRad(radVirtualPath);
+    const bool hasRad = assets.hasMapRad(work.radVirtualPath);
     if (hasRad) {
-        const auto radPath = assets.resolvePath(AssetKind::MapRad, radVirtualPath);
+        const auto radPath = assets.resolvePath(AssetKind::MapRad, work.radVirtualPath);
         if (radPath) {
             if (auto loadedRad = readRadFile(*radPath)) {
                 rad = std::move(*loadedRad);
@@ -1497,12 +1511,22 @@ std::optional<LoadedMap> loadAndCompileMap(
     } else {
         TraceLog(LOG_INFO, "MAP: no rad bake present; rendering unlit");
     }
+    work.rad = std::move(rad);
+    return true;
+}
+
+std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& work) {
+    const std::string& virtualPath = work.virtualPath;
+    const std::vector<Brush>& brushes = work.brushes;
+    const BspTree& bsp = work.bsp;
+    const RadFile& rad = work.rad;
+    const std::unordered_set<std::string>& moverBrushIds = work.moverBrushIds;
 
     int hullCount = 0;
     int detailCount = 0;
     int boxCount = 0;
     int nocollideCount = 0;
-    for (const Brush& brush : *brushes) {
+    for (const Brush& brush : brushes) {
         if (brush.box) {
             ++boxCount;
         }
@@ -1518,7 +1542,7 @@ std::optional<LoadedMap> loadAndCompileMap(
 
     int emptyLeaves = 0;
     int solidLeaves = 0;
-    for (const BspLeaf& leaf : bsp->leaves) {
+    for (const BspLeaf& leaf : bsp.leaves) {
         if (leafBlocksFlood(leaf.contents)) {
             ++solidLeaves;
         } else {
@@ -1533,11 +1557,11 @@ std::optional<LoadedMap> loadAndCompileMap(
         detailCount,
         boxCount,
         nocollideCount,
-        static_cast<int>(bsp->nodes.size()),
+        static_cast<int>(bsp.nodes.size()),
         emptyLeaves,
         solidLeaves,
-        static_cast<int>(bsp->portals.size()),
-        static_cast<int>(bsp->surfaceFaces.size()),
+        static_cast<int>(bsp.portals.size()),
+        static_cast<int>(bsp.surfaceFaces.size()),
         static_cast<int>(rad.charts.size()));
 
     LoadedMap result;
@@ -1561,7 +1585,7 @@ std::optional<LoadedMap> loadAndCompileMap(
         result.lightmapAtlases.reserve(rad.atlases.size());
         result.lightmapAtlasImages.reserve(rad.atlases.size());
         for (const LightmapAtlasInfo& atlas : rad.atlases) {
-            const std::string atlasPath = std::string(mapName) + "/rad/" + atlas.texturePath;
+            const std::string atlasPath = work.mapName + "/rad/" + atlas.texturePath;
             const auto resolved = assets.resolvePath(AssetKind::MapLightmap, atlasPath);
             Texture2D texture{};
             Image image{};
@@ -1586,8 +1610,8 @@ std::optional<LoadedMap> loadAndCompileMap(
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
     std::vector<Brush> staticBrushes;
     if (!moverBrushIds.empty()) {
-        staticBrushes.reserve(brushes->size());
-        for (const Brush& brush : *brushes) {
+        staticBrushes.reserve(brushes.size());
+        for (const Brush& brush : brushes) {
             if (moverBrushIds.count(brush.id) == 0) {
                 staticBrushes.push_back(brush);
             }
@@ -1599,14 +1623,14 @@ std::optional<LoadedMap> loadAndCompileMap(
         faceAtlasById[chart.faceId] = chart.atlasIndex;
     }
     std::unordered_set<std::string> detailBrushIds;
-    for (const Brush& brush : *brushes) {
+    for (const Brush& brush : brushes) {
         if (brush.role == BrushRole::Detail && !brush.id.empty()) {
             detailBrushIds.insert(brush.id);
         }
     }
 
     CsgCompileResult compiled = compileBrushesToGeo(
-        staticBrushes.empty() && moverBrushIds.empty() ? *brushes : staticBrushes,
+        staticBrushes.empty() && moverBrushIds.empty() ? brushes : staticBrushes,
         resolveUv,
         lightmaps);
 
@@ -1627,7 +1651,7 @@ std::optional<LoadedMap> loadAndCompileMap(
                '|' + (primitive.twoSided ? "1" : "0");
     });
 
-    result.pvs = std::move(pvs);
+    result.pvs = std::move(work.pvs);
 
     Model model = buildModelFromGeo(
         compiled.asset,
@@ -1699,19 +1723,36 @@ std::optional<LoadedMap> loadAndCompileMap(
         LOG_INFO,
         "MAP: loaded '%s' (%d brushes, %d meshes, lightmaps=%s)",
         virtualPath.c_str(),
-        static_cast<int>(brushes->size()),
+        static_cast<int>(brushes.size()),
         model.meshCount,
         result.hasLightmaps ? "yes" : "no");
 
     collectMaterialAnimTargets(compiled.asset, assets, result.materialAnimTargets);
 
     result.model = model;
-    result.brushes = std::move(*brushes);
-    result.moverBrushIds = std::move(moverBrushIds);
-    result.bsp = std::move(*bsp);
-    result.rad = std::move(rad);
-    result.meta = std::move(*mapMeta);
+    result.brushes = std::move(work.brushes);
+    result.moverBrushIds = std::move(work.moverBrushIds);
+    result.bsp = std::move(work.bsp);
+    result.rad = std::move(work.rad);
+    result.meta = std::move(work.meta);
     return result;
+}
+
+std::optional<LoadedMap> loadAndCompileMap(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view mapName) {
+    MapLoadWork work;
+    if (!loadMapStageBsp(scheme, assets, mapName, work)) {
+        return std::nullopt;
+    }
+    if (!loadMapStageVis(assets, work)) {
+        return std::nullopt;
+    }
+    if (!loadMapStageRad(assets, work)) {
+        return std::nullopt;
+    }
+    return loadMapStageTextures(assets, std::move(work));
 }
 
 }
