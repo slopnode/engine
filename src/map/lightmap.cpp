@@ -814,8 +814,9 @@ std::optional<RadFile> readRadFile(const std::filesystem::path& path) {
     return readRadBytes(buffer);
 }
 
-Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
+Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc, int& emissionPowerLoc) {
     useLightmapLoc = -1;
+    emissionPowerLoc = -1;
     const std::string vert = assets.getShaderSource("default/lightmap_vert");
     const std::string frag = assets.getShaderSource("default/lightmap_frag");
     if (vert.empty() || frag.empty()) {
@@ -832,6 +833,7 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc) {
     shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(shader, "texture5");
     shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
     shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
+    emissionPowerLoc = GetShaderLocation(shader, "emissionPower");
     if (shader.locs[SHADER_LOC_MATRIX_MODEL] < 0) {
         shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(shader, "matModel");
     }

@@ -278,6 +278,30 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.fullbright = flag != 0.0f;
         return true;
     }
+    if (tag == "emission-blend") {
+        const char* usage = "(emission-blend \"add\"|\"multiply\" [scale])";
+        if (!form.isList() || form.list.size() < 2 || form.list.size() > 3 ||
+            !form.list[1].isString()) {
+            error = {usage, form.line, form.column};
+            return false;
+        }
+        const std::string& mode = form.list[1].text;
+        if (mode != "add" && mode != "multiply") {
+            error = {usage, form.line, form.column};
+            return false;
+        }
+        asset.emissionMultiply = mode == "multiply";
+        if (form.list.size() == 3) {
+            if (!form.list[2].isNumber()) {
+                error = {usage, form.line, form.column};
+                return false;
+            }
+            asset.emissionBlendScale = static_cast<float>(form.list[2].number);
+        } else {
+            asset.emissionBlendScale = 1.0f;
+        }
+        return true;
+    }
     if (tag == "bake-emission") {
         if (form.list.size() == 1) {
             asset.bakeEmission = true;
@@ -418,9 +442,27 @@ Material createRaylibMaterial(
     } else {
         material.maps[MATERIAL_MAP_SPECULAR].color = {0, 0, 0, 255};
     }
-    // colSpecular.a is otherwise unused by the world shader; repurposed here as the
-    // render-time "fullbright mask" toggle (see lightmap_frag.glsl's applyFullbrightMask).
-    material.maps[MATERIAL_MAP_SPECULAR].color.a = asset.fullbright ? 255 : 0;
+    // colSpecular.a is otherwise unused by the world shader; repurposed here as the render-time
+    // fullbright toggle *and* blend mode (see lightmap_frag.glsl's fullbright mix): 0 = off,
+    // ~0.5 (128) = on/multiply, 1.0 (255) = on/add. Packed into one byte instead of a dedicated
+    // uniform since raylib already auto-uploads colSpecular for every DrawMesh call for free.
+    if (!asset.fullbright) {
+        material.maps[MATERIAL_MAP_SPECULAR].color.a = 0;
+    } else {
+        material.maps[MATERIAL_MAP_SPECULAR].color.a = asset.emissionMultiply ? 128 : 255;
+    }
+    // colSpecular.rgb is normalized 0-1 by raylib (8-bit Color channels), so it can't carry
+    // emissionPower's HDR magnitude (e.g. 6.0). Stash a value in the unused .value float instead -
+    // the render pass uploads it to a dedicated "emissionPower" uniform per draw call (see
+    // lightmap_frag.glsl) so masked emissive texels can blow out past 1.0 through tonemap.
+    // Dual-purpose with the blend mode above, since a material is only ever one mode: in "add"
+    // mode this is the emission magnitude (emissionPower*emissionBlendScale - scaled here, not at
+    // bake time, so emissionBlendScale only affects this material's own render and not how much
+    // light it casts on neighbors via radiosity). In "multiply" mode emissionPower itself isn't
+    // used at render time at all, so this instead carries emissionBlendScale directly, read by the
+    // shader as the brightness target for the masked texels.
+    material.maps[MATERIAL_MAP_SPECULAR].value =
+        asset.emissionMultiply ? asset.emissionBlendScale : asset.emissionPower * asset.emissionBlendScale;
 
     if (!asset.emissionTexture.empty() && resolveTexture) {
         const Texture2D emission = resolveTexture(asset.emissionTexture);

@@ -147,7 +147,7 @@ Color linearIrradianceToDisplayColor(float r, float g, float b);
 /** Primary encoding for a map (Rgbe if any atlas uses it). */
 LightmapEncoding primaryLightmapEncoding(const RadFile& rad);
 
-Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc);
+Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc, int& emissionPowerLoc);
 void applyLightmapEncoding(Shader shader, LightmapEncoding encoding);
 
 /** Loads the infinite-sky background shader. */

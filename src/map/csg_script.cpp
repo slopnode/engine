@@ -1543,7 +1543,8 @@ std::optional<LoadedMap> loadAndCompileMap(
     LoadedMap result;
     result.hasLightmaps = !rad.charts.empty() && !rad.atlases.empty();
     if (result.hasLightmaps) {
-        result.lightmapShader = loadLightmapShader(assets, result.useLightmapLoc);
+        result.lightmapShader =
+            loadLightmapShader(assets, result.useLightmapLoc, result.emissionPowerLoc);
         if (result.lightmapShader.id == 0) {
             result.hasLightmaps = false;
         } else {

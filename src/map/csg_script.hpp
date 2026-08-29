@@ -35,6 +35,7 @@ struct LoadedMap {
     std::vector<Texture2D> lightmapAtlases;
     std::vector<Image> lightmapAtlasImages;
     int useLightmapLoc = -1;
+    int emissionPowerLoc = -1;
     std::vector<int> transparentMeshIndices;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;

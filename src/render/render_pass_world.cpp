@@ -103,12 +103,29 @@ void prepareLightmapShaderDraw(
     }
 }
 
+// Mirrors raylib's DrawModelEx tint trick: temporarily multiply the mesh material's diffuse
+// color, draw, then restore. Needed because we can't route this through raylib's own
+// DrawModel/DrawModelEx without losing the per-mesh emissionPower uniform upload below.
+Color tintMeshDiffuse(Material& material, Color tint) {
+    MaterialMap& albedoMap = material.maps[MATERIAL_MAP_ALBEDO];
+    const Color original = albedoMap.color;
+    albedoMap.color = {
+        static_cast<unsigned char>((static_cast<int>(original.r) * tint.r) / 255),
+        static_cast<unsigned char>((static_cast<int>(original.g) * tint.g) / 255),
+        static_cast<unsigned char>((static_cast<int>(original.b) * tint.b) / 255),
+        static_cast<unsigned char>((static_cast<int>(original.a) * tint.a) / 255),
+    };
+    return original;
+}
+
 void drawModelMeshes(
     const Model& model,
     const std::unordered_set<int>* skipMeshIndices,
     const std::unordered_set<int>* onlyMeshIndices,
     const std::unordered_set<int>* polygonOffsetBackMeshIndices,
-    const std::unordered_set<int>* twoSidedMeshIndices = nullptr) {
+    const std::unordered_set<int>* twoSidedMeshIndices = nullptr,
+    int emissionPowerLoc = -1,
+    Color tint = WHITE) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -128,7 +145,17 @@ void drawModelMeshes(
         if (twoSided) {
             rlDisableBackfaceCulling();
         }
-        DrawMesh(model.meshes[meshIndex], model.materials[meshIndex], MatrixIdentity());
+        Material& material = model.materials[meshIndex];
+        if (emissionPowerLoc >= 0) {
+            SetShaderValue(
+                material.shader,
+                emissionPowerLoc,
+                &material.maps[MATERIAL_MAP_SPECULAR].value,
+                SHADER_UNIFORM_FLOAT);
+        }
+        const Color originalDiffuse = tintMeshDiffuse(material, tint);
+        DrawMesh(model.meshes[meshIndex], material, MatrixIdentity());
+        material.maps[MATERIAL_MAP_ALBEDO].color = originalDiffuse;
         if (twoSided) {
             rlEnableBackfaceCulling();
         }
@@ -278,6 +305,7 @@ void renderWorldModel(
     bool swappedPropShader = false;
     const MapLightmapState* mapLightmaps = nullptr;
     const int mapUseLightmap = unlit ? 0 : 1;
+    int emissionPowerLoc = -1;
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
@@ -288,6 +316,7 @@ void renderWorldModel(
                 mapUseLightmap,
                 globalTransform.matrix,
                 world);
+            emissionPowerLoc = lightmaps.emissionPowerLoc;
         }
     } else if (model.model.materialCount > 0) {
         mapLightmaps = mapLightmapState(world);
@@ -304,6 +333,7 @@ void renderWorldModel(
                 entity.has<BakedLightmapModel>() ? mapUseLightmap : 0,
                 globalTransform.matrix,
                 world);
+            emissionPowerLoc = mapLightmaps->emissionPowerLoc;
         }
     }
 
@@ -347,7 +377,8 @@ void renderWorldModel(
                 twoSided = &twoSidedOffset;
             }
         }
-        drawModelMeshes(model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided);
+        drawModelMeshes(
+            model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided, emissionPowerLoc);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -369,9 +400,11 @@ void renderWorldModel(
             }
         }
         if (polygonOffsetBack != nullptr || twoSided != nullptr) {
-            drawModelMeshes(model.model, nullptr, nullptr, polygonOffsetBack, twoSided);
+            drawModelMeshes(
+                model.model, nullptr, nullptr, polygonOffsetBack, twoSided, emissionPowerLoc);
         } else {
-            DrawModel(model.model, Vector3Zero(), 1.0f, model.color);
+            drawModelMeshes(
+                model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, model.color);
         }
     }
 
@@ -1152,9 +1185,17 @@ std::string drawWorldTransparentPass(
             glPolygonOffset(
                 kTransparentMeshPolygonOffsetFactor,
                 kTransparentMeshPolygonOffsetUnits);
+            Material& transparentMaterial = mapDrawModel->model.materials[item.mapMeshIndex];
+            if (mapDrawLightmaps != nullptr && mapDrawLightmaps->emissionPowerLoc >= 0) {
+                SetShaderValue(
+                    transparentMaterial.shader,
+                    mapDrawLightmaps->emissionPowerLoc,
+                    &transparentMaterial.maps[MATERIAL_MAP_SPECULAR].value,
+                    SHADER_UNIFORM_FLOAT);
+            }
             DrawMesh(
                 mapDrawModel->model.meshes[item.mapMeshIndex],
-                mapDrawModel->model.materials[item.mapMeshIndex],
+                transparentMaterial,
                 MatrixIdentity());
             glDisable(GL_POLYGON_OFFSET_FILL);
             rlPopMatrix();

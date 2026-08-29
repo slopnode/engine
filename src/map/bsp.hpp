@@ -129,6 +129,7 @@ struct MapBsp {
 struct MapLightmapState {
     bool available = false;
     int useLightmapLoc = -1;
+    int emissionPowerLoc = -1;
     Shader lightmapShader{};
     Shader skyShader{};
     std::vector<int> transparentMeshIndices;

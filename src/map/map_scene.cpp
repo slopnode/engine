@@ -207,6 +207,7 @@ bool registerMapScene(
     MapLightmapState lightmapState{};
     lightmapState.available = loaded->hasLightmaps;
     lightmapState.useLightmapLoc = loaded->useLightmapLoc;
+    lightmapState.emissionPowerLoc = loaded->emissionPowerLoc;
     lightmapState.lightmapShader = loaded->lightmapShader;
     lightmapState.transparentMeshIndices = std::move(loaded->transparentMeshIndices);
     lightmapState.skyMeshIndices = std::move(loaded->skyMeshIndices);

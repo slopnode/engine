@@ -29,6 +29,19 @@ struct MaterialAsset {
     bool preciseEmission = false;
     bool exactEmission = false;
     bool fullbright = false; /**< Render-time: mix masked-emissive texels to raw albedo, ignoring lighting. */
+    /** Render-time, only relevant when fullbright is set: "add" (false, default) also adds the
+     *  HDR emissionColor*emissionPower glow on top of the fully-lit masked texels, good for small
+     *  lamp/strip masks that should read as a light source. "multiply" (true) skips that additive
+     *  spike and only guarantees fully-lit shading, so a large mask (e.g. a whole monitor screen)
+     *  keeps its own texture contrast instead of getting washed out by a flat HDR boost. */
+    bool emissionMultiply = false;
+    /** Render-time strength knob for the fullbright blend, independent of emissionPower (which
+     *  also drives bake-time light cast onto neighboring surfaces - this only affects how this
+     *  material itself renders). In "add" mode it scales the additive emission spike. In
+     *  "multiply" mode it's the brightness target the masked texels are pushed to (1.0 = neutral
+     *  fully-lit, as if unmasked; >1.0 pushes brighter while keeping albedo's own color ratios,
+     *  since it's a uniform multiply rather than an injected emission color). Default 1.0. */
+    float emissionBlendScale = 1.0f;
     /** Bake-time: add this face's own emission into its own baked irradiance (self-illumination
      *  physically baked onto the surface). Off by default - emission still lights other surfaces
      *  via radiosity and is still shown via the render-time emission mask/fullbright; this only

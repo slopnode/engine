@@ -105,9 +105,16 @@ Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false, std
     };
 }
 
-void drawMeshFaux(const Model& model, int meshIndex, bool fauxShade) {
+void drawMeshFaux(const Model& model, int meshIndex, bool fauxShade, int emissionPowerLoc = -1) {
     const Mesh& mesh = model.meshes[meshIndex];
     Material& material = model.materials[meshIndex];
+    if (emissionPowerLoc >= 0) {
+        SetShaderValue(
+            material.shader,
+            emissionPowerLoc,
+            &material.maps[MATERIAL_MAP_SPECULAR].value,
+            SHADER_UNIFORM_FLOAT);
+    }
     if (!fauxShade || mesh.normals == nullptr || mesh.vertexCount <= 0) {
         DrawMesh(mesh, material, MatrixIdentity());
         return;
@@ -235,7 +242,8 @@ void drawModelMeshesSplit(
     const std::vector<int>& transparentMeshIndices,
     const std::vector<int>& skyMeshIndices,
     bool transparentPass,
-    bool fauxShade = false) {
+    bool fauxShade = false,
+    int emissionPowerLoc = -1) {
     if (model.meshCount <= 0) {
         return;
     }
@@ -251,7 +259,7 @@ void drawModelMeshesSplit(
         if (!transparentPass && skySet.count(meshIndex) > 0) {
             continue;
         }
-        drawMeshFaux(model, meshIndex, fauxShade);
+        drawMeshFaux(model, meshIndex, fauxShade, emissionPowerLoc);
     }
 }
 
@@ -261,8 +269,9 @@ void drawPreviewModelTextured(
     const std::vector<int>& skyMeshIndices,
     Vector3 cameraPos,
     Vector3 cameraForward,
-    bool fauxShade = false) {
-    drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false, fauxShade);
+    bool fauxShade = false,
+    int emissionPowerLoc = -1) {
+    drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false, fauxShade, emissionPowerLoc);
     if (transparentMeshIndices.empty()) {
         return;
     }
@@ -288,7 +297,7 @@ void drawPreviewModelTextured(
     rlDisableDepthMask();
     BeginBlendMode(BLEND_ALPHA);
     for (const SortItem& item : sorted) {
-        drawMeshFaux(model, item.meshIndex, fauxShade);
+        drawMeshFaux(model, item.meshIndex, fauxShade, emissionPowerLoc);
     }
     EndBlendMode();
     rlEnableDepthMask();
@@ -438,6 +447,7 @@ void MapPreview::clearLit() {
         lightmapShader = {};
     }
     useLightmapLoc = -1;
+    emissionPowerLoc = -1;
     solidLitLoc = -1;
     litTransparentMeshIndices.clear();
     litSkyMeshIndices.clear();
@@ -556,7 +566,7 @@ bool MapPreview::reloadBake(
     }
     rad = std::move(*loadedRad);
 
-    lightmapShader = slopengine::loadLightmapShader(assets, useLightmapLoc);
+    lightmapShader = slopengine::loadLightmapShader(assets, useLightmapLoc, emissionPowerLoc);
     if (lightmapShader.id == 0) {
         rad = {};
         return false;
@@ -847,8 +857,16 @@ void MapPreview::draw(
                 SetShaderValue(lightmapShader, solidLitLoc, &solidLit, SHADER_UNIFORM_INT);
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
-            drawModelMeshesSplit(litModel, litTransparentMeshIndices, litSkyMeshIndices, false);
-            drawPreviewModelTextured(litModel, litTransparentMeshIndices, litSkyMeshIndices, eye, cameraForward);
+            drawModelMeshesSplit(
+                litModel, litTransparentMeshIndices, litSkyMeshIndices, false, false, emissionPowerLoc);
+            drawPreviewModelTextured(
+                litModel,
+                litTransparentMeshIndices,
+                litSkyMeshIndices,
+                eye,
+                cameraForward,
+                false,
+                emissionPowerLoc);
             if (camera != nullptr && assets != nullptr && things != nullptr && skyShader.id != 0) {
                 const slopengine::SkyboxSettings* skySettings = nullptr;
                 slopengine::SkyboxSettings localSettings{};

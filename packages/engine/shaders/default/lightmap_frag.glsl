@@ -14,6 +14,7 @@ uniform vec4 colSpecular;
 uniform int useLightmap;
 uniform int solidLit;
 uniform int lightmapEncoding;
+uniform float emissionPower;
 
 const int MAX_DYN_LIGHTS = 128;
 const int MAX_SHADOW_SLOTS = 16;
@@ -233,21 +234,6 @@ vec3 tonemapDisplay(vec3 linear)
     return linear / (1.0 + max(linear, vec3(0.0)));
 }
 
-// Doom-style "fullbright" override: wherever the material's emission mask is lit, ignore
-// computed lighting entirely and show the raw (already display-space, already tonemapped)
-// albedo color instead. Must run AFTER tonemapDisplay(), not before - tonemapDisplay is a
-// compressive curve (linear/(1+linear)), so mixing in raw albedo pre-tonemap would still get
-// compressed and read dimmer than authored, not "full brightness". Opt-in via colSpecular.a,
-// set from MaterialAsset::fullbright (see material_loader.cpp) - default off, so materials
-// that only use emission for bake-time light emission are unaffected.
-vec3 applyFullbrightMask(vec3 displayColor, vec3 albedo, float emitMask)
-{
-    if (colSpecular.a > 0.5) {
-        return mix(displayColor, albedo, clamp(emitMask, 0.0, 1.0));
-    }
-    return displayColor;
-}
-
 void main()
 {
     vec4 tex = solidLit != 0 ? vec4(1.0) : texture(texture0, fragTexCoord) * colDiffuse;
@@ -257,18 +243,50 @@ void main()
     vec3 emission = vec3(0.0);
     float emitMask = 0.0;
     if (solidLit == 0 && useLightmap != 0) {
+        // Keep the mask texel's own color (emitMap), not just its luma - matching the bake-time
+        // formula (emissionAt() in radiosity.cpp: emissionColor*emissionPower * texel). Reducing
+        // to a grayscale mask and re-tinting with colSpecular here would throw away the mask
+        // texture's actual hue (e.g. orange) and wash everything toward colSpecular's own tint,
+        // which is usually a near-white warm grade, not the intended color.
         vec3 emitMap = texture(texture5, fragTexCoord).rgb;
         emitMask = dot(emitMap, vec3(0.2126, 0.7152, 0.0722));
-        float albedoLuma = dot(albedoRgb, vec3(0.2126, 0.7152, 0.0722));
-        emission = colSpecular.rgb * emitMask * albedoLuma;
+        emission = colSpecular.rgb * emissionPower * emitMap;
     }
+
+    vec3 lightTerm;
     if (useLightmap != 0 && lightmapEncoding != 0) {
-        vec3 irradiance = sampleBakedIrradiance(fragTexCoord2);
-        vec3 litLinear = albedoRgb * (irradiance + dynamic) + emission;
-        finalColor = vec4(applyFullbrightMask(tonemapDisplay(litLinear), albedoRgb, emitMask), albedoA);
-        return;
+        lightTerm = sampleBakedIrradiance(fragTexCoord2) + dynamic;
+    } else if (useLightmap != 0) {
+        lightTerm = texture(texture1, fragTexCoord2).rgb + dynamic;
+    } else {
+        lightTerm = fragColor.rgb + dynamic;
     }
-    vec3 baked = useLightmap != 0 ? texture(texture1, fragTexCoord2).rgb : fragColor.rgb;
-    vec3 litLinear = albedoRgb * (baked + dynamic) + emission;
-    finalColor = vec4(applyFullbrightMask(tonemapDisplay(litLinear), albedoRgb, emitMask), albedoA);
+
+    // Doom-style "fullbright": wherever the material's emission mask is lit, guarantee at least
+    // fully-lit shading regardless of baked/dynamic light, instead of replacing the whole pixel.
+    // Opt-in via colSpecular.a, packed by material_loader.cpp from MaterialAsset::fullbright +
+    // emissionMultiply: 0 = off, ~0.5 (128/255) = on/multiply, 1.0 (255) = on/add. Default off, so
+    // materials that only use emission for bake-time light emission are unaffected.
+    //
+    // "add" also layers the HDR `emission` term (colSpecular*emissionPower*emitMap) on top, which
+    // goes through the same tonemap curve as everything else below, so a strongly-emissive masked
+    // texel still blows out toward white instead of reading as flat, un-boosted albedo - good for
+    // a small lamp/strip mask that should read as a light source.
+    //
+    // "multiply" skips that additive spike and only forces fully-lit shading, so a mask that
+    // covers a large area with its own internal detail (e.g. a whole monitor screen) keeps its
+    // own texture contrast instead of being washed toward a flat, uniformly saturated color.
+    // emissionPower is dual-purpose here (see material_loader.cpp): in add mode it's the emission
+    // magnitude used in `emission` above; in multiply mode it instead carries emissionBlendScale,
+    // the brightness target below (1.0 = neutral fully-lit; >1.0 pushes brighter while keeping
+    // albedo's own color ratios, since it scales lightTerm rather than injecting emission color).
+    bool fullbright = colSpecular.a > 0.1;
+    bool fullbrightAdditive = colSpecular.a > 0.75;
+    if (fullbright) {
+        float target = fullbrightAdditive ? 1.0 : emissionPower;
+        lightTerm = mix(lightTerm, vec3(target), clamp(emitMask, 0.0, 1.0));
+    }
+
+    vec3 litLinear = albedoRgb * lightTerm + (fullbrightAdditive ? emission : vec3(0.0));
+    finalColor = vec4(tonemapDisplay(litLinear), albedoA);
 }
