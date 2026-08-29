@@ -278,6 +278,19 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
         asset.fullbright = flag != 0.0f;
         return true;
     }
+    if (tag == "bake-emission") {
+        if (form.list.size() == 1) {
+            asset.bakeEmission = true;
+            return true;
+        }
+        float flag = 1.0f;
+        if (!readNumberField(form, 1, &flag)) {
+            error = {"(bake-emission) or (bake-emission 0|1)", form.line, form.column};
+            return false;
+        }
+        asset.bakeEmission = flag != 0.0f;
+        return true;
+    }
     if (tag == "sky") {
         if (form.list.size() == 1) {
             asset.sky = true;

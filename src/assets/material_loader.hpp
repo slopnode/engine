@@ -29,6 +29,12 @@ struct MaterialAsset {
     bool preciseEmission = false;
     bool exactEmission = false;
     bool fullbright = false; /**< Render-time: mix masked-emissive texels to raw albedo, ignoring lighting. */
+    /** Bake-time: add this face's own emission into its own baked irradiance (self-illumination
+     *  physically baked onto the surface). Off by default - emission still lights other surfaces
+     *  via radiosity and is still shown via the render-time emission mask/fullbright; this only
+     *  controls whether the surface bakes a glow onto itself. Opt in for an intentional soft
+     *  baked-glow look instead of the crisp render-time mask. */
+    bool bakeEmission = false;
     bool sky = false; /**< Bake-time sun aperture; not a lightmap receiver. */
     SkyboxMode skyMode = SkyboxMode::Solid;
     bool haveSkyMode = false;

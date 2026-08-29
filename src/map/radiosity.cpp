@@ -652,6 +652,9 @@ struct LuxelSample {
     int localX = 0;
     int localY = 0;
     bool covered = false;
+    /** Mirrors MaterialAsset::bakeEmission for this luxel's face; controls whether `emission`
+     *  was folded into `irradiance` (self-baked glow) and must be un-folded before bounce. */
+    bool bakeEmission = false;
 };
 
 void debugDumpIrradianceCentroid(
@@ -2349,7 +2352,8 @@ RadiosityBakeResult bakeRadiosity(
                 sample.normal = representative.normal;
                 sample.albedo = albedoAt(representative, material, pos);
                 sample.emission = emissionAt(representative, material, pos);
-                sample.irradiance = ambient + sample.emission;
+                sample.bakeEmission = material.asset.bakeEmission;
+                sample.irradiance = sample.bakeEmission ? ambient + sample.emission : ambient;
                 sample.faceIndex = representativeIndex;
                 sample.interiorLeaf = representative.interiorLeaf;
                 if (sample.interiorLeaf < 0 && tree != nullptr) {
@@ -2494,7 +2498,8 @@ RadiosityBakeResult bakeRadiosity(
             shoot[i] = {};
             continue;
         }
-        shoot[i] = max0(luxel.irradiance - luxel.emission) * luxel.albedo;
+        const Color3 selfEmission = luxel.bakeEmission ? luxel.emission : Color3{};
+        shoot[i] = max0(luxel.irradiance - selfEmission) * luxel.albedo;
     }
 
     // Static per-luxel/per-face bounce inputs never change between bounces (only
