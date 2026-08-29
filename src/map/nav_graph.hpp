@@ -85,16 +85,22 @@ NavFlowField buildNavFlowField(
 
 std::vector<int> flowFieldPathFrom(const NavFlowField& field, int fromLeaf);
 
-/** Portal centers between consecutive leaves, ending at goalPos. @p lateralBias in
- *  [-1, 1] nudges each portal-crossing waypoint off-center along that portal's
- *  tangent (scaled by its portalHalfWidth), so agents sharing a route don't all
- *  converge on the exact same point; 0 reproduces the plain portal center. */
+/** One waypoint per portal crossing plus the final goal, string-pulled taut against
+ *  each portal's left/right edge (Simple Stupid Funnel Algorithm) instead of pinned
+ *  to raw portal centers -- a straight run of many small leaves produces a straight
+ *  line of waypoints rather than a zigzag through their portal centers. @p startPos
+ *  anchors the pull; pass the agent's real position, or nullptr to anchor at the
+ *  first leaf's centroid. @p lateralBias in [-1, 1] nudges each waypoint off-center
+ *  along that portal's tangent (scaled by its portalHalfWidth) after pulling, so
+ *  agents sharing a route don't all converge on the exact same point; 0 leaves the
+ *  pulled position untouched. */
 std::vector<Vector3> leafPathToWaypoints(
     const MapNavigation& nav,
     const std::vector<int>& leafPath,
     Vector3 goalPos,
     bool flyerWaypoints = false,
-    float lateralBias = 0.0f);
+    float lateralBias = 0.0f,
+    const Vector3* startPos = nullptr);
 
 /** Portal center on the edge between two adjacent leaves, if linked. */
 std::optional<Vector3> portalCenterBetween(

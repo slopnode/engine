@@ -142,6 +142,117 @@ float resolveLeafFloorY(const BspTree& tree, const BspLeaf& leaf, Vector3 centro
     return lo;
 }
 
+struct FunnelPortal {
+    Vector3 left;
+    Vector3 right;
+};
+
+struct FunnelCorner {
+    Vector3 point;
+    int corridorIndex = 0;
+};
+
+float triarea2(Vector3 a, Vector3 b, Vector3 c) {
+    return (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+}
+
+bool sameXZ(Vector3 a, Vector3 b) {
+    constexpr float kEps = 1.0e-5f;
+    return std::fabs(a.x - b.x) < kEps && std::fabs(a.z - b.z) < kEps;
+}
+
+std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
+    std::vector<FunnelCorner> corners;
+    if (corridor.size() < 2) {
+        return corners;
+    }
+
+    Vector3 apex = corridor[0].left;
+    Vector3 left = corridor[0].left;
+    Vector3 right = corridor[0].right;
+    int apexIndex = 0;
+    int leftIndex = 0;
+    int rightIndex = 0;
+    corners.push_back({apex, 0});
+
+    const int n = static_cast<int>(corridor.size());
+    for (int i = 1; i < n; ++i) {
+        const Vector3 pLeft = corridor[static_cast<std::size_t>(i)].left;
+        const Vector3 pRight = corridor[static_cast<std::size_t>(i)].right;
+
+        if (triarea2(apex, right, pRight) <= 0.0f) {
+            if (sameXZ(apex, right) || triarea2(apex, left, pRight) > 0.0f) {
+                right = pRight;
+                rightIndex = i;
+            } else {
+                corners.push_back({left, leftIndex});
+                apex = left;
+                apexIndex = leftIndex;
+                left = apex;
+                right = apex;
+                leftIndex = apexIndex;
+                rightIndex = apexIndex;
+                i = apexIndex;
+                continue;
+            }
+        }
+
+        if (triarea2(apex, left, pLeft) >= 0.0f) {
+            if (sameXZ(apex, left) || triarea2(apex, right, pLeft) < 0.0f) {
+                left = pLeft;
+                leftIndex = i;
+            } else {
+                corners.push_back({right, rightIndex});
+                apex = right;
+                apexIndex = rightIndex;
+                left = apex;
+                right = apex;
+                leftIndex = apexIndex;
+                rightIndex = apexIndex;
+                i = apexIndex;
+                continue;
+            }
+        }
+    }
+
+    corners.push_back({corridor.back().left, n - 1});
+    return corners;
+}
+
+FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int toLeaf) {
+    const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
+    if (link == nullptr) {
+        const Vector3& a = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
+        const Vector3& b = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];
+        const Vector3 mid{0.5f * (a.x + b.x), 0.5f * (a.y + b.y), 0.5f * (a.z + b.z)};
+        return {mid, mid};
+    }
+    if (link->portalHalfWidth <= 0.0f) {
+        return {link->portalCenter, link->portalCenter};
+    }
+
+    Vector3 dir{
+        nav.leafCentroids[static_cast<std::size_t>(toLeaf)].x -
+            nav.leafCentroids[static_cast<std::size_t>(fromLeaf)].x,
+        0.0f,
+        nav.leafCentroids[static_cast<std::size_t>(toLeaf)].z -
+            nav.leafCentroids[static_cast<std::size_t>(fromLeaf)].z};
+    float dirLen = std::sqrt(dir.x * dir.x + dir.z * dir.z);
+    if (dirLen < 1.0e-4f) {
+        dir = link->portalTangent;
+        dirLen = std::sqrt(dir.x * dir.x + dir.z * dir.z);
+        if (dirLen < 1.0e-4f) {
+            return {link->portalCenter, link->portalCenter};
+        }
+    }
+    dir = Vector3Scale(dir, 1.0f / dirLen);
+    const Vector3 perp{dir.z, 0.0f, -dir.x};
+    const float sign =
+        (perp.x * link->portalTangent.x + perp.z * link->portalTangent.z) >= 0.0f ? 1.0f : -1.0f;
+    const Vector3 offset = Vector3Scale(link->portalTangent, sign * link->portalHalfWidth);
+    return {Vector3Subtract(link->portalCenter, offset), Vector3Add(link->portalCenter, offset)};
+}
+
 } // namespace
 
 MapNavigation buildMapNavigation(
@@ -437,7 +548,8 @@ std::vector<Vector3> leafPathToWaypoints(
     const std::vector<int>& leafPath,
     Vector3 goalPos,
     bool flyerWaypoints,
-    float lateralBias) {
+    float lateralBias,
+    const Vector3* startPos) {
     if (leafPath.empty()) {
         return {};
     }
@@ -445,29 +557,65 @@ std::vector<Vector3> leafPathToWaypoints(
         return {goalPos};
     }
 
+    const Vector3 start =
+        startPos != nullptr ? *startPos : nav.leafCentroids[static_cast<std::size_t>(leafPath.front())];
+
+    const std::size_t portalCount = leafPath.size() - 1;
+    std::vector<FunnelPortal> corridor;
+    corridor.reserve(portalCount + 2);
+    corridor.push_back({start, start});
+    for (std::size_t i = 0; i < portalCount; ++i) {
+        corridor.push_back(computePortalCorners(nav, leafPath[i], leafPath[i + 1]));
+    }
+    corridor.push_back({goalPos, goalPos});
+
+    const std::vector<FunnelCorner> corners = runFunnel(corridor);
+
     std::vector<Vector3> waypoints;
-    waypoints.reserve(leafPath.size());
-    for (std::size_t i = 0; i + 1 < leafPath.size(); ++i) {
+    waypoints.reserve(portalCount + 1);
+    std::size_t cornerCursor = 0;
+    for (std::size_t i = 0; i < portalCount; ++i) {
         const int fromLeaf = leafPath[i];
         const int toLeaf = leafPath[i + 1];
-        const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];
-        const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
-        if (link != nullptr) {
-            Vector3 point = link->portalCenter;
-            if (link->portalHalfWidth > 0.0f) {
-                point = Vector3Add(
-                    point, Vector3Scale(link->portalTangent, lateralBias * link->portalHalfWidth));
-            }
-            const float wpY = flyerWaypoints ? point.y : floorY;
-            waypoints.push_back({point.x, wpY, point.z});
-        } else {
-            const Vector3& fromCentroid = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
-            const Vector3& toCentroid = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];
-            waypoints.push_back({
-                0.5f * (fromCentroid.x + toCentroid.x),
-                floorY,
-                0.5f * (fromCentroid.z + toCentroid.z)});
+        const int corridorIndex = static_cast<int>(i) + 1;
+        const FunnelPortal& portal = corridor[static_cast<std::size_t>(corridorIndex)];
+        const Vector3 portalPoint{
+            0.5f * (portal.left.x + portal.right.x), 0.0f, 0.5f * (portal.left.z + portal.right.z)};
+
+        while (cornerCursor + 1 < corners.size() &&
+               corners[cornerCursor + 1].corridorIndex < corridorIndex) {
+            ++cornerCursor;
         }
+        const FunnelCorner& a = corners[cornerCursor];
+        const FunnelCorner& b = corners[std::min(cornerCursor + 1, corners.size() - 1)];
+
+        Vector3 pointXZ;
+        if (a.corridorIndex == b.corridorIndex) {
+            pointXZ = a.point;
+        } else {
+            const float dx = b.point.x - a.point.x;
+            const float dz = b.point.z - a.point.z;
+            const float segLenSq = dx * dx + dz * dz;
+            float t = 0.0f;
+            if (segLenSq > 1.0e-8f) {
+                t = ((portalPoint.x - a.point.x) * dx + (portalPoint.z - a.point.z) * dz) / segLenSq;
+                t = std::clamp(t, 0.0f, 1.0f);
+            }
+            pointXZ = {a.point.x + t * dx, 0.0f, a.point.z + t * dz};
+        }
+
+        const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
+        const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];
+        float y = floorY;
+        if (link != nullptr && flyerWaypoints) {
+            y = link->portalCenter.y;
+        }
+
+        Vector3 point{pointXZ.x, y, pointXZ.z};
+        if (link != nullptr && link->portalHalfWidth > 0.0f) {
+            point = Vector3Add(point, Vector3Scale(link->portalTangent, lateralBias * link->portalHalfWidth));
+        }
+        waypoints.push_back(point);
     }
     waypoints.push_back(goalPos);
     return waypoints;

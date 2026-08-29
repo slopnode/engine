@@ -308,8 +308,8 @@ void replanAgent(
         return;
     }
 
-    const std::vector<Vector3> waypoints =
-        leafPathToWaypoints(nav, leafPath, goalPos, agent.flyer, agentLateralBias(entity, agent));
+    const std::vector<Vector3> waypoints = leafPathToWaypoints(
+        nav, leafPath, goalPos, agent.flyer, agentLateralBias(entity, agent), &agentPos);
     std::vector<int> waypointToLeaf;
     buildWaypointToLeaf(leafPath, toLeaf, waypointToLeaf);
     const int resumeIndex = findResumeWaypointIndex(
