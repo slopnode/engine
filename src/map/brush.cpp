@@ -1830,4 +1830,259 @@ std::optional<BrushSplitResult> splitBrushByPlane(
     return result;
 }
 
+std::vector<std::vector<Vector3>> traceCoplanarFaceBoundary(
+    const std::vector<const BrushFace*>& faces,
+    std::string& errorOut) {
+    if (faces.empty()) {
+        errorOut = "no faces to extrude";
+        return {};
+    }
+    for (const BrushFace* f : faces) {
+        if (!f || f->vertices.size() < 3) {
+            errorOut = "face has fewer than 3 vertices";
+            return {};
+        }
+    }
+
+    const Vector3 normal = faces.front()->normal;
+    const Vector3 planePoint = faces.front()->vertices.front();
+    for (const BrushFace* f : faces) {
+        if (dot3(f->normal, normal) < 0.999f) {
+            errorOut = "selected faces are not coplanar (normals differ)";
+            return {};
+        }
+        if (std::fabs(dot3(normal, sub3(f->vertices.front(), planePoint))) > kPlaneEps * 4.0f) {
+            errorOut = "selected faces are not coplanar (different plane offset)";
+            return {};
+        }
+    }
+
+    auto approxEq = [](Vector3 a, Vector3 b) { return length3(sub3(a, b)) <= kPlaneEps * 4.0f; };
+
+    struct DirectedEdge {
+        Vector3 a;
+        Vector3 b;
+    };
+    std::vector<DirectedEdge> edges;
+    for (const BrushFace* f : faces) {
+        const std::size_t n = f->vertices.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            edges.push_back({f->vertices[i], f->vertices[(i + 1) % n]});
+        }
+    }
+
+    // Edges shared by two selected faces in opposite winding are interior seams;
+    // cancel each such pair so only the outer union boundary remains.
+    std::vector<bool> canceled(edges.size(), false);
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        if (canceled[i]) {
+            continue;
+        }
+        for (std::size_t j = i + 1; j < edges.size(); ++j) {
+            if (canceled[j]) {
+                continue;
+            }
+            if (approxEq(edges[i].a, edges[j].b) && approxEq(edges[i].b, edges[j].a)) {
+                canceled[i] = true;
+                canceled[j] = true;
+                break;
+            }
+        }
+    }
+
+    std::vector<DirectedEdge> boundary;
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        if (!canceled[i]) {
+            boundary.push_back(edges[i]);
+        }
+    }
+    if (boundary.empty()) {
+        errorOut = "selected faces fully cancel (no outer boundary)";
+        return {};
+    }
+
+    std::vector<std::vector<Vector3>> loops;
+    std::vector<bool> used(boundary.size(), false);
+    for (std::size_t start = 0; start < boundary.size(); ++start) {
+        if (used[start]) {
+            continue;
+        }
+        std::vector<Vector3> loop;
+        loop.push_back(boundary[start].a);
+        used[start] = true;
+        const Vector3 loopStart = boundary[start].a;
+        Vector3 head = boundary[start].b;
+        std::size_t guard = 0;
+        while (!approxEq(head, loopStart)) {
+            if (++guard > boundary.size() + 1) {
+                errorOut = "selected faces form an unclosed boundary";
+                return {};
+            }
+            bool found = false;
+            for (std::size_t k = 0; k < boundary.size(); ++k) {
+                if (used[k] || !approxEq(boundary[k].a, head)) {
+                    continue;
+                }
+                loop.push_back(boundary[k].a);
+                used[k] = true;
+                head = boundary[k].b;
+                found = true;
+                break;
+            }
+            if (!found) {
+                errorOut = "selected faces form an unclosed boundary";
+                return {};
+            }
+        }
+        if (loop.size() < 3) {
+            errorOut = "boundary loop degenerates to fewer than 3 vertices";
+            return {};
+        }
+        loops.push_back(std::move(loop));
+    }
+
+    for (const std::vector<Vector3>& loop : loops) {
+        const std::size_t n = loop.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            const Vector3& a = loop[i];
+            const Vector3& b = loop[(i + 1) % n];
+            const Vector3& c = loop[(i + 2) % n];
+            const Vector3 turn = cross3(sub3(b, a), sub3(c, b));
+            if (dot3(turn, normal) < -kPlaneEps) {
+                errorOut = "selected faces don't form a convex region";
+                return {};
+            }
+        }
+    }
+
+    return loops;
+}
+
+std::optional<Brush> extrudeFacePolygon(
+    std::string id,
+    const std::vector<Vector3>& polygon,
+    const std::vector<Vector3>& directions,
+    Vector3 planeNormal,
+    float depth,
+    const std::string& material,
+    BrushRole role,
+    std::string& errorOut) {
+    if (polygon.size() < 3) {
+        errorOut = "extrude polygon needs at least 3 vertices";
+        return std::nullopt;
+    }
+    if (directions.size() != polygon.size()) {
+        errorOut = "extrude direction count doesn't match polygon vertex count";
+        return std::nullopt;
+    }
+    if (depth <= 0.0f) {
+        errorOut = "extrude depth must be positive";
+        return std::nullopt;
+    }
+    const Vector3 normal = normalize3(planeNormal);
+    if (length3(normal) < 1e-6f) {
+        errorOut = "extrude plane normal is degenerate";
+        return std::nullopt;
+    }
+
+    const std::size_t n = polygon.size();
+    std::vector<Vector3> farCap(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const Vector3 dir = normalize3(directions[i]);
+        const float denom = dot3(dir, normal);
+        if (std::fabs(denom) < 0.05f) {
+            errorOut = "a taper direction is nearly parallel to the face plane";
+            return std::nullopt;
+        }
+        farCap[i] = add3(polygon[i], scale3(dir, depth / denom));
+    }
+
+    // Any convex combination of a convex solid's own vertices lies inside it,
+    // so the shared vertex average is a safe "which way is outward" reference
+    // for every face below (same trick makeBrushCylinder uses via its AABB center).
+    Vector3 interior{};
+    for (const Vector3& v : polygon) {
+        interior = add3(interior, v);
+    }
+    for (const Vector3& v : farCap) {
+        interior = add3(interior, v);
+    }
+    interior = scale3(interior, 1.0f / static_cast<float>(2 * n));
+
+    auto orientOutward = [&](BrushFace& face) {
+        if (face.vertices.size() < 3) {
+            return;
+        }
+        const Vector3 faceNormal = faceNormalFromVertices(face.vertices);
+        if (dot3(sub3(interior, face.vertices[0]), faceNormal) > 0.0f) {
+            std::reverse(face.vertices.begin(), face.vertices.end());
+        }
+    };
+
+    std::vector<BrushFace> faces;
+    faces.reserve(n + 2);
+
+    BrushFace nearCap;
+    nearCap.id = id + "/near";
+    nearCap.material = material;
+    nearCap.vertices.assign(polygon.rbegin(), polygon.rend());
+    orientOutward(nearCap);
+    faces.push_back(std::move(nearCap));
+
+    BrushFace farFace;
+    farFace.id = id + "/far";
+    farFace.material = material;
+    farFace.vertices = farCap;
+    orientOutward(farFace);
+    faces.push_back(std::move(farFace));
+
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t next = (i + 1) % n;
+        BrushFace side;
+        side.id = id + "/side-" + std::to_string(i);
+        side.material = material;
+        side.vertices = {polygon[i], polygon[next], farCap[next], farCap[i]};
+        orientOutward(side);
+        faces.push_back(std::move(side));
+    }
+
+    return makeBrushConvex(std::move(id), std::move(faces), role, errorOut);
+}
+
+Brush moveBrushVertices(
+    Brush brush,
+    const std::vector<Vector3>& seeds,
+    const std::vector<Vector3>& deltas) {
+    if (seeds.empty() || seeds.size() != deltas.size()) {
+        return brush;
+    }
+
+    auto matchSeed = [&](Vector3 p) -> int {
+        for (std::size_t i = 0; i < seeds.size(); ++i) {
+            if (length3(sub3(seeds[i], p)) <= kPlaneEps * 4.0f) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    };
+
+    for (BrushFace& face : brush.faces) {
+        bool moved = false;
+        for (Vector3& v : face.vertices) {
+            const int seedIndex = matchSeed(v);
+            if (seedIndex >= 0) {
+                v = add3(v, deltas[static_cast<std::size_t>(seedIndex)]);
+                moved = true;
+            }
+        }
+        if (moved) {
+            face.normal = faceNormalFromVertices(face.vertices);
+        }
+    }
+
+    recomputeBrushBounds(brush);
+    brush.box = false;
+    return brush;
+}
+
 }

@@ -18,6 +18,7 @@ add_executable(sloptests
     test_dynamic_light_compositing.cpp
     test_brush_door.cpp
     test_brush_split.cpp
+    test_brush_extrude.cpp
     test_brush_role.cpp
     test_brush_blocks.cpp
     test_lightmap_transparent.cpp

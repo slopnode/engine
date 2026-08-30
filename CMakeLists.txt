@@ -349,6 +349,7 @@ add_executable(slopmap
     tools/slopmap/place_tool.cpp
     tools/slopmap/punch_tool.cpp
     tools/slopmap/clip_tool.cpp
+    tools/slopmap/extrude_tool.cpp
     tools/slopmap/material_browser.cpp
     tools/slopmap/material_thumb_atlas.cpp
     tools/slopmap/editor_settings.cpp

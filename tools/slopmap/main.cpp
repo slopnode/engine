@@ -11,6 +11,7 @@
 #include "place_tool.hpp"
 #include "punch_tool.hpp"
 #include "clip_tool.hpp"
+#include "extrude_tool.hpp"
 #include "thing_draw.hpp"
 #include "particle_preview.hpp"
 #include "prefab_browser.hpp"
@@ -705,6 +706,7 @@ void drawScene(
     const slopmap::PlaceTool& placeTool,
     const slopmap::PunchTool& punchTool,
     const slopmap::ClipTool& clipTool,
+    const slopmap::ExtrudeTool& extrudeTool,
     const slopmap::SelectTool& selectTool,
     const slopmap::InfiniteGrid& infiniteGrid,
     slopmap::ParticlePreviewState& particlePreview) {
@@ -1010,6 +1012,7 @@ void drawScene(
     placeTool.drawPreview(eye, lineWidth);
     punchTool.drawPreview(eye, lineWidth);
     clipTool.drawPreview(editor, eye, lineWidth);
+    extrudeTool.drawPreview(editor, eye, lineWidth);
     if (editor.leakFound) {
         slopmap::drawLeakPath(editor.leakPathPoints, eye, lineWidth);
     }
@@ -1084,10 +1087,12 @@ void cancelTools(
     slopmap::SelectTool& selectTool,
     slopmap::PunchTool& punchTool,
     slopmap::ClipTool& clipTool,
+    slopmap::ExtrudeTool& extrudeTool,
     slopmap::Editor& editor) {
     createTool.reset();
     punchTool.reset();
     clipTool.reset();
+    extrudeTool.reset();
     slopmap::endToolMouseCapture(editor);
     editor.showPrimitiveParamsModal = false;
     editor.showHollowModal = false;
@@ -1305,6 +1310,7 @@ int main(int argc, char* argv[]) {
     slopmap::PlaceTool placeTool;
     slopmap::PunchTool punchTool;
     slopmap::ClipTool clipTool;
+    slopmap::ExtrudeTool extrudeTool;
     slopmap::InfiniteGrid infiniteGrid;
     if (!infiniteGrid.load(assets)) {
         std::cerr << "slopmap: warning: infinite grid shader failed to load\n";
@@ -1418,7 +1424,7 @@ int main(int argc, char* argv[]) {
         ImGuiIO& io = ImGui::GetIO();
         const bool createCapturesMouse = createTool.active();
         const bool toolCapturesMouse = selectTool.active() || createCapturesMouse ||
-            punchTool.active() || clipTool.active();
+            punchTool.active() || clipTool.active() || extrudeTool.active();
         if (toolCapturesMouse) {
             io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
         }
@@ -1480,7 +1486,7 @@ int main(int argc, char* argv[]) {
                         editor.showNewModal = true;
                         editor.modalMapName = "untitled";
                     } else {
-                        cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                        cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                         editor.newMap("untitled");
                         compile.radOptions = slopmap::RadCompileOptions{};
                         previewNeedsRebuild = true;
@@ -1571,6 +1577,7 @@ int main(int argc, char* argv[]) {
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
+                    extrudeTool.reset();
                 }
                 if (menuItemWithIcon(
                         assets,
@@ -1583,6 +1590,7 @@ int main(int argc, char* argv[]) {
                     selectTool.cancelRotate(editor);
                     punchTool.reset();
                     clipTool.reset();
+                    extrudeTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
                     createTool.setStatus(editor);
                 }
@@ -1599,6 +1607,7 @@ int main(int argc, char* argv[]) {
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
+                    extrudeTool.reset();
                     editor.mode = slopmap::EditorMode::Place;
                     if (editor.placeThingKind.has_value()) {
                         editor.placeTarget = slopmap::PlaceTarget::Thing;
@@ -1742,6 +1751,7 @@ int main(int argc, char* argv[]) {
                         selectTool.cancelRotate(editor);
                         createTool.reset();
                         clipTool.reset();
+                        extrudeTool.reset();
                         punchTool.beginFromSelection(editor);
                     }
                     if (menuItemWithIcon(
@@ -1756,7 +1766,24 @@ int main(int argc, char* argv[]) {
                         selectTool.cancelRotate(editor);
                         createTool.reset();
                         punchTool.reset();
+                        extrudeTool.reset();
                         clipTool.beginFromSelection(editor);
+                    }
+                } else if (editor.doc().selectionMode == slopmap::SelectionMode::Face) {
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "shape_handles",
+                            "Extrude",
+                            "E",
+                            false,
+                            !editor.doc().selectedFaces.empty())) {
+                        selectTool.cancelTranslate(editor);
+                        selectTool.cancelRotate(editor);
+                        createTool.reset();
+                        punchTool.reset();
+                        clipTool.reset();
+                        extrudeTool.beginFromSelection(editor);
                     }
                 }
                 ImGui::Separator();
@@ -1799,7 +1826,7 @@ int main(int argc, char* argv[]) {
                         editor.pendingScene = slopmap::EditorScene::Prefab;
                         editor.showSwitchSceneModal = true;
                     } else {
-                        cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                        cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                         editor.newPrefab();
                         previewNeedsRebuild = true;
                     }
@@ -1851,7 +1878,7 @@ int main(int argc, char* argv[]) {
                         false,
                         editor.scene == slopmap::EditorScene::Prefab)) {
                     if (editor.switchScene(slopmap::EditorScene::Level)) {
-                        cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                        cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                         editor.rebuildPreview(assets);
                         previewNeedsRebuild = false;
                     }
@@ -2318,7 +2345,7 @@ int main(int argc, char* argv[]) {
                 if (editor.levelDoc.dirty) {
                     editor.showNewModal = true;
                 } else {
-                    cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                    cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                     editor.newMap("untitled");
                     compile.radOptions = slopmap::RadCompileOptions{};
                     previewNeedsRebuild = true;
@@ -2351,7 +2378,16 @@ int main(int argc, char* argv[]) {
                 !editor.doc().selectedBrushes.empty()) {
                 createTool.reset();
                 punchTool.reset();
+                extrudeTool.reset();
                 clipTool.beginFromSelection(editor);
+            }
+            if (IsKeyPressed(KEY_E) && !selectTool.active() &&
+                editor.doc().selectionMode == slopmap::SelectionMode::Face &&
+                !editor.doc().selectedFaces.empty()) {
+                createTool.reset();
+                punchTool.reset();
+                clipTool.reset();
+                extrudeTool.beginFromSelection(editor);
             }
             if (IsKeyPressed(KEY_TAB)) {
                 editor.toggleOrthoTop();
@@ -2444,6 +2480,7 @@ int main(int argc, char* argv[]) {
         const bool createWasActive = createTool.active();
         const bool punchWasActive = punchTool.active();
         const bool clipWasActive = clipTool.active();
+        const bool extrudeWasActive = extrudeTool.active();
         const std::size_t brushCountBefore = editor.doc().brushes.size();
         const std::size_t instanceCountBefore = editor.doc().instances.size();
         const bool dirtyBefore = editor.doc().dirty;
@@ -2454,6 +2491,8 @@ int main(int argc, char* argv[]) {
             clipTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
         } else if (punchTool.active()) {
             punchTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
+        } else if (extrudeTool.active()) {
+            extrudeTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
         } else if (editor.mode == slopmap::EditorMode::Create) {
             createTool.update(editor, camera, blockTools, uiWantsKeyboard || rmbFly);
         } else if (editor.mode == slopmap::EditorMode::Place) {
@@ -2466,11 +2505,13 @@ int main(int argc, char* argv[]) {
             editor.doc().instances.size() != instanceCountBefore ||
             editor.doc().dirty != dirtyBefore || editor.previewDirty || selectTool.active() ||
             wasSelectTransform || createTool.active() != createWasActive ||
-            punchTool.active() != punchWasActive || clipTool.active() != clipWasActive) {
+            punchTool.active() != punchWasActive || clipTool.active() != clipWasActive ||
+            extrudeTool.active() != extrudeWasActive) {
             previewNeedsRebuild = true;
         }
         if (previewNeedsRebuild &&
-            ((!createTool.active() && !punchTool.active() && !clipTool.active()) ||
+            ((!createTool.active() && !punchTool.active() && !clipTool.active() &&
+                 !extrudeTool.active()) ||
                 selectTool.active())) {
             editor.rebuildPreview(assets);
             previewNeedsRebuild = selectTool.active();
@@ -2510,6 +2551,7 @@ int main(int argc, char* argv[]) {
                     placeTool,
                     punchTool,
                     clipTool,
+                    extrudeTool,
                     selectTool,
                     infiniteGrid,
                     particlePreview);
@@ -2626,6 +2668,7 @@ int main(int argc, char* argv[]) {
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
+                    extrudeTool.reset();
                     editor.mode = slopmap::EditorMode::Select;
                 }
                 ImGui::SameLine();
@@ -2638,6 +2681,7 @@ int main(int argc, char* argv[]) {
                     selectTool.cancelRotate(editor);
                     punchTool.reset();
                     clipTool.reset();
+                    extrudeTool.reset();
                     editor.mode = slopmap::EditorMode::Create;
                     createTool.setStatus(editor);
                 }
@@ -2653,6 +2697,7 @@ int main(int argc, char* argv[]) {
                     createTool.reset();
                     punchTool.reset();
                     clipTool.reset();
+                    extrudeTool.reset();
                     editor.mode = slopmap::EditorMode::Place;
                 }
 
@@ -2988,6 +3033,7 @@ int main(int argc, char* argv[]) {
                             selectTool.cancelRotate(editor);
                             createTool.reset();
                             clipTool.reset();
+                            extrudeTool.reset();
                             punchTool.beginFromSelection(editor);
                         }
                         ImGui::SameLine();
@@ -2996,7 +3042,19 @@ int main(int argc, char* argv[]) {
                             selectTool.cancelRotate(editor);
                             createTool.reset();
                             punchTool.reset();
+                            extrudeTool.reset();
                             clipTool.beginFromSelection(editor);
+                        }
+                    } else if (editor.doc().selectionMode == slopmap::SelectionMode::Face) {
+                        toolSep();
+                        if (toolBtn(
+                                "op-extrude", "shape_handles", "Extrude", extrudeTool.active())) {
+                            selectTool.cancelTranslate(editor);
+                            selectTool.cancelRotate(editor);
+                            createTool.reset();
+                            punchTool.reset();
+                            clipTool.reset();
+                            extrudeTool.beginFromSelection(editor);
                         }
                     }
                 } else if (editor.mode == slopmap::EditorMode::Create) {
@@ -3709,7 +3767,7 @@ int main(int argc, char* argv[]) {
                                 editor.showSwitchSceneModal = true;
                                 editor.modalPrefabPath = editor.placePrefabPath;
                             } else {
-                                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                                cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                                 if (editor.loadPrefab(assets, scheme, editor.placePrefabPath)) {
                                     previewNeedsRebuild = false;
                                 }
@@ -4230,7 +4288,7 @@ int main(int argc, char* argv[]) {
                     editor.statusMessage = "Save or discard changes before loading";
                     return false;
                 }
-                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                 if (!editor.load(assets, scheme, name)) {
                     return false;
                 }
@@ -4421,7 +4479,7 @@ int main(int argc, char* argv[]) {
                 if (editor.prefabDoc.dirty && editor.scene == slopmap::EditorScene::Prefab) {
                     editor.statusMessage = "Save or discard prefab changes first";
                 } else {
-                    cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                    cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                     if (editor.loadPrefab(assets, scheme, prefabPathBuf)) {
                         previewNeedsRebuild = false;
                         ImGui::CloseCurrentPopup();
@@ -4466,7 +4524,7 @@ int main(int argc, char* argv[]) {
             ImGui::TextUnformatted("Discard unsaved level changes and create a new map?");
             drawWritePackagePicker(editor, assets);
             if (buttonWithIcon(assets, kIcons, "page_add", "Discard & New", ImVec2(140, 0))) {
-                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                 editor.newMap("untitled");
                 compile.radOptions = slopmap::RadCompileOptions{};
                 previewNeedsRebuild = true;
@@ -4487,7 +4545,7 @@ int main(int argc, char* argv[]) {
             constexpr const char* kIcons = kDefaultIconSet;
             ImGui::TextUnformatted("Discard unsaved changes in the current scene?");
             if (buttonWithIcon(assets, kIcons, "accept", "Discard & Switch", ImVec2(160, 0))) {
-                cancelTools(createTool, selectTool, punchTool, clipTool, editor);
+                cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                 if (editor.pendingScene == slopmap::EditorScene::Prefab &&
                     editor.scene == slopmap::EditorScene::Level &&
                     !editor.modalPrefabPath.empty()) {

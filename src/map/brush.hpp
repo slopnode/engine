@@ -277,4 +277,48 @@ std::optional<BrushSplitResult> splitBrushByPlane(
 
 std::vector<std::array<Vector3, 3>> triangulateFace(const std::vector<Vector3>& vertices);
 
+/** Traces the outer boundary loop(s) formed by unioning @p faces, which must all
+ *  lie in one plane (matching normal direction and plane offset). A directed edge
+ *  shared by two faces in opposite winding cancels as interior; what's left is
+ *  walked into closed loops, each convex-validated and wound to match the input
+ *  faces' outward orientation. Empty with @p errorOut if the faces aren't
+ *  coplanar, a boundary fails to close, or a loop isn't convex. */
+std::vector<std::vector<Vector3>> traceCoplanarFaceBoundary(
+    const std::vector<const BrushFace*>& faces,
+    std::string& errorOut);
+
+/** Sweeps a planar convex polygon (outward winding, e.g. from
+ *  traceCoplanarFaceBoundary) into a new brush: the near cap is @p polygon
+ *  reversed, the far cap advances each vertex i by
+ *  directions[i] * (depth / dot(directions[i], planeNormal)), and ruled quads
+ *  connect corresponding near/far edges. @p directions must have the same size
+ *  as @p polygon; pass @p planeNormal repeated for a plain straight extrude.
+ *  Nullopt with @p errorOut if a direction is near-perpendicular to
+ *  planeNormal (extrapolation undefined) or the result fails convex
+ *  validation. */
+std::optional<Brush> extrudeFacePolygon(
+    std::string id,
+    const std::vector<Vector3>& polygon,
+    const std::vector<Vector3>& directions,
+    Vector3 planeNormal,
+    float depth,
+    const std::string& material,
+    BrushRole role,
+    std::string& errorOut);
+
+/** Moves every vertex across every face of @p brush that positionally matches
+ *  one of @p seeds by that seed's paired entry in @p deltas (faces store
+ *  their own vertex copies rather than shared indices, so a corner shared by
+ *  several faces needs every copy moved together to stay watertight). @p
+ *  seeds.size() must equal @p deltas.size(); a seed with no matching vertex
+ *  is silently ignored. Face normals are recomputed for any face that moved;
+ *  UV axes/shift are left as-is (same manual-realign convention as other
+ *  brush-authoring primitives). Bounds are recomputed and @c box is cleared
+ *  before returning, since the result may no longer be an axis-aligned box —
+ *  call reclassifyBrushAsBox afterward if it might still be one. */
+Brush moveBrushVertices(
+    Brush brush,
+    const std::vector<Vector3>& seeds,
+    const std::vector<Vector3>& deltas);
+
 }
