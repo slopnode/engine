@@ -156,7 +156,7 @@ void setFaceRotationDegrees(slopengine::BrushFace& face, float degrees) {
     Vector3 axialU{};
     Vector3 axialV{};
     slopengine::axialUvAxes(face.normal, axialU, axialV);
-    const float radians = degrees * kDegToRad;
+    const float radians = -degrees * kDegToRad;
     face.uvLock = true;
     face.uvUAxis = normalize3(rotateAroundAxis(axialU, face.normal, radians));
     face.uvVAxis = normalize3(rotateAroundAxis(axialV, face.normal, radians));
@@ -403,6 +403,27 @@ bool dragFloatMixed(const char* label, float* value, bool mixed, float speed) {
     return ImGui::DragFloat(label, value, speed);
 }
 
+bool dragRotationMixed(const char* label, float* value, bool mixed) {
+    const bool fine = ImGui::GetIO().KeyShift;
+    const float speed = fine ? 0.1f : 1.0f;
+    const float step = fine ? 0.1f : 1.0f;
+    bool changed;
+    if (mixed) {
+        char overlay[32];
+        std::snprintf(overlay, sizeof(overlay), "—");
+        changed = ImGui::DragFloat(label, value, speed, 0.0f, 0.0f, overlay, ImGuiSliderFlags_NoSpeedTweaks);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("mixed values");
+        }
+    } else {
+        changed = ImGui::DragFloat(label, value, speed, 0.0f, 0.0f, "%.1f", ImGuiSliderFlags_NoSpeedTweaks);
+    }
+    if (changed) {
+        *value = std::round(*value / step) * step;
+    }
+    return changed;
+}
+
 bool checkboxMixed(const char* label, bool* value, bool mixed) {
     if (mixed) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.65f);
@@ -647,7 +668,7 @@ TexturePanelResult TexturePanel::drawUvSection(
     }
 
     float rotation = rotationCommon.value_or(0.0f);
-    if (dragFloatMixed("Rotation", &rotation, !rotationCommon.has_value(), 1.0f)) {
+    if (dragRotationMixed("Rotation", &rotation, !rotationCommon.has_value())) {
         if (forEachTarget(editor, targets, [rotation](slopengine::BrushFace& face) {
                 setFaceRotationDegrees(face, rotation);
             })) {
