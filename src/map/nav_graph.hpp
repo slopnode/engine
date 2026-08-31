@@ -54,6 +54,22 @@ struct NavFlowField {
     std::vector<int> nextLeaf;
 };
 
+/** A connected cluster of small, fragmented leaves (small horizontal footprint) that
+ *  connects to the rest of the walkable graph through exactly two other, non-fragmented
+ *  "stable" leaves -- e.g. a staircase built as many thin step brushes (which this BSP
+ *  compiler's phantom face-plane splitting further divides into stacked "pocket"/"spine"
+ *  leaf pairs per tread, several of which can independently border the same stable leaf
+ *  at each end -- hence counting distinct *external* neighbors, not internal gateways),
+ *  or any other corridor fragmented by messy brushwork. @p entryLeaf/@p exitLeaf are the
+ *  two stable leaves themselves (candidate future macro-link endpoints); @p leaves is the
+ *  fragmented cluster in between, to be swallowed. Not yet validated against any
+ *  particular agent's movement profile; see buildMapNavMacroLinks. */
+struct NavMacroChainCandidate {
+    int entryLeaf = -1;
+    int exitLeaf = -1;
+    std::vector<int> leaves;
+};
+
 /** Builds walkable leaf adjacency from BSP portals (interior open leaves only). */
 MapNavigation buildMapNavigation(
     const BspTree& tree,
@@ -114,6 +130,13 @@ const NavPortalLink* portalLinkBetween(
     const MapNavigation& nav,
     int leafA,
     int leafB);
+
+/** Finds clusters of walkable leaves that are candidates for macro-link collapsing: connected
+ *  (via ungated, non-water plain edges) components of leaves whose own footprint is narrower
+ *  than a real room's along at least one axis, with exactly two distinct leaves gating into
+ *  the rest of the walkable graph. Purely topological -- no physics/profile validation, see
+ *  buildMapNavMacroLinks for that. */
+std::vector<NavMacroChainCandidate> findMacroChainCandidates(const MapNavigation& nav, const BspTree& tree);
 
 inline float navHorizontalDist(Vector3 a, Vector3 b) {
     const float dx = a.x - b.x;

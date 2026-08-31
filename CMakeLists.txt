@@ -219,6 +219,7 @@ add_executable(slopengine
     src/physics/sight_module.cpp
     src/navigation/nav_module.cpp
     src/navigation/nav_script.cpp
+    src/map/nav_macro_links.cpp
     src/physics/motored_body.cpp
     src/physics/motored_sweep.cpp
     src/physics/rigid_mover.cpp

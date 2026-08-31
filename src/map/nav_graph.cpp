@@ -7,6 +7,7 @@
 #include <limits>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace slopengine {
 
@@ -52,6 +53,37 @@ float navDist3(Vector3 a, Vector3 b) {
     return Vector3Distance(a, b);
 }
 
+constexpr float kFragmentFootprintArea = 2.0f;
+constexpr std::size_t kMinMacroChainLength = 3;
+
+bool isPlainEdge(const MapNavigation& nav, int fromLeaf, const NavPortalLink& link) {
+    const int neighbor = link.neighborLeaf;
+    if (neighbor < 0 || neighbor >= nav.leafCount) {
+        return false;
+    }
+    if (!nav.walkable[static_cast<std::size_t>(neighbor)]) {
+        return false;
+    }
+    if (!link.doorBrushId.empty()) {
+        return false;
+    }
+    if (nav.leafIsWater[static_cast<std::size_t>(fromLeaf)] ||
+        nav.leafIsWater[static_cast<std::size_t>(neighbor)]) {
+        return false;
+    }
+    return true;
+}
+
+bool isFragmentLeaf(const BspTree& tree, int leaf) {
+    if (leaf < 0 || leaf >= static_cast<int>(tree.leaves.size())) {
+        return false;
+    }
+    const BspLeaf& bspLeaf = tree.leaves[static_cast<std::size_t>(leaf)];
+    const float dx = bspLeaf.maxs.x - bspLeaf.mins.x;
+    const float dz = bspLeaf.maxs.z - bspLeaf.mins.z;
+    return dx * dz < kFragmentFootprintArea;
+}
+
 struct PortalSpread {
     Vector3 tangent{1.0f, 0.0f, 0.0f};
     float halfWidth = 0.0f;
@@ -60,6 +92,20 @@ struct PortalSpread {
 PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices) {
     constexpr float kSpreadFraction = 0.5f;
     constexpr float kEdgeClearance = 0.45f;
+    constexpr float kFlatPortalYExtent = 0.05f;
+
+    if (vertices.empty()) {
+        return {};
+    }
+    float minY = vertices[0].y;
+    float maxY = vertices[0].y;
+    for (const Vector3& v : vertices) {
+        minY = std::min(minY, v.y);
+        maxY = std::max(maxY, v.y);
+    }
+    if (maxY - minY < kFlatPortalYExtent) {
+        return {};
+    }
 
     float bestDistSq = 0.0f;
     Vector3 bestDelta{1.0f, 0.0f, 0.0f};
@@ -79,7 +125,9 @@ PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices)
     if (dist < 1.0e-4f) {
         return {};
     }
-    const float halfWidth = std::max(0.0f, dist * kSpreadFraction - kEdgeClearance);
+    constexpr float kMaxSpreadDist = 4.0f;
+    const float clampedDist = std::min(dist, kMaxSpreadDist);
+    const float halfWidth = std::max(0.0f, clampedDist * kSpreadFraction - kEdgeClearance);
     return {Vector3Scale(bestDelta, 1.0f / dist), halfWidth};
 }
 
@@ -179,13 +227,20 @@ std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
     for (int i = 1; i < n; ++i) {
         const Vector3 pLeft = corridor[static_cast<std::size_t>(i)].left;
         const Vector3 pRight = corridor[static_cast<std::size_t>(i)].right;
+        TraceLog(LOG_INFO, "FUNNEL: i=%d apex=(%.2f,%.2f) left=(%.2f,%.2f)[%d] right=(%.2f,%.2f)[%d] "
+            "pLeft=(%.2f,%.2f) pRight=(%.2f,%.2f)",
+            i, apex.x, apex.z, left.x, left.z, leftIndex, right.x, right.z, rightIndex,
+            pLeft.x, pLeft.z, pRight.x, pRight.z);
 
         if (triarea2(apex, right, pRight) <= 0.0f) {
             if (sameXZ(apex, right) || triarea2(apex, left, pRight) > 0.0f) {
                 right = pRight;
                 rightIndex = i;
+                TraceLog(LOG_INFO, "FUNNEL:   narrow right -> (%.2f,%.2f)[%d]", right.x, right.z, rightIndex);
             } else {
                 corners.push_back({left, leftIndex});
+                TraceLog(LOG_INFO, "FUNNEL:   LOCK CORNER (left branch) point=(%.2f,%.2f) corridorIdx=%d",
+                    left.x, left.z, leftIndex);
                 apex = left;
                 apexIndex = leftIndex;
                 left = apex;
@@ -201,8 +256,11 @@ std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
             if (sameXZ(apex, left) || triarea2(apex, right, pLeft) < 0.0f) {
                 left = pLeft;
                 leftIndex = i;
+                TraceLog(LOG_INFO, "FUNNEL:   narrow left -> (%.2f,%.2f)[%d]", left.x, left.z, leftIndex);
             } else {
                 corners.push_back({right, rightIndex});
+                TraceLog(LOG_INFO, "FUNNEL:   LOCK CORNER (right branch) point=(%.2f,%.2f) corridorIdx=%d",
+                    right.x, right.z, rightIndex);
                 apex = right;
                 apexIndex = rightIndex;
                 left = apex;
@@ -219,29 +277,32 @@ std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
     return corners;
 }
 
-FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int toLeaf) {
+FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int toLeaf, Vector3 prevPoint) {
     const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
     if (link == nullptr) {
         const Vector3& a = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
         const Vector3& b = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];
         const Vector3 mid{0.5f * (a.x + b.x), 0.5f * (a.y + b.y), 0.5f * (a.z + b.z)};
+        TraceLog(LOG_INFO, "PORTALCORNERS: %d->%d NO LINK mid=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf, mid.x, mid.y, mid.z);
         return {mid, mid};
     }
     if (link->portalHalfWidth <= 0.0f) {
+        TraceLog(LOG_INFO, "PORTALCORNERS: %d->%d halfWidth<=0 center=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf,
+            link->portalCenter.x, link->portalCenter.y, link->portalCenter.z);
         return {link->portalCenter, link->portalCenter};
     }
 
     Vector3 dir{
-        nav.leafCentroids[static_cast<std::size_t>(toLeaf)].x -
-            nav.leafCentroids[static_cast<std::size_t>(fromLeaf)].x,
+        link->portalCenter.x - prevPoint.x,
         0.0f,
-        nav.leafCentroids[static_cast<std::size_t>(toLeaf)].z -
-            nav.leafCentroids[static_cast<std::size_t>(fromLeaf)].z};
+        link->portalCenter.z - prevPoint.z};
     float dirLen = std::sqrt(dir.x * dir.x + dir.z * dir.z);
     if (dirLen < 1.0e-4f) {
         dir = link->portalTangent;
         dirLen = std::sqrt(dir.x * dir.x + dir.z * dir.z);
         if (dirLen < 1.0e-4f) {
+            TraceLog(LOG_INFO, "PORTALCORNERS: %d->%d degenerate dir, center=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf,
+                link->portalCenter.x, link->portalCenter.y, link->portalCenter.z);
             return {link->portalCenter, link->portalCenter};
         }
     }
@@ -250,7 +311,17 @@ FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int to
     const float sign =
         (perp.x * link->portalTangent.x + perp.z * link->portalTangent.z) >= 0.0f ? 1.0f : -1.0f;
     const Vector3 offset = Vector3Scale(link->portalTangent, sign * link->portalHalfWidth);
-    return {Vector3Subtract(link->portalCenter, offset), Vector3Add(link->portalCenter, offset)};
+    const FunnelPortal result{
+        Vector3Subtract(link->portalCenter, offset), Vector3Add(link->portalCenter, offset)};
+    TraceLog(
+        LOG_INFO,
+        "PORTALCORNERS: %d->%d center=(%.2f,%.2f,%.2f) tangent=(%.2f,%.2f,%.2f) halfWidth=%.2f dir=(%.2f,%.2f) "
+        "perp=(%.2f,%.2f) sign=%.0f left=(%.2f,%.2f,%.2f) right=(%.2f,%.2f,%.2f)",
+        fromLeaf, toLeaf, link->portalCenter.x, link->portalCenter.y, link->portalCenter.z,
+        link->portalTangent.x, link->portalTangent.y, link->portalTangent.z, link->portalHalfWidth, dir.x, dir.z,
+        perp.x, perp.z, sign, result.left.x, result.left.y, result.left.z, result.right.x, result.right.y,
+        result.right.z);
+    return result;
 }
 
 } // namespace
@@ -360,6 +431,88 @@ const NavPortalLink* portalLinkBetween(const MapNavigation& nav, int leafA, int 
         }
     }
     return nullptr;
+}
+
+std::vector<NavMacroChainCandidate> findMacroChainCandidates(const MapNavigation& nav, const BspTree& tree) {
+    std::vector<NavMacroChainCandidate> result;
+    if (nav.leafCount <= 0) {
+        return result;
+    }
+
+    std::vector<bool> visited(static_cast<std::size_t>(nav.leafCount), false);
+
+    for (int start = 0; start < nav.leafCount; ++start) {
+        if (visited[static_cast<std::size_t>(start)] ||
+            !nav.walkable[static_cast<std::size_t>(start)] ||
+            !isFragmentLeaf(tree, start)) {
+            continue;
+        }
+
+        std::vector<int> cluster;
+        std::vector<int> externalNeighbors;
+        std::vector<int> stack{start};
+        visited[static_cast<std::size_t>(start)] = true;
+
+        while (!stack.empty()) {
+            const int current = stack.back();
+            stack.pop_back();
+            cluster.push_back(current);
+
+            for (const NavPortalLink& link : nav.adjacency[static_cast<std::size_t>(current)]) {
+                if (!isPlainEdge(nav, current, link)) {
+                    continue;
+                }
+                const int neighbor = link.neighborLeaf;
+                if (!isFragmentLeaf(tree, neighbor)) {
+                    externalNeighbors.push_back(neighbor);
+                    continue;
+                }
+                if (!visited[static_cast<std::size_t>(neighbor)]) {
+                    visited[static_cast<std::size_t>(neighbor)] = true;
+                    stack.push_back(neighbor);
+                }
+            }
+        }
+
+        if (cluster.size() < kMinMacroChainLength) {
+            continue;
+        }
+
+        std::sort(externalNeighbors.begin(), externalNeighbors.end());
+        externalNeighbors.erase(
+            std::unique(externalNeighbors.begin(), externalNeighbors.end()), externalNeighbors.end());
+
+        std::unordered_set<int> remaining(externalNeighbors.begin(), externalNeighbors.end());
+        std::vector<int> groupReps;
+        while (!remaining.empty()) {
+            const int groupStart = *remaining.begin();
+            remaining.erase(remaining.begin());
+            std::vector<int> groupStack{groupStart};
+            while (!groupStack.empty()) {
+                const int current = groupStack.back();
+                groupStack.pop_back();
+                for (const NavPortalLink& link : nav.adjacency[static_cast<std::size_t>(current)]) {
+                    if (!isPlainEdge(nav, current, link)) {
+                        continue;
+                    }
+                    const auto it = remaining.find(link.neighborLeaf);
+                    if (it != remaining.end()) {
+                        groupStack.push_back(*it);
+                        remaining.erase(it);
+                    }
+                }
+            }
+            groupReps.push_back(groupStart);
+        }
+
+        if (groupReps.size() != 2) {
+            continue;
+        }
+
+        result.push_back(NavMacroChainCandidate{groupReps[0], groupReps[1], std::move(cluster)});
+    }
+
+    return result;
 }
 
 std::vector<int> findLeafPath(
@@ -564,8 +717,11 @@ std::vector<Vector3> leafPathToWaypoints(
     std::vector<FunnelPortal> corridor;
     corridor.reserve(portalCount + 2);
     corridor.push_back({start, start});
+    Vector3 prevPoint = start;
     for (std::size_t i = 0; i < portalCount; ++i) {
-        corridor.push_back(computePortalCorners(nav, leafPath[i], leafPath[i + 1]));
+        const FunnelPortal portal = computePortalCorners(nav, leafPath[i], leafPath[i + 1], prevPoint);
+        prevPoint = {0.5f * (portal.left.x + portal.right.x), 0.0f, 0.5f * (portal.left.z + portal.right.z)};
+        corridor.push_back(portal);
     }
     corridor.push_back({goalPos, goalPos});
 
@@ -603,6 +759,12 @@ std::vector<Vector3> leafPathToWaypoints(
             }
             pointXZ = {a.point.x + t * dx, 0.0f, a.point.z + t * dz};
         }
+        TraceLog(
+            LOG_INFO,
+            "PROJECT: i=%zu from=%d to=%d corridorIdx=%d portalPoint=(%.2f,%.2f) cursor=%zu "
+            "a=(%.2f,%.2f)[%d] b=(%.2f,%.2f)[%d] result=(%.2f,%.2f)",
+            i, fromLeaf, toLeaf, corridorIndex, portalPoint.x, portalPoint.z, cornerCursor, a.point.x,
+            a.point.z, a.corridorIndex, b.point.x, b.point.z, b.corridorIndex, pointXZ.x, pointXZ.z);
 
         const NavPortalLink* link = portalLinkBetween(nav, fromLeaf, toLeaf);
         const float floorY = nav.leafFloorY[static_cast<std::size_t>(fromLeaf)];

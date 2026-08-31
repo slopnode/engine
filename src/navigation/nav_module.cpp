@@ -6,6 +6,7 @@
 #include "map/pvs.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
+#include "physics/physics_module.hpp"
 #include "physics/rigid_mover.hpp"
 #include "render/components.hpp"
 #include "ui/ui_state.hpp"
@@ -16,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -40,6 +42,56 @@ std::string navDebugLabel(flecs::entity entity) {
         return name;
     }
     return std::to_string(static_cast<std::uint64_t>(entity.id()));
+}
+
+void logNavPhysicsTick(
+    flecs::world& world,
+    flecs::entity entity,
+    const NavigationAgent& agent,
+    Vector3 agentPos,
+    int agentLeaf,
+    Vector3 goalPos,
+    int goalLeaf) {
+    if (!world.has<PhysicsContext>()) {
+        return;
+    }
+    PhysicsWorld* physics = world.get<PhysicsContext>().world;
+    if (physics == nullptr) {
+        return;
+    }
+    const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+    if (!physics->hasCharacter(id)) {
+        return;
+    }
+
+    const JPH::RVec3 rpos = physics->characterPosition(id);
+    const JPH::Vec3 rvel = physics->characterVelocity(id);
+    const bool supported = physics->characterSupported(id);
+
+    char wpInfo[128] = "none";
+    if (agent.waypointIndex >= 0 && agent.waypointIndex < static_cast<int>(agent.waypoints.size())) {
+        const Vector3& wp = agent.waypoints[static_cast<std::size_t>(agent.waypointIndex)];
+        const float distXZ = navHorizontalDist(agentPos, wp);
+        std::snprintf(wpInfo, sizeof(wpInfo), "(%.2f,%.2f,%.2f) distXZ=%.2f", wp.x, wp.y, wp.z, distXZ);
+    }
+
+    TraceLog(
+        LOG_INFO,
+        "NAV[%s] tick pos=(%.3f,%.3f,%.3f) physPos=(%.3f,%.3f,%.3f) leaf=%d onPath=%d "
+        "vel=(%.2f,%.2f,%.2f) supported=%d wpIdx=%d/%zu wpTarget=%s stuckTimer=%.2f "
+        "goal=(%.2f,%.2f,%.2f) goalLeaf=%d",
+        navDebugLabel(entity).c_str(),
+        agentPos.x, agentPos.y, agentPos.z,
+        static_cast<float>(rpos.GetX()), static_cast<float>(rpos.GetY()), static_cast<float>(rpos.GetZ()),
+        agentLeaf,
+        navFindLeafInPath(agent.leafPath, agentLeaf) >= 0 ? 1 : 0,
+        static_cast<float>(rvel.GetX()), static_cast<float>(rvel.GetY()), static_cast<float>(rvel.GetZ()),
+        supported ? 1 : 0,
+        agent.waypointIndex, agent.waypoints.size(),
+        wpInfo,
+        agent.stuckTimer,
+        goalPos.x, goalPos.y, goalPos.z,
+        goalLeaf);
 }
 
 Vector3 actorFeet(flecs::entity entity, const CharacterMotor& motor) {
@@ -360,30 +412,20 @@ void replanAgent(
     agent.waypoints = waypoints;
     agent.waypointToLeaf = std::move(waypointToLeaf);
 
-    // resumeIndex is recomputed from scratch every replan using the agent's
-    // exact current position, so it can legitimately regress below progress
-    // that was already established: an intermediate (portal) waypoint's
-    // "reached" test includes horizontal arrival-radius proximity, and an
-    // agent that drifts a little past that radius between one replan and the
-    // next (still on the same leaf, still on the same path) will compute a
-    // smaller resumeIndex than it actually achieved — flip-flopping the
-    // target waypoint every replan cycle without ever settling on one. Only
-    // when the leaf path is the exact same array as last replan (not just an
-    // unchanged suffix — a differently-shaped array numbers waypoints from a
-    // different origin, so an old index isn't valid there at all, which is
-    // the bug preserveProgress used to cause) is oldWaypointIndex guaranteed
-    // to still index the same waypoint, so it's safe to use as a floor.
-    const bool sameLeafPath = preserveProgress && oldLeafPath == leafPath;
+    const int oldFromIndex = navFindLeafInPath(oldLeafPath, fromLeaf);
+    const int newFromIndex = navFindLeafInPath(leafPath, fromLeaf);
     const bool routeUnchanged =
         preserveProgress &&
-        navLeafPathRouteUnchanged(oldLeafPath, fromLeaf, leafPath);
+        navLeafPathSuffixEqual(oldLeafPath, oldFromIndex, leafPath, newFromIndex);
 
-    agent.waypointIndex = sameLeafPath ? std::max(oldWaypointIndex, resumeIndex) : resumeIndex;
     if (routeUnchanged) {
+        agent.waypointIndex = std::clamp(
+            oldWaypointIndex - oldFromIndex + newFromIndex, 0, static_cast<int>(waypoints.size()));
         agent.stuckTimer = oldStuckTimer;
         agent.stuckLastPos = oldStuckLastPos;
         agent.haveStuckLastPos = oldHaveStuckLastPos;
     } else {
+        agent.waypointIndex = resumeIndex;
         agent.stuckTimer = 0.0f;
         agent.haveStuckLastPos = false;
     }
@@ -607,6 +649,10 @@ void registerNavModule(flecs::world& world) {
 
             updateStuckSkip(worldRef, entity, agent, agentFeetPos, dt);
             advanceWaypoints(worldRef, entity, agent, agentFeetPos, agentLeaf);
+
+            if (navDebugLogEnabled(worldRef)) {
+                logNavPhysicsTick(worldRef, entity, agent, agentFeetPos, agentLeaf, goalPos, goalLeaf);
+            }
 
             const float maxClimb = agentMaxClimb(agent, motor);
             if (const char* reason = needsReplan(

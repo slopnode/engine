@@ -237,6 +237,141 @@ inline std::vector<Brush> sealedHollowRoomWithStairs() {
     return brushes;
 }
 
+/** A narrow, sealed straight-run staircase corridor built the way E1M1's actual stairs were
+ *  hand-authored: @p steps separate box treads, each compiling to its own thin BSP leaf, in
+ *  a single-file non-branching chain from a flat approach to a flat landing. The ceiling
+ *  follows the stairs (offset up by a constant headroom) so each tread's open volume is
+ *  bounded above by its own low ceiling segment, not merged into one big leaf spanning the
+ *  whole run -- reproducing the leaf-per-tread fragmentation macro-link detection targets. */
+inline std::vector<Brush> straightStaircaseHallway(int steps = 13) {
+    constexpr float treadDepth = 0.8f;
+    constexpr float treadRise = 0.5f;
+    constexpr float halfWidth = 0.6f;
+    constexpr float wallThickness = 0.25f;
+    constexpr float headroom = 4.0f;
+    constexpr float approachLength = 3.0f;
+    const float totalRun = treadDepth * static_cast<float>(steps);
+    const float totalRise = treadRise * static_cast<float>(steps);
+    const float zStart = -approachLength;
+    const float zEnd = totalRun + approachLength;
+    const float yLow = -0.25f;
+    const float yHigh = headroom + totalRise + 0.25f;
+
+    std::vector<Brush> brushes;
+
+    brushes.push_back(makeBrushBox(
+        "floor-approach", {-halfWidth, -0.25f, zStart}, {halfWidth, 0.0f, 0.0f}, "mat/a", {}));
+    std::vector<Brush> floorSteps = makeBrushStairs(
+        "step", {-halfWidth, 0.0f, 0.0f}, {halfWidth, totalRise, totalRun}, steps, "mat/a", BrushRole::Hull);
+    brushes.insert(brushes.end(), floorSteps.begin(), floorSteps.end());
+    brushes.push_back(makeBrushBox(
+        "floor-landing",
+        {-halfWidth, totalRise - 0.25f, totalRun},
+        {halfWidth, totalRise, zEnd},
+        "mat/a", {}));
+
+    brushes.push_back(makeBrushBox(
+        "ceiling-approach", {-halfWidth, treadRise + headroom, zStart},
+        {halfWidth, yHigh, 0.0f}, "mat/a", {}));
+    for (int i = 0; i < steps; ++i) {
+        const float z0 = treadDepth * static_cast<float>(i);
+        const float z1 = z0 + treadDepth;
+        const float treadTop = treadRise * static_cast<float>(i + 1);
+        brushes.push_back(makeBrushBox(
+            "ceiling-" + std::to_string(i),
+            {-halfWidth, treadTop + headroom, z0},
+            {halfWidth, yHigh, z1},
+            "mat/a", {}));
+    }
+    brushes.push_back(makeBrushBox(
+        "ceiling-landing", {-halfWidth, totalRise + headroom, totalRun},
+        {halfWidth, yHigh, zEnd}, "mat/a", {}));
+
+    brushes.push_back(makeBrushBox(
+        "wall-west", {-halfWidth - wallThickness, yLow, zStart}, {-halfWidth, yHigh, zEnd}, "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "wall-east", {halfWidth, yLow, zStart}, {halfWidth + wallThickness, yHigh, zEnd}, "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "cap-south",
+        {-halfWidth - wallThickness, yLow, zStart - wallThickness},
+        {halfWidth + wallThickness, yHigh, zStart},
+        "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "cap-north",
+        {-halfWidth - wallThickness, yLow, zEnd},
+        {halfWidth + wallThickness, yHigh, zEnd + wallThickness},
+        "mat/a", {}));
+
+    return brushes;
+}
+
+/** A sealed square shaft containing a spiral staircase (hand-authored wedge-by-wedge, same as
+ *  makeBrushSpiralStairs/E1M1's actual spiral) around a solid center column -- no open central
+ *  void, matching the fix already applied to the real map's hollow-shaft floor-height bug. This
+ *  fixture targets the *stair* fragmentation (many small wedge leaves), not that separately-fixed
+ *  issue. One full turn: @p sides steps exactly circle back to the starting angle at the top. */
+inline std::vector<Brush> spiralStaircaseShaft(int sides = 8) {
+    constexpr float outerHalfExtent = 1.5f;
+    constexpr float innerRadius = 0.5f;
+    constexpr float stepHeight = 0.5f;
+    constexpr float wallThickness = 0.25f;
+    constexpr float headroom = 2.0f;
+    constexpr float roomHalfExtent = 4.0f;
+    const float totalRise = stepHeight * static_cast<float>(sides);
+
+    std::vector<Brush> brushes;
+
+    std::vector<Brush> spiralSteps = makeBrushSpiralStairs(
+        "spiral",
+        {-outerHalfExtent, 0.0f, -outerHalfExtent},
+        {outerHalfExtent, totalRise, outerHalfExtent},
+        innerRadius,
+        stepHeight,
+        sides,
+        "mat/a",
+        BrushRole::Hull);
+    brushes.insert(brushes.end(), spiralSteps.begin(), spiralSteps.end());
+
+    brushes.push_back(makeBrushBox(
+        "core",
+        {-innerRadius, -0.25f, -innerRadius},
+        {innerRadius, totalRise + headroom, innerRadius},
+        "mat/a", {}));
+
+    brushes.push_back(makeBrushBox(
+        "shaft-floor",
+        {-roomHalfExtent - wallThickness, -0.25f, -roomHalfExtent - wallThickness},
+        {roomHalfExtent + wallThickness, 0.0f, roomHalfExtent + wallThickness},
+        "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "shaft-landing",
+        {-roomHalfExtent - wallThickness, totalRise, -roomHalfExtent - wallThickness},
+        {roomHalfExtent + wallThickness, totalRise + headroom, roomHalfExtent + wallThickness},
+        "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "shaft-wall-west",
+        {-roomHalfExtent - wallThickness, 0.0f, -roomHalfExtent - wallThickness},
+        {-roomHalfExtent, totalRise, roomHalfExtent + wallThickness},
+        "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "shaft-wall-east",
+        {roomHalfExtent, 0.0f, -roomHalfExtent - wallThickness},
+        {roomHalfExtent + wallThickness, totalRise, roomHalfExtent + wallThickness},
+        "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "shaft-wall-north",
+        {-roomHalfExtent, 0.0f, -roomHalfExtent - wallThickness},
+        {roomHalfExtent, totalRise, -roomHalfExtent},
+        "mat/a", {}));
+    brushes.push_back(makeBrushBox(
+        "shaft-wall-south",
+        {-roomHalfExtent, 0.0f, roomHalfExtent},
+        {roomHalfExtent, totalRise, roomHalfExtent + wallThickness},
+        "mat/a", {}));
+
+    return brushes;
+}
+
 /** A tall sealed room plus a thin decorative beam along one wall, spanning
  *  the room's width at half its height but only a shallow depth. The beam's
  *  own AABB overlaps the room in all three axes, so its horizontal face

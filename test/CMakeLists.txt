@@ -11,6 +11,7 @@ add_executable(sloptests
     test_csg_compile.cpp
     test_pvs_build.cpp
     test_nav_graph.cpp
+    test_nav_macro_links.cpp
     test_physics.cpp
     test_frustum.cpp
     test_transform.cpp
@@ -32,6 +33,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/nav_macro_links.cpp
     ${CMAKE_SOURCE_DIR}/src/map/brush_door.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
