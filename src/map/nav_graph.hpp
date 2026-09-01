@@ -33,6 +33,17 @@ struct NavPortalLink {
  *  An empty/unset query treats every gated link as open (no gating). */
 using DoorOpenQuery = std::function<bool(const std::string& doorBrushId)>;
 
+struct PortalSpread {
+    Vector3 tangent{1.0f, 0.0f, 0.0f};
+    float halfWidth = 0.0f;
+};
+
+/** Widest horizontal span across @p vertices (a portal or navmesh-edge polygon) and how far
+ *  a waypoint may spread off-center along it and still clear the edges -- shared by both the
+ *  BSP-leaf and navmesh nav graph builders so NavPortalLink::portalTangent/portalHalfWidth
+ *  mean the same thing regardless of which one produced them. */
+PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices);
+
 /** Leaf portal graph built from sealed BSP hull. */
 struct MapNavigation {
     int leafCount = 0;
@@ -44,8 +55,22 @@ struct MapNavigation {
     std::vector<Vector3> leafCentroids;
     std::vector<float> leafFloorY;
     std::vector<float> leafCeilingY;
+    /** Per-leaf outward-wound XZ boundary polygon, populated only by the navmesh builder
+     *  (buildMapNavigationFromPolyMesh) -- a BSP leaf's real boundary is a 3D solid with no
+     *  single flat polygon, so the BSP builder leaves this empty. Point-sampling code
+     *  (navSamplePoly) uses this when present and falls back to BSP point classification
+     *  otherwise, letting maps without a baked navmesh keep working unchanged. */
+    std::vector<std::vector<Vector3>> leafBoundary;
     std::vector<std::vector<NavPortalLink>> adjacency;
     std::vector<std::vector<NavPortalLink>> reverseAdjacency;
+};
+
+/** The offline-baked navmesh graph (tools/slopnav), kept as a separate world resource
+ *  from the live MapNavigation singleton during the Stage 5 side-by-side comparison
+ *  period -- lets the debug overlay draw both at once without touching runtime pathing.
+ *  Empty (leafCount == 0) when the loaded map has no static.nav yet. */
+struct MapBakedNav {
+    MapNavigation nav{};
 };
 
 struct NavFlowField {

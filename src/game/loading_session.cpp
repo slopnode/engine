@@ -10,10 +10,11 @@ namespace slopengine {
 
 namespace {
 
-constexpr const char* kStageLabels[5] = {
+constexpr const char* kStageLabels[6] = {
     "Loading BSP",
     "Loading VIS",
     "Loading RAD",
+    "Loading Nav",
     "Loading Textures",
     "Assembling scene",
 };
@@ -99,7 +100,10 @@ void advanceLoadingSession(flecs::world& world, AssetStore& assets, s7_scheme* s
         case 2:
             ok = loadMapStageRad(assets, session.work);
             break;
-        case 3: {
+        case 3:
+            ok = loadMapStageNav(assets, session.work);
+            break;
+        case 4: {
             auto loaded = loadMapStageTextures(assets, std::move(session.work));
             ok = loaded.has_value();
             if (ok) {
@@ -107,7 +111,7 @@ void advanceLoadingSession(flecs::world& world, AssetStore& assets, s7_scheme* s
             }
             break;
         }
-        case 4:
+        case 5:
             ok = session.loadedMap.has_value() &&
                 assembleMapScene(
                     world, assets, scheme, session.mapName, session.reason, std::move(*session.loadedMap));
@@ -123,7 +127,7 @@ void advanceLoadingSession(flecs::world& world, AssetStore& assets, s7_scheme* s
         }
 
         ++session.stageIndex;
-        if (session.stageIndex < 5) {
+        if (session.stageIndex < 6) {
             session.stageLabel = kStageLabels[session.stageIndex];
         } else {
             session.phase = LoadingPhase::Crossfade;

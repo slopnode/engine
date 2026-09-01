@@ -6,6 +6,7 @@
 #include "editor_types.hpp"
 #include "history.hpp"
 #include "map/brush.hpp"
+#include "map/nav_graph.hpp"
 #include "map/thing.hpp"
 #include "map/prefab.hpp"
 #include "preview.hpp"
@@ -64,6 +65,7 @@ struct CompileDirty {
     bool bsp = false;
     bool vis = false;
     bool rad = false;
+    bool nav = false;
 };
 
 struct ViewportCamera {
@@ -92,6 +94,9 @@ struct Editor {
     bool showGrid = true;
     bool showGizmos = true;
     bool showNodraw = false;
+    bool showNavMesh = false;
+    slopengine::MapNavigation bakedNav{};
+    bool bakedNavValid = false;
     GridPlane gridPlane = GridPlane::XZ;
     TranslateSnapMode translateSnapMode = TranslateSnapMode::Offset;
     TransformSpace transformSpace = TransformSpace::Relative;
@@ -183,6 +188,10 @@ struct Editor {
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);
+    /** Loads maps/<name>/static.nav (baked by slopnav) into bakedNav, if present.
+     *  Clears bakedNav/bakedNavValid and returns false when there's no baked navmesh
+     *  yet -- that's the common case for a map nobody has run NAV on. */
+    bool reloadBakedNav(slopengine::AssetStore& assets);
     /**
      * Builds a BSP from the current doc().brushes in-process (no disk I/O)
      * and runs the hull-seal analysis. Stores the result leak path (if any,

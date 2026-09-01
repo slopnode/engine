@@ -1,5 +1,6 @@
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
+#include "map/door_portal_tag.hpp"
 
 #include <raylib.h>
 
@@ -1273,7 +1274,6 @@ Vector3 leafCentroid(const BspLeaf& leaf) {
  *  downstream consumers (nav pathing, sound propagation) gate traversal on the door's
  *  live open/closed RigidMover state instead of treating every doorway as always-open. */
 void linkDoorPortals(BspTree& tree, const std::vector<Brush>& brushes) {
-    constexpr float kDoorPortalPad = 0.25f;
     int doorBrushCount = 0;
     int linkedPortalCount = 0;
     for (const Brush& brush : brushes) {
@@ -1281,24 +1281,12 @@ void linkDoorPortals(BspTree& tree, const std::vector<Brush>& brushes) {
             continue;
         }
         ++doorBrushCount;
-        const Vector3 mins{
-            brush.mins.x - kDoorPortalPad,
-            brush.mins.y - kDoorPortalPad,
-            brush.mins.z - kDoorPortalPad,
-        };
-        const Vector3 maxs{
-            brush.maxs.x + kDoorPortalPad,
-            brush.maxs.y + kDoorPortalPad,
-            brush.maxs.z + kDoorPortalPad,
-        };
         for (BspPortal& portal : tree.portals) {
             if (portal.vertices.empty()) {
                 continue;
             }
             const Vector3 center = polygonCentroid(portal.vertices);
-            if (center.x < mins.x || center.x > maxs.x
-                || center.y < mins.y || center.y > maxs.y
-                || center.z < mins.z || center.z > maxs.z) {
+            if (!pointInPaddedDoorAabb(center, brush)) {
                 continue;
             }
             portal.doorBrushId = brush.id;

@@ -84,51 +84,50 @@ bool isFragmentLeaf(const BspTree& tree, int leaf) {
     return dx * dz < kFragmentFootprintArea;
 }
 
-struct PortalSpread {
-    Vector3 tangent{1.0f, 0.0f, 0.0f};
-    float halfWidth = 0.0f;
-};
-
-PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices) {
-    constexpr float kSpreadFraction = 0.5f;
-    constexpr float kEdgeClearance = 0.45f;
-    constexpr float kFlatPortalYExtent = 0.05f;
-
-    if (vertices.empty()) {
-        return {};
+bool pointInsideConvexPolygonXZ(const std::vector<Vector3>& poly, float x, float z) {
+    if (poly.size() < 3) {
+        return false;
     }
-    float minY = vertices[0].y;
-    float maxY = vertices[0].y;
-    for (const Vector3& v : vertices) {
-        minY = std::min(minY, v.y);
-        maxY = std::max(maxY, v.y);
-    }
-    if (maxY - minY < kFlatPortalYExtent) {
-        return {};
-    }
-
-    float bestDistSq = 0.0f;
-    Vector3 bestDelta{1.0f, 0.0f, 0.0f};
-    for (std::size_t a = 0; a < vertices.size(); ++a) {
-        for (std::size_t b = a + 1; b < vertices.size(); ++b) {
-            const float dx = vertices[b].x - vertices[a].x;
-            const float dz = vertices[b].z - vertices[a].z;
-            const float distSq = dx * dx + dz * dz;
-            if (distSq > bestDistSq) {
-                bestDistSq = distSq;
-                bestDelta = {dx, 0.0f, dz};
-            }
+    constexpr float kEps = 1.0e-3f;
+    bool sawPositive = false;
+    bool sawNegative = false;
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+        const Vector3& a = poly[i];
+        const Vector3& b = poly[(i + 1) % poly.size()];
+        const float cross = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+        if (cross > kEps) {
+            sawPositive = true;
+        } else if (cross < -kEps) {
+            sawNegative = true;
+        }
+        if (sawPositive && sawNegative) {
+            return false;
         }
     }
+    return true;
+}
 
-    const float dist = std::sqrt(bestDistSq);
-    if (dist < 1.0e-4f) {
-        return {};
+float floorFaceHeightAt(const BspLeaf& leaf, float x, float z, float fallback) {
+    constexpr float kUpNormalThreshold = 0.3f;
+    for (const auto& face : leaf.faces) {
+        if (face.size() < 3) {
+            continue;
+        }
+        Vector3 n = Vector3CrossProduct(Vector3Subtract(face[1], face[0]), Vector3Subtract(face[2], face[0]));
+        const float nLen = Vector3Length(n);
+        if (nLen < 1.0e-8f) {
+            continue;
+        }
+        n = Vector3Scale(n, 1.0f / nLen);
+        if (n.y < kUpNormalThreshold) {
+            continue;
+        }
+        if (!pointInsideConvexPolygonXZ(face, x, z)) {
+            continue;
+        }
+        return face[0].y - (n.x * (x - face[0].x) + n.z * (z - face[0].z)) / n.y;
     }
-    constexpr float kMaxSpreadDist = 4.0f;
-    const float clampedDist = std::min(dist, kMaxSpreadDist);
-    const float halfWidth = std::max(0.0f, clampedDist * kSpreadFraction - kEdgeClearance);
-    return {Vector3Scale(bestDelta, 1.0f / dist), halfWidth};
+    return fallback;
 }
 
 // Walks straight down from (x, startY, z) through open leaves (via exact BSP
@@ -157,7 +156,7 @@ float descendToRealFloor(const BspTree& tree, float x, float z, float startY) {
         if (leafBlocksFlood(leaf.contents)) {
             return y;
         }
-        y = leaf.mins.y;
+        y = floorFaceHeightAt(leaf, x, z, leaf.mins.y);
     }
     return y;
 }
@@ -167,25 +166,26 @@ float descendToRealFloor(const BspTree& tree, float x, float z, float startY) {
 // vertex — all guaranteed inside this convex leaf), not just the centroid
 // alone: a single probe can be fooled by a small local opening (a grate, a
 // pipe gap, a window portal) that isn't representative of the leaf's floor
-// as a whole. Only commits the corrected floor when every sample agrees;
-// a leaf where samples disagree keeps its original mins.y rather than
-// guessing.
+// as a whole. Only commits the widest sample spread when every sample
+// agrees; a leaf where samples disagree (e.g. a sloped floor) falls back to
+// the centroid's own measured floor instead of guessing.
 float resolveLeafFloorY(const BspTree& tree, const BspLeaf& leaf, Vector3 centroid) {
-    const float startY = leaf.mins.y;
-    float lo = descendToRealFloor(tree, centroid.x, centroid.z, startY);
-    float hi = lo;
+    auto startHeightAt = [&](float x, float z) { return floorFaceHeightAt(leaf, x, z, leaf.mins.y); };
+    const float centroidY = descendToRealFloor(tree, centroid.x, centroid.z, startHeightAt(centroid.x, centroid.z));
+    float lo = centroidY;
+    float hi = centroidY;
     for (const auto& face : leaf.faces) {
         for (const Vector3& v : face) {
             const float sx = 0.5f * (centroid.x + v.x);
             const float sz = 0.5f * (centroid.z + v.z);
-            const float y = descendToRealFloor(tree, sx, sz, startY);
+            const float y = descendToRealFloor(tree, sx, sz, startHeightAt(sx, sz));
             lo = std::min(lo, y);
             hi = std::max(hi, y);
         }
     }
     constexpr float kAgreementEps = 0.05f;
     if (hi - lo > kAgreementEps) {
-        return leaf.mins.y; // samples disagree — leave the leaf's own floor alone
+        return centroidY; // samples disagree — trust the centroid's own measured floor
     }
     return lo;
 }
@@ -325,6 +325,48 @@ FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int to
 }
 
 } // namespace
+
+PortalSpread computePortalHorizontalSpread(const std::vector<Vector3>& vertices) {
+    constexpr float kSpreadFraction = 0.5f;
+    constexpr float kEdgeClearance = 0.45f;
+    constexpr float kFlatPortalYExtent = 0.05f;
+
+    if (vertices.empty()) {
+        return {};
+    }
+    float minY = vertices[0].y;
+    float maxY = vertices[0].y;
+    for (const Vector3& v : vertices) {
+        minY = std::min(minY, v.y);
+        maxY = std::max(maxY, v.y);
+    }
+    if (maxY - minY < kFlatPortalYExtent) {
+        return {};
+    }
+
+    float bestDistSq = 0.0f;
+    Vector3 bestDelta{1.0f, 0.0f, 0.0f};
+    for (std::size_t a = 0; a < vertices.size(); ++a) {
+        for (std::size_t b = a + 1; b < vertices.size(); ++b) {
+            const float dx = vertices[b].x - vertices[a].x;
+            const float dz = vertices[b].z - vertices[a].z;
+            const float distSq = dx * dx + dz * dz;
+            if (distSq > bestDistSq) {
+                bestDistSq = distSq;
+                bestDelta = {dx, 0.0f, dz};
+            }
+        }
+    }
+
+    const float dist = std::sqrt(bestDistSq);
+    if (dist < 1.0e-4f) {
+        return {};
+    }
+    constexpr float kMaxSpreadDist = 4.0f;
+    const float clampedDist = std::min(dist, kMaxSpreadDist);
+    const float halfWidth = std::max(0.0f, clampedDist * kSpreadFraction - kEdgeClearance);
+    return {Vector3Scale(bestDelta, 1.0f / dist), halfWidth};
+}
 
 MapNavigation buildMapNavigation(
     const BspTree& tree,

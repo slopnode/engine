@@ -119,6 +119,9 @@ public:
     /** Returns true when a compiled map PVS (VIS) file exists at @p path. */
     bool hasMapVis(std::string_view path) const;
 
+    /** Returns true when a baked map navmesh file exists at @p path. */
+    bool hasMapNav(std::string_view path) const;
+
     /** Returns true when a compiled map radiosity file exists at @p path. */
     bool hasMapRad(std::string_view path) const;
 

@@ -6,6 +6,7 @@
 #include "map/csg_script.hpp"
 #include "map/csg_write.hpp"
 #include "map/mover_brushes.hpp"
+#include "map/nav_io.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
 #include "select_tool.hpp"
@@ -1078,6 +1079,7 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     rebuildPreview(assets);
     reloadVisPreview(assets);
     fill = reloadLitBake(assets) ? PreviewFill::Lit : PreviewFill::Textures;
+    reloadBakedNav(assets);
     resetCamera(*this);
     frameSelection();
     createBrushRole = slopengine::BrushRole::Hull;
@@ -1331,6 +1333,7 @@ void Editor::markBspDirty() {
     compileDirty.bsp = true;
     compileDirty.vis = true;
     compileDirty.rad = true;
+    compileDirty.nav = true; // Nav only depends on Bsp, but invalidate it on any geometry edit too
 }
 
 void Editor::markVisDirty() {
@@ -1374,6 +1377,9 @@ void Editor::clearCompileStage(CompileStage stage) {
     case CompileStage::Rad:
         compileDirty.rad = false;
         break;
+    case CompileStage::Nav:
+        compileDirty.nav = false;
+        break;
     }
 }
 
@@ -1410,6 +1416,7 @@ bool Editor::cleanCompileData(
     bool cleanBsp = false;
     bool cleanVis = false;
     bool cleanRad = false;
+    bool cleanNav = false;
     for (const CompileStage stage : stages) {
         switch (stage) {
         case CompileStage::Bsp:
@@ -1420,6 +1427,9 @@ bool Editor::cleanCompileData(
             break;
         case CompileStage::Rad:
             cleanRad = true;
+            break;
+        case CompileStage::Nav:
+            cleanNav = true;
             break;
         }
     }
@@ -1454,6 +1464,12 @@ bool Editor::cleanCompileData(
         preview.clearLit();
         compileDirty.rad = true;
     }
+    if (cleanNav) {
+        removePath(mapDir / "static.nav", false);
+        compileDirty.nav = true;
+        bakedNav = {};
+        bakedNavValid = false;
+    }
 
     if (fill == PreviewFill::Lit || fill == PreviewFill::SolidLit) {
         if (!preview.litValid) {
@@ -1483,6 +1499,12 @@ bool Editor::cleanCompileData(
             cleaned += "+";
         }
         cleaned += "RAD";
+    }
+    if (cleanNav) {
+        if (!cleaned.empty()) {
+            cleaned += "+";
+        }
+        cleaned += "NAV";
     }
     statusMessage = "Cleaned " + cleaned + " for " + mapName;
     return true;
@@ -1578,6 +1600,30 @@ bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
     const std::unordered_set<std::string> moverBrushIds =
         slopengine::collectClaimedBrushIds(&thingsDoc, combined);
     return preview.reloadBake(assets, levelDoc.assetPath, combined, moverBrushIds);
+}
+
+bool Editor::reloadBakedNav(slopengine::AssetStore& assets) {
+    bakedNav = {};
+    bakedNavValid = false;
+    if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
+        return false;
+    }
+
+    const std::string navVirtualPath = levelDoc.assetPath + "/static";
+    if (!assets.hasMapNav(navVirtualPath)) {
+        return false;
+    }
+    const auto navPath = assets.resolvePath(slopengine::AssetKind::MapNav, navVirtualPath);
+    if (!navPath) {
+        return false;
+    }
+    auto loadedNav = slopengine::readNavFile(*navPath);
+    if (!loadedNav || loadedNav->leafCount <= 0) {
+        return false;
+    }
+    bakedNav = std::move(*loadedNav);
+    bakedNavValid = true;
+    return true;
 }
 
 namespace {

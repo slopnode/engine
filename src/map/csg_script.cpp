@@ -13,6 +13,7 @@
 #include "assets/texture_anim_loader.hpp"
 #include "map/map_meta.hpp"
 #include "map/mover_brushes.hpp"
+#include "map/nav_io.hpp"
 #include "map/prefab.hpp"
 #include "map/pvs_io.hpp"
 #include "map/things_script.hpp"
@@ -1515,6 +1516,26 @@ bool loadMapStageRad(AssetStore& assets, MapLoadWork& work) {
     return true;
 }
 
+bool loadMapStageNav(AssetStore& assets, MapLoadWork& work) {
+    if (!assets.hasMapNav(work.virtualPath)) {
+        TraceLog(LOG_INFO, "MAP: no baked navmesh present (run slopnav)");
+        return true;
+    }
+    const auto navPath = assets.resolvePath(AssetKind::MapNav, work.virtualPath);
+    if (!navPath) {
+        TraceLog(LOG_WARNING, "MAP: failed to resolve nav path");
+        return true;
+    }
+    auto loadedNav = readNavFile(*navPath);
+    if (!loadedNav) {
+        TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.nav", work.virtualPath.c_str());
+        return true;
+    }
+    TraceLog(LOG_INFO, "MAP: loaded baked navmesh polys=%d", loadedNav->leafCount);
+    work.nav = std::move(*loadedNav);
+    return true;
+}
+
 std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& work) {
     const std::string& virtualPath = work.virtualPath;
     const std::vector<Brush>& brushes = work.brushes;
@@ -1734,6 +1755,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     result.moverBrushIds = std::move(work.moverBrushIds);
     result.bsp = std::move(work.bsp);
     result.rad = std::move(work.rad);
+    result.nav = std::move(work.nav);
     result.meta = std::move(work.meta);
     return result;
 }
@@ -1750,6 +1772,9 @@ std::optional<LoadedMap> loadAndCompileMap(
         return std::nullopt;
     }
     if (!loadMapStageRad(assets, work)) {
+        return std::nullopt;
+    }
+    if (!loadMapStageNav(assets, work)) {
         return std::nullopt;
     }
     return loadMapStageTextures(assets, std::move(work));

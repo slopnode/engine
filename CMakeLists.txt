@@ -166,6 +166,9 @@ set(SLOPLIB_SOURCES
     src/map/pvs_build.cpp
     src/map/pvs_io.cpp
     src/map/nav_graph.cpp
+    src/map/nav_bake.cpp
+    src/map/nav_navmesh_build.cpp
+    src/map/nav_io.cpp
     src/map/sound_propagation.cpp
     src/render/sprite_billboard.cpp
     src/render/render_frustum.cpp
@@ -191,7 +194,7 @@ target_include_directories(sloplib PUBLIC
     src
     "${CMAKE_BINARY_DIR}/generated"
 )
-target_link_libraries(sloplib PUBLIC raylib s7)
+target_link_libraries(sloplib PUBLIC raylib s7 Recast)
 
 if(MSVC)
     target_compile_options(sloplib PRIVATE /W4 /permissive-)
@@ -336,6 +339,14 @@ if(MSVC)
     target_compile_options(slopvis PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopvis PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopnav tools/slopnav/main.cpp)
+target_link_libraries(slopnav PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopnav PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopnav PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopmap

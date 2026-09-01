@@ -11,6 +11,7 @@ enum class CompileStage {
     Bsp,
     Vis,
     Rad,
+    Nav,
 };
 
 inline int compileStageIndex(CompileStage stage) {
@@ -25,11 +26,13 @@ inline const char* compileStageLabel(CompileStage stage) {
         return "VIS";
     case CompileStage::Rad:
         return "RAD";
+    case CompileStage::Nav:
+        return "NAV";
     }
     return "?";
 }
 
-inline constexpr int kCompileStageCount = 3;
+inline constexpr int kCompileStageCount = 4;
 
 /** Mirrors sloprad's --gpu-safe/--gpu-fast: how conservatively GPU batches are sized.
  *  Auto leaves it to sloprad, which enables safe mode on integrated GPUs. */
@@ -160,7 +163,7 @@ private:
     std::array<std::vector<std::string>, kCompileStageCount> stageLogs_{};
     std::array<std::string, kCompileStageCount> stageLogText_{};
     std::array<bool, kCompileStageCount> stageLogDirty_{};
-    std::array<bool, kCompileStageCount> stageLogAutoScroll_{true, true, true};
+    std::array<bool, kCompileStageCount> stageLogAutoScroll_{true, true, true, true};
     std::string lineBuffer_;
     std::string statusSummary_;
     bool running_ = false;

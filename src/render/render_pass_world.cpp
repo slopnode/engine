@@ -1322,6 +1322,11 @@ void drawWorldDebugOverlays(flecs::world& world) {
         drawNavDebugOverlays(world, world.get<DebugUiState>());
     }
 
+    if (world.has<DebugUiState>() && world.get<DebugUiState>().showNavPolys &&
+        world.has<MapBakedNav>()) {
+        drawNavPolyDebugOverlays(world.get<MapBakedNav>().nav, world.get<DebugUiState>());
+    }
+
     if (world.has<DebugLinePool>()) {
         drawDebugLinePool(world.get<DebugLinePool>());
     }

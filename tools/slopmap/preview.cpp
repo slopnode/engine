@@ -810,6 +810,47 @@ void drawLeakPath(const std::vector<Vector3>& points, Vector3 eye, float lineWid
     DrawSphere(points.back(), markerRadius * 1.5f, kLeakColor);
 }
 
+void drawNavMeshOverlay(const slopengine::MapNavigation& nav) {
+    if (nav.leafCount <= 0) {
+        return;
+    }
+
+    // Same colors as the in-game "Nav Polys (baked)" debug overlay (render_debug.cpp's
+    // drawNavPolyDebugOverlays) so a map looks the same in the editor and at runtime.
+    const Color fillColor{60, 220, 140, 90};
+    const Color outlineColor{60, 220, 140, 220};
+    const bool hasBoundary = nav.leafBoundary.size() == static_cast<std::size_t>(nav.leafCount);
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    for (int i = 0; i < nav.leafCount; ++i) {
+        if (!nav.walkable[static_cast<std::size_t>(i)]) {
+            continue;
+        }
+        if (hasBoundary && nav.leafBoundary[static_cast<std::size_t>(i)].size() >= 3) {
+            std::vector<Vector3> verts = nav.leafBoundary[static_cast<std::size_t>(i)];
+            for (Vector3& v : verts) {
+                v.y += 0.1f;
+            }
+            for (std::size_t j = 1; j + 1 < verts.size(); ++j) {
+                DrawTriangle3D(verts[0], verts[j], verts[j + 1], fillColor);
+                DrawTriangle3D(verts[0], verts[j + 1], verts[j], fillColor);
+            }
+            for (std::size_t j = 0; j < verts.size(); ++j) {
+                DrawLine3D(verts[j], verts[(j + 1) % verts.size()], outlineColor);
+            }
+        } else {
+            Vector3 centroid = nav.leafCentroids[static_cast<std::size_t>(i)];
+            centroid.y = nav.leafFloorY[static_cast<std::size_t>(i)] + 0.1f;
+            DrawSphereWires(centroid, 0.15f, 6, 6, outlineColor);
+        }
+    }
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
 void drawBrushFaceOutlinesXray(const slopengine::Brush& brush, Color color) {
     for (const slopengine::BrushFace& face : brush.faces) {
         if (face.vertices.size() < 2) {

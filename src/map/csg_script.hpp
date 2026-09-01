@@ -5,6 +5,7 @@
 #include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "map/map_meta.hpp"
+#include "map/nav_graph.hpp"
 #include "map/prefab.hpp"
 #include "map/pvs.hpp"
 #include "render/material_anim_types.hpp"
@@ -29,6 +30,7 @@ struct LoadedMap {
     BspTree bsp{};
     PvsFile pvs{};
     RadFile rad{};
+    MapNavigation nav{};
     MapMeta meta{};
     bool hasLightmaps = false;
     Shader lightmapShader{};
@@ -61,6 +63,7 @@ struct MapLoadWork {
     BspTree bsp{};
     PvsFile pvs{};
     RadFile rad{};
+    MapNavigation nav{};
 };
 
 /** Load base+mod data/map-handlers.s7 into the registry (for CSG arg clauses). */
@@ -120,6 +123,13 @@ bool loadMapStageVis(AssetStore& assets, MapLoadWork& work);
 
 /** Stage 3: optional radiosity bake data. */
 bool loadMapStageRad(AssetStore& assets, MapLoadWork& work);
+
+/** Optional baked navmesh graph (see tools/slopnav), independent of Vis/Rad -- only
+ *  depends on the BSP loaded in stage 1. Not yet consumed by assembleMapScene(), which
+ *  still builds its own MapNavigation from the BSP leaf/portal graph at runtime; this
+ *  just makes the baked data available on MapLoadWork/LoadedMap ahead of that cutover.
+ *  Missing static.nav is not an error (most maps haven't been re-baked yet). */
+bool loadMapStageNav(AssetStore& assets, MapLoadWork& work);
 
 /** Stage 4: lightmap/sky shaders, atlas textures, CSG compile, model build. */
 std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& work);

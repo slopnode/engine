@@ -129,6 +129,8 @@ const char* CompileController::stageToolName(CompileStage stage) {
         return "slopvis";
     case CompileStage::Rad:
         return "sloprad";
+    case CompileStage::Nav:
+        return "slopnav";
     }
     return "unknown";
 }

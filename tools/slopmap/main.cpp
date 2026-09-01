@@ -814,6 +814,10 @@ void drawScene(
         &d.things,
         editor.showNodraw);
 
+    if (editor.showNavMesh && editor.bakedNavValid) {
+        slopmap::drawNavMeshOverlay(editor.bakedNav);
+    }
+
     if (fillWire) {
         for (std::size_t i = 0; i < editor.expandedInstanceBrushes.size(); ++i) {
             const bool selected = d.selectionMode == slopmap::SelectionMode::Entity &&
@@ -2182,8 +2186,10 @@ int main(int argc, char* argv[]) {
                     editor.compileDirty.vis ? "Run VIS *" : "Run VIS";
                 const char* runRadLabel =
                     editor.compileDirty.rad ? "Run RAD *" : "Run RAD";
+                const char* runNavLabel =
+                    editor.compileDirty.nav ? "Run NAV *" : "Run NAV";
                 const bool anyCompileDirty = editor.compileDirty.bsp ||
-                    editor.compileDirty.vis || editor.compileDirty.rad;
+                    editor.compileDirty.vis || editor.compileDirty.rad || editor.compileDirty.nav;
                 const char* runAllLabel = anyCompileDirty ? "Run All *" : "Run All";
                 if (menuItemWithIcon(
                         assets, kIcons, "brick", runBspLabel, nullptr, false, canRun)) {
@@ -2197,6 +2203,10 @@ int main(int argc, char* argv[]) {
                         assets, kIcons, "lightbulb", runRadLabel, nullptr, false, canRun)) {
                     startCompile({slopmap::CompileStage::Rad});
                 }
+                if (menuItemWithIcon(
+                        assets, kIcons, "map_go", runNavLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Nav});
+                }
                 ImGui::Separator();
                 if (menuItemWithIcon(
                         assets, kIcons, "script_go", runAllLabel, nullptr, false, canRun)) {
@@ -2204,6 +2214,7 @@ int main(int argc, char* argv[]) {
                         slopmap::CompileStage::Bsp,
                         slopmap::CompileStage::Vis,
                         slopmap::CompileStage::Rad,
+                        slopmap::CompileStage::Nav,
                     });
                 }
                 if (menuItemWithIcon(
@@ -2240,6 +2251,10 @@ int main(int argc, char* argv[]) {
                     editor.cleanCompileData(assets, {slopmap::CompileStage::Rad});
                 }
                 if (menuItemWithIcon(
+                        assets, kIcons, "map_delete", "Clean NAV", nullptr, false, canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Nav});
+                }
+                if (menuItemWithIcon(
                         assets, kIcons, "bin", "Clean All Compile Data", nullptr, false, canClean)) {
                     editor.cleanCompileData(
                         assets,
@@ -2247,6 +2262,7 @@ int main(int argc, char* argv[]) {
                             slopmap::CompileStage::Bsp,
                             slopmap::CompileStage::Vis,
                             slopmap::CompileStage::Rad,
+                            slopmap::CompileStage::Nav,
                         });
                 }
                 ImGui::Separator();
@@ -2297,6 +2313,9 @@ int main(int argc, char* argv[]) {
                 }
             } else if (compile.statusSummary() == "Compile finished") {
                 editor.reloadVisPreview(assets);
+            }
+            if (compile.statusSummary() == "Compile finished") {
+                editor.reloadBakedNav(assets);
             }
             compileRunIncludesRad = false;
         }
@@ -3830,7 +3849,7 @@ int main(int argc, char* argv[]) {
                 const float controlsW = viewSectionW + gap + snapSectionW + gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
-                const float stageChipW = 180.0f;
+                const float stageChipW = 230.0f;
                 ImGui::PushTextWrapPos(controlsX - stageChipW - 12.0f);
                 ImGui::TextUnformatted(
                     editor.statusMessage.empty() ? "Ready" : editor.statusMessage.c_str());
@@ -3851,12 +3870,13 @@ int main(int argc, char* argv[]) {
                     std::snprintf(
                         stageLabel,
                         sizeof(stageLabel),
-                        "BSP%s VIS%s RAD%s",
+                        "BSP%s VIS%s RAD%s NAV%s",
                         editor.compileDirty.bsp ? "*" : "",
                         editor.compileDirty.vis ? "*" : "",
-                        editor.compileDirty.rad ? "*" : "");
+                        editor.compileDirty.rad ? "*" : "",
+                        editor.compileDirty.nav ? "*" : "");
                     const bool anyDirty = editor.compileDirty.bsp ||
-                        editor.compileDirty.vis || editor.compileDirty.rad;
+                        editor.compileDirty.vis || editor.compileDirty.rad || editor.compileDirty.nav;
                     if (anyDirty) {
                         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", stageLabel);
                     } else {
@@ -3890,6 +3910,13 @@ int main(int argc, char* argv[]) {
                                 }
                                 if (editor.showNodraw && std::strcmp(id, "nodraw-toggle") == 0) {
                                     tint = ImGui::GetColorU32(ImGuiCol_CheckMark);
+                                }
+                                if (std::strcmp(id, "nav-toggle") == 0) {
+                                    if (!editor.bakedNavValid) {
+                                        tint = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                                    } else if (editor.showNavMesh) {
+                                        tint = ImGui::GetColorU32(ImGuiCol_CheckMark);
+                                    }
                                 }
                                 ImGui::GetWindowDrawList()->AddImage(
                                     (ImTextureID)(intptr_t)atlas->texture.id,
@@ -4139,6 +4166,23 @@ int main(int argc, char* argv[]) {
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
                         ImGui::SetTooltip(
                             editor.showNodraw ? "Hide nodraw faces" : "Show nodraw faces");
+                    }
+
+                    ImGui::SameLine(0.0f, gap);
+
+                    if (iconButton("nav-toggle", "shape_square")) {
+                        editor.showNavMesh = !editor.showNavMesh;
+                        editor.statusMessage = editor.showNavMesh
+                            ? (editor.bakedNavValid
+                                      ? "Nav mesh: shown"
+                                      : "Nav mesh: shown (no baked navmesh — run NAV compile)")
+                            : "Nav mesh: hidden";
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            editor.bakedNavValid
+                                ? (editor.showNavMesh ? "Hide baked nav mesh" : "Show baked nav mesh")
+                                : "No baked nav mesh (run NAV compile)");
                     }
 
                     ImGui::SameLine(0.0f, gap);
@@ -4909,6 +4953,7 @@ int main(int argc, char* argv[]) {
                     drawStageLog(slopmap::CompileStage::Bsp, "BSP", "##compile_log_bsp");
                     drawStageLog(slopmap::CompileStage::Vis, "VIS", "##compile_log_vis");
                     drawStageLog(slopmap::CompileStage::Rad, "RAD", "##compile_log_rad");
+                    drawStageLog(slopmap::CompileStage::Nav, "NAV", "##compile_log_nav");
                     ImGui::EndTabBar();
                     if (compile.outputTabFocusPending()) {
                         compile.clearOutputTabFocusPending();

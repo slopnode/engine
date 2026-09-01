@@ -8,6 +8,7 @@
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/nav_graph.hpp"
+#include "map/nav_navmesh_build.hpp"
 #include "map/pvs.hpp"
 #include "map/sound_propagation.hpp"
 #include "map/thing.hpp"
@@ -2175,7 +2176,7 @@ s7_pointer g_sound_emit(s7_scheme* sc, s7_pointer args) {
     }
     const MapNavigation& nav = g_thingWorld->get<MapNavigation>();
     const BspTree& tree = g_thingWorld->get<MapBsp>().tree;
-    const std::int32_t originLeaf = pvsSampleLeaf(tree, {x, y, z});
+    const std::int32_t originLeaf = sampleNavLeaf(nav, tree, {x, y, z});
     if (originLeaf < 0) {
         return s7_nil(sc);
     }
@@ -2185,7 +2186,7 @@ s7_pointer g_sound_emit(s7_scheme* sc, s7_pointer args) {
 
     s7_pointer list = s7_nil(sc);
     g_thingWorld->each([&](flecs::entity entity, Actor, const LocalTransformation& local) {
-        const std::int32_t leaf = pvsSampleLeaf(tree, local.position);
+        const std::int32_t leaf = sampleNavLeaf(nav, tree, local.position);
         if (leaf < 0 || leaf >= static_cast<std::int32_t>(perceived.size())) {
             return;
         }

@@ -1,6 +1,7 @@
 #include "physics/physics_world.hpp"
 
 #include "map/brush.hpp"
+#include "map/nav_bake_config.hpp"
 #include "physics/components.hpp"
 
 #include <Jolt/Core/Factory.h>
@@ -596,6 +597,7 @@ void PhysicsWorld::createCharacter(
     settings->mShape = entry.shape;
     settings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -radius);
     settings->mMass = 70.0f;
+    settings->mMaxSlopeAngle = JPH::DegreesToRadians(kNavMaxWalkableSlopeDegrees);
 
     entry.character = new JPH::CharacterVirtual(
         settings,

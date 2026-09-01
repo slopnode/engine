@@ -30,6 +30,7 @@ enum class AssetKind {
     MapMeta,       /**< maps/<name>/map.meta */
     MapBsp,        /**< maps/<name>/static.bsp */
     MapVis,        /**< maps/<name>/static.vis (PVS) */
+    MapNav,        /**< maps/<name>/static.nav (baked navmesh graph) */
     MapRad,        /**< maps/<name>/rad/static.rad */
     MapLightmap,   /**< maps/<name>/rad/atlas PNGs */
     MapThings,     /**< maps/<name>/things.s7 */

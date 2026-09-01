@@ -277,13 +277,26 @@ bool assembleMapScene(
 
     world.set<MapBsp>(std::move(mapBsp));
     world.set<MapPvs>(MapPvs{std::move(loaded.pvs)});
+    world.set<MapBakedNav>(MapBakedNav{loaded.nav});
     {
         const MapBsp& bspForNav = world.get<MapBsp>();
-        const MapHullAnalysis hullAnalysis = analyzeMapHull(bspForNav.tree, loaded.brushes);
-        MapNavigation mapNav = buildMapNavigation(
-            bspForNav.tree,
-            hullAnalysis.sealed ? &hullAnalysis.exteriorEmpty : nullptr);
-        world.set<MapNavigation>(std::move(mapNav));
+        if (loaded.nav.leafCount > 0) {
+            // Baked navmesh present (tools/slopnav) -- use it as the live graph. Maps
+            // that haven't been re-baked yet (loaded.nav empty) fall back to building
+            // the BSP leaf/portal graph at runtime exactly as before, so this cutover
+            // doesn't break any existing map until someone runs slopnav on it.
+            TraceLog(LOG_INFO, "MAP: using baked navmesh graph (polys=%d)", loaded.nav.leafCount);
+            world.set<MapNavigation>(std::move(loaded.nav));
+        } else {
+            TraceLog(
+                LOG_INFO,
+                "MAP: no baked navmesh (run slopnav); building BSP leaf/portal graph at runtime");
+            const MapHullAnalysis hullAnalysis = analyzeMapHull(bspForNav.tree, loaded.brushes);
+            MapNavigation mapNav = buildMapNavigation(
+                bspForNav.tree,
+                hullAnalysis.sealed ? &hullAnalysis.exteriorEmpty : nullptr);
+            world.set<MapNavigation>(std::move(mapNav));
+        }
         resetNavFlowFieldCache(world);
     }
     world.set<MapWaterVolumes>(buildMapWaterVolumes(loaded.brushes));

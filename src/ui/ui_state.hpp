@@ -71,6 +71,7 @@ struct DebugUiState {
     bool showLightProbeSampleTaps = false;
     bool showGraphs = false;
     bool showNavPaths = false;
+    bool showNavPolys = false;
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;

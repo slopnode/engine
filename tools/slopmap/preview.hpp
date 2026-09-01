@@ -3,6 +3,7 @@
 #include "assets/asset_store.hpp"
 #include "map/brush.hpp"
 #include "map/lightmap.hpp"
+#include "map/nav_graph.hpp"
 #include "map/thing.hpp"
 
 #include <raylib.h>
@@ -123,6 +124,9 @@ void drawBrushFaceOutlines(
  * No-op if fewer than 2 points.
  */
 void drawLeakPath(const std::vector<Vector3>& points, Vector3 eye, float lineWidth);
+/** Draws the baked navmesh (walkable leaf boundary polygons) loaded into Editor::bakedNav,
+ *  matching the in-game "Nav Polys (baked)" debug overlay's look. No-op if nav is empty. */
+void drawNavMeshOverlay(const slopengine::MapNavigation& nav);
 void drawBrushAabbWires(const slopengine::Brush& brush, Color color);
 void drawAabbWires(Vector3 mins, Vector3 maxs, Color color);
 void drawAabbSolid(Vector3 mins, Vector3 maxs, Color color);

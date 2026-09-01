@@ -19,3 +19,6 @@
 [submodule "lib/soloud"]
 	path = lib/soloud
 	url = https://github.com/jarikomppa/soloud.git
+[submodule "lib/recastnavigation"]
+	path = lib/recastnavigation
+	url = https://github.com/recastnavigation/recastnavigation.git

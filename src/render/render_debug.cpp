@@ -1,5 +1,6 @@
 #include "render/render_debug.hpp"
 
+#include "map/nav_graph.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "render/components.hpp"
@@ -234,6 +235,42 @@ void drawNavDebugOverlays(flecs::world& world, const DebugUiState& debugUi) {
             prev = wp;
         }
     });
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
+void drawNavPolyDebugOverlays(const MapNavigation& nav, const DebugUiState& debugUi) {
+    if (!debugUi.showNavPolys || nav.leafCount <= 0) {
+        return;
+    }
+
+    // Fill color distinct from the live BSP-leaf nav overlay (drawNavDebugOverlays'
+    // orange/red) so the two are never confused when both are toggled on at once.
+    const Color fillColor{60, 220, 140, 90};
+    const Color outlineColor{60, 220, 140, 220};
+    const bool hasBoundary = nav.leafBoundary.size() == static_cast<std::size_t>(nav.leafCount);
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    for (int i = 0; i < nav.leafCount; ++i) {
+        if (!nav.walkable[static_cast<std::size_t>(i)]) {
+            continue;
+        }
+        if (hasBoundary && nav.leafBoundary[static_cast<std::size_t>(i)].size() >= 3) {
+            std::vector<Vector3> verts = nav.leafBoundary[static_cast<std::size_t>(i)];
+            for (Vector3& v : verts) {
+                v.y += 0.1f;
+            }
+            drawDebugPolygon(verts, fillColor);
+            drawDebugPolygonOutline(verts, outlineColor);
+        } else {
+            Vector3 centroid = nav.leafCentroids[static_cast<std::size_t>(i)];
+            centroid.y = nav.leafFloorY[static_cast<std::size_t>(i)] + 0.1f;
+            DrawSphereWires(centroid, 0.15f, 6, 6, outlineColor);
+        }
+    }
 
     rlEnableDepthMask();
     EndBlendMode();

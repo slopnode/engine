@@ -3,7 +3,7 @@
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/nav_graph.hpp"
-#include "map/pvs.hpp"
+#include "map/nav_navmesh_build.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
@@ -127,10 +127,6 @@ Vector3 navSamplePoint(Vector3 feet, const CharacterMotor& motor, bool flyer) {
 
 Vector3 navAgentSamplePoint(flecs::entity entity, const CharacterMotor& motor, bool flyer) {
     return navSamplePoint(actorFeet(entity, motor), motor, flyer);
-}
-
-int sampleNavLeaf(const BspTree& tree, Vector3 point) {
-    return pvsSampleLeaf(tree, point);
 }
 
 // Fails open (treats an unresolved door as passable) rather than permanently
@@ -300,8 +296,8 @@ void replanAgent(
 
     const MapNavigation& nav = world.get<MapNavigation>();
     const BspTree& tree = world.get<MapBsp>().tree;
-    const int fromLeaf = sampleNavLeaf(tree, agentPos);
-    const int toLeaf = sampleNavLeaf(tree, goalPos);
+    const int fromLeaf = sampleNavLeaf(nav, tree, agentPos);
+    const int toLeaf = sampleNavLeaf(nav, tree, goalPos);
 
     if (logNav) {
         TraceLog(
@@ -612,7 +608,7 @@ void replanNavigationAgent(flecs::world& world, flecs::entity entity) {
         world, entity, agent, actorFeet(entity, motor), goalPos, false, agentMaxClimb(agent, motor),
         "external nav-set-goal call");
     agent.replanTimer = agent.replanInterval;
-    agent.agentLeaf = sampleNavLeaf(world.get<MapBsp>().tree, agentPos);
+    agent.agentLeaf = sampleNavLeaf(world.get<MapNavigation>(), world.get<MapBsp>().tree, agentPos);
 }
 
 void registerNavModule(flecs::world& world) {
@@ -644,8 +640,8 @@ void registerNavModule(flecs::world& world) {
             const Vector3 agentSamplePos = navSamplePoint(agentFeetPos, motor, agent.flyer);
             const Vector3 goalPos = resolveGoalPos(worldRef, agent);
             const BspTree& tree = worldRef.get<MapBsp>().tree;
-            const int agentLeaf = sampleNavLeaf(tree, agentSamplePos);
-            const int goalLeaf = sampleNavLeaf(tree, goalPos);
+            const int agentLeaf = sampleNavLeaf(nav, tree, agentSamplePos);
+            const int goalLeaf = sampleNavLeaf(nav, tree, goalPos);
 
             updateStuckSkip(worldRef, entity, agent, agentFeetPos, dt);
             advanceWaypoints(worldRef, entity, agent, agentFeetPos, agentLeaf);

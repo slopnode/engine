@@ -35,6 +35,7 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::MapMeta: return "maps";
     case AssetKind::MapBsp: return "maps";
     case AssetKind::MapVis: return "maps";
+    case AssetKind::MapNav: return "maps";
     case AssetKind::MapRad: return "maps";
     case AssetKind::MapLightmap: return "maps";
     case AssetKind::MapThings: return "maps";
@@ -75,6 +76,7 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::MapMeta: return ".meta";
     case AssetKind::MapBsp: return ".bsp";
     case AssetKind::MapVis: return ".vis";
+    case AssetKind::MapNav: return ".nav";
     case AssetKind::MapRad: return ".rad";
     case AssetKind::MapLightmap: return ".png";
     case AssetKind::MapThings: return ".s7";
