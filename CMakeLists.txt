@@ -140,7 +140,7 @@ set(SLOPLIB_SOURCES
     src/map/bsp_io.cpp
     src/map/bsp_ray.cpp
     src/map/csg_compile.cpp
-    src/map/csg_script.cpp
+    src/map/map_script.cpp
     src/map/csg_write.cpp
     src/map/things_script.cpp
     src/map/things_write.cpp
@@ -312,6 +312,14 @@ else()
     target_compile_options(sloprepl PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+
+add_executable(slopcsg tools/slopcsg/main.cpp)
+target_link_libraries(slopcsg PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopcsg PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopcsg PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 add_executable(slopbsp tools/slopbsp/main.cpp)
 target_link_libraries(slopbsp PRIVATE sloplib)

@@ -28,7 +28,7 @@ id borrowed exactly that idea for level design, minus the intersection/subtracti
 
 ## Brushes in this engine {#brushes-in-this-engine}
 
-This engine keeps that same "brushes in a text file" idea, just written as Scheme s-expressions instead of Quake's `.map` format, because everything else in a package is already an s-expr. Here's a trimmed piece of `packages/demo/maps/empty-room/static.csg`:
+This engine keeps that same "brushes in a text file" idea, just written as Scheme s-expressions instead of Quake's `.map` format, because everything else in a package is already an s-expr. Here's a trimmed piece of `packages/demo/maps/empty-room/static.map`:
 
 <pre><code class="language-scheme">(brush-box
   (id "a-floor")

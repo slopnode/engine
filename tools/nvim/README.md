@@ -1,11 +1,11 @@
 # slopengine.nvim
 
-Neovim syntax highlighting for Slopengine package assets (`.csg`, `.meta`,
+Neovim syntax highlighting for Slopengine package assets (`.map`, `.meta`,
 `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`, `.spanim`, `.prt`,
 `.iconmap`, `.texanim`, `.saudio`) and the engine's `.glsl` shaders. Mirrors
 the VSCode extension at [`tools/vscode`](../vscode).
 
-- `.csg`, `.meta`, `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`,
+- `.map`, `.meta`, `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`,
   `.spanim`, `.prt`, `.iconmap`, `.texanim`, `.saudio` are highlighted as
   the `slopengine` filetype (s7/Scheme-flavored: comments, strings,
   numbers, booleans, quote forms, and keyword/builtin/function calls in

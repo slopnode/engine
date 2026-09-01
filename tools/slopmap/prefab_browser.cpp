@@ -42,7 +42,7 @@ void PrefabBrowser::rescan(const slopengine::AssetStore& assets) {
             if (ec || !it->is_regular_file()) {
                 continue;
             }
-            if (it->path().extension() != ".csg") {
+            if (it->path().extension() != ".map") {
                 continue;
             }
             std::error_code relEc;

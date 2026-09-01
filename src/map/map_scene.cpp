@@ -11,7 +11,7 @@
 #include "input/input_context.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/nav_graph.hpp"
 #include "map/graph.hpp"
 #include "navigation/nav_module.hpp"

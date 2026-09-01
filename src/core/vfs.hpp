@@ -26,7 +26,8 @@ enum class AssetKind {
     GeoWeights,    /**< .weights under geometry/ */
     Anim,          /**< .anim under animations/ */
     AnimTracks,    /**< .tracks under animations/ */
-    MapCsg,        /**< maps/<name>/static.csg */
+    MapSource,     /**< maps/<name>/static.map */
+    MapCarved,     /**< maps/<name>/static.csg -- carved output from slopcsg, consumed by slopbsp */
     MapMeta,       /**< maps/<name>/map.meta */
     MapBsp,        /**< maps/<name>/static.bsp */
     MapVis,        /**< maps/<name>/static.vis (PVS) */
@@ -35,7 +36,7 @@ enum class AssetKind {
     MapLightmap,   /**< maps/<name>/rad/atlas PNGs */
     MapThings,     /**< maps/<name>/things.s7 */
     MapGraphs,     /**< maps/<name>/graphs.s7 */
-    PrefabCsg,     /**< .csg under prefabs/ */
+    PrefabSource,  /**< .map under prefabs/ */
     PrefabThings,  /**< .s7 sidecar under prefabs/ */
     Sprite,        /**< .spr under sprites/ */
     SpriteAnim,    /**< .spanim under sprites/ */

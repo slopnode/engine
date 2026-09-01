@@ -123,6 +123,8 @@ std::vector<char*> buildEnvPtrs(std::vector<std::string>& env) {
 
 const char* CompileController::stageToolName(CompileStage stage) {
     switch (stage) {
+    case CompileStage::Csg:
+        return "slopcsg";
     case CompileStage::Bsp:
         return "slopbsp";
     case CompileStage::Vis:

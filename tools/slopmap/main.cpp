@@ -29,7 +29,7 @@
 #include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/map_meta.hpp"
 #include "map/thing_def_registry.hpp"
@@ -2180,6 +2180,8 @@ int main(int argc, char* argv[]) {
             }
             if (beginMenuWithIcon(assets, kIcons, "cog", "Compile", true)) {
                 const bool canRun = !compile.running();
+                const char* runCsgLabel =
+                    editor.compileDirty.csg ? "Run CSG *" : "Run CSG";
                 const char* runBspLabel =
                     editor.compileDirty.bsp ? "Run BSP *" : "Run BSP";
                 const char* runVisLabel =
@@ -2188,9 +2190,13 @@ int main(int argc, char* argv[]) {
                     editor.compileDirty.rad ? "Run RAD *" : "Run RAD";
                 const char* runNavLabel =
                     editor.compileDirty.nav ? "Run NAV *" : "Run NAV";
-                const bool anyCompileDirty = editor.compileDirty.bsp ||
+                const bool anyCompileDirty = editor.compileDirty.csg || editor.compileDirty.bsp ||
                     editor.compileDirty.vis || editor.compileDirty.rad || editor.compileDirty.nav;
                 const char* runAllLabel = anyCompileDirty ? "Run All *" : "Run All";
+                if (menuItemWithIcon(
+                        assets, kIcons, "brick", runCsgLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Csg});
+                }
                 if (menuItemWithIcon(
                         assets, kIcons, "brick", runBspLabel, nullptr, false, canRun)) {
                     startCompile({slopmap::CompileStage::Bsp});
@@ -2211,6 +2217,7 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets, kIcons, "script_go", runAllLabel, nullptr, false, canRun)) {
                     startCompile({
+                        slopmap::CompileStage::Csg,
                         slopmap::CompileStage::Bsp,
                         slopmap::CompileStage::Vis,
                         slopmap::CompileStage::Rad,
@@ -2226,6 +2233,10 @@ int main(int argc, char* argv[]) {
                     canRun && editor.scene == slopmap::EditorScene::Level &&
                     !editor.levelDoc.assetPath.empty() &&
                     editor.levelDoc.assetPath != "untitled";
+                if (menuItemWithIcon(
+                        assets, kIcons, "brick_delete", "Clean CSG", nullptr, false, canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Csg});
+                }
                 if (menuItemWithIcon(
                         assets, kIcons, "brick_delete", "Clean BSP", nullptr, false, canClean)) {
                     editor.cleanCompileData(assets, {slopmap::CompileStage::Bsp});
@@ -2259,6 +2270,7 @@ int main(int argc, char* argv[]) {
                     editor.cleanCompileData(
                         assets,
                         {
+                            slopmap::CompileStage::Csg,
                             slopmap::CompileStage::Bsp,
                             slopmap::CompileStage::Vis,
                             slopmap::CompileStage::Rad,
@@ -3870,12 +3882,13 @@ int main(int argc, char* argv[]) {
                     std::snprintf(
                         stageLabel,
                         sizeof(stageLabel),
-                        "BSP%s VIS%s RAD%s NAV%s",
+                        "CSG%s BSP%s VIS%s RAD%s NAV%s",
+                        editor.compileDirty.csg ? "*" : "",
                         editor.compileDirty.bsp ? "*" : "",
                         editor.compileDirty.vis ? "*" : "",
                         editor.compileDirty.rad ? "*" : "",
                         editor.compileDirty.nav ? "*" : "");
-                    const bool anyDirty = editor.compileDirty.bsp ||
+                    const bool anyDirty = editor.compileDirty.csg || editor.compileDirty.bsp ||
                         editor.compileDirty.vis || editor.compileDirty.rad || editor.compileDirty.nav;
                     if (anyDirty) {
                         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", stageLabel);
@@ -4950,6 +4963,7 @@ int main(int argc, char* argv[]) {
                             ImGui::EndTabItem();
                         }
                     };
+                    drawStageLog(slopmap::CompileStage::Csg, "CSG", "##compile_log_csg");
                     drawStageLog(slopmap::CompileStage::Bsp, "BSP", "##compile_log_bsp");
                     drawStageLog(slopmap::CompileStage::Vis, "VIS", "##compile_log_vis");
                     drawStageLog(slopmap::CompileStage::Rad, "RAD", "##compile_log_rad");

@@ -4,7 +4,7 @@
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -30,16 +30,17 @@ int main(int argc, char* argv[]) {
     }
     loadPackageMapHandlers(scheme, assets);
 
-    auto brushes = loadMapBrushes(scheme, assets, *config->map);
+    auto brushes = loadCarvedMapBrushes(scheme, assets, *config->map);
     if (!brushes) {
-        std::cerr << "slopbsp: failed to load map brushes for '" << *config->map << "'\n";
+        std::cerr << "slopbsp: failed to load carved map brushes for '" << *config->map
+                   << "' (run slopcsg first)\n";
         s7_quit(scheme);
         return 1;
     }
 
     BspTree tree = buildBspFromHullBrushes(*brushes);
     const std::string virtualPath = *config->map + "/static";
-    auto csgPath = assets.resolvePath(AssetKind::MapCsg, virtualPath);
+    auto csgPath = assets.resolvePath(AssetKind::MapCarved, virtualPath);
     if (!csgPath) {
         std::cerr << "slopbsp: failed to resolve map path\n";
         s7_quit(scheme);

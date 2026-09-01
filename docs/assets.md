@@ -27,7 +27,7 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | GeoWeights | `geometry/` | `.weights` | |
 | Anim | `animations/` | `.anim` | |
 | AnimTracks | `animations/` | `.tracks` | |
-| MapCsg | `maps/<name>/` | `static.csg` | Authored map geometry; see @ref tut_csg. |
+| MapSource | `maps/<name>/` | `static.map` | Authored map geometry; see @ref tut_csg. |
 | MapMeta | `maps/<name>/` | `map.meta` | |
 | MapBsp | `maps/<name>/` | `static.bsp` | Compiled; see @ref bsp. |
 | MapVis | `maps/<name>/` | `static.vis` | Compiled PVS; see @ref vis. |
@@ -35,7 +35,7 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | MapLightmap | `maps/<name>/rad/` | `.png` | Baked lightmap atlas images. |
 | MapThings | `maps/<name>/` | `things.s7` | Placed thing instances. |
 | MapGraphs | `maps/<name>/` | `graphs.s7` | Nav-mesh/pathing graph data. |
-| PrefabCsg | `prefabs/` | `.csg` | Reusable brush groups, same authoring format as a map's `static.csg`. |
+| PrefabSource | `prefabs/` | `.map` | Reusable brush groups, same authoring format as a map's `static.map`. |
 | PrefabThings | `prefabs/` | `.s7` | Things sidecar for a prefab. |
 | Sprite | `sprites/` | `.spr` | Rotation frames and hit masks; texture refs resolve under `textures/`. |
 | SpriteAnim | `sprites/` | `.spanim` | Animation clip banks over a `.spr`. |

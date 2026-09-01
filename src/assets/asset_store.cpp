@@ -327,8 +327,12 @@ bool AssetStore::hasScript(std::string_view path) const {
     return vfs_.exists(AssetKind::Script, path);
 }
 
-bool AssetStore::hasMapCsg(std::string_view path) const {
-    return vfs_.exists(AssetKind::MapCsg, path);
+bool AssetStore::hasMapSource(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapSource, path);
+}
+
+bool AssetStore::hasMapCarved(std::string_view path) const {
+    return vfs_.exists(AssetKind::MapCarved, path);
 }
 
 bool AssetStore::hasMapThings(std::string_view path) const {
@@ -343,8 +347,8 @@ bool AssetStore::hasData(std::string_view path) const {
     return vfs_.exists(AssetKind::Data, path);
 }
 
-bool AssetStore::hasPrefabCsg(std::string_view path) const {
-    return vfs_.exists(AssetKind::PrefabCsg, path);
+bool AssetStore::hasPrefabSource(std::string_view path) const {
+    return vfs_.exists(AssetKind::PrefabSource, path);
 }
 
 bool AssetStore::hasPrefabThings(std::string_view path) const {
@@ -1323,8 +1327,22 @@ bool AssetStore::loadScriptFromPackage(
     return true;
 }
 
-bool AssetStore::loadMapCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
-    const auto resolved = vfs_.resolve(AssetKind::MapCsg, path);
+bool AssetStore::loadMapSource(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
+    const auto resolved = vfs_.resolve(AssetKind::MapSource, path);
+    if (!resolved) {
+        return false;
+    }
+
+    if (environment != nullptr) {
+        s7_load_with_environment(scheme, resolved->string().c_str(), environment);
+    } else {
+        s7_load(scheme, resolved->string().c_str());
+    }
+    return true;
+}
+
+bool AssetStore::loadMapCarved(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
+    const auto resolved = vfs_.resolve(AssetKind::MapCarved, path);
     if (!resolved) {
         return false;
     }
@@ -1400,8 +1418,8 @@ bool AssetStore::loadDataFromPackage(
     return true;
 }
 
-bool AssetStore::loadPrefabCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
-    const auto resolved = vfs_.resolve(AssetKind::PrefabCsg, path);
+bool AssetStore::loadPrefabSource(s7_scheme* scheme, std::string_view path, s7_cell* environment) {
+    const auto resolved = vfs_.resolve(AssetKind::PrefabSource, path);
     if (!resolved) {
         return false;
     }

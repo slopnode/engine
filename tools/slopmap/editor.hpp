@@ -62,6 +62,7 @@ enum class PlacePresentation {
 };
 
 struct CompileDirty {
+    bool csg = false;
     bool bsp = false;
     bool vis = false;
     bool rad = false;

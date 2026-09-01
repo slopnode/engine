@@ -46,8 +46,8 @@ struct LoadedMap {
     MaterialAnimTargets materialAnimTargets{};
 };
 
-/** Parsed static.csg: local brushes plus prefab instances. */
-struct MapCsgDocument {
+/** Parsed static.map: local brushes plus prefab instances. */
+struct MapSourceDocument {
     std::vector<Brush> brushes;
     std::vector<PrefabInstance> instances;
 };
@@ -75,19 +75,26 @@ void loadPackageThings(s7_scheme* scheme, AssetStore& assets);
 /** Loads maps/<name>/map.meta. */
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName);
 
-/** Loads and evaluates maps/<name>/static.csg without expanding prefabs. */
-std::optional<MapCsgDocument> loadMapCsgDocument(
+/** Loads and evaluates maps/<name>/static.map without expanding prefabs. */
+std::optional<MapSourceDocument> loadMapSourceDocument(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName);
 
-/** Loads CSG and expands prefabs into a flat brush list. */
+/** Loads the map source and expands prefabs into a flat brush list. */
 std::optional<std::vector<Brush>> loadMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName);
 
-/** Loads prefabs/<path>.csg brushes (no instance transform). */
+/** Loads maps/<name>/static.csg (slopcsg's carved output) as a flat brush list. No prefab
+ *  expansion -- slopcsg already flattens prefab instances before writing this file. */
+std::optional<std::vector<Brush>> loadCarvedMapBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view mapName);
+
+/** Loads prefabs/<path>.map brushes (no instance transform). */
 std::optional<std::vector<Brush>> loadPrefabBrushes(
     s7_scheme* scheme,
     AssetStore& assets,

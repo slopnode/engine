@@ -8,6 +8,7 @@
 namespace slopmap {
 
 enum class CompileStage {
+    Csg,
     Bsp,
     Vis,
     Rad,
@@ -20,6 +21,8 @@ inline int compileStageIndex(CompileStage stage) {
 
 inline const char* compileStageLabel(CompileStage stage) {
     switch (stage) {
+    case CompileStage::Csg:
+        return "CSG";
     case CompileStage::Bsp:
         return "BSP";
     case CompileStage::Vis:
@@ -32,7 +35,7 @@ inline const char* compileStageLabel(CompileStage stage) {
     return "?";
 }
 
-inline constexpr int kCompileStageCount = 4;
+inline constexpr int kCompileStageCount = 5;
 
 /** Mirrors sloprad's --gpu-safe/--gpu-fast: how conservatively GPU batches are sized.
  *  Auto leaves it to sloprad, which enables safe mode on integrated GPUs. */
@@ -163,7 +166,7 @@ private:
     std::array<std::vector<std::string>, kCompileStageCount> stageLogs_{};
     std::array<std::string, kCompileStageCount> stageLogText_{};
     std::array<bool, kCompileStageCount> stageLogDirty_{};
-    std::array<bool, kCompileStageCount> stageLogAutoScroll_{true, true, true, true};
+    std::array<bool, kCompileStageCount> stageLogAutoScroll_{true, true, true, true, true};
     std::string lineBuffer_;
     std::string statusSummary_;
     bool running_ = false;

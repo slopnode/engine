@@ -3,7 +3,7 @@
 #include "game/app_config.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/nav_bake.hpp"
 #include "map/nav_graph.hpp"
 #include "map/nav_io.hpp"

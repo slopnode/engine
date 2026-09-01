@@ -1,6 +1,6 @@
 @page nvim Neovim
 
-Syntax highlighting for package assets (`.csg`, `.meta`, `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`, `.spanim`, `.prt`, `.iconmap`) and the engine's `.glsl` shaders, mirroring the VSCode extension (see @ref vscode). It's a plain Neovim runtime plugin at `tools/nvim` in the repository, with no external dependencies, so it's pointed at directly rather than pulled from a plugin registry.
+Syntax highlighting for package assets (`.map`, `.meta`, `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`, `.spanim`, `.prt`, `.iconmap`) and the engine's `.glsl` shaders, mirroring the VSCode extension (see @ref vscode). It's a plain Neovim runtime plugin at `tools/nvim` in the repository, with no external dependencies, so it's pointed at directly rather than pulled from a plugin registry.
 
 # Install {#install}
 
@@ -28,4 +28,4 @@ Adjust the path if your checkout of the repository lives somewhere other than `~
 
 # Verifying {#verifying-nvim}
 
-Open any `.s7` or `.csg` file from a package. Comments, strings, numbers, booleans, quote forms, and keyword or builtin calls in head position should be highlighted. Opening a `.glsl` shader should highlight comments, preprocessor directives, storage qualifiers, types, and builtin variables and functions.
+Open any `.s7` or `.map` file from a package. Comments, strings, numbers, booleans, quote forms, and keyword or builtin calls in head position should be highlighted. Opening a `.glsl` shader should highlight comments, preprocessor directives, storage qualifiers, types, and builtin variables and functions.

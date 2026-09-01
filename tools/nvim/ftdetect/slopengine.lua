@@ -1,6 +1,6 @@
 vim.filetype.add({
   extension = {
-    csg = "slopengine",
+    map = "slopengine",
     meta = "slopengine",
     mat = "slopengine",
     s7 = "slopengine",

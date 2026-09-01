@@ -83,8 +83,11 @@ public:
     /** Returns true when a script exists at @p path. */
     bool hasScript(std::string_view path) const;
 
-    /** Returns true when a map CSG script exists at @p path. */
-    bool hasMapCsg(std::string_view path) const;
+    /** Returns true when a map source script exists at @p path. */
+    bool hasMapSource(std::string_view path) const;
+
+    /** Returns true when a carved map script (slopcsg output) exists at @p path. */
+    bool hasMapCarved(std::string_view path) const;
 
     /** Returns true when a map things script exists at @p path. */
     bool hasMapThings(std::string_view path) const;
@@ -95,8 +98,8 @@ public:
     /** Returns true when a data script exists at @p path. */
     bool hasData(std::string_view path) const;
 
-    /** Returns true when a prefab CSG script exists at @p path. */
-    bool hasPrefabCsg(std::string_view path) const;
+    /** Returns true when a prefab source script exists at @p path. */
+    bool hasPrefabSource(std::string_view path) const;
 
     /** Returns true when a prefab things script exists at @p path. */
     bool hasPrefabThings(std::string_view path) const;
@@ -305,8 +308,11 @@ public:
     /** Loads scripts/{path}.s7 only from the mounted package @p packageId. */
     bool loadScriptFromPackage(s7_scheme* scheme, std::string_view packageId, std::string_view path);
 
-    /** Loads and evaluates the map CSG script at @p path in @p scheme. */
-    bool loadMapCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
+    /** Loads and evaluates the map source script at @p path in @p scheme. */
+    bool loadMapSource(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
+
+    /** Loads and evaluates the carved map script (slopcsg output) at @p path in @p scheme. */
+    bool loadMapCarved(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
     /** Loads and evaluates the map things script at @p path in @p scheme. */
     bool loadMapThings(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
@@ -320,8 +326,8 @@ public:
     /** Loads data/{path}.s7 only from the mounted package @p packageId. */
     bool loadDataFromPackage(s7_scheme* scheme, std::string_view packageId, std::string_view path);
 
-    /** Loads and evaluates the prefab CSG script at @p path in @p scheme. */
-    bool loadPrefabCsg(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
+    /** Loads and evaluates the prefab source script at @p path in @p scheme. */
+    bool loadPrefabSource(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
     /** Loads and evaluates the prefab things script at @p path in @p scheme. */
     bool loadPrefabThings(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);

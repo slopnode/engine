@@ -1,4 +1,4 @@
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 
 #include "script/script_scope.hpp"
 
@@ -691,7 +691,7 @@ bool expandPrefabIntoBrushes(
     if (std::find(parentNest.begin(), parentNest.end(), instance.path) != parentNest.end()) {
         return false;
     }
-    if (!assets.hasPrefabCsg(instance.path)) {
+    if (!assets.hasPrefabSource(instance.path)) {
         return false;
     }
 
@@ -708,7 +708,7 @@ bool expandPrefabIntoBrushes(
     CsgBuilder* previous = g_builder;
     g_builder = &child;
     bindCsgApi(sc);
-    const bool loaded = assets.loadPrefabCsg(sc, instance.path, env);
+    const bool loaded = assets.loadPrefabSource(sc, instance.path, env);
     g_builder = previous;
     s7_set_curlet(sc, previousEnv);
     if (!loaded || child.brushes.empty()) {
@@ -782,7 +782,7 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "prefab requires id")));
     }
 
-    if (!g_builder->assets->hasPrefabCsg(path)) {
+    if (!g_builder->assets->hasPrefabSource(path)) {
         return s7_error(
             sc,
             s7_make_symbol(sc, "csg-error"),
@@ -1230,7 +1230,7 @@ std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName)
     return mapMeta;
 }
 
-std::optional<MapCsgDocument> loadMapCsgDocument(
+std::optional<MapSourceDocument> loadMapSourceDocument(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
@@ -1239,7 +1239,7 @@ std::optional<MapCsgDocument> loadMapCsgDocument(
     }
 
     const std::string virtualPath = std::string(mapName) + "/static";
-    if (!assets.hasMapCsg(virtualPath)) {
+    if (!assets.hasMapSource(virtualPath)) {
         return std::nullopt;
     }
     if (!loadMapMeta(assets, mapName)) {
@@ -1255,14 +1255,14 @@ std::optional<MapCsgDocument> loadMapCsgDocument(
     builder.recordTopLevelInstances = true;
     g_builder = &builder;
     bindCsgApi(scheme);
-    const bool loaded = assets.loadMapCsg(scheme, virtualPath, env);
+    const bool loaded = assets.loadMapSource(scheme, virtualPath, env);
     g_builder = nullptr;
     s7_set_curlet(scheme, previousEnv);
     if (!loaded || (builder.brushes.empty() && builder.instances.empty())) {
         return std::nullopt;
     }
 
-    MapCsgDocument doc;
+    MapSourceDocument doc;
     doc.brushes = std::move(builder.brushes);
     doc.instances = std::move(builder.instances);
     return doc;
@@ -1272,7 +1272,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
-    auto doc = loadMapCsgDocument(scheme, assets, mapName);
+    auto doc = loadMapSourceDocument(scheme, assets, mapName);
     if (!doc) {
         return std::nullopt;
     }
@@ -1325,11 +1325,16 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     return brushes;
 }
 
-std::optional<std::vector<Brush>> loadPrefabBrushes(
+std::optional<std::vector<Brush>> loadCarvedMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
-    std::string_view prefabPath) {
-    if (scheme == nullptr || prefabPath.empty() || !assets.hasPrefabCsg(prefabPath)) {
+    std::string_view mapName) {
+    if (scheme == nullptr) {
+        return std::nullopt;
+    }
+
+    const std::string virtualPath = std::string(mapName) + "/static";
+    if (!assets.hasMapCarved(virtualPath)) {
         return std::nullopt;
     }
 
@@ -1342,7 +1347,33 @@ std::optional<std::vector<Brush>> loadPrefabBrushes(
     builder.recordTopLevelInstances = false;
     g_builder = &builder;
     bindCsgApi(scheme);
-    const bool loaded = assets.loadPrefabCsg(scheme, prefabPath, env);
+    const bool loaded = assets.loadMapCarved(scheme, virtualPath, env);
+    g_builder = nullptr;
+    s7_set_curlet(scheme, previousEnv);
+    if (!loaded || builder.brushes.empty()) {
+        return std::nullopt;
+    }
+    return std::move(builder.brushes);
+}
+
+std::optional<std::vector<Brush>> loadPrefabBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view prefabPath) {
+    if (scheme == nullptr || prefabPath.empty() || !assets.hasPrefabSource(prefabPath)) {
+        return std::nullopt;
+    }
+
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(scheme, s7_rootlet(scheme), s7_nil(scheme));
+    const s7_pointer previousEnv = s7_set_curlet(scheme, env);
+
+    CsgBuilder builder;
+    builder.assets = &assets;
+    builder.recordTopLevelInstances = false;
+    g_builder = &builder;
+    bindCsgApi(scheme);
+    const bool loaded = assets.loadPrefabSource(scheme, prefabPath, env);
     g_builder = nullptr;
     s7_set_curlet(scheme, previousEnv);
     if (!loaded || builder.brushes.empty()) {
@@ -1393,8 +1424,8 @@ bool loadMapStageBsp(
     work.virtualPath = std::string(mapName) + "/static";
     work.radVirtualPath = std::string(mapName) + "/rad/static";
     const std::string metaPath = std::string(mapName) + "/map";
-    if (!assets.hasMapCsg(work.virtualPath)) {
-        TraceLog(LOG_WARNING, "MAP: missing maps/%s.csg", work.virtualPath.c_str());
+    if (!assets.hasMapSource(work.virtualPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s.map", work.virtualPath.c_str());
         return false;
     }
     if (!assets.hasMapMeta(metaPath)) {
@@ -1427,7 +1458,7 @@ bool loadMapStageBsp(
 
     auto brushes = loadMapBrushes(scheme, assets, mapName);
     if (!brushes) {
-        TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.csg", work.virtualPath.c_str());
+        TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.map", work.virtualPath.c_str());
         return false;
     }
 

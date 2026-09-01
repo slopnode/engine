@@ -1,6 +1,6 @@
 @page vscode VSCode
 
-Syntax highlighting for package assets (`.csg`, `.meta`, `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`, `.spanim`, `.prt`, `.iconmap`) and the engine's `.glsl` shaders. The extension lives at `tools/vscode` in the repository and isn't published to the marketplace, so it's installed straight from a checkout.
+Syntax highlighting for package assets (`.map`, `.meta`, `.mat`, `.s7`, `.geo`, `.anim`, `.skel`, `.spr`, `.spanim`, `.prt`, `.iconmap`) and the engine's `.glsl` shaders. The extension lives at `tools/vscode` in the repository and isn't published to the marketplace, so it's installed straight from a checkout.
 
 # Install by symlink {#install-symlink}
 
@@ -32,4 +32,4 @@ If a symlink isn't an option, the extension can be packaged into a `.vsix` and i
 
 # Verifying {#verifying}
 
-Open any `.s7` or `.csg` file from a package. The language mode in the bottom-right status bar should read Slopengine, and keywords, strings, comments, and numbers should be highlighted. Opening a `.glsl` shader should highlight it as Slopengine GLSL.
+Open any `.s7` or `.map` file from a package. The language mode in the bottom-right status bar should read Slopengine, and keywords, strings, comments, and numbers should be highlighted. Opening a `.glsl` shader should highlight it as Slopengine GLSL.
