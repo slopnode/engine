@@ -46,6 +46,33 @@ void runBspBuildTests() {
     }
 
     {
+        // buildBspFromHullBrushes's optional surfaceBrushes must only affect
+        // emitted surface geometry -- tree structure/solidity classification has
+        // to come from the primary (uncarved) brushes list. pointInsideBrush
+        // requires every one of a brush's faces to bound it, so a brush missing
+        // a face (as carveBrushes produces for an embedded face) describes an
+        // unbounded region for containment tests; if surfaceBrushes were ever
+        // used for classification instead, this decapitated brush would leak
+        // solidity through its missing side and the room would stop sealing.
+        std::vector<Brush> raw = mapfixtures::sealedHollowRoom();
+        std::vector<Brush> decapitated = raw;
+        CHECK_FALSE(decapitated.empty());
+        if (!decapitated.empty()) {
+            CHECK_FALSE(decapitated[0].faces.empty());
+            if (!decapitated[0].faces.empty()) {
+                decapitated[0].faces.erase(decapitated[0].faces.begin());
+            }
+        }
+
+        const BspTree rawOnlyTree = buildBspFromHullBrushes(raw);
+        const BspTree tree = buildBspFromHullBrushes(raw, &decapitated);
+        CHECK(tree.root >= 0);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, raw);
+        CHECK(analysis.sealed);
+        CHECK(tree.surfaceFaces.size() < rawOnlyTree.surfaceFaces.size());
+    }
+
+    {
         const Brush solid = makeBrushBox(
             "solid",
             {-1.0f, -1.0f, -1.0f},

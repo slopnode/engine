@@ -36,6 +36,30 @@ void runPvsBuildTests() {
     }
 
     {
+        // Standing inside the Door leaf itself (e.g. mid-doorway at eye height)
+        // must resolve the camera's PVS sample to that leaf directly rather
+        // than nudging upward past its low ceiling: an upward nudge can escape
+        // into unrelated, poorly-connected geometry (regression covered here by
+        // asserting the sample lands on the Door leaf, not -1 or some other
+        // leaf reached by the nudge search).
+        const std::vector<Brush> brushes = mapfixtures::sealedRoomWithInteriorDoor();
+        const BspTree tree = buildBspFromHullBrushes(brushes);
+        const MapHullAnalysis analysis = analyzeMapHull(tree, brushes);
+        const PvsFile pvs = buildPvs(tree, &analysis.exteriorEmpty);
+        const std::int32_t doorLeaf = pointLeaf(tree, {0.0f, 1.0f, 0.0f});
+        CHECK(doorLeaf >= 0);
+        CHECK((tree.leaves[static_cast<std::size_t>(doorLeaf)].contents & BspContents::Door) != 0);
+
+        for (float eyeY : {1.0f, 1.7f}) {
+            const Vector3 camPos{0.0f, eyeY, 0.0f};
+            CHECK(pointLeaf(tree, camPos) == doorLeaf);
+            CHECK(pvsSampleLeaf(tree, camPos) == doorLeaf);
+            CHECK(pvsVisiblePoints(tree, pvs, camPos, {0.0f, 1.0f, -3.0f}));
+            CHECK(pvsVisiblePoints(tree, pvs, camPos, {0.0f, 1.0f, 3.0f}));
+        }
+    }
+
+    {
         // A real Door brush filling the doorway must not sever PVS
         // connectivity between the rooms it separates: PVS is a static,
         // precomputed set with no live door-state query, so it has to stay

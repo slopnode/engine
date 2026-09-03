@@ -340,6 +340,45 @@ void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std:
     EndBlendMode();
 }
 
+void drawActorColliderDebugOverlays(flecs::world& world, const DebugUiState& debugUi) {
+    if (!debugUi.showActorColliders) {
+        return;
+    }
+
+    const Color color{60, 220, 255, 255};
+    constexpr int kRings = 8;
+    constexpr int kSlices = 8;
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthMask();
+
+    world.each([&](flecs::entity entity, Actor, const CharacterMotor& motor,
+                   const LocalTransformation& local) {
+        if (entity.has<ActorCorpse>()) {
+            return;
+        }
+        const Vector3 feet = local.position;
+        const float radius = characterRadius(motor);
+        if (motor.hull == CharacterHull::Sphere) {
+            DrawSphereWires({feet.x, feet.y + radius, feet.z}, radius, kRings, kSlices, color);
+            return;
+        }
+        const float bodyHeight = characterBodyHeight(motor);
+        if (motor.hull == CharacterHull::Box) {
+            const Vector3 center{feet.x, feet.y + characterCenterOffset(motor), feet.z};
+            const Vector3 size{2.0f * radius, bodyHeight + 2.0f * radius, 2.0f * radius};
+            DrawCubeWiresV(center, size, color);
+            return;
+        }
+        const Vector3 start{feet.x, feet.y + radius, feet.z};
+        const Vector3 end{feet.x, feet.y + radius + bodyHeight, feet.z};
+        DrawCapsuleWires(start, end, radius, kRings, kSlices, color);
+    });
+
+    rlEnableDepthMask();
+    EndBlendMode();
+}
+
 Ray spriteAimRay(const Lens& lens) {
     Ray ray{};
     ray.position = lens.camera.position;

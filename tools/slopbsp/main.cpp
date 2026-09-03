@@ -30,6 +30,18 @@ int main(int argc, char* argv[]) {
     }
     loadPackageMapHandlers(scheme, assets);
 
+    // Tree structure and solidity classification need the brushes' full, uncarved
+    // convex shapes -- pointInsideBrush-style containment tests require every one
+    // of a brush's faces to still bound it, and a carved (decapitated) brush's
+    // remaining faces describe an unbounded region instead, corrupting leaf
+    // classification map-wide. Only the emitted surface geometry wants carving.
+    auto rawBrushes = loadMapBrushes(scheme, assets, *config->map);
+    if (!rawBrushes) {
+        std::cerr << "slopbsp: failed to load map brushes for '" << *config->map << "'\n";
+        s7_quit(scheme);
+        return 1;
+    }
+
     auto brushes = loadCarvedMapBrushes(scheme, assets, *config->map);
     if (!brushes) {
         std::cerr << "slopbsp: failed to load carved map brushes for '" << *config->map
@@ -38,7 +50,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    BspTree tree = buildBspFromHullBrushes(*brushes);
+    BspTree tree = buildBspFromHullBrushes(*rawBrushes, &*brushes);
     const std::string virtualPath = *config->map + "/static";
     auto csgPath = assets.resolvePath(AssetKind::MapCarved, virtualPath);
     if (!csgPath) {

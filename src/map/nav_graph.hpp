@@ -27,6 +27,17 @@ struct NavPortalLink {
     float cost = 0.0f;
     /** Brush id of the Door gating this link, or empty if the link is ungated. */
     std::string doorBrushId;
+    /** Real vertical rise of this specific edge, in the direction owner-leaf -> neighborLeaf
+     *  (negative is a drop). For a BSP-leaf graph this is the accurate floor-height delta
+     *  between the two (typically small, locally flat) leaves either side of the portal. For
+     *  a Recast-baked navmesh graph this is always 0: Recast only ever connects two polygons
+     *  when their real voxel-level step is already within the bake's walkableClimb (see
+     *  nav_bake.cpp), so every edge present in the baked graph is climb-verified by
+     *  construction -- re-deriving a rise from each polygon's single leafFloorY scalar would
+     *  be actively wrong on any polygon Recast merged across a slope/stair run, where that
+     *  scalar (sampled once at the polygon's centroid) can land far from the height at this
+     *  particular edge. See findLeafPath/buildNavFlowField's use of this field. */
+    float climbHeight = 0.0f;
 };
 
 /** Answers whether the door with the given brush id currently allows sound/nav to pass.

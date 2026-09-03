@@ -32,6 +32,7 @@ void runDynamicLightCompositingTests();
 void runBrushDoorTests();
 void runBrushSplitTests();
 void runBrushExtrudeTests();
+void runBrushCarveTests();
 void runBrushRoleTests();
 void runBrushBlocksTests();
 void runLightmapTransparentTests();
@@ -77,6 +78,7 @@ const Suite kSuites[] = {
     {"brush_door", slopengine::runBrushDoorTests},
     {"brush_split", slopengine::runBrushSplitTests},
     {"brush_extrude", slopengine::runBrushExtrudeTests},
+    {"brush_carve", slopengine::runBrushCarveTests},
     {"brush_role", slopengine::runBrushRoleTests},
     {"brush_blocks", slopengine::runBrushBlocksTests},
     {"lightmap_transparent", slopengine::runLightmapTransparentTests},

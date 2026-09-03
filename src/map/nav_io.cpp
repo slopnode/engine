@@ -99,7 +99,7 @@ void rebuildReverseAdjacency(MapNavigation& nav) {
             nav.reverseAdjacency[static_cast<std::size_t>(link.neighborLeaf)].push_back(
                 NavPortalLink{
                     i, link.portalCenter, link.portalTangent, link.portalHalfWidth, link.cost,
-                    link.doorBrushId});
+                    link.doorBrushId, link.climbHeight});
         }
     }
 }
@@ -142,6 +142,7 @@ bool writeNavFile(const std::filesystem::path& path, const MapNavigation& nav) {
             writer.writePod(link.portalHalfWidth);
             writer.writePod(link.cost);
             writer.writePod(internString(stringTable, strings, link.doorBrushId));
+            writer.writePod(link.climbHeight);
         }
     }
 
@@ -244,7 +245,8 @@ std::optional<MapNavigation> readNavBytes(std::span<const std::byte> data) {
             NavPortalLink& link = nav.adjacency[i][j];
             if (!reader.readPod(link.neighborLeaf) || !reader.readPod(link.portalCenter)
                 || !reader.readPod(link.portalTangent) || !reader.readPod(link.portalHalfWidth)
-                || !reader.readPod(link.cost) || !reader.readPod(doorBrushIndices[i][j])) {
+                || !reader.readPod(link.cost) || !reader.readPod(doorBrushIndices[i][j])
+                || !reader.readPod(link.climbHeight)) {
                 return std::nullopt;
             }
         }

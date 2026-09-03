@@ -1078,6 +1078,7 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     compileDirty = {};
     rebuildPreview(assets);
     reloadVisPreview(assets);
+    reloadCsgPreview(assets);
     fill = reloadLitBake(assets) ? PreviewFill::Lit : PreviewFill::Textures;
     reloadBakedNav(assets);
     resetCamera(*this);
@@ -1490,6 +1491,9 @@ bool Editor::cleanCompileData(
         }
     } else if (fill == PreviewFill::Unlit && !preview.visValid) {
         fill = PreviewFill::Textures;
+    } else if (
+        (fill == PreviewFill::Csg || fill == PreviewFill::CsgWireframe) && !preview.csgValid) {
+        fill = PreviewFill::Textures;
     }
 
     if (!removedAny) {
@@ -1605,6 +1609,20 @@ bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
     const std::unordered_set<std::string> moverBrushIds =
         slopengine::collectClaimedBrushIds(&thingsDoc, combined);
     return preview.reloadVisPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
+}
+
+bool Editor::reloadCsgPreview(slopengine::AssetStore& assets) {
+    if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
+        return false;
+    }
+    std::vector<slopengine::Brush> combined = levelDoc.brushes;
+    combined.insert(
+        combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
+    slopengine::ThingDocument thingsDoc{};
+    thingsDoc.things = levelDoc.things;
+    const std::unordered_set<std::string> moverBrushIds =
+        slopengine::collectClaimedBrushIds(&thingsDoc, combined);
+    return preview.reloadCsgPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
 bool Editor::reloadLitBake(slopengine::AssetStore& assets) {

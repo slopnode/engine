@@ -135,6 +135,7 @@ set(SLOPLIB_SOURCES
     src/particles/particle_sim.cpp
     src/game/app_config.cpp
     src/map/brush.cpp
+    src/map/brush_carve.cpp
     src/map/bsp_analyze.cpp
     src/map/bsp_build.cpp
     src/map/bsp_io.cpp

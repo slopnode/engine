@@ -1,6 +1,7 @@
 #include "assets/asset_store.hpp"
 #include "core/log.hpp"
 #include "game/app_config.hpp"
+#include "map/brush_carve.hpp"
 #include "map/csg_write.hpp"
 #include "map/map_script.hpp"
 
@@ -28,9 +29,6 @@ int main(int argc, char* argv[]) {
     }
     loadPackageMapHandlers(scheme, assets);
 
-    // No carving logic yet -- this is a pass-through scaffold proving the pipeline plumbing.
-    // See docs/csg-bsp-vis-rad.md and the "slopcsg" plan for the real brush-vs-brush clipping
-    // this stage will eventually do.
     auto brushes = loadMapBrushes(scheme, assets, *config->map);
     if (!brushes) {
         std::cerr << "slopcsg: failed to load map brushes for '" << *config->map << "'\n";
@@ -38,6 +36,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const std::size_t brushesIn = brushes->size();
+    std::size_t facesIn = 0;
+    for (const Brush& brush : *brushes) {
+        facesIn += brush.faces.size();
+    }
+
+    auto carved = carveBrushes(*brushes);
+    std::size_t facesOut = 0;
+    for (const Brush& brush : carved) {
+        facesOut += brush.faces.size();
+    }
 
     const std::string virtualPath = *config->map + "/static";
     auto sourcePath = assets.resolvePath(AssetKind::MapSource, virtualPath);
@@ -48,7 +56,7 @@ int main(int argc, char* argv[]) {
     }
 
     const auto csgPath = sourcePath->parent_path() / "static.csg";
-    if (!writeMapBrushes(csgPath, *brushes)) {
+    if (!writeMapBrushes(csgPath, carved)) {
         std::cerr << "slopcsg: failed to write " << csgPath << "\n";
         s7_quit(scheme);
         return 1;
@@ -56,10 +64,11 @@ int main(int argc, char* argv[]) {
 
     TraceLog(
         LOG_INFO,
-        "slopcsg: wrote %s (brushes in=%d out=%d)",
+        "slopcsg: wrote %s (brushes=%d faces in=%d out=%d)",
         csgPath.string().c_str(),
         static_cast<int>(brushesIn),
-        static_cast<int>(brushes->size()));
+        static_cast<int>(facesIn),
+        static_cast<int>(facesOut));
 
     s7_quit(scheme);
     return 0;

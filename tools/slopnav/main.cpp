@@ -115,6 +115,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // analyzeMapHull's leak/seal check wants raw, uncarved brush volumes -- carving only
+    // reshapes exposed surface geometry, and the whole-brush AABBs/role predicates it
+    // reads are unaffected either way.
     auto brushes = loadMapBrushes(scheme, assets, *config->map);
     if (!brushes) {
         std::cerr << "slopnav: failed to load map brushes for '" << *config->map << "'\n";
@@ -132,14 +135,25 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::optional<NavPolyMesh> polyMesh = buildNavPolyMesh(*tree, *brushes, &analysis.exteriorEmpty);
+    // The walkable-triangle soup wants slopcsg's carved geometry, so overlapping brush
+    // faces don't rasterize as duplicate/interpenetrating nav triangles (run slopcsg first).
+    auto carvedBrushes = loadCarvedMapBrushes(scheme, assets, *config->map);
+    if (!carvedBrushes) {
+        std::cerr << "slopnav: failed to load carved map brushes for '" << *config->map
+                   << "' (run slopcsg first)\n";
+        s7_quit(scheme);
+        return 1;
+    }
+
+    const std::optional<NavPolyMesh> polyMesh =
+        buildNavPolyMesh(*tree, *carvedBrushes, &analysis.exteriorEmpty);
     if (!polyMesh) {
         TraceLog(LOG_ERROR, "slopnav: bake produced no walkable area for '%s'", config->map->c_str());
         s7_quit(scheme);
         return 1;
     }
 
-    const MapNavigation nav = buildMapNavigationFromPolyMesh(*polyMesh, *brushes);
+    const MapNavigation nav = buildMapNavigationFromPolyMesh(*polyMesh, *carvedBrushes);
     const auto navPath = bspPath->parent_path() / "static.nav";
     if (!writeNavFile(navPath, nav)) {
         std::cerr << "slopnav: failed to write " << navPath << "\n";

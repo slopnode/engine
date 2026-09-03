@@ -19,6 +19,8 @@ enum class PreviewFill {
     Solid,
     Textures,
     Unlit,
+    Csg,
+    CsgWireframe,
     Lit,
     SolidLit,
 };
@@ -45,6 +47,13 @@ struct MapPreview {
     bool visValid = false;
     std::vector<int> visTransparentMeshIndices;
 
+    Model csgModel{};
+    bool csgValid = false;
+    std::vector<int> csgTransparentMeshIndices;
+    /** The carved brushes behind csgModel, kept for outline drawing in
+     *  PreviewFill::CsgWireframe and for the Wires overlay while csgValid. */
+    std::vector<slopengine::Brush> csgBrushes;
+
     Model moverOverlayModel{};
     bool moverOverlayValid = false;
 
@@ -62,9 +71,19 @@ struct MapPreview {
 
     void clear();
     void clearVis();
+    void clearCsg();
     void clearLit();
     void rebuild(slopengine::AssetStore& assets, const std::vector<slopengine::Brush>& brushes);
     bool reloadVisPreview(
+        slopengine::AssetStore& assets,
+        const std::string& mapName,
+        const std::vector<slopengine::Brush>& brushes,
+        const std::unordered_set<std::string>& moverBrushIds = {});
+    /** Runs the same brush-CSG carve slopcsg performs (see carveBrushes) and rebuilds
+     *  csgModel from the result, so the editor can show the exposed-only geometry that
+     *  will actually reach BSP, separate from the raw per-brush faces the other fill
+     *  modes render. */
+    bool reloadCsgPreview(
         slopengine::AssetStore& assets,
         const std::string& mapName,
         const std::vector<slopengine::Brush>& brushes,

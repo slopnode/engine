@@ -421,11 +421,17 @@ MapNavigation buildMapNavigation(
         const Vector3& centroidB = nav.leafCentroids[static_cast<std::size_t>(portal.leafB)];
         const float costAB = navDist3(centroidA, center) + navDist3(center, centroidB);
         const PortalSpread spread = computePortalHorizontalSpread(portal.vertices);
+        const float floorA = nav.leafFloorY[static_cast<std::size_t>(portal.leafA)];
+        const float floorB = nav.leafFloorY[static_cast<std::size_t>(portal.leafB)];
 
         nav.adjacency[static_cast<std::size_t>(portal.leafA)].push_back(
-            NavPortalLink{portal.leafB, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId});
+            NavPortalLink{
+                portal.leafB, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId,
+                floorB - floorA});
         nav.adjacency[static_cast<std::size_t>(portal.leafB)].push_back(
-            NavPortalLink{portal.leafA, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId});
+            NavPortalLink{
+                portal.leafA, center, spread.tangent, spread.halfWidth, costAB, portal.doorBrushId,
+                floorA - floorB});
     }
 
     nav.reverseAdjacency.assign(static_cast<std::size_t>(n), {});
@@ -437,7 +443,7 @@ MapNavigation buildMapNavigation(
             nav.reverseAdjacency[static_cast<std::size_t>(link.neighborLeaf)].push_back(
                 NavPortalLink{
                     i, link.portalCenter, link.portalTangent, link.portalHalfWidth, link.cost,
-                    link.doorBrushId});
+                    link.doorBrushId, link.climbHeight});
         }
     }
 
@@ -619,8 +625,7 @@ std::vector<int> findLeafPath(
             if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
                 continue;
             }
-            const float rise = nav.leafFloorY[static_cast<std::size_t>(next)] -
-                nav.leafFloorY[static_cast<std::size_t>(current)];
+            const float rise = link.climbHeight;
             if (rise > maxClimb) {
                 continue;
             }
@@ -689,8 +694,7 @@ NavFlowField buildNavFlowField(
             if (isDoorOpen && !link.doorBrushId.empty() && !isDoorOpen(link.doorBrushId)) {
                 continue;
             }
-            const float rise = nav.leafFloorY[static_cast<std::size_t>(current)] -
-                nav.leafFloorY[static_cast<std::size_t>(prev)];
+            const float rise = link.climbHeight;
             if (rise > maxClimb) {
                 continue;
             }

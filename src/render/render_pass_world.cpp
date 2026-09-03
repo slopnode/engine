@@ -1327,6 +1327,10 @@ void drawWorldDebugOverlays(flecs::world& world) {
         drawNavPolyDebugOverlays(world.get<MapBakedNav>().nav, world.get<DebugUiState>());
     }
 
+    if (world.has<DebugUiState>() && world.get<DebugUiState>().showActorColliders) {
+        drawActorColliderDebugOverlays(world, world.get<DebugUiState>());
+    }
+
     if (world.has<DebugLinePool>()) {
         drawDebugLinePool(world.get<DebugLinePool>());
     }

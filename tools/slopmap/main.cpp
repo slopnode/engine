@@ -2067,7 +2067,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::Separator();
                 if (beginMenuWithIcon(assets, kIcons, "picture", "Preview")) {
-                    ImGui::TextDisabled("CSG");
+                    ImGui::TextDisabled("MAP");
                     if (menuItemWithIcon(
                             assets,
                             kIcons,
@@ -2103,6 +2103,34 @@ int main(int argc, char* argv[]) {
                             nullptr,
                             editor.fill == slopmap::PreviewFill::Unlit)) {
                         editor.fill = slopmap::PreviewFill::Unlit;
+                    }
+                    ImGui::Separator();
+                    ImGui::TextDisabled("CSG");
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "shape_square",
+                            "Carved Wireframe",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::CsgWireframe)) {
+                        if (editor.reloadCsgPreview(assets)) {
+                            editor.fill = slopmap::PreviewFill::CsgWireframe;
+                        } else {
+                            editor.statusMessage = "CSG preview needs a saved map";
+                        }
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "cut",
+                            "Carved Geometry",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::Csg)) {
+                        if (editor.reloadCsgPreview(assets)) {
+                            editor.fill = slopmap::PreviewFill::Csg;
+                        } else {
+                            editor.statusMessage = "CSG preview needs a saved map";
+                        }
                     }
                     ImGui::Separator();
                     ImGui::TextDisabled("VIS / RAD");
@@ -2327,6 +2355,9 @@ int main(int argc, char* argv[]) {
                 editor.reloadVisPreview(assets);
             }
             if (compile.statusSummary() == "Compile finished") {
+                editor.reloadCsgPreview(assets);
+            }
+            if (compile.statusSummary() == "Compile finished") {
                 editor.reloadBakedNav(assets);
             }
             compileRunIncludesRad = false;
@@ -2469,6 +2500,12 @@ int main(int argc, char* argv[]) {
                         editor.fill = slopmap::PreviewFill::Unlit;
                         break;
                     case slopmap::PreviewFill::Unlit:
+                        editor.fill = slopmap::PreviewFill::CsgWireframe;
+                        break;
+                    case slopmap::PreviewFill::CsgWireframe:
+                        editor.fill = slopmap::PreviewFill::Csg;
+                        break;
+                    case slopmap::PreviewFill::Csg:
                         if (editor.preview.litValid || editor.reloadLitBake(assets)) {
                             editor.fill = slopmap::PreviewFill::Lit;
                         } else {
@@ -2753,6 +2790,14 @@ int main(int argc, char* argv[]) {
                         fillIcon = "world";
                         fillLabel = "Unlit";
                         break;
+                    case slopmap::PreviewFill::Csg:
+                        fillIcon = "cut";
+                        fillLabel = "Carved";
+                        break;
+                    case slopmap::PreviewFill::CsgWireframe:
+                        fillIcon = "shape_square";
+                        fillLabel = "Carved Wire";
+                        break;
                     case slopmap::PreviewFill::Lit:
                         fillIcon = "lightbulb";
                         fillLabel = "Lit";
@@ -2768,7 +2813,7 @@ int main(int argc, char* argv[]) {
                         ImGui::OpenPopup("##fillModePopup");
                     }
                     if (ImGui::BeginPopup("##fillModePopup")) {
-                        ImGui::TextDisabled("CSG");
+                        ImGui::TextDisabled("MAP");
                         if (menuItemWithIcon(
                                 assets,
                                 kToolbarIcons,
@@ -2804,6 +2849,34 @@ int main(int argc, char* argv[]) {
                                 nullptr,
                                 editor.fill == slopmap::PreviewFill::Unlit)) {
                             editor.fill = slopmap::PreviewFill::Unlit;
+                        }
+                        ImGui::Separator();
+                        ImGui::TextDisabled("CSG");
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "shape_square",
+                                "Carved Wire",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::CsgWireframe)) {
+                            if (editor.reloadCsgPreview(assets)) {
+                                editor.fill = slopmap::PreviewFill::CsgWireframe;
+                            } else {
+                                editor.statusMessage = "CSG preview needs a saved map";
+                            }
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "cut",
+                                "Carved Geometry",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::Csg)) {
+                            if (editor.reloadCsgPreview(assets)) {
+                                editor.fill = slopmap::PreviewFill::Csg;
+                            } else {
+                                editor.statusMessage = "CSG preview needs a saved map";
+                            }
                         }
                         ImGui::Separator();
                         ImGui::TextDisabled("VIS / RAD");
@@ -3828,6 +3901,8 @@ int main(int argc, char* argv[]) {
                 const float pad = ImGui::GetStyle().WindowPadding.x;
                 const float btn = ImGui::GetFrameHeight();
                 const float gridBtnIcon = btn - 2.0f;
+                const float gridStepBtn = btn + 6.0f;
+                const float gridStepIcon = gridBtnIcon + 6.0f;
                 const float gridLabelW = 72.0f;
                 const float planeW = 28.0f;
                 const float gap = 10.0f;
@@ -3857,8 +3932,11 @@ int main(int argc, char* argv[]) {
                 const float rotateSnapW = snapIconMenuWidth(rotateSnapLabel, snapIcon);
                 const float snapSectionW =
                     translateSnapW + transformSnapW + rotateSnapW + snapGap * 2.0f;
-                const float gridControlsW = btn + gap + btn + planeW + gridLabelW + btn * 2.0f;
-                const float controlsW = viewSectionW + gap + snapSectionW + gap + gridControlsW;
+                const float gridControlsW =
+                    btn + planeW + gridLabelW + gridStepBtn * 2.0f;
+                const float midControlsW = btn + gap + btn;
+                const float controlsW = viewSectionW + gap + snapSectionW + gap + midControlsW +
+                    gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
                 const float stageChipW = 230.0f;
@@ -3900,10 +3978,13 @@ int main(int argc, char* argv[]) {
                 ImGui::SameLine(controlsX);
                 ImGui::BeginGroup();
                 {
-                    auto iconButton =
-                        [&](const char* id, const char* icon, float iconSize = 16.0f) -> bool {
+                    auto iconButton = [&](const char* id,
+                                           const char* icon,
+                                           float iconSize = 16.0f,
+                                           float width = -1.0f) -> bool {
                         ImGui::PushID(id);
-                        const bool pressed = ImGui::InvisibleButton("##", ImVec2(btn, btn));
+                        const bool pressed =
+                            ImGui::InvisibleButton("##", ImVec2(width > 0.0f ? width : btn, btn));
                         const IconAtlas* atlas = assets.getIconAtlas(kIcons);
                         if (atlas != nullptr && atlas->texture.id != 0) {
                             if (const auto rect = findIconRect(*atlas, icon)) {
@@ -4235,12 +4316,20 @@ int main(int argc, char* argv[]) {
                     }
 
                     ImGui::SameLine(0.0f, 0.0f);
-                    if (iconButton("grid-finer", "bullet_toggle_minus", gridBtnIcon)) {
+                    if (iconButton(
+                            "grid-finer", "bullet_toggle_minus", gridStepIcon, gridStepBtn)) {
                         editor.cycleGrid(1);
                     }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip("Finer grid");
+                    }
                     ImGui::SameLine(0.0f, 0.0f);
-                    if (iconButton("grid-coarser", "bullet_toggle_plus", gridBtnIcon)) {
+                    if (iconButton(
+                            "grid-coarser", "bullet_toggle_plus", gridStepIcon, gridStepBtn)) {
                         editor.cycleGrid(-1);
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip("Coarser grid");
                     }
                 }
                 ImGui::EndGroup();

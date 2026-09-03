@@ -54,15 +54,19 @@ void runNavNavmeshBuildTests() {
         CHECK(startLeaf >= 0);
         CHECK(endLeaf >= 0);
 
-        // No maxClimb here, unlike the BSP-leaf builder's usual call pattern: Recast's
-        // own walkableClimb config already guaranteed every adjacent-polygon step is
-        // within the agent's real step height at bake time (that's the whole point of
-        // baking to the agent's shape), so re-checking a coarse leaf-centroid floor
-        // delta on top of that is not just redundant, it's actively wrong -- a single
-        // merged polygon can legitimately span an entire staircase's rise, so its
-        // centroid-to-centroid "climb" no longer corresponds to one physical step the
-        // way it did for a BSP leaf per tread.
-        const std::vector<int> path = findLeafPath(nav, startLeaf, endLeaf);
+        // Pass a real, finite maxClimb here (CharacterMotor::stepHeight's own default --
+        // see physics/components.hpp -- matching what nav_module.cpp's replanAgent always
+        // passes in-game for a ground agent). Recast's own walkableClimb config already
+        // guaranteed every adjacent-polygon step is within the agent's real step height at
+        // bake time (that's the whole point of baking to the agent's shape), so a portal
+        // link's climbHeight (see NavPortalLink) stays 0 for a navmesh graph rather than
+        // re-deriving a rise from each polygon's single leafFloorY scalar -- a single merged
+        // polygon can legitimately span an entire staircase's rise, so that scalar's
+        // centroid-to-centroid "climb" no longer corresponds to one physical step the way it
+        // did for a BSP leaf per tread, and used to wrongly reject this exact edge once a
+        // finite maxClimb reached this call.
+        constexpr float kGroundAgentStepHeight = 0.5f;
+        const std::vector<int> path = findLeafPath(nav, startLeaf, endLeaf, {}, kGroundAgentStepHeight);
         CHECK_FALSE(path.empty());
         if (path.empty()) {
             return;

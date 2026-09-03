@@ -180,6 +180,13 @@ MapNavigation buildMapNavigationFromPolyMesh(
             const PortalSpread spread = computePortalHorizontalSpread({a, b});
             const std::string doorBrushId = doorBrushIdAtPoint(edgeCenter, brushes);
 
+            // climbHeight left at its default (0): Recast only ever links two polygons here
+            // when their real voxel-level step was already within the bake's walkableClimb
+            // (NavBakeParams::agentMaxClimb, nav_bake.cpp), so this edge is climb-verified by
+            // construction. Re-deriving a rise from nav.leafFloorY would be actively wrong on
+            // a polygon Recast merged across a stair run -- that scalar is sampled once at the
+            // polygon's centroid, which can sit far in height from this specific edge (see
+            // NavPortalLink::climbHeight's doc comment).
             nav.adjacency[static_cast<std::size_t>(i)].push_back(
                 NavPortalLink{neighbor, edgeCenter, spread.tangent, spread.halfWidth, cost, doorBrushId});
         }
@@ -194,7 +201,7 @@ MapNavigation buildMapNavigationFromPolyMesh(
             nav.reverseAdjacency[static_cast<std::size_t>(link.neighborLeaf)].push_back(
                 NavPortalLink{
                     i, link.portalCenter, link.portalTangent, link.portalHalfWidth, link.cost,
-                    link.doorBrushId});
+                    link.doorBrushId, link.climbHeight});
         }
     }
 

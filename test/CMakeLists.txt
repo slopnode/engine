@@ -24,6 +24,7 @@ add_executable(sloptests
     test_brush_door.cpp
     test_brush_split.cpp
     test_brush_extrude.cpp
+    test_brush_carve.cpp
     test_brush_role.cpp
     test_brush_blocks.cpp
     test_lightmap_transparent.cpp
@@ -81,6 +82,7 @@ add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)
 add_test(NAME sloptests.dynamic_light_compositing COMMAND sloptests dynamic_light_compositing)
 add_test(NAME sloptests.brush_door COMMAND sloptests brush_door)
 add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
+add_test(NAME sloptests.brush_carve COMMAND sloptests brush_carve)
 add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
 add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)

@@ -458,6 +458,8 @@ void drawMainMenuBar(
         menuItemWithIcon(
             assets, kIcons, "shape_square", "Nav Polys (baked)", nullptr, &debugUi.showNavPolys);
         menuItemWithIcon(
+            assets, kIcons, "box", "Actor Colliders", nullptr, &debugUi.showActorColliders);
+        menuItemWithIcon(
             assets, kIcons, "chart_curve", "Performance", nullptr, &debugUi.showPerformance);
         menuItemWithIcon(
             assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);

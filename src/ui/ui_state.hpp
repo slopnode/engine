@@ -72,6 +72,7 @@ struct DebugUiState {
     bool showGraphs = false;
     bool showNavPaths = false;
     bool showNavPolys = false;
+    bool showActorColliders = false;
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;

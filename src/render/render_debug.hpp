@@ -23,6 +23,7 @@ void drawGraphDebugOverlays(const GraphDocument& document);
 void drawNavDebugOverlays(flecs::world& world, const DebugUiState& debugUi);
 void drawNavPolyDebugOverlays(const MapNavigation& nav, const DebugUiState& debugUi);
 void drawBspDebugOverlays(const BspTree& tree, const DebugUiState& debugUi, std::int32_t currentLeaf);
+void drawActorColliderDebugOverlays(flecs::world& world, const DebugUiState& debugUi);
 std::string drawSpriteDebugOverlays(
     const Lens& lens,
     AssetStore& assets,

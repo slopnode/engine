@@ -146,6 +146,16 @@ bool brushRoleNeedsInteriorPlacement(BrushRole role);
 
 Vector3 faceNormalFromVertices(const std::vector<Vector3>& vertices);
 void recomputeBrushBounds(Brush& brush);
+
+float planeSignedDistance(Vector3 planePoint, Vector3 planeNormal, Vector3 point);
+
+/** Sutherland-Hodgman clip of a planar polygon against a plane; epsilon-inclusive
+ *  (points within kPlaneEps of the plane count as inside). */
+std::vector<Vector3> clipPolygonAgainstPlane(
+    const std::vector<Vector3>& polygon,
+    Vector3 planePoint,
+    Vector3 planeNormal,
+    bool keepFront);
 bool pointInsideBrush(Vector3 point, const Brush& brush, float epsilon = 1e-4f);
 bool pointInsideBrushInclusive(Vector3 point, const Brush& brush, float epsilon = 1e-4f);
 

@@ -76,6 +76,14 @@ void ClipTool::refreshPlane() {
         planeNormal = {};
         return;
     }
+    constexpr float kAxisSnapEps = 1e-3f;
+    if (std::fabs(std::fabs(n.x) - 1.0f) < kAxisSnapEps) {
+        n = {n.x > 0.0f ? 1.0f : -1.0f, 0.0f, 0.0f};
+    } else if (std::fabs(std::fabs(n.y) - 1.0f) < kAxisSnapEps) {
+        n = {0.0f, n.y > 0.0f ? 1.0f : -1.0f, 0.0f};
+    } else if (std::fabs(std::fabs(n.z) - 1.0f) < kAxisSnapEps) {
+        n = {0.0f, 0.0f, n.z > 0.0f ? 1.0f : -1.0f};
+    }
     if (planeFlipped) {
         n = scale3(n, -1.0f);
     }
@@ -282,14 +290,14 @@ void ClipTool::update(
         Vector3 hit{};
         if (hitSelectedFace(editor, camera, hit, hoverPlane)) {
             hoverValid = true;
-            hoverPoint = hit;
+            hoverPoint = snapToGrid(hit, editor.gridSize);
         }
     } else if (phase == ClipPhase::PickingP1) {
         Vector3 hit{};
         if (hitLockedFacePlane(editor, camera, hit)) {
             hoverValid = true;
-            hoverPoint = hit;
-            point1 = hit;
+            hoverPoint = snapToGrid(hit, editor.gridSize);
+            point1 = hoverPoint;
             refreshPlane();
         }
     }
@@ -306,10 +314,10 @@ void ClipTool::update(
             return;
         }
         construction = hitPlane;
-        point0 = hit;
-        point1 = hit;
+        point0 = snapToGrid(hit, editor.gridSize);
+        point1 = point0;
         hoverValid = true;
-        hoverPoint = hit;
+        hoverPoint = point0;
         phase = ClipPhase::PickingP1;
         setStatus(editor);
         return;
@@ -321,7 +329,7 @@ void ClipTool::update(
             editor.statusMessage = "Clip: click a face on the selected brush";
             return;
         }
-        point1 = hit;
+        point1 = snapToGrid(hit, editor.gridSize);
         refreshPlane();
         if (length3(planeNormal) < 1e-6f || length3(sub3(point1, point0)) < editor.gridSize * 0.5f) {
             editor.statusMessage = "Clip: points too close or parallel to face edges";

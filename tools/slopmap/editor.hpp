@@ -188,6 +188,7 @@ struct Editor {
         const std::vector<CompileStage>& stages);
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
+    bool reloadCsgPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);
     /** Loads maps/<name>/static.nav (baked by slopnav) into bakedNav, if present.
      *  Clears bakedNav/bakedNavValid and returns false when there's no baked navmesh
