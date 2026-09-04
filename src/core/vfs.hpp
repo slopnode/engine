@@ -26,14 +26,14 @@ enum class AssetKind {
     GeoWeights,    /**< .weights under geometry/ */
     Anim,          /**< .anim under animations/ */
     AnimTracks,    /**< .tracks under animations/ */
-    MapSource,     /**< maps/<name>/static.map */
-    MapCarved,     /**< maps/<name>/static.csg -- carved output from slopcsg, consumed by slopbsp */
+    MapSource,     /**< maps/<name>/brushes.map -- hand-authored source */
+    MapCarved,     /**< maps/<name>/compiled/csg -- carved output from slopcsg, consumed by slopbsp */
     MapMeta,       /**< maps/<name>/map.meta */
-    MapBsp,        /**< maps/<name>/static.bsp */
-    MapVis,        /**< maps/<name>/static.vis (PVS) */
-    MapNav,        /**< maps/<name>/static.nav (baked navmesh graph) */
-    MapRad,        /**< maps/<name>/rad/static.rad */
-    MapLightmap,   /**< maps/<name>/rad/atlas PNGs */
+    MapBsp,        /**< maps/<name>/compiled/bsp */
+    MapVis,        /**< maps/<name>/compiled/vis (PVS) */
+    MapNav,        /**< maps/<name>/compiled/nav/<profile> (baked navmesh graph) */
+    MapRad,        /**< maps/<name>/compiled/rad/lightmap */
+    MapLightmap,   /**< maps/<name>/compiled/rad/ atlas PNGs */
     MapThings,     /**< maps/<name>/things.s7 */
     MapGraphs,     /**< maps/<name>/graphs.s7 */
     PrefabSource,  /**< .map under prefabs/ */

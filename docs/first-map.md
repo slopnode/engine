@@ -10,7 +10,7 @@ Maps are folders that contain a number of files. There are 3 text-based s-expr b
 
 1. `map.meta`: similar to `package.meta` that defines the name, authors, description, etc. 
 2. `things.s7`: placeable logic containers. Actors, Lights, and basic components used in the map are defined in here
-3. `static.map`: Collection of concave and convex brushes and the type of brush
+3. `brushes.map`: Collection of concave and convex brushes and the type of brush
 
 The other files are all compiled by tools provided with the engine. They are off-line command-line based tools with the intention of being able to use them in automation solutions or to integrate them via subprocesses in a given editor. 
 

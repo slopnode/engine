@@ -1287,6 +1287,7 @@ int main(int argc, char* argv[]) {
 
     slopengine::loadPackageMapHandlers(scheme, assets);
     slopengine::loadPackageThings(scheme, assets);
+    slopengine::loadPackageNavProfiles(scheme, assets);
 
     slopmap::Editor editor;
     editor.writePackageRoot = config->target;

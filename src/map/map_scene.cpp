@@ -163,6 +163,9 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapNavigation>()) {
         world.remove<MapNavigation>();
     }
+    if (world.has<MapNavProfiles>()) {
+        world.remove<MapNavProfiles>();
+    }
     if (world.has<MapWaterVolumes>()) {
         world.remove<MapWaterVolumes>();
     }
@@ -278,6 +281,7 @@ bool assembleMapScene(
     world.set<MapBsp>(std::move(mapBsp));
     world.set<MapPvs>(MapPvs{std::move(loaded.pvs)});
     world.set<MapBakedNav>(MapBakedNav{loaded.nav});
+    world.set<MapNavProfiles>(MapNavProfiles{std::move(loaded.navProfiles)});
     {
         const MapBsp& bspForNav = world.get<MapBsp>();
         if (loaded.nav.leafCount > 0) {

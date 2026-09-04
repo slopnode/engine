@@ -178,7 +178,8 @@ void writeMoverFields(std::ostringstream& out, const Thing& p) {
 void writeActorFields(std::ostringstream& out, const Thing& p) {
     if (p.haveMotor || p.motorRadius != 0.3f || p.motorHeight != 1.1f || p.motorSpeed != 6.0f ||
         p.motorGravity != 9.81f || p.motorStepHeight != 0.4f ||
-        p.motorHull != CharacterHull::Capsule || p.motorMoveMode != CharacterMoveMode::Slide) {
+        p.motorHull != CharacterHull::Capsule || p.motorMoveMode != CharacterMoveMode::Slide ||
+        !p.motorNavProfile.empty()) {
         std::string clause = "(motor (radius " + formatFloat(p.motorRadius) + ") (height " +
             formatFloat(p.motorHeight) + ") (speed " + formatFloat(p.motorSpeed) + ") (gravity " +
             formatFloat(p.motorGravity) + ") (step-height " + formatFloat(p.motorStepHeight) + ")";
@@ -207,6 +208,9 @@ void writeActorFields(std::ostringstream& out, const Thing& p) {
         }
         if (p.motorWaterAversion != 1.0f) {
             clause += " (water-aversion " + formatFloat(p.motorWaterAversion) + ")";
+        }
+        if (!p.motorNavProfile.empty()) {
+            clause += " (nav-profile " + escapeSchemeString(p.motorNavProfile) + ")";
         }
         clause += ")";
         writeIndentClause(out, clause);

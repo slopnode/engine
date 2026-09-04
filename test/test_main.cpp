@@ -24,6 +24,7 @@ void runNavMacroLinksTests();
 void runNavBakeTests();
 void runNavNavmeshBuildTests();
 void runNavIoTests();
+void runNavProfileRegistryTests();
 void runPhysicsTests();
 void runFrustumTests();
 void runTransformTests();
@@ -70,6 +71,7 @@ const Suite kSuites[] = {
     {"nav_bake", slopengine::runNavBakeTests},
     {"nav_navmesh_build", slopengine::runNavNavmeshBuildTests},
     {"nav_io", slopengine::runNavIoTests},
+    {"nav_profile_registry", slopengine::runNavProfileRegistryTests},
     {"physics", slopengine::runPhysicsTests},
     {"frustum", slopengine::runFrustumTests},
     {"transform", slopengine::runTransformTests},

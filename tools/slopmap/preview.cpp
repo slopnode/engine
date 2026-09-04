@@ -595,7 +595,7 @@ bool MapPreview::reloadBake(
         return false;
     }
 
-    const std::string radVirtualPath = mapName + "/rad/static";
+    const std::string radVirtualPath = mapName + "/compiled/rad/lightmap";
     if (!assets.hasMapRad(radVirtualPath)) {
         return false;
     }
@@ -624,7 +624,7 @@ bool MapPreview::reloadBake(
 
     lightmapAtlases.reserve(rad.atlases.size());
     for (const slopengine::LightmapAtlasInfo& atlas : rad.atlases) {
-        const std::string atlasPath = mapName + "/rad/" + atlas.texturePath;
+        const std::string atlasPath = mapName + "/compiled/rad/" + atlas.texturePath;
         const auto resolved = assets.resolvePath(slopengine::AssetKind::MapLightmap, atlasPath);
         Texture2D texture{};
         if (resolved) {

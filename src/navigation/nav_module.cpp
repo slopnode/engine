@@ -155,6 +155,21 @@ float agentWaterCostMultiplier(const NavigationAgent& agent) {
     return agent.flyer ? 1.0f : agent.waterCostMultiplier;
 }
 
+// Falls back to the map's default MapNavigation singleton whenever the agent hasn't
+// resolved a specific profile (NavigationAgent::navProfile empty), or that profile was
+// never baked/present for this map -- same tolerance every other nav lookup here already
+// gives a missing bake. Callers must already have established world.has<MapNavigation>().
+const MapNavigation& resolveNavForAgent(flecs::world& world, const NavigationAgent& agent) {
+    if (!agent.navProfile.empty() && world.has<MapNavProfiles>()) {
+        const auto& profiles = world.get<MapNavProfiles>().profiles;
+        const auto it = profiles.find(agent.navProfile);
+        if (it != profiles.end()) {
+            return it->second;
+        }
+    }
+    return world.get<MapNavigation>();
+}
+
 float navLateralBiasForEntity(flecs::entity_t id) {
     std::uint64_t h = static_cast<std::uint64_t>(id) * 0x9E3779B97F4A7C15ULL;
     h ^= h >> 33;
@@ -277,6 +292,7 @@ void clearNavPath(NavigationAgent& agent) {
     agent.waypointIndex = 0;
     agent.stuckTimer = 0.0f;
     agent.haveStuckLastPos = false;
+    agent.goalReachable = true;
 }
 
 void replanAgent(
@@ -294,10 +310,10 @@ void replanAgent(
         return;
     }
 
-    const MapNavigation& nav = world.get<MapNavigation>();
+    const MapNavigation& nav = resolveNavForAgent(world, agent);
     const BspTree& tree = world.get<MapBsp>().tree;
-    const int fromLeaf = sampleNavLeaf(nav, tree, agentPos);
-    const int toLeaf = sampleNavLeaf(nav, tree, goalPos);
+    const int fromLeaf = sampleNavLeaf(nav, tree, agentPos, agent.agentLeaf);
+    const int toLeaf = sampleNavLeaf(nav, tree, goalPos, agent.goalLeaf);
 
     if (logNav) {
         TraceLog(
@@ -326,6 +342,8 @@ void replanAgent(
         }
         if (agent.leafPath.empty()) {
             clearNavPath(agent);
+        } else {
+            agent.goalReachable = false;
         }
         return;
     }
@@ -352,6 +370,8 @@ void replanAgent(
         }
         if (agent.leafPath.empty()) {
             clearNavPath(agent);
+        } else {
+            agent.goalReachable = false;
         }
         return;
     }
@@ -429,6 +449,7 @@ void replanAgent(
     agent.lastGoalPos = goalPos;
     agent.haveLastGoalPos = true;
     agent.forceReplan = false;
+    agent.goalReachable = true;
 }
 
 void advanceWaypoints(
@@ -608,7 +629,8 @@ void replanNavigationAgent(flecs::world& world, flecs::entity entity) {
         world, entity, agent, actorFeet(entity, motor), goalPos, false, agentMaxClimb(agent, motor),
         "external nav-set-goal call");
     agent.replanTimer = agent.replanInterval;
-    agent.agentLeaf = sampleNavLeaf(world.get<MapNavigation>(), world.get<MapBsp>().tree, agentPos);
+    agent.agentLeaf = sampleNavLeaf(
+        resolveNavForAgent(world, agent), world.get<MapBsp>().tree, agentPos, agent.agentLeaf);
 }
 
 void registerNavModule(flecs::world& world) {
@@ -635,13 +657,13 @@ void registerNavModule(flecs::world& world) {
                 return;
             }
 
-            const MapNavigation& nav = worldRef.get<MapNavigation>();
+            const MapNavigation& nav = resolveNavForAgent(worldRef, agent);
             const Vector3 agentFeetPos = actorFeet(entity, motor);
             const Vector3 agentSamplePos = navSamplePoint(agentFeetPos, motor, agent.flyer);
             const Vector3 goalPos = resolveGoalPos(worldRef, agent);
             const BspTree& tree = worldRef.get<MapBsp>().tree;
-            const int agentLeaf = sampleNavLeaf(nav, tree, agentSamplePos);
-            const int goalLeaf = sampleNavLeaf(nav, tree, goalPos);
+            const int agentLeaf = sampleNavLeaf(nav, tree, agentSamplePos, agent.agentLeaf);
+            const int goalLeaf = sampleNavLeaf(nav, tree, goalPos, agent.goalLeaf);
 
             updateStuckSkip(worldRef, entity, agent, agentFeetPos, dt);
             advanceWaypoints(worldRef, entity, agent, agentFeetPos, agentLeaf);

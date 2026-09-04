@@ -240,15 +240,11 @@ void drawNavDebugOverlays(flecs::world& world, const DebugUiState& debugUi) {
     EndBlendMode();
 }
 
-void drawNavPolyDebugOverlays(const MapNavigation& nav, const DebugUiState& debugUi) {
-    if (!debugUi.showNavPolys || nav.leafCount <= 0) {
+void drawNavPolyDebugOverlays(const MapNavigation& nav, Color fillColor, Color outlineColor) {
+    if (nav.leafCount <= 0) {
         return;
     }
 
-    // Fill color distinct from the live BSP-leaf nav overlay (drawNavDebugOverlays'
-    // orange/red) so the two are never confused when both are toggled on at once.
-    const Color fillColor{60, 220, 140, 90};
-    const Color outlineColor{60, 220, 140, 220};
     const bool hasBoundary = nav.leafBoundary.size() == static_cast<std::size_t>(nav.leafCount);
 
     BeginBlendMode(BLEND_ALPHA);

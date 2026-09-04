@@ -97,7 +97,7 @@ void runLightmapRgbeTests() {
     CHECK(primaryLightmapEncoding(makeSampleRad(LightmapEncoding::Ldr)) == LightmapEncoding::Ldr);
     CHECK(primaryLightmapEncoding(makeSampleRad(LightmapEncoding::Rgbe)) == LightmapEncoding::Rgbe);
 
-    const auto radPath = tempDir / "static.rad";
+    const auto radPath = tempDir / "lightmap";
 
     const RadFile rgbeRad = makeSampleRad(LightmapEncoding::Rgbe);
     CHECK(writeRadFile(radPath, rgbeRad));

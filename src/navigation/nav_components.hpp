@@ -34,8 +34,22 @@ struct NavigationAgent {
     /** Cost multiplier applied to routing steps landing in a Water-content leaf; see
      *  ThingDef::motorWaterAversion. 1.0 = no preference (default). */
     float waterCostMultiplier = 1.0f;
+    /** Named entry in the nav-profile catalog (data/nav-profiles.s7) this agent paths
+     *  against; empty falls back to the map's single default-baked graph. Resolved once
+     *  at spawn time from ThingDef::motorNavProfile / Thing::motorNavProfile, or -- when
+     *  neither names one -- auto-selected as the smallest baked profile that still covers
+     *  the actor's own CharacterMotor radius/height (see resolveAutoNavProfile). */
+    std::string navProfile;
     Vector3 lastGoalPos{};
     bool haveLastGoalPos = false;
+    /** False when the current waypoints/leafPath are a stale route kept from the last
+     *  reachable goal rather than a fresh route to the live one -- i.e. replanAgent tried
+     *  and failed to find a path (goal off the mesh, or its leaf unreachable from the
+     *  agent's) but chose to keep following the last known-good path instead of dropping
+     *  it outright. Gates nav-path-direction's past-the-last-waypoint home-in fallback,
+     *  which would otherwise beeline the agent toward a frozen historical goal position
+     *  forever once it runs out of stale waypoints to follow. */
+    bool goalReachable = true;
     float stuckTimer = 0.0f;
     Vector3 stuckLastPos{};
     bool haveStuckLastPos = false;

@@ -7,6 +7,7 @@
 #include "map/csg_write.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/nav_io.hpp"
+#include "map/nav_profile_registry.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
 #include "select_tool.hpp"
@@ -66,7 +67,7 @@ bool ensureMapFiles(
         return false;
     }
 
-    outSourcePath = mapDir / "static.map";
+    outSourcePath = mapDir / "brushes.map";
     const std::filesystem::path metaPath = mapDir / "map.meta";
     if (!std::filesystem::exists(metaPath)) {
         std::ofstream meta(metaPath, std::ios::binary | std::ios::trunc);
@@ -1170,7 +1171,7 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
 
     std::filesystem::path sourcePath;
     std::filesystem::path packageRoot = writePackageRoot;
-    auto existing = assets.resolveOwned(slopengine::AssetKind::MapSource, mapName + "/static");
+    auto existing = assets.resolveOwned(slopengine::AssetKind::MapSource, mapName + "/brushes");
     if (existing && existing->package != nullptr) {
         sourcePath = existing->path;
         packageRoot = existing->package->root();
@@ -1405,7 +1406,7 @@ bool Editor::cleanCompileData(
     }
 
     std::filesystem::path packageRoot = writePackageRoot;
-    auto existing = assets.resolveOwned(slopengine::AssetKind::MapSource, mapName + "/static");
+    auto existing = assets.resolveOwned(slopengine::AssetKind::MapSource, mapName + "/brushes");
     if (existing && existing->package != nullptr) {
         packageRoot = existing->package->root();
         writePackageRoot = packageRoot;
@@ -1459,27 +1460,27 @@ bool Editor::cleanCompileData(
     };
 
     if (cleanCsg) {
-        removePath(mapDir / "static.csg", false);
+        removePath(mapDir / "compiled" / "csg", false);
         compileDirty.csg = true;
         compileDirty.bsp = true;
     }
     if (cleanBsp) {
-        removePath(mapDir / "static.bsp", false);
+        removePath(mapDir / "compiled" / "bsp", false);
         compileDirty.bsp = true;
     }
     if (cleanVis) {
-        removePath(mapDir / "static.vis", false);
+        removePath(mapDir / "compiled" / "vis", false);
         preview.clearVis();
         compileDirty.vis = true;
         compileDirty.rad = true;
     }
     if (cleanRad) {
-        removePath(mapDir / "rad", true);
+        removePath(mapDir / "compiled" / "rad", true);
         preview.clearLit();
         compileDirty.rad = true;
     }
     if (cleanNav) {
-        removePath(mapDir / "static.nav", false);
+        removePath(mapDir / "compiled" / "nav", true);
         compileDirty.nav = true;
         bakedNav = {};
         bakedNavValid = false;
@@ -1646,19 +1647,35 @@ bool Editor::reloadBakedNav(slopengine::AssetStore& assets) {
         return false;
     }
 
-    const std::string navVirtualPath = levelDoc.assetPath + "/static";
-    if (!assets.hasMapNav(navVirtualPath)) {
+    // Same smallest-radius-that-actually-baked pick as loadMapStageNav (map_script.cpp) --
+    // the debug preview shows whichever profile the runtime would treat as its default too,
+    // rather than assuming a literal "default"-named profile exists in the catalog.
+    const std::vector<slopengine::NavProfileDef> profiles =
+        slopengine::navProfileRegistry().defsOrDefault();
+    const slopengine::NavProfileDef* primary = nullptr;
+    slopengine::MapNavigation primaryNav{};
+    for (const slopengine::NavProfileDef& profile : profiles) {
+        const std::string navVirtualPath = levelDoc.assetPath + "/compiled/nav/" + profile.name;
+        if (!assets.hasMapNav(navVirtualPath)) {
+            continue;
+        }
+        const auto navPath = assets.resolvePath(slopengine::AssetKind::MapNav, navVirtualPath);
+        if (!navPath) {
+            continue;
+        }
+        auto loadedNav = slopengine::readNavFile(*navPath);
+        if (!loadedNav || loadedNav->leafCount <= 0) {
+            continue;
+        }
+        if (primary == nullptr || profile.params.agentRadius < primary->params.agentRadius) {
+            primary = &profile;
+            primaryNav = std::move(*loadedNav);
+        }
+    }
+    if (primary == nullptr) {
         return false;
     }
-    const auto navPath = assets.resolvePath(slopengine::AssetKind::MapNav, navVirtualPath);
-    if (!navPath) {
-        return false;
-    }
-    auto loadedNav = slopengine::readNavFile(*navPath);
-    if (!loadedNav || loadedNav->leafCount <= 0) {
-        return false;
-    }
-    bakedNav = std::move(*loadedNav);
+    bakedNav = std::move(primaryNav);
     bakedNavValid = true;
     return true;
 }

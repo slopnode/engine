@@ -31,10 +31,10 @@ int main(int argc, char* argv[]) {
     }
     loadPackageMapHandlers(scheme, assets);
 
-    const std::string virtualPath = *config->map + "/static";
+    const std::string virtualPath = *config->map + "/compiled/bsp";
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);
     if (!bspPath) {
-        std::cerr << "slopvis: missing maps/" << virtualPath << ".bsp (run slopbsp first)\n";
+        std::cerr << "slopvis: missing maps/" << virtualPath << " (run slopbsp first)\n";
         s7_quit(scheme);
         return 1;
     }
@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
     }
 
     const PvsFile pvs = buildPvs(*tree, exteriorForPvs);
-    const auto visPath = bspPath->parent_path() / "static.vis";
+    const auto visPath = bspPath->parent_path() / "vis";
     if (!writePvsFile(visPath, pvs)) {
         std::cerr << "slopvis: failed to write " << visPath << "\n";
         s7_quit(scheme);

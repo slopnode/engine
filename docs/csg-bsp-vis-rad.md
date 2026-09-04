@@ -28,7 +28,7 @@ id borrowed exactly that idea for level design, minus the intersection/subtracti
 
 ## Brushes in this engine {#brushes-in-this-engine}
 
-This engine keeps that same "brushes in a text file" idea, just written as Scheme s-expressions instead of Quake's `.map` format, because everything else in a package is already an s-expr. Here's a trimmed piece of `packages/demo/maps/empty-room/static.map`:
+This engine keeps that same "brushes in a text file" idea, just written as Scheme s-expressions instead of Quake's `.map` format, because everything else in a package is already an s-expr. Here's a trimmed piece of `packages/demo/maps/empty-room/brushes.map`:
 
 <pre><code class="language-scheme">(brush-box
   (id "a-floor")
@@ -80,4 +80,4 @@ Radiosity is older than computer graphics; it's a heat-transfer technique for mo
 
 That's expensive, so Quake's `light.exe` took a shortcut: bake direct light (plus a fudge factor for bounce) into a lightmap texture offline, and just sample that texture at runtime. No per-frame lighting computation, no per-frame bounce simulation, just a texture fetch. It's a huge reason Quake's diffuse lighting still looks as good as it does on hardware from that era.
 
-This engine's `sloprad` is closer to the original Cornell method than Quake's approximation: `RadiositySettings` has a real `bounces` count and per-bounce `samples`, direct lighting from a stratified NxN grid per emissive face, and an optional GPU compute path for both the direct and bounce passes on top of the CPU reference implementation. The output, `.rad`, doesn't embed the actual pixels; it stores atlas metadata and UV chart placement per baked face, with the pixels themselves living in separate PNGs (`rad/atlas0.png` and so on) that the renderer composites with dynamic lights at draw time.
+This engine's `sloprad` is closer to the original Cornell method than Quake's approximation: `RadiositySettings` has a real `bounces` count and per-bounce `samples`, direct lighting from a stratified NxN grid per emissive face, and an optional GPU compute path for both the direct and bounce passes on top of the CPU reference implementation. The output, `.rad`, doesn't embed the actual pixels; it stores atlas metadata and UV chart placement per baked face, with the pixels themselves living in separate PNGs (`compiled/rad/atlas0.png` and so on) that the renderer composites with dynamic lights at draw time.

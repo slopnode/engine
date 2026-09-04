@@ -17,6 +17,7 @@
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
+#include "map/nav_graph.hpp"
 #include "map/pvs.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
@@ -455,8 +456,21 @@ void drawMainMenuBar(
         }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
         menuItemWithIcon(assets, kIcons, "arrow_branch", "Nav Paths", nullptr, &debugUi.showNavPaths);
-        menuItemWithIcon(
-            assets, kIcons, "shape_square", "Nav Polys (baked)", nullptr, &debugUi.showNavPolys);
+        if (beginMenuWithIcon(assets, kIcons, "shape_square", "Nav Polys (baked)")) {
+            if (!world.has<MapNavProfiles>() || world.get<MapNavProfiles>().profiles.empty()) {
+                ImGui::MenuItem("(none baked)", nullptr, false, false);
+            } else {
+                std::vector<std::string> names;
+                for (const auto& [name, nav] : world.get<MapNavProfiles>().profiles) {
+                    names.push_back(name);
+                }
+                std::sort(names.begin(), names.end());
+                for (const std::string& name : names) {
+                    ImGui::MenuItem(name.c_str(), nullptr, &debugUi.shownNavProfiles[name]);
+                }
+            }
+            ImGui::EndMenu();
+        }
         menuItemWithIcon(
             assets, kIcons, "box", "Actor Colliders", nullptr, &debugUi.showActorColliders);
         menuItemWithIcon(

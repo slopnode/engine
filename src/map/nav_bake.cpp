@@ -8,7 +8,9 @@
 #include <Recast.h>
 
 #include <cmath>
+#include <cstddef>
 #include <cstring>
+#include <vector>
 
 namespace slopengine {
 
@@ -115,6 +117,204 @@ std::vector<unsigned char> classifyTriangleAreas(
         areas[static_cast<std::size_t>(i)] = RC_WALKABLE_AREA;
     }
     return areas;
+}
+
+// True if the raw voxel heightfield has solid geometry (a non-walkable span -- a wall,
+// ceiling, or steep surface) occupying column (nx, nz) anywhere in the vertical band
+// [loY, loY + walkableHeight), i.e. a real obstruction at body height right beside a
+// floor whose own compact-heightfield span sits at loY. Out-of-grid columns count as
+// solid too, matching stock erosion's treatment of the heightfield's own outer border.
+bool hasWallAtHeight(const rcHeightfield& solid, int nx, int nz, int loY, int walkableHeight) {
+    if (nx < 0 || nz < 0 || nx >= solid.width || nz >= solid.height) {
+        return true;
+    }
+    const int hiY = loY + walkableHeight;
+    for (const rcSpan* s = solid.spans[static_cast<std::size_t>(nx) + static_cast<std::size_t>(nz) * static_cast<std::size_t>(solid.width)];
+         s != nullptr;
+         s = s->next) {
+        if (s->area != RC_NULL_AREA) {
+            continue;
+        }
+        const int smin = static_cast<int>(s->smin);
+        const int smax = static_cast<int>(s->smax);
+        if (smin < hiY && smax > loY) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Same two-pass distance-transform erosion as Recast's own rcErodeWalkableArea
+// (RecastArea.cpp), except for what counts as an erosion-boundary span: stock Recast
+// treats every direction with no compact-heightfield connection as a boundary, which
+// erodes just as aggressively along a platform edge overhanging open air as it does
+// beside an actual wall. Here, a disconnected direction only seeds boundary distance 0
+// when hasWallAtHeight finds real solid geometry that way -- an open ledge with nothing
+// beside it at body height isn't a reason to deny the agent's center getting to the true
+// edge. A direction that *is* connected but leads to a still-unwalkable neighbor (e.g. a
+// too-steep patch) keeps stock behavior (treated as a boundary), since that's still solid
+// surface the agent's body would overlap, not empty space.
+bool erodeWalkableAreaWallsOnly(
+    rcContext* ctx,
+    int erosionRadius,
+    const rcHeightfield& solid,
+    rcCompactHeightfield& chf) {
+    const int xSize = chf.width;
+    const int zSize = chf.height;
+    const int zStride = xSize;
+
+    std::vector<unsigned char> distanceToBoundary(static_cast<std::size_t>(chf.spanCount), 0xff);
+
+    for (int z = 0; z < zSize; ++z) {
+        for (int x = 0; x < xSize; ++x) {
+            const rcCompactCell& cell = chf.cells[static_cast<std::size_t>(x) + static_cast<std::size_t>(z) * static_cast<std::size_t>(zStride)];
+            for (int spanIndex = static_cast<int>(cell.index), maxSpanIndex = static_cast<int>(cell.index + cell.count);
+                 spanIndex < maxSpanIndex;
+                 ++spanIndex) {
+                if (chf.areas[spanIndex] == RC_NULL_AREA) {
+                    distanceToBoundary[static_cast<std::size_t>(spanIndex)] = 0;
+                    continue;
+                }
+                const rcCompactSpan& span = chf.spans[spanIndex];
+                const int loY = static_cast<int>(span.y);
+                bool isBoundary = false;
+                for (int direction = 0; direction < 4 && !isBoundary; ++direction) {
+                    const int neighborConnection = rcGetCon(span, direction);
+                    const int nx = x + rcGetDirOffsetX(direction);
+                    const int nz = z + rcGetDirOffsetY(direction);
+                    if (neighborConnection == RC_NOT_CONNECTED) {
+                        isBoundary = hasWallAtHeight(solid, nx, nz, loY, chf.walkableHeight);
+                        continue;
+                    }
+                    const int neighborIndex =
+                        static_cast<int>(chf.cells[static_cast<std::size_t>(nx) + static_cast<std::size_t>(nz) * static_cast<std::size_t>(xSize)].index) +
+                        neighborConnection;
+                    if (chf.areas[neighborIndex] == RC_NULL_AREA) {
+                        isBoundary = true;
+                    }
+                }
+                if (isBoundary) {
+                    distanceToBoundary[static_cast<std::size_t>(spanIndex)] = 0;
+                }
+            }
+        }
+    }
+
+    unsigned char newDistance;
+
+    // Pass 1
+    for (int z = 0; z < zSize; ++z) {
+        for (int x = 0; x < xSize; ++x) {
+            const rcCompactCell& cell = chf.cells[static_cast<std::size_t>(x) + static_cast<std::size_t>(z) * static_cast<std::size_t>(zStride)];
+            const int maxSpanIndex = static_cast<int>(cell.index + cell.count);
+            for (int spanIndex = static_cast<int>(cell.index); spanIndex < maxSpanIndex; ++spanIndex) {
+                const rcCompactSpan& span = chf.spans[spanIndex];
+
+                if (rcGetCon(span, 0) != RC_NOT_CONNECTED) {
+                    const int aX = x + rcGetDirOffsetX(0);
+                    const int aY = z + rcGetDirOffsetY(0);
+                    const int aIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(aX) + static_cast<std::size_t>(aY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(span, 0);
+                    const rcCompactSpan& aSpan = chf.spans[aIndex];
+                    newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(aIndex)]) + 2, 255));
+                    if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                        distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                    }
+
+                    if (rcGetCon(aSpan, 3) != RC_NOT_CONNECTED) {
+                        const int bX = aX + rcGetDirOffsetX(3);
+                        const int bY = aY + rcGetDirOffsetY(3);
+                        const int bIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(bX) + static_cast<std::size_t>(bY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(aSpan, 3);
+                        newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(bIndex)]) + 3, 255));
+                        if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                            distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                        }
+                    }
+                }
+                if (rcGetCon(span, 3) != RC_NOT_CONNECTED) {
+                    const int aX = x + rcGetDirOffsetX(3);
+                    const int aY = z + rcGetDirOffsetY(3);
+                    const int aIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(aX) + static_cast<std::size_t>(aY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(span, 3);
+                    const rcCompactSpan& aSpan = chf.spans[aIndex];
+                    newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(aIndex)]) + 2, 255));
+                    if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                        distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                    }
+
+                    if (rcGetCon(aSpan, 2) != RC_NOT_CONNECTED) {
+                        const int bX = aX + rcGetDirOffsetX(2);
+                        const int bY = aY + rcGetDirOffsetY(2);
+                        const int bIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(bX) + static_cast<std::size_t>(bY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(aSpan, 2);
+                        newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(bIndex)]) + 3, 255));
+                        if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                            distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 2
+    for (int z = zSize - 1; z >= 0; --z) {
+        for (int x = xSize - 1; x >= 0; --x) {
+            const rcCompactCell& cell = chf.cells[static_cast<std::size_t>(x) + static_cast<std::size_t>(z) * static_cast<std::size_t>(zStride)];
+            const int maxSpanIndex = static_cast<int>(cell.index + cell.count);
+            for (int spanIndex = static_cast<int>(cell.index); spanIndex < maxSpanIndex; ++spanIndex) {
+                const rcCompactSpan& span = chf.spans[spanIndex];
+
+                if (rcGetCon(span, 2) != RC_NOT_CONNECTED) {
+                    const int aX = x + rcGetDirOffsetX(2);
+                    const int aY = z + rcGetDirOffsetY(2);
+                    const int aIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(aX) + static_cast<std::size_t>(aY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(span, 2);
+                    const rcCompactSpan& aSpan = chf.spans[aIndex];
+                    newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(aIndex)]) + 2, 255));
+                    if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                        distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                    }
+
+                    if (rcGetCon(aSpan, 1) != RC_NOT_CONNECTED) {
+                        const int bX = aX + rcGetDirOffsetX(1);
+                        const int bY = aY + rcGetDirOffsetY(1);
+                        const int bIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(bX) + static_cast<std::size_t>(bY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(aSpan, 1);
+                        newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(bIndex)]) + 3, 255));
+                        if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                            distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                        }
+                    }
+                }
+                if (rcGetCon(span, 1) != RC_NOT_CONNECTED) {
+                    const int aX = x + rcGetDirOffsetX(1);
+                    const int aY = z + rcGetDirOffsetY(1);
+                    const int aIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(aX) + static_cast<std::size_t>(aY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(span, 1);
+                    const rcCompactSpan& aSpan = chf.spans[aIndex];
+                    newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(aIndex)]) + 2, 255));
+                    if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                        distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                    }
+
+                    if (rcGetCon(aSpan, 0) != RC_NOT_CONNECTED) {
+                        const int bX = aX + rcGetDirOffsetX(0);
+                        const int bY = aY + rcGetDirOffsetY(0);
+                        const int bIndex = static_cast<int>(chf.cells[static_cast<std::size_t>(bX) + static_cast<std::size_t>(bY) * static_cast<std::size_t>(xSize)].index) + rcGetCon(aSpan, 0);
+                        newDistance = static_cast<unsigned char>(rcMin(static_cast<int>(distanceToBoundary[static_cast<std::size_t>(bIndex)]) + 3, 255));
+                        if (newDistance < distanceToBoundary[static_cast<std::size_t>(spanIndex)]) {
+                            distanceToBoundary[static_cast<std::size_t>(spanIndex)] = newDistance;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const unsigned char minBoundaryDistance = static_cast<unsigned char>(erosionRadius * 2);
+    for (int spanIndex = 0; spanIndex < chf.spanCount; ++spanIndex) {
+        if (distanceToBoundary[static_cast<std::size_t>(spanIndex)] < minBoundaryDistance) {
+            chf.areas[spanIndex] = RC_NULL_AREA;
+        }
+    }
+
+    (void)ctx;
+    return true;
 }
 
 NavPolyMesh extractNavPolyMesh(const rcPolyMesh& pmesh, const rcPolyMeshDetail& dmesh) {
@@ -230,8 +430,8 @@ std::optional<NavPolyMesh> buildNavPolyMesh(
         return std::nullopt;
     }
 
-    if (!rcErodeWalkableArea(&ctx, cfg.walkableRadius, chf)) {
-        TraceLog(LOG_WARNING, "NAVBAKE: rcErodeWalkableArea failed");
+    if (!erodeWalkableAreaWallsOnly(&ctx, cfg.walkableRadius, solid, chf)) {
+        TraceLog(LOG_WARNING, "NAVBAKE: erodeWalkableAreaWallsOnly failed");
         return std::nullopt;
     }
 

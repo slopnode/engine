@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
         facesOut += brush.faces.size();
     }
 
-    const std::string virtualPath = *config->map + "/static";
+    const std::string virtualPath = *config->map + "/brushes";
     auto sourcePath = assets.resolvePath(AssetKind::MapSource, virtualPath);
     if (!sourcePath) {
         std::cerr << "slopcsg: failed to resolve map path\n";
@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const auto csgPath = sourcePath->parent_path() / "static.csg";
+    const auto csgPath = sourcePath->parent_path() / "compiled" / "csg";
     if (!writeMapBrushes(csgPath, carved)) {
         std::cerr << "slopcsg: failed to write " << csgPath << "\n";
         s7_quit(scheme);

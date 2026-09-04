@@ -53,7 +53,7 @@ void runMapScriptTests() {
         "  (depends))\n");
 
     writeFile(
-        root / "maps" / "testmap" / "static.map",
+        root / "maps" / "testmap" / "brushes.map",
         "(brush-box\n"
         "  (id \"a-floor\")\n"
         "  (mins -4 -0.25 -4)\n"
@@ -69,7 +69,7 @@ void runMapScriptTests() {
     CHECK_TRUE(scheme != nullptr);
     loadPackageMapHandlers(scheme, assets);
 
-    CHECK_TRUE(assets.hasMapSource("testmap/static"));
+    CHECK_TRUE(assets.hasMapSource("testmap/brushes"));
 
     auto doc = loadMapSourceDocument(scheme, assets, "testmap");
     CHECK_TRUE(doc.has_value());
@@ -86,16 +86,16 @@ void runMapScriptTests() {
         CHECK_EQ((*brushes)[0].id, std::string("a-floor"));
     }
 
-    CHECK_FALSE(assets.hasMapSource("does-not-exist/static"));
+    CHECK_FALSE(assets.hasMapSource("does-not-exist/brushes"));
     auto missing = loadMapSourceDocument(scheme, assets, "does-not-exist");
     CHECK_FALSE(missing.has_value());
 
     // slopcsg pass-through invariant: writing loadMapBrushes' output with writeMapBrushes and
     // reading it back via loadCarvedMapBrushes must reproduce the same brushes exactly.
-    const std::filesystem::path carvedPath = root / "maps" / "testmap" / "static.csg";
+    const std::filesystem::path carvedPath = root / "maps" / "testmap" / "compiled" / "csg";
     CHECK_TRUE(writeMapBrushes(carvedPath, *brushes));
 
-    CHECK_TRUE(assets.hasMapCarved("testmap/static"));
+    CHECK_TRUE(assets.hasMapCarved("testmap/compiled/csg"));
     auto carved = loadCarvedMapBrushes(scheme, assets, "testmap");
     CHECK_TRUE(carved.has_value());
     CHECK_EQ(carved->size(), brushes->size());
@@ -112,7 +112,7 @@ void runMapScriptTests() {
         CHECK_EQ(roundTripped.maxs.z, original.maxs.z);
     }
 
-    CHECK_FALSE(assets.hasMapCarved("does-not-exist/static"));
+    CHECK_FALSE(assets.hasMapCarved("does-not-exist/compiled/csg"));
     auto missingCarved = loadCarvedMapBrushes(scheme, assets, "does-not-exist");
     CHECK_FALSE(missingCarved.has_value());
 

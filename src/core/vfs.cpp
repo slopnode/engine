@@ -74,12 +74,12 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::Anim: return ".anim";
     case AssetKind::AnimTracks: return ".tracks";
     case AssetKind::MapSource: return ".map";
-    case AssetKind::MapCarved: return ".csg";
+    case AssetKind::MapCarved: return "";
     case AssetKind::MapMeta: return ".meta";
-    case AssetKind::MapBsp: return ".bsp";
-    case AssetKind::MapVis: return ".vis";
-    case AssetKind::MapNav: return ".nav";
-    case AssetKind::MapRad: return ".rad";
+    case AssetKind::MapBsp: return "";
+    case AssetKind::MapVis: return "";
+    case AssetKind::MapNav: return "";
+    case AssetKind::MapRad: return "";
     case AssetKind::MapLightmap: return ".png";
     case AssetKind::MapThings: return ".s7";
     case AssetKind::MapGraphs: return ".s7";

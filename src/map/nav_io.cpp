@@ -189,7 +189,7 @@ std::optional<MapNavigation> readNavBytes(std::span<const std::byte> data) {
     if (version != kNavVersion) {
         TraceLog(
             LOG_WARNING,
-            "NAV: unsupported version %u (need %u); rebuild map tools / recompile static.nav",
+            "NAV: unsupported version %u (need %u); rebuild map tools / recompile nav",
             version,
             kNavVersion);
         return std::nullopt;

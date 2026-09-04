@@ -208,12 +208,26 @@ MapNavigation buildMapNavigationFromPolyMesh(
     return nav;
 }
 
-int navSamplePoly(const MapNavigation& nav, Vector3 point) {
+int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf) {
     if (nav.leafBoundary.size() != static_cast<std::size_t>(nav.leafCount)) {
         return -1; // BSP-leaf-built graph: no boundary data, caller should fall back
     }
+    // How close two candidates' floor distances have to be for preferLeaf to win the tie
+    // instead of the strict closest-floor winner -- see navSamplePoly's doc comment on the
+    // overlapping-polygon case this resolves. An agent stuck bouncing against a step it
+    // can't quite climb doesn't just jitter by a couple centimeters: real captures show a
+    // vertical bounce of a third of a world unit or more per replan cycle while genuinely
+    // stuck in place, well past a naively "safe-looking" margin. What actually bounds this
+    // safely is that two polygons Recast ever connects as adjacent steps differ in floor
+    // height by at most the bake's walkableClimb (real single-step rise, typically ~0.5 in
+    // this game's nav profiles) -- so a margin comfortably above that still can't mistake a
+    // real multi-step transition for jitter, while reliably absorbing an unconnected,
+    // meters-apart overlap pocket like the one above (see navSamplePoly's doc comment).
+    constexpr float kPreferLeafMargin = 1.0f;
     int best = -1;
     float bestFloorDist = 0.0f;
+    bool preferIsCandidate = false;
+    float preferFloorDist = 0.0f;
     for (int i = 0; i < nav.leafCount; ++i) {
         if (!nav.walkable[static_cast<std::size_t>(i)]) {
             continue;
@@ -223,10 +237,17 @@ int navSamplePoly(const MapNavigation& nav, Vector3 point) {
             continue;
         }
         const float floorDist = std::fabs(nav.leafFloorY[static_cast<std::size_t>(i)] - point.y);
+        if (i == preferLeaf) {
+            preferIsCandidate = true;
+            preferFloorDist = floorDist;
+        }
         if (best < 0 || floorDist < bestFloorDist) {
             best = i;
             bestFloorDist = floorDist;
         }
+    }
+    if (preferIsCandidate && preferLeaf != best && preferFloorDist <= bestFloorDist + kPreferLeafMargin) {
+        return preferLeaf;
     }
     return best;
 }
@@ -254,12 +275,12 @@ int nearestWalkableNavPoly(const MapNavigation& nav, Vector3 point, float maxSna
     return best;
 }
 
-int sampleNavLeaf(const MapNavigation& nav, const BspTree& tree, Vector3 point) {
+int sampleNavLeaf(const MapNavigation& nav, const BspTree& tree, Vector3 point, int preferLeaf) {
     if (nav.leafBoundary.size() != static_cast<std::size_t>(nav.leafCount)) {
         // BSP-leaf-built graph: no boundary data, nav indices already are BSP leaf ids.
         return pvsSampleLeaf(tree, point);
     }
-    const int poly = navSamplePoly(nav, point);
+    const int poly = navSamplePoly(nav, point, preferLeaf);
     if (poly >= 0) {
         return poly;
     }

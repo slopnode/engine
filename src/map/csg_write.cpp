@@ -424,6 +424,7 @@ std::string mapCsgDocumentToText(
 }
 
 bool writeMapBrushes(const std::filesystem::path& path, const std::vector<Brush>& brushes) {
+    std::filesystem::create_directories(path.parent_path());
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file) {
         return false;

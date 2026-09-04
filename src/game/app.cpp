@@ -185,6 +185,7 @@ void App::init_script() {
         }
     }
     loadPackageThings(scheme_, assetStore_);
+    loadPackageNavProfiles(scheme_, assetStore_);
     if (!assetStore_.loadDataFromPackage(scheme_, baseId, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }

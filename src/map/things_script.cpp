@@ -763,6 +763,15 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     }
                     continue;
                 }
+                if (std::strcmp(motorTag, "nav-profile") == 0) {
+                    std::string profile;
+                    if (!readString(sc, s7_car(motorRest), profile) || profile.empty()) {
+                        TraceLog(LOG_WARNING, "THING: motor nav-profile must be a non-empty string");
+                        return false;
+                    }
+                    out.motorNavProfile = std::move(profile);
+                    continue;
+                }
                 if (!s7_is_number(s7_car(motorRest))) {
                     TraceLog(LOG_WARNING, "THING: unknown or malformed motor clause '%s'", motorTag);
                     return false;

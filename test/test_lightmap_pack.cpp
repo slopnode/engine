@@ -180,7 +180,7 @@ void runLightmapPackTests() {
 
         const auto tempDir = std::filesystem::temp_directory_path() / "sloptest_rad_rotation";
         std::filesystem::create_directories(tempDir);
-        const auto radPath = tempDir / "static.rad";
+        const auto radPath = tempDir / "lightmap";
         CHECK(writeRadFile(radPath, rad));
         const auto loaded = readRadFile(radPath);
         CHECK(loaded.has_value());

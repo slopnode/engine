@@ -16,6 +16,7 @@ add_executable(sloptests
     test_nav_bake.cpp
     test_nav_navmesh_build.cpp
     test_nav_io.cpp
+    test_nav_profile_registry.cpp
     test_physics.cpp
     test_frustum.cpp
     test_transform.cpp
@@ -75,6 +76,7 @@ add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
 add_test(NAME sloptests.nav_bake COMMAND sloptests nav_bake)
 add_test(NAME sloptests.nav_navmesh_build COMMAND sloptests nav_navmesh_build)
 add_test(NAME sloptests.nav_io COMMAND sloptests nav_io)
+add_test(NAME sloptests.nav_profile_registry COMMAND sloptests nav_profile_registry)
 add_test(NAME sloptests.physics COMMAND sloptests physics)
 add_test(NAME sloptests.frustum COMMAND sloptests frustum)
 add_test(NAME sloptests.transform COMMAND sloptests transform)

@@ -11,6 +11,7 @@
 #include "map/csg_compile.hpp"
 #include "map/brush_door.hpp"
 #include "map/mover_brushes.hpp"
+#include "map/nav_profile_registry.hpp"
 #include "map/things_script.hpp"
 #include "map/light_components.hpp"
 #include "render/dynamic_light.hpp"
@@ -699,6 +700,13 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             navAgent.flyer = motor.moveMode == CharacterMoveMode::Fly;
             navAgent.maxFall = placement.motorMaxFall;
             navAgent.waterCostMultiplier = placement.motorWaterAversion;
+            if (!placement.motorNavProfile.empty()) {
+                navAgent.navProfile = placement.motorNavProfile;
+            } else if (
+                const NavProfileDef* autoProfile = resolveAutoNavProfile(
+                    navProfileRegistry().defsOrDefault(), motor.radius, motor.height)) {
+                navAgent.navProfile = autoProfile->name;
+            }
             entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
             std::vector<std::string> tags = placement.tags;
             if (tags.empty()) {

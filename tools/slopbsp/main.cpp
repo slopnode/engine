@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
     }
 
     BspTree tree = buildBspFromHullBrushes(*rawBrushes, &*brushes);
-    const std::string virtualPath = *config->map + "/static";
+    const std::string virtualPath = *config->map + "/compiled/csg";
     auto csgPath = assets.resolvePath(AssetKind::MapCarved, virtualPath);
     if (!csgPath) {
         std::cerr << "slopbsp: failed to resolve map path\n";
@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const auto bspPath = csgPath->parent_path() / "static.bsp";
+    const auto bspPath = csgPath->parent_path() / "bsp";
     if (!writeBspFile(bspPath, tree)) {
         std::cerr << "slopbsp: failed to write " << bspPath << "\n";
         s7_quit(scheme);

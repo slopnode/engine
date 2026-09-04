@@ -42,9 +42,17 @@ float navHeightAt(const NavMeshHeightField& heightField, int poly, float x, floa
  *  sampleNavLeaf below when @p nav was built from a baked navmesh. -1 if @p nav has no
  *  boundary data (a BSP-leaf-built graph -- callers should fall back to BSP point
  *  classification in that case) or no walkable polygon contains @p point. When more
- *  than one candidate matches (only possible at a shared-edge boundary, a measure-zero
- *  case in practice), the one whose floor is closest to @p point.y wins. */
-int navSamplePoly(const MapNavigation& nav, Vector3 point);
+ *  than one candidate matches, the one whose floor is closest to @p point.y wins --
+ *  this is not just a shared-edge measure-zero case: a tightly wound corridor (a spiral
+ *  staircase) can have two entirely disconnected polygons, stacked meters apart in
+ *  height, whose XZ footprints genuinely overlap over a real area. @p preferLeaf (-1 for
+ *  none) breaks a near-tie in that overlap toward whichever poly the caller was already
+ *  on, rather than the strict floor-distance winner: without it, an agent standing in
+ *  such an overlap with its Y wobbling by even a few centimeters (ordinary physics
+ *  jitter) flips which poly it's "in" every sample, and since the two polys can lead
+ *  to completely different routes, that flip drives a full route replan every tick --
+ *  the agent visibly thrashes in place instead of ever committing to either route. */
+int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf = -1);
 
 /** Nearest walkable polygon to @p point when no polygon actually contains it (e.g. a
  *  point in the eroded margin Recast leaves along walls/doorways -- see
@@ -63,6 +71,6 @@ int nearestWalkableNavPoly(const MapNavigation& nav, Vector3 point, float maxSna
  *  tables, since a raw BSP leaf id is a different index space than a baked navmesh's
  *  polygon ids: once @p nav has boundary data, the fallback must stay in poly space
  *  (nearestWalkableNavPoly) rather than crossing into pvsSampleLeaf's BSP leaf space. */
-int sampleNavLeaf(const MapNavigation& nav, const BspTree& tree, Vector3 point);
+int sampleNavLeaf(const MapNavigation& nav, const BspTree& tree, Vector3 point, int preferLeaf = -1);
 
 }

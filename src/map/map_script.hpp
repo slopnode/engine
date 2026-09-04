@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -31,6 +32,9 @@ struct LoadedMap {
     PvsFile pvs{};
     RadFile rad{};
     MapNavigation nav{};
+    /** Every other baked nav profile besides @c nav (which holds the smallest-radius one,
+     *  or the runtime BSP-leaf fallback); see MapNavProfiles. Keyed by profile name. */
+    std::unordered_map<std::string, MapNavigation> navProfiles;
     MapMeta meta{};
     bool hasLightmaps = false;
     Shader lightmapShader{};
@@ -46,7 +50,7 @@ struct LoadedMap {
     MaterialAnimTargets materialAnimTargets{};
 };
 
-/** Parsed static.map: local brushes plus prefab instances. */
+/** Parsed brushes.map: local brushes plus prefab instances. */
 struct MapSourceDocument {
     std::vector<Brush> brushes;
     std::vector<PrefabInstance> instances;
@@ -55,8 +59,11 @@ struct MapSourceDocument {
 /** Intermediate state carried across loadMapStage* calls. */
 struct MapLoadWork {
     std::string mapName;
+    /** maps/<mapName>/brushes -- the hand-authored source, resolves to brushes.map. */
     std::string virtualPath;
-    std::string radVirtualPath;
+    /** maps/<mapName>/compiled -- base directory for all derived build output
+     *  (bsp/vis/nav/rad); each stage appends its own filename under this. */
+    std::string compiledPath;
     MapMeta meta{};
     std::vector<Brush> brushes;
     std::unordered_set<std::string> moverBrushIds;
@@ -64,6 +71,7 @@ struct MapLoadWork {
     PvsFile pvs{};
     RadFile rad{};
     MapNavigation nav{};
+    std::unordered_map<std::string, MapNavigation> navProfiles;
 };
 
 /** Load base+mod data/map-handlers.s7 into the registry (for CSG arg clauses). */
@@ -72,10 +80,13 @@ void loadPackageMapHandlers(s7_scheme* scheme, AssetStore& assets);
 /** Load engine+base+mod data/things.s7 into the thing-def registry. */
 void loadPackageThings(s7_scheme* scheme, AssetStore& assets);
 
+/** Load engine+base+mod data/nav-profiles.s7 into the nav-profile registry. */
+void loadPackageNavProfiles(s7_scheme* scheme, AssetStore& assets);
+
 /** Loads maps/<name>/map.meta. */
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName);
 
-/** Loads and evaluates maps/<name>/static.map without expanding prefabs. */
+/** Loads and evaluates maps/<name>/brushes.map without expanding prefabs. */
 std::optional<MapSourceDocument> loadMapSourceDocument(
     s7_scheme* scheme,
     AssetStore& assets,
@@ -87,7 +98,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     AssetStore& assets,
     std::string_view mapName);
 
-/** Loads maps/<name>/static.csg (slopcsg's carved output) as a flat brush list. No prefab
+/** Loads maps/<name>/compiled/csg (slopcsg's carved output) as a flat brush list. No prefab
  *  expansion -- slopcsg already flattens prefab instances before writing this file. */
 std::optional<std::vector<Brush>> loadCarvedMapBrushes(
     s7_scheme* scheme,
@@ -135,7 +146,7 @@ bool loadMapStageRad(AssetStore& assets, MapLoadWork& work);
  *  depends on the BSP loaded in stage 1. Not yet consumed by assembleMapScene(), which
  *  still builds its own MapNavigation from the BSP leaf/portal graph at runtime; this
  *  just makes the baked data available on MapLoadWork/LoadedMap ahead of that cutover.
- *  Missing static.nav is not an error (most maps haven't been re-baked yet). */
+ *  A missing bake is not an error (most maps haven't been re-baked yet). */
 bool loadMapStageNav(AssetStore& assets, MapLoadWork& work);
 
 /** Stage 4: lightmap/sky shaders, atlas textures, CSG compile, model build. */

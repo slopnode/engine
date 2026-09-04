@@ -2,7 +2,7 @@
 
 Magic 0x31444152 (RAD1), version 6 (readable back to version 2).
 
-Atlas pixels are not embedded; they are separate PNGs under rad/ (for example atlas0.png). Face ids match authored brush face ids. Strings in this file are inline length-prefixed (no trailing string table).
+Atlas pixels are not embedded; they are separate PNGs alongside this file under compiled/rad/ (for example atlas0.png). Face ids match authored brush face ids. Strings in this file are inline length-prefixed (no trailing string table).
 
 # Header {#rad-header}
 
@@ -91,13 +91,13 @@ CPU reference bake:
 ```bash
 cmake --build build --target sloprad sloptests
 ./build/sloptests lightmap_transparent
-./build/sloprad /path/to/maps/E1M1/static.bsp --cpu
+./build/sloprad /path/to/maps/E1M1/compiled/bsp --cpu
 ```
 
 GPU validation (requires OpenGL 4.3 + discrete GPU):
 
 ```bash
-./build/sloprad /path/to/maps/E1M1/static.bsp --gpu --gpu-fast
+./build/sloprad /path/to/maps/E1M1/compiled/bsp --gpu --gpu-fast
 ```
 
-Confirm sloprad logs `GPU direct lighting` without CPU fallback, then inspect `maps/E1M1/rad/atlas*.png` near fence geometry for post/grate sun shadows.
+Confirm sloprad logs `GPU direct lighting` without CPU fallback, then inspect `maps/E1M1/compiled/rad/atlas*.png` near fence geometry for post/grate sun shadows.

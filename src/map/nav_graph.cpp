@@ -819,7 +819,29 @@ std::vector<Vector3> leafPathToWaypoints(
             y = link->portalCenter.y;
         }
 
-        Vector3 point{pointXZ.x, y, pointXZ.z};
+        // The funnel's pulled XZ is clamped back onto the portal it's actually meant to
+        // cross before use, not trusted outright: runFunnel's narrowing test assumes the
+        // corridor never re-enters an angular wedge it already swept from the apex, which
+        // a tightly winding corridor (a spiral staircase) violates -- the window can then
+        // fail to narrow across many consecutive portals and lock onto a corner far down
+        // the path, drawing a straight-line shortcut through whatever's geometrically
+        // between the two (open stairwell shaft included). Every portal's real walkable
+        // span is already known via portalTangent/portalHalfWidth (computed straight off
+        // the baked mesh, independent of the funnel), so reprojecting onto it is a strictly
+        // safe fallback: worst case this waypoint degrades to the portal's own center,
+        // exactly the already-trusted behaviour for a portal too narrow to spread across.
+        Vector3 clampedXZ = pointXZ;
+        if (link != nullptr && link->portalHalfWidth > 0.0f) {
+            const Vector3& center = link->portalCenter;
+            const Vector3& tangent = link->portalTangent;
+            const float offset = (pointXZ.x - center.x) * tangent.x + (pointXZ.z - center.z) * tangent.z;
+            const float clampedOffset = std::clamp(offset, -link->portalHalfWidth, link->portalHalfWidth);
+            clampedXZ = {center.x + clampedOffset * tangent.x, 0.0f, center.z + clampedOffset * tangent.z};
+        } else if (link != nullptr) {
+            clampedXZ = {link->portalCenter.x, 0.0f, link->portalCenter.z};
+        }
+
+        Vector3 point{clampedXZ.x, y, clampedXZ.z};
         if (link != nullptr && link->portalHalfWidth > 0.0f) {
             point = Vector3Add(point, Vector3Scale(link->portalTangent, lateralBias * link->portalHalfWidth));
         }
