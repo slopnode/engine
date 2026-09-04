@@ -1337,8 +1337,8 @@ Checks whether an actor currently has a planned path.
 </code></pre>
 
 ### nav-path-direction {#nav-path-direction}
-Returns the normalized direction from an actor toward its next waypoint.
-<pre><code class="language-scheme">(nav-path-direction id) → (list real? real? real?)
+Returns the normalized direction from an actor toward its current waypoint (or, once past the last waypoint, straight at the goal), or \#f if the actor has no path or its goal is known-unreachable.
+<pre><code class="language-scheme">(nav-path-direction id) → (or (list real? real? real?) \#f)
   id : string?
 </code></pre>
 

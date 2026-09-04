@@ -57,10 +57,16 @@ Note that this schema is only known once the base package's own scripts have loa
 
 # Tool binaries {#tool-binaries}
 
-`slopbsp`, `slopvis`, and `sloprad` accept the same `--base-game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process:
+`slopcsg`, `slopbsp`, `slopvis`, `slopnav`, and `sloprad` accept the same `--base-game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process (`slopnav` also takes an optional `--compare` diagnostic flag):
 
 ```
+slopcsg --base-game path/to/game --map my-room
 slopbsp --base-game path/to/game --map my-room
+slopvis --base-game path/to/game --map my-room
+slopnav --base-game path/to/game --map my-room
+sloprad --base-game path/to/game --map my-room
 ```
+
+That's the required run order, CSG → BSP → VIS → NAV → RAD (see @ref tut_csg): `slopcsg` carves overlapping brush faces (see @ref carving-resolving-overlapping-brushes) and writes the result `slopbsp` reads for surface geometry, so `slopbsp` fails with "run slopcsg first" if that carved output is missing or stale; `slopnav` and `sloprad` both only need `slopbsp`'s output, but are conventionally run in that order after `slopvis`.
 
 `slopmap` and `slopsprite` parse their own arguments (`--target`, an optional `--map`, and so on) rather than going through the package-flag schema, since they're editors rather than something a base package configures. See their individual pages under @ref tools for the flags each one takes.

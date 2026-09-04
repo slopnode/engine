@@ -12,3 +12,4 @@
 - @subpage vis
 - @subpage rad
 - @subpage filegeo
+- @subpage nav

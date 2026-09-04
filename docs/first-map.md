@@ -52,7 +52,7 @@ By default you will be looking at `(0, 0, 0)`. The first thing that we'll do is 
     - Edit: Selection options, operations
     - Prefab: Create CSG prefabs to re-use in maps
     - View: Camera options, snap options
-    - Compile: BSP, VIS, RAD
+    - Compile: CSG, BSP, VIS, NAV, RAD
     - Diagnostics: Something I put there once and forgot about
 
 - Left panel
@@ -165,7 +165,7 @@ After placing the object you can press G and then Y to translate the light somew
 
 ![Light placement 1](images/first-map-light-2.png)
 
-Each of these programs, BSP, VIS, and RAD are seperate command-line executables that can be run individually. The compiled data can also be cleaned from the editor. "Run All" simply calls all of them in order. After hitting "Run All" a console will appear to report messages from the compilers. Compilation also requires saving the map.
+Each of these programs, CSG, BSP, VIS, NAV, and RAD are separate command-line executables that can be run individually. The compiled data can also be cleaned from the editor. "Run All" simply calls all of them in order. After hitting "Run All" a console will appear to report messages from the compilers. Compilation also requires saving the map.
 
 ![Light placement 1](images/first-map-light-3.png)
 

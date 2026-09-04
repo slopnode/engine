@@ -31,6 +31,7 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | MapMeta | `maps/<name>/` | `map.meta` | |
 | MapBsp | `maps/<name>/compiled/` | (none, filename `bsp`) | Compiled; see @ref bsp. |
 | MapVis | `maps/<name>/compiled/` | (none, filename `vis`) | Compiled PVS; see @ref vis. |
+| MapNav | `maps/<name>/compiled/nav/` | (none, filename is the nav profile name) | Baked leaf navigation graph, one file per nav profile; see @ref nav. |
 | MapRad | `maps/<name>/compiled/rad/` | (none, filename `lightmap`) | Compiled lightmap data; see @ref rad. |
 | MapLightmap | `maps/<name>/compiled/rad/` | `.png` | Baked lightmap atlas images. |
 | MapThings | `maps/<name>/` | `things.s7` | Placed thing instances. |
