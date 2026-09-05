@@ -1,10 +1,27 @@
 #include "game/app_config.hpp"
 
+#include "core/engine_version.hpp"
+
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 
 namespace slopengine {
 
+namespace {
+
+std::string programDisplayName(const char* program) {
+    return std::filesystem::path(program).stem().string();
+}
+
+}
+
+void AppConfig::printVersion(const char* program) {
+    std::cout << programDisplayName(program) << " - v" << kSlopengineVersion << "\n";
+}
+
 void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag>& schema) {
+    std::cerr << programDisplayName(program) << " - v" << kSlopengineVersion << "\n\n";
     std::cerr << "Usage: " << program
               << " --base-game <path|name> [--mod <path|name>]... [--profile <name>] [package-flags...]\n"
               << "\n"
@@ -14,7 +31,8 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "                --base-game (repeatable)\n"
               << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
               << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n"
-              << "  --verbose     Raise the trace log level to show DEBUG messages\n";
+              << "  --verbose     Raise the trace log level to show DEBUG messages\n"
+              << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
         return;
@@ -55,6 +73,11 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             }
             config.mods.push_back(argv[++i]);
             continue;
+        }
+
+        if (arg == "--version") {
+            printVersion(config.programName.c_str());
+            std::exit(0);
         }
 
         if (arg == "--debug") {

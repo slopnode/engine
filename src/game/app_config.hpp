@@ -48,6 +48,9 @@ struct AppConfig {
 
     /** Prints mount usage, plus package flag help when @p schema is non-empty. */
     static void printUsage(const char* program, const std::vector<PackageCliFlag>& schema = {});
+
+    /** Prints "<program> - v<engine version>" to stdout. */
+    static void printVersion(const char* program);
 };
 
 }

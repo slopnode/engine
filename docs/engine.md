@@ -8,3 +8,5 @@
 - @subpage dataapi
 - @subpage file_formats
 - @subpage lighting_model
+- @subpage navigation_model
+- @subpage ecs_pipeline

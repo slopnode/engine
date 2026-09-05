@@ -104,6 +104,16 @@ configure_file(
     @ONLY
 )
 
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/VERSION")
+file(READ "${CMAKE_SOURCE_DIR}/VERSION" SLOPENGINE_VERSION)
+string(STRIP "${SLOPENGINE_VERSION}" SLOPENGINE_VERSION)
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/engine_version.hpp.in"
+    "${CMAKE_BINARY_DIR}/generated/core/engine_version.hpp"
+    @ONLY
+)
+
 add_subdirectory(lib)
 
 set(SLOPLIB_SOURCES
