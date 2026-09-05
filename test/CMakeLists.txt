@@ -8,6 +8,7 @@ add_executable(sloptests
     test_scheme_harden.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
+    test_map_script.cpp
     test_csg_compile.cpp
     test_pvs_build.cpp
     test_nav_graph.cpp
@@ -15,6 +16,7 @@ add_executable(sloptests
     test_nav_bake.cpp
     test_nav_navmesh_build.cpp
     test_nav_io.cpp
+    test_nav_profile_registry.cpp
     test_physics.cpp
     test_frustum.cpp
     test_transform.cpp
@@ -23,6 +25,7 @@ add_executable(sloptests
     test_brush_door.cpp
     test_brush_split.cpp
     test_brush_extrude.cpp
+    test_brush_carve.cpp
     test_brush_role.cpp
     test_brush_blocks.cpp
     test_lightmap_transparent.cpp
@@ -66,12 +69,14 @@ add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
+add_test(NAME sloptests.map_script COMMAND sloptests map_script)
 add_test(NAME sloptests.csg_compile COMMAND sloptests csg_compile)
 add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
 add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
 add_test(NAME sloptests.nav_bake COMMAND sloptests nav_bake)
 add_test(NAME sloptests.nav_navmesh_build COMMAND sloptests nav_navmesh_build)
 add_test(NAME sloptests.nav_io COMMAND sloptests nav_io)
+add_test(NAME sloptests.nav_profile_registry COMMAND sloptests nav_profile_registry)
 add_test(NAME sloptests.physics COMMAND sloptests physics)
 add_test(NAME sloptests.frustum COMMAND sloptests frustum)
 add_test(NAME sloptests.transform COMMAND sloptests transform)
@@ -79,6 +84,7 @@ add_test(NAME sloptests.dynamic_light COMMAND sloptests dynamic_light)
 add_test(NAME sloptests.dynamic_light_compositing COMMAND sloptests dynamic_light_compositing)
 add_test(NAME sloptests.brush_door COMMAND sloptests brush_door)
 add_test(NAME sloptests.brush_split COMMAND sloptests brush_split)
+add_test(NAME sloptests.brush_carve COMMAND sloptests brush_carve)
 add_test(NAME sloptests.brush_role COMMAND sloptests brush_role)
 add_test(NAME sloptests.brush_blocks COMMAND sloptests brush_blocks)
 add_test(NAME sloptests.lightmap_transparent COMMAND sloptests lightmap_transparent)

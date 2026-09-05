@@ -222,7 +222,7 @@ std::optional<BspTree> readBspBytes(std::span<const std::byte> data) {
     if (version != kBspVersion) {
         TraceLog(
             LOG_WARNING,
-            "BSP: unsupported version %u (need %u); rebuild map tools / recompile static.bsp",
+            "BSP: unsupported version %u (need %u); rebuild map tools / recompile bsp",
             version,
             kBspVersion);
         return std::nullopt;

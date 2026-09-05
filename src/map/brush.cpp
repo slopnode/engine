@@ -75,17 +75,19 @@ Vector3 polygonCentroidLocal(const std::vector<Vector3>& verts) {
     return scale3(sum, 1.0f / static_cast<float>(verts.size()));
 }
 
-float planeSignedDistance(Vector3 planePoint, Vector3 planeNormal, Vector3 p) {
-    return dot3(planeNormal, sub3(p, planePoint));
+} // namespace
+
+float planeSignedDistance(Vector3 planePoint, Vector3 planeNormal, Vector3 point) {
+    return dot3(planeNormal, sub3(point, planePoint));
 }
 
-std::vector<Vector3> clipPolygonAgainstPlaneLocal(
-    const std::vector<Vector3>& input,
+std::vector<Vector3> clipPolygonAgainstPlane(
+    const std::vector<Vector3>& polygon,
     Vector3 planePoint,
     Vector3 planeNormal,
     bool keepFront) {
     std::vector<Vector3> output;
-    if (input.empty()) {
+    if (polygon.empty()) {
         return output;
     }
 
@@ -94,9 +96,9 @@ std::vector<Vector3> clipPolygonAgainstPlaneLocal(
         return keepFront ? (d >= -kPlaneEps) : (d <= kPlaneEps);
     };
 
-    for (std::size_t i = 0; i < input.size(); ++i) {
-        const Vector3& current = input[i];
-        const Vector3& next = input[(i + 1) % input.size()];
+    for (std::size_t i = 0; i < polygon.size(); ++i) {
+        const Vector3& current = polygon[i];
+        const Vector3& next = polygon[(i + 1) % polygon.size()];
         const bool currentIn = isInside(current);
         const bool nextIn = isInside(next);
         const float d0 = planeSignedDistance(planePoint, planeNormal, current);
@@ -115,6 +117,8 @@ std::vector<Vector3> clipPolygonAgainstPlaneLocal(
     }
     return output;
 }
+
+namespace {
 
 std::vector<Vector3> buildCapPolygonLocal(
     const std::vector<std::vector<Vector3>>& clippedFaces,
@@ -1775,8 +1779,8 @@ std::optional<BrushSplitResult> splitBrushByPlane(
     backFaces.reserve(source.faces.size() + 1);
 
     for (const BrushFace& face : source.faces) {
-        auto frontPoly = clipPolygonAgainstPlaneLocal(face.vertices, planePoint, n, true);
-        auto backPoly = clipPolygonAgainstPlaneLocal(face.vertices, planePoint, n, false);
+        auto frontPoly = clipPolygonAgainstPlane(face.vertices, planePoint, n, true);
+        auto backPoly = clipPolygonAgainstPlane(face.vertices, planePoint, n, false);
         if (frontPoly.size() >= 3 && polygonAreaLocal(frontPoly) >= 1e-6f) {
             frontPolys.push_back(frontPoly);
             frontFaces.push_back(makeClippedFace(face, std::move(frontPoly)));

@@ -3,10 +3,11 @@
 #include "core/vfs.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/csg_write.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/nav_io.hpp"
+#include "map/nav_profile_registry.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
 #include "select_tool.hpp"
@@ -55,7 +56,7 @@ bool facesShareEdge(const slopengine::BrushFace& a, const slopengine::BrushFace&
 bool ensureMapFiles(
     const std::filesystem::path& packageRoot,
     const std::string& mapName,
-    std::filesystem::path& outCsgPath) {
+    std::filesystem::path& outSourcePath) {
     if (mapName.empty()) {
         return false;
     }
@@ -66,7 +67,7 @@ bool ensureMapFiles(
         return false;
     }
 
-    outCsgPath = mapDir / "static.csg";
+    outSourcePath = mapDir / "brushes.map";
     const std::filesystem::path metaPath = mapDir / "map.meta";
     if (!std::filesystem::exists(metaPath)) {
         std::ofstream meta(metaPath, std::ios::binary | std::ios::trunc);
@@ -86,13 +87,13 @@ bool ensureMapFiles(
 bool ensurePrefabPath(
     const std::filesystem::path& packageRoot,
     const std::string& prefabPath,
-    std::filesystem::path& outCsgPath) {
+    std::filesystem::path& outSourcePath) {
     if (prefabPath.empty()) {
         return false;
     }
-    outCsgPath = packageRoot / "prefabs" / (prefabPath + ".csg");
+    outSourcePath = packageRoot / "prefabs" / (prefabPath + ".map");
     std::error_code ec;
-    std::filesystem::create_directories(outCsgPath.parent_path(), ec);
+    std::filesystem::create_directories(outSourcePath.parent_path(), ec);
     return !ec;
 }
 
@@ -1050,7 +1051,7 @@ void Editor::newPrefab() {
 
 bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std::string& mapName) {
     scheme = schemeIn;
-    auto loaded = slopengine::loadMapCsgDocument(scheme, assets, mapName);
+    auto loaded = slopengine::loadMapSourceDocument(scheme, assets, mapName);
     if (!loaded) {
         statusMessage = "Load failed: " + mapName;
         return false;
@@ -1078,6 +1079,7 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     compileDirty = {};
     rebuildPreview(assets);
     reloadVisPreview(assets);
+    reloadCsgPreview(assets);
     fill = reloadLitBake(assets) ? PreviewFill::Lit : PreviewFill::Textures;
     reloadBakedNav(assets);
     resetCamera(*this);
@@ -1122,7 +1124,7 @@ bool Editor::loadPrefab(
     prefabDoc.instances.clear();
     prefabDoc.things = std::move(things->things);
     prefabDoc.dirty = false;
-    if (auto owned = assets.resolveOwned(slopengine::AssetKind::PrefabCsg, prefabPath);
+    if (auto owned = assets.resolveOwned(slopengine::AssetKind::PrefabSource, prefabPath);
         owned && owned->package != nullptr) {
         writePackageRoot = owned->package->root();
         writePackageId = owned->package->meta().id;
@@ -1167,23 +1169,23 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
         return false;
     }
 
-    std::filesystem::path csgPath;
+    std::filesystem::path sourcePath;
     std::filesystem::path packageRoot = writePackageRoot;
-    auto existing = assets.resolveOwned(slopengine::AssetKind::MapCsg, mapName + "/static");
+    auto existing = assets.resolveOwned(slopengine::AssetKind::MapSource, mapName + "/brushes");
     if (existing && existing->package != nullptr) {
-        csgPath = existing->path;
+        sourcePath = existing->path;
         packageRoot = existing->package->root();
         writePackageRoot = packageRoot;
         writePackageId = existing->package->meta().id;
     } else {
-        if (!ensureMapFiles(writePackageRoot, mapName, csgPath)) {
+        if (!ensureMapFiles(writePackageRoot, mapName, sourcePath)) {
             statusMessage = "Save failed: could not create map folder";
             return false;
         }
         packageRoot = writePackageRoot;
     }
 
-    if (!slopengine::writeMapCsgDocument(csgPath, levelDoc.brushes, levelDoc.instances)) {
+    if (!slopengine::writeMapCsgDocument(sourcePath, levelDoc.brushes, levelDoc.instances)) {
         statusMessage = "Save failed: write error";
         return false;
     }
@@ -1199,7 +1201,7 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
     levelDoc.assetPath = mapName;
     levelDoc.dirty = false;
     levelHistory.markClean();
-    statusMessage = "Saved " + csgPath.string();
+    statusMessage = "Saved " + sourcePath.string();
     return true;
 }
 
@@ -1218,22 +1220,22 @@ bool Editor::savePrefabAs(slopengine::AssetStore& assets, const std::string& pre
         return false;
     }
 
-    std::filesystem::path csgPath;
+    std::filesystem::path sourcePath;
     std::filesystem::path packageRoot = writePackageRoot;
-    auto existing = assets.resolveOwned(slopengine::AssetKind::PrefabCsg, prefabPath);
+    auto existing = assets.resolveOwned(slopengine::AssetKind::PrefabSource, prefabPath);
     if (existing && existing->package != nullptr) {
-        csgPath = existing->path;
+        sourcePath = existing->path;
         packageRoot = existing->package->root();
         writePackageRoot = packageRoot;
         writePackageId = existing->package->meta().id;
-    } else if (!ensurePrefabPath(writePackageRoot, prefabPath, csgPath)) {
+    } else if (!ensurePrefabPath(writePackageRoot, prefabPath, sourcePath)) {
         statusMessage = "Save prefab failed: could not create folders";
         return false;
     } else {
         packageRoot = writePackageRoot;
     }
 
-    if (!slopengine::writeMapBrushes(csgPath, prefabDoc.brushes)) {
+    if (!slopengine::writeMapBrushes(sourcePath, prefabDoc.brushes)) {
         statusMessage = "Save prefab failed: write error";
         return false;
     }
@@ -1256,7 +1258,7 @@ bool Editor::savePrefabAs(slopengine::AssetStore& assets, const std::string& pre
     prefabDoc.assetPath = prefabPath;
     prefabDoc.dirty = false;
     prefabHistory.markClean();
-    statusMessage = "Saved prefab " + csgPath.string();
+    statusMessage = "Saved prefab " + sourcePath.string();
     return true;
 }
 
@@ -1330,6 +1332,7 @@ void Editor::markBspDirty() {
     if (scene != EditorScene::Level) {
         return;
     }
+    compileDirty.csg = true; // Bsp reads slopcsg's carved output, so geometry edits invalidate it too
     compileDirty.bsp = true;
     compileDirty.vis = true;
     compileDirty.rad = true;
@@ -1368,6 +1371,9 @@ void Editor::markThingCompileDirty(slopengine::ThingKind kind) {
 
 void Editor::clearCompileStage(CompileStage stage) {
     switch (stage) {
+    case CompileStage::Csg:
+        compileDirty.csg = false;
+        break;
     case CompileStage::Bsp:
         compileDirty.bsp = false;
         break;
@@ -1400,7 +1406,7 @@ bool Editor::cleanCompileData(
     }
 
     std::filesystem::path packageRoot = writePackageRoot;
-    auto existing = assets.resolveOwned(slopengine::AssetKind::MapCsg, mapName + "/static");
+    auto existing = assets.resolveOwned(slopengine::AssetKind::MapSource, mapName + "/brushes");
     if (existing && existing->package != nullptr) {
         packageRoot = existing->package->root();
         writePackageRoot = packageRoot;
@@ -1413,12 +1419,16 @@ bool Editor::cleanCompileData(
 
     const std::filesystem::path mapDir = packageRoot / "maps" / mapName;
     bool removedAny = false;
+    bool cleanCsg = false;
     bool cleanBsp = false;
     bool cleanVis = false;
     bool cleanRad = false;
     bool cleanNav = false;
     for (const CompileStage stage : stages) {
         switch (stage) {
+        case CompileStage::Csg:
+            cleanCsg = true;
+            break;
         case CompileStage::Bsp:
             cleanBsp = true;
             break;
@@ -1449,23 +1459,28 @@ bool Editor::cleanCompileData(
         }
     };
 
+    if (cleanCsg) {
+        removePath(mapDir / "compiled" / "csg", false);
+        compileDirty.csg = true;
+        compileDirty.bsp = true;
+    }
     if (cleanBsp) {
-        removePath(mapDir / "static.bsp", false);
+        removePath(mapDir / "compiled" / "bsp", false);
         compileDirty.bsp = true;
     }
     if (cleanVis) {
-        removePath(mapDir / "static.vis", false);
+        removePath(mapDir / "compiled" / "vis", false);
         preview.clearVis();
         compileDirty.vis = true;
         compileDirty.rad = true;
     }
     if (cleanRad) {
-        removePath(mapDir / "rad", true);
+        removePath(mapDir / "compiled" / "rad", true);
         preview.clearLit();
         compileDirty.rad = true;
     }
     if (cleanNav) {
-        removePath(mapDir / "static.nav", false);
+        removePath(mapDir / "compiled" / "nav", true);
         compileDirty.nav = true;
         bakedNav = {};
         bakedNavValid = false;
@@ -1477,6 +1492,9 @@ bool Editor::cleanCompileData(
         }
     } else if (fill == PreviewFill::Unlit && !preview.visValid) {
         fill = PreviewFill::Textures;
+    } else if (
+        (fill == PreviewFill::Csg || fill == PreviewFill::CsgWireframe) && !preview.csgValid) {
+        fill = PreviewFill::Textures;
     }
 
     if (!removedAny) {
@@ -1485,7 +1503,13 @@ bool Editor::cleanCompileData(
     }
 
     std::string cleaned;
+    if (cleanCsg) {
+        cleaned += "CSG";
+    }
     if (cleanBsp) {
+        if (!cleaned.empty()) {
+            cleaned += "+";
+        }
         cleaned += "BSP";
     }
     if (cleanVis) {
@@ -1588,6 +1612,20 @@ bool Editor::reloadVisPreview(slopengine::AssetStore& assets) {
     return preview.reloadVisPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
 }
 
+bool Editor::reloadCsgPreview(slopengine::AssetStore& assets) {
+    if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
+        return false;
+    }
+    std::vector<slopengine::Brush> combined = levelDoc.brushes;
+    combined.insert(
+        combined.end(), expandedInstanceBrushes.begin(), expandedInstanceBrushes.end());
+    slopengine::ThingDocument thingsDoc{};
+    thingsDoc.things = levelDoc.things;
+    const std::unordered_set<std::string> moverBrushIds =
+        slopengine::collectClaimedBrushIds(&thingsDoc, combined);
+    return preview.reloadCsgPreview(assets, levelDoc.assetPath, combined, moverBrushIds);
+}
+
 bool Editor::reloadLitBake(slopengine::AssetStore& assets) {
     if (levelDoc.assetPath.empty() || levelDoc.assetPath == "untitled") {
         return false;
@@ -1609,19 +1647,35 @@ bool Editor::reloadBakedNav(slopengine::AssetStore& assets) {
         return false;
     }
 
-    const std::string navVirtualPath = levelDoc.assetPath + "/static";
-    if (!assets.hasMapNav(navVirtualPath)) {
+    // Same smallest-radius-that-actually-baked pick as loadMapStageNav (map_script.cpp) --
+    // the debug preview shows whichever profile the runtime would treat as its default too,
+    // rather than assuming a literal "default"-named profile exists in the catalog.
+    const std::vector<slopengine::NavProfileDef> profiles =
+        slopengine::navProfileRegistry().defsOrDefault();
+    const slopengine::NavProfileDef* primary = nullptr;
+    slopengine::MapNavigation primaryNav{};
+    for (const slopengine::NavProfileDef& profile : profiles) {
+        const std::string navVirtualPath = levelDoc.assetPath + "/compiled/nav/" + profile.name;
+        if (!assets.hasMapNav(navVirtualPath)) {
+            continue;
+        }
+        const auto navPath = assets.resolvePath(slopengine::AssetKind::MapNav, navVirtualPath);
+        if (!navPath) {
+            continue;
+        }
+        auto loadedNav = slopengine::readNavFile(*navPath);
+        if (!loadedNav || loadedNav->leafCount <= 0) {
+            continue;
+        }
+        if (primary == nullptr || profile.params.agentRadius < primary->params.agentRadius) {
+            primary = &profile;
+            primaryNav = std::move(*loadedNav);
+        }
+    }
+    if (primary == nullptr) {
         return false;
     }
-    const auto navPath = assets.resolvePath(slopengine::AssetKind::MapNav, navVirtualPath);
-    if (!navPath) {
-        return false;
-    }
-    auto loadedNav = slopengine::readNavFile(*navPath);
-    if (!loadedNav || loadedNav->leafCount <= 0) {
-        return false;
-    }
-    bakedNav = std::move(*loadedNav);
+    bakedNav = std::move(primaryNav);
     bakedNavValid = true;
     return true;
 }

@@ -4,6 +4,7 @@
 
 #include <flecs.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 struct ImFont;
@@ -71,7 +72,11 @@ struct DebugUiState {
     bool showLightProbeSampleTaps = false;
     bool showGraphs = false;
     bool showNavPaths = false;
-    bool showNavPolys = false;
+    /** Which baked nav profiles (MapNavProfiles, keyed by profile name) the "Nav Polys"
+     *  debug submenu currently draws; absent/false = hidden. Lets several profiles be
+     *  shown at once to compare their erosion against each other. */
+    std::unordered_map<std::string, bool> shownNavProfiles;
+    bool showActorColliders = false;
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;

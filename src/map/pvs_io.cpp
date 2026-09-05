@@ -1,6 +1,7 @@
 #include "map/pvs_io.hpp"
 
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 namespace slopengine {
@@ -63,6 +64,7 @@ bool writePvsFile(const std::filesystem::path& path, const PvsFile& pvs) {
         writer.writePod(word);
     }
 
+    std::filesystem::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::binary);
     if (!out) {
         return false;

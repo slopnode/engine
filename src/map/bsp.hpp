@@ -106,8 +106,18 @@ struct BspTree {
     Vector3 boundsMaxs{};
 };
 
-/** Builds a BSP from sealing / split-contributing brushes. */
-BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes);
+/** Builds a BSP from sealing / split-contributing brushes. @p brushes drives tree
+ *  structure and solidity classification (split-plane collection, leaf sealing
+ *  tests, world bounds, interior-placement/door checks) and must be the brushes'
+ *  full, uncarved convex shapes -- pointInsideBrush-style containment tests
+ *  require every one of a brush's faces to still bound it, and a carved
+ *  (decapitated) brush's remaining faces describe an unbounded region instead.
+ *  If @p surfaceBrushes is given, it replaces (only) the Hull/Window faces baked
+ *  into tree.surfaceFaces -- pass slopcsg's carved output here to avoid emitting
+ *  overlapping/embedded surface geometry, while @p brushes stays uncarved. */
+BspTree buildBspFromHullBrushes(
+    const std::vector<Brush>& brushes,
+    const std::vector<Brush>* surfaceBrushes = nullptr);
 
 void collectFaceEmptyProbes(
     const std::vector<Vector3>& vertices,

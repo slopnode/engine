@@ -1,0 +1,4 @@
+#pragma once
+
+/** Build-configured engine version, read from the VERSION file at configure time. */
+inline constexpr const char* kSlopengineVersion = "@SLOPENGINE_VERSION@";

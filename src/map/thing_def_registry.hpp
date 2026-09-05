@@ -75,6 +75,10 @@ struct ThingDef {
     float motorWaterAversion = 1.0f;
     CharacterHull motorHull = CharacterHull::Capsule;
     CharacterMoveMode motorMoveMode = CharacterMoveMode::Slide;
+    /** Named entry in the nav-profile catalog (data/nav-profiles.s7) this actor paths
+     *  against; empty means auto-select the smallest profile that still fits its own
+     *  motorRadius/motorHeight. See NavigationAgent::navProfile. */
+    std::string motorNavProfile;
     bool haveMotor = false;
 
     std::vector<std::string> tags;

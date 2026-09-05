@@ -101,7 +101,7 @@ struct LightProbeGridInfo {
     std::vector<LightProbe> probes;
 };
 
-/** Parsed rad/static.rad sidecar (charts + atlas metadata). */
+/** Parsed compiled/rad/lightmap sidecar (charts + atlas metadata). */
 struct RadFile {
     float luxelsPerMeter = 16.0f;
     std::vector<LightmapAtlasInfo> atlases;

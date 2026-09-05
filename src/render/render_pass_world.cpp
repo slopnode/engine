@@ -1322,9 +1322,41 @@ void drawWorldDebugOverlays(flecs::world& world) {
         drawNavDebugOverlays(world, world.get<DebugUiState>());
     }
 
-    if (world.has<DebugUiState>() && world.get<DebugUiState>().showNavPolys &&
-        world.has<MapBakedNav>()) {
-        drawNavPolyDebugOverlays(world.get<MapBakedNav>().nav, world.get<DebugUiState>());
+    if (world.has<DebugUiState>() && world.has<MapNavProfiles>()) {
+        const DebugUiState& debugUi = world.get<DebugUiState>();
+        // A small fixed palette so each toggled-on profile stays a distinct, stable color
+        // frame to frame regardless of how many profiles a package declares.
+        constexpr Color kPalette[] = {
+            Color{60, 220, 140, 255},
+            Color{220, 140, 60, 255},
+            Color{140, 60, 220, 255},
+            Color{60, 160, 220, 255},
+            Color{220, 60, 140, 255},
+            Color{200, 200, 60, 255},
+        };
+        const auto& profiles = world.get<MapNavProfiles>().profiles;
+        // Sorted so each profile's palette slot (and therefore color) stays the same
+        // across map reloads, not dependent on unordered_map's iteration order.
+        std::vector<std::string> names;
+        names.reserve(profiles.size());
+        for (const auto& [name, nav] : profiles) {
+            names.push_back(name);
+        }
+        std::sort(names.begin(), names.end());
+
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            const auto shown = debugUi.shownNavProfiles.find(names[i]);
+            if (shown == debugUi.shownNavProfiles.end() || !shown->second) {
+                continue;
+            }
+            const Color outlineColor = kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))];
+            const Color fillColor{outlineColor.r, outlineColor.g, outlineColor.b, 90};
+            drawNavPolyDebugOverlays(profiles.at(names[i]), fillColor, outlineColor);
+        }
+    }
+
+    if (world.has<DebugUiState>() && world.get<DebugUiState>().showActorColliders) {
+        drawActorColliderDebugOverlays(world, world.get<DebugUiState>());
     }
 
     if (world.has<DebugLinePool>()) {

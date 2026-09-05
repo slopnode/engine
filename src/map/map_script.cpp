@@ -1,4 +1,4 @@
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 
 #include "script/script_scope.hpp"
 
@@ -14,6 +14,7 @@
 #include "map/map_meta.hpp"
 #include "map/mover_brushes.hpp"
 #include "map/nav_io.hpp"
+#include "map/nav_profile_registry.hpp"
 #include "map/prefab.hpp"
 #include "map/pvs_io.hpp"
 #include "map/things_script.hpp"
@@ -691,7 +692,7 @@ bool expandPrefabIntoBrushes(
     if (std::find(parentNest.begin(), parentNest.end(), instance.path) != parentNest.end()) {
         return false;
     }
-    if (!assets.hasPrefabCsg(instance.path)) {
+    if (!assets.hasPrefabSource(instance.path)) {
         return false;
     }
 
@@ -708,7 +709,7 @@ bool expandPrefabIntoBrushes(
     CsgBuilder* previous = g_builder;
     g_builder = &child;
     bindCsgApi(sc);
-    const bool loaded = assets.loadPrefabCsg(sc, instance.path, env);
+    const bool loaded = assets.loadPrefabSource(sc, instance.path, env);
     g_builder = previous;
     s7_set_curlet(sc, previousEnv);
     if (!loaded || child.brushes.empty()) {
@@ -782,7 +783,7 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
             s7_list(sc, 1, s7_make_string(sc, "prefab requires id")));
     }
 
-    if (!g_builder->assets->hasPrefabCsg(path)) {
+    if (!g_builder->assets->hasPrefabSource(path)) {
         return s7_error(
             sc,
             s7_make_symbol(sc, "csg-error"),
@@ -1205,6 +1206,33 @@ void loadPackageThings(s7_scheme* scheme, AssetStore& assets) {
     }
 }
 
+void loadPackageNavProfiles(s7_scheme* scheme, AssetStore& assets) {
+    if (scheme == nullptr) {
+        return;
+    }
+    navProfileRegistry().clear();
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Engine) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "nav-profiles")) {
+            registerPackageNavProfilesFromScheme(scheme);
+        }
+    }
+    const std::string baseId{assets.basePackageId()};
+    if (!baseId.empty() && assets.loadDataFromPackage(scheme, baseId, "nav-profiles")) {
+        registerPackageNavProfilesFromScheme(scheme);
+    }
+    for (const Package& package : assets.packages()) {
+        if (package.role() != PackageRole::Mod) {
+            continue;
+        }
+        if (assets.loadDataFromPackage(scheme, package.meta().id, "nav-profiles")) {
+            registerPackageNavProfilesFromScheme(scheme);
+        }
+    }
+}
+
 std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName) {
     const std::string metaPath = std::string(mapName) + "/map";
     auto owned = assets.resolveOwned(AssetKind::MapMeta, metaPath);
@@ -1230,7 +1258,7 @@ std::optional<MapMeta> loadMapMeta(AssetStore& assets, std::string_view mapName)
     return mapMeta;
 }
 
-std::optional<MapCsgDocument> loadMapCsgDocument(
+std::optional<MapSourceDocument> loadMapSourceDocument(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
@@ -1238,8 +1266,8 @@ std::optional<MapCsgDocument> loadMapCsgDocument(
         return std::nullopt;
     }
 
-    const std::string virtualPath = std::string(mapName) + "/static";
-    if (!assets.hasMapCsg(virtualPath)) {
+    const std::string virtualPath = std::string(mapName) + "/brushes";
+    if (!assets.hasMapSource(virtualPath)) {
         return std::nullopt;
     }
     if (!loadMapMeta(assets, mapName)) {
@@ -1255,14 +1283,14 @@ std::optional<MapCsgDocument> loadMapCsgDocument(
     builder.recordTopLevelInstances = true;
     g_builder = &builder;
     bindCsgApi(scheme);
-    const bool loaded = assets.loadMapCsg(scheme, virtualPath, env);
+    const bool loaded = assets.loadMapSource(scheme, virtualPath, env);
     g_builder = nullptr;
     s7_set_curlet(scheme, previousEnv);
     if (!loaded || (builder.brushes.empty() && builder.instances.empty())) {
         return std::nullopt;
     }
 
-    MapCsgDocument doc;
+    MapSourceDocument doc;
     doc.brushes = std::move(builder.brushes);
     doc.instances = std::move(builder.instances);
     return doc;
@@ -1272,7 +1300,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
     std::string_view mapName) {
-    auto doc = loadMapCsgDocument(scheme, assets, mapName);
+    auto doc = loadMapSourceDocument(scheme, assets, mapName);
     if (!doc) {
         return std::nullopt;
     }
@@ -1309,7 +1337,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
             ++otherCount;
         }
     }
-    const std::string virtualPath = std::string(mapName) + "/static";
+    const std::string virtualPath = std::string(mapName) + "/brushes";
     TraceLog(
         LOG_INFO,
         "MAP: loaded brushes '%s' total=%d hull=%d detail=%d other=%d box=%d nocollide=%d instances=%d",
@@ -1325,11 +1353,16 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     return brushes;
 }
 
-std::optional<std::vector<Brush>> loadPrefabBrushes(
+std::optional<std::vector<Brush>> loadCarvedMapBrushes(
     s7_scheme* scheme,
     AssetStore& assets,
-    std::string_view prefabPath) {
-    if (scheme == nullptr || prefabPath.empty() || !assets.hasPrefabCsg(prefabPath)) {
+    std::string_view mapName) {
+    if (scheme == nullptr) {
+        return std::nullopt;
+    }
+
+    const std::string virtualPath = std::string(mapName) + "/compiled/csg";
+    if (!assets.hasMapCarved(virtualPath)) {
         return std::nullopt;
     }
 
@@ -1342,7 +1375,33 @@ std::optional<std::vector<Brush>> loadPrefabBrushes(
     builder.recordTopLevelInstances = false;
     g_builder = &builder;
     bindCsgApi(scheme);
-    const bool loaded = assets.loadPrefabCsg(scheme, prefabPath, env);
+    const bool loaded = assets.loadMapCarved(scheme, virtualPath, env);
+    g_builder = nullptr;
+    s7_set_curlet(scheme, previousEnv);
+    if (!loaded || builder.brushes.empty()) {
+        return std::nullopt;
+    }
+    return std::move(builder.brushes);
+}
+
+std::optional<std::vector<Brush>> loadPrefabBrushes(
+    s7_scheme* scheme,
+    AssetStore& assets,
+    std::string_view prefabPath) {
+    if (scheme == nullptr || prefabPath.empty() || !assets.hasPrefabSource(prefabPath)) {
+        return std::nullopt;
+    }
+
+    ScriptScopeGuard scopeGuard(ScriptScope::MapAuthor);
+    const s7_pointer env = s7_sublet(scheme, s7_rootlet(scheme), s7_nil(scheme));
+    const s7_pointer previousEnv = s7_set_curlet(scheme, env);
+
+    CsgBuilder builder;
+    builder.assets = &assets;
+    builder.recordTopLevelInstances = false;
+    g_builder = &builder;
+    bindCsgApi(scheme);
+    const bool loaded = assets.loadPrefabSource(scheme, prefabPath, env);
     g_builder = nullptr;
     s7_set_curlet(scheme, previousEnv);
     if (!loaded || builder.brushes.empty()) {
@@ -1390,19 +1449,20 @@ bool loadMapStageBsp(
     }
 
     work.mapName = std::string(mapName);
-    work.virtualPath = std::string(mapName) + "/static";
-    work.radVirtualPath = std::string(mapName) + "/rad/static";
+    work.virtualPath = std::string(mapName) + "/brushes";
+    work.compiledPath = std::string(mapName) + "/compiled";
+    const std::string bspVirtualPath = work.compiledPath + "/bsp";
     const std::string metaPath = std::string(mapName) + "/map";
-    if (!assets.hasMapCsg(work.virtualPath)) {
-        TraceLog(LOG_WARNING, "MAP: missing maps/%s.csg", work.virtualPath.c_str());
+    if (!assets.hasMapSource(work.virtualPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s.map", work.virtualPath.c_str());
         return false;
     }
     if (!assets.hasMapMeta(metaPath)) {
         TraceLog(LOG_WARNING, "MAP: missing maps/%s.meta", metaPath.c_str());
         return false;
     }
-    if (!assets.hasMapBsp(work.virtualPath)) {
-        TraceLog(LOG_WARNING, "MAP: missing maps/%s.bsp (run slopbsp)", work.virtualPath.c_str());
+    if (!assets.hasMapBsp(bspVirtualPath)) {
+        TraceLog(LOG_WARNING, "MAP: missing maps/%s (run slopbsp)", bspVirtualPath.c_str());
         return false;
     }
 
@@ -1427,7 +1487,7 @@ bool loadMapStageBsp(
 
     auto brushes = loadMapBrushes(scheme, assets, mapName);
     if (!brushes) {
-        TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.csg", work.virtualPath.c_str());
+        TraceLog(LOG_WARNING, "MAP: failed to load maps/%s.map", work.virtualPath.c_str());
         return false;
     }
 
@@ -1439,7 +1499,7 @@ bool loadMapStageBsp(
         moverBrushIds = collectClaimedBrushIds(nullptr, *brushes);
     }
 
-    const auto bspPath = assets.resolvePath(AssetKind::MapBsp, work.virtualPath);
+    const auto bspPath = assets.resolvePath(AssetKind::MapBsp, bspVirtualPath);
     if (!bspPath) {
         TraceLog(LOG_WARNING, "MAP: failed to resolve bsp path");
         return false;
@@ -1447,7 +1507,7 @@ bool loadMapStageBsp(
 
     auto bsp = readBspFile(*bspPath);
     if (!bsp) {
-        TraceLog(LOG_WARNING, "MAP: failed to read bsp for '%s'", work.virtualPath.c_str());
+        TraceLog(LOG_WARNING, "MAP: failed to read bsp for '%s'", bspVirtualPath.c_str());
         return false;
     }
 
@@ -1465,8 +1525,9 @@ bool loadMapStageBsp(
 
 bool loadMapStageVis(AssetStore& assets, MapLoadWork& work) {
     PvsFile pvs{};
-    if (assets.hasMapVis(work.virtualPath)) {
-        if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, work.virtualPath)) {
+    const std::string visVirtualPath = work.compiledPath + "/vis";
+    if (assets.hasMapVis(visVirtualPath)) {
+        if (const auto pvsPath = assets.resolvePath(AssetKind::MapVis, visVirtualPath)) {
             if (auto loadedPvs = readPvsFile(*pvsPath)) {
                 pvs = std::move(*loadedPvs);
                 TraceLog(
@@ -1474,15 +1535,15 @@ bool loadMapStageVis(AssetStore& assets, MapLoadWork& work) {
                     "MAP: loaded pvs leaves=%d",
                     pvs.leafCount);
             } else {
-                TraceLog(LOG_ERROR, "MAP: failed to read maps/%s.vis", work.virtualPath.c_str());
+                TraceLog(LOG_ERROR, "MAP: failed to read maps/%s", visVirtualPath.c_str());
                 return false;
             }
         }
     } else {
         TraceLog(
             LOG_ERROR,
-            "MAP: missing maps/%s.vis (run slopvis)",
-            work.virtualPath.c_str());
+            "MAP: missing maps/%s (run slopvis)",
+            visVirtualPath.c_str());
         return false;
     }
     if (pvs.leafCount != static_cast<int>(work.bsp.leaves.size())) {
@@ -1499,9 +1560,10 @@ bool loadMapStageVis(AssetStore& assets, MapLoadWork& work) {
 
 bool loadMapStageRad(AssetStore& assets, MapLoadWork& work) {
     RadFile rad{};
-    const bool hasRad = assets.hasMapRad(work.radVirtualPath);
+    const std::string radVirtualPath = work.compiledPath + "/rad/lightmap";
+    const bool hasRad = assets.hasMapRad(radVirtualPath);
     if (hasRad) {
-        const auto radPath = assets.resolvePath(AssetKind::MapRad, work.radVirtualPath);
+        const auto radPath = assets.resolvePath(AssetKind::MapRad, radVirtualPath);
         if (radPath) {
             if (auto loadedRad = readRadFile(*radPath)) {
                 rad = std::move(*loadedRad);
@@ -1517,22 +1579,46 @@ bool loadMapStageRad(AssetStore& assets, MapLoadWork& work) {
 }
 
 bool loadMapStageNav(AssetStore& assets, MapLoadWork& work) {
-    if (!assets.hasMapNav(work.virtualPath)) {
+    // Every catalog profile is attempted independently -- a map only re-baked for some of
+    // them (or a profile whose bake found no walkable area) just ends up missing that one
+    // key in work.navProfiles, same tolerance as a map with no baked nav at all.
+    const std::vector<NavProfileDef> profiles = navProfileRegistry().defsOrDefault();
+    const NavProfileDef* primary = nullptr;
+    for (const NavProfileDef& profile : profiles) {
+        const std::string navVirtualPath = work.compiledPath + "/nav/" + profile.name;
+        if (!assets.hasMapNav(navVirtualPath)) {
+            continue;
+        }
+        const auto navPath = assets.resolvePath(AssetKind::MapNav, navVirtualPath);
+        if (!navPath) {
+            TraceLog(LOG_WARNING, "MAP: failed to resolve nav path for profile '%s'", profile.name.c_str());
+            continue;
+        }
+        auto loadedNav = readNavFile(*navPath);
+        if (!loadedNav) {
+            TraceLog(LOG_WARNING, "MAP: failed to read maps/%s", navVirtualPath.c_str());
+            continue;
+        }
+        TraceLog(
+            LOG_INFO,
+            "MAP: loaded baked navmesh profile='%s' polys=%d",
+            profile.name.c_str(),
+            loadedNav->leafCount);
+        work.navProfiles[profile.name] = std::move(*loadedNav);
+        // The smallest-radius profile that actually got baked becomes the MapNavigation
+        // singleton -- the safest default for anything not resolved to a specific
+        // NavigationAgent::navProfile (sound propagation, debug leaf queries, script
+        // bindings; see nav_profile_registry.hpp).
+        if (primary == nullptr || profile.params.agentRadius < primary->params.agentRadius) {
+            primary = &profile;
+        }
+    }
+
+    if (primary == nullptr) {
         TraceLog(LOG_INFO, "MAP: no baked navmesh present (run slopnav)");
         return true;
     }
-    const auto navPath = assets.resolvePath(AssetKind::MapNav, work.virtualPath);
-    if (!navPath) {
-        TraceLog(LOG_WARNING, "MAP: failed to resolve nav path");
-        return true;
-    }
-    auto loadedNav = readNavFile(*navPath);
-    if (!loadedNav) {
-        TraceLog(LOG_WARNING, "MAP: failed to read maps/%s.nav", work.virtualPath.c_str());
-        return true;
-    }
-    TraceLog(LOG_INFO, "MAP: loaded baked navmesh polys=%d", loadedNav->leafCount);
-    work.nav = std::move(*loadedNav);
+    work.nav = work.navProfiles[primary->name];
     return true;
 }
 
@@ -1606,7 +1692,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
         result.lightmapAtlases.reserve(rad.atlases.size());
         result.lightmapAtlasImages.reserve(rad.atlases.size());
         for (const LightmapAtlasInfo& atlas : rad.atlases) {
-            const std::string atlasPath = work.mapName + "/rad/" + atlas.texturePath;
+            const std::string atlasPath = work.compiledPath + "/rad/" + atlas.texturePath;
             const auto resolved = assets.resolvePath(AssetKind::MapLightmap, atlasPath);
             Texture2D texture{};
             Image image{};
@@ -1756,6 +1842,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     result.bsp = std::move(work.bsp);
     result.rad = std::move(work.rad);
     result.nav = std::move(work.nav);
+    result.navProfiles = std::move(work.navProfiles);
     result.meta = std::move(work.meta);
     return result;
 }

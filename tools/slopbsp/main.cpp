@@ -4,7 +4,7 @@
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 
 #include <raylib.h>
 #include <s7.h>
@@ -30,23 +30,36 @@ int main(int argc, char* argv[]) {
     }
     loadPackageMapHandlers(scheme, assets);
 
-    auto brushes = loadMapBrushes(scheme, assets, *config->map);
-    if (!brushes) {
+    // Tree structure and solidity classification need the brushes' full, uncarved
+    // convex shapes -- pointInsideBrush-style containment tests require every one
+    // of a brush's faces to still bound it, and a carved (decapitated) brush's
+    // remaining faces describe an unbounded region instead, corrupting leaf
+    // classification map-wide. Only the emitted surface geometry wants carving.
+    auto rawBrushes = loadMapBrushes(scheme, assets, *config->map);
+    if (!rawBrushes) {
         std::cerr << "slopbsp: failed to load map brushes for '" << *config->map << "'\n";
         s7_quit(scheme);
         return 1;
     }
 
-    BspTree tree = buildBspFromHullBrushes(*brushes);
-    const std::string virtualPath = *config->map + "/static";
-    auto csgPath = assets.resolvePath(AssetKind::MapCsg, virtualPath);
+    auto brushes = loadCarvedMapBrushes(scheme, assets, *config->map);
+    if (!brushes) {
+        std::cerr << "slopbsp: failed to load carved map brushes for '" << *config->map
+                   << "' (run slopcsg first)\n";
+        s7_quit(scheme);
+        return 1;
+    }
+
+    BspTree tree = buildBspFromHullBrushes(*rawBrushes, &*brushes);
+    const std::string virtualPath = *config->map + "/compiled/csg";
+    auto csgPath = assets.resolvePath(AssetKind::MapCarved, virtualPath);
     if (!csgPath) {
         std::cerr << "slopbsp: failed to resolve map path\n";
         s7_quit(scheme);
         return 1;
     }
 
-    const auto bspPath = csgPath->parent_path() / "static.bsp";
+    const auto bspPath = csgPath->parent_path() / "bsp";
     if (!writeBspFile(bspPath, tree)) {
         std::cerr << "slopbsp: failed to write " << bspPath << "\n";
         s7_quit(scheme);

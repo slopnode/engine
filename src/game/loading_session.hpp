@@ -1,7 +1,7 @@
 #pragma once
 
 #include "assets/asset_store.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 
 #include <flecs.h>
 #include <raylib.h>

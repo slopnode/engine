@@ -3,17 +3,19 @@
 #include "game/app_config.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/nav_bake.hpp"
 #include "map/nav_graph.hpp"
 #include "map/nav_io.hpp"
 #include "map/nav_navmesh_build.hpp"
+#include "map/nav_profile_registry.hpp"
 
 #include <raylib.h>
 #include <raymath.h>
 #include <s7.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <string_view>
@@ -99,11 +101,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     loadPackageMapHandlers(scheme, assets);
+    loadPackageNavProfiles(scheme, assets);
 
-    const std::string virtualPath = *config->map + "/static";
+    const std::string virtualPath = *config->map + "/compiled/bsp";
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, virtualPath);
     if (!bspPath) {
-        std::cerr << "slopnav: missing maps/" << virtualPath << ".bsp (run slopbsp first)\n";
+        std::cerr << "slopnav: missing maps/" << virtualPath << " (run slopbsp first)\n";
         s7_quit(scheme);
         return 1;
     }
@@ -115,6 +118,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // analyzeMapHull's leak/seal check wants raw, uncarved brush volumes -- carving only
+    // reshapes exposed surface geometry, and the whole-brush AABBs/role predicates it
+    // reads are unaffected either way.
     auto brushes = loadMapBrushes(scheme, assets, *config->map);
     if (!brushes) {
         std::cerr << "slopnav: failed to load map brushes for '" << *config->map << "'\n";
@@ -132,55 +138,79 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::optional<NavPolyMesh> polyMesh = buildNavPolyMesh(*tree, *brushes, &analysis.exteriorEmpty);
-    if (!polyMesh) {
-        TraceLog(LOG_ERROR, "slopnav: bake produced no walkable area for '%s'", config->map->c_str());
+    // The walkable-triangle soup wants slopcsg's carved geometry, so overlapping brush
+    // faces don't rasterize as duplicate/interpenetrating nav triangles (run slopcsg first).
+    auto carvedBrushes = loadCarvedMapBrushes(scheme, assets, *config->map);
+    if (!carvedBrushes) {
+        std::cerr << "slopnav: failed to load carved map brushes for '" << *config->map
+                   << "' (run slopcsg first)\n";
         s7_quit(scheme);
         return 1;
     }
 
-    const MapNavigation nav = buildMapNavigationFromPolyMesh(*polyMesh, *brushes);
-    const auto navPath = bspPath->parent_path() / "static.nav";
-    if (!writeNavFile(navPath, nav)) {
-        std::cerr << "slopnav: failed to write " << navPath << "\n";
-        s7_quit(scheme);
-        return 1;
-    }
+    const std::vector<NavProfileDef> profiles = navProfileRegistry().defsOrDefault();
+    const std::filesystem::path navDir = bspPath->parent_path() / "nav";
 
-    int linkCount = 0;
-    for (const auto& links : nav.adjacency) {
-        linkCount += static_cast<int>(links.size());
-    }
-
-    if (compare) {
-        const MapNavigation legacyNav = buildMapNavigation(*tree, &analysis.exteriorEmpty);
-
-        Vector3 minCorner{std::numeric_limits<float>::infinity(), 0, std::numeric_limits<float>::infinity()};
-        Vector3 maxCorner{-std::numeric_limits<float>::infinity(), 0, -std::numeric_limits<float>::infinity()};
-        for (int i = 0; i < nav.leafCount; ++i) {
-            if (!nav.walkable[static_cast<std::size_t>(i)]) {
-                continue;
-            }
-            const Vector3& c = nav.leafCentroids[static_cast<std::size_t>(i)];
-            minCorner.x = std::min(minCorner.x, c.x);
-            minCorner.z = std::min(minCorner.z, c.z);
-            maxCorner.x = std::max(maxCorner.x, c.x);
-            maxCorner.z = std::max(maxCorner.z, c.z);
+    for (const NavProfileDef& profile : profiles) {
+        const std::optional<NavPolyMesh> polyMesh =
+            buildNavPolyMesh(*tree, *carvedBrushes, &analysis.exteriorEmpty, profile.params);
+        if (!polyMesh) {
+            TraceLog(
+                LOG_ERROR,
+                "slopnav: profile '%s' produced no walkable area for '%s'",
+                profile.name.c_str(),
+                config->map->c_str());
+            continue;
         }
 
-        std::cout << "slopnav --compare: '" << *config->map << "'\n";
-        std::cout << "  BSP leaf/portal graph:  leaves=" << legacyNav.leafCount << "\n";
-        std::cout << "  Navmesh polygon graph:  polys=" << nav.leafCount << "\n";
-        printRouteStats("bsp   ", legacyNav, minCorner, maxCorner);
-        printRouteStats("navmesh", nav, minCorner, maxCorner);
-    }
+        const MapNavigation nav = buildMapNavigationFromPolyMesh(*polyMesh, *carvedBrushes);
+        const auto navPath = navDir / profile.name;
+        if (!writeNavFile(navPath, nav)) {
+            std::cerr << "slopnav: failed to write " << navPath << "\n";
+            s7_quit(scheme);
+            return 1;
+        }
 
-    TraceLog(
-        LOG_INFO,
-        "slopnav: wrote %s (polys=%d links=%d)",
-        navPath.string().c_str(),
-        nav.leafCount,
-        linkCount);
+        int linkCount = 0;
+        for (const auto& links : nav.adjacency) {
+            linkCount += static_cast<int>(links.size());
+        }
+
+        if (compare) {
+            const MapNavigation legacyNav = buildMapNavigation(*tree, &analysis.exteriorEmpty);
+
+            Vector3 minCorner{
+                std::numeric_limits<float>::infinity(), 0, std::numeric_limits<float>::infinity()};
+            Vector3 maxCorner{
+                -std::numeric_limits<float>::infinity(), 0, -std::numeric_limits<float>::infinity()};
+            for (int i = 0; i < nav.leafCount; ++i) {
+                if (!nav.walkable[static_cast<std::size_t>(i)]) {
+                    continue;
+                }
+                const Vector3& c = nav.leafCentroids[static_cast<std::size_t>(i)];
+                minCorner.x = std::min(minCorner.x, c.x);
+                minCorner.z = std::min(minCorner.z, c.z);
+                maxCorner.x = std::max(maxCorner.x, c.x);
+                maxCorner.z = std::max(maxCorner.z, c.z);
+            }
+
+            std::cout << "slopnav --compare: '" << *config->map << "' profile='" << profile.name << "'\n";
+            std::cout << "  BSP leaf/portal graph:  leaves=" << legacyNav.leafCount << "\n";
+            std::cout << "  Navmesh polygon graph:  polys=" << nav.leafCount << "\n";
+            printRouteStats("bsp   ", legacyNav, minCorner, maxCorner);
+            printRouteStats("navmesh", nav, minCorner, maxCorner);
+        }
+
+        TraceLog(
+            LOG_INFO,
+            "slopnav: wrote %s (profile=%s radius=%.2f height=%.2f polys=%d links=%d)",
+            navPath.string().c_str(),
+            profile.name.c_str(),
+            profile.params.agentRadius,
+            profile.params.agentHeight,
+            nav.leafCount,
+            linkCount);
+    }
 
     s7_quit(scheme);
     return 0;

@@ -1300,7 +1300,9 @@ void linkDoorPortals(BspTree& tree, const std::vector<Brush>& brushes) {
         doorBrushCount);
 }
 
-BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
+BspTree buildBspFromHullBrushes(
+    const std::vector<Brush>& brushes,
+    const std::vector<Brush>* surfaceBrushes) {
     BspTree tree;
     BuildBrushes buildBrushes;
     int detailCount = 0;
@@ -1358,6 +1360,18 @@ BspTree buildBspFromHullBrushes(const std::vector<Brush>& brushes) {
         case BrushRole::Detail:
             ++detailCount;
             break;
+        }
+    }
+
+    if (surfaceBrushes != nullptr) {
+        // Only the emitted surface geometry wants carved (deduplicated/clipped)
+        // faces -- everything else above (splits, sealing classification, world
+        // bounds, interior placement) must stay on the uncarved brushes.
+        buildBrushes.surface.clear();
+        for (const Brush& brush : *surfaceBrushes) {
+            if (brush.role == BrushRole::Hull || brush.role == BrushRole::Window) {
+                buildBrushes.surface.push_back(brush);
+            }
         }
     }
 

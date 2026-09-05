@@ -10,7 +10,7 @@ Maps are folders that contain a number of files. There are 3 text-based s-expr b
 
 1. `map.meta`: similar to `package.meta` that defines the name, authors, description, etc. 
 2. `things.s7`: placeable logic containers. Actors, Lights, and basic components used in the map are defined in here
-3. `static.csg`: Collection of concave and convex brushes and the type of brush
+3. `brushes.map`: Collection of concave and convex brushes and the type of brush
 
 The other files are all compiled by tools provided with the engine. They are off-line command-line based tools with the intention of being able to use them in automation solutions or to integrate them via subprocesses in a given editor. 
 
@@ -52,7 +52,7 @@ By default you will be looking at `(0, 0, 0)`. The first thing that we'll do is 
     - Edit: Selection options, operations
     - Prefab: Create CSG prefabs to re-use in maps
     - View: Camera options, snap options
-    - Compile: BSP, VIS, RAD
+    - Compile: CSG, BSP, VIS, NAV, RAD
     - Diagnostics: Something I put there once and forgot about
 
 - Left panel
@@ -165,7 +165,7 @@ After placing the object you can press G and then Y to translate the light somew
 
 ![Light placement 1](images/first-map-light-2.png)
 
-Each of these programs, BSP, VIS, and RAD are seperate command-line executables that can be run individually. The compiled data can also be cleaned from the editor. "Run All" simply calls all of them in order. After hitting "Run All" a console will appear to report messages from the compilers. Compilation also requires saving the map.
+Each of these programs, CSG, BSP, VIS, NAV, and RAD are separate command-line executables that can be run individually. The compiled data can also be cleaned from the editor. "Run All" simply calls all of them in order. After hitting "Run All" a console will appear to report messages from the compilers. Compilation also requires saving the map.
 
 ![Light placement 1](images/first-map-light-3.png)
 

@@ -142,7 +142,7 @@ void PlaceTool::update(
             editor.statusMessage = "Place: select a prefab in Prefabs, or a kind in Things";
             return;
         }
-        if (!assets.hasPrefabCsg(editor.placePrefabPath)) {
+        if (!assets.hasPrefabSource(editor.placePrefabPath)) {
             editor.statusMessage = "Place: prefab not found: " + editor.placePrefabPath;
             return;
         }

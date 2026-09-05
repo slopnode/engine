@@ -7,4 +7,4 @@ CMakeUserPresets.json
 *.blend
 *.blend1
 imgui.ini
-packages/*/maps/*/rad/*.png
+packages/*/maps/*/compiled/

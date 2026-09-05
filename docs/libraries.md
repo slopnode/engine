@@ -20,6 +20,12 @@ Open source physics engine used also for collision detection.
 
 https://github.com/jrouwe/JoltPhysics
 
+# Recast {#recast}
+
+Navigation mesh generation. Voxelizes level geometry into a walkable mesh used for actor pathfinding.
+
+https://github.com/recastnavigation/recastnavigation
+
 # Imgui {#imgui}
 
 User interface framework. 

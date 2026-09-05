@@ -10,7 +10,7 @@
 namespace slopengine {
 
 constexpr std::uint32_t kNavMagic = 0x3156414Eu; // "NAV1" LE
-constexpr std::uint32_t kNavVersion = 2; // v2 adds per-leaf boundary polygons (leafBoundary)
+constexpr std::uint32_t kNavVersion = 3; // v3 adds per-link climbHeight (NavPortalLink)
 
 // Only MapNavigation::adjacency is stored; reverseAdjacency is rebuilt after load the
 // same way every builder (buildMapNavigation, buildMapNavigationFromPolyMesh) already

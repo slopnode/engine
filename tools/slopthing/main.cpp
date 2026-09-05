@@ -9,7 +9,7 @@
 #include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/imgui_fonts.hpp"
 

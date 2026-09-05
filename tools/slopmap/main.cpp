@@ -29,7 +29,7 @@
 #include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/map_meta.hpp"
 #include "map/thing_def_registry.hpp"
@@ -1287,6 +1287,7 @@ int main(int argc, char* argv[]) {
 
     slopengine::loadPackageMapHandlers(scheme, assets);
     slopengine::loadPackageThings(scheme, assets);
+    slopengine::loadPackageNavProfiles(scheme, assets);
 
     slopmap::Editor editor;
     editor.writePackageRoot = config->target;
@@ -2067,7 +2068,7 @@ int main(int argc, char* argv[]) {
                 }
                 ImGui::Separator();
                 if (beginMenuWithIcon(assets, kIcons, "picture", "Preview")) {
-                    ImGui::TextDisabled("CSG");
+                    ImGui::TextDisabled("MAP");
                     if (menuItemWithIcon(
                             assets,
                             kIcons,
@@ -2103,6 +2104,34 @@ int main(int argc, char* argv[]) {
                             nullptr,
                             editor.fill == slopmap::PreviewFill::Unlit)) {
                         editor.fill = slopmap::PreviewFill::Unlit;
+                    }
+                    ImGui::Separator();
+                    ImGui::TextDisabled("CSG");
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "shape_square",
+                            "Carved Wireframe",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::CsgWireframe)) {
+                        if (editor.reloadCsgPreview(assets)) {
+                            editor.fill = slopmap::PreviewFill::CsgWireframe;
+                        } else {
+                            editor.statusMessage = "CSG preview needs a saved map";
+                        }
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "cut",
+                            "Carved Geometry",
+                            nullptr,
+                            editor.fill == slopmap::PreviewFill::Csg)) {
+                        if (editor.reloadCsgPreview(assets)) {
+                            editor.fill = slopmap::PreviewFill::Csg;
+                        } else {
+                            editor.statusMessage = "CSG preview needs a saved map";
+                        }
                     }
                     ImGui::Separator();
                     ImGui::TextDisabled("VIS / RAD");
@@ -2180,6 +2209,8 @@ int main(int argc, char* argv[]) {
             }
             if (beginMenuWithIcon(assets, kIcons, "cog", "Compile", true)) {
                 const bool canRun = !compile.running();
+                const char* runCsgLabel =
+                    editor.compileDirty.csg ? "Run CSG *" : "Run CSG";
                 const char* runBspLabel =
                     editor.compileDirty.bsp ? "Run BSP *" : "Run BSP";
                 const char* runVisLabel =
@@ -2188,9 +2219,13 @@ int main(int argc, char* argv[]) {
                     editor.compileDirty.rad ? "Run RAD *" : "Run RAD";
                 const char* runNavLabel =
                     editor.compileDirty.nav ? "Run NAV *" : "Run NAV";
-                const bool anyCompileDirty = editor.compileDirty.bsp ||
+                const bool anyCompileDirty = editor.compileDirty.csg || editor.compileDirty.bsp ||
                     editor.compileDirty.vis || editor.compileDirty.rad || editor.compileDirty.nav;
                 const char* runAllLabel = anyCompileDirty ? "Run All *" : "Run All";
+                if (menuItemWithIcon(
+                        assets, kIcons, "brick", runCsgLabel, nullptr, false, canRun)) {
+                    startCompile({slopmap::CompileStage::Csg});
+                }
                 if (menuItemWithIcon(
                         assets, kIcons, "brick", runBspLabel, nullptr, false, canRun)) {
                     startCompile({slopmap::CompileStage::Bsp});
@@ -2211,6 +2246,7 @@ int main(int argc, char* argv[]) {
                 if (menuItemWithIcon(
                         assets, kIcons, "script_go", runAllLabel, nullptr, false, canRun)) {
                     startCompile({
+                        slopmap::CompileStage::Csg,
                         slopmap::CompileStage::Bsp,
                         slopmap::CompileStage::Vis,
                         slopmap::CompileStage::Rad,
@@ -2226,6 +2262,10 @@ int main(int argc, char* argv[]) {
                     canRun && editor.scene == slopmap::EditorScene::Level &&
                     !editor.levelDoc.assetPath.empty() &&
                     editor.levelDoc.assetPath != "untitled";
+                if (menuItemWithIcon(
+                        assets, kIcons, "brick_delete", "Clean CSG", nullptr, false, canClean)) {
+                    editor.cleanCompileData(assets, {slopmap::CompileStage::Csg});
+                }
                 if (menuItemWithIcon(
                         assets, kIcons, "brick_delete", "Clean BSP", nullptr, false, canClean)) {
                     editor.cleanCompileData(assets, {slopmap::CompileStage::Bsp});
@@ -2259,6 +2299,7 @@ int main(int argc, char* argv[]) {
                     editor.cleanCompileData(
                         assets,
                         {
+                            slopmap::CompileStage::Csg,
                             slopmap::CompileStage::Bsp,
                             slopmap::CompileStage::Vis,
                             slopmap::CompileStage::Rad,
@@ -2313,6 +2354,9 @@ int main(int argc, char* argv[]) {
                 }
             } else if (compile.statusSummary() == "Compile finished") {
                 editor.reloadVisPreview(assets);
+            }
+            if (compile.statusSummary() == "Compile finished") {
+                editor.reloadCsgPreview(assets);
             }
             if (compile.statusSummary() == "Compile finished") {
                 editor.reloadBakedNav(assets);
@@ -2457,6 +2501,12 @@ int main(int argc, char* argv[]) {
                         editor.fill = slopmap::PreviewFill::Unlit;
                         break;
                     case slopmap::PreviewFill::Unlit:
+                        editor.fill = slopmap::PreviewFill::CsgWireframe;
+                        break;
+                    case slopmap::PreviewFill::CsgWireframe:
+                        editor.fill = slopmap::PreviewFill::Csg;
+                        break;
+                    case slopmap::PreviewFill::Csg:
                         if (editor.preview.litValid || editor.reloadLitBake(assets)) {
                             editor.fill = slopmap::PreviewFill::Lit;
                         } else {
@@ -2741,6 +2791,14 @@ int main(int argc, char* argv[]) {
                         fillIcon = "world";
                         fillLabel = "Unlit";
                         break;
+                    case slopmap::PreviewFill::Csg:
+                        fillIcon = "cut";
+                        fillLabel = "Carved";
+                        break;
+                    case slopmap::PreviewFill::CsgWireframe:
+                        fillIcon = "shape_square";
+                        fillLabel = "Carved Wire";
+                        break;
                     case slopmap::PreviewFill::Lit:
                         fillIcon = "lightbulb";
                         fillLabel = "Lit";
@@ -2756,7 +2814,7 @@ int main(int argc, char* argv[]) {
                         ImGui::OpenPopup("##fillModePopup");
                     }
                     if (ImGui::BeginPopup("##fillModePopup")) {
-                        ImGui::TextDisabled("CSG");
+                        ImGui::TextDisabled("MAP");
                         if (menuItemWithIcon(
                                 assets,
                                 kToolbarIcons,
@@ -2792,6 +2850,34 @@ int main(int argc, char* argv[]) {
                                 nullptr,
                                 editor.fill == slopmap::PreviewFill::Unlit)) {
                             editor.fill = slopmap::PreviewFill::Unlit;
+                        }
+                        ImGui::Separator();
+                        ImGui::TextDisabled("CSG");
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "shape_square",
+                                "Carved Wire",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::CsgWireframe)) {
+                            if (editor.reloadCsgPreview(assets)) {
+                                editor.fill = slopmap::PreviewFill::CsgWireframe;
+                            } else {
+                                editor.statusMessage = "CSG preview needs a saved map";
+                            }
+                        }
+                        if (menuItemWithIcon(
+                                assets,
+                                kToolbarIcons,
+                                "cut",
+                                "Carved Geometry",
+                                nullptr,
+                                editor.fill == slopmap::PreviewFill::Csg)) {
+                            if (editor.reloadCsgPreview(assets)) {
+                                editor.fill = slopmap::PreviewFill::Csg;
+                            } else {
+                                editor.statusMessage = "CSG preview needs a saved map";
+                            }
                         }
                         ImGui::Separator();
                         ImGui::TextDisabled("VIS / RAD");
@@ -3816,6 +3902,8 @@ int main(int argc, char* argv[]) {
                 const float pad = ImGui::GetStyle().WindowPadding.x;
                 const float btn = ImGui::GetFrameHeight();
                 const float gridBtnIcon = btn - 2.0f;
+                const float gridStepBtn = btn + 6.0f;
+                const float gridStepIcon = gridBtnIcon + 6.0f;
                 const float gridLabelW = 72.0f;
                 const float planeW = 28.0f;
                 const float gap = 10.0f;
@@ -3845,8 +3933,11 @@ int main(int argc, char* argv[]) {
                 const float rotateSnapW = snapIconMenuWidth(rotateSnapLabel, snapIcon);
                 const float snapSectionW =
                     translateSnapW + transformSnapW + rotateSnapW + snapGap * 2.0f;
-                const float gridControlsW = btn + gap + btn + planeW + gridLabelW + btn * 2.0f;
-                const float controlsW = viewSectionW + gap + snapSectionW + gap + gridControlsW;
+                const float gridControlsW =
+                    btn + planeW + gridLabelW + gridStepBtn * 2.0f;
+                const float midControlsW = btn + gap + btn;
+                const float controlsW = viewSectionW + gap + snapSectionW + gap + midControlsW +
+                    gap + gridControlsW;
                 const float controlsX = ImGui::GetWindowWidth() - pad - controlsW;
 
                 const float stageChipW = 230.0f;
@@ -3870,12 +3961,13 @@ int main(int argc, char* argv[]) {
                     std::snprintf(
                         stageLabel,
                         sizeof(stageLabel),
-                        "BSP%s VIS%s RAD%s NAV%s",
+                        "CSG%s BSP%s VIS%s RAD%s NAV%s",
+                        editor.compileDirty.csg ? "*" : "",
                         editor.compileDirty.bsp ? "*" : "",
                         editor.compileDirty.vis ? "*" : "",
                         editor.compileDirty.rad ? "*" : "",
                         editor.compileDirty.nav ? "*" : "");
-                    const bool anyDirty = editor.compileDirty.bsp ||
+                    const bool anyDirty = editor.compileDirty.csg || editor.compileDirty.bsp ||
                         editor.compileDirty.vis || editor.compileDirty.rad || editor.compileDirty.nav;
                     if (anyDirty) {
                         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", stageLabel);
@@ -3887,10 +3979,13 @@ int main(int argc, char* argv[]) {
                 ImGui::SameLine(controlsX);
                 ImGui::BeginGroup();
                 {
-                    auto iconButton =
-                        [&](const char* id, const char* icon, float iconSize = 16.0f) -> bool {
+                    auto iconButton = [&](const char* id,
+                                           const char* icon,
+                                           float iconSize = 16.0f,
+                                           float width = -1.0f) -> bool {
                         ImGui::PushID(id);
-                        const bool pressed = ImGui::InvisibleButton("##", ImVec2(btn, btn));
+                        const bool pressed =
+                            ImGui::InvisibleButton("##", ImVec2(width > 0.0f ? width : btn, btn));
                         const IconAtlas* atlas = assets.getIconAtlas(kIcons);
                         if (atlas != nullptr && atlas->texture.id != 0) {
                             if (const auto rect = findIconRect(*atlas, icon)) {
@@ -4222,12 +4317,20 @@ int main(int argc, char* argv[]) {
                     }
 
                     ImGui::SameLine(0.0f, 0.0f);
-                    if (iconButton("grid-finer", "bullet_toggle_minus", gridBtnIcon)) {
+                    if (iconButton(
+                            "grid-finer", "bullet_toggle_minus", gridStepIcon, gridStepBtn)) {
                         editor.cycleGrid(1);
                     }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip("Finer grid");
+                    }
                     ImGui::SameLine(0.0f, 0.0f);
-                    if (iconButton("grid-coarser", "bullet_toggle_plus", gridBtnIcon)) {
+                    if (iconButton(
+                            "grid-coarser", "bullet_toggle_plus", gridStepIcon, gridStepBtn)) {
                         editor.cycleGrid(-1);
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip("Coarser grid");
                     }
                 }
                 ImGui::EndGroup();
@@ -4950,6 +5053,7 @@ int main(int argc, char* argv[]) {
                             ImGui::EndTabItem();
                         }
                     };
+                    drawStageLog(slopmap::CompileStage::Csg, "CSG", "##compile_log_csg");
                     drawStageLog(slopmap::CompileStage::Bsp, "BSP", "##compile_log_bsp");
                     drawStageLog(slopmap::CompileStage::Vis, "VIS", "##compile_log_vis");
                     drawStageLog(slopmap::CompileStage::Rad, "RAD", "##compile_log_rad");

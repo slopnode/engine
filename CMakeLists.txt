@@ -104,6 +104,16 @@ configure_file(
     @ONLY
 )
 
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/VERSION")
+file(READ "${CMAKE_SOURCE_DIR}/VERSION" SLOPENGINE_VERSION)
+string(STRIP "${SLOPENGINE_VERSION}" SLOPENGINE_VERSION)
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/engine_version.hpp.in"
+    "${CMAKE_BINARY_DIR}/generated/core/engine_version.hpp"
+    @ONLY
+)
+
 add_subdirectory(lib)
 
 set(SLOPLIB_SOURCES
@@ -135,12 +145,13 @@ set(SLOPLIB_SOURCES
     src/particles/particle_sim.cpp
     src/game/app_config.cpp
     src/map/brush.cpp
+    src/map/brush_carve.cpp
     src/map/bsp_analyze.cpp
     src/map/bsp_build.cpp
     src/map/bsp_io.cpp
     src/map/bsp_ray.cpp
     src/map/csg_compile.cpp
-    src/map/csg_script.cpp
+    src/map/map_script.cpp
     src/map/csg_write.cpp
     src/map/things_script.cpp
     src/map/things_write.cpp
@@ -148,6 +159,7 @@ set(SLOPLIB_SOURCES
     src/map/handler_binding.cpp
     src/map/map_handler_registry.cpp
     src/map/thing_def_registry.cpp
+    src/map/nav_profile_registry.cpp
     src/map/graph_script.cpp
     src/map/lightmap.cpp
     src/map/light_occlusion.cpp
@@ -312,6 +324,14 @@ else()
     target_compile_options(sloprepl PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+
+add_executable(slopcsg tools/slopcsg/main.cpp)
+target_link_libraries(slopcsg PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopcsg PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopcsg PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 add_executable(slopbsp tools/slopbsp/main.cpp)
 target_link_libraries(slopbsp PRIVATE sloplib)

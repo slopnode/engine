@@ -57,7 +57,7 @@ Thing templates are the props, pickups, and actors that map authors can place fr
 
 - `label`, `icon`, `path` - browser presentation; `path` groups the thing under a folder declared in `*package-thing-folders*`
 - `sprite` or `geo`, `frame`, `anim` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`
-- `motor (radius ...) (height ...) (speed ...) (gravity ...) (step-height ...) (hover-height ...) (max-fall ...) (water-aversion ...) (hull box|capsule|sphere) (move try-move|slide|fly)` - a physics-driven movement capsule; implied for `actor`, optional for the others
+- `motor (radius ...) (height ...) (speed ...) (gravity ...) (step-height ...) (hover-height ...) (max-fall ...) (water-aversion ...) (hull box|capsule|sphere) (move try-move|slide|fly) (nav-profile ...)` - a physics-driven movement capsule; implied for `actor`, optional for the others. `nav-profile` names a baked nav profile (see the nav-profile catalog) for this thing's capsule size to path against instead of the auto-matched one
 - `tags` - a list of string tags, matched against `see-tags`/`ignore-tags` on other things and used by handlers
 - `on-enter`, `on-use` - handler bindings from the map handler catalog; a pickup requires at least one
 - `trigger-size` - the enter/use detection box as `(x y z)`, defaults to `1 1.5 1`
@@ -102,6 +102,31 @@ Thing templates are the props, pickups, and actors that map authors can place fr
           (ranged (cooldown 2.2) (range 24) (anim "attack") (recipe "hitscan")))
         (sight (range 28) (fov 160) (see-tags "player") (ignore-tags "team:hell") (enabled #t))))))
 </code></pre>
+
+# Nav Profiles {#nav-profiles}
+
+Symbol `*package-nav-profiles*`, loaded from `data/nav-profiles.s7`.
+
+Declares the set of Recast bake parameters (`tools/slopnav`) a map's navmesh is baked
+against -- one file per profile under `maps/<name>/compiled/nav/` (see @ref nav). A
+thing-def's `motor` selects one by name via `nav-profile`; a thing-def that doesn't
+name one is auto-matched at spawn to the smallest registered profile whose radius and
+height both cover its own motor capsule (see `resolveAutoNavProfile`). A package that
+never defines `*package-nav-profiles*` keeps baking/loading exactly one implicit
+`"default"` profile, unchanged from before this catalog existed.
+
+<pre><code class="language-scheme">(define *package-nav-profiles*
+  (list
+    (cons "default"
+      '((radius . 0.4) (height . 1.8) (max-climb . 0.6) (max-slope . 45)))
+    (cons "small"
+      '((radius . 0.25) (height . 1.0) (max-climb . 0.4) (max-slope . 45)))))
+</code></pre>
+
+- `radius`, `height` - agent capsule dimensions Recast erodes the walkable surface by
+- `max-climb` - max ledge height the agent can step up, in world units
+- `max-slope` - max walkable slope, in degrees
+- `cell-size`, `cell-height` - Recast voxelization resolution; omit to use the tool's defaults
 
 # Items {#items}
 

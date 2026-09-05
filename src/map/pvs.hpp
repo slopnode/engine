@@ -31,13 +31,19 @@ inline bool pvsCanSee(const PvsFile& pvs, std::int32_t fromLeaf, std::int32_t to
     return (word & (1u << (toLeaf & 31))) != 0u;
 }
 
-/** Open-leaf sample for entity PVS. Feet often sit in solid floor; nudge up. */
+/** Portal-graph-participating-leaf sample for entity PVS. Feet often sit in
+ *  solid floor; nudge up. A raw point sampled while standing inside a Door
+ *  leaf's low ceiling must accept that leaf directly instead of nudging past
+ *  it -- nudging can escape into unrelated, poorly-connected geometry above
+ *  the doorway (e.g. a stray sliver leaf with no portals at all), which would
+ *  return a technically "open" leaf whose PVS row sees almost nothing. See
+ *  leafParticipatesInPortalGraph. */
 inline std::int32_t pvsSampleLeaf(const BspTree& tree, Vector3 point) {
     static constexpr float kNudges[] = {0.0f, 0.05f, 0.25f, 0.75f, 1.5f};
     for (float dy : kNudges) {
         const std::int32_t leaf = pointLeaf(tree, {point.x, point.y + dy, point.z});
         if (leaf >= 0 && leaf < static_cast<std::int32_t>(tree.leaves.size()) &&
-            leafIsOpen(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
+            leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
             return leaf;
         }
     }

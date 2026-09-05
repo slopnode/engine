@@ -16,6 +16,7 @@ void runScriptScopeTests();
 void runSchemeHardenTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
+void runMapScriptTests();
 void runCsgCompileTests();
 void runPvsBuildTests();
 void runNavGraphTests();
@@ -23,6 +24,7 @@ void runNavMacroLinksTests();
 void runNavBakeTests();
 void runNavNavmeshBuildTests();
 void runNavIoTests();
+void runNavProfileRegistryTests();
 void runPhysicsTests();
 void runFrustumTests();
 void runTransformTests();
@@ -31,6 +33,7 @@ void runDynamicLightCompositingTests();
 void runBrushDoorTests();
 void runBrushSplitTests();
 void runBrushExtrudeTests();
+void runBrushCarveTests();
 void runBrushRoleTests();
 void runBrushBlocksTests();
 void runLightmapTransparentTests();
@@ -60,6 +63,7 @@ const Suite kSuites[] = {
     {"scheme_harden", slopengine::runSchemeHardenTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
+    {"map_script", slopengine::runMapScriptTests},
     {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
     {"nav_graph", slopengine::runNavGraphTests},
@@ -67,6 +71,7 @@ const Suite kSuites[] = {
     {"nav_bake", slopengine::runNavBakeTests},
     {"nav_navmesh_build", slopengine::runNavNavmeshBuildTests},
     {"nav_io", slopengine::runNavIoTests},
+    {"nav_profile_registry", slopengine::runNavProfileRegistryTests},
     {"physics", slopengine::runPhysicsTests},
     {"frustum", slopengine::runFrustumTests},
     {"transform", slopengine::runTransformTests},
@@ -75,6 +80,7 @@ const Suite kSuites[] = {
     {"brush_door", slopengine::runBrushDoorTests},
     {"brush_split", slopengine::runBrushSplitTests},
     {"brush_extrude", slopengine::runBrushExtrudeTests},
+    {"brush_carve", slopengine::runBrushCarveTests},
     {"brush_role", slopengine::runBrushRoleTests},
     {"brush_blocks", slopengine::runBrushBlocksTests},
     {"lightmap_transparent", slopengine::runLightmapTransparentTests},

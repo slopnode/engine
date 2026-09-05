@@ -62,6 +62,7 @@ enum class PlacePresentation {
 };
 
 struct CompileDirty {
+    bool csg = false;
     bool bsp = false;
     bool vis = false;
     bool rad = false;
@@ -187,8 +188,10 @@ struct Editor {
         const std::vector<CompileStage>& stages);
     void rebuildPreview(slopengine::AssetStore& assets);
     bool reloadVisPreview(slopengine::AssetStore& assets);
+    bool reloadCsgPreview(slopengine::AssetStore& assets);
     bool reloadLitBake(slopengine::AssetStore& assets);
-    /** Loads maps/<name>/static.nav (baked by slopnav) into bakedNav, if present.
+    /** Loads the smallest-radius baked profile under maps/<name>/compiled/nav/ (baked by
+     *  slopnav) into bakedNav, if present.
      *  Clears bakedNav/bakedNavValid and returns false when there's no baked navmesh
      *  yet -- that's the common case for a map nobody has run NAV on. */
     bool reloadBakedNav(slopengine::AssetStore& assets);

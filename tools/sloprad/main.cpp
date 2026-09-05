@@ -4,7 +4,7 @@
 #include "game/app_config.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
-#include "map/csg_script.hpp"
+#include "map/map_script.hpp"
 #include "map/lightmap.hpp"
 #include "map/radiosity.hpp"
 #include "map/radiosity_gpu.hpp"
@@ -389,10 +389,10 @@ int main(int argc, char* argv[]) {
         mapMeta->sun.enabled ? "yes" : "no");
     std::fflush(stdout);
 
-    const std::string bspVirtualPath = *cli->config.map + "/static";
+    const std::string bspVirtualPath = *cli->config.map + "/compiled/bsp";
     auto bspPath = assets.resolvePath(AssetKind::MapBsp, bspVirtualPath);
     if (!bspPath) {
-        std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".bsp (run slopbsp first)\n";
+        std::cerr << "sloprad: missing maps/" << bspVirtualPath << " (run slopbsp first)\n";
         assets.releaseGpuResources();
         closeGLContext();
         return 1;
@@ -472,8 +472,9 @@ int main(int argc, char* argv[]) {
         sunCount);
     std::fflush(stdout);
 
-    if (!assets.hasMapVis(bspVirtualPath)) {
-        std::cerr << "sloprad: missing maps/" << bspVirtualPath << ".vis (run slopvis first)\n";
+    const std::string visVirtualPath = *cli->config.map + "/compiled/vis";
+    if (!assets.hasMapVis(visVirtualPath)) {
+        std::cerr << "sloprad: missing maps/" << visVirtualPath << " (run slopvis first)\n";
         assets.releaseGpuResources();
         closeGLContext();
         return 1;
@@ -550,7 +551,7 @@ int main(int argc, char* argv[]) {
         analysis.sealed,
         nodrawOcclusionFaces);
 
-    const auto radPath = radDir / "static.rad";
+    const auto radPath = radDir / "lightmap";
     TraceLog(LOG_INFO, "sloprad: writing %s", radPath.string().c_str());
     std::fflush(stdout);
     if (!writeRadFile(radPath, baked.rad)) {

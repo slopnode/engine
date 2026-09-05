@@ -10,6 +10,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace slopengine {
@@ -27,6 +28,17 @@ struct NavPortalLink {
     float cost = 0.0f;
     /** Brush id of the Door gating this link, or empty if the link is ungated. */
     std::string doorBrushId;
+    /** Real vertical rise of this specific edge, in the direction owner-leaf -> neighborLeaf
+     *  (negative is a drop). For a BSP-leaf graph this is the accurate floor-height delta
+     *  between the two (typically small, locally flat) leaves either side of the portal. For
+     *  a Recast-baked navmesh graph this is always 0: Recast only ever connects two polygons
+     *  when their real voxel-level step is already within the bake's walkableClimb (see
+     *  nav_bake.cpp), so every edge present in the baked graph is climb-verified by
+     *  construction -- re-deriving a rise from each polygon's single leafFloorY scalar would
+     *  be actively wrong on any polygon Recast merged across a slope/stair run, where that
+     *  scalar (sampled once at the polygon's centroid) can land far from the height at this
+     *  particular edge. See findLeafPath/buildNavFlowField's use of this field. */
+    float climbHeight = 0.0f;
 };
 
 /** Answers whether the door with the given brush id currently allows sound/nav to pass.
@@ -68,9 +80,21 @@ struct MapNavigation {
 /** The offline-baked navmesh graph (tools/slopnav), kept as a separate world resource
  *  from the live MapNavigation singleton during the Stage 5 side-by-side comparison
  *  period -- lets the debug overlay draw both at once without touching runtime pathing.
- *  Empty (leafCount == 0) when the loaded map has no static.nav yet. */
+ *  Empty (leafCount == 0) when the loaded map has no baked nav profile yet. */
 struct MapBakedNav {
     MapNavigation nav{};
+};
+
+/** Every profile baked for the loaded map (tools/slopnav, one file per entry in the
+ *  nav-profile catalog), keyed by profile name -- see NavProfileRegistry. The single
+ *  MapNavigation singleton stays the smallest-radius profile (or the runtime BSP-leaf
+ *  fallback when nothing was baked at all); this map holds the rest, so a NavigationAgent
+ *  whose NavigationAgent::navProfile names a bigger profile can path against the graph
+ *  actually eroded for its own body instead of the smallest one. A profile absent here
+ *  (never baked, or the catalog doesn't define it) just isn't a key -- callers fall back
+ *  to the default singleton, same tolerance as a map with no baked nav at all. */
+struct MapNavProfiles {
+    std::unordered_map<std::string, MapNavigation> profiles;
 };
 
 struct NavFlowField {

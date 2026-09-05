@@ -27,15 +27,16 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | GeoWeights | `geometry/` | `.weights` | |
 | Anim | `animations/` | `.anim` | |
 | AnimTracks | `animations/` | `.tracks` | |
-| MapCsg | `maps/<name>/` | `static.csg` | Authored map geometry; see @ref tut_csg. |
+| MapSource | `maps/<name>/` | `brushes.map` | Authored map geometry; see @ref tut_csg. |
 | MapMeta | `maps/<name>/` | `map.meta` | |
-| MapBsp | `maps/<name>/` | `static.bsp` | Compiled; see @ref bsp. |
-| MapVis | `maps/<name>/` | `static.vis` | Compiled PVS; see @ref vis. |
-| MapRad | `maps/<name>/rad/` | `static.rad` | Compiled lightmap data; see @ref rad. |
-| MapLightmap | `maps/<name>/rad/` | `.png` | Baked lightmap atlas images. |
+| MapBsp | `maps/<name>/compiled/` | (none, filename `bsp`) | Compiled; see @ref bsp. |
+| MapVis | `maps/<name>/compiled/` | (none, filename `vis`) | Compiled PVS; see @ref vis. |
+| MapNav | `maps/<name>/compiled/nav/` | (none, filename is the nav profile name) | Baked leaf navigation graph, one file per nav profile; see @ref nav. |
+| MapRad | `maps/<name>/compiled/rad/` | (none, filename `lightmap`) | Compiled lightmap data; see @ref rad. |
+| MapLightmap | `maps/<name>/compiled/rad/` | `.png` | Baked lightmap atlas images. |
 | MapThings | `maps/<name>/` | `things.s7` | Placed thing instances. |
 | MapGraphs | `maps/<name>/` | `graphs.s7` | Nav-mesh/pathing graph data. |
-| PrefabCsg | `prefabs/` | `.csg` | Reusable brush groups, same authoring format as a map's `static.csg`. |
+| PrefabSource | `prefabs/` | `.map` | Reusable brush groups, same authoring format as a map's `brushes.map`. |
 | PrefabThings | `prefabs/` | `.s7` | Things sidecar for a prefab. |
 | Sprite | `sprites/` | `.spr` | Rotation frames and hit masks; texture refs resolve under `textures/`. |
 | SpriteAnim | `sprites/` | `.spanim` | Animation clip banks over a `.spr`. |

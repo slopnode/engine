@@ -180,6 +180,14 @@ bool parseMotorClauses(s7_scheme* scheme, s7_pointer rest, ThingDef& def) {
             }
             continue;
         }
+        if (std::strcmp(tag, "nav-profile") == 0) {
+            std::string profile;
+            if (!readStringValue(scheme, s7_car(values), profile) || profile.empty()) {
+                return false;
+            }
+            def.motorNavProfile = std::move(profile);
+            continue;
+        }
         if (!s7_is_number(s7_car(values))) {
             return false;
         }
@@ -463,6 +471,7 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.motorWaterAversion = def.motorWaterAversion;
     out.motorHull = def.motorHull;
     out.motorMoveMode = def.motorMoveMode;
+    out.motorNavProfile = def.motorNavProfile;
     out.tags = def.tags;
     out.onEnter = def.onEnter;
     out.onUse = def.onUse;

@@ -145,6 +145,7 @@ s7_pointer g_nav_clear_goal(s7_scheme* sc, s7_pointer args) {
     agent.haveStuckLastPos = false;
     agent.haveLastGoalPos = false;
     agent.forceReplan = false;
+    agent.goalReachable = true;
     return s7_t(sc);
 }
 
@@ -215,25 +216,24 @@ s7_pointer g_nav_path_direction(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
+    // Always steers straight at the agent's actual current target (the waypoint it hasn't
+    // reached yet, or -- once past the last one and the goal is still known-reachable -- the
+    // live goal itself) rather than blending toward the next leg early. The funnel algorithm
+    // already guarantees a taut path stays inside the walkable corridor; blending ahead of
+    // arrival cut that guarantee, which was harmless while navmesh erosion left a body-radius
+    // buffer at every boundary but sends the agent past the true edge now that open ledges
+    // (as opposed to real walls) carry no such buffer. A stale, no-longer-reachable goal
+    // (agent.goalReachable false) isn't something to home in on at all -- see NavigationAgent's
+    // doc comment -- so past-the-end reports no direction instead of beelining toward it.
     if (idx >= static_cast<int>(agent.waypoints.size())) {
+        if (!agent.goalReachable) {
+            return s7_f(sc);
+        }
         const Vector3& goal = agent.waypoints.back();
         seg = {goal.x - agentPos.x, 0.0f, goal.z - agentPos.z};
     } else {
         const Vector3& wp = agent.waypoints[static_cast<std::size_t>(idx)];
-        const float dist = navHorizontalDist(agentPos, wp);
-        if (idx + 1 < static_cast<int>(agent.waypoints.size())) {
-            const Vector3& next = agent.waypoints[static_cast<std::size_t>(idx + 1)];
-            if (dist > agent.arriveRadius) {
-                seg = {wp.x - agentPos.x, 0.0f, wp.z - agentPos.z};
-            } else {
-                seg = {next.x - wp.x, 0.0f, next.z - wp.z};
-            }
-        } else if (dist > agent.arriveRadius || idx == 0) {
-            seg = {wp.x - agentPos.x, 0.0f, wp.z - agentPos.z};
-        } else {
-            const Vector3& prev = agent.waypoints[static_cast<std::size_t>(idx - 1)];
-            seg = {wp.x - prev.x, 0.0f, wp.z - prev.z};
-        }
+        seg = {wp.x - agentPos.x, 0.0f, wp.z - agentPos.z};
     }
 
     const float len = std::sqrt(seg.x * seg.x + seg.z * seg.z);

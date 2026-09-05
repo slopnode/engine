@@ -9,6 +9,11 @@
 
 slopengine is a C++/Scheme hobby project for making first-person games. It is aimed at non-commercial use: personal experiments, learning projects, and weekend games rather than studio pipelines or commercial shipping.
 
+- Public release mirror: https://github.com/slopnode/engine
+- Development mirror: https://git.slopnode.net/games/engine
+
+@note You are free to build and use the engine yourself, but while I am developing it I am changing things like the API frequently which means incompability and a longer time to update the documentation to reflect all the changes. 
+
 <table width=100%>
     <tr>
         <td align="right"><b>Package-based content:</b></td>
@@ -66,7 +71,7 @@ The engine also includes a number of tools specifically for handling level desig
 </tr>
 </table>
 
-&nbsp;
+<div style="display:none">
 
 - @subpage installing
 - @subpage demos
@@ -74,4 +79,6 @@ The engine also includes a number of tools specifically for handling level desig
 - @subpage engine
 - @subpage tools
 - @subpage libraries
+
+</div>
 

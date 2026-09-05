@@ -1,4 +1,4 @@
-@page tut_csg CSG, BSP, VIS, and RAD
+@page tut_csg CSG, BSP, VIS, NAV, and RAD
 
 # Why BSP? {#why-bsp}
 
@@ -28,7 +28,7 @@ id borrowed exactly that idea for level design, minus the intersection/subtracti
 
 ## Brushes in this engine {#brushes-in-this-engine}
 
-This engine keeps that same "brushes in a text file" idea, just written as Scheme s-expressions instead of Quake's `.map` format, because everything else in a package is already an s-expr. Here's a trimmed piece of `packages/demo/maps/empty-room/static.csg`:
+This engine keeps that same "brushes in a text file" idea, just written as Scheme s-expressions instead of Quake's `.map` format, because everything else in a package is already an s-expr. Here's a trimmed piece of `packages/demo/maps/empty-room/brushes.map`:
 
 <pre><code class="language-scheme">(brush-box
   (id "a-floor")
@@ -58,15 +58,25 @@ This engine keeps that same "brushes in a text file" idea, just written as Schem
 
 `brush-box` is the axis-aligned convenience case; `brush-convex` lets you list arbitrary convex faces directly, which is how the wedge above gets its slope. Every brush also carries a `role` (`slopengine::BrushRole`): `Hull` brushes are structural, participate in the BSP split, and block visibility and physics like a Quake 1 solid brush; `Detail` brushes are drawn and can still collide, but don't cut the BSP tree or affect VIS, exactly like the `func_detail` brushes Quake 2 and Half-Life added once mappers wanted decorative geometry (crates, trim, light fixtures) without blowing up compile times or visibility graphs on every window ledge.
 
-# The compilers: CSG → BSP → VIS → RAD {#the-compilers-csg-bsp-vis-rad}
+# The compilers: CSG → BSP → VIS → NAV → RAD {#the-compilers-csg-bsp-vis-rad}
 
-Once a map is authored as brushes in `slopmap`, getting it into something the engine can render and query at runtime is an offline, three-stage compile, run in order:
+Once a map is authored as brushes (`.map`) in `slopmap`, getting it into something the engine can render and query at runtime is an offline, five-stage compile, run in order:
 
-1. **`slopbsp`** triangulates the brushes and partitions them into a `.bsp` tree: internal split-plane nodes, convex leaves tagged with contents flags (`Solid`, `Glass`, `Water`, `Trigger`), and the portals connecting adjacent open leaves. It also emits the final triangulated surface faces (material, UVs, id) directly into the `.bsp` file.
-2. **`slopvis`** walks the leaf/portal graph produced by `slopbsp` and computes potential visibility (below).
-3. **`sloprad`** bakes static lighting into per-face lightmap atlases (below).
+1. **`slopcsg`** loads the authored brushes and carves them (below), writing the carved set to `compiled/csg`.
+2. **`slopbsp`** triangulates the brushes and partitions them into a `.bsp` tree: internal split-plane nodes, convex leaves tagged with contents flags (`Solid`, `Glass`, `Water`, `Trigger`), and the portals connecting adjacent open leaves. It also emits the final triangulated surface faces (material, UVs, id) directly into the `.bsp` file.
+3. **`slopvis`** walks the leaf/portal graph produced by `slopbsp` and computes potential visibility (below).
+4. **`slopnav`** bakes one or more navigation graphs against the BSP's walkable geometry (below).
+5. **`sloprad`** bakes static lighting into per-face lightmap atlases (below).
 
-You'll notice there's no FAC stage. There used to be: a `.fac` file sat between BSP and RAD, holding the compiled face list that lightmapping keyed off of. That data has since folded directly into the `.bsp` file's own surface-faces section, so the format is deprecated and the live pipeline is just CSG → BSP → VIS → RAD.
+## Carving: resolving overlapping brushes {#carving-resolving-overlapping-brushes}
+
+"CSG" names two different things in this pipeline, and it's worth keeping them apart: authoring a map as a union of brushes is CSG in the classic sense (see above), and `slopcsg` is the specific tool that resolves overlap between those brushes before anything gets triangulated.
+
+A brush-based map is rarely a set of brushes that only touch at their boundaries -- a mapper routinely overlaps a wall brush into the floor brush at a corner, or overlaps a detail brush into a hull brush, because getting every brush's bounds to align exactly to the millimeter is more friction than it's worth. Left alone, two overlapping opaque brushes both contribute coincident faces at the overlap, which is exactly the setup for z-fighting at render time and duplicated geometry in the BSP.
+
+`slopcsg` fixes this by carving: for every carve-eligible brush (`Hull`, `Window`, `Transparent`), each face is clipped against every later, spatially-overlapping carve-eligible brush in brush order, keeping only the portion of the face that isn't embedded in one of those later brushes (`clipPolygonOutsideBrush`, classic brush-CSG subtract -- clip sequentially against each carver face plane, keep the outside fragment, discard whatever's still inside after all of them). `Door`, `Detail`, `Trigger`, `Hint`, and `Water` brushes pass through unmodified and never carve or get carved -- `Door` is deliberately excluded even though it seals/splits like `Hull`, since a door's volume routinely overlaps the floor and walls at a doorway and nothing else fills that gap while it's open. Brush order and ids are preserved; only face geometry and per-brush bounds change on carved brushes.
+
+`slopbsp` needs both versions of the brush list, for different reasons: BSP tree structure and leaf solidity classification test whether points fall inside a brush's full convex volume, which requires every one of its original faces to still bound it -- a carved (partially clipped) brush's remaining faces describe an unbounded region and would corrupt leaf classification map-wide. Only the *emitted surface geometry* -- what actually gets triangulated into the `.bsp` file's surface-faces section and rendered -- wants the carved, non-overlapping faces. So `slopbsp` loads the raw, uncarved brushes for tree-building and loads `slopcsg`'s carved output (from `compiled/csg`, asset kind `MapCarved`) for surface emission, and fails outright with "run slopcsg first" if that carved file doesn't exist yet. `slopmap`'s "Run All" and its dirty-tracking both know about this ordering: any brush geometry edit invalidates the carve stage, and invalidating carve cascades to invalidate BSP (and everything downstream of it) too.
 
 # VIS: the Potentially Visible Set {#vis-the-potentially-visible-set}
 
@@ -74,10 +84,18 @@ Quake's `vis.exe` earned its reputation as the slowest tool in the toolchain, so
 
 The engine's `.vis` file is exactly that precomputed bitset: a `leafCount × leafCount` matrix, packed one bit per leaf pair into `wordsPerRow` 32-bit words, row-major so that testing "can leaf A see leaf B" is a single word fetch and mask (`slopengine::pvsCanSee`). It's surfaced to package scripts as `(pvs-can-see x0 y0 z0 x1 y1 z1)`, which actors' sight and audio-occlusion checks lean on instead of doing a full linescan every time.
 
+# NAV: baked navigation {#nav-baked-navigation}
+
+Everything above this stage exists to answer "what can be seen" and "what can be drawn." `slopnav` answers a different question: "where can an actor walk." Rather than routing actors over the BSP's leaf/portal graph directly (accurate, but as fine-grained and irregular as the brushwork itself, since leaves are a rendering/visibility partition, not a walkability one), `slopnav` voxelizes the map's walkable static geometry through Recast's heightfield → compact heightfield → region → contour → polymesh pipeline, producing a much coarser, cleaner graph of walkable polygons sized to an actual agent capsule.
+
+A map can bake more than one such graph, one per entry in its `*package-nav-profiles*` catalog (see @ref nav-profiles), each with its own agent radius, height, max step, and max slope -- a crouching enemy and a wide-bodied boss don't need to share a navmesh eroded for the same body size. Every profile is written to its own file under `compiled/nav/` (see @ref nav for the on-disk format); a thing-def opts into a specific profile via its `motor`'s `nav-profile` clause, or is auto-matched at spawn to the smallest profile that fits its own capsule.
+
+Because it only voxelizes static geometry already resolved by `slopbsp`, `slopnav` depends on BSP but not on VIS or RAD, and produces no visual output of its own -- it's purely the data `nav-*` script calls (pathfinding, flow fields, funnel-pulled waypoints) query at runtime.
+
 # RAD: baking light {#rad-baking-light}
 
 Radiosity is older than computer graphics; it's a heat-transfer technique for modeling how energy radiates between surfaces. Cindy Goral, Kenneth Torrance, Donald Greenberg, and Bennett Battaile brought it into computer graphics at Cornell in 1984 ("Modeling the Interaction of Light Between Diffuse Surfaces"), treating light the same way: every diffuse surface both receives and re-emits light to every other surface it can see.
 
 That's expensive, so Quake's `light.exe` took a shortcut: bake direct light (plus a fudge factor for bounce) into a lightmap texture offline, and just sample that texture at runtime. No per-frame lighting computation, no per-frame bounce simulation, just a texture fetch. It's a huge reason Quake's diffuse lighting still looks as good as it does on hardware from that era.
 
-This engine's `sloprad` is closer to the original Cornell method than Quake's approximation: `RadiositySettings` has a real `bounces` count and per-bounce `samples`, direct lighting from a stratified NxN grid per emissive face, and an optional GPU compute path for both the direct and bounce passes on top of the CPU reference implementation. The output, `.rad`, doesn't embed the actual pixels; it stores atlas metadata and UV chart placement per baked face, with the pixels themselves living in separate PNGs (`rad/atlas0.png` and so on) that the renderer composites with dynamic lights at draw time.
+This engine's `sloprad` is closer to the original Cornell method than Quake's approximation: `RadiositySettings` has a real `bounces` count and per-bounce `samples`, direct lighting from a stratified NxN grid per emissive face, and an optional GPU compute path for both the direct and bounce passes on top of the CPU reference implementation. The output, `.rad`, doesn't embed the actual pixels; it stores atlas metadata and UV chart placement per baked face, with the pixels themselves living in separate PNGs (`compiled/rad/atlas0.png` and so on) that the renderer composites with dynamic lights at draw time.

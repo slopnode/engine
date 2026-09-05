@@ -22,7 +22,8 @@ bool navPortalLinkEqual(const NavPortalLink& a, const NavPortalLink& b) {
         std::fabs(a.portalCenter.y - b.portalCenter.y) < kEps &&
         std::fabs(a.portalCenter.z - b.portalCenter.z) < kEps &&
         std::fabs(a.portalHalfWidth - b.portalHalfWidth) < kEps &&
-        std::fabs(a.cost - b.cost) < kEps;
+        std::fabs(a.cost - b.cost) < kEps &&
+        std::fabs(a.climbHeight - b.climbHeight) < kEps;
 }
 
 }

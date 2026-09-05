@@ -2,6 +2,7 @@
 
 #include "assets/geo_loader.hpp"
 #include "assets/material_loader.hpp"
+#include "map/brush_carve.hpp"
 #include "map/csg_compile.hpp"
 #include "map/lightmap.hpp"
 #include "map/mover_brushes.hpp"
@@ -467,6 +468,16 @@ void MapPreview::clearVis() {
     visTransparentMeshIndices.clear();
 }
 
+void MapPreview::clearCsg() {
+    if (csgValid && csgModel.meshCount > 0) {
+        UnloadModel(csgModel);
+    }
+    csgModel = {};
+    csgValid = false;
+    csgTransparentMeshIndices.clear();
+    csgBrushes.clear();
+}
+
 void MapPreview::clear() {
     if (valid && model.meshCount > 0) {
         UnloadModel(model);
@@ -476,6 +487,7 @@ void MapPreview::clear() {
     editFaceIds.clear();
     modelTransparentMeshIndices.clear();
     clearVis();
+    clearCsg();
     clearLit();
     clearMoverOverlay(moverOverlayModel, moverOverlayValid);
 }
@@ -542,6 +554,37 @@ bool MapPreview::reloadVisPreview(
     return true;
 }
 
+bool MapPreview::reloadCsgPreview(
+    slopengine::AssetStore& assets,
+    const std::string& mapName,
+    const std::vector<slopengine::Brush>& brushes,
+    const std::unordered_set<std::string>& moverBrushIds) {
+    clearCsg();
+    if (mapName.empty() || mapName == "untitled") {
+        return false;
+    }
+
+    const auto resolveUv =
+        [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); };
+
+    csgBrushes = slopengine::carveBrushes(staticBrushesForPreview(brushes, moverBrushIds));
+    const slopengine::CsgCompileResult compiled =
+        slopengine::compileBrushesToGeo(csgBrushes, resolveUv, nullptr);
+
+    csgModel = slopengine::buildModelFromGeo(
+        compiled.asset,
+        compiled.buffer,
+        [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+    collectTransparentMeshIndices(compiled.asset, csgTransparentMeshIndices);
+    csgValid = csgModel.meshCount > 0;
+    if (!csgValid) {
+        clearCsg();
+        return false;
+    }
+    rebuildMoverOverlay(assets, brushes, moverBrushIds, moverOverlayModel, moverOverlayValid);
+    return true;
+}
+
 bool MapPreview::reloadBake(
     slopengine::AssetStore& assets,
     const std::string& mapName,
@@ -552,7 +595,7 @@ bool MapPreview::reloadBake(
         return false;
     }
 
-    const std::string radVirtualPath = mapName + "/rad/static";
+    const std::string radVirtualPath = mapName + "/compiled/rad/lightmap";
     if (!assets.hasMapRad(radVirtualPath)) {
         return false;
     }
@@ -581,7 +624,7 @@ bool MapPreview::reloadBake(
 
     lightmapAtlases.reserve(rad.atlases.size());
     for (const slopengine::LightmapAtlasInfo& atlas : rad.atlases) {
-        const std::string atlasPath = mapName + "/rad/" + atlas.texturePath;
+        const std::string atlasPath = mapName + "/compiled/rad/" + atlas.texturePath;
         const auto resolved = assets.resolvePath(slopengine::AssetKind::MapLightmap, atlasPath);
         Texture2D texture{};
         if (resolved) {
@@ -890,6 +933,25 @@ void MapPreview::draw(
             outlineBrush(brushes[i], selected);
         }
         break;
+    case PreviewFill::CsgWireframe:
+        if (csgValid) {
+            for (std::size_t i = 0; i < csgBrushes.size(); ++i) {
+                const bool selected = std::find(
+                                          selectedBrushes.begin(),
+                                          selectedBrushes.end(),
+                                          static_cast<int>(i)) != selectedBrushes.end();
+                outlineBrush(csgBrushes[i], selected);
+            }
+        } else {
+            for (std::size_t i = 0; i < brushes.size(); ++i) {
+                const bool selected = std::find(
+                                          selectedBrushes.begin(),
+                                          selectedBrushes.end(),
+                                          static_cast<int>(i)) != selectedBrushes.end();
+                outlineBrush(brushes[i], selected);
+            }
+        }
+        break;
     case PreviewFill::Lit:
     case PreviewFill::SolidLit:
         if (litValid) {
@@ -969,6 +1031,18 @@ void MapPreview::draw(
             drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
         }
         break;
+    case PreviewFill::Csg:
+        if (csgValid) {
+            drawModelMeshesSplit(csgModel, csgTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(csgModel, csgTransparentMeshIndices, {}, eye, cameraForward);
+            if (moverOverlayValid) {
+                DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            }
+        } else if (valid) {
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
+        }
+        break;
     case PreviewFill::Textures:
         if (valid) {
             drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false, true);
@@ -989,39 +1063,47 @@ void MapPreview::draw(
         rlDrawRenderBatchActive();
     }
 
-    if (fill == PreviewFill::Wireframe || wireframe == WireframeOverlay::Off) {
+    if (fill == PreviewFill::Wireframe || fill == PreviewFill::CsgWireframe ||
+        wireframe == WireframeOverlay::Off) {
         return;
     }
+
+    const bool useCsgOutlines = fill == PreviewFill::Csg && csgValid;
+    const std::vector<slopengine::Brush>& outlineBrushes = useCsgOutlines ? csgBrushes : brushes;
 
     rlDrawRenderBatchActive();
     if (wireframe == WireframeOverlay::All) {
         rlDisableDepthTest();
         rlDisableDepthMask();
         rlDisableBackfaceCulling();
-        for (std::size_t i = 0; i < brushes.size(); ++i) {
+        for (std::size_t i = 0; i < outlineBrushes.size(); ++i) {
             const bool selected =
                 std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
                 selectedBrushes.end();
             drawBrushFaceOutlinesXray(
-                brushes[i],
+                outlineBrushes[i],
                 selected ? Color{255, 180, 60, 255} : Color{220, 220, 230, 255});
         }
-        for (const slopengine::Brush& brush : instanceBrushes) {
-            drawBrushFaceOutlinesXray(brush, Color{180, 200, 220, 255});
+        if (!useCsgOutlines) {
+            for (const slopengine::Brush& brush : instanceBrushes) {
+                drawBrushFaceOutlinesXray(brush, Color{180, 200, 220, 255});
+            }
         }
         rlDrawRenderBatchActive();
         rlEnableBackfaceCulling();
         rlEnableDepthMask();
         rlEnableDepthTest();
     } else if (wireframe == WireframeOverlay::Visible) {
-        for (std::size_t i = 0; i < brushes.size(); ++i) {
+        for (std::size_t i = 0; i < outlineBrushes.size(); ++i) {
             const bool selected =
                 std::find(selectedBrushes.begin(), selectedBrushes.end(), static_cast<int>(i)) !=
                 selectedBrushes.end();
-            outlineBrush(brushes[i], selected);
+            outlineBrush(outlineBrushes[i], selected);
         }
-        for (const slopengine::Brush& brush : instanceBrushes) {
-            outlineBrush(brush, false);
+        if (!useCsgOutlines) {
+            for (const slopengine::Brush& brush : instanceBrushes) {
+                outlineBrush(brush, false);
+            }
         }
         rlDrawRenderBatchActive();
     }
