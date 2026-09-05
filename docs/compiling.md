@@ -202,6 +202,24 @@ test
 
 The `slop*` executables can be launched from either this directory, or they can be installed in your user local environment, or on the system under `/usr/local/bin`.
 
+# Optional: Steam Audio {#steam-audio-build}
+
+By default the engine uses SoLoud for sound, which is enough for a normal build. If you want positionally aware spatial audio you can additionally link Valve's Steam Audio SDK. It's off by default and not vendored as a submodule, since it isn't free software, so you need to download it yourself from the [Steam Audio releases](https://github.com/ValveSoftware/steam-audio) and extract it somewhere on disk.
+
+Once you have it extracted, point CMake at the extract and turn the option on:
+
+```
+> cmake -S . -B build -DSLOPENGINE_USE_STEAM_AUDIO=ON -DSTEAM_AUDIO_ROOT=/path/to/steamaudio
+...
+-- Steam Audio: enabled
+--   include: /path/to/steamaudio/include
+--   library: /path/to/steamaudio/lib/linux-x64/libphonon.so
+```
+
+The SDK extract needs to have `include/phonon.h` and a platform library directory (`lib/linux-x64`, `lib/windows-x64`, `lib/osx`, and so on depending on what you're building for) containing `phonon`. A plain source checkout of Steam Audio will satisfy the header lookup but won't have a prebuilt library, so unless you build `phonon` yourself, use the prebuilt binary SDK download rather than a source checkout.
+
+From here `cmake --build build` proceeds the same as any other build, just with spatial audio linked in.
+
 # Running the demo {#running-the-demo}
 
 A basic demo is included with the engine that can be used to test.
