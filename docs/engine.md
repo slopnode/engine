@@ -6,6 +6,7 @@
 - @subpage cli
 - @subpage scriptingapi
 - @subpage dataapi
+- @subpage ui_hud
 - @subpage file_formats
 - @subpage lighting_model
 - @subpage navigation_model

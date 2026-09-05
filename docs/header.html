@@ -37,9 +37,31 @@ $darkmode
 $extrastylesheet
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-scheme.min.js"></script>
+<script type="text/javascript" src="$relpath^engine-scheme-fns.js"></script>
 
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+    const projectNumber = document.getElementById("projectnumber");
+    if (projectNumber) {
+        projectNumber.innerHTML = "<br>" + projectNumber.textContent.trim();
+    }
+    if (window.Prism && Prism.languages.scheme && window.SLOPENGINE_SCHEME_FNS) {
+        const escapeRegExp = (s) => s.replace(/[.*+?^{}()|[\]\\]/g, (m) => "\\" + m);
+        const names = window.SLOPENGINE_SCHEME_FNS.map(escapeRegExp).join("|");
+        const hookPrefixes = "on-action-[\\w?!-]+|on-use-[\\w?!-]+";
+        const fnPattern = new RegExp("((?:^|[^'`#])[(\\[])(?:" + hookPrefixes + "|" + names + ")(?=[()\\[\\]\\s])");
+        const TYPE_REFS = [
+            "any?", "boolean?", "integer?", "real?", "number?", "float?", "string?",
+            "symbol?", "procedure?", "pair?", "alist?", "list?", "null?", "char?",
+            "vector?", "listof"
+        ];
+        const typePattern = new RegExp("((?:^|\\s))(?:" + TYPE_REFS.map(escapeRegExp).join("|") + ")(?=[\\s)])");
+        Prism.languages.insertBefore("scheme", "function", {
+            "type-ref": { pattern: typePattern, lookbehind: true },
+            "engine-fn": { pattern: fnPattern, lookbehind: true },
+            "ret-arrow": { pattern: /↵/ }
+        });
+    }
     Prism.highlightAll();
 });
 </script>

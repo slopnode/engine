@@ -1,5 +1,7 @@
 @page tutorials Tutorials
 
+@note The engine's features and UI change frequently during active development. Screenshots and steps below may not match the current version.
+
 - @subpage compiling
 - @subpage tut_scheme
 - @subpage tut_first_base_package
