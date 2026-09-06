@@ -147,6 +147,46 @@ bool setFloatField(SaudioParams& params, std::uint32_t field, float& dst, std::s
     return true;
 }
 
+std::string formatFloat(float value) {
+    char buf[32];
+    const auto result = std::to_chars(buf, buf + sizeof(buf), value);
+    return std::string(buf, result.ptr);
+}
+
+const char* waveName(int waveType) {
+    switch (waveType) {
+        case 0: return "square";
+        case 1: return "saw";
+        case 2: return "sine";
+        case 3: return "noise";
+        default: return "square";
+    }
+}
+
+const char* presetName(int preset) {
+    switch (preset) {
+        case 0: return "coin";
+        case 1: return "laser";
+        case 2: return "explosion";
+        case 3: return "powerup";
+        case 4: return "hurt";
+        case 5: return "jump";
+        case 6: return "blip";
+        default: return "coin";
+    }
+}
+
+void appendFloatField(std::string& out, const char* name, std::uint32_t mask, std::uint32_t field, float value) {
+    if ((mask & field) == 0) {
+        return;
+    }
+    out += "  (";
+    out += name;
+    out += ' ';
+    out += formatFloat(value);
+    out += ")\n";
+}
+
 } // namespace
 
 bool parseSaudioAsset(std::string_view source, AudioDef& def) {
@@ -343,6 +383,77 @@ bool parseSaudioAsset(std::string_view source, AudioDef& def) {
     }
 
     return true;
+}
+
+std::string serializeSaudioAsset(const AudioDef& def) {
+    const SaudioParams& p = def.sfxr;
+    std::string out = "(audio\n";
+
+    if (p.hasPreset) {
+        out += "  (preset ";
+        out += presetName(p.preset);
+        out += ' ';
+        out += std::to_string(p.presetSeed);
+        out += ")\n";
+    }
+
+    if (p.setMask & SaudioField_Wave) {
+        out += "  (wave ";
+        out += waveName(p.waveType);
+        out += ")\n";
+    }
+    appendFloatField(out, "freq", p.setMask, SaudioField_Freq, p.baseFreq);
+    appendFloatField(out, "freq-limit", p.setMask, SaudioField_FreqLimit, p.freqLimit);
+    appendFloatField(out, "freq-ramp", p.setMask, SaudioField_FreqRamp, p.freqRamp);
+    appendFloatField(out, "freq-dramp", p.setMask, SaudioField_FreqDramp, p.freqDramp);
+    appendFloatField(out, "duty", p.setMask, SaudioField_Duty, p.duty);
+    appendFloatField(out, "duty-ramp", p.setMask, SaudioField_DutyRamp, p.dutyRamp);
+    appendFloatField(out, "vib-strength", p.setMask, SaudioField_VibStrength, p.vibStrength);
+    appendFloatField(out, "vib-speed", p.setMask, SaudioField_VibSpeed, p.vibSpeed);
+    appendFloatField(out, "vib-delay", p.setMask, SaudioField_VibDelay, p.vibDelay);
+    appendFloatField(out, "attack", p.setMask, SaudioField_Attack, p.envAttack);
+    appendFloatField(out, "sustain", p.setMask, SaudioField_Sustain, p.envSustain);
+    appendFloatField(out, "decay", p.setMask, SaudioField_Decay, p.envDecay);
+    appendFloatField(out, "punch", p.setMask, SaudioField_Punch, p.envPunch);
+    appendFloatField(out, "lpf", p.setMask, SaudioField_Lpf, p.lpfFreq);
+    appendFloatField(out, "lpf-resonance", p.setMask, SaudioField_LpfResonance, p.lpfResonance);
+    appendFloatField(out, "lpf-ramp", p.setMask, SaudioField_LpfRamp, p.lpfRamp);
+    appendFloatField(out, "hpf", p.setMask, SaudioField_Hpf, p.hpfFreq);
+    appendFloatField(out, "hpf-ramp", p.setMask, SaudioField_HpfRamp, p.hpfRamp);
+    appendFloatField(out, "pha-offset", p.setMask, SaudioField_PhaOffset, p.phaOffset);
+    appendFloatField(out, "pha-ramp", p.setMask, SaudioField_PhaRamp, p.phaRamp);
+    appendFloatField(out, "repeat-speed", p.setMask, SaudioField_RepeatSpeed, p.repeatSpeed);
+    appendFloatField(out, "arp-speed", p.setMask, SaudioField_ArpSpeed, p.arpSpeed);
+    appendFloatField(out, "arp-mod", p.setMask, SaudioField_ArpMod, p.arpMod);
+    appendFloatField(out, "sound-vol", p.setMask, SaudioField_SoundVol, p.soundVol);
+    appendFloatField(out, "master-vol", p.setMask, SaudioField_MasterVol, p.masterVol);
+
+    out += "  (volume ";
+    out += formatFloat(def.volume);
+    out += ")\n";
+    out += "  (min-distance ";
+    out += formatFloat(def.minDistance);
+    out += ")\n";
+    out += "  (max-distance ";
+    out += formatFloat(def.maxDistance);
+    out += ")\n";
+    out += "  (loop ";
+    out += (def.loop ? "#t" : "#f");
+    out += ")\n";
+    out += "  (spatial ";
+    out += (def.spatial ? "#t" : "#f");
+    out += ")\n";
+    out += "  (bus \"";
+    out += (def.bus == AudioDefBus::Music ? "music" : "sfx");
+    out += "\")\n";
+    for (const std::string& filterName : def.filters) {
+        out += "  (filter \"";
+        out += filterName;
+        out += "\")\n";
+    }
+
+    out += ")\n";
+    return out;
 }
 
 }

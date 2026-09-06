@@ -460,7 +460,6 @@ void bindAudioApi(flecs::world& world, s7_scheme* scheme) {
         return;
     }
 
-    s7_define_macro(scheme, "audio", g_register_audio, 0, 0, true, "(audio field ...)");
     s7_define_macro(scheme, "register-audio", g_register_audio, 0, 0, true,
                     "(register-audio field ...)");
     s7_define_function(scheme, "play-audio", g_play_audio, 1, 1, false,

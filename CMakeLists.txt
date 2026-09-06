@@ -426,6 +426,23 @@ else()
     target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(slopaudio
+    tools/slopaudio/main.cpp
+    tools/slopaudio/editor.cpp
+    tools/slopaudio/browser.cpp
+    tools/slopaudio/waveform_view.cpp
+    tools/slopaudio/layout.cpp
+    src/ui/imgui_fonts.cpp
+    src/audio/audio_world.cpp
+)
+target_include_directories(slopaudio PRIVATE tools/slopaudio)
+target_link_libraries(slopaudio PRIVATE sloplib rlImGui soloud)
+if(MSVC)
+    target_compile_options(slopaudio PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopaudio PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 add_executable(slopthing
     tools/slopthing/main.cpp
     tools/slopthing/sexpr.cpp
