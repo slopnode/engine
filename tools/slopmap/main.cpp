@@ -348,11 +348,12 @@ ThingCatalogFolder buildThingCatalogFolder(const std::vector<const slopengine::T
 
 void printUsage() {
     std::cerr
-        << "Usage: slopmap --base-game <path> [--mod <path>]... --target <path> [--map <name>]\n"
+        << "Usage: slopmap --game <path> [--mod <path>]... [--target <path>] [--map <name>]\n"
         << "\n"
-        << "  --base-game   Base game package directory (required)\n"
+        << "  --game        Game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
-        << "  --target      Package directory that receives map/prefab saves (required)\n"
+        << "  --target      Package directory that receives map/prefab saves\n"
+        << "                (defaults to --game; required when --mod is given)\n"
         << "  --map         Optional map under maps/ to open (default: new untitled map)\n"
         << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
@@ -369,12 +370,12 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             return argv[++i];
         };
 
-        if (arg == "--base-game") {
-            const char* value = needValue("--base-game");
+        if (arg == "--game") {
+            const char* value = needValue("--game");
             if (value == nullptr) {
                 return std::nullopt;
             }
-            config.mount.base_game = value;
+            config.mount.game = value;
             continue;
         }
         if (arg == "--mod") {
@@ -410,8 +411,16 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         return std::nullopt;
     }
 
-    if (config.mount.base_game.empty() || config.target.empty()) {
+    if (config.mount.game.empty()) {
         return std::nullopt;
+    }
+    if (config.target.empty()) {
+        if (!config.mount.mods.empty()) {
+            return std::nullopt;
+        }
+        config.target = slopengine::resolveApplicationPackagePath(
+            config.mount.game,
+            slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
     }
     return config;
 }
@@ -1373,7 +1382,7 @@ int main(int argc, char* argv[]) {
             }
         }
         slopmap::CompileMountArgs mounts;
-        mounts.baseGame = config->mount.base_game;
+        mounts.game = config->mount.game;
         mounts.mods = config->mount.mods;
         mounts.mapName = mapName;
         compile.requestRun(std::move(stages), mounts);
@@ -1399,7 +1408,7 @@ int main(int argc, char* argv[]) {
             }
         }
         slopmap::CompileMountArgs mounts;
-        mounts.baseGame = config->mount.base_game;
+        mounts.game = config->mount.game;
         mounts.mods = config->mount.mods;
         mounts.mapName = mapName;
         std::string error;

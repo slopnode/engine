@@ -18,27 +18,27 @@ The other files are all compiled by tools provided with the engine. They are off
 
 `slopmap` is a CSG tool and map editor. It is a new product, but the implementation draws inspiration from a range of different 3D programs from Hammer, Trenchbroom, and Blender. Unlike Blender though this program doesn't work with mesh geometry but instead faces, edges, and solid shapes.
 
-To start the program requires 2 arguments:
+To start the program requires 1 argument:
 
-1. `--base-game` the package that is going to supply the base definition
-2. `--target` which package should the changes made be saved to
+1. `--game` the package that is going to supply the base definition
 
-If you want it to load an existing map or use content from other mods you can supply those as arguments as well.
+`--target` which package the changes made are saved to is only needed if you also pass `--mod`; otherwise it defaults to `--game`. If you want it to load an existing map or use content from other mods you can supply those as arguments as well.
 
 ```
 > slopmap 
-Usage: slopmap --base-game <path> [--mod <path>]... --target <path> [--map <name>]
+Usage: slopmap --game <path> [--mod <path>]... [--target <path>] [--map <name>]
 
-  --base-game   Base game package directory (required)
+  --game        Game package directory (required)
   --mod         Additional mod package directory (repeatable)
-  --target      Package directory that receives map/prefab saves (required)
+  --target      Package directory that receives map/prefab saves
+                (defaults to --game; required when --mod is given)
   --map         Optional map under maps/ to open (default: new untitled map)
 ```
 
 We'll leave the map argument out and create a new map for the new base-game package.
 
 ```
-slopmap --base-game /path/to/my-base-package --target /path/to/my-base-package
+slopmap --game /path/to/my-base-package
 ```
 
 ![Slopmap new map](images/first-map-new-map.png)

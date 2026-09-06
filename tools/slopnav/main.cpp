@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
 
     auto config = AppConfig::parse(static_cast<int>(filteredArgv.size()), filteredArgv.data());
     if (!config || !config->map) {
-        std::cerr << "Usage: slopnav --base-game <path> [--mod <path>]... --map <name> [--compare]\n";
+        std::cerr << "Usage: slopnav --game <path> [--mod <path>]... --map <name> [--compare]\n";
         return 1;
     }
 

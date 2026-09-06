@@ -47,7 +47,7 @@ Developers implement the `draw-title` hook. They can combine this with the backg
 This example code is available in the demo package. It can be run via:
 
 ```
-./slopengine --base-game packages/demo
+./slopengine --game packages/demo
 ```
 
 ![When running the text wiggles back and forth](images/first-title-render.png)

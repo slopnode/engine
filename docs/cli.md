@@ -5,25 +5,25 @@
 # Mount flags {#mount-flags}
 
 ```
-slopengine --base-game <path|name> [--mod <path|name>]... [--profile <name>] [--debug] [package-flags...]
+slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [--debug] [package-flags...]
 ```
 
-- `--base-game` -- the game package to run. Either a directory containing a `package.meta`, or a name looked up in the configured search paths. Required.
-- `--mod` -- an additional package mounted on top of the base game, same lookup rules as `--base-game`. Repeatable; mods apply in the order given, later mods overriding earlier ones for the same asset path.
+- `--game` -- the game package to run. Either a directory containing a `package.meta`, or a name looked up in the configured search paths. Required.
+- `--mod` -- an additional package mounted on top of the game, same lookup rules as `--game`. Repeatable; mods apply in the order given, later mods overriding earlier ones for the same asset path.
 - `--profile` -- selects which settings/saves/screenshots directory tree to use. Defaults to `"default"`. See @ref profiles for what this scopes.
 - `--debug` -- enables the developer-only UI (the Debug menu, entity inspector, and related overlays). Off by default so a normal player never sees it.
 
-Where a `--base-game`/`--mod` value resolves to on disk is covered in @ref packages, since it's the same search path logic package dependency resolution uses.
+Where a `--game`/`--mod` value resolves to on disk is covered in @ref packages, since it's the same search path logic package dependency resolution uses.
 
-Running with no arguments, or an unrecognized flag before `--base-game` is satisfied, prints usage and exits:
+Running with no arguments, or an unrecognized flag before `--game` is satisfied, prints usage and exits:
 
 ```
-Usage: slopengine --base-game <path|name> [--mod <path|name>]... [--profile <name>] [package-flags...]
+Usage: slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [package-flags...]
 
-  --base-game   Base game package: a directory path, or a name looked up in
+  --game        Game package: a directory path, or a name looked up in
                 the configured search paths (required)
   --mod         Additional mod package: path or name, same lookup as
-                --base-game (repeatable)
+                --game (repeatable)
   --profile     Settings/saves/screenshots profile to use (default: "default")
   --debug       Enable developer-only UI (e.g. the Debug menu)
 ```
@@ -53,20 +53,20 @@ Inside scripts, read a flag's value with `startup-arg`:
 
 `startup-arg` returns `#f` when the flag wasn't passed. For a `"string"` flag it returns the value as given on the command line. For a `"flag"` switch it returns the string `"#t"`, not the boolean `#t` -- a plain `(if (startup-arg "verbose") ...)` still works since any non-`#f` value is truthy in Scheme, but `(equal? (startup-arg "verbose") #t)` will not.
 
-Note that this schema is only known once the base package's own scripts have loaded, so package flags are parsed after `--base-game` is mounted -- a package flag typo doesn't prevent the mount flags themselves from being validated, but it does stop the game from starting.
+Note that this schema is only known once the base package's own scripts have loaded, so package flags are parsed after `--game` is mounted -- a package flag typo doesn't prevent the mount flags themselves from being validated, but it does stop the game from starting.
 
 # Tool binaries {#tool-binaries}
 
-`slopcsg`, `slopbsp`, `slopvis`, `slopnav`, and `sloprad` accept the same `--base-game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process (`slopnav` also takes an optional `--compare` diagnostic flag):
+`slopcsg`, `slopbsp`, `slopvis`, `slopnav`, and `sloprad` accept the same `--game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process (`slopnav` also takes an optional `--compare` diagnostic flag):
 
 ```
-slopcsg --base-game path/to/game --map my-room
-slopbsp --base-game path/to/game --map my-room
-slopvis --base-game path/to/game --map my-room
-slopnav --base-game path/to/game --map my-room
-sloprad --base-game path/to/game --map my-room
+slopcsg --game path/to/game --map my-room
+slopbsp --game path/to/game --map my-room
+slopvis --game path/to/game --map my-room
+slopnav --game path/to/game --map my-room
+sloprad --game path/to/game --map my-room
 ```
 
 That's the required run order, CSG → BSP → VIS → NAV → RAD (see @ref tut_csg): `slopcsg` carves overlapping brush faces (see @ref carving-resolving-overlapping-brushes) and writes the result `slopbsp` reads for surface geometry, so `slopbsp` fails with "run slopcsg first" if that carved output is missing or stale; `slopnav` and `sloprad` both only need `slopbsp`'s output, but are conventionally run in that order after `slopvis`.
 
-`slopmap` and `slopsprite` parse their own arguments (`--target`, an optional `--map`, and so on) rather than going through the package-flag schema, since they're editors rather than something a base package configures. See their individual pages under @ref tools for the flags each one takes.
+`slopmap`, `slopsprite`, `slopthing`, and `slopaudio` parse their own arguments (`--target`, an optional `--map`, and so on) rather than going through the package-flag schema, since they're editors rather than something a base package configures. Each takes `--game` plus an optional `--target` naming the package that receives saves; `--target` defaults to `--game` and is only required once `--mod` is also given. See their individual pages under @ref tools for the flags each one takes.

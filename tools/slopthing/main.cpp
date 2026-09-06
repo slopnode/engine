@@ -40,11 +40,12 @@ struct ToolConfig {
 
 void printUsage() {
     std::cerr
-        << "Usage: slopthing --base-game <path> [--mod <path>]... --target <path>\n"
+        << "Usage: slopthing --game <path> [--mod <path>]... [--target <path>]\n"
         << "\n"
-        << "  --base-game   Base game package directory (required)\n"
+        << "  --game        Game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory whose data/things.s7 is edited\n"
+        << "                (defaults to --game; required when --mod is given)\n"
         << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
 
@@ -59,12 +60,12 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             return argv[++i];
         };
 
-        if (arg == "--base-game") {
+        if (arg == "--game") {
             const char* value = needValue();
             if (value == nullptr) {
                 return std::nullopt;
             }
-            config.mount.base_game = value;
+            config.mount.game = value;
             continue;
         }
         if (arg == "--mod") {
@@ -92,8 +93,16 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         return std::nullopt;
     }
 
-    if (config.mount.base_game.empty() || config.target.empty()) {
+    if (config.mount.game.empty()) {
         return std::nullopt;
+    }
+    if (config.target.empty()) {
+        if (!config.mount.mods.empty()) {
+            return std::nullopt;
+        }
+        config.target = slopengine::resolveApplicationPackagePath(
+            config.mount.game,
+            slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
     }
     return config;
 }

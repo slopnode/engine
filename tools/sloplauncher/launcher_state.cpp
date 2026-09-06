@@ -205,7 +205,7 @@ std::vector<std::string> LauncherState::buildLaunchArgs() const {
     if (base == nullptr) {
         return args;
     }
-    args.push_back("--base-game");
+    args.push_back("--game");
     args.push_back(base->root().string());
 
     for (const std::string& modId : modIds) {
@@ -298,7 +298,7 @@ void LauncherState::launchDevTool(const std::string& toolName) {
         return;
     }
 
-    std::vector<std::string> args{toolName, "--base-game", base->root().string()};
+    std::vector<std::string> args{toolName, "--game", base->root().string()};
     for (const std::string& modId : modIds) {
         const slopengine::Package* mod = findPackage(modId);
         if (mod == nullptr) {

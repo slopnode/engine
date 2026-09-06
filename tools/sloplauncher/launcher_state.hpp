@@ -76,7 +76,7 @@ struct LauncherState {
 
     /**
      * Launches a sibling dev tool ("slopmap" / "slopsprite" / "slopthing")
-     * with --base-game/--mod/--target, mirroring how those tools are already
+     * with --game/--mod/--target, mirroring how those tools are already
      * invoked by hand: --target must be baseGameId or one of modIds.
      */
     void launchDevTool(const std::string& toolName);

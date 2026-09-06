@@ -167,7 +167,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
         applicationSearchPaths(userConfiguredSearchPaths());
 
     const std::filesystem::path baseGamePath =
-        resolveApplicationPackagePath(config.base_game, searchPaths);
+        resolveApplicationPackagePath(config.game, searchPaths);
     Package base{baseGamePath};
     if (!base.valid()) {
         throw std::runtime_error(

@@ -8,7 +8,7 @@ The engine keeps two different kinds of persistent user data on disk: a global s
 
 # Global settings {#global-settings}
 
-`<config>/settings.cfg` holds the `[paths]` section only -- additional directories to search when `--base-game`/`--mod` is given a name rather than a path:
+`<config>/settings.cfg` holds the `[paths]` section only -- additional directories to search when `--game`/`--mod` is given a name rather than a path:
 
 ```
 [paths]

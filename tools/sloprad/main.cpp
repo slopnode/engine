@@ -47,12 +47,12 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
             return argv[++i];
         };
 
-        if (arg == "--base-game") {
-            const char* value = needValue("--base-game");
+        if (arg == "--game") {
+            const char* value = needValue("--game");
             if (value == nullptr) {
                 return std::nullopt;
             }
-            cli.config.base_game = value;
+            cli.config.game = value;
         } else if (arg == "--mod") {
             const char* value = needValue("--mod");
             if (value == nullptr) {
@@ -245,7 +245,7 @@ std::optional<RadCli> parseRadCli(int argc, char* argv[]) {
         }
     }
 
-    if (cli.config.base_game.empty() || !cli.config.map) {
+    if (cli.config.game.empty() || !cli.config.map) {
         return std::nullopt;
     }
     return cli;
@@ -283,7 +283,7 @@ int main(int argc, char* argv[]) {
     auto cli = parseRadCli(argc, argv);
     if (!cli) {
         std::cerr
-            << "Usage: sloprad --base-game <path> [--mod <path>]... --map <name>\n"
+            << "Usage: sloprad --game <path> [--mod <path>]... --map <name>\n"
             << "       [--luxels-per-meter N] [--bounces N] [--samples N]\n"
             << "       [--emitter-direct-samples N] [--emitter-grid-luxels-per-meter N]\n"
             << "       [--emitter-grid-max-size N] [--exact-emission-grid-max-size N]\n"

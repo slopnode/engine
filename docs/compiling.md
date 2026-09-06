@@ -225,7 +225,7 @@ From here `cmake --build build` proceeds the same as any other build, just with 
 A basic demo is included with the engine that can be used to test.
 
 ```
-> ./build/slopengine --base-game packages/demo
+> ./build/slopengine --game packages/demo
 INFO: Initializing raylib 6.1-dev
 INFO: Platform backend: DESKTOP (GLFW)
 INFO: Supported raylib modules:

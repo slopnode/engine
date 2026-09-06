@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
 
     auto config = AppConfig::parse(argc, argv);
     if (!config || !config->map) {
-        std::cerr << "Usage: slopvis --base-game <path> [--mod <path>]... --map <name>\n";
+        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name>\n";
         return 1;
     }
 

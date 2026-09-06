@@ -78,7 +78,7 @@ struct RadCompileOptions {
 };
 
 struct CompileMountArgs {
-    std::filesystem::path baseGame;
+    std::filesystem::path game;
     std::vector<std::filesystem::path> mods;
     std::string mapName;
 };

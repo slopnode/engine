@@ -22,7 +22,7 @@ struct PackageCliFlag {
 /** Command-line configuration for mounting game packages and package flags. */
 struct AppConfig {
     std::string programName = "slopengine";
-    std::filesystem::path base_game;
+    std::filesystem::path game;
     std::vector<std::filesystem::path> mods;
     /** Selects which settings/saves/screenshots directory tree to use. "default" when not given. */
     std::string profile = "default";
@@ -34,7 +34,7 @@ struct AppConfig {
     std::vector<std::string> pendingArgs;
     std::unordered_map<std::string, std::string> packageArgs;
 
-    /** Parses only `--base-game` / `--mod` / `--profile`; other tokens go to pendingArgs. */
+    /** Parses only `--game` / `--mod` / `--profile`; other tokens go to pendingArgs. */
     static std::optional<AppConfig> parseMount(int argc, char* argv[]);
 
     /**

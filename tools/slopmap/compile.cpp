@@ -151,8 +151,8 @@ std::filesystem::path CompileController::resolveToolPath(CompileStage stage) {
 std::vector<std::string> CompileController::buildArgs(CompileStage stage) const {
     std::vector<std::string> args;
     args.emplace_back(stageToolName(stage));
-    args.emplace_back("--base-game");
-    args.push_back(mounts_.baseGame.string());
+    args.emplace_back("--game");
+    args.push_back(mounts_.game.string());
     for (const auto& mod : mounts_.mods) {
         args.emplace_back("--mod");
         args.push_back(mod.string());
@@ -555,8 +555,8 @@ void CompileController::requestRun(std::vector<CompileStage> stages, const Compi
         setStatus("Save the map before compiling");
         return;
     }
-    if (mounts.baseGame.empty()) {
-        setStatus("Compile failed (missing --base-game)");
+    if (mounts.game.empty()) {
+        setStatus("Compile failed (missing --game)");
         return;
     }
 
@@ -708,8 +708,8 @@ bool launchGame(const CompileMountArgs& mounts, std::string& errorOut) {
         errorOut = "Save the map before playing";
         return false;
     }
-    if (mounts.baseGame.empty()) {
-        errorOut = "Missing --base-game";
+    if (mounts.game.empty()) {
+        errorOut = "Missing --game";
         return false;
     }
 
@@ -721,8 +721,8 @@ bool launchGame(const CompileMountArgs& mounts, std::string& errorOut) {
 
     std::vector<std::string> args;
     args.emplace_back("slopengine");
-    args.emplace_back("--base-game");
-    args.push_back(mounts.baseGame.string());
+    args.emplace_back("--game");
+    args.push_back(mounts.game.string());
     for (const auto& mod : mounts.mods) {
         args.emplace_back("--mod");
         args.push_back(mod.string());
