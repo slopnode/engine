@@ -133,7 +133,10 @@ bool parseAudioField(s7_scheme* sc, s7_pointer form, AudioDef& def, const char* 
             s7_wrong_type_arg_error(sc, proc, 0, value, "string");
             return false;
         }
-        def.filters.emplace_back(s7_string(value));
+        if (pushAudioDefFilter(def, s7_string(value)) == nullptr) {
+            s7_wrong_type_arg_error(sc, proc, 0, value, "audio def already has the max number of filters");
+            return false;
+        }
         return true;
     }
 
@@ -334,6 +337,169 @@ s7_pointer g_set_bus_volume(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_get_bus_volume(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_make_real(sc, 0.0);
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr) {
+        return s7_make_real(sc, 0.0);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "get-bus-volume", 1, s7_car(args), "string");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_make_real(sc, 0.0);
+    }
+    return s7_make_real(sc, static_cast<double>(audio->getBusVolume(*bus)));
+}
+
+s7_pointer g_set_bus_muted(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "set-bus-muted", 1, s7_car(args), "string");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_f(sc);
+    }
+    audio->setBusMuted(*bus, s7_boolean(sc, s7_cadr(args)));
+    return s7_t(sc);
+}
+
+s7_pointer g_bus_muted_p(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "bus-muted?", 1, s7_car(args), "string");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_f(sc);
+    }
+    return audio->isBusMuted(*bus) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_audio_filter_clear(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr || !audio->ready()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-clear", 1, s7_car(args), "string");
+    }
+    if (!s7_is_integer(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-clear", 2, s7_cadr(args), "integer");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_f(sc);
+    }
+    audio->clearBusFilter(*bus, static_cast<unsigned int>(s7_integer(s7_cadr(args))));
+    return s7_t(sc);
+}
+
+s7_pointer g_audio_filter_name(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_make_string(sc, "");
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr) {
+        return s7_make_string(sc, "");
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-name", 1, s7_car(args), "string");
+    }
+    if (!s7_is_integer(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-name", 2, s7_cadr(args), "integer");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_make_string(sc, "");
+    }
+    const std::string_view name =
+        audio->busFilterName(*bus, static_cast<unsigned int>(s7_integer(s7_cadr(args))));
+    return s7_make_string_with_length(sc, name.data(), static_cast<int>(name.size()));
+}
+
+s7_pointer g_audio_filter_set_param(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_f(sc);
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr || !audio->ready()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-set-param", 1, s7_car(args), "string");
+    }
+    if (!s7_is_integer(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-set-param", 2, s7_cadr(args), "integer");
+    }
+    if (!s7_is_integer(s7_caddr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-set-param", 3, s7_caddr(args), "integer");
+    }
+    if (!s7_is_real(s7_cadddr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-set-param", 4, s7_cadddr(args), "real");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_f(sc);
+    }
+    const unsigned int slot = static_cast<unsigned int>(s7_integer(s7_cadr(args)));
+    const unsigned int paramIndex = static_cast<unsigned int>(s7_integer(s7_caddr(args)));
+    const float value = static_cast<float>(s7_number_to_real(sc, s7_cadddr(args)));
+    return audio->setBusFilterParam(*bus, slot, paramIndex, value) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_audio_filter_get_param(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::Audio)) {
+        return s7_make_real(sc, 0.0);
+    }
+    AudioWorld* audio = audioWorld();
+    if (audio == nullptr || !audio->ready()) {
+        return s7_make_real(sc, 0.0);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-get-param", 1, s7_car(args), "string");
+    }
+    if (!s7_is_integer(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-get-param", 2, s7_cadr(args), "integer");
+    }
+    if (!s7_is_integer(s7_caddr(args))) {
+        return s7_wrong_type_arg_error(sc, "audio-filter-get-param", 3, s7_caddr(args), "integer");
+    }
+
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
+        return s7_make_real(sc, 0.0);
+    }
+    const unsigned int slot = static_cast<unsigned int>(s7_integer(s7_cadr(args)));
+    const unsigned int paramIndex = static_cast<unsigned int>(s7_integer(s7_caddr(args)));
+    return s7_make_real(sc, static_cast<double>(audio->getBusFilterParam(*bus, slot, paramIndex)));
+}
+
 s7_pointer g_play_music(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::Audio)) {
         return s7_f(sc);
@@ -491,10 +657,23 @@ void bindAudioApi(flecs::world& world, s7_scheme* scheme) {
                        "(set-sound-volume handle vol)");
     s7_define_function(scheme, "set-bus-volume", g_set_bus_volume, 2, 0, false,
                        "(set-bus-volume bus vol)");
+    s7_define_function(scheme, "get-bus-volume", g_get_bus_volume, 1, 0, false,
+                       "(get-bus-volume bus)");
+    s7_define_function(scheme, "set-bus-muted", g_set_bus_muted, 2, 0, false,
+                       "(set-bus-muted bus muted?)");
+    s7_define_function(scheme, "bus-muted?", g_bus_muted_p, 1, 0, false, "(bus-muted? bus)");
     s7_define_function(scheme, "play-music", g_play_music, 1, 1, false, "(play-music path [volume])");
     s7_define_function(scheme, "stop-music", g_stop_music, 0, 0, false, "(stop-music)");
     s7_define_function(scheme, "audio-filter-attach", g_audio_filter_attach, 2, 1, false,
                        "(audio-filter-attach target filter [slot])");
+    s7_define_function(scheme, "audio-filter-clear", g_audio_filter_clear, 2, 0, false,
+                       "(audio-filter-clear bus slot)");
+    s7_define_function(scheme, "audio-filter-name", g_audio_filter_name, 2, 0, false,
+                       "(audio-filter-name bus slot)");
+    s7_define_function(scheme, "audio-filter-set-param", g_audio_filter_set_param, 4, 0, false,
+                       "(audio-filter-set-param bus slot param-index value)");
+    s7_define_function(scheme, "audio-filter-get-param", g_audio_filter_get_param, 3, 0, false,
+                       "(audio-filter-get-param bus slot param-index)");
     s7_define_function(scheme, "register-audio-filter", g_register_audio_filter, 2, 0, false,
                        "(register-audio-filter name proc)");
 }

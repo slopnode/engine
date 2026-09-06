@@ -521,11 +521,19 @@ bool parseSaudioAsset(std::string_view text, AudioDef& def) {
             }
             def.bus = busFromName(*bus);
         } else if (startsWith(line, "(filter ")) {
-            const auto filter = readQuoted(after("(filter "));
-            if (!filter) {
+            std::string_view rest = stripTrailingParen(after("(filter "));
+            std::string filterName;
+            if (!consumeQuoted(rest, filterName)) {
                 return false;
             }
-            def.filters.push_back(*filter);
+            BusFilterSlot* target = pushAudioDefFilter(def, filterName);
+            if (target == nullptr) {
+                return false;
+            }
+            float value = 0.0f;
+            while (consumeFloat(rest, value)) {
+                target->params.push_back(value);
+            }
         } else {
             return false;
         }
@@ -556,10 +564,18 @@ std::string serializeSaudioAsset(const AudioDef& def) {
     out += "  (bus \"";
     out += busName(def.bus);
     out += "\")\n";
-    for (const std::string& filterName : def.filters) {
+    for (const BusFilterSlot& filterSlot : def.filters) {
+        if (filterSlot.name.empty()) {
+            continue;
+        }
         out += "  (filter \"";
-        out += filterName;
-        out += "\")\n";
+        out += filterSlot.name;
+        out += "\"";
+        for (float value : filterSlot.params) {
+            out += ' ';
+            out += formatFloat(value);
+        }
+        out += ")\n";
     }
     out += ")\n";
     return out;

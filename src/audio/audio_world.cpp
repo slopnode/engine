@@ -5,6 +5,8 @@
 #include "audio/steam_audio_spatialize_filter.hpp"
 #endif
 
+#include "audio/graphic_eq_filter.hpp"
+
 #include <soloud_bassboostfilter.h>
 #include <soloud_biquadresonantfilter.h>
 #include <soloud_dcremovalfilter.h>
@@ -166,7 +168,7 @@ SoLoud::Wav* AudioWorld::loadClipForDef(
     AssetStore& assets,
     std::string_view defPath,
     const AudioDef& def) {
-    if (def.filters.empty()) {
+    if (!hasAnyFilterSlots(def.filters)) {
         return loadClip(assets, def.source);
     }
 
@@ -225,7 +227,7 @@ SoLoud::WavStream* AudioWorld::loadStreamForDef(
     AssetStore& assets,
     std::string_view defPath,
     const AudioDef& def) {
-    if (def.filters.empty()) {
+    if (!hasAnyFilterSlots(def.filters)) {
         return loadStream(assets, def.source);
     }
 
@@ -255,13 +257,35 @@ SoLoud::WavStream* AudioWorld::loadStreamForDef(
     return ptr;
 }
 
-void AudioWorld::applyFilters(SoLoud::AudioSource& source, const std::vector<std::string>& names) {
-    for (unsigned int i = 0; i < names.size() && i < FILTERS_PER_STREAM; ++i) {
-        SoLoud::Filter* filter = makeBuiltinFilter(names[i]);
+void AudioWorld::applyFilters(SoLoud::AudioSource& source, const std::array<BusFilterSlot, kMaxFiltersPerBus>& slots) {
+    for (unsigned int i = 0; i < slots.size(); ++i) {
+        if (slots[i].name.empty()) {
+            continue;
+        }
+        SoLoud::Filter* filter = makeBuiltinFilter(slots[i].name);
         if (filter != nullptr) {
             source.setFilter(i, filter);
         }
     }
+}
+
+void AudioWorld::applyDefFilterParams(SoLoud::handle voice, const AudioDef& def) {
+    if (voice == 0) {
+        return;
+    }
+    for (unsigned int slot = 0; slot < def.filters.size(); ++slot) {
+        const BusFilterSlot& filterSlot = def.filters[slot];
+        for (unsigned int p = 0; p < filterSlot.params.size(); ++p) {
+            soloud_.setFilterParameter(voice, slot, p, filterSlot.params[p]);
+        }
+    }
+}
+
+void AudioWorld::invalidateDefCache(std::string_view defPath) {
+    const std::string key{defPath};
+    clipsByDef_.erase(key);
+    streamsByDef_.erase(key);
+    sfxrByDef_.erase(key);
 }
 
 void AudioWorld::applySaudioParams(SoLoud::Sfxr& sfxr, const SaudioParams& params) {
@@ -383,7 +407,8 @@ SoLoud::handle AudioWorld::playSfxrDef(
     bool spatial3d,
     float x,
     float y,
-    float z) {
+    float z,
+    bool viaBus) {
     SoLoud::Sfxr* sfxr = loadSfxrForDef(defPath, params, def);
     if (sfxr == nullptr) {
         return 0;
@@ -420,10 +445,14 @@ SoLoud::handle AudioWorld::playSfxrDef(
 #endif
         {
             sfxr->set3dMinMaxDistance(def.minDistance, def.maxDistance);
-            voice = target.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+            voice = viaBus
+                ? target.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume)
+                : soloud_.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+            applyDefFilterParams(voice, def);
         }
     } else {
-        voice = target.play(*sfxr, volume);
+        voice = viaBus ? target.play(*sfxr, volume) : soloud_.play(*sfxr, volume);
+        applyDefFilterParams(voice, def);
     }
 
     if (def.bus == AudioDefBus::Music) {
@@ -436,7 +465,8 @@ SoLoud::handle AudioWorld::playSound(
     AssetStore& assets,
     std::string_view path,
     float volume,
-    bool loop) {
+    bool loop,
+    bool viaBus) {
     if (!ready_) {
         return 0;
     }
@@ -445,7 +475,7 @@ SoLoud::handle AudioWorld::playSound(
         return 0;
     }
     clip->setLooping(loop);
-    return bus(AudioBusKind::Sfx).play(*clip, volume);
+    return viaBus ? bus(AudioBusKind::Sfx).play(*clip, volume) : soloud_.play(*clip, volume);
 }
 
 SoLoud::handle AudioWorld::playSound3d(
@@ -499,7 +529,8 @@ SoLoud::handle AudioWorld::playAudioDef(
     AssetStore& assets,
     std::string_view defPath,
     const AudioDef& def,
-    float volumeOverride) {
+    float volumeOverride,
+    bool viaBus) {
     if (!ready_) {
         return 0;
     }
@@ -511,7 +542,7 @@ SoLoud::handle AudioWorld::playAudioDef(
     }
 
     if (const ProceduralDef* proc = assets.getProceduralDef(def.source)) {
-        return playSfxrDef(defPath, def, proc->sfxr, volume, false, 0.0f, 0.0f, 0.0f);
+        return playSfxrDef(defPath, def, proc->sfxr, volume, false, 0.0f, 0.0f, 0.0f, viaBus);
     }
 
     const AudioBusKind busKind = busFromDef(def.bus);
@@ -524,6 +555,7 @@ SoLoud::handle AudioWorld::playAudioDef(
         stopMusic();
         stream->setLooping(def.loop);
         musicVoice_ = bus(AudioBusKind::Music).play(*stream, volume);
+        applyDefFilterParams(musicVoice_, def);
         return musicVoice_;
     }
 
@@ -553,20 +585,28 @@ SoLoud::handle AudioWorld::playAudioDef(
         }
 #endif
         clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
-        return bus(busKind).play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume);
+        const SoLoud::handle voice = viaBus
+            ? bus(busKind).play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume)
+            : soloud_.play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume);
+        applyDefFilterParams(voice, def);
+        return voice;
     }
-    return bus(busKind).play(*clip, volume);
+    const SoLoud::handle voice =
+        viaBus ? bus(busKind).play(*clip, volume) : soloud_.play(*clip, volume);
+    applyDefFilterParams(voice, def);
+    return voice;
 }
 
 SoLoud::handle AudioWorld::playProcedural(
     std::string_view proceduralPath,
     const SaudioParams& params,
-    float volume) {
+    float volume,
+    bool viaBus) {
     if (!ready_) {
         return 0;
     }
     const AudioDef previewDef{};
-    return playSfxrDef(proceduralPath, previewDef, params, volume, false, 0.0f, 0.0f, 0.0f);
+    return playSfxrDef(proceduralPath, previewDef, params, volume, false, 0.0f, 0.0f, 0.0f, viaBus);
 }
 
 SoLoud::handle AudioWorld::playAudioDef3d(
@@ -625,7 +665,9 @@ SoLoud::handle AudioWorld::playAudioDef3d(
     }
 #endif
     clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
-    return bus(busKind).play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    const SoLoud::handle voice = bus(busKind).play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    applyDefFilterParams(voice, def);
+    return voice;
 }
 
 void AudioWorld::stop(SoLoud::handle voice) {
@@ -1041,6 +1083,8 @@ std::unique_ptr<SoLoud::Filter> AudioWorld::createBuiltinFilter(std::string_view
         return std::make_unique<SoLoud::WaveShaperFilter>();
     } else if (name == "dcremoval") {
         return std::make_unique<SoLoud::DCRemovalFilter>();
+    } else if (name == "eq") {
+        return std::make_unique<GraphicEqFilter>();
     }
     return nullptr;
 }

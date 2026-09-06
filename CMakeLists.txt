@@ -245,6 +245,7 @@ add_executable(slopengine
     src/render/view_sprite_attachment.cpp
     src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
+    src/audio/graphic_eq_filter.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
     src/map/brush_door.cpp
@@ -417,6 +418,7 @@ add_executable(slopsprite
     tools/slopsprite/layout.cpp
     src/ui/imgui_fonts.cpp
     src/audio/audio_world.cpp
+    src/audio/graphic_eq_filter.cpp
 )
 target_include_directories(slopsprite PRIVATE tools/slopsprite)
 target_link_libraries(slopsprite PRIVATE sloplib rlImGui soloud)
@@ -431,10 +433,12 @@ add_executable(slopaudio
     tools/slopaudio/editor.cpp
     tools/slopaudio/browser.cpp
     tools/slopaudio/bus_editor.cpp
+    tools/slopaudio/filter_chain_ui.cpp
     tools/slopaudio/waveform_view.cpp
     tools/slopaudio/layout.cpp
     src/ui/imgui_fonts.cpp
     src/audio/audio_world.cpp
+    src/audio/graphic_eq_filter.cpp
 )
 target_include_directories(slopaudio PRIVATE tools/slopaudio)
 target_link_libraries(slopaudio PRIVATE sloplib rlImGui soloud)

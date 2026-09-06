@@ -1,5 +1,8 @@
 #include "waveform_view.hpp"
 
+#include "audio/audio_world.hpp"
+
+#include <soloud_filter.h>
 #include <soloud_sfxr.h>
 #include <soloud_wav.h>
 
@@ -7,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <memory>
 
 namespace slopaudio {
 
@@ -218,17 +222,58 @@ WaveformData bakeClipWaveform(
     }
 
     data.sampleRate = wav.mBaseSamplerate > 0.0f ? wav.mBaseSamplerate : 44100.0f;
-    const unsigned int channels = std::max(1u, wav.mChannels);
+    data.channels = std::max(1u, wav.mChannels);
     const unsigned int frames = std::min(wav.mSampleCount, maxSamples);
-    data.samples.reserve(frames);
-    for (unsigned int i = 0; i < frames; ++i) {
-        float sum = 0.0f;
-        for (unsigned int ch = 0; ch < channels; ++ch) {
-            sum += wav.mData[ch * wav.mSampleCount + i];
-        }
-        data.samples.push_back(sum / static_cast<float>(channels));
+    data.samples.resize(static_cast<std::size_t>(frames) * data.channels);
+    for (unsigned int ch = 0; ch < data.channels; ++ch) {
+        const float* src = wav.mData + static_cast<std::size_t>(ch) * wav.mSampleCount;
+        float* dst = data.samples.data() + static_cast<std::size_t>(ch) * frames;
+        std::copy(src, src + frames, dst);
     }
     return data;
+}
+
+WaveformData applyFilterChain(
+    const WaveformData& dry,
+    const std::array<slopengine::BusFilterSlot, slopengine::kMaxFiltersPerBus>& filters) {
+    if (dry.samples.empty() || !slopengine::hasAnyFilterSlots(filters)) {
+        return {};
+    }
+
+    WaveformData wet = dry;
+    // Some builtin filters (e.g. Freeverb) hard-assert on exactly 2 channels, matching how
+    // SoLoud's live engine always mixes voices to stereo before bus filters run. Upmix mono
+    // sources here so this offline pass sees the same channel count real playback would.
+    if (wet.channels < 2) {
+        const std::size_t frames = wet.samples.size();
+        std::vector<float> stereo(frames * 2u);
+        std::copy(wet.samples.begin(), wet.samples.end(), stereo.begin());
+        std::copy(wet.samples.begin(), wet.samples.end(), stereo.begin() + static_cast<std::ptrdiff_t>(frames));
+        wet.samples = std::move(stereo);
+        wet.channels = 2;
+    }
+    const unsigned int channels = wet.channels;
+    const unsigned int frames = static_cast<unsigned int>(wet.samples.size() / channels);
+    for (const slopengine::BusFilterSlot& slot : filters) {
+        if (slot.name.empty()) {
+            continue;
+        }
+        const std::unique_ptr<SoLoud::Filter> filter = slopengine::AudioWorld::createBuiltinFilter(slot.name);
+        if (!filter) {
+            continue;
+        }
+        const std::unique_ptr<SoLoud::FilterInstance> instance{filter->createInstance()};
+        if (!instance) {
+            continue;
+        }
+        for (unsigned int p = 0; p < slot.params.size(); ++p) {
+            instance->setFilterParameter(p, slot.params[p]);
+        }
+        // aBufferSize == frames: filter()'s per-channel stride into `samples`, matching how we
+        // laid the buffer out (channel-major, same as SoLoud::Wav itself).
+        instance->filter(wet.samples.data(), frames, frames, channels, wet.sampleRate, 0.0);
+    }
+    return wet;
 }
 
 namespace {
@@ -253,36 +298,75 @@ float niceTimeStepMs(float rawStepMs) {
 
 } // namespace
 
-void drawWaveformPanel(const WaveformData& data, float& windowMs, float playheadFraction, ImVec2 size) {
+void drawWaveformPanel(
+    const WaveformData& sample,
+    const WaveformData& filtered,
+    bool& showSample,
+    bool& showFiltered,
+    bool& splitChannels,
+    float& windowMs,
+    float playheadFraction,
+    ImVec2 size) {
     constexpr float kMinWindowMs = 50.0f;
     constexpr float kMaxWindowMs = 20000.0f;
-    constexpr float kStepMs = 50.0f;
+    constexpr float kButtonZoomStep = 1.25f;
+    constexpr float kWheelZoomStep = 1.1f;
     constexpr float kRulerHeight = 18.0f;
     constexpr float kYAxisWidth = 34.0f;
+    constexpr float kLaneGap = 6.0f;
     constexpr float kAmplitudeLevels[] = {1.0f, 0.5f, 0.0f, -0.5f, -1.0f};
 
     windowMs = std::clamp(windowMs, kMinWindowMs, kMaxWindowMs);
 
-    ImGui::Text("Window: %.0f ms", windowMs);
+    const bool canSplit =
+        (sample.channels >= 2 && !sample.samples.empty()) ||
+        (filtered.channels >= 2 && !filtered.samples.empty());
+    const bool effectiveSplit = splitChannels && canSplit;
+
+    ImGui::Text("Window:");
     ImGui::SameLine();
     if (ImGui::SmallButton("-##windowshrink")) {
-        windowMs = std::max(kMinWindowMs, windowMs - kStepMs);
+        windowMs = std::max(kMinWindowMs, windowMs / kButtonZoomStep);
     }
     ImGui::SameLine();
+    ImGui::SetNextItemWidth(56.0f);
+    float windowMsInput = windowMs;
+    if (ImGui::InputFloat("##windowms", &windowMsInput, 0.0f, 0.0f, "%.0f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+        windowMs = std::clamp(windowMsInput, kMinWindowMs, kMaxWindowMs);
+    }
+    ImGui::SameLine();
+    ImGui::Text("ms");
+    ImGui::SameLine();
     if (ImGui::SmallButton("+##windowgrow")) {
-        windowMs = std::min(kMaxWindowMs, windowMs + kStepMs);
+        windowMs = std::min(kMaxWindowMs, windowMs * kButtonZoomStep);
+    }
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(12.0f, 0.0f));
+    ImGui::SameLine();
+    ImGui::Checkbox("Sample", &showSample);
+    ImGui::SameLine();
+    ImGui::Checkbox("Filtered", &showFiltered);
+    ImGui::SameLine();
+    ImGui::Dummy(ImVec2(12.0f, 0.0f));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!canSplit);
+    ImGui::Checkbox("Split L/R", &splitChannels);
+    ImGui::EndDisabled();
+    if (!canSplit && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Mono source");
     }
 
-    const float totalMs = data.sampleRate > 0.0f
-        ? static_cast<float>(data.samples.size()) / data.sampleRate * 1000.0f
+    // Both waveforms are baked from the same source and stay the same length regardless of
+    // filters (applyFilterChain processes in place), so either can stand in for total duration.
+    const WaveformData& reference = !sample.samples.empty() ? sample : filtered;
+    const unsigned int referenceChannels = std::max(1u, reference.channels);
+    const float totalMs = reference.sampleRate > 0.0f
+        ? static_cast<float>(reference.samples.size() / referenceChannels) / reference.sampleRate * 1000.0f
         : 0.0f;
 
     const float fullWidth = std::max(1.0f, size.x);
     const float availWidth = std::max(1.0f, fullWidth - kYAxisWidth);
     const float childHeight = std::max(40.0f, size.y - ImGui::GetFrameHeightWithSpacing());
-    const float pixelsPerMs = availWidth / windowMs;
-    const float contentWidth = std::max(availWidth, totalMs * pixelsPerMs);
-    const float waveHeight = childHeight - kRulerHeight;
 
     // Fixed Y-axis gutter, reserved outside the horizontally-scrolling child so it stays put
     // while the waveform pans left/right. The labels themselves are drawn further down, once
@@ -290,16 +374,37 @@ void drawWaveformPanel(const WaveformData& data, float& windowMs, float playhead
     // they land exactly on the grid lines drawn inside the child.
     ImDrawList* axisDraw = ImGui::GetWindowDrawList();
     const ImVec2 axisOrigin = ImGui::GetCursorScreenPos();
+
+    // Mouse wheel over the wave area zooms (in/out of the window span) rather than panning --
+    // panning stays on the horizontal scrollbar drag, since ImGuiWindowFlags_NoScrollWithMouse
+    // keeps the wheel from also scrolling the child. Checked against the child's screen rect
+    // before it exists this frame so the new windowMs is already in effect for this frame's draw.
+    const ImVec2 waveScreenMin(axisOrigin.x + kYAxisWidth, axisOrigin.y);
+    const ImVec2 waveScreenMax(waveScreenMin.x + availWidth, waveScreenMin.y + childHeight);
+    const float wheel = ImGui::GetIO().MouseWheel;
+    if (wheel != 0.0f && ImGui::IsMouseHoveringRect(waveScreenMin, waveScreenMax)) {
+        windowMs = std::clamp(windowMs * std::pow(kWheelZoomStep, -wheel), kMinWindowMs, kMaxWindowMs);
+    }
+
+    const float pixelsPerMs = availWidth / windowMs;
+    const float contentWidth = std::max(availWidth, totalMs * pixelsPerMs);
+    const float waveHeight = childHeight - kRulerHeight;
+
     axisDraw->AddRectFilled(
         axisOrigin, ImVec2(axisOrigin.x + kYAxisWidth, axisOrigin.y + childHeight), IM_COL32(18, 18, 22, 255));
     ImGui::Dummy(ImVec2(kYAxisWidth, childHeight));
     ImGui::SameLine(0.0f, 0.0f);
 
+    // Zero window padding for the scroll child: its content Dummy below is sized to exactly
+    // fill `childHeight`, so any padding would push the true content height past that and pop a
+    // needless vertical scrollbar even though nothing is actually cut off.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::BeginChild(
         "##wavescroll",
         ImVec2(availWidth, childHeight),
         false,
         ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -335,44 +440,101 @@ void drawWaveformPanel(const WaveformData& data, float& windowMs, float playhead
         ImVec2(origin.x, rulerY1), ImVec2(origin.x + contentWidth, rulerY1), IM_COL32(60, 60, 68, 255));
 
     const float waveTop = rulerY1;
-    const float midY = waveTop + waveHeight * 0.5f;
-    // outerHalfHeight is the true edge of the wave area; innerHalfHeight (where the +-1.0 grid
-    // lines sit) is inset from it, leaving headroom so a sample that clips past +-1.0 has
-    // somewhere to visibly bulge into instead of being invisible against the edge.
-    const float outerHalfHeight = waveHeight * 0.5f - 2.0f;
+
+    // One lane == one horizontal strip of the wave area with its own zero line and amplitude
+    // scale. Mono (or "Split L/R" off) is a single lane spanning the whole area; a split stereo
+    // view is two lanes stacked with a gap between them. `channel` selects which channel of a
+    // WaveformData a lane draws: -1 means "downmix all channels" (used by the single mono lane),
+    // otherwise it's a concrete channel index (0 = L, 1 = R) for a split lane.
+    struct Lane {
+        float midY;
+        float outerHalfHeight;
+        float innerHalfHeight;
+        int channel;
+        const char* label;
+    };
     constexpr float kAmplitudeHeadroom = 0.15f;
-    const float innerHalfHeight = outerHalfHeight * (1.0f - kAmplitudeHeadroom);
-    for (float level : kAmplitudeLevels) {
-        const float y = midY - level * innerHalfHeight;
-        const bool isZero = level == 0.0f;
+    std::vector<Lane> lanes;
+    if (effectiveSplit) {
+        const float laneHeight = (waveHeight - kLaneGap) * 0.5f;
+        for (int i = 0; i < 2; ++i) {
+            const float laneTop = waveTop + static_cast<float>(i) * (laneHeight + kLaneGap);
+            const float laneMidY = laneTop + laneHeight * 0.5f;
+            const float outerHalf = laneHeight * 0.5f - 2.0f;
+            lanes.push_back(Lane{laneMidY, outerHalf, outerHalf * (1.0f - kAmplitudeHeadroom), i, i == 0 ? "L" : "R"});
+        }
+        const float sepY = waveTop + laneHeight + kLaneGap * 0.5f;
         draw->AddLine(
-            ImVec2(origin.x, y),
-            ImVec2(origin.x + contentWidth, y),
-            isZero ? IM_COL32(60, 60, 68, 255) : IM_COL32(38, 38, 44, 255));
+            ImVec2(origin.x, sepY), ImVec2(origin.x + contentWidth, sepY), IM_COL32(60, 60, 68, 255));
+    } else {
+        const float midY = waveTop + waveHeight * 0.5f;
+        // outerHalfHeight is the true edge of the wave area; innerHalfHeight (where the +-1.0
+        // grid lines sit) is inset from it, leaving headroom so a sample that clips past +-1.0
+        // has somewhere to visibly bulge into instead of being invisible against the edge.
+        const float outerHalf = waveHeight * 0.5f - 2.0f;
+        lanes.push_back(Lane{midY, outerHalf, outerHalf * (1.0f - kAmplitudeHeadroom), -1, nullptr});
     }
 
-    if (!data.samples.empty() && totalMs > 0.0f) {
+    for (const Lane& lane : lanes) {
+        for (float level : kAmplitudeLevels) {
+            const float y = lane.midY - level * lane.innerHalfHeight;
+            const bool isZero = level == 0.0f;
+            draw->AddLine(
+                ImVec2(origin.x, y),
+                ImVec2(origin.x + contentWidth, y),
+                isZero ? IM_COL32(60, 60, 68, 255) : IM_COL32(38, 38, 44, 255));
+        }
+        if (lane.label != nullptr) {
+            draw->AddText(
+                ImVec2(origin.x + 4.0f, lane.midY - lane.outerHalfHeight + 2.0f),
+                IM_COL32(150, 150, 158, 255),
+                lane.label);
+        }
+    }
+
+    // Draws one series (one channel, or a downmix of all channels when lane.channel < 0) as a
+    // column of min/max vertical bars into `lane`; called once per enabled waveform per lane so
+    // Sample and Filtered can be overlaid in different colors, and L/R can be drawn separately.
+    const auto drawSeries = [&](const WaveformData& data, const Lane& lane, ImU32 color) {
+        const unsigned int dataChannels = std::max(1u, data.channels);
+        const std::size_t frameCount = data.samples.size() / dataChannels;
+        if (frameCount == 0) {
+            return;
+        }
+        const unsigned int fixedChannel =
+            lane.channel >= 0 ? std::min(static_cast<unsigned int>(lane.channel), dataChannels - 1) : 0;
+        const auto valueAt = [&](std::size_t frame) -> float {
+            if (lane.channel >= 0) {
+                return data.samples[static_cast<std::size_t>(fixedChannel) * frameCount + frame];
+            }
+            float sum = 0.0f;
+            for (unsigned int ch = 0; ch < dataChannels; ++ch) {
+                sum += data.samples[static_cast<std::size_t>(ch) * frameCount + frame];
+            }
+            return sum / static_cast<float>(dataChannels);
+        };
         const int colStart = std::max(0, static_cast<int>(std::floor(visibleStartPx)));
         const int colEnd = static_cast<int>(std::ceil(visibleEndPx));
         for (int col = colStart; col < colEnd; ++col) {
             const float msAtCol = static_cast<float>(col) / pixelsPerMs;
             const float msAtColEnd = static_cast<float>(col + 1) / pixelsPerMs;
-            const auto toSampleIndex = [&](float ms) -> std::size_t {
+            const auto toFrameIndex = [&](float ms) -> std::size_t {
                 return static_cast<std::size_t>(std::max(0.0f, ms) / 1000.0f * data.sampleRate);
             };
-            const std::size_t start = toSampleIndex(msAtCol);
-            if (start >= data.samples.size()) {
+            const std::size_t start = toFrameIndex(msAtCol);
+            if (start >= frameCount) {
                 break;
             }
-            const std::size_t end = std::min(data.samples.size(), toSampleIndex(msAtColEnd) + 1);
+            const std::size_t end = std::min(frameCount, toFrameIndex(msAtColEnd) + 1);
             if (start >= end) {
                 continue;
             }
-            float lo = data.samples[start];
-            float hi = data.samples[start];
+            float lo = valueAt(start);
+            float hi = lo;
             for (std::size_t i = start; i < end; ++i) {
-                lo = std::min(lo, data.samples[i]);
-                hi = std::max(hi, data.samples[i]);
+                const float v = valueAt(i);
+                lo = std::min(lo, v);
+                hi = std::max(hi, v);
             }
             // Not clamped to +-1.0 here: a sample that clips past that range should visibly
             // bulge into the headroom above/below the +-1.0 grid line rather than being
@@ -380,13 +542,27 @@ void drawWaveformPanel(const WaveformData& data, float& windowMs, float playhead
             // wave area's true edge, so extreme outliers still can't escape the widget.
             const float x = origin.x + static_cast<float>(col);
             const float y0 = std::clamp(
-                midY - hi * innerHalfHeight, midY - outerHalfHeight, midY + outerHalfHeight);
+                lane.midY - hi * lane.innerHalfHeight, lane.midY - lane.outerHalfHeight, lane.midY + lane.outerHalfHeight);
             const float y1 = std::clamp(
-                midY - lo * innerHalfHeight, midY - outerHalfHeight, midY + outerHalfHeight);
-            draw->AddLine(ImVec2(x, y0), ImVec2(x, std::max(y1, y0 + 1.0f)), IM_COL32(120, 190, 255, 255));
+                lane.midY - lo * lane.innerHalfHeight, lane.midY - lane.outerHalfHeight, lane.midY + lane.outerHalfHeight);
+            draw->AddLine(ImVec2(x, y0), ImVec2(x, std::max(y1, y0 + 1.0f)), color);
+        }
+    };
+
+    const bool drawnSample = showSample && !sample.samples.empty();
+    const bool drawnFiltered = showFiltered && !filtered.samples.empty();
+    if ((drawnSample || drawnFiltered) && totalMs > 0.0f) {
+        for (const Lane& lane : lanes) {
+            // Filtered drawn second (on top) since it's the one being compared against.
+            if (drawnSample) {
+                drawSeries(sample, lane, IM_COL32(120, 190, 255, 220));
+            }
+            if (drawnFiltered) {
+                drawSeries(filtered, lane, IM_COL32(255, 130, 120, 220));
+            }
         }
     } else {
-        const char* label = "No audio";
+        const char* label = showSample || showFiltered ? "No audio" : "Nothing selected";
         const ImVec2 textSize = ImGui::CalcTextSize(label);
         draw->AddText(
             ImVec2(origin.x + (availWidth - textSize.x) * 0.5f, waveTop + (waveHeight - textSize.y) * 0.5f),
@@ -402,23 +578,26 @@ void drawWaveformPanel(const WaveformData& data, float& windowMs, float playhead
 
     ImGui::EndChild();
 
-    // Draw the Y-axis tick marks + labels now, reusing the exact midY/innerHalfHeight the grid
-    // lines above used, so they land on the same rows. This has to happen after EndChild()
-    // because origin (and everything derived from it) only became known once the child's own
-    // content-region cursor — offset from axisOrigin by the child's window padding — existed.
-    for (float level : kAmplitudeLevels) {
-        const float y = midY - level * innerHalfHeight;
-        char label[8];
-        std::snprintf(label, sizeof(label), "%.1f", level);
-        const ImVec2 textSize = ImGui::CalcTextSize(label);
-        axisDraw->AddLine(
-            ImVec2(axisOrigin.x + kYAxisWidth - 5.0f, y),
-            ImVec2(axisOrigin.x + kYAxisWidth, y),
-            IM_COL32(120, 120, 130, 255));
-        axisDraw->AddText(
-            ImVec2(axisOrigin.x + kYAxisWidth - 8.0f - textSize.x, y - textSize.y * 0.5f),
-            IM_COL32(150, 150, 158, 255),
-            label);
+    // Draw the Y-axis tick marks + labels now, reusing the exact per-lane midY/innerHalfHeight
+    // the grid lines above used, so they land on the same rows. This has to happen after
+    // EndChild() because origin (and everything derived from it) only became known once the
+    // child's own content-region cursor — offset from axisOrigin by the child's window padding
+    // — existed.
+    for (const Lane& lane : lanes) {
+        for (float level : kAmplitudeLevels) {
+            const float y = lane.midY - level * lane.innerHalfHeight;
+            char label[8];
+            std::snprintf(label, sizeof(label), "%.1f", level);
+            const ImVec2 textSize = ImGui::CalcTextSize(label);
+            axisDraw->AddLine(
+                ImVec2(axisOrigin.x + kYAxisWidth - 5.0f, y),
+                ImVec2(axisOrigin.x + kYAxisWidth, y),
+                IM_COL32(120, 120, 130, 255));
+            axisDraw->AddText(
+                ImVec2(axisOrigin.x + kYAxisWidth - 8.0f - textSize.x, y - textSize.y * 0.5f),
+                IM_COL32(150, 150, 158, 255),
+                label);
+        }
     }
 }
 

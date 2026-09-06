@@ -6,14 +6,12 @@ UiLayout computeUiLayout(
     float menuHeight,
     float tabBarHeight,
     float statusHeight,
-    float transportHeight,
     float leftWidth,
     float rightWidth) {
     UiLayout layout;
     layout.menuHeight = menuHeight;
     layout.tabBarHeight = tabBarHeight;
     layout.statusHeight = statusHeight;
-    layout.transportHeight = transportHeight;
     layout.leftWidth = leftWidth;
     layout.rightWidth = rightWidth;
 
@@ -22,7 +20,7 @@ UiLayout computeUiLayout(
     const float top = menuHeight + tabBarHeight;
 
     float contentW = screenW - leftWidth - rightWidth;
-    float contentH = screenH - top - statusHeight - transportHeight;
+    float contentH = screenH - top - statusHeight;
     if (contentW < 64.0f) {
         contentW = 64.0f;
     }
@@ -32,10 +30,9 @@ UiLayout computeUiLayout(
 
     layout.tabBar = {0.0f, menuHeight, screenW, tabBarHeight};
     layout.content = {leftWidth, top, contentW, contentH};
-    layout.leftPanel = {0.0f, top, leftWidth, contentH + transportHeight};
-    layout.rightPanel = {leftWidth + contentW, top, rightWidth, contentH + transportHeight};
-    layout.transportPanel = {leftWidth, top + contentH, contentW, transportHeight};
-    layout.fullPanel = {0.0f, top, leftWidth + contentW + rightWidth, contentH + transportHeight};
+    layout.leftPanel = {0.0f, top, leftWidth, contentH};
+    layout.rightPanel = {leftWidth + contentW, top, rightWidth, contentH};
+    layout.fullPanel = {0.0f, top, leftWidth + contentW + rightWidth, contentH};
     return layout;
 }
 

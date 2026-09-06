@@ -5,6 +5,8 @@
 #include "assets/saudio_loader.hpp"
 #include "audio/audio_world.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <system_error>
 #include <utility>
@@ -153,7 +155,23 @@ bool Editor::save(slopengine::AssetStore& assets) {
     return true;
 }
 
-void Editor::previewPlay(slopengine::AudioWorld& audio, slopengine::AssetStore& assets) {
+void Editor::previewPlaySource(slopengine::AudioWorld& audio, slopengine::AssetStore& assets) {
+    previewPlayInternal(audio, assets, true, false);
+}
+
+void Editor::previewPlayFiltered(slopengine::AudioWorld& audio, slopengine::AssetStore& assets) {
+    previewPlayInternal(audio, assets, false, false);
+}
+
+void Editor::previewPlayBus(slopengine::AudioWorld& audio, slopengine::AssetStore& assets) {
+    previewPlayInternal(audio, assets, false, true);
+}
+
+void Editor::previewPlayInternal(
+    slopengine::AudioWorld& audio,
+    slopengine::AssetStore& assets,
+    bool dry,
+    bool viaBus) {
     if (!doc.open) {
         return;
     }
@@ -162,14 +180,21 @@ void Editor::previewPlay(slopengine::AudioWorld& audio, slopengine::AssetStore& 
     }
 
     switch (doc.sourceKind) {
-        case SourceKind::Definition:
-            doc.previewVoice = audio.playAudioDef(assets, doc.virtualPath, doc.asset);
+        case SourceKind::Definition: {
+            audio.invalidateDefCache(doc.virtualPath);
+            slopengine::AudioDef def = doc.asset;
+            if (dry) {
+                def.filters = {};
+            }
+            doc.previewVoice = audio.playAudioDef(assets, doc.virtualPath, def, -1.0f, viaBus);
             break;
+        }
         case SourceKind::Procedural:
-            doc.previewVoice = audio.playProcedural(doc.virtualPath, doc.procedural.sfxr);
+            doc.previewVoice = audio.playProcedural(doc.virtualPath, doc.procedural.sfxr, 1.0f, viaBus);
             break;
         case SourceKind::Clip:
-            doc.previewVoice = audio.playSound(assets, doc.asset.source, doc.asset.volume, doc.asset.loop);
+            doc.previewVoice =
+                audio.playSound(assets, doc.asset.source, doc.asset.volume, doc.asset.loop, viaBus);
             break;
     }
     doc.previewPlaying = doc.previewVoice != 0;
@@ -184,6 +209,7 @@ void Editor::previewStop(slopengine::AudioWorld& audio) {
 }
 
 void Editor::rebuildWaveform(slopengine::AssetStore& assets) {
+    doc.filteredWaveform = WaveformData{};
     switch (doc.sourceKind) {
         case SourceKind::Definition:
             if (const slopengine::ProceduralDef* proc = assets.getProceduralDef(doc.asset.source)) {
@@ -191,6 +217,7 @@ void Editor::rebuildWaveform(slopengine::AssetStore& assets) {
             } else {
                 doc.waveform = bakeClipWaveform(assets, doc.asset.source);
             }
+            doc.filteredWaveform = applyFilterChain(doc.waveform, doc.asset.filters);
             break;
         case SourceKind::Procedural:
             doc.waveform = bakeSaudioWaveform(doc.procedural.sfxr);
@@ -200,6 +227,15 @@ void Editor::rebuildWaveform(slopengine::AssetStore& assets) {
             break;
     }
     doc.waveformDirty = false;
+
+    if (doc.waveformFitPending) {
+        const unsigned int channels = std::max(1u, doc.waveform.channels);
+        const std::size_t frames = doc.waveform.samples.size() / channels;
+        if (doc.waveform.sampleRate > 0.0f && frames > 0) {
+            waveformWindowMs = static_cast<float>(frames) / doc.waveform.sampleRate * 1000.0f;
+        }
+        doc.waveformFitPending = false;
+    }
 }
 
 }

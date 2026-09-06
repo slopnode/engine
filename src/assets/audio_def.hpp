@@ -4,11 +4,20 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace slopengine {
 
 inline constexpr unsigned int kMaxFiltersPerBus = 8;
+
+/** One SoLoud builtin filter attached to a filter chain slot -- either a bus's mixer
+ *  chain or an AudioDef's per-definition chain -- with its param values in
+ *  SoLoud::Filter param-index order. Empty name means the slot is unused. */
+struct BusFilterSlot {
+    std::string name;
+    std::vector<float> params;
+};
 
 enum class AudioDefBus {
     Sfx,
@@ -103,15 +112,31 @@ struct AudioDef {
     bool loop = false;
     bool spatial = false;
     AudioDefBus bus = AudioDefBus::Sfx;
-    std::vector<std::string> filters;
+    std::array<BusFilterSlot, kMaxFiltersPerBus> filters{};
 };
 
-/** One SoLoud builtin filter attached to a bus slot, with its param values
- *  in SoLoud::Filter param-index order. Empty name means the slot is unused. */
-struct BusFilterSlot {
-    std::string name;
-    std::vector<float> params;
-};
+/** Appends a filter into the first unused slot of `def.filters`; returns nullptr if the
+ *  chain is already full (kMaxFiltersPerBus slots) instead of appending. */
+inline BusFilterSlot* pushAudioDefFilter(AudioDef& def, std::string name) {
+    for (BusFilterSlot& slot : def.filters) {
+        if (slot.name.empty()) {
+            slot.name = std::move(name);
+            slot.params.clear();
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+/** True if any slot in a filter chain is occupied. */
+inline bool hasAnyFilterSlots(const std::array<BusFilterSlot, kMaxFiltersPerBus>& slots) {
+    for (const BusFilterSlot& slot : slots) {
+        if (!slot.name.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /** Persisted mixer state for a single AudioBusKind: volume, mute, and its
  *  ordered filter chain (up to kMaxFiltersPerBus slots). */

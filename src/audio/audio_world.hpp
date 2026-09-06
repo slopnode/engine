@@ -59,7 +59,8 @@ public:
         AssetStore& assets,
         std::string_view path,
         float volume = 1.0f,
-        bool loop = false);
+        bool loop = false,
+        bool viaBus = true);
     SoLoud::handle playSound3d(
         AssetStore& assets,
         std::string_view path,
@@ -76,7 +77,8 @@ public:
         AssetStore& assets,
         std::string_view defPath,
         const AudioDef& def,
-        float volumeOverride = -1.0f);
+        float volumeOverride = -1.0f,
+        bool viaBus = true);
     SoLoud::handle playAudioDef3d(
         AssetStore& assets,
         std::string_view defPath,
@@ -90,7 +92,8 @@ public:
     SoLoud::handle playProcedural(
         std::string_view proceduralPath,
         const SaudioParams& params,
-        float volume = 1.0f);
+        float volume = 1.0f,
+        bool viaBus = true);
 
     void stop(SoLoud::handle voice);
     void setVolume(SoLoud::handle voice, float volume);
@@ -150,6 +153,12 @@ public:
     void registerSchemeFilter(std::string name, void* proc);
     bool hasSchemeFilter(std::string_view name) const;
 
+    // Drops any per-definition-cached clip/stream/sfxr for defPath so the next play rebuilds
+    // it from scratch. Needed after editing a def's filter chain (add/remove/reorder), since
+    // filters are attached to the AudioSource once at load time and cached by defPath --
+    // param value edits don't need this, they're re-applied to every voice on play.
+    void invalidateDefCache(std::string_view defPath);
+
     // Applies a full mixer snapshot (volume/mute/filter chains) to every bus, replacing
     // whatever is currently attached. Used at startup to apply audio/buses.saudio.
     void loadBusConfig(const BusConfig& config);
@@ -173,8 +182,13 @@ private:
         bool spatial3d,
         float x,
         float y,
-        float z);
-    void applyFilters(SoLoud::AudioSource& source, const std::vector<std::string>& names);
+        float z,
+        bool viaBus = true);
+    void applyFilters(SoLoud::AudioSource& source, const std::array<BusFilterSlot, kMaxFiltersPerBus>& slots);
+    // Pushes def.filters' persisted param values onto the just-created voice, overriding
+    // whatever defaults applyFilters/createInstance baked in. Safe to call on any voice --
+    // SoLoud no-ops a setFilterParameter call for a slot the voice has nothing attached to.
+    void applyDefFilterParams(SoLoud::handle voice, const AudioDef& def);
     SoLoud::Filter* makeBuiltinFilter(std::string_view name);
     SoLoud::Bus& bus(AudioBusKind kind);
     unsigned int nextFreeBusSlot(AudioBusKind kind) const;

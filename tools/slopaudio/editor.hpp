@@ -34,7 +34,12 @@ struct EditorDocument {
     bool previewPlaying = false;
 
     WaveformData waveform;
+    WaveformData filteredWaveform; // Only populated for Definition docs with filters attached.
+    bool showSampleWaveform = true;
+    bool showFilteredWaveform = false;
+    bool splitChannelsWaveform = true;
     bool waveformDirty = true;
+    bool waveformFitPending = true; // Consumed by Editor::rebuildWaveform to fit windowMs once.
 };
 
 struct Editor {
@@ -56,9 +61,18 @@ struct Editor {
     bool newDefinition(const std::string& virtualPath);
     bool newProcedural(const std::string& virtualPath);
     bool save(slopengine::AssetStore& assets);
-    void previewPlay(slopengine::AudioWorld& audio, slopengine::AssetStore& assets);
+    void previewPlaySource(slopengine::AudioWorld& audio, slopengine::AssetStore& assets);
+    void previewPlayFiltered(slopengine::AudioWorld& audio, slopengine::AssetStore& assets);
+    void previewPlayBus(slopengine::AudioWorld& audio, slopengine::AssetStore& assets);
     void previewStop(slopengine::AudioWorld& audio);
     void rebuildWaveform(slopengine::AssetStore& assets);
+
+private:
+    void previewPlayInternal(
+        slopengine::AudioWorld& audio,
+        slopengine::AssetStore& assets,
+        bool dry,
+        bool viaBus);
 };
 
 }

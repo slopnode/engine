@@ -1,5 +1,7 @@
 #include "bus_editor.hpp"
 
+#include "filter_chain_ui.hpp"
+
 #include "assets/asset_store.hpp"
 #include "assets/saudio_loader.hpp"
 #include "audio/audio_world.hpp"
@@ -8,7 +10,6 @@
 
 #include <array>
 #include <fstream>
-#include <memory>
 #include <utility>
 
 using slopengine::AssetStore;
@@ -24,10 +25,6 @@ namespace slopaudio {
 namespace {
 
 constexpr const char* kBusLabels[] = {"Sfx", "Music", "Ui", "Hud", "Voices", "Ambience", "Player", "View"};
-// Index 0 ("none") is a placeholder skipped by the Add Filter popup; the rest match
-// AudioWorld::createBuiltinFilter's names.
-constexpr const char* kFilterNames[] =
-    {"none", "echo", "biquad", "lofi", "flanger", "bassboost", "freeverb", "robotize", "waveshaper", "dcremoval"};
 
 // A BusDef loaded from disk could in principle have gaps (e.g. a hand-edited file with only
 // slot 3 occupied) -- the Add/Remove/Reorder UI assumes occupied slots are always a
@@ -41,77 +38,6 @@ void compactBusFilters(BusDef& def) {
         }
     }
     def.slots = std::move(compacted);
-}
-
-// Builds a fresh instance just to read the filter's own constructor defaults (SoLoud always
-// defaults WET to 1 and everything else to whatever the concrete filter's fields say), so a
-// newly attached filter starts at sane values instead of all-zero.
-std::vector<float> defaultFilterParams(std::string_view name) {
-    const std::unique_ptr<SoLoud::Filter> filter = AudioWorld::createBuiltinFilter(name);
-    if (!filter) {
-        return {};
-    }
-    const std::unique_ptr<SoLoud::FilterInstance> instance{filter->createInstance()};
-    if (!instance) {
-        return {};
-    }
-    std::vector<float> params;
-    const int count = filter->getParamCount();
-    params.reserve(static_cast<std::size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        params.push_back(instance->getFilterParameter(static_cast<unsigned int>(i)));
-    }
-    return params;
-}
-
-// One param widget, its kind (slider/int-slider/checkbox) driven entirely by SoLoud's own
-// Filter::getParamType/Min/Max -- new builtin filters get a working UI with no changes here.
-bool drawFilterParam(
-    AudioWorld& audio,
-    AudioBusKind kind,
-    unsigned int slot,
-    SoLoud::Filter& filter,
-    unsigned int paramIndex,
-    float& value) {
-    const char* name = filter.getParamName(paramIndex);
-    const unsigned int type = filter.getParamType(paramIndex);
-    const float lo = filter.getParamMin(paramIndex);
-    const float hi = filter.getParamMax(paramIndex);
-
-    ImGui::PushID(static_cast<int>(paramIndex));
-    bool changed = false;
-    if (type == SoLoud::Filter::BOOL_PARAM) {
-        bool flag = value != 0.0f;
-        if (ImGui::Checkbox(name, &flag)) {
-            value = flag ? 1.0f : 0.0f;
-            changed = true;
-        }
-    } else if (type == SoLoud::Filter::INT_PARAM) {
-        int intValue = static_cast<int>(value);
-        if (ImGui::SliderInt(name, &intValue, static_cast<int>(lo), static_cast<int>(hi))) {
-            value = static_cast<float>(intValue);
-            changed = true;
-        }
-    } else {
-        changed = ImGui::SliderFloat(name, &value, lo, hi);
-    }
-    ImGui::PopID();
-
-    if (changed) {
-        audio.setBusFilterParam(kind, slot, paramIndex, value);
-    }
-    return changed;
-}
-
-// Assumes (and preserves) the invariant that occupied slots are a contiguous prefix of
-// def.slots -- add/remove/reorder always keep it that way, and compactBusFilters()
-// re-establishes it for whatever was loaded from disk.
-unsigned int activeFilterCount(const BusDef& def) {
-    unsigned int count = 0;
-    while (count < def.slots.size() && !def.slots[count].name.empty()) {
-        ++count;
-    }
-    return count;
 }
 
 // Re-applies def's whole filter chain to the live bus in slot order. Simplest correct way to
@@ -133,58 +59,6 @@ void resyncBusFilters(AudioWorld& audio, AudioBusKind kind, BusDef& def) {
     }
 }
 
-// One row in the active filter chain: name, reorder/remove controls, then its param widgets.
-// Returns the action the user took so the caller can mutate def.slots and resync afterward --
-// this function only reads slot state, it doesn't reshuffle slots itself.
-enum class FilterRowAction { None, MoveUp, MoveDown, Remove };
-
-FilterRowAction drawActiveFilterRow(
-    AudioWorld& audio,
-    AudioBusKind kind,
-    unsigned int slot,
-    unsigned int activeCount,
-    BusFilterSlot& slotDoc,
-    bool& dirty) {
-    FilterRowAction action = FilterRowAction::None;
-    ImGui::PushID(static_cast<int>(slot));
-
-    ImGui::BeginDisabled(slot == 0);
-    if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
-        action = FilterRowAction::MoveUp;
-    }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(slot + 1 >= activeCount);
-    if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
-        action = FilterRowAction::MoveDown;
-    }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextUnformatted(slotDoc.name.c_str());
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Remove")) {
-        action = FilterRowAction::Remove;
-    }
-
-    const std::unique_ptr<SoLoud::Filter> filter = AudioWorld::createBuiltinFilter(slotDoc.name);
-    if (filter) {
-        ImGui::Indent();
-        const int count = filter->getParamCount();
-        slotDoc.params.resize(static_cast<std::size_t>(count));
-        for (int i = 0; i < count; ++i) {
-            if (drawFilterParam(
-                    audio, kind, slot, *filter, static_cast<unsigned int>(i),
-                    slotDoc.params[static_cast<std::size_t>(i)])) {
-                dirty = true;
-            }
-        }
-        ImGui::Unindent();
-    }
-
-    ImGui::PopID();
-    return action;
-}
-
 void drawBusPanel(AudioWorld& audio, AudioBusKind kind, BusDef& def, bool& dirty) {
     if (ImGui::SliderFloat("Volume", &def.volume, 0.0f, 2.0f)) {
         audio.setBusVolume(kind, def.volume);
@@ -200,48 +74,15 @@ void drawBusPanel(AudioWorld& audio, AudioBusKind kind, BusDef& def, bool& dirty
 
     ImGui::SeparatorText("Filters");
 
-    const unsigned int activeCount = activeFilterCount(def);
-    for (unsigned int slot = 0; slot < activeCount; ++slot) {
-        const FilterRowAction action = drawActiveFilterRow(audio, kind, slot, activeCount, def.slots[slot], dirty);
-        if (action == FilterRowAction::MoveUp) {
-            std::swap(def.slots[slot], def.slots[slot - 1]);
-            resyncBusFilters(audio, kind, def);
+    const bool structureChanged = drawFilterChain(
+        def.slots,
+        [&](unsigned int slot, unsigned int paramIndex, float value) {
+            audio.setBusFilterParam(kind, slot, paramIndex, value);
             dirty = true;
-            break;
-        }
-        if (action == FilterRowAction::MoveDown) {
-            std::swap(def.slots[slot], def.slots[slot + 1]);
-            resyncBusFilters(audio, kind, def);
-            dirty = true;
-            break;
-        }
-        if (action == FilterRowAction::Remove) {
-            for (unsigned int j = slot; j + 1 < slopengine::kMaxFiltersPerBus; ++j) {
-                def.slots[j] = std::move(def.slots[j + 1]);
-            }
-            def.slots[slopengine::kMaxFiltersPerBus - 1] = BusFilterSlot{};
-            resyncBusFilters(audio, kind, def);
-            dirty = true;
-            break;
-        }
-    }
-
-    ImGui::BeginDisabled(activeCount >= slopengine::kMaxFiltersPerBus);
-    if (ImGui::Button("Add Filter...")) {
-        ImGui::OpenPopup("AddFilterPopup");
-    }
-    ImGui::EndDisabled();
-    if (ImGui::BeginPopup("AddFilterPopup")) {
-        for (int i = 1; i < IM_ARRAYSIZE(kFilterNames); ++i) {
-            if (ImGui::Selectable(kFilterNames[i])) {
-                BusFilterSlot& newSlot = def.slots[activeCount];
-                newSlot.name = kFilterNames[i];
-                newSlot.params = defaultFilterParams(newSlot.name);
-                resyncBusFilters(audio, kind, def);
-                dirty = true;
-            }
-        }
-        ImGui::EndPopup();
+        });
+    if (structureChanged) {
+        resyncBusFilters(audio, kind, def);
+        dirty = true;
     }
 }
 

@@ -1,6 +1,7 @@
 #include "browser.hpp"
 #include "bus_editor.hpp"
 #include "editor.hpp"
+#include "filter_chain_ui.hpp"
 #include "layout.hpp"
 #include "waveform_view.hpp"
 
@@ -282,7 +283,11 @@ void drawProceduralInspector(slopaudio::Editor& editor, slopengine::AssetStore& 
         sfxrToPercent, sfxrFromPercent);
 }
 
-void drawDefinitionInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets, const slopaudio::Browser& browser) {
+void drawDefinitionInspector(
+    slopaudio::Editor& editor,
+    slopengine::AssetStore& assets,
+    const slopaudio::Browser& browser,
+    slopengine::AudioWorld& audioWorld) {
     slopengine::AudioDef& def = editor.doc.asset;
 
     ImGui::SeparatorText("Source");
@@ -347,9 +352,29 @@ void drawDefinitionInspector(slopaudio::Editor& editor, slopengine::AssetStore& 
         def.bus = static_cast<slopengine::AudioDefBus>(busIdx);
         editor.markDirty();
     }
+
+    ImGui::SeparatorText("Filters");
+    ImGui::TextDisabled("Applied to this definition only, before the bus mix.");
+
+    const bool structureChanged = slopaudio::drawFilterChain(
+        def.filters,
+        [&](unsigned int slot, unsigned int paramIndex, float value) {
+            editor.markDirty();
+            if (editor.doc.previewPlaying) {
+                audioWorld.soloud().setFilterParameter(editor.doc.previewVoice, slot, paramIndex, value);
+            }
+        });
+    if (structureChanged) {
+        audioWorld.invalidateDefCache(editor.doc.virtualPath);
+        editor.markDirty();
+    }
 }
 
-void drawInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets, const slopaudio::Browser& browser) {
+void drawInspector(
+    slopaudio::Editor& editor,
+    slopengine::AssetStore& assets,
+    const slopaudio::Browser& browser,
+    slopengine::AudioWorld& audioWorld) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("No sound loaded");
         return;
@@ -368,7 +393,7 @@ void drawInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets, co
             ImGui::SliderFloat("Volume", &editor.doc.asset.volume, 0.0f, 2.0f);
             break;
         case slopaudio::SourceKind::Definition:
-            drawDefinitionInspector(editor, assets, browser);
+            drawDefinitionInspector(editor, assets, browser, audioWorld);
             break;
         case slopaudio::SourceKind::Procedural:
             drawProceduralInspector(editor, assets);
@@ -387,7 +412,7 @@ int main(int argc, char* argv[]) {
 
     slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Debug : slopengine::LogLevel::Info);
     slopengine::Log::addDefaultConsoleSink();
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_MAXIMIZED);
     InitWindow(1400, 820, "slopaudio");
     if (!IsWindowReady()) {
         std::cerr << "slopaudio: failed to initialize window\n";
@@ -446,9 +471,8 @@ int main(int argc, char* argv[]) {
         const float chromeHeight = slopengine::mainMenuBarHeight();
         const float tabBarHeight = ImGui::GetFrameHeightWithSpacing();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
-        const float transportHeight = 96.0f;
         const slopaudio::UiLayout layout =
-            slopaudio::computeUiLayout(chromeHeight, tabBarHeight, statusHeight, transportHeight);
+            slopaudio::computeUiLayout(chromeHeight, tabBarHeight, statusHeight);
 
         if (beginMainMenuBar()) {
             if (beginMenuWithIcon(assets, kDefaultIconSet, "folder", "File", true)) {
@@ -560,7 +584,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
             ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
             ImGui::Begin("Inspector", nullptr, scrollablePanelFlags);
-            drawInspector(editor, assets, browser);
+            drawInspector(editor, assets, browser, audioWorld);
             ImGui::End();
 
             ImGui::SetNextWindowPos(ImVec2(layout.content.x, layout.content.y));
@@ -570,47 +594,59 @@ int main(int argc, char* argv[]) {
                 nullptr,
                 panelFlags | ImGuiWindowFlags_NoTitleBar);
             {
-                float playhead = -1.0f;
-                if (editor.doc.previewPlaying && !editor.doc.waveform.samples.empty() &&
-                    editor.doc.waveform.sampleRate > 0.0f) {
-                    const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
-                    const double totalSeconds = static_cast<double>(editor.doc.waveform.samples.size()) /
-                        static_cast<double>(editor.doc.waveform.sampleRate);
-                    if (totalSeconds > 0.0) {
-                        playhead = static_cast<float>(posSeconds / totalSeconds);
-                    }
-                }
-                slopaudio::drawWaveformPanel(
-                    editor.doc.waveform, editor.waveformWindowMs, playhead, ImGui::GetContentRegionAvail());
-            }
-            ImGui::End();
-
-            ImGui::SetNextWindowPos(ImVec2(layout.transportPanel.x, layout.transportPanel.y));
-            ImGui::SetNextWindowSize(ImVec2(layout.transportPanel.width, layout.transportPanel.height));
-            ImGui::Begin(
-                "Transport",
-                nullptr,
-                panelFlags | ImGuiWindowFlags_NoTitleBar);
-            {
                 const bool canPlay = editor.doc.open;
+                const bool hasFilters = editor.doc.sourceKind == slopaudio::SourceKind::Definition &&
+                    slopengine::hasAnyFilterSlots(editor.doc.asset.filters);
                 ImGui::BeginDisabled(!canPlay);
-                if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Play", ImVec2(100, 0))) {
-                    editor.previewPlay(audioWorld, assets);
+                if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Play Source", ImVec2(100, 0))) {
+                    editor.previewPlaySource(audioWorld, assets);
+                }
+                ImGui::SameLine();
+                if (hasFilters) {
+                    if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Play Filtered", ImVec2(100, 0))) {
+                        editor.previewPlayFiltered(audioWorld, assets);
+                    }
+                    ImGui::SameLine();
+                }
+                if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Play Bus", ImVec2(100, 0))) {
+                    editor.previewPlayBus(audioWorld, assets);
                 }
                 ImGui::SameLine();
                 if (buttonWithIcon(assets, kDefaultIconSet, "control_stop", "Stop", ImVec2(100, 0))) {
                     editor.previewStop(audioWorld);
                 }
                 ImGui::EndDisabled();
-                ImGui::SameLine();
                 if (editor.doc.sourceKind == slopaudio::SourceKind::Procedural &&
                     editor.doc.procedural.sfxr.hasPreset) {
+                    ImGui::SameLine();
                     ImGui::TextDisabled(
                         "%s (%s, seed %d)",
                         editor.doc.virtualPath.c_str(),
                         presetNames[editor.doc.procedural.sfxr.preset % IM_ARRAYSIZE(presetNames)],
                         editor.doc.procedural.sfxr.presetSeed);
                 }
+
+                float playhead = -1.0f;
+                if (editor.doc.previewPlaying && !editor.doc.waveform.samples.empty() &&
+                    editor.doc.waveform.sampleRate > 0.0f) {
+                    const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
+                    const unsigned int waveformChannels = std::max(1u, editor.doc.waveform.channels);
+                    const double totalSeconds =
+                        static_cast<double>(editor.doc.waveform.samples.size() / waveformChannels) /
+                        static_cast<double>(editor.doc.waveform.sampleRate);
+                    if (totalSeconds > 0.0) {
+                        playhead = static_cast<float>(posSeconds / totalSeconds);
+                    }
+                }
+                slopaudio::drawWaveformPanel(
+                    editor.doc.waveform,
+                    editor.doc.filteredWaveform,
+                    editor.doc.showSampleWaveform,
+                    editor.doc.showFilteredWaveform,
+                    editor.doc.splitChannelsWaveform,
+                    editor.waveformWindowMs,
+                    playhead,
+                    ImGui::GetContentRegionAvail());
             }
             ImGui::End();
         } else {
