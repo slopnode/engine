@@ -888,6 +888,9 @@ void drawClipFramePropertiesSection(
     }
     if (animFrame.hasSound()) {
         labeledField("Volume");
+        if (animFrame.soundVolume < 0.0f) {
+            animFrame.soundVolume = 1.0f;
+        }
         if (ImGui::DragFloat("##soundvol", &animFrame.soundVolume, 0.01f, 0.0f, 2.0f, "%.2f")) {
             editor.doc.animDirty = true;
         }

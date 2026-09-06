@@ -255,10 +255,7 @@ bool AssetStore::hasAudio(std::string_view path) const {
 }
 
 bool AssetStore::commitAudioDef(AudioDef def) {
-    if (!audioDefLoadActive_) {
-        return false;
-    }
-    if (def.kind == AudioDefKind::Sample && def.source.empty()) {
+    if (!audioDefLoadActive_ || def.source.empty()) {
         return false;
     }
     audioDefStaging_ = std::move(def);
@@ -303,12 +300,72 @@ const AudioDef* AssetStore::getAudioDef(s7_scheme* scheme, std::string_view path
         return nullptr;
     }
 
-    audioDefStaging_.kind = AudioDefKind::Sample;
     auto [it, _] = audioDefs_.emplace(key, std::move(audioDefStaging_));
     audioDefLoadPath_.clear();
     audioDefStaging_ = {};
     audioDefRegistered_ = false;
     return &it->second;
+}
+
+void AssetStore::invalidateAudioDef(std::string_view path) {
+    audioDefs_.erase(cacheKey(path));
+}
+
+bool AssetStore::hasProcedural(std::string_view path) const {
+    return vfs_.exists(AssetKind::AudioProcedural, path);
+}
+
+const ProceduralDef* AssetStore::getProceduralDef(std::string_view path) {
+    const std::string key = cacheKey(path);
+    if (auto it = proceduralDefs_.find(key); it != proceduralDefs_.end()) {
+        return &it->second;
+    }
+
+    if (!vfs_.exists(AssetKind::AudioProcedural, path)) {
+        return nullptr;
+    }
+
+    const std::string text = vfs_.readText(AssetKind::AudioProcedural, path);
+    ProceduralDef def{};
+    if (!parseProceduralAsset(text, def)) {
+        return nullptr;
+    }
+    auto [it, _] = proceduralDefs_.emplace(key, std::move(def));
+    return &it->second;
+}
+
+void AssetStore::invalidateProceduralDef(std::string_view path) {
+    proceduralDefs_.erase(cacheKey(path));
+}
+
+namespace {
+// Fixed virtual path for the engine-wide bus mixer, resolved the same way any
+// other .saudio def is (layered across mounted packages, highest priority wins).
+constexpr std::string_view kBusConfigPath = "buses";
+}
+
+bool AssetStore::hasBusConfig() const {
+    return vfs_.exists(AssetKind::AudioSaudio, kBusConfigPath);
+}
+
+const BusConfig* AssetStore::getBusConfig() {
+    if (busConfig_) {
+        return &*busConfig_;
+    }
+    if (!vfs_.exists(AssetKind::AudioSaudio, kBusConfigPath)) {
+        return nullptr;
+    }
+    const std::string text = vfs_.readText(AssetKind::AudioSaudio, kBusConfigPath);
+    BusConfig config{};
+    if (!parseBusConfig(text, config)) {
+        return nullptr;
+    }
+    busConfig_ = std::move(config);
+    return &*busConfig_;
+}
+
+void AssetStore::invalidateBusConfig() {
+    busConfig_.reset();
 }
 
 bool AssetStore::hasMaterial(std::string_view path) const {

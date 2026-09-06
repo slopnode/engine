@@ -71,6 +71,27 @@ public:
     /** Commits a def registered by Scheme during getAudioDef load. */
     bool commitAudioDef(AudioDef def);
 
+    /** Drops the cached audio def for @p path so the next getAudioDef reloads from disk. */
+    void invalidateAudioDef(std::string_view path);
+
+    /** Returns true when a procedural (.sfxr) def exists at @p path. */
+    bool hasProcedural(std::string_view path) const;
+
+    /** Returns a cached procedural def, loading it when needed. */
+    const ProceduralDef* getProceduralDef(std::string_view path);
+
+    /** Drops the cached procedural def for @p path so the next getProceduralDef reloads from disk. */
+    void invalidateProceduralDef(std::string_view path);
+
+    /** Returns true when a bus mixer config exists at the fixed audio/buses.saudio path. */
+    bool hasBusConfig() const;
+
+    /** Returns the cached bus mixer config, loading it from audio/buses.saudio when needed. */
+    const BusConfig* getBusConfig();
+
+    /** Drops the cached bus config so the next getBusConfig reloads from disk. */
+    void invalidateBusConfig();
+
     /** Returns true when a material exists at @p path. */
     bool hasMaterial(std::string_view path) const;
 
@@ -358,6 +379,8 @@ private:
     std::unordered_map<std::string, std::filesystem::file_time_type> spriteSourceMtimes_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;
     std::unordered_map<std::string, AudioDef> audioDefs_;
+    std::unordered_map<std::string, ProceduralDef> proceduralDefs_;
+    std::optional<BusConfig> busConfig_;
     std::string audioDefLoadPath_;
     AudioDef audioDefStaging_{};
     bool audioDefLoadActive_ = false;

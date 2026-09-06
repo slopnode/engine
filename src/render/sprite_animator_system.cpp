@@ -297,14 +297,30 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                     return;
                 }
 
+                s7_scheme* scheme =
+                    world.has<ScriptContext>() ? world.get<ScriptContext>().scheme : nullptr;
+                const AudioDef* def = ctx.assets->getAudioDef(scheme, frame.sound);
+                if (def == nullptr) {
+                    TraceLog(
+                        LOG_WARNING,
+                        "AUDIO: no .saudio def for sprite sound hint '%s', falling back to raw file",
+                        frame.sound.c_str());
+                }
+                const float rawVolume = frame.soundVolume >= 0.0f ? frame.soundVolume : 1.0f;
+
                 auto playAtWorld = [&](float x, float y, float z) {
-                    ctx.world->playSound3d(
-                        *ctx.assets,
-                        frame.sound,
-                        x,
-                        y,
-                        z,
-                        frame.soundVolume);
+                    if (def != nullptr) {
+                        ctx.world->playAudioDef3d(*ctx.assets, frame.sound, *def, x, y, z, frame.soundVolume);
+                    } else {
+                        ctx.world->playSound3d(*ctx.assets, frame.sound, x, y, z, rawVolume);
+                    }
+                };
+                auto playFlat = [&]() {
+                    if (def != nullptr) {
+                        ctx.world->playAudioDef(*ctx.assets, frame.sound, *def, frame.soundVolume);
+                    } else {
+                        ctx.world->playSound(*ctx.assets, frame.sound, rawVolume);
+                    }
                 };
 
                 if (entity.has<ViewSpace>() || entity.has<ViewSprite>()) {
@@ -346,7 +362,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                             listenerPos.y + ahead.y * kMuzzleForward,
                             listenerPos.z + ahead.z * kMuzzleForward);
                     } else {
-                        ctx.world->playSound(*ctx.assets, frame.sound, frame.soundVolume);
+                        playFlat();
                     }
                     return;
                 }
@@ -355,7 +371,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                     const Matrix& matrix = entity.get<GlobalTransformation>().matrix;
                     playAtWorld(matrix.m12, matrix.m13, matrix.m14);
                 } else {
-                    ctx.world->playSound(*ctx.assets, frame.sound, frame.soundVolume);
+                    playFlat();
                 }
             };
 

@@ -21,7 +21,7 @@ void Editor::markDirty() {
     doc.waveformDirty = true;
 }
 
-bool Editor::loadAudio(slopengine::AssetStore& assets, const std::string& virtualPath) {
+bool Editor::loadDefinition(slopengine::AssetStore& assets, const std::string& virtualPath) {
     const slopengine::AudioDef* def = assets.getAudioDef(nullptr, virtualPath);
     if (def == nullptr) {
         setStatus("Failed to load " + virtualPath);
@@ -30,8 +30,26 @@ bool Editor::loadAudio(slopengine::AssetStore& assets, const std::string& virtua
 
     doc = EditorDocument{};
     doc.virtualPath = virtualPath;
-    doc.sourceKind = SourceKind::Saudio;
+    doc.sourceKind = SourceKind::Definition;
     doc.asset = *def;
+    doc.open = true;
+    doc.dirty = false;
+    doc.waveformDirty = true;
+    setStatus("Loaded " + virtualPath);
+    return true;
+}
+
+bool Editor::loadProcedural(slopengine::AssetStore& assets, const std::string& virtualPath) {
+    const slopengine::ProceduralDef* def = assets.getProceduralDef(virtualPath);
+    if (def == nullptr) {
+        setStatus("Failed to load " + virtualPath);
+        return false;
+    }
+
+    doc = EditorDocument{};
+    doc.virtualPath = virtualPath;
+    doc.sourceKind = SourceKind::Procedural;
+    doc.procedural = *def;
     doc.open = true;
     doc.dirty = false;
     doc.waveformDirty = true;
@@ -43,7 +61,6 @@ bool Editor::loadClip(const std::string& virtualPath) {
     doc = EditorDocument{};
     doc.virtualPath = virtualPath;
     doc.sourceKind = SourceKind::Clip;
-    doc.asset.kind = slopengine::AudioDefKind::Sample;
     doc.asset.source = virtualPath;
     doc.asset.volume = 1.0f;
     doc.open = true;
@@ -53,7 +70,7 @@ bool Editor::loadClip(const std::string& virtualPath) {
     return true;
 }
 
-bool Editor::newAudio(const std::string& virtualPath) {
+bool Editor::newDefinition(const std::string& virtualPath) {
     if (virtualPath.empty()) {
         setStatus("Enter a path first");
         return false;
@@ -61,25 +78,39 @@ bool Editor::newAudio(const std::string& virtualPath) {
 
     doc = EditorDocument{};
     doc.virtualPath = virtualPath;
-    doc.sourceKind = SourceKind::Saudio;
-    doc.asset.kind = slopengine::AudioDefKind::Sfxr;
-    doc.asset.sfxr.hasPreset = true;
-    doc.asset.sfxr.preset = 6; // blip
-    doc.asset.sfxr.presetSeed = 0;
+    doc.sourceKind = SourceKind::Definition;
     doc.open = true;
     doc.dirty = true;
     doc.waveformDirty = true;
-    setStatus("New sound " + virtualPath + " (unsaved)");
+    setStatus("New definition " + virtualPath + " (unsaved)");
+    return true;
+}
+
+bool Editor::newProcedural(const std::string& virtualPath) {
+    if (virtualPath.empty()) {
+        setStatus("Enter a path first");
+        return false;
+    }
+
+    doc = EditorDocument{};
+    doc.virtualPath = virtualPath;
+    doc.sourceKind = SourceKind::Procedural;
+    doc.procedural.sfxr.hasPreset = true;
+    doc.procedural.sfxr.preset = 6; // blip
+    doc.procedural.sfxr.presetSeed = 0;
+    doc.open = true;
+    doc.dirty = true;
+    doc.waveformDirty = true;
+    setStatus("New procedural " + virtualPath + " (unsaved)");
     return true;
 }
 
 bool Editor::save(slopengine::AssetStore& assets) {
-    (void)assets;
     if (!doc.open || doc.virtualPath.empty()) {
         setStatus("Nothing to save");
         return false;
     }
-    if (doc.sourceKind != SourceKind::Saudio) {
+    if (doc.sourceKind == SourceKind::Clip) {
         setStatus("Preview-only asset, nothing to save");
         return false;
     }
@@ -88,7 +119,8 @@ bool Editor::save(slopengine::AssetStore& assets) {
         return false;
     }
 
-    const std::filesystem::path outPath = targetRoot / "audio" / (doc.virtualPath + ".saudio");
+    const char* ext = doc.sourceKind == SourceKind::Definition ? ".saudio" : ".sfxr";
+    const std::filesystem::path outPath = targetRoot / "audio" / (doc.virtualPath + ext);
     std::error_code ec;
     std::filesystem::create_directories(outPath.parent_path(), ec);
     if (ec) {
@@ -96,7 +128,9 @@ bool Editor::save(slopengine::AssetStore& assets) {
         return false;
     }
 
-    const std::string text = slopengine::serializeSaudioAsset(doc.asset);
+    const std::string text = doc.sourceKind == SourceKind::Definition
+        ? slopengine::serializeSaudioAsset(doc.asset)
+        : slopengine::serializeProceduralAsset(doc.procedural);
     std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
     if (!out) {
         setStatus("Failed to open for write: " + outPath.string());
@@ -106,6 +140,12 @@ bool Editor::save(slopengine::AssetStore& assets) {
     if (!out) {
         setStatus("Failed writing: " + outPath.string());
         return false;
+    }
+
+    if (doc.sourceKind == SourceKind::Definition) {
+        assets.invalidateAudioDef(doc.virtualPath);
+    } else {
+        assets.invalidateProceduralDef(doc.virtualPath);
     }
 
     doc.dirty = false;
@@ -121,10 +161,16 @@ void Editor::previewPlay(slopengine::AudioWorld& audio, slopengine::AssetStore& 
         previewStop(audio);
     }
 
-    if (doc.sourceKind == SourceKind::Saudio) {
-        doc.previewVoice = audio.playAudioDef(assets, doc.virtualPath, doc.asset);
-    } else {
-        doc.previewVoice = audio.playSound(assets, doc.asset.source, doc.asset.volume, doc.asset.loop);
+    switch (doc.sourceKind) {
+        case SourceKind::Definition:
+            doc.previewVoice = audio.playAudioDef(assets, doc.virtualPath, doc.asset);
+            break;
+        case SourceKind::Procedural:
+            doc.previewVoice = audio.playProcedural(doc.virtualPath, doc.procedural.sfxr);
+            break;
+        case SourceKind::Clip:
+            doc.previewVoice = audio.playSound(assets, doc.asset.source, doc.asset.volume, doc.asset.loop);
+            break;
     }
     doc.previewPlaying = doc.previewVoice != 0;
 }
@@ -138,10 +184,20 @@ void Editor::previewStop(slopengine::AudioWorld& audio) {
 }
 
 void Editor::rebuildWaveform(slopengine::AssetStore& assets) {
-    if (doc.sourceKind == SourceKind::Saudio) {
-        doc.waveform = bakeSaudioWaveform(doc.asset.sfxr);
-    } else {
-        doc.waveform = bakeClipWaveform(assets, doc.asset.source);
+    switch (doc.sourceKind) {
+        case SourceKind::Definition:
+            if (const slopengine::ProceduralDef* proc = assets.getProceduralDef(doc.asset.source)) {
+                doc.waveform = bakeSaudioWaveform(proc->sfxr);
+            } else {
+                doc.waveform = bakeClipWaveform(assets, doc.asset.source);
+            }
+            break;
+        case SourceKind::Procedural:
+            doc.waveform = bakeSaudioWaveform(doc.procedural.sfxr);
+            break;
+        case SourceKind::Clip:
+            doc.waveform = bakeClipWaveform(assets, doc.asset.source);
+            break;
     }
     doc.waveformDirty = false;
 }

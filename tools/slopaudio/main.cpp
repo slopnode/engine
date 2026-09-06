@@ -1,4 +1,5 @@
 #include "browser.hpp"
+#include "bus_editor.hpp"
 #include "editor.hpp"
 #include "layout.hpp"
 #include "waveform_view.hpp"
@@ -143,7 +144,7 @@ void sliderField(
     float lo,
     float hi) {
     if (ImGui::SliderFloat(label, &value, lo, hi)) {
-        editor.doc.asset.sfxr.setMask |= field;
+        editor.doc.procedural.sfxr.setMask |= field;
         editor.markDirty();
     }
 }
@@ -163,7 +164,7 @@ void sliderConverted(
     float display = toDisplay(raw);
     if (ImGui::SliderFloat(label, &display, dispLo, dispHi, format)) {
         raw = std::clamp(toRaw(display), 0.0f, 1.0f);
-        editor.doc.asset.sfxr.setMask |= field;
+        editor.doc.procedural.sfxr.setMask |= field;
         editor.markDirty();
     }
 }
@@ -193,9 +194,8 @@ float sfxrPulseWidthPctToDuty(float pct) { return 1.0f - pct / 50.0f; }
 float sfxrToPercent(float t) { return t * 100.0f; }
 float sfxrFromPercent(float pct) { return pct / 100.0f; }
 
-void drawSaudioInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets) {
-    slopengine::SaudioParams& p = editor.doc.asset.sfxr;
-    slopengine::AudioDef& def = editor.doc.asset;
+void drawProceduralInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets) {
+    slopengine::SaudioParams& p = editor.doc.procedural.sfxr;
 
     ImGui::SeparatorText("Wave");
     {
@@ -211,7 +211,7 @@ void drawSaudioInspector(slopaudio::Editor& editor, slopengine::AssetStore& asse
         ImGui::Combo("Preset", &presetIdx, presetNames, IM_ARRAYSIZE(presetNames));
         ImGui::DragInt("Seed", &presetSeed, 1.0f, 0, 999999);
         if (buttonWithIcon(assets, kDefaultIconSet, "wand", "Apply Preset")) {
-            def.sfxr = slopaudio::materializePreset(presetIdx, presetSeed);
+            p = slopaudio::materializePreset(presetIdx, presetSeed);
             editor.markDirty();
         }
     }
@@ -280,7 +280,53 @@ void drawSaudioInspector(slopaudio::Editor& editor, slopengine::AssetStore& asse
     sliderConverted(
         editor, "Master Vol", p.masterVol, slopengine::SaudioField_MasterVol, 0.0f, 100.0f, "%.0f%%",
         sfxrToPercent, sfxrFromPercent);
-    ImGui::Separator();
+}
+
+void drawDefinitionInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets, const slopaudio::Browser& browser) {
+    slopengine::AudioDef& def = editor.doc.asset;
+
+    ImGui::SeparatorText("Source");
+    char sourceBuf[256] = {};
+    std::snprintf(sourceBuf, sizeof(sourceBuf), "%s", def.source.c_str());
+    ImGui::SetNextItemWidth(-70.0f);
+    if (ImGui::InputText("##defsource", sourceBuf, sizeof(sourceBuf))) {
+        def.source = sourceBuf;
+        editor.markDirty();
+    }
+    ImGui::SameLine();
+    if (buttonWithIcon(assets, kDefaultIconSet, "folder_find", "Browse")) {
+        ImGui::OpenPopup("PickDefinitionSource");
+    }
+    if (ImGui::BeginPopup("PickDefinitionSource")) {
+        ImGui::TextDisabled("Files (sound/*.ogg,*.wav)");
+        ImGui::Separator();
+        for (const slopaudio::AudioBrowserEntry& entry : browser.entries) {
+            if (entry.kind != slopaudio::SourceKind::Clip) {
+                continue;
+            }
+            if (ImGui::Selectable(entry.virtualPath.c_str())) {
+                def.source = entry.virtualPath;
+                editor.markDirty();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("Procedural (audio/*.sfxr)");
+        ImGui::Separator();
+        for (const slopaudio::AudioBrowserEntry& entry : browser.entries) {
+            if (entry.kind != slopaudio::SourceKind::Procedural) {
+                continue;
+            }
+            if (ImGui::Selectable(entry.virtualPath.c_str())) {
+                def.source = entry.virtualPath;
+                editor.markDirty();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::SeparatorText("Playback");
     if (ImGui::SliderFloat("Volume", &def.volume, 0.0f, 2.0f)) {
         editor.markDirty();
     }
@@ -296,14 +342,14 @@ void drawSaudioInspector(slopaudio::Editor& editor, slopengine::AssetStore& asse
     if (ImGui::SliderFloat("Max Distance", &def.maxDistance, 0.0f, 200.0f)) {
         editor.markDirty();
     }
-    int busIdx = def.bus == slopengine::AudioDefBus::Music ? 1 : 0;
-    if (ImGui::Combo("Bus", &busIdx, "sfx\0music\0")) {
-        def.bus = busIdx == 1 ? slopengine::AudioDefBus::Music : slopengine::AudioDefBus::Sfx;
+    int busIdx = static_cast<int>(def.bus);
+    if (ImGui::Combo("Bus", &busIdx, "sfx\0music\0ui\0hud\0voices\0ambience\0player\0view\0")) {
+        def.bus = static_cast<slopengine::AudioDefBus>(busIdx);
         editor.markDirty();
     }
 }
 
-void drawInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets) {
+void drawInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets, const slopaudio::Browser& browser) {
     if (!editor.doc.open) {
         ImGui::TextDisabled("No sound loaded");
         return;
@@ -316,13 +362,18 @@ void drawInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets) {
     }
     ImGui::Separator();
 
-    if (editor.doc.sourceKind == slopaudio::SourceKind::Clip) {
-        ImGui::TextDisabled("Preview-only clip (sound/*.ogg|.wav)");
-        ImGui::SliderFloat("Volume", &editor.doc.asset.volume, 0.0f, 2.0f);
-        return;
+    switch (editor.doc.sourceKind) {
+        case slopaudio::SourceKind::Clip:
+            ImGui::TextDisabled("Preview-only clip (sound/*.ogg)");
+            ImGui::SliderFloat("Volume", &editor.doc.asset.volume, 0.0f, 2.0f);
+            break;
+        case slopaudio::SourceKind::Definition:
+            drawDefinitionInspector(editor, assets, browser);
+            break;
+        case slopaudio::SourceKind::Procedural:
+            drawProceduralInspector(editor, assets);
+            break;
     }
-
-    drawSaudioInspector(editor, assets);
 }
 
 } // namespace
@@ -361,8 +412,14 @@ int main(int argc, char* argv[]) {
     slopaudio::Browser browser;
     browser.rescan(assets);
 
+    slopaudio::BusEditor busEditor;
+    busEditor.targetRoot = config->target;
+
     slopengine::AudioWorld audioWorld;
     audioWorld.init();
+
+    enum class TopTab { Sources, Bus };
+    TopTab activeTab = TopTab::Sources;
 
     bool quit = false;
     while (!quit) {
@@ -387,14 +444,20 @@ int main(int argc, char* argv[]) {
         rlImGuiBegin();
 
         const float chromeHeight = slopengine::mainMenuBarHeight();
+        const float tabBarHeight = ImGui::GetFrameHeightWithSpacing();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
         const float transportHeight = 96.0f;
         const slopaudio::UiLayout layout =
-            slopaudio::computeUiLayout(chromeHeight, statusHeight, transportHeight);
+            slopaudio::computeUiLayout(chromeHeight, tabBarHeight, statusHeight, transportHeight);
 
         if (beginMainMenuBar()) {
             if (beginMenuWithIcon(assets, kDefaultIconSet, "folder", "File", true)) {
-                if (menuItemWithIcon(assets, kDefaultIconSet, "page_add", "New Sound...", "Ctrl+N")) {
+                if (menuItemWithIcon(assets, kDefaultIconSet, "page_add", "New Definition...", "Ctrl+N")) {
+                    editor.newModalKind = slopaudio::SourceKind::Definition;
+                    editor.showNewModal = true;
+                }
+                if (menuItemWithIcon(assets, kDefaultIconSet, "wand", "New Procedural...")) {
+                    editor.newModalKind = slopaudio::SourceKind::Procedural;
                     editor.showNewModal = true;
                 }
                 if (menuItemWithIcon(
@@ -404,7 +467,7 @@ int main(int argc, char* argv[]) {
                         "Save",
                         "Ctrl+S",
                         false,
-                        editor.doc.open && editor.doc.sourceKind == slopaudio::SourceKind::Saudio)) {
+                        editor.doc.open && editor.doc.sourceKind != slopaudio::SourceKind::Clip)) {
                     editor.save(assets);
                     browser.rescan(assets);
                 }
@@ -421,11 +484,14 @@ int main(int argc, char* argv[]) {
         }
 
         if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S) && editor.doc.open &&
-            editor.doc.sourceKind == slopaudio::SourceKind::Saudio) {
+            editor.doc.sourceKind != slopaudio::SourceKind::Clip) {
             editor.save(assets);
             browser.rescan(assets);
         }
         if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_N)) {
+            editor.newModalKind = browser.activeTab == slopaudio::SourceKind::Procedural
+                ? slopaudio::SourceKind::Procedural
+                : slopaudio::SourceKind::Definition;
             editor.showNewModal = true;
         }
 
@@ -434,7 +500,9 @@ int main(int argc, char* argv[]) {
             editor.showNewModal = false;
         }
         if (ImGui::BeginPopupModal("New Sound", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted("Virtual path under audio/ (no .saudio)");
+            const bool procedural = editor.newModalKind == slopaudio::SourceKind::Procedural;
+            ImGui::Text(
+                "New %s -- virtual path under audio/ (no extension)", procedural ? "Procedural" : "Definition");
             ImGui::SetNextItemWidth(320.0f);
             ImGui::InputTextWithHint(
                 "##newaudiopath", "e.g. weapons/pistol-fire", editor.newPathBuf, sizeof(editor.newPathBuf));
@@ -443,7 +511,9 @@ int main(int argc, char* argv[]) {
             }
             const char* createLabel = editor.doc.dirty ? "Discard & Create" : "Create";
             if (buttonWithIcon(assets, kDefaultIconSet, "page_add", createLabel, ImVec2(160, 0))) {
-                if (editor.newAudio(editor.newPathBuf)) {
+                const bool created = procedural ? editor.newProcedural(editor.newPathBuf)
+                                                 : editor.newDefinition(editor.newPathBuf);
+                if (created) {
                     editor.newPathBuf[0] = '\0';
                     ImGui::CloseCurrentPopup();
                 }
@@ -461,67 +531,107 @@ int main(int argc, char* argv[]) {
         const ImGuiWindowFlags scrollablePanelFlags =
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
 
-        ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
-        ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
-        ImGui::Begin("Browser", nullptr, panelFlags);
-        browser.draw(editor, assets, audioWorld);
-        ImGui::End();
-
-        ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
-        ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
-        ImGui::Begin("Inspector", nullptr, scrollablePanelFlags);
-        drawInspector(editor, assets);
-        ImGui::End();
-
-        ImGui::SetNextWindowPos(ImVec2(layout.content.x, layout.content.y));
-        ImGui::SetNextWindowSize(ImVec2(layout.content.width, layout.content.height));
+        ImGui::SetNextWindowPos(ImVec2(layout.tabBar.x, layout.tabBar.y));
+        ImGui::SetNextWindowSize(ImVec2(layout.tabBar.width, layout.tabBar.height));
         ImGui::Begin(
-            "Waveform",
+            "##maintabs",
             nullptr,
-            panelFlags | ImGuiWindowFlags_NoTitleBar);
-        {
-            float playhead = -1.0f;
-            if (editor.doc.previewPlaying && !editor.doc.waveform.samples.empty() &&
-                editor.doc.waveform.sampleRate > 0.0f) {
-                const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
-                const double totalSeconds = static_cast<double>(editor.doc.waveform.samples.size()) /
-                    static_cast<double>(editor.doc.waveform.sampleRate);
-                if (totalSeconds > 0.0) {
-                    playhead = static_cast<float>(posSeconds / totalSeconds);
+            panelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground);
+        if (ImGui::BeginTabBar("MainTabs")) {
+            if (ImGui::BeginTabItem("Sources")) {
+                activeTab = TopTab::Sources;
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Bus")) {
+                activeTab = TopTab::Bus;
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::End();
+
+        if (activeTab == TopTab::Sources) {
+            ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
+            ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
+            ImGui::Begin("Browser", nullptr, panelFlags);
+            browser.draw(editor, assets, audioWorld);
+            ImGui::End();
+
+            ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
+            ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
+            ImGui::Begin("Inspector", nullptr, scrollablePanelFlags);
+            drawInspector(editor, assets, browser);
+            ImGui::End();
+
+            ImGui::SetNextWindowPos(ImVec2(layout.content.x, layout.content.y));
+            ImGui::SetNextWindowSize(ImVec2(layout.content.width, layout.content.height));
+            ImGui::Begin(
+                "Waveform",
+                nullptr,
+                panelFlags | ImGuiWindowFlags_NoTitleBar);
+            {
+                float playhead = -1.0f;
+                if (editor.doc.previewPlaying && !editor.doc.waveform.samples.empty() &&
+                    editor.doc.waveform.sampleRate > 0.0f) {
+                    const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
+                    const double totalSeconds = static_cast<double>(editor.doc.waveform.samples.size()) /
+                        static_cast<double>(editor.doc.waveform.sampleRate);
+                    if (totalSeconds > 0.0) {
+                        playhead = static_cast<float>(posSeconds / totalSeconds);
+                    }
+                }
+                slopaudio::drawWaveformPanel(
+                    editor.doc.waveform, editor.waveformWindowMs, playhead, ImGui::GetContentRegionAvail());
+            }
+            ImGui::End();
+
+            ImGui::SetNextWindowPos(ImVec2(layout.transportPanel.x, layout.transportPanel.y));
+            ImGui::SetNextWindowSize(ImVec2(layout.transportPanel.width, layout.transportPanel.height));
+            ImGui::Begin(
+                "Transport",
+                nullptr,
+                panelFlags | ImGuiWindowFlags_NoTitleBar);
+            {
+                const bool canPlay = editor.doc.open;
+                ImGui::BeginDisabled(!canPlay);
+                if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Play", ImVec2(100, 0))) {
+                    editor.previewPlay(audioWorld, assets);
+                }
+                ImGui::SameLine();
+                if (buttonWithIcon(assets, kDefaultIconSet, "control_stop", "Stop", ImVec2(100, 0))) {
+                    editor.previewStop(audioWorld);
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (editor.doc.sourceKind == slopaudio::SourceKind::Procedural &&
+                    editor.doc.procedural.sfxr.hasPreset) {
+                    ImGui::TextDisabled(
+                        "%s (%s, seed %d)",
+                        editor.doc.virtualPath.c_str(),
+                        presetNames[editor.doc.procedural.sfxr.preset % IM_ARRAYSIZE(presetNames)],
+                        editor.doc.procedural.sfxr.presetSeed);
                 }
             }
-            slopaudio::drawWaveformPanel(
-                editor.doc.waveform, editor.waveformWindowMs, playhead, ImGui::GetContentRegionAvail());
-        }
-        ImGui::End();
+            ImGui::End();
+        } else {
+            ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
+            ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
+            ImGui::Begin("Buses", nullptr, panelFlags);
+            busEditor.drawBusList(assets, audioWorld);
+            ImGui::End();
 
-        ImGui::SetNextWindowPos(ImVec2(layout.transportPanel.x, layout.transportPanel.y));
-        ImGui::SetNextWindowSize(ImVec2(layout.transportPanel.width, layout.transportPanel.height));
-        ImGui::Begin(
-            "Transport",
-            nullptr,
-            panelFlags | ImGuiWindowFlags_NoTitleBar);
-        {
-            const bool canPlay = editor.doc.open;
-            ImGui::BeginDisabled(!canPlay);
-            if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Play", ImVec2(100, 0))) {
-                editor.previewPlay(audioWorld, assets);
-            }
-            ImGui::SameLine();
-            if (buttonWithIcon(assets, kDefaultIconSet, "control_stop", "Stop", ImVec2(100, 0))) {
-                editor.previewStop(audioWorld);
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (editor.doc.sourceKind == slopaudio::SourceKind::Saudio && editor.doc.asset.sfxr.hasPreset) {
-                ImGui::TextDisabled(
-                    "%s (%s, seed %d)",
-                    editor.doc.virtualPath.c_str(),
-                    presetNames[editor.doc.asset.sfxr.preset % IM_ARRAYSIZE(presetNames)],
-                    editor.doc.asset.sfxr.presetSeed);
-            }
+            const Rectangle busSettingsRect{
+                layout.leftPanel.x + layout.leftPanel.width,
+                layout.leftPanel.y,
+                layout.fullPanel.width - layout.leftPanel.width,
+                layout.leftPanel.height,
+            };
+            ImGui::SetNextWindowPos(ImVec2(busSettingsRect.x, busSettingsRect.y));
+            ImGui::SetNextWindowSize(ImVec2(busSettingsRect.width, busSettingsRect.height));
+            ImGui::Begin("Bus Settings", nullptr, scrollablePanelFlags);
+            busEditor.drawBusSettings(assets, audioWorld);
+            ImGui::End();
         }
-        ImGui::End();
 
         std::string statusLine = "slopaudio";
         if (editor.doc.open) {

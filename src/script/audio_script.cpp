@@ -9,6 +9,7 @@
 #include <s7.h>
 
 #include <cstring>
+#include <optional>
 #include <string>
 
 namespace slopengine {
@@ -16,6 +17,30 @@ namespace slopengine {
 namespace {
 
 flecs::world* g_audioWorld = nullptr;
+
+std::optional<AudioDefBus> audioDefBusFromName(const char* name) {
+    if (std::strcmp(name, "sfx") == 0) return AudioDefBus::Sfx;
+    if (std::strcmp(name, "music") == 0) return AudioDefBus::Music;
+    if (std::strcmp(name, "ui") == 0) return AudioDefBus::Ui;
+    if (std::strcmp(name, "hud") == 0) return AudioDefBus::Hud;
+    if (std::strcmp(name, "voices") == 0) return AudioDefBus::Voices;
+    if (std::strcmp(name, "ambience") == 0) return AudioDefBus::Ambience;
+    if (std::strcmp(name, "player") == 0) return AudioDefBus::Player;
+    if (std::strcmp(name, "view") == 0) return AudioDefBus::View;
+    return std::nullopt;
+}
+
+std::optional<AudioBusKind> audioBusKindFromName(const char* name) {
+    if (std::strcmp(name, "sfx") == 0) return AudioBusKind::Sfx;
+    if (std::strcmp(name, "music") == 0) return AudioBusKind::Music;
+    if (std::strcmp(name, "ui") == 0) return AudioBusKind::Ui;
+    if (std::strcmp(name, "hud") == 0) return AudioBusKind::Hud;
+    if (std::strcmp(name, "voices") == 0) return AudioBusKind::Voices;
+    if (std::strcmp(name, "ambience") == 0) return AudioBusKind::Ambience;
+    if (std::strcmp(name, "player") == 0) return AudioBusKind::Player;
+    if (std::strcmp(name, "view") == 0) return AudioBusKind::View;
+    return std::nullopt;
+}
 
 AudioWorld* audioWorld() {
     if (g_audioWorld == nullptr || !g_audioWorld->has<AudioContext>()) {
@@ -99,12 +124,8 @@ bool parseAudioField(s7_scheme* sc, s7_pointer form, AudioDef& def, const char* 
             s7_wrong_type_arg_error(sc, proc, 0, value, "string");
             return false;
         }
-        const char* bus = s7_string(value);
-        if (std::strcmp(bus, "music") == 0) {
-            def.bus = AudioDefBus::Music;
-        } else {
-            def.bus = AudioDefBus::Sfx;
-        }
+        const std::optional<AudioDefBus> bus = audioDefBusFromName(s7_string(value));
+        def.bus = bus.value_or(AudioDefBus::Sfx);
         return true;
     }
     if (std::strcmp(key, "filter") == 0) {
@@ -305,14 +326,11 @@ s7_pointer g_set_bus_volume(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "set-bus-volume", 2, s7_cadr(args), "real");
     }
 
-    const char* busName = s7_string(s7_car(args));
-    AudioBusKind bus = AudioBusKind::Sfx;
-    if (std::strcmp(busName, "music") == 0) {
-        bus = AudioBusKind::Music;
-    } else if (std::strcmp(busName, "sfx") != 0) {
+    const std::optional<AudioBusKind> bus = audioBusKindFromName(s7_string(s7_car(args)));
+    if (!bus) {
         return s7_f(sc);
     }
-    audio->setBusVolume(bus, static_cast<float>(s7_number_to_real(sc, s7_cadr(args))));
+    audio->setBusVolume(*bus, static_cast<float>(s7_number_to_real(sc, s7_cadr(args))));
     return s7_t(sc);
 }
 
@@ -376,12 +394,10 @@ s7_pointer g_audio_filter_attach(s7_scheme* sc, s7_pointer args) {
     }
 
     bool ok = false;
-    if (std::strcmp(target, "sfx") == 0) {
-        ok = audio->attachBuiltinFilter(AudioBusKind::Sfx, filterName, slot);
-    } else if (std::strcmp(target, "music") == 0) {
-        ok = audio->attachBuiltinFilter(AudioBusKind::Music, filterName, slot);
-    } else if (std::strcmp(target, "global") == 0) {
+    if (std::strcmp(target, "global") == 0) {
         ok = audio->attachGlobalFilter(filterName, slot);
+    } else if (const std::optional<AudioBusKind> bus = audioBusKindFromName(target)) {
+        ok = audio->attachBuiltinFilter(*bus, filterName, slot);
     }
     return ok ? s7_t(sc) : s7_f(sc);
 }

@@ -1,6 +1,7 @@
 #include "assets/saudio_loader.hpp"
 
 #include <charconv>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -139,6 +140,48 @@ bool startsWith(std::string_view line, std::string_view prefix) {
     return line.size() >= prefix.size() && line.compare(0, prefix.size(), prefix) == 0;
 }
 
+bool consumeQuoted(std::string_view& text, std::string& out) {
+    text = trim(text);
+    if (text.empty() || text.front() != '"') {
+        return false;
+    }
+    const std::size_t end = text.find('"', 1);
+    if (end == std::string_view::npos) {
+        return false;
+    }
+    out = std::string(text.substr(1, end - 1));
+    text.remove_prefix(end + 1);
+    return true;
+}
+
+bool consumeInt(std::string_view& text, int& out) {
+    text = trim(text);
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    int parsed = 0;
+    const auto result = std::from_chars(begin, end, parsed);
+    if (result.ec != std::errc{} || result.ptr == begin) {
+        return false;
+    }
+    out = parsed;
+    text.remove_prefix(static_cast<std::size_t>(result.ptr - begin));
+    return true;
+}
+
+bool consumeFloat(std::string_view& text, float& out) {
+    text = trim(text);
+    const auto* begin = text.data();
+    const auto* end = text.data() + text.size();
+    float parsed = 0.0f;
+    const auto result = std::from_chars(begin, end, parsed);
+    if (result.ec != std::errc{} || result.ptr == begin) {
+        return false;
+    }
+    out = parsed;
+    text.remove_prefix(static_cast<std::size_t>(result.ptr - begin));
+    return true;
+}
+
 bool setFloatField(SaudioParams& params, std::uint32_t field, float& dst, std::string_view text) {
     if (!readFloat(text, dst)) {
         return false;
@@ -176,6 +219,30 @@ const char* presetName(int preset) {
     }
 }
 
+const char* busName(AudioDefBus bus) {
+    switch (bus) {
+        case AudioDefBus::Music: return "music";
+        case AudioDefBus::Ui: return "ui";
+        case AudioDefBus::Hud: return "hud";
+        case AudioDefBus::Voices: return "voices";
+        case AudioDefBus::Ambience: return "ambience";
+        case AudioDefBus::Player: return "player";
+        case AudioDefBus::View: return "view";
+        case AudioDefBus::Sfx: default: return "sfx";
+    }
+}
+
+AudioDefBus busFromName(std::string_view name) {
+    if (name == "music") return AudioDefBus::Music;
+    if (name == "ui") return AudioDefBus::Ui;
+    if (name == "hud") return AudioDefBus::Hud;
+    if (name == "voices") return AudioDefBus::Voices;
+    if (name == "ambience") return AudioDefBus::Ambience;
+    if (name == "player") return AudioDefBus::Player;
+    if (name == "view") return AudioDefBus::View;
+    return AudioDefBus::Sfx;
+}
+
 void appendFloatField(std::string& out, const char* name, std::uint32_t mask, std::uint32_t field, float value) {
     if ((mask & field) == 0) {
         return;
@@ -187,16 +254,17 @@ void appendFloatField(std::string& out, const char* name, std::uint32_t mask, st
     out += ")\n";
 }
 
-} // namespace
-
-bool parseSaudioAsset(std::string_view source, AudioDef& def) {
-    def = {};
-    def.kind = AudioDefKind::Sfxr;
-
+/** Splits `text` into trimmed lines and hands each non-boilerplate one to `handleLine`.
+ *  `wrapperTag` lines ("(audio", "(audio)", ")") and blanks are skipped. Stops and
+ *  returns false the moment `handleLine` rejects a line. */
+bool forEachField(
+    std::string_view text,
+    std::string_view wrapperTag,
+    const std::function<bool(std::string_view)>& handleLine) {
     std::size_t lineStart = 0;
-    while (lineStart <= source.size()) {
-        const std::size_t lineEnd = source.find('\n', lineStart);
-        const std::string_view line = trim(source.substr(
+    while (lineStart <= text.size()) {
+        const std::size_t lineEnd = text.find('\n', lineStart);
+        const std::string_view line = trim(text.substr(
             lineStart,
             lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - lineStart));
 
@@ -204,7 +272,9 @@ bool parseSaudioAsset(std::string_view source, AudioDef& def) {
             break;
         }
 
-        if (line.empty() || line == "(audio" || line == "(audio)" || line == ")") {
+        std::string wrapperOpen{wrapperTag};
+        std::string wrapperEmpty = wrapperOpen + ")";
+        if (line.empty() || line == wrapperOpen || line == wrapperEmpty || line == ")") {
             if (lineEnd == std::string_view::npos) {
                 break;
             }
@@ -212,134 +282,218 @@ bool parseSaudioAsset(std::string_view source, AudioDef& def) {
             continue;
         }
 
+        if (!handleLine(line)) {
+            return false;
+        }
+
+        if (lineEnd == std::string_view::npos) {
+            break;
+        }
+        lineStart = lineEnd + 1;
+    }
+    return true;
+}
+
+bool parseProceduralField(std::string_view line, SaudioParams& p) {
+    auto after = [&](std::string_view prefix) -> std::string_view {
+        return trim(line.substr(prefix.size()));
+    };
+
+    if (startsWith(line, "(preset ")) {
+        std::string_view rest = after("(preset ");
+        const std::string_view name = readToken(rest);
+        const auto preset = parsePreset(name);
+        if (!preset) {
+            return false;
+        }
+        rest = trim(rest.substr(name.size()));
+        int seed = 0;
+        if (!rest.empty() && rest.front() != ')') {
+            if (!readInt(rest, seed)) {
+                return false;
+            }
+        }
+        p.hasPreset = true;
+        p.preset = *preset;
+        p.presetSeed = seed;
+    } else if (startsWith(line, "(wave ")) {
+        const auto wave = parseWave(readToken(after("(wave ")));
+        if (!wave) {
+            return false;
+        }
+        p.waveType = *wave;
+        p.setMask |= SaudioField_Wave;
+    } else if (startsWith(line, "(freq-limit ")) {
+        if (!setFloatField(p, SaudioField_FreqLimit, p.freqLimit, after("(freq-limit "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(freq-ramp ")) {
+        if (!setFloatField(p, SaudioField_FreqRamp, p.freqRamp, after("(freq-ramp "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(freq-dramp ")) {
+        if (!setFloatField(p, SaudioField_FreqDramp, p.freqDramp, after("(freq-dramp "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(freq ")) {
+        if (!setFloatField(p, SaudioField_Freq, p.baseFreq, after("(freq "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(duty-ramp ")) {
+        if (!setFloatField(p, SaudioField_DutyRamp, p.dutyRamp, after("(duty-ramp "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(duty ")) {
+        if (!setFloatField(p, SaudioField_Duty, p.duty, after("(duty "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(vib-strength ")) {
+        if (!setFloatField(p, SaudioField_VibStrength, p.vibStrength, after("(vib-strength "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(vib-speed ")) {
+        if (!setFloatField(p, SaudioField_VibSpeed, p.vibSpeed, after("(vib-speed "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(vib-delay ")) {
+        if (!setFloatField(p, SaudioField_VibDelay, p.vibDelay, after("(vib-delay "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(attack ")) {
+        if (!setFloatField(p, SaudioField_Attack, p.envAttack, after("(attack "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(sustain ")) {
+        if (!setFloatField(p, SaudioField_Sustain, p.envSustain, after("(sustain "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(decay ")) {
+        if (!setFloatField(p, SaudioField_Decay, p.envDecay, after("(decay "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(punch ")) {
+        if (!setFloatField(p, SaudioField_Punch, p.envPunch, after("(punch "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(lpf-resonance ")) {
+        if (!setFloatField(p, SaudioField_LpfResonance, p.lpfResonance, after("(lpf-resonance "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(lpf-ramp ")) {
+        if (!setFloatField(p, SaudioField_LpfRamp, p.lpfRamp, after("(lpf-ramp "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(lpf ")) {
+        if (!setFloatField(p, SaudioField_Lpf, p.lpfFreq, after("(lpf "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(hpf-ramp ")) {
+        if (!setFloatField(p, SaudioField_HpfRamp, p.hpfRamp, after("(hpf-ramp "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(hpf ")) {
+        if (!setFloatField(p, SaudioField_Hpf, p.hpfFreq, after("(hpf "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(pha-offset ")) {
+        if (!setFloatField(p, SaudioField_PhaOffset, p.phaOffset, after("(pha-offset "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(pha-ramp ")) {
+        if (!setFloatField(p, SaudioField_PhaRamp, p.phaRamp, after("(pha-ramp "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(repeat-speed ")) {
+        if (!setFloatField(p, SaudioField_RepeatSpeed, p.repeatSpeed, after("(repeat-speed "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(arp-speed ")) {
+        if (!setFloatField(p, SaudioField_ArpSpeed, p.arpSpeed, after("(arp-speed "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(arp-mod ")) {
+        if (!setFloatField(p, SaudioField_ArpMod, p.arpMod, after("(arp-mod "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(sound-vol ")) {
+        if (!setFloatField(p, SaudioField_SoundVol, p.soundVol, after("(sound-vol "))) {
+            return false;
+        }
+    } else if (startsWith(line, "(master-vol ")) {
+        if (!setFloatField(p, SaudioField_MasterVol, p.masterVol, after("(master-vol "))) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool parseBusConfigField(std::string_view line, BusConfig& config) {
+    auto after = [&](std::string_view prefix) -> std::string_view {
+        return trim(line.substr(prefix.size()));
+    };
+
+    if (startsWith(line, "(bus-volume ")) {
+        std::string_view rest = stripTrailingParen(after("(bus-volume "));
+        std::string name;
+        float volume = 1.0f;
+        if (!consumeQuoted(rest, name) || !consumeFloat(rest, volume)) {
+            return false;
+        }
+        config.buses[static_cast<std::size_t>(busFromName(name))].volume = volume;
+        return true;
+    }
+    if (startsWith(line, "(bus-muted ")) {
+        std::string_view rest = stripTrailingParen(after("(bus-muted "));
+        std::string name;
+        bool muted = false;
+        if (!consumeQuoted(rest, name) || !readBool(rest, muted)) {
+            return false;
+        }
+        config.buses[static_cast<std::size_t>(busFromName(name))].muted = muted;
+        return true;
+    }
+    if (startsWith(line, "(bus-filter ")) {
+        std::string_view rest = stripTrailingParen(after("(bus-filter "));
+        std::string name;
+        int slot = 0;
+        std::string filterName;
+        if (!consumeQuoted(rest, name) || !consumeInt(rest, slot) || !consumeQuoted(rest, filterName)) {
+            return false;
+        }
+        if (slot < 0 || slot >= static_cast<int>(kMaxFiltersPerBus)) {
+            return false;
+        }
+        BusFilterSlot& target =
+            config.buses[static_cast<std::size_t>(busFromName(name))].slots[static_cast<std::size_t>(slot)];
+        target.name = filterName;
+        target.params.clear();
+        float value = 0.0f;
+        while (consumeFloat(rest, value)) {
+            target.params.push_back(value);
+        }
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+bool parseSaudioAsset(std::string_view text, AudioDef& def) {
+    def = {};
+
+    return forEachField(text, "(audio", [&](std::string_view line) {
         auto after = [&](std::string_view prefix) -> std::string_view {
             return trim(line.substr(prefix.size()));
         };
 
-        if (startsWith(line, "(preset ")) {
-            std::string_view rest = after("(preset ");
-            const std::string_view name = readToken(rest);
-            const auto preset = parsePreset(name);
-            if (!preset) {
+        if (startsWith(line, "(source ")) {
+            const auto sourcePath = readQuoted(after("(source "));
+            if (!sourcePath) {
                 return false;
             }
-            rest = trim(rest.substr(name.size()));
-            int seed = 0;
-            if (!rest.empty() && rest.front() != ')') {
-                if (!readInt(rest, seed)) {
-                    return false;
-                }
-            }
-            def.sfxr.hasPreset = true;
-            def.sfxr.preset = *preset;
-            def.sfxr.presetSeed = seed;
-        } else if (startsWith(line, "(wave ")) {
-            const auto wave = parseWave(readToken(after("(wave ")));
-            if (!wave) {
-                return false;
-            }
-            def.sfxr.waveType = *wave;
-            def.sfxr.setMask |= SaudioField_Wave;
-        } else if (startsWith(line, "(freq ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Freq, def.sfxr.baseFreq, after("(freq "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(freq-limit ")) {
-            if (!setFloatField(def.sfxr, SaudioField_FreqLimit, def.sfxr.freqLimit, after("(freq-limit "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(freq-ramp ")) {
-            if (!setFloatField(def.sfxr, SaudioField_FreqRamp, def.sfxr.freqRamp, after("(freq-ramp "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(freq-dramp ")) {
-            if (!setFloatField(def.sfxr, SaudioField_FreqDramp, def.sfxr.freqDramp, after("(freq-dramp "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(duty ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Duty, def.sfxr.duty, after("(duty "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(duty-ramp ")) {
-            if (!setFloatField(def.sfxr, SaudioField_DutyRamp, def.sfxr.dutyRamp, after("(duty-ramp "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(vib-strength ")) {
-            if (!setFloatField(def.sfxr, SaudioField_VibStrength, def.sfxr.vibStrength, after("(vib-strength "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(vib-speed ")) {
-            if (!setFloatField(def.sfxr, SaudioField_VibSpeed, def.sfxr.vibSpeed, after("(vib-speed "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(vib-delay ")) {
-            if (!setFloatField(def.sfxr, SaudioField_VibDelay, def.sfxr.vibDelay, after("(vib-delay "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(attack ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Attack, def.sfxr.envAttack, after("(attack "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(sustain ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Sustain, def.sfxr.envSustain, after("(sustain "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(decay ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Decay, def.sfxr.envDecay, after("(decay "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(punch ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Punch, def.sfxr.envPunch, after("(punch "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(lpf-resonance ")) {
-            if (!setFloatField(def.sfxr, SaudioField_LpfResonance, def.sfxr.lpfResonance, after("(lpf-resonance "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(lpf ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Lpf, def.sfxr.lpfFreq, after("(lpf "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(lpf-ramp ")) {
-            if (!setFloatField(def.sfxr, SaudioField_LpfRamp, def.sfxr.lpfRamp, after("(lpf-ramp "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(hpf ")) {
-            if (!setFloatField(def.sfxr, SaudioField_Hpf, def.sfxr.hpfFreq, after("(hpf "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(hpf-ramp ")) {
-            if (!setFloatField(def.sfxr, SaudioField_HpfRamp, def.sfxr.hpfRamp, after("(hpf-ramp "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(pha-offset ")) {
-            if (!setFloatField(def.sfxr, SaudioField_PhaOffset, def.sfxr.phaOffset, after("(pha-offset "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(pha-ramp ")) {
-            if (!setFloatField(def.sfxr, SaudioField_PhaRamp, def.sfxr.phaRamp, after("(pha-ramp "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(repeat-speed ")) {
-            if (!setFloatField(def.sfxr, SaudioField_RepeatSpeed, def.sfxr.repeatSpeed, after("(repeat-speed "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(arp-speed ")) {
-            if (!setFloatField(def.sfxr, SaudioField_ArpSpeed, def.sfxr.arpSpeed, after("(arp-speed "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(arp-mod ")) {
-            if (!setFloatField(def.sfxr, SaudioField_ArpMod, def.sfxr.arpMod, after("(arp-mod "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(sound-vol ")) {
-            if (!setFloatField(def.sfxr, SaudioField_SoundVol, def.sfxr.soundVol, after("(sound-vol "))) {
-                return false;
-            }
-        } else if (startsWith(line, "(master-vol ")) {
-            if (!setFloatField(def.sfxr, SaudioField_MasterVol, def.sfxr.masterVol, after("(master-vol "))) {
-                return false;
-            }
+            def.source = *sourcePath;
         } else if (startsWith(line, "(volume ")) {
             if (!readFloat(after("(volume "), def.volume)) {
                 return false;
@@ -365,29 +519,60 @@ bool parseSaudioAsset(std::string_view source, AudioDef& def) {
             if (!bus) {
                 return false;
             }
-            def.bus = (*bus == "music") ? AudioDefBus::Music : AudioDefBus::Sfx;
+            def.bus = busFromName(*bus);
         } else if (startsWith(line, "(filter ")) {
             const auto filter = readQuoted(after("(filter "));
             if (!filter) {
                 return false;
             }
             def.filters.push_back(*filter);
-        } else if (!startsWith(line, "(audio")) {
+        } else {
             return false;
         }
-
-        if (lineEnd == std::string_view::npos) {
-            break;
-        }
-        lineStart = lineEnd + 1;
-    }
-
-    return true;
+        return true;
+    });
 }
 
 std::string serializeSaudioAsset(const AudioDef& def) {
-    const SaudioParams& p = def.sfxr;
     std::string out = "(audio\n";
+    out += "  (source \"";
+    out += def.source;
+    out += "\")\n";
+    out += "  (volume ";
+    out += formatFloat(def.volume);
+    out += ")\n";
+    out += "  (min-distance ";
+    out += formatFloat(def.minDistance);
+    out += ")\n";
+    out += "  (max-distance ";
+    out += formatFloat(def.maxDistance);
+    out += ")\n";
+    out += "  (loop ";
+    out += (def.loop ? "#t" : "#f");
+    out += ")\n";
+    out += "  (spatial ";
+    out += (def.spatial ? "#t" : "#f");
+    out += ")\n";
+    out += "  (bus \"";
+    out += busName(def.bus);
+    out += "\")\n";
+    for (const std::string& filterName : def.filters) {
+        out += "  (filter \"";
+        out += filterName;
+        out += "\")\n";
+    }
+    out += ")\n";
+    return out;
+}
+
+bool parseProceduralAsset(std::string_view text, ProceduralDef& def) {
+    def = {};
+    return forEachField(text, "(sfxr", [&](std::string_view line) { return parseProceduralField(line, def.sfxr); });
+}
+
+std::string serializeProceduralAsset(const ProceduralDef& def) {
+    const SaudioParams& p = def.sfxr;
+    std::string out = "(sfxr\n";
 
     if (p.hasPreset) {
         out += "  (preset ";
@@ -428,30 +613,49 @@ std::string serializeSaudioAsset(const AudioDef& def) {
     appendFloatField(out, "sound-vol", p.setMask, SaudioField_SoundVol, p.soundVol);
     appendFloatField(out, "master-vol", p.setMask, SaudioField_MasterVol, p.masterVol);
 
-    out += "  (volume ";
-    out += formatFloat(def.volume);
     out += ")\n";
-    out += "  (min-distance ";
-    out += formatFloat(def.minDistance);
-    out += ")\n";
-    out += "  (max-distance ";
-    out += formatFloat(def.maxDistance);
-    out += ")\n";
-    out += "  (loop ";
-    out += (def.loop ? "#t" : "#f");
-    out += ")\n";
-    out += "  (spatial ";
-    out += (def.spatial ? "#t" : "#f");
-    out += ")\n";
-    out += "  (bus \"";
-    out += (def.bus == AudioDefBus::Music ? "music" : "sfx");
-    out += "\")\n";
-    for (const std::string& filterName : def.filters) {
-        out += "  (filter \"";
-        out += filterName;
-        out += "\")\n";
-    }
+    return out;
+}
 
+bool parseBusConfig(std::string_view text, BusConfig& config) {
+    config = {};
+    return forEachField(text, "(buses", [&](std::string_view line) { return parseBusConfigField(line, config); });
+}
+
+std::string serializeBusConfig(const BusConfig& config) {
+    std::string out = "(buses\n";
+    for (std::size_t i = 0; i < config.buses.size(); ++i) {
+        const AudioDefBus bus = static_cast<AudioDefBus>(i);
+        const BusDef& def = config.buses[i];
+        out += "  (bus-volume \"";
+        out += busName(bus);
+        out += "\" ";
+        out += formatFloat(def.volume);
+        out += ")\n";
+        out += "  (bus-muted \"";
+        out += busName(bus);
+        out += "\" ";
+        out += (def.muted ? "#t" : "#f");
+        out += ")\n";
+        for (std::size_t slot = 0; slot < def.slots.size(); ++slot) {
+            const BusFilterSlot& filterSlot = def.slots[slot];
+            if (filterSlot.name.empty()) {
+                continue;
+            }
+            out += "  (bus-filter \"";
+            out += busName(bus);
+            out += "\" ";
+            out += std::to_string(slot);
+            out += " \"";
+            out += filterSlot.name;
+            out += "\"";
+            for (float value : filterSlot.params) {
+                out += ' ';
+                out += formatFloat(value);
+            }
+            out += ")\n";
+        }
+    }
     out += ")\n";
     return out;
 }

@@ -17,14 +17,16 @@ class AudioWorld;
 namespace slopaudio {
 
 enum class SourceKind {
-    Saudio,
-    Clip,
+    Definition, // .saudio: source (file or procedural) + bus/volume/distance/loop/spatial/filters
+    Procedural, // .sfxr: raw sfxr synth params, no playback wrapper
+    Clip,       // sound/*.{ogg,wav}: preview-only raw file
 };
 
 struct EditorDocument {
     std::string virtualPath;
-    SourceKind sourceKind = SourceKind::Saudio;
-    slopengine::AudioDef asset{};
+    SourceKind sourceKind = SourceKind::Definition;
+    slopengine::AudioDef asset{};           // Definition fields, or {source,volume} for a Clip preview
+    slopengine::ProceduralDef procedural{}; // Procedural fields when sourceKind == Procedural
     bool dirty = false;
     bool open = false;
 
@@ -42,14 +44,17 @@ struct Editor {
     std::string statusMessage;
     float statusTimer = 0.0f;
     bool showNewModal = false;
+    SourceKind newModalKind = SourceKind::Definition;
     char newPathBuf[256] = {};
     float waveformWindowMs = 250.0f;
 
     void setStatus(std::string message, float seconds = 3.0f);
     void markDirty();
-    bool loadAudio(slopengine::AssetStore& assets, const std::string& virtualPath);
+    bool loadDefinition(slopengine::AssetStore& assets, const std::string& virtualPath);
+    bool loadProcedural(slopengine::AssetStore& assets, const std::string& virtualPath);
     bool loadClip(const std::string& virtualPath);
-    bool newAudio(const std::string& virtualPath);
+    bool newDefinition(const std::string& virtualPath);
+    bool newProcedural(const std::string& virtualPath);
     bool save(slopengine::AssetStore& assets);
     void previewPlay(slopengine::AudioWorld& audio, slopengine::AssetStore& assets);
     void previewStop(slopengine::AudioWorld& audio);

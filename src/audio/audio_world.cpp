@@ -26,6 +26,8 @@
 
 namespace slopengine {
 
+static_assert(kMaxFiltersPerBus == FILTERS_PER_STREAM, "BusDef slot count must match SoLoud's per-source filter limit");
+
 AudioWorld::AudioWorld() = default;
 
 AudioWorld::~AudioWorld() {
@@ -44,8 +46,11 @@ bool AudioWorld::init() {
         return false;
     }
 
-    sfxBusHandle_ = soloud_.play(sfxBus_);
-    musicBusHandle_ = soloud_.play(musicBus_);
+    for (std::size_t i = 0; i < kBusCount; ++i) {
+        busHandles_[i] = soloud_.play(buses_[i]);
+    }
+    busVolumes_.fill(1.0f);
+    busMuted_.fill(false);
     ready_ = true;
 
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
@@ -84,26 +89,52 @@ void AudioWorld::deinit() {
     streamsByDef_.clear();
     sfxrByDef_.clear();
     filters_.clear();
-    sfxFilterCount_ = 0;
-    musicFilterCount_ = 0;
+    busFilterSlots_ = {};
     globalFilterCount_ = 0;
     schemeFilters_.clear();
     soloud_.deinit();
-    sfxBusHandle_ = 0;
-    musicBusHandle_ = 0;
+    busHandles_.fill(0);
     ready_ = false;
 }
 
 SoLoud::Bus& AudioWorld::bus(AudioBusKind kind) {
-    return kind == AudioBusKind::Music ? musicBus_ : sfxBus_;
+    return buses_[static_cast<std::size_t>(kind)];
 }
 
-unsigned int& AudioWorld::busFilterCount(AudioBusKind kind) {
-    return kind == AudioBusKind::Music ? musicFilterCount_ : sfxFilterCount_;
+unsigned int AudioWorld::nextFreeBusSlot(AudioBusKind kind) const {
+    const auto& slots = busFilterSlots_[static_cast<std::size_t>(kind)];
+    for (unsigned int i = 0; i < FILTERS_PER_STREAM; ++i) {
+        if (slots[i].name.empty()) {
+            return i;
+        }
+    }
+    return FILTERS_PER_STREAM;
 }
 
 AudioBusKind AudioWorld::busFromDef(AudioDefBus bus) {
-    return bus == AudioDefBus::Music ? AudioBusKind::Music : AudioBusKind::Sfx;
+    switch (bus) {
+        case AudioDefBus::Music: return AudioBusKind::Music;
+        case AudioDefBus::Ui: return AudioBusKind::Ui;
+        case AudioDefBus::Hud: return AudioBusKind::Hud;
+        case AudioDefBus::Voices: return AudioBusKind::Voices;
+        case AudioDefBus::Ambience: return AudioBusKind::Ambience;
+        case AudioDefBus::Player: return AudioBusKind::Player;
+        case AudioDefBus::View: return AudioBusKind::View;
+        case AudioDefBus::Sfx: default: return AudioBusKind::Sfx;
+    }
+}
+
+AudioDefBus AudioWorld::defFromBus(AudioBusKind bus) {
+    switch (bus) {
+        case AudioBusKind::Music: return AudioDefBus::Music;
+        case AudioBusKind::Ui: return AudioDefBus::Ui;
+        case AudioBusKind::Hud: return AudioDefBus::Hud;
+        case AudioBusKind::Voices: return AudioDefBus::Voices;
+        case AudioBusKind::Ambience: return AudioDefBus::Ambience;
+        case AudioBusKind::Player: return AudioDefBus::Player;
+        case AudioBusKind::View: return AudioDefBus::View;
+        case AudioBusKind::Sfx: default: return AudioDefBus::Sfx;
+    }
 }
 
 SoLoud::Wav* AudioWorld::loadClip(AssetStore& assets, std::string_view path) {
@@ -327,14 +358,17 @@ void AudioWorld::applySaudioParams(SoLoud::Sfxr& sfxr, const SaudioParams& param
     }
 }
 
-SoLoud::Sfxr* AudioWorld::loadSfxrForDef(std::string_view defPath, const AudioDef& def) {
+SoLoud::Sfxr* AudioWorld::loadSfxrForDef(
+    std::string_view defPath,
+    const SaudioParams& params,
+    const AudioDef& def) {
     const std::string key{defPath};
     if (auto it = sfxrByDef_.find(key); it != sfxrByDef_.end()) {
         return it->second.get();
     }
 
     auto sfxr = std::make_unique<SoLoud::Sfxr>();
-    applySaudioParams(*sfxr, def.sfxr);
+    applySaudioParams(*sfxr, params);
     applyFilters(*sfxr, def.filters);
     SoLoud::Sfxr* ptr = sfxr.get();
     sfxrByDef_.emplace(key, std::move(sfxr));
@@ -344,17 +378,18 @@ SoLoud::Sfxr* AudioWorld::loadSfxrForDef(std::string_view defPath, const AudioDe
 SoLoud::handle AudioWorld::playSfxrDef(
     std::string_view defPath,
     const AudioDef& def,
+    const SaudioParams& params,
     float volume,
     bool spatial3d,
     float x,
     float y,
     float z) {
-    SoLoud::Sfxr* sfxr = loadSfxrForDef(defPath, def);
+    SoLoud::Sfxr* sfxr = loadSfxrForDef(defPath, params, def);
     if (sfxr == nullptr) {
         return 0;
     }
 
-    applySaudioParams(*sfxr, def.sfxr);
+    applySaudioParams(*sfxr, params);
     sfxr->setLooping(def.loop);
 
     if (def.bus == AudioDefBus::Music) {
@@ -371,6 +406,7 @@ SoLoud::handle AudioWorld::playSfxrDef(
                 return 0;
             }
             voice = playSpatialSteam(
+                busFromDef(def.bus),
                 *baked,
                 x,
                 y,
@@ -409,7 +445,7 @@ SoLoud::handle AudioWorld::playSound(
         return 0;
     }
     clip->setLooping(loop);
-    return sfxBus_.play(*clip, volume);
+    return bus(AudioBusKind::Sfx).play(*clip, volume);
 }
 
 SoLoud::handle AudioWorld::playSound3d(
@@ -439,6 +475,7 @@ SoLoud::handle AudioWorld::playSound3d(
             return 0;
         }
         return playSpatialSteam(
+            AudioBusKind::Sfx,
             *spatial,
             x,
             y,
@@ -451,7 +488,7 @@ SoLoud::handle AudioWorld::playSound3d(
     }
 #endif
     clip->set3dMinMaxDistance(minDistance, maxDistance);
-    const SoLoud::handle voice = sfxBus_.play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    const SoLoud::handle voice = bus(AudioBusKind::Sfx).play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
     if (followListener && voice != 0) {
         trackListenerAttached(voice, followForwardOffset);
     }
@@ -469,12 +506,12 @@ SoLoud::handle AudioWorld::playAudioDef(
 
     const float volume = volumeOverride >= 0.0f ? volumeOverride : def.volume;
 
-    if (def.kind == AudioDefKind::Sfxr) {
-        return playSfxrDef(defPath, def, volume, false, 0.0f, 0.0f, 0.0f);
-    }
-
     if (def.source.empty()) {
         return 0;
+    }
+
+    if (const ProceduralDef* proc = assets.getProceduralDef(def.source)) {
+        return playSfxrDef(defPath, def, proc->sfxr, volume, false, 0.0f, 0.0f, 0.0f);
     }
 
     const AudioBusKind busKind = busFromDef(def.bus);
@@ -486,7 +523,7 @@ SoLoud::handle AudioWorld::playAudioDef(
         }
         stopMusic();
         stream->setLooping(def.loop);
-        musicVoice_ = musicBus_.play(*stream, volume);
+        musicVoice_ = bus(AudioBusKind::Music).play(*stream, volume);
         return musicVoice_;
     }
 
@@ -503,6 +540,7 @@ SoLoud::handle AudioWorld::playAudioDef(
                 return 0;
             }
             return playSpatialSteam(
+                busKind,
                 *spatial,
                 0.0f,
                 0.0f,
@@ -515,9 +553,20 @@ SoLoud::handle AudioWorld::playAudioDef(
         }
 #endif
         clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
-        return sfxBus_.play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume);
+        return bus(busKind).play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume);
     }
-    return sfxBus_.play(*clip, volume);
+    return bus(busKind).play(*clip, volume);
+}
+
+SoLoud::handle AudioWorld::playProcedural(
+    std::string_view proceduralPath,
+    const SaudioParams& params,
+    float volume) {
+    if (!ready_) {
+        return 0;
+    }
+    const AudioDef previewDef{};
+    return playSfxrDef(proceduralPath, previewDef, params, volume, false, 0.0f, 0.0f, 0.0f);
 }
 
 SoLoud::handle AudioWorld::playAudioDef3d(
@@ -534,20 +583,22 @@ SoLoud::handle AudioWorld::playAudioDef3d(
 
     const float volume = volumeOverride >= 0.0f ? volumeOverride : def.volume;
 
-    if (def.kind == AudioDefKind::Sfxr) {
-        if (def.bus == AudioDefBus::Music) {
-            return playSfxrDef(defPath, def, volume, false, 0.0f, 0.0f, 0.0f);
-        }
-        return playSfxrDef(defPath, def, volume, true, x, y, z);
-    }
-
     if (def.source.empty()) {
         return 0;
+    }
+
+    if (const ProceduralDef* proc = assets.getProceduralDef(def.source)) {
+        if (def.bus == AudioDefBus::Music) {
+            return playSfxrDef(defPath, def, proc->sfxr, volume, false, 0.0f, 0.0f, 0.0f);
+        }
+        return playSfxrDef(defPath, def, proc->sfxr, volume, true, x, y, z);
     }
 
     if (def.bus == AudioDefBus::Music) {
         return playAudioDef(assets, defPath, def, volumeOverride);
     }
+
+    const AudioBusKind busKind = busFromDef(def.bus);
 
     SoLoud::Wav* clip = loadClipForDef(assets, defPath, def);
     if (clip == nullptr) {
@@ -561,6 +612,7 @@ SoLoud::handle AudioWorld::playAudioDef3d(
             return 0;
         }
         return playSpatialSteam(
+            busKind,
             *spatial,
             x,
             y,
@@ -573,7 +625,7 @@ SoLoud::handle AudioWorld::playAudioDef3d(
     }
 #endif
     clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
-    return sfxBus_.play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    return bus(busKind).play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
 }
 
 void AudioWorld::stop(SoLoud::handle voice) {
@@ -605,10 +657,37 @@ void AudioWorld::setBusVolume(AudioBusKind kind, float volume) {
     if (!ready_) {
         return;
     }
-    const SoLoud::handle handle = kind == AudioBusKind::Music ? musicBusHandle_ : sfxBusHandle_;
+    busVolumes_[static_cast<std::size_t>(kind)] = volume;
+    if (busMuted_[static_cast<std::size_t>(kind)]) {
+        return;
+    }
+    const SoLoud::handle handle = busHandles_[static_cast<std::size_t>(kind)];
     if (handle != 0) {
         soloud_.setVolume(handle, volume);
     }
+}
+
+float AudioWorld::getBusVolume(AudioBusKind kind) const {
+    return busVolumes_[static_cast<std::size_t>(kind)];
+}
+
+void AudioWorld::setBusMuted(AudioBusKind kind, bool muted) {
+    if (!ready_) {
+        return;
+    }
+    const std::size_t index = static_cast<std::size_t>(kind);
+    if (busMuted_[index] == muted) {
+        return;
+    }
+    busMuted_[index] = muted;
+    const SoLoud::handle handle = busHandles_[index];
+    if (handle != 0) {
+        soloud_.setVolume(handle, muted ? 0.0f : busVolumes_[index]);
+    }
+}
+
+bool AudioWorld::isBusMuted(AudioBusKind kind) const {
+    return busMuted_[static_cast<std::size_t>(kind)];
 }
 
 bool AudioWorld::playMusic(AssetStore& assets, std::string_view path, float volume) {
@@ -621,7 +700,7 @@ bool AudioWorld::playMusic(AssetStore& assets, std::string_view path, float volu
     }
     stopMusic();
     stream->setLooping(true);
-    musicVoice_ = musicBus_.play(*stream, volume);
+    musicVoice_ = bus(AudioBusKind::Music).play(*stream, volume);
     return musicVoice_ != 0;
 }
 
@@ -907,6 +986,7 @@ SoLoud::Wav* AudioWorld::bakeSfxrStereo(SoLoud::Sfxr& sfxr, std::string_view cac
 }
 
 SoLoud::handle AudioWorld::playSpatialSteam(
+    AudioBusKind busKind,
     SoLoud::Wav& source,
     float x,
     float y,
@@ -921,7 +1001,7 @@ SoLoud::handle AudioWorld::playSpatialSteam(
     }
 
     source.setFilter(0, &steamAudio_->spatializeFilter());
-    const SoLoud::handle voice = sfxBus_.play(source, volume);
+    const SoLoud::handle voice = bus(busKind).play(source, volume);
     if (voice == 0) {
         return 0;
     }
@@ -942,30 +1022,34 @@ SoLoud::handle AudioWorld::playSpatialSteam(
 }
 #endif
 
-SoLoud::Filter* AudioWorld::makeBuiltinFilter(std::string_view name) {
-    std::unique_ptr<SoLoud::Filter> filter;
+std::unique_ptr<SoLoud::Filter> AudioWorld::createBuiltinFilter(std::string_view name) {
     if (name == "echo") {
-        filter = std::make_unique<SoLoud::EchoFilter>();
+        return std::make_unique<SoLoud::EchoFilter>();
     } else if (name == "biquad") {
-        filter = std::make_unique<SoLoud::BiquadResonantFilter>();
+        return std::make_unique<SoLoud::BiquadResonantFilter>();
     } else if (name == "lofi") {
-        filter = std::make_unique<SoLoud::LofiFilter>();
+        return std::make_unique<SoLoud::LofiFilter>();
     } else if (name == "flanger") {
-        filter = std::make_unique<SoLoud::FlangerFilter>();
+        return std::make_unique<SoLoud::FlangerFilter>();
     } else if (name == "bassboost") {
-        filter = std::make_unique<SoLoud::BassboostFilter>();
+        return std::make_unique<SoLoud::BassboostFilter>();
     } else if (name == "freeverb") {
-        filter = std::make_unique<SoLoud::FreeverbFilter>();
+        return std::make_unique<SoLoud::FreeverbFilter>();
     } else if (name == "robotize") {
-        filter = std::make_unique<SoLoud::RobotizeFilter>();
+        return std::make_unique<SoLoud::RobotizeFilter>();
     } else if (name == "waveshaper") {
-        filter = std::make_unique<SoLoud::WaveShaperFilter>();
+        return std::make_unique<SoLoud::WaveShaperFilter>();
     } else if (name == "dcremoval") {
-        filter = std::make_unique<SoLoud::DCRemovalFilter>();
-    } else {
+        return std::make_unique<SoLoud::DCRemovalFilter>();
+    }
+    return nullptr;
+}
+
+SoLoud::Filter* AudioWorld::makeBuiltinFilter(std::string_view name) {
+    std::unique_ptr<SoLoud::Filter> filter = createBuiltinFilter(name);
+    if (filter == nullptr) {
         return nullptr;
     }
-
     SoLoud::Filter* ptr = filter.get();
     filters_.push_back(std::move(filter));
     return ptr;
@@ -976,8 +1060,8 @@ bool AudioWorld::setUnderwaterMuffle(float amount01) {
         return false;
     }
     if (underwaterFilterSlot_ < 0) {
-        unsigned int& count = busFilterCount(AudioBusKind::Sfx);
-        if (count >= FILTERS_PER_STREAM) {
+        const unsigned int slot = nextFreeBusSlot(AudioBusKind::Sfx);
+        if (slot >= FILTERS_PER_STREAM) {
             return false;
         }
         SoLoud::Filter* filter = makeBuiltinFilter("biquad");
@@ -986,13 +1070,15 @@ bool AudioWorld::setUnderwaterMuffle(float amount01) {
         }
         auto* biquad = static_cast<SoLoud::BiquadResonantFilter*>(filter);
         biquad->setParams(SoLoud::BiquadResonantFilter::LOWPASS, 900.0f, 2.0f);
-        bus(AudioBusKind::Sfx).setFilter(count, filter);
-        underwaterFilterSlot_ = static_cast<int>(count);
-        ++count;
+        bus(AudioBusKind::Sfx).setFilter(slot, filter);
+        BusFilterState& state = busFilterSlots_[static_cast<std::size_t>(AudioBusKind::Sfx)][slot];
+        state.name = "biquad";
+        state.filter = filter;
+        underwaterFilterSlot_ = static_cast<int>(slot);
     }
     const float wet = std::clamp(amount01, 0.0f, 1.0f);
     soloud_.setFilterParameter(
-        sfxBusHandle_,
+        busHandles_[static_cast<std::size_t>(AudioBusKind::Sfx)],
         static_cast<unsigned int>(underwaterFilterSlot_),
         static_cast<unsigned int>(SoLoud::BiquadResonantFilter::WET),
         wet);
@@ -1003,8 +1089,7 @@ bool AudioWorld::attachBuiltinFilter(AudioBusKind kind, std::string_view name, u
     if (!ready_) {
         return false;
     }
-    unsigned int& count = busFilterCount(kind);
-    const unsigned int useSlot = slot < FILTERS_PER_STREAM ? slot : count;
+    const unsigned int useSlot = slot < FILTERS_PER_STREAM ? slot : nextFreeBusSlot(kind);
     if (useSlot >= FILTERS_PER_STREAM) {
         return false;
     }
@@ -1013,10 +1098,92 @@ bool AudioWorld::attachBuiltinFilter(AudioBusKind kind, std::string_view name, u
         return false;
     }
     bus(kind).setFilter(useSlot, filter);
-    if (useSlot >= count) {
-        count = useSlot + 1;
-    }
+    BusFilterState& state = busFilterSlots_[static_cast<std::size_t>(kind)][useSlot];
+    state.name = std::string{name};
+    state.filter = filter;
     return true;
+}
+
+void AudioWorld::clearBusFilter(AudioBusKind kind, unsigned int slot) {
+    if (!ready_ || slot >= FILTERS_PER_STREAM) {
+        return;
+    }
+    bus(kind).setFilter(slot, nullptr);
+    busFilterSlots_[static_cast<std::size_t>(kind)][slot] = BusFilterState{};
+}
+
+std::string_view AudioWorld::busFilterName(AudioBusKind kind, unsigned int slot) const {
+    if (slot >= FILTERS_PER_STREAM) {
+        return {};
+    }
+    return busFilterSlots_[static_cast<std::size_t>(kind)][slot].name;
+}
+
+bool AudioWorld::setBusFilterParam(AudioBusKind kind, unsigned int slot, unsigned int paramIndex, float value) {
+    if (!ready_ || slot >= FILTERS_PER_STREAM) {
+        return false;
+    }
+    const SoLoud::handle handle = busHandles_[static_cast<std::size_t>(kind)];
+    if (handle == 0) {
+        return false;
+    }
+    soloud_.setFilterParameter(handle, slot, paramIndex, value);
+    return true;
+}
+
+float AudioWorld::getBusFilterParam(AudioBusKind kind, unsigned int slot, unsigned int paramIndex) {
+    if (!ready_ || slot >= FILTERS_PER_STREAM) {
+        return 0.0f;
+    }
+    const SoLoud::handle handle = busHandles_[static_cast<std::size_t>(kind)];
+    if (handle == 0) {
+        return 0.0f;
+    }
+    return soloud_.getFilterParameter(handle, slot, paramIndex);
+}
+
+void AudioWorld::loadBusConfig(const BusConfig& config) {
+    if (!ready_) {
+        return;
+    }
+    for (std::size_t i = 0; i < config.buses.size(); ++i) {
+        const AudioBusKind kind = busFromDef(static_cast<AudioDefBus>(i));
+        const BusDef& def = config.buses[i];
+
+        for (unsigned int slot = 0; slot < FILTERS_PER_STREAM; ++slot) {
+            clearBusFilter(kind, slot);
+        }
+        for (unsigned int slot = 0; slot < FILTERS_PER_STREAM; ++slot) {
+            const BusFilterSlot& filterSlot = def.slots[slot];
+            if (filterSlot.name.empty()) {
+                continue;
+            }
+            if (!attachBuiltinFilter(kind, filterSlot.name, slot)) {
+                continue;
+            }
+            for (unsigned int p = 0; p < filterSlot.params.size(); ++p) {
+                setBusFilterParam(kind, slot, p, filterSlot.params[p]);
+            }
+        }
+
+        setBusVolume(kind, def.volume);
+        setBusMuted(kind, def.muted);
+    }
+}
+
+BusConfig AudioWorld::exportBusConfig() const {
+    BusConfig config;
+    for (std::size_t i = 0; i < config.buses.size(); ++i) {
+        const AudioBusKind kind = busFromDef(static_cast<AudioDefBus>(i));
+        BusDef& def = config.buses[i];
+        def.volume = getBusVolume(kind);
+        def.muted = isBusMuted(kind);
+        const auto& slots = busFilterSlots_[static_cast<std::size_t>(kind)];
+        for (unsigned int slot = 0; slot < FILTERS_PER_STREAM; ++slot) {
+            def.slots[slot].name = slots[slot].name;
+        }
+    }
+    return config;
 }
 
 bool AudioWorld::attachGlobalFilter(std::string_view name, unsigned int slot) {

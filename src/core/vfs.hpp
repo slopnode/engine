@@ -47,7 +47,8 @@ enum class AssetKind {
     Sound,         /**< .ogg under sound/ */
     SoundWav,      /**< .wav under sound/ */
     Audio,         /**< .s7 under audio/ */
-    AudioSaudio,   /**< .saudio under audio/ */
+    AudioSaudio,   /**< .saudio under audio/ -- a playable definition (source + bus/volume/filters) */
+    AudioProcedural, /**< .sfxr under audio/ -- pure sfxr synth params, no playback wrapper */
     Particle,      /**< .prt under particles/ */
 };
 

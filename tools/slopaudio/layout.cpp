@@ -4,12 +4,14 @@ namespace slopaudio {
 
 UiLayout computeUiLayout(
     float menuHeight,
+    float tabBarHeight,
     float statusHeight,
     float transportHeight,
     float leftWidth,
     float rightWidth) {
     UiLayout layout;
     layout.menuHeight = menuHeight;
+    layout.tabBarHeight = tabBarHeight;
     layout.statusHeight = statusHeight;
     layout.transportHeight = transportHeight;
     layout.leftWidth = leftWidth;
@@ -17,9 +19,10 @@ UiLayout computeUiLayout(
 
     const float screenW = static_cast<float>(GetScreenWidth());
     const float screenH = static_cast<float>(GetScreenHeight());
+    const float top = menuHeight + tabBarHeight;
 
     float contentW = screenW - leftWidth - rightWidth;
-    float contentH = screenH - menuHeight - statusHeight - transportHeight;
+    float contentH = screenH - top - statusHeight - transportHeight;
     if (contentW < 64.0f) {
         contentW = 64.0f;
     }
@@ -27,10 +30,12 @@ UiLayout computeUiLayout(
         contentH = 64.0f;
     }
 
-    layout.content = {leftWidth, menuHeight, contentW, contentH};
-    layout.leftPanel = {0.0f, menuHeight, leftWidth, contentH + transportHeight};
-    layout.rightPanel = {leftWidth + contentW, menuHeight, rightWidth, contentH + transportHeight};
-    layout.transportPanel = {leftWidth, menuHeight + contentH, contentW, transportHeight};
+    layout.tabBar = {0.0f, menuHeight, screenW, tabBarHeight};
+    layout.content = {leftWidth, top, contentW, contentH};
+    layout.leftPanel = {0.0f, top, leftWidth, contentH + transportHeight};
+    layout.rightPanel = {leftWidth + contentW, top, rightWidth, contentH + transportHeight};
+    layout.transportPanel = {leftWidth, top + contentH, contentW, transportHeight};
+    layout.fullPanel = {0.0f, top, leftWidth + contentW + rightWidth, contentH + transportHeight};
     return layout;
 }
 

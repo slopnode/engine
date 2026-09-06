@@ -13,6 +13,7 @@
 #include <soloud_wav.h>
 #include <soloud_wavstream.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -26,6 +27,13 @@ namespace slopengine {
 enum class AudioBusKind {
     Sfx,
     Music,
+    Ui,
+    Hud,
+    Voices,
+    Ambience,
+    Player,
+    View,
+    Count,
 };
 
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
@@ -77,10 +85,20 @@ public:
         float y,
         float z,
         float volumeOverride = -1.0f);
+    // Auditions a bare procedural (.sfxr) def with no owning Definition: plain Sfx bus,
+    // no loop/spatial/filters. For tooling (slopaudio) previewing a Procedural document.
+    SoLoud::handle playProcedural(
+        std::string_view proceduralPath,
+        const SaudioParams& params,
+        float volume = 1.0f);
 
     void stop(SoLoud::handle voice);
     void setVolume(SoLoud::handle voice, float volume);
     void setBusVolume(AudioBusKind bus, float volume);
+    float getBusVolume(AudioBusKind bus) const;
+    // Mutes without losing the volume set via setBusVolume; unmuting restores it.
+    void setBusMuted(AudioBusKind bus, bool muted);
+    bool isBusMuted(AudioBusKind bus) const;
 
     bool playMusic(AssetStore& assets, std::string_view path, float volume = 1.0f);
     void stopMusic();
@@ -113,20 +131,44 @@ public:
     // muffled; the filter attaches lazily on first non-zero call.
     bool setUnderwaterMuffle(float amount01);
 
+    // Instantiates one of the builtin SoLoud filters by name ("echo", "biquad", "lofi",
+    // "flanger", "bassboost", "freeverb", "robotize", "waveshaper", "dcremoval"), or nullptr
+    // for an unknown name. Ownerless -- callers who just want param metadata (getParamCount /
+    // getParamName / getParamMin / getParamMax) can query it and let it destruct; attaching it
+    // to a bus goes through attachBuiltinFilter instead, which keeps it alive.
+    static std::unique_ptr<SoLoud::Filter> createBuiltinFilter(std::string_view name);
+
     bool attachBuiltinFilter(AudioBusKind bus, std::string_view name, unsigned int slot = 0);
     bool attachGlobalFilter(std::string_view name, unsigned int slot = 0);
+    void clearBusFilter(AudioBusKind bus, unsigned int slot);
+    // Name of the builtin filter attached at @p bus / @p slot, or empty when unattached.
+    std::string_view busFilterName(AudioBusKind bus, unsigned int slot) const;
+    bool setBusFilterParam(AudioBusKind bus, unsigned int slot, unsigned int paramIndex, float value);
+    // Not const: SoLoud::Soloud::getFilterParameter isn't const-qualified even though it
+    // only reads live filter-instance state.
+    float getBusFilterParam(AudioBusKind bus, unsigned int slot, unsigned int paramIndex);
     void registerSchemeFilter(std::string name, void* proc);
     bool hasSchemeFilter(std::string_view name) const;
+
+    // Applies a full mixer snapshot (volume/mute/filter chains) to every bus, replacing
+    // whatever is currently attached. Used at startup to apply audio/buses.saudio.
+    void loadBusConfig(const BusConfig& config);
+    // Reads the live mixer state back out, e.g. for slopaudio to save what's being auditioned.
+    BusConfig exportBusConfig() const;
+    // Maps a BusConfig::buses index (AudioDefBus) to the AudioBusKind used everywhere else
+    // in this API. Public so tooling can iterate a BusConfig without reaching into privates.
+    static AudioBusKind busKindFromDefBus(AudioDefBus bus) { return busFromDef(bus); }
 
 private:
     SoLoud::Wav* loadClip(AssetStore& assets, std::string_view path);
     SoLoud::Wav* loadClipForDef(AssetStore& assets, std::string_view defPath, const AudioDef& def);
     SoLoud::WavStream* loadStream(AssetStore& assets, std::string_view path);
     SoLoud::WavStream* loadStreamForDef(AssetStore& assets, std::string_view defPath, const AudioDef& def);
-    SoLoud::Sfxr* loadSfxrForDef(std::string_view defPath, const AudioDef& def);
+    SoLoud::Sfxr* loadSfxrForDef(std::string_view defPath, const SaudioParams& params, const AudioDef& def);
     SoLoud::handle playSfxrDef(
         std::string_view defPath,
         const AudioDef& def,
+        const SaudioParams& params,
         float volume,
         bool spatial3d,
         float x,
@@ -135,8 +177,9 @@ private:
     void applyFilters(SoLoud::AudioSource& source, const std::vector<std::string>& names);
     SoLoud::Filter* makeBuiltinFilter(std::string_view name);
     SoLoud::Bus& bus(AudioBusKind kind);
-    unsigned int& busFilterCount(AudioBusKind kind);
+    unsigned int nextFreeBusSlot(AudioBusKind kind) const;
     static AudioBusKind busFromDef(AudioDefBus bus);
+    static AudioDefBus defFromBus(AudioBusKind bus);
     static void applySaudioParams(SoLoud::Sfxr& sfxr, const SaudioParams& params);
 
     void trackListenerAttached(SoLoud::handle voice, float forwardOffset);
@@ -146,6 +189,7 @@ private:
     SoLoud::Wav* bakeSfxrStereo(SoLoud::Sfxr& sfxr, std::string_view cacheKey, bool loop);
     SoLoud::Wav* prepareSpatialSteamWav(SoLoud::Wav* clip, std::string_view cacheKey, bool loop);
     SoLoud::handle playSpatialSteam(
+        AudioBusKind busKind,
         SoLoud::Wav& source,
         float x,
         float y,
@@ -162,11 +206,21 @@ private:
         float forwardOffset = 0.0f;
     };
 
+    // What's attached at one filter slot on a bus, mirroring what SoLoud itself holds so
+    // slopaudio can read back the live chain (name + param values) for the Bus tab and saves.
+    struct BusFilterState {
+        std::string name;
+        SoLoud::Filter* filter = nullptr;
+    };
+
+    static constexpr std::size_t kBusCount = static_cast<std::size_t>(AudioBusKind::Count);
+
     SoLoud::Soloud soloud_;
-    SoLoud::Bus sfxBus_;
-    SoLoud::Bus musicBus_;
-    SoLoud::handle sfxBusHandle_ = 0;
-    SoLoud::handle musicBusHandle_ = 0;
+    std::array<SoLoud::Bus, kBusCount> buses_;
+    std::array<SoLoud::handle, kBusCount> busHandles_{};
+    std::array<std::array<BusFilterState, FILTERS_PER_STREAM>, kBusCount> busFilterSlots_{};
+    std::array<float, kBusCount> busVolumes_{};
+    std::array<bool, kBusCount> busMuted_{};
     SoLoud::handle musicVoice_ = 0;
     bool ready_ = false;
 
@@ -177,8 +231,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<SoLoud::Sfxr>> sfxrByDef_;
     std::vector<std::unique_ptr<SoLoud::Filter>> filters_;
     std::vector<ListenerAttachedVoice> listenerAttached_;
-    unsigned int sfxFilterCount_ = 0;
-    unsigned int musicFilterCount_ = 0;
     int underwaterFilterSlot_ = -1;
     std::unordered_map<std::string, void*> schemeFilters_;
     unsigned int globalFilterCount_ = 0;

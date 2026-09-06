@@ -430,6 +430,7 @@ add_executable(slopaudio
     tools/slopaudio/main.cpp
     tools/slopaudio/editor.cpp
     tools/slopaudio/browser.cpp
+    tools/slopaudio/bus_editor.cpp
     tools/slopaudio/waveform_view.cpp
     tools/slopaudio/layout.cpp
     src/ui/imgui_fonts.cpp

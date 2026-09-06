@@ -64,6 +64,8 @@ App::App(AppConfig config)
     init_window();
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
+    } else if (const BusConfig* busConfig = assetStore_.getBusConfig()) {
+        audioWorld_->loadBusConfig(*busConfig);
     }
     ImFont* consoleMonoFont =
         setupImGuiWithUiAndMonoFont(assetStore_, kDefaultUiFontPath, kMonoUiFontPath, true, "slopengine");
