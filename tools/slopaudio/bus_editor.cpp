@@ -6,6 +6,8 @@
 #include "assets/saudio_loader.hpp"
 #include "audio/audio_world.hpp"
 
+#include "ui/icon_ui.hpp"
+
 #include "imgui.h"
 
 #include <array>
@@ -60,15 +62,15 @@ void resyncBusFilters(AudioWorld& audio, AudioBusKind kind, BusDef& def) {
 }
 
 void drawBusPanel(AudioWorld& audio, AudioBusKind kind, BusDef& def, bool& dirty) {
-    if (ImGui::SliderFloat("Volume", &def.volume, 0.0f, 2.0f)) {
-        audio.setBusVolume(kind, def.volume);
-        dirty = true;
-    }
-    ImGui::SameLine();
     bool muted = def.muted;
     if (ImGui::Checkbox("Mute", &muted)) {
         def.muted = muted;
         audio.setBusMuted(kind, muted);
+        dirty = true;
+    }
+    ImGui::SameLine();
+    if (slopengine::sliderFloatWithInput("Volume", &def.volume, 0.0f, 2.0f)) {
+        audio.setBusVolume(kind, def.volume);
         dirty = true;
     }
 

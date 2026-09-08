@@ -104,7 +104,12 @@ bool Editor::loadSoundFont(slopengine::AssetStore& assets, const std::string& vi
     doc = EditorDocument{};
     doc.virtualPath = virtualPath;
     doc.sourceKind = SourceKind::SoundFont;
-    doc.soundFontInfo = readSoundFontInfo(*resolved);
+    const std::string cacheKey = resolved->string();
+    auto cached = soundFontInfoCache.find(cacheKey);
+    if (cached == soundFontInfoCache.end()) {
+        cached = soundFontInfoCache.emplace(cacheKey, readSoundFontInfo(*resolved)).first;
+    }
+    doc.soundFontInfo = cached->second;
     doc.open = true;
     doc.dirty = false;
     doc.waveformDirty = false;

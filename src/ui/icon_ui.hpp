@@ -7,6 +7,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <string_view>
 
@@ -222,6 +223,82 @@ inline bool beginMenuWithIcon(
     }
     ImGui::SameLine();
     return ImGui::BeginMenu(label, enabled);
+}
+
+// The widest of a group of labels, in the current font -- feed this as `labelWidth` to every
+// slider in a SeparatorText section so they all get the same frame width and their labels form
+// a left-aligned column, instead of each slider stretching to its own (differently-sized) label.
+inline float maxLabelWidth(std::initializer_list<const char*> labels) {
+    float maxWidth = 0.0f;
+    for (const char* label : labels) {
+        maxWidth = std::max(maxWidth, ImGui::CalcTextSize(label, nullptr, true).x);
+    }
+    return maxWidth;
+}
+
+// Slider's own frame width, sized so [input box][slider][label] ends exactly at the content
+// region's right edge instead of the label running past it (ImGui's default item width is a
+// fixed font-relative constant, not the panel's actual available width). Draw any other
+// same-line content (a checkbox, a button) before calling this, not after -- this claims all
+// remaining width on the line for itself.
+inline float sliderWithInputFrameWidth(float reservedLabelWidth) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float trailing = reservedLabelWidth > 0.0f ? style.ItemInnerSpacing.x + reservedLabelWidth : 0.0f;
+    return std::max(24.0f, ImGui::GetContentRegionAvail().x - trailing);
+}
+
+// A slider paired with an editable input box to its left, so a caller can type an exact value
+// instead of dragging for it. Suppresses the slider's own value readout (which the input box
+// replaces) via an empty display format. `labelWidth` defaults to this slider's own label width
+// (a standalone slider fills the row); pass maxLabelWidth() of a whole group to align a column
+// of sliders on the widest label in that group instead.
+inline bool sliderFloatWithInput(
+    const char* label,
+    float* value,
+    float lo,
+    float hi,
+    const char* format = "%.3f",
+    float inputWidth = 64.0f,
+    float labelWidth = -1.0f) {
+    ImGui::PushID(label);
+    bool changed = false;
+    ImGui::SetNextItemWidth(inputWidth);
+    if (ImGui::InputFloat("##input", value, 0.0f, 0.0f, format)) {
+        *value = std::clamp(*value, lo, hi);
+        changed = true;
+    }
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    const float reserved = labelWidth >= 0.0f ? labelWidth : ImGui::CalcTextSize(label, nullptr, true).x;
+    ImGui::SetNextItemWidth(sliderWithInputFrameWidth(reserved));
+    if (ImGui::SliderFloat(label, value, lo, hi, "", ImGuiSliderFlags_NoInput)) {
+        changed = true;
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+inline bool sliderIntWithInput(
+    const char* label,
+    int* value,
+    int lo,
+    int hi,
+    float inputWidth = 64.0f,
+    float labelWidth = -1.0f) {
+    ImGui::PushID(label);
+    bool changed = false;
+    ImGui::SetNextItemWidth(inputWidth);
+    if (ImGui::InputInt("##input", value, 0, 0)) {
+        *value = std::clamp(*value, lo, hi);
+        changed = true;
+    }
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    const float reserved = labelWidth >= 0.0f ? labelWidth : ImGui::CalcTextSize(label, nullptr, true).x;
+    ImGui::SetNextItemWidth(sliderWithInputFrameWidth(reserved));
+    if (ImGui::SliderInt(label, value, lo, hi, "", ImGuiSliderFlags_NoInput)) {
+        changed = true;
+    }
+    ImGui::PopID();
+    return changed;
 }
 
 inline bool collapsingHeaderWithIcon(

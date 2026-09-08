@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 
 namespace slopengine {
 class AudioWorld;
@@ -59,6 +60,11 @@ struct Editor {
     char newPathBuf[256] = {};
     float waveformWindowMs = 250.0f;
     float midiWindowMs = 4000.0f;
+
+    // Keyed by resolved filesystem path. readSoundFontInfo is cheap now (it no longer decodes
+    // sample data), but a soundfont's contents can't change out from under the tool while it's
+    // running, so there's no reason to reparse on every repeat click either.
+    std::unordered_map<std::string, SoundFontInfo> soundFontInfoCache;
 
     void setStatus(std::string message, float seconds = 3.0f);
     void markDirty();

@@ -2,9 +2,14 @@
 
 #include "audio/audio_world.hpp"
 
+#include "ui/icon_ui.hpp"
+
 #include "imgui.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 using slopengine::AudioWorld;
@@ -24,13 +29,97 @@ unsigned int activeFilterCount(const std::array<BusFilterSlot, slopengine::kMaxF
     return count;
 }
 
-// One param widget, its kind (slider/int-slider/checkbox) driven entirely by SoLoud's own
-// Filter::getParamType/Min/Max -- new builtin filters get a working UI with no changes here.
+float toPercent(float raw) { return raw * 100.0f; }
+float fromPercent(float pct) { return pct / 100.0f; }
+
+float toMilliseconds(float seconds) { return seconds * 1000.0f; }
+float fromMilliseconds(float ms) { return ms / 1000.0f; }
+
+float toDecibels(float gain) { return 20.0f * std::log10(std::max(gain, 0.001f)); }
+float fromDecibels(float db) { return db <= -59.9f ? 0.0f : std::pow(10.0f, db / 20.0f); }
+
+struct ParamDisplay {
+    const char* label;
+    const char* format;
+    float (*toDisplay)(float);
+    float (*toRaw)(float);
+};
+
+// Reinterprets SoLoud's raw per-filter dials (mostly bare 0..1/0..N multipliers) as labels
+// and units an audio editor would expect. Falls back to SoLoud's own name/range for anything
+// not called out here, so unrecognized filters and params still get a working, if plainer, UI.
+ParamDisplay paramDisplay(std::string_view filterName, unsigned int paramIndex, const char* soloudName) {
+    if (std::string_view(soloudName) == "Wet") {
+        return {"Mix", "%.0f%%", toPercent, fromPercent};
+    }
+    if (filterName == "echo") {
+        if (paramIndex == 1) return {"Delay", "%.0f ms", toMilliseconds, fromMilliseconds};
+        if (paramIndex == 2) return {"Feedback", "%.0f%%", toPercent, fromPercent};
+        if (paramIndex == 3) return {"Damping", "%.0f%%", toPercent, fromPercent};
+    } else if (filterName == "biquad") {
+        if (paramIndex == 2) return {"Cutoff", "%.0f Hz", nullptr, nullptr};
+        if (paramIndex == 3) return {"Resonance (Q)", "%.2f", nullptr, nullptr};
+    } else if (filterName == "eq") {
+        if (paramIndex >= 1) return {soloudName, "%.1f dB", toDecibels, fromDecibels};
+    } else if (filterName == "lofi") {
+        if (paramIndex == 1) return {"Sample Rate", "%.0f Hz", nullptr, nullptr};
+        if (paramIndex == 2) return {"Bit Depth", "%.1f bit", nullptr, nullptr};
+    } else if (filterName == "flanger") {
+        if (paramIndex == 1) return {"Delay", "%.1f ms", toMilliseconds, fromMilliseconds};
+        if (paramIndex == 2) return {"Rate", "%.2f Hz", nullptr, nullptr};
+    } else if (filterName == "bassboost") {
+        if (paramIndex == 1) return {"Boost", "%.1f dB", toDecibels, fromDecibels};
+    } else if (filterName == "freeverb") {
+        if (paramIndex == 2) return {"Room Size", "%.0f%%", toPercent, fromPercent};
+        if (paramIndex == 3) return {"Damping", "%.0f%%", toPercent, fromPercent};
+        if (paramIndex == 4) return {"Stereo Width", "%.0f%%", toPercent, fromPercent};
+    } else if (filterName == "robotize") {
+        if (paramIndex == 1) return {"Rate", "%.1f Hz", nullptr, nullptr};
+    } else if (filterName == "waveshaper") {
+        if (paramIndex == 1) return {"Drive", "%.0f%%", toPercent, fromPercent};
+    }
+    return {soloudName, "%.3f", nullptr, nullptr};
+}
+
+inline constexpr const char* kBiquadTypeItems = "Lowpass\0Highpass\0Bandpass\0";
+inline constexpr const char* kRobotizeWaveItems = "Square\0Saw\0Sine\0Triangle\0Bounce\0Jaws\0Humps\0";
+
+// Widest label among a filter's slider-rendered params (skips checkboxes and the Type/Waveform
+// combos, which don't use the shared slider width), so every slider in one filter's param block
+// lines up on the same column instead of each stretching to its own label.
+float filterParamGroupWidth(std::string_view filterName, SoLoud::Filter& filter) {
+    float maxWidth = 0.0f;
+    const int count = filter.getParamCount();
+    for (int i = 0; i < count; ++i) {
+        const unsigned int paramIndex = static_cast<unsigned int>(i);
+        const unsigned int type = filter.getParamType(paramIndex);
+        if (type == SoLoud::Filter::BOOL_PARAM) {
+            continue;
+        }
+        const char* name = filter.getParamName(paramIndex);
+        if (type == SoLoud::Filter::INT_PARAM) {
+            if ((filterName == "biquad" && paramIndex == 1) || (filterName == "robotize" && paramIndex == 2)) {
+                continue;
+            }
+            maxWidth = std::max(maxWidth, ImGui::CalcTextSize(name, nullptr, true).x);
+            continue;
+        }
+        const ParamDisplay display = paramDisplay(filterName, paramIndex, name);
+        maxWidth = std::max(maxWidth, ImGui::CalcTextSize(display.label, nullptr, true).x);
+    }
+    return maxWidth;
+}
+
+// One param widget, its kind (slider/int-slider/checkbox) driven by SoLoud's own
+// Filter::getParamType/Min/Max, with a per-filter label/unit/combo override from
+// paramDisplay() layered on top so it reads like an audio tool instead of a raw param dump.
 bool drawFilterParam(
     unsigned int slot,
+    std::string_view filterName,
     SoLoud::Filter& filter,
     unsigned int paramIndex,
     float& value,
+    float labelWidth,
     const FilterParamChangedFn& onParamChanged) {
     const char* name = filter.getParamName(paramIndex);
     const unsigned int type = filter.getParamType(paramIndex);
@@ -47,12 +136,32 @@ bool drawFilterParam(
         }
     } else if (type == SoLoud::Filter::INT_PARAM) {
         int intValue = static_cast<int>(value);
-        if (ImGui::SliderInt(name, &intValue, static_cast<int>(lo), static_cast<int>(hi))) {
+        if (filterName == "biquad" && paramIndex == 1) {
+            changed = ImGui::Combo("Type", &intValue, kBiquadTypeItems);
+        } else if (filterName == "robotize" && paramIndex == 2) {
+            changed = ImGui::Combo("Waveform", &intValue, kRobotizeWaveItems);
+        } else {
+            changed = slopengine::sliderIntWithInput(
+                name, &intValue, static_cast<int>(lo), static_cast<int>(hi), 64.0f, labelWidth);
+        }
+        if (changed) {
             value = static_cast<float>(intValue);
-            changed = true;
         }
     } else {
-        changed = ImGui::SliderFloat(name, &value, lo, hi);
+        const ParamDisplay display = paramDisplay(filterName, paramIndex, name);
+        if (display.toDisplay == nullptr) {
+            changed = slopengine::sliderFloatWithInput(display.label, &value, lo, hi, display.format, 64.0f, labelWidth);
+        } else {
+            float shown = display.toDisplay(value);
+            const float dispLo = display.toDisplay(lo);
+            const float dispHi = display.toDisplay(hi);
+            if (slopengine::sliderFloatWithInput(
+                    display.label, &shown, std::min(dispLo, dispHi), std::max(dispLo, dispHi), display.format,
+                    64.0f, labelWidth)) {
+                value = std::clamp(display.toRaw(shown), lo, hi);
+                changed = true;
+            }
+        }
     }
     ImGui::PopID();
 
@@ -98,8 +207,11 @@ FilterRowAction drawActiveFilterRow(
         ImGui::Indent();
         const int count = filter->getParamCount();
         slotDoc.params.resize(static_cast<std::size_t>(count));
+        const float labelWidth = filterParamGroupWidth(slotDoc.name, *filter);
         for (int i = 0; i < count; ++i) {
-            drawFilterParam(slot, *filter, static_cast<unsigned int>(i), slotDoc.params[static_cast<std::size_t>(i)], onParamChanged);
+            drawFilterParam(
+                slot, slotDoc.name, *filter, static_cast<unsigned int>(i),
+                slotDoc.params[static_cast<std::size_t>(i)], labelWidth, onParamChanged);
         }
         ImGui::Unindent();
     }

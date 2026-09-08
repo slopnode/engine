@@ -31,19 +31,35 @@ const char* kNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "
 
 } // namespace
 
+namespace {
+
+// "Piano 1: Acoustic Grand Piano" when both a track name and a program are known, falling back
+// to "Track N" / omitting the instrument when either is missing. Channel 9 is always labeled
+// "Drums" regardless of its program, per GM convention.
+std::string midiTrackLabel(const MidiTrackData& track) {
+    std::string base = track.name.empty() ? ("Track " + std::to_string(track.index + 1)) : track.name;
+    if (track.channel == 9) {
+        return base + ": Drums";
+    }
+    if (track.programSet) {
+        return base + ": " + gmProgramName(track.program);
+    }
+    return base;
+}
+
+} // namespace
+
 void drawMidiChannelLegend(const MidiTrackView& midi, float width) {
-    if (midi.channels.empty()) {
-        ImGui::TextDisabled("No channels");
+    if (midi.tracks.empty()) {
+        ImGui::TextDisabled("No tracks");
         return;
     }
 
     const float windowVisibleX2 = ImGui::GetCursorScreenPos().x + width;
-    for (std::size_t i = 0; i < midi.channels.size(); ++i) {
-        const MidiChannelTrack& track = midi.channels[i];
-        const ImU32 color = midiChannelColor(track.channel);
-        const std::string label = track.channel == 9
-            ? std::string("Drums")
-            : ("Ch " + std::to_string(track.channel + 1) + ": " + gmProgramName(track.program));
+    for (std::size_t i = 0; i < midi.tracks.size(); ++i) {
+        const MidiTrackData& track = midi.tracks[i];
+        const ImU32 color = midiTrackColor(static_cast<int>(i), track.channel == 9);
+        const std::string label = midiTrackLabel(track);
         const ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
         const float chipWidth = 12.0f + 4.0f + textSize.x;
 
@@ -65,11 +81,11 @@ void drawMidiChannelLegend(const MidiTrackView& midi, float width) {
     }
 }
 
-ImU32 midiChannelColor(int channel) {
-    if (channel == 9) {
+ImU32 midiTrackColor(int index, bool isPercussion) {
+    if (isPercussion) {
         return IM_COL32(180, 182, 190, 235);
     }
-    const float hue = std::fmod(static_cast<float>(channel) * 0.6180339887f, 1.0f);
+    const float hue = std::fmod(static_cast<float>(index) * 0.6180339887f, 1.0f);
     float r = 0.0f, g = 0.0f, b = 0.0f;
     ImGui::ColorConvertHSVtoRGB(hue, 0.62f, 0.95f, r, g, b);
     return IM_COL32(
@@ -110,7 +126,7 @@ void drawMidiTrackPanel(const MidiTrackView& midi, float& windowMs, float playhe
     int minKey = 60;
     int maxKey = 60;
     bool any = false;
-    for (const MidiChannelTrack& track : midi.channels) {
+    for (const MidiTrackData& track : midi.tracks) {
         for (const MidiNote& note : track.notes) {
             if (!any) {
                 minKey = maxKey = note.key;
@@ -210,8 +226,9 @@ void drawMidiTrackPanel(const MidiTrackView& midi, float& windowMs, float playhe
     }
 
     bool drewAnyNote = false;
-    for (const MidiChannelTrack& track : midi.channels) {
-        const ImU32 baseColor = midiChannelColor(track.channel);
+    for (std::size_t i = 0; i < midi.tracks.size(); ++i) {
+        const MidiTrackData& track = midi.tracks[i];
+        const ImU32 baseColor = midiTrackColor(static_cast<int>(i), track.channel == 9);
         for (const MidiNote& note : track.notes) {
             const float startPx = note.startSec * 1000.0f * pixelsPerMs;
             const float endPx = note.endSec * 1000.0f * pixelsPerMs;

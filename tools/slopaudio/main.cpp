@@ -22,6 +22,7 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -30,13 +31,16 @@
 #include <optional>
 #include <string>
 #include <system_error>
+#include <vector>
 
 using slopengine::beginMainMenuBar;
 using slopengine::beginMenuWithIcon;
 using slopengine::buttonWithIcon;
 using slopengine::endMainMenuBar;
 using slopengine::kDefaultIconSet;
+using slopengine::maxLabelWidth;
 using slopengine::menuItemWithIcon;
+using slopengine::sliderFloatWithInput;
 
 namespace {
 
@@ -153,8 +157,9 @@ void sliderField(
     float& value,
     std::uint32_t field,
     float lo,
-    float hi) {
-    if (ImGui::SliderFloat(label, &value, lo, hi)) {
+    float hi,
+    float labelWidth = -1.0f) {
+    if (sliderFloatWithInput(label, &value, lo, hi, "%.3f", 64.0f, labelWidth)) {
         editor.doc.procedural.sfxr.setMask |= field;
         editor.markDirty();
     }
@@ -171,10 +176,13 @@ void sliderConverted(
     float dispHi,
     const char* format,
     float (*toDisplay)(float),
-    float (*toRaw)(float)) {
+    float (*toRaw)(float),
+    float rawLo = 0.0f,
+    float rawHi = 1.0f,
+    float labelWidth = -1.0f) {
     float display = toDisplay(raw);
-    if (ImGui::SliderFloat(label, &display, dispLo, dispHi, format)) {
-        raw = std::clamp(toRaw(display), 0.0f, 1.0f);
+    if (sliderFloatWithInput(label, &display, dispLo, dispHi, format, 64.0f, labelWidth)) {
+        raw = std::clamp(toRaw(display), rawLo, rawHi);
         editor.doc.procedural.sfxr.setMask |= field;
         editor.markDirty();
     }
@@ -205,6 +213,18 @@ float sfxrPulseWidthPctToDuty(float pct) { return 1.0f - pct / 50.0f; }
 float sfxrToPercent(float t) { return t * 100.0f; }
 float sfxrFromPercent(float pct) { return pct / 100.0f; }
 
+// The arpeggio's pitch jump is a period multiplier (soloud_sfxr.cpp:257-260), and period is
+// proportional to 1/freq^2, so the resulting pitch ratio is 1/sqrt(arpMod) -- expressing that
+// in semitones (12*log2 of the ratio) is what makes it read as an actual musical interval.
+float sfxrArpModToArpMultiplier(float t) {
+    return t >= 0.0f ? (1.0f - t * t * 0.9f) : (1.0f + t * t * 10.0f);
+}
+float sfxrArpModToSemitones(float t) { return -6.0f * std::log2(sfxrArpModToArpMultiplier(t)); }
+float sfxrSemitonesToArpMod(float semitones) {
+    const float arpMod = std::pow(2.0f, -semitones / 6.0f);
+    return arpMod <= 1.0f ? std::sqrt((1.0f - arpMod) / 0.9f) : -std::sqrt((arpMod - 1.0f) / 10.0f);
+}
+
 void drawProceduralInspector(slopaudio::Editor& editor, slopengine::AssetStore& assets) {
     slopengine::SaudioParams& p = editor.doc.procedural.sfxr;
 
@@ -228,69 +248,94 @@ void drawProceduralInspector(slopaudio::Editor& editor, slopengine::AssetStore& 
     }
 
     ImGui::SeparatorText("Frequency");
+    const float freqWidth = maxLabelWidth(
+        {"Base Freq", "Freq Limit", "Frequency Slide", "Delta Slide", "Pulse Width", "Duty Sweep"});
     sliderConverted(
         editor, "Base Freq", p.baseFreq, slopengine::SaudioField_Freq, 0.0f, 441.0f, "%.1f Hz",
-        sfxrBaseFreqToHz, sfxrHzToBaseFreq);
+        sfxrBaseFreqToHz, sfxrHzToBaseFreq, 0.0f, 1.0f, freqWidth);
     sliderConverted(
         editor, "Freq Limit", p.freqLimit, slopengine::SaudioField_FreqLimit, 0.0f, 441.0f, "%.1f Hz",
-        sfxrBaseFreqToHz, sfxrHzToBaseFreq);
-    sliderField(editor, "Freq Ramp", p.freqRamp, slopengine::SaudioField_FreqRamp, -1.0f, 1.0f);
-    sliderField(editor, "Freq Delta Ramp", p.freqDramp, slopengine::SaudioField_FreqDramp, -1.0f, 1.0f);
+        sfxrBaseFreqToHz, sfxrHzToBaseFreq, 0.0f, 1.0f, freqWidth);
+    sliderConverted(
+        editor, "Frequency Slide", p.freqRamp, slopengine::SaudioField_FreqRamp, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, freqWidth);
+    sliderConverted(
+        editor, "Delta Slide", p.freqDramp, slopengine::SaudioField_FreqDramp, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, freqWidth);
     sliderConverted(
         editor, "Pulse Width", p.duty, slopengine::SaudioField_Duty, 0.0f, 50.0f, "%.0f%%",
-        sfxrDutyToPulseWidthPct, sfxrPulseWidthPctToDuty);
-    sliderField(editor, "Duty Ramp", p.dutyRamp, slopengine::SaudioField_DutyRamp, -1.0f, 1.0f);
+        sfxrDutyToPulseWidthPct, sfxrPulseWidthPctToDuty, 0.0f, 1.0f, freqWidth);
+    sliderConverted(
+        editor, "Duty Sweep", p.dutyRamp, slopengine::SaudioField_DutyRamp, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, freqWidth);
 
     ImGui::SeparatorText("Vibrato");
+    const float vibWidth = maxLabelWidth({"Strength", "Speed", "Delay"});
     sliderConverted(
         editor, "Strength", p.vibStrength, slopengine::SaudioField_VibStrength, 0.0f, 100.0f, "%.0f%%",
-        sfxrToPercent, sfxrFromPercent);
+        sfxrToPercent, sfxrFromPercent, 0.0f, 1.0f, vibWidth);
     sliderConverted(
         editor, "Speed", p.vibSpeed, slopengine::SaudioField_VibSpeed, 0.0f, 70.0f, "%.1f Hz",
-        sfxrVibToHz, sfxrHzToVib);
-    sliderField(editor, "Delay", p.vibDelay, slopengine::SaudioField_VibDelay, 0.0f, 1.0f);
+        sfxrVibToHz, sfxrHzToVib, 0.0f, 1.0f, vibWidth);
+    sliderField(editor, "Delay", p.vibDelay, slopengine::SaudioField_VibDelay, 0.0f, 1.0f, vibWidth);
 
     ImGui::SeparatorText("Envelope");
+    const float envWidth = maxLabelWidth({"Attack", "Sustain", "Decay", "Punch"});
     sliderConverted(
         editor, "Attack", p.envAttack, slopengine::SaudioField_Attack, 0.0f, 1000.0f, "%.1f ms",
-        sfxrEnvToMs, sfxrMsToEnv);
+        sfxrEnvToMs, sfxrMsToEnv, 0.0f, 1.0f, envWidth);
     sliderConverted(
         editor, "Sustain", p.envSustain, slopengine::SaudioField_Sustain, 0.0f, 1000.0f, "%.1f ms",
-        sfxrEnvToMs, sfxrMsToEnv);
+        sfxrEnvToMs, sfxrMsToEnv, 0.0f, 1.0f, envWidth);
     sliderConverted(
         editor, "Decay", p.envDecay, slopengine::SaudioField_Decay, 0.0f, 1000.0f, "%.1f ms",
-        sfxrEnvToMs, sfxrMsToEnv);
+        sfxrEnvToMs, sfxrMsToEnv, 0.0f, 1.0f, envWidth);
     sliderConverted(
         editor, "Punch", p.envPunch, slopengine::SaudioField_Punch, 0.0f, 100.0f, "%.0f%%",
-        sfxrToPercent, sfxrFromPercent);
+        sfxrToPercent, sfxrFromPercent, 0.0f, 1.0f, envWidth);
 
     ImGui::SeparatorText("Filters (sfxr)");
+    const float filterWidth = maxLabelWidth(
+        {"LPF Cutoff", "LPF Resonance", "LPF Cutoff Sweep", "HPF Cutoff", "HPF Cutoff Sweep", "Phaser Offset",
+         "Phaser Sweep"});
     sliderConverted(
         editor, "LPF Cutoff", p.lpfFreq, slopengine::SaudioField_Lpf, 0.0f, 700.0f, "~%.0f Hz",
-        sfxrLpfToHz, sfxrHzToLpf);
+        sfxrLpfToHz, sfxrHzToLpf, 0.0f, 1.0f, filterWidth);
     sliderConverted(
         editor, "LPF Resonance", p.lpfResonance, slopengine::SaudioField_LpfResonance, 0.0f, 100.0f, "%.0f%%",
-        sfxrToPercent, sfxrFromPercent);
-    sliderField(editor, "LPF Ramp", p.lpfRamp, slopengine::SaudioField_LpfRamp, -1.0f, 1.0f);
+        sfxrToPercent, sfxrFromPercent, 0.0f, 1.0f, filterWidth);
+    sliderConverted(
+        editor, "LPF Cutoff Sweep", p.lpfRamp, slopengine::SaudioField_LpfRamp, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, filterWidth);
     sliderConverted(
         editor, "HPF Cutoff", p.hpfFreq, slopengine::SaudioField_Hpf, 0.0f, 700.0f, "~%.0f Hz",
-        sfxrHpfToHz, sfxrHzToHpf);
-    sliderField(editor, "HPF Ramp", p.hpfRamp, slopengine::SaudioField_HpfRamp, -1.0f, 1.0f);
-    sliderField(editor, "Phaser Offset", p.phaOffset, slopengine::SaudioField_PhaOffset, -1.0f, 1.0f);
-    sliderField(editor, "Phaser Ramp", p.phaRamp, slopengine::SaudioField_PhaRamp, -1.0f, 1.0f);
+        sfxrHpfToHz, sfxrHzToHpf, 0.0f, 1.0f, filterWidth);
+    sliderConverted(
+        editor, "HPF Cutoff Sweep", p.hpfRamp, slopengine::SaudioField_HpfRamp, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, filterWidth);
+    sliderConverted(
+        editor, "Phaser Offset", p.phaOffset, slopengine::SaudioField_PhaOffset, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, filterWidth);
+    sliderConverted(
+        editor, "Phaser Sweep", p.phaRamp, slopengine::SaudioField_PhaRamp, -100.0f, 100.0f, "%.0f%%",
+        sfxrToPercent, sfxrFromPercent, -1.0f, 1.0f, filterWidth);
 
     ImGui::SeparatorText("Repeat / Arp");
-    sliderField(editor, "Repeat Speed", p.repeatSpeed, slopengine::SaudioField_RepeatSpeed, 0.0f, 1.0f);
-    sliderField(editor, "Arp Speed", p.arpSpeed, slopengine::SaudioField_ArpSpeed, 0.0f, 1.0f);
-    sliderField(editor, "Arp Mod", p.arpMod, slopengine::SaudioField_ArpMod, -1.0f, 1.0f);
+    const float arpWidth = maxLabelWidth({"Repeat Speed", "Arp Speed", "Arp Change"});
+    sliderField(editor, "Repeat Speed", p.repeatSpeed, slopengine::SaudioField_RepeatSpeed, 0.0f, 1.0f, arpWidth);
+    sliderField(editor, "Arp Speed", p.arpSpeed, slopengine::SaudioField_ArpSpeed, 0.0f, 1.0f, arpWidth);
+    sliderConverted(
+        editor, "Arp Change", p.arpMod, slopengine::SaudioField_ArpMod, sfxrArpModToSemitones(-1.0f),
+        sfxrArpModToSemitones(1.0f), "%.1f st", sfxrArpModToSemitones, sfxrSemitonesToArpMod, -1.0f, 1.0f, arpWidth);
 
     ImGui::SeparatorText("Output");
+    const float outputWidth = maxLabelWidth({"Sound Vol", "Master Vol"});
     sliderConverted(
         editor, "Sound Vol", p.soundVol, slopengine::SaudioField_SoundVol, 0.0f, 100.0f, "%.0f%%",
-        sfxrToPercent, sfxrFromPercent);
+        sfxrToPercent, sfxrFromPercent, 0.0f, 1.0f, outputWidth);
     sliderConverted(
         editor, "Master Vol", p.masterVol, slopengine::SaudioField_MasterVol, 0.0f, 100.0f, "%.0f%%",
-        sfxrToPercent, sfxrFromPercent);
+        sfxrToPercent, sfxrFromPercent, 0.0f, 1.0f, outputWidth);
 }
 
 void drawDefinitionInspector(
@@ -387,10 +432,59 @@ void drawDefinitionInspector(
         }
         ImGui::SeparatorText("Channels");
         slopaudio::drawMidiChannelLegend(editor.doc.midiTracks, ImGui::GetContentRegionAvail().x);
+
+        ImGui::SeparatorText("Instrument overrides");
+        ImGui::TextDisabled("Forces a channel's instrument regardless of what the file specifies.");
+        std::vector<int> channelsUsed;
+        std::array<std::string, slopengine::kMidiChannelCount> channelTrackNames{};
+        for (const slopaudio::MidiTrackData& track : editor.doc.midiTracks.tracks) {
+            if (track.channel < 0 || track.channel >= static_cast<int>(slopengine::kMidiChannelCount) ||
+                track.channel == 9) {
+                continue; // Drum-kit swapping needs its own name table (not GM program names); skip for now.
+            }
+            if (std::find(channelsUsed.begin(), channelsUsed.end(), track.channel) == channelsUsed.end()) {
+                channelsUsed.push_back(track.channel);
+            }
+            std::string& names = channelTrackNames[static_cast<std::size_t>(track.channel)];
+            const std::string trackLabel =
+                track.name.empty() ? ("Track " + std::to_string(track.index + 1)) : track.name;
+            names += names.empty() ? trackLabel : (", " + trackLabel);
+        }
+        std::sort(channelsUsed.begin(), channelsUsed.end());
+
+        if (channelsUsed.empty()) {
+            ImGui::TextDisabled("No channels to override yet.");
+        }
+        for (int channel : channelsUsed) {
+            int& program = def.midiInstrumentOverrides[static_cast<std::size_t>(channel)].program;
+            const char* comboPreview = program < 0 ? "Default" : slopaudio::gmProgramName(program);
+
+            ImGui::PushID(channel);
+            ImGui::TextUnformatted(
+                ("Ch " + std::to_string(channel + 1) + " (" + channelTrackNames[static_cast<std::size_t>(channel)] +
+                 ")")
+                    .c_str());
+            ImGui::SetNextItemWidth(-70.0f);
+            if (ImGui::BeginCombo("##midioverride", comboPreview)) {
+                if (ImGui::Selectable("Default", program < 0)) {
+                    program = -1;
+                    editor.markDirty();
+                }
+                for (int p = 0; p < 128; ++p) {
+                    if (ImGui::Selectable(slopaudio::gmProgramName(p), program == p)) {
+                        program = p;
+                        editor.markDirty();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::PopID();
+        }
     }
 
     ImGui::SeparatorText("Playback");
-    if (ImGui::SliderFloat("Volume", &def.volume, 0.0f, 2.0f)) {
+    const float playbackWidth = maxLabelWidth({"Volume", "Min Distance", "Max Distance"});
+    if (sliderFloatWithInput("Volume", &def.volume, 0.0f, 2.0f, "%.3f", 64.0f, playbackWidth)) {
         editor.markDirty();
     }
     if (ImGui::Checkbox("Loop", &def.loop)) {
@@ -399,10 +493,10 @@ void drawDefinitionInspector(
     if (ImGui::Checkbox("Spatial", &def.spatial)) {
         editor.markDirty();
     }
-    if (ImGui::SliderFloat("Min Distance", &def.minDistance, 0.0f, 100.0f)) {
+    if (sliderFloatWithInput("Min Distance", &def.minDistance, 0.0f, 100.0f, "%.1f", 64.0f, playbackWidth)) {
         editor.markDirty();
     }
-    if (ImGui::SliderFloat("Max Distance", &def.maxDistance, 0.0f, 200.0f)) {
+    if (sliderFloatWithInput("Max Distance", &def.maxDistance, 0.0f, 200.0f, "%.1f", 64.0f, playbackWidth)) {
         editor.markDirty();
     }
     int busIdx = static_cast<int>(def.bus);
@@ -448,7 +542,7 @@ void drawInspector(
     switch (editor.doc.sourceKind) {
         case slopaudio::SourceKind::Clip:
             ImGui::TextDisabled("Preview-only clip (sounds/*.ogg)");
-            ImGui::SliderFloat("Volume", &editor.doc.asset.volume, 0.0f, 2.0f);
+            sliderFloatWithInput("Volume", &editor.doc.asset.volume, 0.0f, 2.0f);
             break;
         case slopaudio::SourceKind::Definition:
             drawDefinitionInspector(editor, assets, browser, audioWorld);
@@ -500,6 +594,14 @@ void drawInspector(
             }
             ImGui::Separator();
             ImGui::Text("Presets: %d", info.presetCount);
+            if (!info.presets.empty()) {
+                ImGui::BeginChild(
+                    "##soundfontpresets", ImVec2(0.0f, ImGui::GetContentRegionAvail().y), true);
+                for (const slopaudio::SoundFontPreset& preset : info.presets) {
+                    ImGui::Text("%3d:%-3d  %s", preset.bank, preset.program, preset.name.c_str());
+                }
+                ImGui::EndChild();
+            }
             break;
         }
     }

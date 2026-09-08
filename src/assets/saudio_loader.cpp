@@ -540,6 +540,17 @@ bool parseSaudioAsset(std::string_view text, AudioDef& def) {
             while (consumeFloat(rest, value)) {
                 target->params.push_back(value);
             }
+        } else if (startsWith(line, "(midi-instrument ")) {
+            std::string_view rest = stripTrailingParen(after("(midi-instrument "));
+            int channel = 0;
+            int program = 0;
+            if (!consumeInt(rest, channel) || !consumeInt(rest, program)) {
+                return false;
+            }
+            if (channel < 0 || channel >= static_cast<int>(kMidiChannelCount)) {
+                return false;
+            }
+            def.midiInstrumentOverrides[static_cast<std::size_t>(channel)].program = program;
         } else {
             return false;
         }
@@ -586,6 +597,17 @@ std::string serializeSaudioAsset(const AudioDef& def) {
             out += ' ';
             out += formatFloat(value);
         }
+        out += ")\n";
+    }
+    for (std::size_t channel = 0; channel < def.midiInstrumentOverrides.size(); ++channel) {
+        const int program = def.midiInstrumentOverrides[channel].program;
+        if (program < 0) {
+            continue;
+        }
+        out += "  (midi-instrument ";
+        out += std::to_string(channel);
+        out += ' ';
+        out += std::to_string(program);
         out += ")\n";
     }
     out += ")\n";

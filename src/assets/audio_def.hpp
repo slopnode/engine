@@ -101,6 +101,18 @@ struct ProceduralDef {
     SaudioParams sfxr;
 };
 
+inline constexpr unsigned int kMidiChannelCount = 16;
+
+/** Forces a MIDI channel's instrument to a specific GM program, overriding whatever Program
+ *  Change events are baked into the .mid file itself for that channel. `program == -1` (the
+ *  default) means "no override, use the file's own program changes". Indexed by MIDI channel
+ *  (0-15) in AudioDef::midiInstrumentOverrides -- it's per-channel, not per-track, since that's
+ *  the only granularity the underlying soundfont synth exposes; two file tracks that share a
+ *  channel share an override too. */
+struct MidiInstrumentOverride {
+    int program = -1;
+};
+
 /** The thing the game actually plays: a source (a sounds/ clip, an AudioProcedural
  *  def, or a sounds/ .mid file, resolved by name at load time) wrapped with bus
  *  routing, volume/distance, looping/spatialization, and post filters. */
@@ -114,6 +126,7 @@ struct AudioDef {
     bool spatial = false;
     AudioDefBus bus = AudioDefBus::Sfx;
     std::array<BusFilterSlot, kMaxFiltersPerBus> filters{};
+    std::array<MidiInstrumentOverride, kMidiChannelCount> midiInstrumentOverrides{}; // Only used when source is a .mid file.
 };
 
 /** Appends a filter into the first unused slot of `def.filters`; returns nullptr if the

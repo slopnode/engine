@@ -12,7 +12,16 @@ constexpr unsigned int kMidiEventBlockSamples = 64;
 MidiSourceInstance::MidiSourceInstance(MidiSource& parent)
     : synth_(tsf_copy(parent.baseSynth())),
       firstMessage_(parent.messages()),
-      nextMessage_(parent.messages()) {
+      nextMessage_(parent.messages()),
+      channelProgramOverrides_(parent.channelProgramOverrides()) {
+    // Applied up front so an overridden channel plays its forced instrument from the very first
+    // note, even if the file never sends a Program Change for it (silently defaulting to 0).
+    for (std::size_t channel = 0; channel < channelProgramOverrides_.size(); ++channel) {
+        const int program = channelProgramOverrides_[channel];
+        if (program >= 0) {
+            tsf_channel_set_presetnumber(synth_, static_cast<int>(channel), program, channel == 9);
+        }
+    }
 }
 
 MidiSourceInstance::~MidiSourceInstance() {
@@ -35,8 +44,10 @@ unsigned int MidiSourceInstance::getAudio(float* aBuffer, unsigned int aSamplesT
         for (; nextMessage_ != nullptr && msec_ >= nextMessage_->time; nextMessage_ = nextMessage_->next) {
             switch (nextMessage_->type) {
                 case TML_PROGRAM_CHANGE:
-                    tsf_channel_set_presetnumber(
-                        synth_, nextMessage_->channel, nextMessage_->program, nextMessage_->channel == 9);
+                    if (channelProgramOverrides_[nextMessage_->channel] < 0) {
+                        tsf_channel_set_presetnumber(
+                            synth_, nextMessage_->channel, nextMessage_->program, nextMessage_->channel == 9);
+                    }
                     break;
                 case TML_NOTE_ON:
                     tsf_channel_note_on(
@@ -89,8 +100,9 @@ bool MidiSourceInstance::hasEnded() {
     return nextMessage_ == nullptr && tsf_active_voice_count(synth_) == 0;
 }
 
-MidiSource::MidiSource(tsf* baseSynth, const tml_message* messages, float sampleRate)
-    : baseSynth_(baseSynth), messages_(messages) {
+MidiSource::MidiSource(
+    tsf* baseSynth, const tml_message* messages, float sampleRate, std::array<int, 16> channelProgramOverrides)
+    : baseSynth_(baseSynth), messages_(messages), channelProgramOverrides_(channelProgramOverrides) {
     mChannels = 2;
     mBaseSamplerate = sampleRate;
 }

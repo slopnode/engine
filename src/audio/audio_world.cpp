@@ -539,7 +539,15 @@ MidiSource* AudioWorld::loadMidiForDef(AssetStore& assets, std::string_view defP
         return nullptr;
     }
 
-    auto midi = std::make_unique<MidiSource>(font, messages, soloud_.mSamplerate);
+    std::array<int, 16> channelProgramOverrides{};
+    channelProgramOverrides.fill(-1);
+    for (std::size_t channel = 0;
+         channel < def.midiInstrumentOverrides.size() && channel < channelProgramOverrides.size();
+         ++channel) {
+        channelProgramOverrides[channel] = def.midiInstrumentOverrides[channel].program;
+    }
+
+    auto midi = std::make_unique<MidiSource>(font, messages, soloud_.mSamplerate, channelProgramOverrides);
     applyFilters(*midi, def.filters);
     MidiSource* ptr = midi.get();
     midiByDef_.emplace(key, std::move(midi));
