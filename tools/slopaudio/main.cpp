@@ -39,6 +39,15 @@ using slopengine::menuItemWithIcon;
 
 namespace {
 
+bool isSavableKind(slopaudio::SourceKind kind) {
+    return kind == slopaudio::SourceKind::Definition || kind == slopaudio::SourceKind::Procedural;
+}
+
+bool isPlayableKind(slopaudio::SourceKind kind) {
+    return kind == slopaudio::SourceKind::Definition || kind == slopaudio::SourceKind::Procedural ||
+        kind == slopaudio::SourceKind::Clip;
+}
+
 struct ToolConfig {
     slopengine::AppConfig mount;
     std::filesystem::path target;
@@ -303,7 +312,7 @@ void drawDefinitionInspector(
         ImGui::OpenPopup("PickDefinitionSource");
     }
     if (ImGui::BeginPopup("PickDefinitionSource")) {
-        ImGui::TextDisabled("Files (sound/*.ogg,*.wav)");
+        ImGui::TextDisabled("Files (sounds/*.ogg)");
         ImGui::Separator();
         for (const slopaudio::AudioBrowserEntry& entry : browser.entries) {
             if (entry.kind != slopaudio::SourceKind::Clip) {
@@ -316,7 +325,7 @@ void drawDefinitionInspector(
             }
         }
         ImGui::Separator();
-        ImGui::TextDisabled("Procedural (audio/*.sfxr)");
+        ImGui::TextDisabled("Procedural (sounds/*.sfxr)");
         ImGui::Separator();
         for (const slopaudio::AudioBrowserEntry& entry : browser.entries) {
             if (entry.kind != slopaudio::SourceKind::Procedural) {
@@ -328,7 +337,53 @@ void drawDefinitionInspector(
                 ImGui::CloseCurrentPopup();
             }
         }
+        ImGui::Separator();
+        ImGui::TextDisabled("Midi (sounds/*.mid)");
+        ImGui::Separator();
+        for (const slopaudio::AudioBrowserEntry& entry : browser.entries) {
+            if (entry.kind != slopaudio::SourceKind::Midi) {
+                continue;
+            }
+            if (ImGui::Selectable(entry.virtualPath.c_str())) {
+                def.source = entry.virtualPath;
+                editor.markDirty();
+                ImGui::CloseCurrentPopup();
+            }
+        }
         ImGui::EndPopup();
+    }
+
+    if (assets.hasMidi(def.source)) {
+        ImGui::SeparatorText("Soundfont");
+        char soundfontBuf[256] = {};
+        std::snprintf(soundfontBuf, sizeof(soundfontBuf), "%s", def.soundfont.c_str());
+        ImGui::SetNextItemWidth(-70.0f);
+        if (ImGui::InputText("##defsoundfont", soundfontBuf, sizeof(soundfontBuf))) {
+            def.soundfont = soundfontBuf;
+            editor.markDirty();
+        }
+        ImGui::SameLine();
+        if (buttonWithIcon(assets, kDefaultIconSet, "folder_find", "Browse Font")) {
+            ImGui::OpenPopup("PickDefinitionSoundfont");
+        }
+        if (ImGui::BeginPopup("PickDefinitionSoundfont")) {
+            ImGui::TextDisabled("Soundfonts (sounds/*.sf2)");
+            ImGui::Separator();
+            for (const slopaudio::AudioBrowserEntry& entry : browser.entries) {
+                if (entry.kind != slopaudio::SourceKind::SoundFont) {
+                    continue;
+                }
+                if (ImGui::Selectable(entry.virtualPath.c_str())) {
+                    def.soundfont = entry.virtualPath;
+                    editor.markDirty();
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndPopup();
+        }
+        if (def.soundfont.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "No soundfont set -- this won't play.");
+        }
     }
 
     ImGui::SeparatorText("Playback");
@@ -389,7 +444,7 @@ void drawInspector(
 
     switch (editor.doc.sourceKind) {
         case slopaudio::SourceKind::Clip:
-            ImGui::TextDisabled("Preview-only clip (sound/*.ogg)");
+            ImGui::TextDisabled("Preview-only clip (sounds/*.ogg)");
             ImGui::SliderFloat("Volume", &editor.doc.asset.volume, 0.0f, 2.0f);
             break;
         case slopaudio::SourceKind::Definition:
@@ -398,6 +453,50 @@ void drawInspector(
         case slopaudio::SourceKind::Procedural:
             drawProceduralInspector(editor, assets);
             break;
+        case slopaudio::SourceKind::Midi: {
+            const slopaudio::MidiInfo& info = editor.doc.midiInfo;
+            ImGui::TextDisabled("MIDI file (sounds/*.mid)");
+            if (!info.trackName.empty()) {
+                ImGui::Text("Track: %s", info.trackName.c_str());
+            }
+            if (!info.copyright.empty()) {
+                ImGui::Text("Copyright: %s", info.copyright.c_str());
+            }
+            if (!info.text.empty()) {
+                ImGui::TextWrapped("Text: %s", info.text.c_str());
+            }
+            ImGui::Separator();
+            ImGui::Text("Channels used: %d", info.usedChannels);
+            ImGui::Text("Programs used: %d", info.usedPrograms);
+            ImGui::Text("Notes: %d", info.totalNotes);
+            ImGui::Text("Duration: %.1f s", info.durationMs / 1000.0f);
+            break;
+        }
+        case slopaudio::SourceKind::SoundFont: {
+            const slopaudio::SoundFontInfo& info = editor.doc.soundFontInfo;
+            ImGui::TextDisabled("SoundFont (sounds/*.sf2)");
+            if (!info.name.empty()) {
+                ImGui::Text("Name: %s", info.name.c_str());
+            }
+            if (!info.engineer.empty()) {
+                ImGui::Text("Author: %s", info.engineer.c_str());
+            }
+            if (!info.copyright.empty()) {
+                ImGui::Text("Copyright: %s", info.copyright.c_str());
+            }
+            if (!info.creationDate.empty()) {
+                ImGui::Text("Created: %s", info.creationDate.c_str());
+            }
+            if (!info.software.empty()) {
+                ImGui::Text("Tool: %s", info.software.c_str());
+            }
+            if (!info.comment.empty()) {
+                ImGui::TextWrapped("Comment: %s", info.comment.c_str());
+            }
+            ImGui::Separator();
+            ImGui::Text("Presets: %d", info.presetCount);
+            break;
+        }
     }
 }
 
@@ -491,7 +590,7 @@ int main(int argc, char* argv[]) {
                         "Save",
                         "Ctrl+S",
                         false,
-                        editor.doc.open && editor.doc.sourceKind != slopaudio::SourceKind::Clip)) {
+                        editor.doc.open && isSavableKind(editor.doc.sourceKind))) {
                     editor.save(assets);
                     browser.rescan(assets);
                 }
@@ -508,7 +607,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S) && editor.doc.open &&
-            editor.doc.sourceKind != slopaudio::SourceKind::Clip) {
+            isSavableKind(editor.doc.sourceKind)) {
             editor.save(assets);
             browser.rescan(assets);
         }
@@ -526,7 +625,9 @@ int main(int argc, char* argv[]) {
         if (ImGui::BeginPopupModal("New Sound", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             const bool procedural = editor.newModalKind == slopaudio::SourceKind::Procedural;
             ImGui::Text(
-                "New %s -- virtual path under audio/ (no extension)", procedural ? "Procedural" : "Definition");
+                "New %s -- virtual path under %s/ (no extension)",
+                procedural ? "Procedural" : "Definition",
+                procedural ? "sounds" : "audio");
             ImGui::SetNextItemWidth(320.0f);
             ImGui::InputTextWithHint(
                 "##newaudiopath", "e.g. weapons/pistol-fire", editor.newPathBuf, sizeof(editor.newPathBuf));
@@ -593,7 +694,9 @@ int main(int argc, char* argv[]) {
                 "Waveform",
                 nullptr,
                 panelFlags | ImGuiWindowFlags_NoTitleBar);
-            {
+            if (editor.doc.open && !isPlayableKind(editor.doc.sourceKind)) {
+                ImGui::TextDisabled("No preview available for this asset yet.");
+            } else {
                 const bool canPlay = editor.doc.open;
                 const bool hasFilters = editor.doc.sourceKind == slopaudio::SourceKind::Definition &&
                     slopengine::hasAnyFilterSlots(editor.doc.asset.filters);

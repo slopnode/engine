@@ -245,6 +245,7 @@ add_executable(slopengine
     src/render/view_sprite_attachment.cpp
     src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
+    src/audio/midi_source.cpp
     src/audio/graphic_eq_filter.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
@@ -295,6 +296,7 @@ target_link_libraries(slopengine PRIVATE
     Jolt::Jolt
     rlImGui
     soloud
+    tsf
 )
 
 if(SLOPENGINE_HAS_STEAM_AUDIO)
@@ -418,10 +420,11 @@ add_executable(slopsprite
     tools/slopsprite/layout.cpp
     src/ui/imgui_fonts.cpp
     src/audio/audio_world.cpp
+    src/audio/midi_source.cpp
     src/audio/graphic_eq_filter.cpp
 )
 target_include_directories(slopsprite PRIVATE tools/slopsprite)
-target_link_libraries(slopsprite PRIVATE sloplib rlImGui soloud)
+target_link_libraries(slopsprite PRIVATE sloplib rlImGui soloud tsf)
 if(MSVC)
     target_compile_options(slopsprite PRIVATE /W4 /permissive-)
 else()
@@ -435,13 +438,15 @@ add_executable(slopaudio
     tools/slopaudio/bus_editor.cpp
     tools/slopaudio/filter_chain_ui.cpp
     tools/slopaudio/waveform_view.cpp
+    tools/slopaudio/asset_info.cpp
     tools/slopaudio/layout.cpp
     src/ui/imgui_fonts.cpp
     src/audio/audio_world.cpp
+    src/audio/midi_source.cpp
     src/audio/graphic_eq_filter.cpp
 )
 target_include_directories(slopaudio PRIVATE tools/slopaudio)
-target_link_libraries(slopaudio PRIVATE sloplib rlImGui soloud)
+target_link_libraries(slopaudio PRIVATE sloplib rlImGui soloud tsf)
 if(MSVC)
     target_compile_options(slopaudio PRIVATE /W4 /permissive-)
 else()

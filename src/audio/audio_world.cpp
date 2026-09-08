@@ -7,6 +7,9 @@
 
 #include "audio/graphic_eq_filter.hpp"
 
+#include "tsf.h"
+#include "tml.h"
+
 #include <soloud_bassboostfilter.h>
 #include <soloud_biquadresonantfilter.h>
 #include <soloud_dcremovalfilter.h>
@@ -90,6 +93,9 @@ void AudioWorld::deinit() {
     streams_.clear();
     streamsByDef_.clear();
     sfxrByDef_.clear();
+    midiByDef_.clear();
+    midiFiles_.clear();
+    soundfonts_.clear();
     filters_.clear();
     busFilterSlots_ = {};
     globalFilterCount_ = 0;
@@ -286,6 +292,7 @@ void AudioWorld::invalidateDefCache(std::string_view defPath) {
     clipsByDef_.erase(key);
     streamsByDef_.erase(key);
     sfxrByDef_.erase(key);
+    midiByDef_.erase(key);
 }
 
 void AudioWorld::applySaudioParams(SoLoud::Sfxr& sfxr, const SaudioParams& params) {
@@ -461,6 +468,117 @@ SoLoud::handle AudioWorld::playSfxrDef(
     return voice;
 }
 
+tsf* AudioWorld::loadSoundFont(AssetStore& assets, std::string_view path) {
+    const std::string key{path};
+    if (auto it = soundfonts_.find(key); it != soundfonts_.end()) {
+        return it->second.get();
+    }
+
+    const auto resolved = assets.resolveSoundFontPath(path);
+    if (!resolved) {
+        TraceLog(LOG_WARNING, "AUDIO: soundfont not found: %.*s", static_cast<int>(path.size()), path.data());
+        return nullptr;
+    }
+
+    tsf* font = tsf_load_filename(resolved->string().c_str());
+    if (font == nullptr) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to load soundfont %s", resolved->string().c_str());
+        return nullptr;
+    }
+
+    tsf_set_output(font, TSF_STEREO_INTERLEAVED, static_cast<int>(soloud_.mSamplerate), 0.0f);
+    tsf_channel_set_bank_preset(font, 9, 128, 0);
+
+    tsf* ptr = font;
+    soundfonts_.emplace(key, std::unique_ptr<tsf, void (*)(tsf*)>(font, &tsf_close));
+    return ptr;
+}
+
+const tml_message* AudioWorld::loadMidiMessages(AssetStore& assets, std::string_view path) {
+    const std::string key{path};
+    if (auto it = midiFiles_.find(key); it != midiFiles_.end()) {
+        return it->second.get();
+    }
+
+    const auto resolved = assets.resolveMidiPath(path);
+    if (!resolved) {
+        TraceLog(LOG_WARNING, "AUDIO: midi not found: %.*s", static_cast<int>(path.size()), path.data());
+        return nullptr;
+    }
+
+    tml_message* messages = tml_load_filename(resolved->string().c_str());
+    if (messages == nullptr) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to load midi %s", resolved->string().c_str());
+        return nullptr;
+    }
+
+    const tml_message* ptr = messages;
+    midiFiles_.emplace(key, std::unique_ptr<tml_message, void (*)(tml_message*)>(messages, &tml_free));
+    return ptr;
+}
+
+MidiSource* AudioWorld::loadMidiForDef(AssetStore& assets, std::string_view defPath, const AudioDef& def) {
+    const std::string key{defPath};
+    if (auto it = midiByDef_.find(key); it != midiByDef_.end()) {
+        return it->second.get();
+    }
+
+    if (def.soundfont.empty()) {
+        TraceLog(
+            LOG_WARNING, "AUDIO: midi def %.*s has no soundfont assigned",
+            static_cast<int>(defPath.size()), defPath.data());
+        return nullptr;
+    }
+
+    tsf* font = loadSoundFont(assets, def.soundfont);
+    if (font == nullptr) {
+        return nullptr;
+    }
+    const tml_message* messages = loadMidiMessages(assets, def.source);
+    if (messages == nullptr) {
+        return nullptr;
+    }
+
+    auto midi = std::make_unique<MidiSource>(font, messages, soloud_.mSamplerate);
+    applyFilters(*midi, def.filters);
+    MidiSource* ptr = midi.get();
+    midiByDef_.emplace(key, std::move(midi));
+    return ptr;
+}
+
+SoLoud::handle AudioWorld::playMidiDef(
+    const AudioDef& def,
+    MidiSource& midi,
+    float volume,
+    bool spatial3d,
+    float x,
+    float y,
+    float z,
+    bool viaBus) {
+    midi.setLooping(def.loop);
+
+    if (def.bus == AudioDefBus::Music) {
+        stopMusic();
+    }
+
+    SoLoud::Bus& target = bus(busFromDef(def.bus));
+    SoLoud::handle voice = 0;
+    if (spatial3d || def.spatial) {
+        midi.set3dMinMaxDistance(def.minDistance, def.maxDistance);
+        voice = viaBus
+            ? target.play3d(midi, x, y, z, 0.0f, 0.0f, 0.0f, volume)
+            : soloud_.play3d(midi, x, y, z, 0.0f, 0.0f, 0.0f, volume);
+    } else {
+        voice = viaBus ? target.play(midi, volume) : soloud_.play(midi, volume);
+    }
+    applyDefFilterParams(voice, def);
+
+    if (def.bus == AudioDefBus::Music) {
+        musicVoice_ = voice;
+    }
+    return voice;
+}
+
 SoLoud::handle AudioWorld::playSound(
     AssetStore& assets,
     std::string_view path,
@@ -543,6 +661,14 @@ SoLoud::handle AudioWorld::playAudioDef(
 
     if (const ProceduralDef* proc = assets.getProceduralDef(def.source)) {
         return playSfxrDef(defPath, def, proc->sfxr, volume, false, 0.0f, 0.0f, 0.0f, viaBus);
+    }
+
+    if (assets.hasMidi(def.source)) {
+        MidiSource* midi = loadMidiForDef(assets, defPath, def);
+        if (midi == nullptr) {
+            return 0;
+        }
+        return playMidiDef(def, *midi, volume, false, 0.0f, 0.0f, 0.0f, viaBus);
     }
 
     const AudioBusKind busKind = busFromDef(def.bus);
@@ -632,6 +758,17 @@ SoLoud::handle AudioWorld::playAudioDef3d(
             return playSfxrDef(defPath, def, proc->sfxr, volume, false, 0.0f, 0.0f, 0.0f);
         }
         return playSfxrDef(defPath, def, proc->sfxr, volume, true, x, y, z);
+    }
+
+    if (assets.hasMidi(def.source)) {
+        if (def.bus == AudioDefBus::Music) {
+            return playAudioDef(assets, defPath, def, volumeOverride);
+        }
+        MidiSource* midi = loadMidiForDef(assets, defPath, def);
+        if (midi == nullptr) {
+            return 0;
+        }
+        return playMidiDef(def, *midi, volume, true, x, y, z);
     }
 
     if (def.bus == AudioDefBus::Music) {

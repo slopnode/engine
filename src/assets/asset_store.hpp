@@ -53,23 +53,29 @@ public:
     /** Returns true when a font exists at @p path. */
     bool hasFont(std::string_view path) const;
 
-    /** Returns true when a sound exists as .ogg or .wav at @p path. */
+    /** Returns true when a sound exists at @p path. */
     bool hasSound(std::string_view path) const;
 
-    /** Resolves a sound to a filesystem path (.ogg preferred, then .wav). */
+    /** Resolves a sound to a filesystem path. */
     std::optional<std::filesystem::path> resolveSoundPath(std::string_view path) const;
 
     /** Returns true when an audio def exists at @p path. */
     bool hasAudio(std::string_view path) const;
 
-    /** Returns a cached audio def, loading and evaluating it when needed. */
-    const AudioDef* getAudioDef(s7_scheme* scheme, std::string_view path);
+    /** Returns true when a MIDI file exists at @p path. */
+    bool hasMidi(std::string_view path) const;
 
-    /** True while an audio def script is being evaluated for registration. */
-    bool isLoadingAudioDef() const { return audioDefLoadActive_; }
+    /** Resolves a MIDI file to a filesystem path. */
+    std::optional<std::filesystem::path> resolveMidiPath(std::string_view path) const;
 
-    /** Commits a def registered by Scheme during getAudioDef load. */
-    bool commitAudioDef(AudioDef def);
+    /** Returns true when a soundfont exists at @p path. */
+    bool hasSoundFont(std::string_view path) const;
+
+    /** Resolves a soundfont to a filesystem path. */
+    std::optional<std::filesystem::path> resolveSoundFontPath(std::string_view path) const;
+
+    /** Returns a cached audio def, loading it when needed. */
+    const AudioDef* getAudioDef(std::string_view path);
 
     /** Drops the cached audio def for @p path so the next getAudioDef reloads from disk. */
     void invalidateAudioDef(std::string_view path);
@@ -381,10 +387,6 @@ private:
     std::unordered_map<std::string, AudioDef> audioDefs_;
     std::unordered_map<std::string, ProceduralDef> proceduralDefs_;
     std::optional<BusConfig> busConfig_;
-    std::string audioDefLoadPath_;
-    AudioDef audioDefStaging_{};
-    bool audioDefLoadActive_ = false;
-    bool audioDefRegistered_ = false;
 };
 
 }

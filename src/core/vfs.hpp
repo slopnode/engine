@@ -44,11 +44,11 @@ enum class AssetKind {
     IconMap,       /**< .iconmap under icons/ */
     Data,          /**< .s7 under data/ */
     Font,          /**< .ttf under fonts/ */
-    Sound,         /**< .ogg under sound/ */
-    SoundWav,      /**< .wav under sound/ */
-    Audio,         /**< .s7 under audio/ */
+    Sound,         /**< .ogg under sounds/ */
     AudioSaudio,   /**< .saudio under audio/ -- a playable definition (source + bus/volume/filters) */
-    AudioProcedural, /**< .sfxr under audio/ -- pure sfxr synth params, no playback wrapper */
+    AudioProcedural, /**< .sfxr under sounds/ -- pure sfxr synth params, no playback wrapper */
+    SoundFont,     /**< .sf2 under sounds/ */
+    Midi,          /**< .mid under sounds/ */
     Particle,      /**< .prt under particles/ */
 };
 

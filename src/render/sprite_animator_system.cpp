@@ -297,9 +297,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
                     return;
                 }
 
-                s7_scheme* scheme =
-                    world.has<ScriptContext>() ? world.get<ScriptContext>().scheme : nullptr;
-                const AudioDef* def = ctx.assets->getAudioDef(scheme, frame.sound);
+                const AudioDef* def = ctx.assets->getAudioDef(frame.sound);
                 if (def == nullptr) {
                     TraceLog(
                         LOG_WARNING,

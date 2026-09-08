@@ -4,7 +4,6 @@
 #include "camera/components.hpp"
 #include "render/components.hpp"
 #include "script/audio_script.hpp"
-#include "script/script_context.hpp"
 
 #include "audio/steam_audio_types.hpp"
 #include "core/win32.hpp"
@@ -73,11 +72,7 @@ void registerSystems(flecs::world& world) {
             }
 
             if (!source.audio.empty()) {
-                s7_scheme* scheme = nullptr;
-                if (entity.world().has<ScriptContext>()) {
-                    scheme = entity.world().get<ScriptContext>().scheme;
-                }
-                const AudioDef* def = ctx.assets->getAudioDef(scheme, source.audio);
+                const AudioDef* def = ctx.assets->getAudioDef(source.audio);
                 if (def == nullptr) {
                     source.autoplay = false;
                     return;

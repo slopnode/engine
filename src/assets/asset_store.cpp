@@ -240,70 +240,49 @@ bool AssetStore::hasFont(std::string_view path) const {
 }
 
 bool AssetStore::hasSound(std::string_view path) const {
-    return vfs_.exists(AssetKind::Sound, path) || vfs_.exists(AssetKind::SoundWav, path);
+    return vfs_.exists(AssetKind::Sound, path);
 }
 
 std::optional<std::filesystem::path> AssetStore::resolveSoundPath(std::string_view path) const {
-    if (auto ogg = vfs_.resolve(AssetKind::Sound, path)) {
-        return ogg;
-    }
-    return vfs_.resolve(AssetKind::SoundWav, path);
+    return vfs_.resolve(AssetKind::Sound, path);
 }
 
 bool AssetStore::hasAudio(std::string_view path) const {
-    return vfs_.exists(AssetKind::AudioSaudio, path) || vfs_.exists(AssetKind::Audio, path);
+    return vfs_.exists(AssetKind::AudioSaudio, path);
 }
 
-bool AssetStore::commitAudioDef(AudioDef def) {
-    if (!audioDefLoadActive_ || def.source.empty()) {
-        return false;
-    }
-    audioDefStaging_ = std::move(def);
-    audioDefRegistered_ = true;
-    return true;
+bool AssetStore::hasMidi(std::string_view path) const {
+    return vfs_.exists(AssetKind::Midi, path);
 }
 
-const AudioDef* AssetStore::getAudioDef(s7_scheme* scheme, std::string_view path) {
+std::optional<std::filesystem::path> AssetStore::resolveMidiPath(std::string_view path) const {
+    return vfs_.resolve(AssetKind::Midi, path);
+}
+
+bool AssetStore::hasSoundFont(std::string_view path) const {
+    return vfs_.exists(AssetKind::SoundFont, path);
+}
+
+std::optional<std::filesystem::path> AssetStore::resolveSoundFontPath(std::string_view path) const {
+    return vfs_.resolve(AssetKind::SoundFont, path);
+}
+
+const AudioDef* AssetStore::getAudioDef(std::string_view path) {
     const std::string key = cacheKey(path);
     if (auto it = audioDefs_.find(key); it != audioDefs_.end()) {
         return &it->second;
     }
 
-    if (vfs_.exists(AssetKind::AudioSaudio, path)) {
-        const std::string text = vfs_.readText(AssetKind::AudioSaudio, path);
-        AudioDef def{};
-        if (!parseSaudioAsset(text, def)) {
-            return nullptr;
-        }
-        auto [it, _] = audioDefs_.emplace(key, std::move(def));
-        return &it->second;
-    }
-
-    if (scheme == nullptr) {
+    if (!vfs_.exists(AssetKind::AudioSaudio, path)) {
         return nullptr;
     }
 
-    const auto resolved = vfs_.resolve(AssetKind::Audio, path);
-    if (!resolved) {
+    const std::string text = vfs_.readText(AssetKind::AudioSaudio, path);
+    AudioDef def{};
+    if (!parseSaudioAsset(text, def)) {
         return nullptr;
     }
-
-    audioDefLoadPath_ = key;
-    audioDefStaging_ = {};
-    audioDefLoadActive_ = true;
-    audioDefRegistered_ = false;
-    s7_load(scheme, resolved->string().c_str());
-    audioDefLoadActive_ = false;
-
-    if (!audioDefRegistered_) {
-        audioDefLoadPath_.clear();
-        return nullptr;
-    }
-
-    auto [it, _] = audioDefs_.emplace(key, std::move(audioDefStaging_));
-    audioDefLoadPath_.clear();
-    audioDefStaging_ = {};
-    audioDefRegistered_ = false;
+    auto [it, _] = audioDefs_.emplace(key, std::move(def));
     return &it->second;
 }
 

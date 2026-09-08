@@ -22,7 +22,7 @@ struct WaveformData {
 /** Renders a throwaway SoLoud::Sfxr instance to samples for waveform display. */
 WaveformData bakeSaudioWaveform(const slopengine::SaudioParams& params, unsigned int maxSamples = 88200);
 
-/** Decodes a sound/ clip (.ogg or .wav) to per-channel samples for waveform display. */
+/** Decodes a sounds/ clip (.ogg) to per-channel samples for waveform display. */
 WaveformData bakeClipWaveform(
     slopengine::AssetStore& assets,
     const std::string& virtualPath,

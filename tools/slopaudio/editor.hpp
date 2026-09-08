@@ -1,5 +1,6 @@
 #pragma once
 
+#include "asset_info.hpp"
 #include "waveform_view.hpp"
 
 #include "assets/asset_store.hpp"
@@ -19,7 +20,9 @@ namespace slopaudio {
 enum class SourceKind {
     Definition, // .saudio: source (file or procedural) + bus/volume/distance/loop/spatial/filters
     Procedural, // .sfxr: raw sfxr synth params, no playback wrapper
-    Clip,       // sound/*.{ogg,wav}: preview-only raw file
+    Clip,       // sounds/*.ogg: preview-only raw file
+    Midi,       // sounds/*.mid: browse-only, shows basic properties
+    SoundFont,  // sounds/*.sf2: browse-only, shows basic properties
 };
 
 struct EditorDocument {
@@ -27,6 +30,8 @@ struct EditorDocument {
     SourceKind sourceKind = SourceKind::Definition;
     slopengine::AudioDef asset{};           // Definition fields, or {source,volume} for a Clip preview
     slopengine::ProceduralDef procedural{}; // Procedural fields when sourceKind == Procedural
+    MidiInfo midiInfo{};                    // Populated when sourceKind == Midi
+    SoundFontInfo soundFontInfo{};          // Populated when sourceKind == SoundFont
     bool dirty = false;
     bool open = false;
 
@@ -58,6 +63,8 @@ struct Editor {
     bool loadDefinition(slopengine::AssetStore& assets, const std::string& virtualPath);
     bool loadProcedural(slopengine::AssetStore& assets, const std::string& virtualPath);
     bool loadClip(const std::string& virtualPath);
+    bool loadMidi(slopengine::AssetStore& assets, const std::string& virtualPath);
+    bool loadSoundFont(slopengine::AssetStore& assets, const std::string& virtualPath);
     bool newDefinition(const std::string& virtualPath);
     bool newProcedural(const std::string& virtualPath);
     bool save(slopengine::AssetStore& assets);

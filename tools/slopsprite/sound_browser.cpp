@@ -28,8 +28,7 @@ bool containsIgnoreCase(const std::string& haystack, const std::string& needle) 
 }
 
 bool isSoundExtension(const std::filesystem::path& path) {
-    const std::string ext = path.extension().string();
-    return ext == ".ogg" || ext == ".wav";
+    return path.extension() == ".ogg";
 }
 
 } // namespace
@@ -37,7 +36,7 @@ bool isSoundExtension(const std::filesystem::path& path) {
 void SoundBrowser::rescan(const slopengine::AssetStore& assets) {
     std::unordered_set<std::string> seen;
     for (const slopengine::Package& package : assets.packages()) {
-        const std::filesystem::path soundRoot = package.root() / "sound";
+        const std::filesystem::path soundRoot = package.root() / "sounds";
         if (!std::filesystem::exists(soundRoot)) {
             continue;
         }

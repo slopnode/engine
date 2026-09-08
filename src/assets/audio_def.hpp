@@ -96,16 +96,17 @@ struct SaudioParams {
 
 /** A pure procedural sound source: sfxr synth params, nothing else. Never played
  *  directly -- an AudioDef::source references it the same way it can reference a
- *  sound/ clip, and playback picks whichever one resolves. */
+ *  sounds/ clip, and playback picks whichever one resolves. */
 struct ProceduralDef {
     SaudioParams sfxr;
 };
 
-/** The thing the game actually plays: a source (either a sound/ clip or an
- *  AudioProcedural def, resolved by name at load time) wrapped with bus routing,
- *  volume/distance, looping/spatialization, and post filters. */
+/** The thing the game actually plays: a source (a sounds/ clip, an AudioProcedural
+ *  def, or a sounds/ .mid file, resolved by name at load time) wrapped with bus
+ *  routing, volume/distance, looping/spatialization, and post filters. */
 struct AudioDef {
     std::string source;
+    std::string soundfont;
     float volume = 1.0f;
     float minDistance = 1.0f;
     float maxDistance = 30.0f;

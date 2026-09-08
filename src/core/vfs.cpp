@@ -49,11 +49,11 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::IconMap: return "icons";
     case AssetKind::Data: return "data";
     case AssetKind::Font: return "fonts";
-    case AssetKind::Sound: return "sound";
-    case AssetKind::SoundWav: return "sound";
-    case AssetKind::Audio: return "audio";
+    case AssetKind::Sound: return "sounds";
     case AssetKind::AudioSaudio: return "audio";
-    case AssetKind::AudioProcedural: return "audio";
+    case AssetKind::AudioProcedural: return "sounds";
+    case AssetKind::SoundFont: return "sounds";
+    case AssetKind::Midi: return "sounds";
     case AssetKind::Particle: return "particles";
     }
     return "";
@@ -93,10 +93,10 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::Data: return ".s7";
     case AssetKind::Font: return ".ttf";
     case AssetKind::Sound: return ".ogg";
-    case AssetKind::SoundWav: return ".wav";
-    case AssetKind::Audio: return ".s7";
     case AssetKind::AudioSaudio: return ".saudio";
     case AssetKind::AudioProcedural: return ".sfxr";
+    case AssetKind::SoundFont: return ".sf2";
+    case AssetKind::Midi: return ".mid";
     case AssetKind::Particle: return ".prt";
     }
     return "";

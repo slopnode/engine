@@ -4,6 +4,7 @@
 
 #include "assets/asset_store.hpp"
 #include "assets/audio_def.hpp"
+#include "audio/midi_source.hpp"
 #include "audio/steam_audio_types.hpp"
 #include "map/brush.hpp"
 
@@ -12,6 +13,9 @@
 #include <soloud_sfxr.h>
 #include <soloud_wav.h>
 #include <soloud_wavstream.h>
+
+struct tsf;
+struct tml_message;
 
 #include <array>
 #include <cstdint>
@@ -184,6 +188,18 @@ private:
         float y,
         float z,
         bool viaBus = true);
+    tsf* loadSoundFont(AssetStore& assets, std::string_view path);
+    const tml_message* loadMidiMessages(AssetStore& assets, std::string_view path);
+    MidiSource* loadMidiForDef(AssetStore& assets, std::string_view defPath, const AudioDef& def);
+    SoLoud::handle playMidiDef(
+        const AudioDef& def,
+        MidiSource& midi,
+        float volume,
+        bool spatial3d,
+        float x,
+        float y,
+        float z,
+        bool viaBus = true);
     void applyFilters(SoLoud::AudioSource& source, const std::array<BusFilterSlot, kMaxFiltersPerBus>& slots);
     // Pushes def.filters' persisted param values onto the just-created voice, overriding
     // whatever defaults applyFilters/createInstance baked in. Safe to call on any voice --
@@ -243,6 +259,9 @@ private:
     std::unordered_map<std::string, std::unique_ptr<SoLoud::WavStream>> streams_;
     std::unordered_map<std::string, std::unique_ptr<SoLoud::WavStream>> streamsByDef_;
     std::unordered_map<std::string, std::unique_ptr<SoLoud::Sfxr>> sfxrByDef_;
+    std::unordered_map<std::string, std::unique_ptr<tsf, void (*)(tsf*)>> soundfonts_;
+    std::unordered_map<std::string, std::unique_ptr<tml_message, void (*)(tml_message*)>> midiFiles_;
+    std::unordered_map<std::string, std::unique_ptr<MidiSource>> midiByDef_;
     std::vector<std::unique_ptr<SoLoud::Filter>> filters_;
     std::vector<ListenerAttachedVoice> listenerAttached_;
     int underwaterFilterSlot_ = -1;

@@ -494,6 +494,12 @@ bool parseSaudioAsset(std::string_view text, AudioDef& def) {
                 return false;
             }
             def.source = *sourcePath;
+        } else if (startsWith(line, "(soundfont ")) {
+            const auto soundfontPath = readQuoted(after("(soundfont "));
+            if (!soundfontPath) {
+                return false;
+            }
+            def.soundfont = *soundfontPath;
         } else if (startsWith(line, "(volume ")) {
             if (!readFloat(after("(volume "), def.volume)) {
                 return false;
@@ -546,6 +552,11 @@ std::string serializeSaudioAsset(const AudioDef& def) {
     out += "  (source \"";
     out += def.source;
     out += "\")\n";
+    if (!def.soundfont.empty()) {
+        out += "  (soundfont \"";
+        out += def.soundfont;
+        out += "\")\n";
+    }
     out += "  (volume ";
     out += formatFloat(def.volume);
     out += ")\n";

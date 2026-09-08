@@ -44,9 +44,11 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | IconMap | `icons/` | `.iconmap` | Frame rects into an `Icon` atlas. |
 | Data | `data/` | `.s7` | Declarative catalogs (actions, items, CLI flags, ...); see @ref dataapi. |
 | Font | `fonts/` | `.ttf` | |
-| Sound | `sound/` | `.ogg` | |
-| Audio | `audio/` | `.s7` | Procedural audio defs. Currently broken by a name collision in the engine -- use plain `sound/` clips with `play-sound` instead. |
-| AudioSaudio | `audio/` | `.saudio` | Sample playback defs; this path works. |
+| Sound | `sounds/` | `.ogg` | Baked clips. |
+| AudioSaudio | `audio/` | `.saudio` | Playable definitions: source (a `sounds/` clip or `AudioProcedural` def) + bus/volume/distance/loop/spatial/filters. `audio/` holds only these -- no raw source material. |
+| AudioProcedural | `sounds/` | `.sfxr` | Procedural sfxr synth params, no playback wrapper. |
+| SoundFont | `sounds/` | `.sf2` | Reserved; not yet loaded by the engine. |
+| Midi | `sounds/` | `.mid` | Reserved; not yet loaded by the engine. |
 | Particle | `particles/` | `.prt` | |
 
 # Override order {#override-order}

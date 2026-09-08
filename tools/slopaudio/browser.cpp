@@ -36,8 +36,15 @@ bool isProceduralExtension(const std::filesystem::path& path) {
 }
 
 bool isClipExtension(const std::filesystem::path& path) {
-    const std::string ext = path.extension().string();
-    return ext == ".ogg" || ext == ".wav";
+    return path.extension() == ".ogg";
+}
+
+bool isMidiExtension(const std::filesystem::path& path) {
+    return path.extension() == ".mid";
+}
+
+bool isSoundFontExtension(const std::filesystem::path& path) {
+    return path.extension() == ".sf2";
 }
 
 void collectFromDir(
@@ -69,6 +76,8 @@ const char* iconForKind(SourceKind kind) {
         case SourceKind::Definition: return "page_link";
         case SourceKind::Procedural: return "wand";
         case SourceKind::Clip: return "sound";
+        case SourceKind::Midi: return "music";
+        case SourceKind::SoundFont: return "cd";
     }
     return "sound";
 }
@@ -78,6 +87,8 @@ const char* tooltipForKind(SourceKind kind) {
         case SourceKind::Definition: return "definition (.saudio): source + bus/volume/filters";
         case SourceKind::Procedural: return "procedural (.sfxr): sfxr synth params";
         case SourceKind::Clip: return "clip (preview only)";
+        case SourceKind::Midi: return "midi file (.mid): browse-only";
+        case SourceKind::SoundFont: return "soundfont (.sf2): browse-only";
     }
     return "";
 }
@@ -106,6 +117,8 @@ void drawEntryList(
                 case SourceKind::Definition: editor.loadDefinition(assets, entry.virtualPath); break;
                 case SourceKind::Procedural: editor.loadProcedural(assets, entry.virtualPath); break;
                 case SourceKind::Clip: editor.loadClip(entry.virtualPath); break;
+                case SourceKind::Midi: editor.loadMidi(assets, entry.virtualPath); break;
+                case SourceKind::SoundFont: editor.loadSoundFont(assets, entry.virtualPath); break;
             }
         }
         if (ImGui::IsItemHovered()) {
@@ -123,14 +136,18 @@ void Browser::rescan(const slopengine::AssetStore& assets) {
     std::unordered_map<std::string, std::string> defPaths;
     std::unordered_map<std::string, std::string> procPaths;
     std::unordered_map<std::string, std::string> clipPaths;
+    std::unordered_map<std::string, std::string> midiPaths;
+    std::unordered_map<std::string, std::string> soundFontPaths;
     for (const slopengine::Package& package : assets.packages()) {
         collectFromDir(package.root() / "audio", package.meta().id, isSaudioExtension, defPaths);
-        collectFromDir(package.root() / "audio", package.meta().id, isProceduralExtension, procPaths);
-        collectFromDir(package.root() / "sound", package.meta().id, isClipExtension, clipPaths);
+        collectFromDir(package.root() / "sounds", package.meta().id, isProceduralExtension, procPaths);
+        collectFromDir(package.root() / "sounds", package.meta().id, isClipExtension, clipPaths);
+        collectFromDir(package.root() / "sounds", package.meta().id, isMidiExtension, midiPaths);
+        collectFromDir(package.root() / "sounds", package.meta().id, isSoundFontExtension, soundFontPaths);
     }
 
     entries.clear();
-    entries.reserve(defPaths.size() + procPaths.size() + clipPaths.size());
+    entries.reserve(defPaths.size() + procPaths.size() + clipPaths.size() + midiPaths.size() + soundFontPaths.size());
     for (const auto& [path, packageId] : defPaths) {
         entries.push_back(AudioBrowserEntry{path, packageId, SourceKind::Definition});
     }
@@ -139,6 +156,12 @@ void Browser::rescan(const slopengine::AssetStore& assets) {
     }
     for (const auto& [path, packageId] : clipPaths) {
         entries.push_back(AudioBrowserEntry{path, packageId, SourceKind::Clip});
+    }
+    for (const auto& [path, packageId] : midiPaths) {
+        entries.push_back(AudioBrowserEntry{path, packageId, SourceKind::Midi});
+    }
+    for (const auto& [path, packageId] : soundFontPaths) {
+        entries.push_back(AudioBrowserEntry{path, packageId, SourceKind::SoundFont});
     }
     std::sort(entries.begin(), entries.end(), [](const AudioBrowserEntry& a, const AudioBrowserEntry& b) {
         return a.virtualPath < b.virtualPath;
@@ -156,7 +179,7 @@ void Browser::draw(Editor& editor, slopengine::AssetStore& assets, slopengine::A
     if (ImGui::InputText("##audiofilter", filterBuf, sizeof(filterBuf))) {
         filter = filterBuf;
     }
-    if (activeTab != SourceKind::Clip) {
+    if (activeTab == SourceKind::Definition || activeTab == SourceKind::Procedural) {
         const char* label = activeTab == SourceKind::Procedural ? "New Procedural" : "New Definition";
         if (slopengine::buttonWithIcon(assets, kIcons, "page_add", label, ImVec2(-1.0f, 0.0f))) {
             editor.newModalKind = activeTab;
@@ -183,6 +206,16 @@ void Browser::draw(Editor& editor, slopengine::AssetStore& assets, slopengine::A
             if (ImGui::BeginTabItem("Files")) {
                 activeTab = SourceKind::Clip;
                 drawEntryList(editor, assets, entries, filter, SourceKind::Clip);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Midi")) {
+                activeTab = SourceKind::Midi;
+                drawEntryList(editor, assets, entries, filter, SourceKind::Midi);
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Soundfonts")) {
+                activeTab = SourceKind::SoundFont;
+                drawEntryList(editor, assets, entries, filter, SourceKind::SoundFont);
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();
