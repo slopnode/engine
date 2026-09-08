@@ -3716,6 +3716,16 @@ int main(int argc, char* argv[]) {
                                             editor, slopengine::ThingKind::Particle, createTool);
                                     });
                                 placeKindButton(
+                                    "sound",
+                                    "sound-source",
+                                    isKind(slopengine::ThingKind::SoundSource),
+                                    [&] {
+                                        beginThingKind(
+                                            editor,
+                                            slopengine::ThingKind::SoundSource,
+                                            createTool);
+                                    });
+                                placeKindButton(
                                     "lightbulb",
                                     "point-light",
                                     isKind(slopengine::ThingKind::PointLight),
