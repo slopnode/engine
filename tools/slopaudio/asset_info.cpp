@@ -4,6 +4,7 @@
 #include "tml.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -185,7 +186,112 @@ void scanSoundFontInfoChunk(const std::vector<unsigned char>& buf, SoundFontInfo
     }
 }
 
+constexpr const char* kGmProgramNames[128] = {
+    "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano", "Honky-tonk Piano",
+    "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavinet",
+    "Celesta", "Glockenspiel", "Music Box", "Vibraphone",
+    "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+    "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ",
+    "Reed Organ", "Accordion", "Harmonica", "Tango Accordion",
+    "Acoustic Guitar (nylon)", "Acoustic Guitar (steel)", "Electric Guitar (jazz)", "Electric Guitar (clean)",
+    "Electric Guitar (muted)", "Overdriven Guitar", "Distortion Guitar", "Guitar Harmonics",
+    "Acoustic Bass", "Electric Bass (finger)", "Electric Bass (pick)", "Fretless Bass",
+    "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
+    "Violin", "Viola", "Cello", "Contrabass",
+    "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+    "String Ensemble 1", "String Ensemble 2", "Synth Strings 1", "Synth Strings 2",
+    "Choir Aahs", "Voice Oohs", "Synth Voice", "Orchestra Hit",
+    "Trumpet", "Trombone", "Tuba", "Muted Trumpet",
+    "French Horn", "Brass Section", "Synth Brass 1", "Synth Brass 2",
+    "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax",
+    "Oboe", "English Horn", "Bassoon", "Clarinet",
+    "Piccolo", "Flute", "Recorder", "Pan Flute",
+    "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
+    "Lead 1 (square)", "Lead 2 (sawtooth)", "Lead 3 (calliope)", "Lead 4 (chiff)",
+    "Lead 5 (charang)", "Lead 6 (voice)", "Lead 7 (fifths)", "Lead 8 (bass+lead)",
+    "Pad 1 (new age)", "Pad 2 (warm)", "Pad 3 (polysynth)", "Pad 4 (choir)",
+    "Pad 5 (bowed)", "Pad 6 (metallic)", "Pad 7 (halo)", "Pad 8 (sweep)",
+    "FX 1 (rain)", "FX 2 (soundtrack)", "FX 3 (crystal)", "FX 4 (atmosphere)",
+    "FX 5 (brightness)", "FX 6 (goblins)", "FX 7 (echoes)", "FX 8 (sci-fi)",
+    "Sitar", "Banjo", "Shamisen", "Koto",
+    "Kalimba", "Bag pipe", "Fiddle", "Shanai",
+    "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock",
+    "Taiko Drum", "Melodic Tom", "Synth Drum", "Reverse Cymbal",
+    "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet",
+    "Telephone Ring", "Helicopter", "Applause", "Gunshot",
+};
+
 } // namespace
+
+const char* gmProgramName(int program) {
+    if (program < 0 || program >= static_cast<int>(std::size(kGmProgramNames))) {
+        return "Unknown";
+    }
+    return kGmProgramNames[program];
+}
+
+MidiTrackView readMidiTrackView(const std::filesystem::path& path) {
+    MidiTrackView view{};
+    tml_message* first = tml_load_filename(path.string().c_str());
+    if (first == nullptr) {
+        return view;
+    }
+
+    struct ChannelBuild {
+        int program = 0;
+        bool programSet = false;
+        std::vector<MidiNote> notes;
+        std::array<bool, 128> pendingActive{};
+        std::array<float, 128> pendingStart{};
+        std::array<unsigned char, 128> pendingVelocity{};
+    };
+    std::array<ChannelBuild, 16> builds{};
+
+    float maxTimeSec = 0.0f;
+    for (const tml_message* m = first; m != nullptr; m = m->next) {
+        const float t = static_cast<float>(m->time) / 1000.0f;
+        maxTimeSec = std::max(maxTimeSec, t);
+        if (m->channel >= builds.size()) {
+            continue;
+        }
+        ChannelBuild& b = builds[m->channel];
+        const unsigned char key = static_cast<unsigned char>(m->key);
+        if (m->type == TML_PROGRAM_CHANGE) {
+            b.program = static_cast<unsigned char>(m->program);
+            b.programSet = true;
+        } else if (m->type == TML_NOTE_ON && m->velocity > 0) {
+            b.pendingActive[key] = true;
+            b.pendingStart[key] = t;
+            b.pendingVelocity[key] = static_cast<unsigned char>(m->velocity);
+        } else if (m->type == TML_NOTE_OFF || (m->type == TML_NOTE_ON && m->velocity == 0)) {
+            if (b.pendingActive[key]) {
+                b.pendingActive[key] = false;
+                MidiNote note{};
+                note.startSec = b.pendingStart[key];
+                note.endSec = std::max(t, note.startSec + 0.02f);
+                note.key = key;
+                note.velocity = b.pendingVelocity[key];
+                b.notes.push_back(note);
+            }
+        }
+    }
+    tml_free(first);
+
+    for (std::size_t ch = 0; ch < builds.size(); ++ch) {
+        if (builds[ch].notes.empty()) {
+            continue;
+        }
+        MidiChannelTrack track{};
+        track.channel = static_cast<int>(ch);
+        track.program = builds[ch].program;
+        track.programSet = builds[ch].programSet;
+        track.notes = std::move(builds[ch].notes);
+        view.channels.push_back(std::move(track));
+    }
+    view.durationSec = maxTimeSec;
+    view.valid = true;
+    return view;
+}
 
 MidiInfo readMidiInfo(const std::filesystem::path& path) {
     MidiInfo info{};

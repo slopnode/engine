@@ -83,9 +83,13 @@ bool Editor::loadMidi(slopengine::AssetStore& assets, const std::string& virtual
     doc.virtualPath = virtualPath;
     doc.sourceKind = SourceKind::Midi;
     doc.midiInfo = readMidiInfo(*resolved);
+    doc.midiTracks = readMidiTrackView(*resolved);
     doc.open = true;
     doc.dirty = false;
     doc.waveformDirty = false;
+    if (doc.midiTracks.durationSec > 0.0f) {
+        midiWindowMs = std::clamp(doc.midiTracks.durationSec * 1000.0f, 200.0f, 120000.0f);
+    }
     setStatus("Loaded " + virtualPath);
     return true;
 }
@@ -251,9 +255,15 @@ void Editor::previewStop(slopengine::AudioWorld& audio) {
 
 void Editor::rebuildWaveform(slopengine::AssetStore& assets) {
     doc.filteredWaveform = WaveformData{};
+    doc.midiTracks = MidiTrackView{};
     switch (doc.sourceKind) {
         case SourceKind::Definition:
-            if (const slopengine::ProceduralDef* proc = assets.getProceduralDef(doc.asset.source)) {
+            if (assets.hasMidi(doc.asset.source)) {
+                doc.waveform = WaveformData{};
+                if (const auto resolved = assets.resolveMidiPath(doc.asset.source)) {
+                    doc.midiTracks = readMidiTrackView(*resolved);
+                }
+            } else if (const slopengine::ProceduralDef* proc = assets.getProceduralDef(doc.asset.source)) {
                 doc.waveform = bakeSaudioWaveform(proc->sfxr);
             } else {
                 doc.waveform = bakeClipWaveform(assets, doc.asset.source);
@@ -273,6 +283,9 @@ void Editor::rebuildWaveform(slopengine::AssetStore& assets) {
     doc.waveformDirty = false;
 
     if (doc.waveformFitPending) {
+        if (doc.midiTracks.durationSec > 0.0f) {
+            midiWindowMs = std::clamp(doc.midiTracks.durationSec * 1000.0f, 200.0f, 120000.0f);
+        }
         const unsigned int channels = std::max(1u, doc.waveform.channels);
         const std::size_t frames = doc.waveform.samples.size() / channels;
         if (doc.waveform.sampleRate > 0.0f && frames > 0) {

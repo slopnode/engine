@@ -3,6 +3,7 @@
 #include "editor.hpp"
 #include "filter_chain_ui.hpp"
 #include "layout.hpp"
+#include "midi_track_view.hpp"
 #include "waveform_view.hpp"
 
 #include "assets/asset_store.hpp"
@@ -384,6 +385,8 @@ void drawDefinitionInspector(
         if (def.soundfont.empty()) {
             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "No soundfont set -- this won't play.");
         }
+        ImGui::SeparatorText("Channels");
+        slopaudio::drawMidiChannelLegend(editor.doc.midiTracks, ImGui::GetContentRegionAvail().x);
     }
 
     ImGui::SeparatorText("Playback");
@@ -470,6 +473,8 @@ void drawInspector(
             ImGui::Text("Programs used: %d", info.usedPrograms);
             ImGui::Text("Notes: %d", info.totalNotes);
             ImGui::Text("Duration: %.1f s", info.durationMs / 1000.0f);
+            ImGui::SeparatorText("Channels");
+            slopaudio::drawMidiChannelLegend(editor.doc.midiTracks, ImGui::GetContentRegionAvail().x);
             break;
         }
         case slopaudio::SourceKind::SoundFont: {
@@ -694,7 +699,12 @@ int main(int argc, char* argv[]) {
                 "Waveform",
                 nullptr,
                 panelFlags | ImGuiWindowFlags_NoTitleBar);
-            if (editor.doc.open && !isPlayableKind(editor.doc.sourceKind)) {
+            const bool definitionIsMidi = editor.doc.sourceKind == slopaudio::SourceKind::Definition &&
+                assets.hasMidi(editor.doc.asset.source);
+            if (editor.doc.open && editor.doc.sourceKind == slopaudio::SourceKind::Midi) {
+                slopaudio::drawMidiTrackPanel(
+                    editor.doc.midiTracks, editor.midiWindowMs, -1.0f, ImGui::GetContentRegionAvail());
+            } else if (editor.doc.open && !isPlayableKind(editor.doc.sourceKind)) {
                 ImGui::TextDisabled("No preview available for this asset yet.");
             } else {
                 const bool canPlay = editor.doc.open;
@@ -729,27 +739,38 @@ int main(int argc, char* argv[]) {
                         editor.doc.procedural.sfxr.presetSeed);
                 }
 
-                float playhead = -1.0f;
-                if (editor.doc.previewPlaying && !editor.doc.waveform.samples.empty() &&
-                    editor.doc.waveform.sampleRate > 0.0f) {
-                    const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
-                    const unsigned int waveformChannels = std::max(1u, editor.doc.waveform.channels);
-                    const double totalSeconds =
-                        static_cast<double>(editor.doc.waveform.samples.size() / waveformChannels) /
-                        static_cast<double>(editor.doc.waveform.sampleRate);
-                    if (totalSeconds > 0.0) {
-                        playhead = static_cast<float>(posSeconds / totalSeconds);
+                if (definitionIsMidi) {
+                    float playhead = -1.0f;
+                    if (editor.doc.previewPlaying && editor.doc.midiTracks.durationSec > 0.0f) {
+                        const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
+                        playhead =
+                            static_cast<float>(posSeconds / static_cast<double>(editor.doc.midiTracks.durationSec));
                     }
+                    slopaudio::drawMidiTrackPanel(
+                        editor.doc.midiTracks, editor.midiWindowMs, playhead, ImGui::GetContentRegionAvail());
+                } else {
+                    float playhead = -1.0f;
+                    if (editor.doc.previewPlaying && !editor.doc.waveform.samples.empty() &&
+                        editor.doc.waveform.sampleRate > 0.0f) {
+                        const double posSeconds = audioWorld.soloud().getStreamPosition(editor.doc.previewVoice);
+                        const unsigned int waveformChannels = std::max(1u, editor.doc.waveform.channels);
+                        const double totalSeconds =
+                            static_cast<double>(editor.doc.waveform.samples.size() / waveformChannels) /
+                            static_cast<double>(editor.doc.waveform.sampleRate);
+                        if (totalSeconds > 0.0) {
+                            playhead = static_cast<float>(posSeconds / totalSeconds);
+                        }
+                    }
+                    slopaudio::drawWaveformPanel(
+                        editor.doc.waveform,
+                        editor.doc.filteredWaveform,
+                        editor.doc.showSampleWaveform,
+                        editor.doc.showFilteredWaveform,
+                        editor.doc.splitChannelsWaveform,
+                        editor.waveformWindowMs,
+                        playhead,
+                        ImGui::GetContentRegionAvail());
                 }
-                slopaudio::drawWaveformPanel(
-                    editor.doc.waveform,
-                    editor.doc.filteredWaveform,
-                    editor.doc.showSampleWaveform,
-                    editor.doc.showFilteredWaveform,
-                    editor.doc.splitChannelsWaveform,
-                    editor.waveformWindowMs,
-                    playhead,
-                    ImGui::GetContentRegionAvail());
             }
             ImGui::End();
         } else {

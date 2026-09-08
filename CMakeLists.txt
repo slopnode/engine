@@ -438,6 +438,7 @@ add_executable(slopaudio
     tools/slopaudio/bus_editor.cpp
     tools/slopaudio/filter_chain_ui.cpp
     tools/slopaudio/waveform_view.cpp
+    tools/slopaudio/midi_track_view.cpp
     tools/slopaudio/asset_info.cpp
     tools/slopaudio/layout.cpp
     src/ui/imgui_fonts.cpp

@@ -31,6 +31,7 @@ struct EditorDocument {
     slopengine::AudioDef asset{};           // Definition fields, or {source,volume} for a Clip preview
     slopengine::ProceduralDef procedural{}; // Procedural fields when sourceKind == Procedural
     MidiInfo midiInfo{};                    // Populated when sourceKind == Midi
+    MidiTrackView midiTracks{};             // Populated when sourceKind == Midi
     SoundFontInfo soundFontInfo{};          // Populated when sourceKind == SoundFont
     bool dirty = false;
     bool open = false;
@@ -57,6 +58,7 @@ struct Editor {
     SourceKind newModalKind = SourceKind::Definition;
     char newPathBuf[256] = {};
     float waveformWindowMs = 250.0f;
+    float midiWindowMs = 4000.0f;
 
     void setStatus(std::string message, float seconds = 3.0f);
     void markDirty();
