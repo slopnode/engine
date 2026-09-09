@@ -53,7 +53,7 @@ void registerSystems(flecs::world& world) {
             if (!source.autoplay || source.playing) {
                 return;
             }
-            if (source.audio.empty() && source.clip.empty()) {
+            if (source.audio.empty()) {
                 return;
             }
             if (!entity.world().has<AudioContext>()) {
@@ -71,43 +71,24 @@ void registerSystems(flecs::world& world) {
                 pos = entity.get<Lens>().camera.position;
             }
 
-            if (!source.audio.empty()) {
-                const AudioDef* def = ctx.assets->getAudioDef(source.audio);
-                if (def == nullptr) {
-                    source.autoplay = false;
-                    return;
-                }
-                if (def->spatial) {
-                    source.voice = static_cast<std::uint32_t>(ctx.world->playAudioDef3d(
-                        *ctx.assets,
-                        source.audio,
-                        *def,
-                        pos.x,
-                        pos.y,
-                        pos.z));
-                } else {
-                    source.voice = static_cast<std::uint32_t>(ctx.world->playAudioDef(
-                        *ctx.assets,
-                        source.audio,
-                        *def));
-                }
-            } else if (source.spatial) {
-                source.voice = static_cast<std::uint32_t>(ctx.world->playSound3d(
+            const AudioDef* def = ctx.assets->getAudioDef(source.audio);
+            if (def == nullptr) {
+                source.autoplay = false;
+                return;
+            }
+            if (def->spatial) {
+                source.voice = static_cast<std::uint32_t>(ctx.world->playAudioDef3d(
                     *ctx.assets,
-                    source.clip,
+                    source.audio,
+                    *def,
                     pos.x,
                     pos.y,
-                    pos.z,
-                    source.volume,
-                    source.looping,
-                    source.minDistance,
-                    source.maxDistance));
+                    pos.z));
             } else {
-                source.voice = static_cast<std::uint32_t>(ctx.world->playSound(
+                source.voice = static_cast<std::uint32_t>(ctx.world->playAudioDef(
                     *ctx.assets,
-                    source.clip,
-                    source.volume,
-                    source.looping));
+                    source.audio,
+                    *def));
             }
             source.playing = source.voice != 0;
             source.autoplay = false;

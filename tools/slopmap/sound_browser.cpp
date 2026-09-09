@@ -61,14 +61,17 @@ void collectFromDir(
 } // namespace
 
 void SoundBrowser::rescan(const slopengine::AssetStore& assets) {
-    std::unordered_set<std::string> seen;
+    std::unordered_set<std::string> seenDefined;
+    std::unordered_set<std::string> seenRaw;
     for (const slopengine::Package& package : assets.packages()) {
-        collectFromDir(package.root() / "sounds", isSoundExtension, seen);
-        collectFromDir(package.root() / "audio", isSaudioExtension, seen);
+        collectFromDir(package.root() / "audio", isSaudioExtension, seenDefined);
+        collectFromDir(package.root() / "sounds", isSoundExtension, seenRaw);
     }
 
-    sounds.assign(seen.begin(), seen.end());
-    std::sort(sounds.begin(), sounds.end());
+    definedSounds.assign(seenDefined.begin(), seenDefined.end());
+    std::sort(definedSounds.begin(), definedSounds.end());
+    rawClips.assign(seenRaw.begin(), seenRaw.end());
+    std::sort(rawClips.begin(), rawClips.end());
 }
 
 bool SoundBrowser::drawModal(slopengine::AssetStore& assets, std::string& outPath) {
@@ -90,8 +93,17 @@ bool SoundBrowser::drawModal(slopengine::AssetStore& assets, std::string& outPat
             filter = filterBuf;
         }
         ImGui::Separator();
+        std::vector<std::string> combined;
+        const std::vector<std::string>* list = &definedSounds;
+        if (mode == SoundBrowserMode::Combined) {
+            combined = definedSounds;
+            combined.insert(combined.end(), rawClips.begin(), rawClips.end());
+            std::sort(combined.begin(), combined.end());
+            combined.erase(std::unique(combined.begin(), combined.end()), combined.end());
+            list = &combined;
+        }
         if (ImGui::BeginChild("##soundlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
-            for (const std::string& path : sounds) {
+            for (const std::string& path : *list) {
                 if (!containsIgnoreCase(path, filter)) {
                     continue;
                 }

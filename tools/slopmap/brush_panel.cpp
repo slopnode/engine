@@ -757,6 +757,7 @@ BrushPanelResult drawBrushSection(
             pendingDoorSoundField = DoorSoundField::Open;
             soundBrowser.rescan(assets);
             soundBrowser.filter.clear();
+            soundBrowser.mode = SoundBrowserMode::Combined;
             soundBrowser.open = true;
         }
 
@@ -789,6 +790,7 @@ BrushPanelResult drawBrushSection(
             pendingDoorSoundField = DoorSoundField::Close;
             soundBrowser.rescan(assets);
             soundBrowser.filter.clear();
+            soundBrowser.mode = SoundBrowserMode::Combined;
             soundBrowser.open = true;
         }
 

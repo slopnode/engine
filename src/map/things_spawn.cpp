@@ -764,7 +764,6 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
         entity.set<AudioSource>({
             .audio = placement.audio,
-            .clip = placement.clip,
             .volume = placement.volume,
             .minDistance = placement.minDistance,
             .maxDistance = placement.maxDistance,

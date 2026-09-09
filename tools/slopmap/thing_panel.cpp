@@ -2,6 +2,7 @@
 
 #include "handler_ui.hpp"
 #include "material_browser.hpp"
+#include "sound_browser.hpp"
 #include "ui/icon_ui.hpp"
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
@@ -42,6 +43,10 @@ bool colorEqual(Vector3 a, Vector3 b) {
 
 bool sizeEqual(Vector2 a, Vector2 b) {
     return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y);
+}
+
+float iconButtonWidth() {
+    return ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x;
 }
 
 enum class ThingEditKind {
@@ -1003,9 +1008,14 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
-bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
+bool drawSoundSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    SoundBrowser& soundBrowser,
+    const std::vector<int>& targets) {
     bool changed = false;
     const EditorDocument& doc = editor.doc();
+    constexpr const char* kIcons = slopengine::kDefaultIconSet;
 
     ImGui::Text("Kind: sound-source");
     ImGui::Text("%d sound(s)", static_cast<int>(targets.size()));
@@ -1015,10 +1025,6 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
         doc,
         targets,
         [](const slopengine::Thing& t) { return t.audio; });
-    const auto clipCommon = commonValue<std::string>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.clip; });
     const auto volumeCommon = commonValue<float>(
         doc,
         targets,
@@ -1045,6 +1051,13 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
 
     char audioBuf[256];
     copyToBuf(audioBuf, sizeof(audioBuf), audioCommon.value_or(std::string{}));
+    ImGui::PushID("soundAudio");
+    const bool pickAudio =
+        slopengine::iconButton(assets, kIcons, "sound", ImVec2(iconButtonWidth(), 0.0f));
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Pick sound");
+    }
+    ImGui::SameLine();
     if (inputTextMixed("Audio", audioBuf, sizeof(audioBuf), !audioCommon.has_value())) {
         const std::string audio = audioBuf;
         if (forEachSound(editor, targets, [&audio](slopengine::Thing& thing) {
@@ -1054,16 +1067,23 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
             editor.statusMessage = "Set sound audio";
         }
     }
+    ImGui::PopID();
+    if (pickAudio) {
+        soundBrowser.rescan(assets);
+        soundBrowser.filter.clear();
+        soundBrowser.mode = SoundBrowserMode::DefinedOnly;
+        soundBrowser.open = true;
+    }
 
-    char clipBuf[256];
-    copyToBuf(clipBuf, sizeof(clipBuf), clipCommon.value_or(std::string{}));
-    if (inputTextMixed("Clip", clipBuf, sizeof(clipBuf), !clipCommon.has_value())) {
-        const std::string clip = clipBuf;
-        if (forEachSound(editor, targets, [&clip](slopengine::Thing& thing) {
-                thing.clip = clip;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound clip";
+    if (soundBrowser.open) {
+        std::string picked;
+        if (soundBrowser.drawModal(assets, picked)) {
+            if (forEachSound(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.audio = picked;
+                })) {
+                changed = true;
+                editor.statusMessage = "Set sound audio";
+            }
         }
     }
 
@@ -2481,6 +2501,7 @@ ThingPanelResult ThingPanel::drawSection(
     Editor& editor,
     slopengine::AssetStore& assets,
     MaterialBrowser& materialBrowser,
+    SoundBrowser& soundBrowser,
     float bodyHeight) {
     ThingPanelResult result{};
     if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
@@ -2509,7 +2530,7 @@ ThingPanelResult ThingPanel::drawSection(
     if (editKind == ThingEditKind::Light) {
         result.changed = drawLightSection(editor, targets) || result.changed;
     } else if (editKind == ThingEditKind::Sound) {
-        result.changed = drawSoundSection(editor, targets) || result.changed;
+        result.changed = drawSoundSection(editor, assets, soundBrowser, targets) || result.changed;
     } else if (editKind == ThingEditKind::Prop) {
         result.changed = drawPropSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Actor) {

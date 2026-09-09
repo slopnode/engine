@@ -2,6 +2,7 @@
 
 #include "editor.hpp"
 #include "material_browser.hpp"
+#include "sound_browser.hpp"
 
 #include "assets/asset_store.hpp"
 
@@ -16,6 +17,7 @@ struct ThingPanel {
         Editor& editor,
         slopengine::AssetStore& assets,
         MaterialBrowser& materialBrowser,
+        SoundBrowser& soundBrowser,
         float bodyHeight);
     ThingPanelResult drawMapSection(
         Editor& editor,

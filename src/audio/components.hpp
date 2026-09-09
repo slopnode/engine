@@ -17,7 +17,6 @@ struct AudioListener {
  */
 struct AudioSource {
     std::string audio;
-    std::string clip;
     float volume = 1.0f;
     float minDistance = 1.0f;
     float maxDistance = 30.0f;
