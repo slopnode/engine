@@ -1025,29 +1025,6 @@ bool drawSoundSection(
         doc,
         targets,
         [](const slopengine::Thing& t) { return t.audio; });
-    const auto volumeCommon = commonValue<float>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.volume; },
-        [](float a, float b) { return nearlyEqual(a, b); });
-    const auto minCommon = commonValue<float>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.minDistance; },
-        [](float a, float b) { return nearlyEqual(a, b); });
-    const auto maxCommon = commonValue<float>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.maxDistance; },
-        [](float a, float b) { return nearlyEqual(a, b); });
-    const auto loopingCommon = commonValue<bool>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.looping; });
-    const auto spatialCommon = commonValue<bool>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.spatial; });
 
     char audioBuf[256];
     copyToBuf(audioBuf, sizeof(audioBuf), audioCommon.value_or(std::string{}));
@@ -1087,68 +1064,22 @@ bool drawSoundSection(
         }
     }
 
-    float volume = volumeCommon.value_or(1.0f);
-    if (dragFloatMixed("Volume", &volume, !volumeCommon.has_value(), 0.01f, 0.0f, 4.0f)) {
-        if (volume < 0.0f) {
-            volume = 0.0f;
-        }
-        if (forEachSound(editor, targets, [volume](slopengine::Thing& thing) {
-                thing.volume = volume;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound volume";
-        }
-    }
-
-    float minDistance = minCommon.value_or(1.0f);
-    if (dragFloatMixed("Min distance", &minDistance, !minCommon.has_value(), 0.05f, 0.01f, 1000.0f)) {
-        if (minDistance < 0.01f) {
-            minDistance = 0.01f;
-        }
-        if (forEachSound(editor, targets, [minDistance](slopengine::Thing& thing) {
-                thing.minDistance = minDistance;
-                if (thing.maxDistance < thing.minDistance) {
-                    thing.maxDistance = thing.minDistance;
-                }
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound min distance";
-        }
-    }
-
-    float maxDistance = maxCommon.value_or(30.0f);
-    if (dragFloatMixed("Max distance", &maxDistance, !maxCommon.has_value(), 0.1f, 0.01f, 1000.0f)) {
-        if (maxDistance < 0.01f) {
-            maxDistance = 0.01f;
-        }
-        if (forEachSound(editor, targets, [maxDistance](slopengine::Thing& thing) {
-                thing.maxDistance = maxDistance;
-                if (thing.minDistance > thing.maxDistance) {
-                    thing.minDistance = thing.maxDistance;
-                }
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound max distance";
-        }
-    }
-
-    bool looping = loopingCommon.value_or(true);
-    if (checkboxMixed("Looping", &looping, !loopingCommon.has_value())) {
-        if (forEachSound(editor, targets, [looping](slopengine::Thing& thing) {
-                thing.looping = looping;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound looping";
-        }
-    }
-
-    bool spatial = spatialCommon.value_or(true);
-    if (checkboxMixed("Spatial", &spatial, !spatialCommon.has_value())) {
-        if (forEachSound(editor, targets, [spatial](slopengine::Thing& thing) {
-                thing.spatial = spatial;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound spatial";
+    ImGui::Separator();
+    if (!audioCommon.has_value() || audioCommon->empty()) {
+        ImGui::TextDisabled("Pick a sound to see its properties");
+    } else {
+        const slopengine::AudioDef* def = assets.getAudioDef(*audioCommon);
+        if (def == nullptr) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Sound definition not found");
+        } else {
+            ImGui::TextDisabled("Defined in %s -- edit in slopaudio", audioCommon->c_str());
+            ImGui::Text("Volume: %.3f", def->volume);
+            ImGui::Text("Loop: %s", def->loop ? "yes" : "no");
+            ImGui::Text("Spatial: %s", def->spatial ? "yes" : "no");
+            if (def->spatial) {
+                ImGui::Text("Min distance: %.2f", def->minDistance);
+                ImGui::Text("Max distance: %.2f", def->maxDistance);
+            }
         }
     }
 

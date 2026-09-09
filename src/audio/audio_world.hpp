@@ -192,6 +192,7 @@ private:
     const tml_message* loadMidiMessages(AssetStore& assets, std::string_view path);
     MidiSource* loadMidiForDef(AssetStore& assets, std::string_view defPath, const AudioDef& def);
     SoLoud::handle playMidiDef(
+        std::string_view defPath,
         const AudioDef& def,
         MidiSource& midi,
         float volume,
@@ -217,6 +218,7 @@ private:
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
     SoLoud::Wav* ensureStereoClip(SoLoud::Wav* clip, std::string_view cacheKey);
     SoLoud::Wav* bakeSfxrStereo(SoLoud::Sfxr& sfxr, std::string_view cacheKey, bool loop);
+    SoLoud::Wav* bakeMidiStereo(MidiSource& midi, std::string_view cacheKey, bool loop);
     SoLoud::Wav* prepareSpatialSteamWav(SoLoud::Wav* clip, std::string_view cacheKey, bool loop);
     SoLoud::handle playSpatialSteam(
         AudioBusKind busKind,

@@ -883,19 +883,14 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             readString(sc, s7_car(rest), out.audio);
         } else if (std::strcmp(tag, "volume") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
-            out.volume = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "loop") == 0 && s7_is_pair(rest)) {
-            readBool(sc, s7_car(rest), out.looping);
         } else if (std::strcmp(tag, "spatial") == 0 && s7_is_pair(rest)) {
-            readBool(sc, s7_car(rest), out.spatial);
         } else if (std::strcmp(tag, "cast-shadows") == 0 && s7_is_pair(rest)) {
             readBool(sc, s7_car(rest), out.dynamicCastShadows);
         } else if (std::strcmp(tag, "min-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
-            out.minDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "max-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
-            out.maxDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "system") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.particleSystem);
         } else if (std::strcmp(tag, "play") == 0 && s7_is_pair(rest)) {

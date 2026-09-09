@@ -762,17 +762,20 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
 
     if (placement.kind == ThingKind::SoundSource) {
         entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
-        entity.set<AudioSource>({
-            .audio = placement.audio,
-            .volume = placement.volume,
-            .minDistance = placement.minDistance,
-            .maxDistance = placement.maxDistance,
-            .looping = placement.looping,
-            .spatial = placement.spatial,
-            .autoplay = true,
-            .playing = false,
-            .voice = 0,
-        });
+        const AudioDef* def = ctx.assets != nullptr ? ctx.assets->getAudioDef(placement.audio) : nullptr;
+        AudioSource source{};
+        source.audio = placement.audio;
+        source.autoplay = true;
+        source.playing = false;
+        source.voice = 0;
+        if (def != nullptr) {
+            source.volume = def->volume;
+            source.minDistance = def->minDistance;
+            source.maxDistance = def->maxDistance;
+            source.looping = def->loop;
+            source.spatial = def->spatial;
+        }
+        entity.set<AudioSource>(source);
         return;
     }
 

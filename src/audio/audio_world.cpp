@@ -555,6 +555,7 @@ MidiSource* AudioWorld::loadMidiForDef(AssetStore& assets, std::string_view defP
 }
 
 SoLoud::handle AudioWorld::playMidiDef(
+    [[maybe_unused]] std::string_view defPath,
     const AudioDef& def,
     MidiSource& midi,
     float volume,
@@ -572,6 +573,25 @@ SoLoud::handle AudioWorld::playMidiDef(
     SoLoud::Bus& target = bus(busFromDef(def.bus));
     SoLoud::handle voice = 0;
     if (spatial3d || def.spatial) {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+        if (steamAudioEnabled() && def.bus != AudioDefBus::Music) {
+            SoLoud::Wav* baked = bakeMidiStereo(midi, defPath, def.loop);
+            if (baked == nullptr) {
+                return 0;
+            }
+            return playSpatialSteam(
+                busFromDef(def.bus),
+                *baked,
+                x,
+                y,
+                z,
+                volume,
+                def.minDistance,
+                def.maxDistance,
+                false,
+                0.0f);
+        }
+#endif
         midi.set3dMinMaxDistance(def.minDistance, def.maxDistance);
         voice = viaBus
             ? target.play3d(midi, x, y, z, 0.0f, 0.0f, 0.0f, volume)
@@ -676,7 +696,7 @@ SoLoud::handle AudioWorld::playAudioDef(
         if (midi == nullptr) {
             return 0;
         }
-        return playMidiDef(def, *midi, volume, false, 0.0f, 0.0f, 0.0f, viaBus);
+        return playMidiDef(defPath, def, *midi, volume, false, 0.0f, 0.0f, 0.0f, viaBus);
     }
 
     const AudioBusKind busKind = busFromDef(def.bus);
@@ -776,7 +796,7 @@ SoLoud::handle AudioWorld::playAudioDef3d(
         if (midi == nullptr) {
             return 0;
         }
-        return playMidiDef(def, *midi, volume, true, x, y, z);
+        return playMidiDef(defPath, def, *midi, volume, true, x, y, z);
     }
 
     if (def.bus == AudioDefBus::Music) {
@@ -1170,6 +1190,80 @@ SoLoud::Wav* AudioWorld::bakeSfxrStereo(SoLoud::Sfxr& sfxr, std::string_view cac
     SoLoud::Wav* ptr = stereo.get();
     stereoClips_.emplace(key, std::move(stereo));
     return ptr;
+}
+
+SoLoud::Wav* AudioWorld::bakeMidiStereo(MidiSource& midi, std::string_view cacheKey, bool loop) {
+    if (!steamAudioEnabled()) {
+        return nullptr;
+    }
+
+    const std::string key = std::string("steam-midi:") + std::string(cacheKey);
+    if (auto it = stereoClips_.find(key); it != stereoClips_.end()) {
+        it->second->setLooping(loop);
+        return it->second.get();
+    }
+
+    SoLoud::AudioSourceInstance* instance = midi.createInstance();
+    if (instance == nullptr) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to create midi instance for %s", key.c_str());
+        return nullptr;
+    }
+    instance->init(midi, 0);
+
+    const unsigned int rate =
+        midi.mBaseSamplerate > 0.0f ? static_cast<unsigned int>(midi.mBaseSamplerate) : 44100u;
+    const unsigned int capSamples = rate * 60u * 6u;
+    std::vector<float> left;
+    std::vector<float> right;
+    std::vector<float> chunk(1024);
+    const unsigned int chunkStride = static_cast<unsigned int>(chunk.size()) / 2u;
+    while (left.size() < capSamples && !instance->hasEnded()) {
+        const unsigned int want =
+            std::min(chunkStride, capSamples - static_cast<unsigned int>(left.size()));
+        const unsigned int got = instance->getAudio(chunk.data(), want, want);
+        if (got == 0) {
+            break;
+        }
+        left.insert(left.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(got));
+        right.insert(
+            right.end(),
+            chunk.begin() + static_cast<std::ptrdiff_t>(want),
+            chunk.begin() + static_cast<std::ptrdiff_t>(want + got));
+    }
+    const bool truncated = left.size() >= capSamples && !instance->hasEnded();
+    delete instance;
+
+    if (truncated) {
+        TraceLog(LOG_WARNING, "AUDIO: midi bake for %s exceeded 6 minute cap, truncating", key.c_str());
+    }
+
+    if (left.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: empty midi bake for %s", key.c_str());
+        return nullptr;
+    }
+
+    std::vector<float> data(left.size() + right.size());
+    std::memcpy(data.data(), left.data(), left.size() * sizeof(float));
+    std::memcpy(data.data() + left.size(), right.data(), right.size() * sizeof(float));
+
+    auto midiStereo = std::make_unique<SoLoud::Wav>();
+    const SoLoud::result midiResult = midiStereo->loadRawWave(
+        data.data(),
+        static_cast<unsigned int>(data.size()),
+        static_cast<float>(rate),
+        2,
+        true,
+        true);
+    if (midiResult != SoLoud::SO_NO_ERROR) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to bake midi stereo wav for %s", key.c_str());
+        return nullptr;
+    }
+
+    midiStereo->setLooping(loop);
+    midiStereo->setFilter(0, &steamAudio_->spatializeFilter());
+    SoLoud::Wav* midiPtr = midiStereo.get();
+    stereoClips_.emplace(key, std::move(midiStereo));
+    return midiPtr;
 }
 
 SoLoud::handle AudioWorld::playSpatialSteam(

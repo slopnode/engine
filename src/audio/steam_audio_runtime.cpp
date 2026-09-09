@@ -201,6 +201,16 @@ int SteamAudioRuntime::trackVoice(
     iplSourceAdd(s.source, simulator_);
     iplSimulatorCommit(simulator_);
 
+    s.smoothedOcclusion = 1.0f;
+    s.smoothedTransmission[0] = 1.0f;
+    s.smoothedTransmission[1] = 1.0f;
+    s.smoothedTransmission[2] = 1.0f;
+    s.smoothedDistanceAttenuation = 1.0f;
+    s.smoothedReverbTimes[0] = 0.0f;
+    s.smoothedReverbTimes[1] = 0.0f;
+    s.smoothedReverbTimes[2] = 0.0f;
+    s.smoothingInit = false;
+
     SteamAudioSlotRenderParams seeded{};
     seeded.occlusion = 1.0f;
     seeded.transmission[0] = 1.0f;
@@ -260,6 +270,19 @@ void SteamAudioRuntime::update(
     if (!ready_) {
         return;
     }
+
+    const auto now = std::chrono::steady_clock::now();
+    float dt = 0.0f;
+    if (hasLastUpdateTime_) {
+        dt = std::chrono::duration<float>(now - lastUpdateTime_).count();
+    }
+    lastUpdateTime_ = now;
+    hasLastUpdateTime_ = true;
+    // Stalls (scene load, breakpoint, frame hitch) or the very first update should snap
+    // straight to target values rather than slowly fading from stale defaults.
+    const bool snap = dt <= 0.0f || dt > 0.5f;
+    const float directAlpha = snap ? 1.0f : 1.0f - std::exp(-dt / kDirectSmoothingTime);
+    const float reverbAlpha = snap ? 1.0f : 1.0f - std::exp(-dt / kReverbSmoothingTime);
 
     std::lock_guard<std::mutex> playLock(playMutex_);
 
@@ -372,25 +395,53 @@ void SteamAudioRuntime::update(
         params.dirZ = relativeDir.z;
 
         distanceModel.minDistance = slot.minDistance > 0.0f ? slot.minDistance : 1.0f;
-        params.distanceAttenuation = iplDistanceAttenuationCalculate(
+        const float rawDistanceAttenuation = iplDistanceAttenuationCalculate(
             context_,
             sourcePos,
             listenerPos,
             &distanceModel);
+        const float rawOcclusion = sceneReady_ ? outputs.direct.occlusion : 1.0f;
+        const float rawTransmission[3] = {
+            outputs.direct.transmission[0],
+            outputs.direct.transmission[1],
+            outputs.direct.transmission[2],
+        };
+        const float rawReverbTimes[3] = {
+            sceneReady_ ? outputs.reflections.reverbTimes[0] : 0.0f,
+            sceneReady_ ? outputs.reflections.reverbTimes[1] : 0.0f,
+            sceneReady_ ? outputs.reflections.reverbTimes[2] : 0.0f,
+        };
 
-        params.occlusion = sceneReady_ ? outputs.direct.occlusion : 1.0f;
-        params.transmission[0] = outputs.direct.transmission[0];
-        params.transmission[1] = outputs.direct.transmission[1];
-        params.transmission[2] = outputs.direct.transmission[2];
+        // Raw simulation outputs are recomputed from scratch every call: raycast occlusion can
+        // flip instantly as the source/listener cross an edge, and the Monte Carlo reflection
+        // estimate carries sampling noise even for a static scene. Smooth both toward the target
+        // over time so occlusion transitions and reverb tails don't zipper/click.
+        const float slotDirectAlpha = slot.smoothingInit ? directAlpha : 1.0f;
+        const float slotReverbAlpha = slot.smoothingInit ? reverbAlpha : 1.0f;
+        slot.smoothingInit = true;
 
-        if (sceneReady_) {
-            params.reverbTimes[0] = outputs.reflections.reverbTimes[0];
-            params.reverbTimes[1] = outputs.reflections.reverbTimes[1];
-            params.reverbTimes[2] = outputs.reflections.reverbTimes[2];
-            params.reflectionsActive =
-                params.reverbTimes[0] > 0.0f || params.reverbTimes[1] > 0.0f
-                || params.reverbTimes[2] > 0.0f;
+        slot.smoothedDistanceAttenuation +=
+            slotDirectAlpha * (rawDistanceAttenuation - slot.smoothedDistanceAttenuation);
+        slot.smoothedOcclusion += slotDirectAlpha * (rawOcclusion - slot.smoothedOcclusion);
+        for (int band = 0; band < 3; ++band) {
+            slot.smoothedTransmission[band] +=
+                slotDirectAlpha * (rawTransmission[band] - slot.smoothedTransmission[band]);
+            slot.smoothedReverbTimes[band] +=
+                slotReverbAlpha * (rawReverbTimes[band] - slot.smoothedReverbTimes[band]);
         }
+
+        params.distanceAttenuation = slot.smoothedDistanceAttenuation;
+        params.occlusion = slot.smoothedOcclusion;
+        params.transmission[0] = slot.smoothedTransmission[0];
+        params.transmission[1] = slot.smoothedTransmission[1];
+        params.transmission[2] = slot.smoothedTransmission[2];
+        params.reverbTimes[0] = slot.smoothedReverbTimes[0];
+        params.reverbTimes[1] = slot.smoothedReverbTimes[1];
+        params.reverbTimes[2] = slot.smoothedReverbTimes[2];
+        // Small epsilon (not >0) so a decaying tail keeps rendering instead of gating off abruptly.
+        params.reflectionsActive = sceneReady_
+            && (params.reverbTimes[0] > 1.0e-3f || params.reverbTimes[1] > 1.0e-3f
+                || params.reverbTimes[2] > 1.0e-3f);
 
         params.active = true;
         renderParams_[static_cast<std::size_t>(i)] = params;
