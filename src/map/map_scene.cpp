@@ -273,6 +273,7 @@ bool assembleMapScene(
         if (audioCtx.world != nullptr) {
             audioCtx.world->clearSteamAudioScene();
             audioCtx.world->setSteamAudioScene(
+                assets,
                 loaded.brushes,
                 loaded.moverBrushIds.empty() ? nullptr : &loaded.moverBrushIds);
         }

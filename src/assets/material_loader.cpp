@@ -150,6 +150,49 @@ bool applySkyCubeField(const Sexpr& form, MaterialAsset& asset, SexprParseError&
     return true;
 }
 
+bool applySoundField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
+    if (!form.isList() || !form.list[0].isAtom("sound")) {
+        error = {"(sound (absorption lo mid hi) (scattering n) (transmission lo mid hi))", form.line, form.column};
+        return false;
+    }
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        const Sexpr& clause = form.list[i];
+        if (!clause.isList() || clause.list.empty() || clause.list[0].kind != SexprKind::Atom) {
+            error = {"sound expected (absorption|scattering|transmission ...)", clause.line, clause.column};
+            return false;
+        }
+        const std::string& clauseTag = clause.list[0].text;
+        if (clauseTag == "absorption") {
+            float values[3] = {};
+            if (!readNumberField(clause, 3, values)) {
+                error = {"(absorption lo mid hi)", clause.line, clause.column};
+                return false;
+            }
+            asset.sound.absorptionLow = values[0];
+            asset.sound.absorptionMid = values[1];
+            asset.sound.absorptionHigh = values[2];
+        } else if (clauseTag == "scattering") {
+            if (!readNumberField(clause, 1, &asset.sound.scattering)) {
+                error = {"(scattering n)", clause.line, clause.column};
+                return false;
+            }
+        } else if (clauseTag == "transmission") {
+            float values[3] = {};
+            if (!readNumberField(clause, 3, values)) {
+                error = {"(transmission lo mid hi)", clause.line, clause.column};
+                return false;
+            }
+            asset.sound.transmissionLow = values[0];
+            asset.sound.transmissionMid = values[1];
+            asset.sound.transmissionHigh = values[2];
+        } else {
+            error = {"unknown sound field '" + clauseTag + "'", clause.line, clause.column};
+            return false;
+        }
+    }
+    return true;
+}
+
 bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
     if (!form.isList() || form.list.empty() || form.list[0].kind != SexprKind::Atom) {
         error = {"expected material field list", form.line, form.column};
@@ -342,6 +385,9 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
     }
     if (tag == "sky-cube") {
         return applySkyCubeField(form, asset, error);
+    }
+    if (tag == "sound") {
+        return applySoundField(form, asset, error);
     }
     if (tag == "sky-cylinder") {
         if (!readStringField(form, asset.skyCylinderTexture)) {

@@ -1006,13 +1006,15 @@ bool AudioWorld::steamAudioEnabled() const {
 }
 
 void AudioWorld::setSteamAudioScene(
+    AssetStore& assets,
     const std::vector<Brush>& brushes,
     const std::unordered_set<std::string>* excludeBrushIds) {
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
     if (steamAudioEnabled()) {
-        steamAudio_->setSceneFromBrushes(brushes, excludeBrushIds);
+        steamAudio_->setSceneFromBrushes(brushes, excludeBrushIds, assets);
     }
 #else
+    (void)assets;
     (void)brushes;
     (void)excludeBrushIds;
 #endif

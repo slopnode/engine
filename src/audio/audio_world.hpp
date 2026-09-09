@@ -126,6 +126,7 @@ public:
 
     bool steamAudioEnabled() const;
     void setSteamAudioScene(
+        AssetStore& assets,
         const std::vector<Brush>& brushes,
         const std::unordered_set<std::string>* excludeBrushIds);
     void clearSteamAudioScene();

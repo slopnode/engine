@@ -4,6 +4,7 @@
 
 #include "core/win32.hpp"
 
+#include "assets/asset_store.hpp"
 #include "audio/steam_audio_types.hpp"
 #include "map/brush.hpp"
 
@@ -68,7 +69,8 @@ public:
 
     bool setSceneFromBrushes(
         const std::vector<Brush>& brushes,
-        const std::unordered_set<std::string>* excludeBrushIds);
+        const std::unordered_set<std::string>* excludeBrushIds,
+        AssetStore& assets);
     void clearScene();
 
     int trackVoice(

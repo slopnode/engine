@@ -11,6 +11,17 @@
 
 namespace slopengine {
 
+/** Acoustic properties for Steam Audio simulation; defaults match prior engine-wide constant. */
+struct MaterialSoundProfile {
+    float absorptionLow = 0.05f;
+    float absorptionMid = 0.08f;
+    float absorptionHigh = 0.12f;
+    float scattering = 0.15f;
+    float transmissionLow = 0.120f;
+    float transmissionMid = 0.070f;
+    float transmissionHigh = 0.040f;
+};
+
 /** Parsed .mat material fields (albedo + emission; no PBR maps). */
 struct MaterialAsset {
     std::string shader = "default";
@@ -59,6 +70,7 @@ struct MaterialAsset {
     float skyCylinderOffset = 0.0f;
     float skyCylinderScale = 1.0f;
     int skyCylinderRepeat = 1;
+    MaterialSoundProfile sound;
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;

@@ -140,12 +140,13 @@ SteamAudioSpatializeFilter& SteamAudioRuntime::spatializeFilter() {
 
 bool SteamAudioRuntime::setSceneFromBrushes(
     const std::vector<Brush>& brushes,
-    const std::unordered_set<std::string>* excludeBrushIds) {
+    const std::unordered_set<std::string>* excludeBrushIds,
+    AssetStore& assets) {
     if (!ready_) {
         return false;
     }
-    const bool ok =
-        createSteamAudioScene(context_, simulator_, brushes, excludeBrushIds, &scene_, &staticMesh_);
+    const bool ok = createSteamAudioScene(
+        context_, simulator_, brushes, excludeBrushIds, assets, &scene_, &staticMesh_);
     sceneReady_ = ok;
     if (ok) {
         TraceLog(LOG_INFO, "STEAM AUDIO: scene built from brushes");

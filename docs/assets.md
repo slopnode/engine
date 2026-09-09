@@ -69,6 +69,8 @@ Materials, particle systems, and icon atlases don't have their own tutorial yet;
   (base-color 1 1 1 1))
 </code></pre>
 
+A material can also carry an optional `(sound ...)` block giving Steam Audio's per-surface acoustic properties (`(absorption low mid high)`, `(scattering n)`, `(transmission low mid high)`); any field left out, or the whole block left out, keeps the engine's default acoustic values.
+
 <pre><code class="language-scheme">; particles/fx/generic-smoke.prt
 (particle-system
   (duration 0)
