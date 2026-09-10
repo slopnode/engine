@@ -1,5 +1,8 @@
 #include "render/render_debug.hpp"
 
+#include "audio/audio_module.hpp"
+#include "audio/components.hpp"
+#include "audio/steam_audio_types.hpp"
 #include "map/nav_graph.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
@@ -9,6 +12,7 @@
 
 #include <rlgl.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -593,6 +597,103 @@ void drawDebugLinePool(const DebugLinePool& pool) {
         DrawLine3D(line.from, line.to, line.color);
         DrawSphereWires(line.from, 0.04f, 4, 4, line.color);
         DrawSphereWires(line.to, 0.04f, 4, 4, line.color);
+    }
+
+    rlEnableDepthMask();
+    rlEnableDepthTest();
+    EndBlendMode();
+}
+
+namespace {
+
+Vector3 audioDebugTranslationFromMatrix(const Matrix& matrix) {
+    return {matrix.m12, matrix.m13, matrix.m14};
+}
+
+bool findActiveAudioListenerPosition(flecs::world& world, Vector3& outPos) {
+    bool found = false;
+    world.each([&](flecs::entity entity, AudioListener& listener) {
+        if (found || !listener.active) {
+            return;
+        }
+        if (entity.has<Lens>()) {
+            outPos = entity.get<Lens>().camera.position;
+            found = true;
+        } else if (entity.has<GlobalTransformation>()) {
+            outPos = audioDebugTranslationFromMatrix(entity.get<GlobalTransformation>().matrix);
+            found = true;
+        }
+    });
+    return found;
+}
+
+// Green (clear path) to red (fully blocked), matching the occlusion/transmission blend
+// SteamAudioRuntime::applyOcclusionGains uses to compute the voice's actual playback volume --
+// so the line color here is literally "how loud is this, relative to unoccluded".
+Color audioOcclusionColor(const SteamAudioDebugSourceInfo& info) {
+    const float avgTransmission =
+        (info.transmission[0] + info.transmission[1] + info.transmission[2]) / 3.0f;
+    const float gain =
+        std::max(0.0f, std::min(1.0f, info.occlusion + (1.0f - info.occlusion) * avgTransmission));
+    const Color blocked{220, 60, 60, 255};
+    const Color clear{60, 220, 120, 255};
+    return Color{
+        static_cast<unsigned char>(blocked.r + (clear.r - blocked.r) * gain),
+        static_cast<unsigned char>(blocked.g + (clear.g - blocked.g) * gain),
+        static_cast<unsigned char>(blocked.b + (clear.b - blocked.b) * gain),
+        255,
+    };
+}
+
+}
+
+void drawAudioDebugOverlays(flecs::world& world, const DebugUiState& debugUi) {
+    if (!debugUi.showAudioSources && !debugUi.showAudioOcclusionMesh) {
+        return;
+    }
+    if (!world.has<AudioContext>()) {
+        return;
+    }
+    const AudioContext& ctx = world.get<AudioContext>();
+    if (ctx.world == nullptr) {
+        return;
+    }
+
+    BeginBlendMode(BLEND_ALPHA);
+    rlDisableDepthTest();
+    rlDisableDepthMask();
+
+    if (debugUi.showAudioOcclusionMesh) {
+        const Color meshColor{255, 190, 60, 140};
+        for (const SteamAudioDebugTriangle& tri : ctx.world->debugSteamAudioScene().triangles) {
+            const Vector3 a{tri.v0[0], tri.v0[1], tri.v0[2]};
+            const Vector3 b{tri.v1[0], tri.v1[1], tri.v1[2]};
+            const Vector3 c{tri.v2[0], tri.v2[1], tri.v2[2]};
+            DrawLine3D(a, b, meshColor);
+            DrawLine3D(b, c, meshColor);
+            DrawLine3D(c, a, meshColor);
+        }
+    }
+
+    if (debugUi.showAudioSources) {
+        Vector3 listenerPos{};
+        const bool haveListener = findActiveAudioListenerPosition(world, listenerPos);
+
+        for (const SteamAudioDebugSourceInfo& info : ctx.world->debugSteamAudioSources()) {
+            const Vector3 pos{info.x, info.y, info.z};
+            const Color color = audioOcclusionColor(info);
+            DrawSphereWires(pos, 0.18f, 8, 8, color);
+            if (haveListener) {
+                DrawLine3D(listenerPos, pos, color);
+            }
+            if (info.reflectionsActive) {
+                // Faint blue halo sized by reverb tail length -- bigger halo, wetter room.
+                const float avgReverb =
+                    (info.reverbTimes[0] + info.reverbTimes[1] + info.reverbTimes[2]) / 3.0f;
+                const float radius = std::max(0.25f, std::min(2.0f, avgReverb));
+                DrawSphereWires(pos, radius, 6, 6, Color{90, 160, 255, 90});
+            }
+        }
     }
 
     rlEnableDepthMask();

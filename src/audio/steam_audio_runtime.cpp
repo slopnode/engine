@@ -145,6 +145,7 @@ bool SteamAudioRuntime::setSceneFromBrushes(
     if (!ready_) {
         return false;
     }
+    buildSteamAudioMeshFromBrushes(brushes, excludeBrushIds, assets, debugMesh_);
     const bool ok = createSteamAudioScene(
         context_, simulator_, brushes, excludeBrushIds, assets, &scene_, &staticMesh_);
     sceneReady_ = ok;
@@ -162,6 +163,7 @@ void SteamAudioRuntime::clearScene() {
     }
     destroySteamAudioScene(simulator_, &scene_, &staticMesh_);
     sceneReady_ = false;
+    debugMesh_ = SteamAudioSceneMesh{};
 }
 
 int SteamAudioRuntime::trackVoice(
@@ -486,6 +488,63 @@ SteamAudioSlotRenderParams SteamAudioRuntime::slotParams(int slot) const {
     }
     std::lock_guard<std::mutex> lock(renderMutex_);
     return renderParams_[static_cast<std::size_t>(slot)];
+}
+
+std::vector<SteamAudioDebugSourceInfo> SteamAudioRuntime::debugSources() {
+    std::vector<SteamAudioDebugSourceInfo> result;
+    if (!ready_) {
+        return result;
+    }
+
+    std::lock_guard<std::mutex> playLock(playMutex_);
+    std::lock_guard<std::mutex> renderLock(renderMutex_);
+    for (int i = 0; i < kMaxSlots; ++i) {
+        const Slot& slot = slots_[static_cast<std::size_t>(i)];
+        if (!slot.used) {
+            continue;
+        }
+        const SteamAudioSlotRenderParams& params = renderParams_[static_cast<std::size_t>(i)];
+        SteamAudioDebugSourceInfo info{};
+        info.voice = slot.voice;
+        info.x = slot.x;
+        info.y = slot.y;
+        info.z = slot.z;
+        info.occlusion = params.occlusion;
+        info.transmission[0] = params.transmission[0];
+        info.transmission[1] = params.transmission[1];
+        info.transmission[2] = params.transmission[2];
+        info.reverbTimes[0] = params.reverbTimes[0];
+        info.reverbTimes[1] = params.reverbTimes[1];
+        info.reverbTimes[2] = params.reverbTimes[2];
+        info.reflectionsActive = params.reflectionsActive;
+        result.push_back(info);
+    }
+    return result;
+}
+
+SteamAudioDebugScene SteamAudioRuntime::debugScene() const {
+    SteamAudioDebugScene result;
+    if (!sceneReady_) {
+        return result;
+    }
+    result.triangles.reserve(debugMesh_.triangles.size());
+    for (const IPLTriangle& tri : debugMesh_.triangles) {
+        const IPLVector3& a = debugMesh_.vertices[static_cast<std::size_t>(tri.indices[0])];
+        const IPLVector3& b = debugMesh_.vertices[static_cast<std::size_t>(tri.indices[1])];
+        const IPLVector3& c = debugMesh_.vertices[static_cast<std::size_t>(tri.indices[2])];
+        SteamAudioDebugTriangle debugTri{};
+        debugTri.v0[0] = a.x;
+        debugTri.v0[1] = a.y;
+        debugTri.v0[2] = a.z;
+        debugTri.v1[0] = b.x;
+        debugTri.v1[1] = b.y;
+        debugTri.v1[2] = b.z;
+        debugTri.v2[0] = c.x;
+        debugTri.v2[1] = c.y;
+        debugTri.v2[2] = c.z;
+        result.triangles.push_back(debugTri);
+    }
+    return result;
 }
 
 int SteamAudioRuntime::allocSlotUnlocked() {

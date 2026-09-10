@@ -454,6 +454,11 @@ void drawMainMenuBar(
             ImGui::MenuItem("Sprite Sample Taps", nullptr, &debugUi.showLightProbeSampleTaps);
             ImGui::EndMenu();
         }
+        if (beginMenuWithIcon(assets, kIcons, "sound", "Audio")) {
+            ImGui::MenuItem("Sources (occlusion/reverb)", nullptr, &debugUi.showAudioSources);
+            ImGui::MenuItem("Occluder Mesh", nullptr, &debugUi.showAudioOcclusionMesh);
+            ImGui::EndMenu();
+        }
         menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
         menuItemWithIcon(assets, kIcons, "arrow_branch", "Nav Paths", nullptr, &debugUi.showNavPaths);
         if (beginMenuWithIcon(assets, kIcons, "shape_square", "Nav Polys (baked)")) {

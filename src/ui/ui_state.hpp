@@ -77,6 +77,8 @@ struct DebugUiState {
      *  shown at once to compare their erosion against each other. */
     std::unordered_map<std::string, bool> shownNavProfiles;
     bool showActorColliders = false;
+    bool showAudioSources = false;
+    bool showAudioOcclusionMesh = false;
     bool showPerformance = false;
     bool unlit = false;
     bool noclip = false;

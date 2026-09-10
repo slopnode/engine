@@ -134,6 +134,11 @@ public:
         const SteamAudioListenerPose& listener,
         const std::vector<SteamAudioSourcePose>& sources);
 
+    // Debug-only introspection for audio visualization tooling. Empty when Steam Audio
+    // isn't compiled in or has no scene loaded.
+    std::vector<SteamAudioDebugSourceInfo> debugSteamAudioSources() const;
+    SteamAudioDebugScene debugSteamAudioScene() const;
+
     // Fades a lowpass filter on the Sfx bus only (music stays dry) to muffle
     // world sound while the listener is underwater. amount01 0 = dry, 1 = fully
     // muffled; the filter attaches lazily on first non-zero call.

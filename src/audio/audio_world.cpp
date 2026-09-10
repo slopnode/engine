@@ -1042,6 +1042,24 @@ void AudioWorld::updateSteamAudio(
 #endif
 }
 
+std::vector<SteamAudioDebugSourceInfo> AudioWorld::debugSteamAudioSources() const {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudioEnabled()) {
+        return steamAudio_->debugSources();
+    }
+#endif
+    return {};
+}
+
+SteamAudioDebugScene AudioWorld::debugSteamAudioScene() const {
+#ifdef SLOPENGINE_HAS_STEAM_AUDIO
+    if (steamAudioEnabled()) {
+        return steamAudio_->debugScene();
+    }
+#endif
+    return {};
+}
+
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
 SoLoud::Wav* AudioWorld::ensureStereoClip(SoLoud::Wav* clip, std::string_view cacheKey) {
     if (clip == nullptr) {

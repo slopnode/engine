@@ -5,6 +5,7 @@
 #include "core/win32.hpp"
 
 #include "assets/asset_store.hpp"
+#include "audio/steam_audio_scene.hpp"
 #include "audio/steam_audio_types.hpp"
 #include "map/brush.hpp"
 
@@ -91,6 +92,11 @@ public:
     SteamAudioSlotRenderParams slotParams(int slot) const;
     std::mutex& playMutex() { return playMutex_; }
 
+    // Debug-only introspection for audio visualization tooling; not used by the mixer.
+    // Not const: locks playMutex_, which (like the rest of the play-side state) isn't mutable.
+    std::vector<SteamAudioDebugSourceInfo> debugSources();
+    SteamAudioDebugScene debugScene() const;
+
 private:
     struct Slot {
         IPLSource source = nullptr;
@@ -123,6 +129,10 @@ private:
     IPLAudioSettings audioSettings_{};
     bool ready_ = false;
     bool sceneReady_ = false;
+
+    // Retained alongside scene_/staticMesh_ purely so debugScene() can wireframe it; only
+    // touched from the main thread at scene (re)build time, same as scene_/staticMesh_.
+    SteamAudioSceneMesh debugMesh_{};
 
     std::array<Slot, kMaxSlots> slots_{};
     std::array<SteamAudioSlotRenderParams, kMaxSlots> renderParams_{};
