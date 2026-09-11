@@ -6,6 +6,20 @@
 #include "assets/asset_store.hpp"
 #include "assets/audio_def.hpp"
 
+#if defined(_WIN32)
+// soloud.h pulls in <windows.h> for its debug assert macro (OutputDebugStringA).
+// winuser.h's CloseWindow/ShowCursor then collide with raylib.h's extern "C"
+// declarations of the same names, which corrupts MSVC's parse of raylib.h for
+// the rest of this translation unit. NOUSER/NOGDI keep winuser.h from declaring
+// them; this tool never needs the USER32/GDI APIs they gate.
+#ifndef NOUSER
+#define NOUSER
+#endif
+#ifndef NOGDI
+#define NOGDI
+#endif
+#endif
+
 #include <soloud.h>
 
 #include <filesystem>
