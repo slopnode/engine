@@ -25,11 +25,47 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <utility>
 #include <vector>
 
 namespace slopengine {
+
+namespace {
+
+// path::string() converts through the process's native codepage on Windows and throws
+// std::system_error for a character that codepage can't represent (e.g. a Cyrillic asset
+// name), crashing playback instead of just failing to find the file. Reading the bytes
+// ourselves via the path object directly (its native, codepage-independent representation)
+// and handing them to each library's memory loader sidesteps both that throw and the
+// same-flavor failure a C library's own fopen()-based filename loader would hit on the
+// mangled narrow path.
+std::vector<unsigned char> readFileBytes(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        return {};
+    }
+    const std::streamoff size = file.tellg();
+    if (size <= 0) {
+        return {};
+    }
+    file.seekg(0);
+    std::vector<unsigned char> bytes(static_cast<std::size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) {
+        return {};
+    }
+    return bytes;
+}
+
+// For log messages only; UTF-8 via generic_u8string() instead of the same throwing
+// native-codepage conversion .string() uses.
+std::string pathForLog(const std::filesystem::path& path) {
+    const std::u8string u8 = path.generic_u8string();
+    return std::string(u8.begin(), u8.end());
+}
+
+} // namespace
 
 static_assert(kMaxFiltersPerBus == FILTERS_PER_STREAM, "BusDef slot count must match SoLoud's per-source filter limit");
 
@@ -157,10 +193,16 @@ SoLoud::Wav* AudioWorld::loadClip(AssetStore& assets, std::string_view path) {
         return nullptr;
     }
 
+    const std::vector<unsigned char> bytes = readFileBytes(*resolved);
+    if (bytes.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to read clip %s", pathForLog(*resolved).c_str());
+        return nullptr;
+    }
+
     auto wav = std::make_unique<SoLoud::Wav>();
-    const SoLoud::result result = wav->load(resolved->string().c_str());
+    const SoLoud::result result = wav->loadMem(bytes.data(), static_cast<unsigned int>(bytes.size()), true);
     if (result != SoLoud::SO_NO_ERROR) {
-        TraceLog(LOG_WARNING, "AUDIO: failed to load clip %s (%d)", resolved->string().c_str(),
+        TraceLog(LOG_WARNING, "AUDIO: failed to load clip %s (%d)", pathForLog(*resolved).c_str(),
                  static_cast<int>(result));
         return nullptr;
     }
@@ -190,8 +232,14 @@ SoLoud::Wav* AudioWorld::loadClipForDef(
         return nullptr;
     }
 
+    const std::vector<unsigned char> bytes = readFileBytes(*resolved);
+    if (bytes.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to read clip for def %s", key.c_str());
+        return nullptr;
+    }
+
     auto wav = std::make_unique<SoLoud::Wav>();
-    const SoLoud::result result = wav->load(resolved->string().c_str());
+    const SoLoud::result result = wav->loadMem(bytes.data(), static_cast<unsigned int>(bytes.size()), true);
     if (result != SoLoud::SO_NO_ERROR) {
         TraceLog(LOG_WARNING, "AUDIO: failed to load clip for def %s (%d)", key.c_str(),
                  static_cast<int>(result));
@@ -216,10 +264,16 @@ SoLoud::WavStream* AudioWorld::loadStream(AssetStore& assets, std::string_view p
         return nullptr;
     }
 
+    const std::vector<unsigned char> bytes = readFileBytes(*resolved);
+    if (bytes.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to read stream %s", pathForLog(*resolved).c_str());
+        return nullptr;
+    }
+
     auto stream = std::make_unique<SoLoud::WavStream>();
-    const SoLoud::result result = stream->load(resolved->string().c_str());
+    const SoLoud::result result = stream->loadMem(bytes.data(), static_cast<unsigned int>(bytes.size()), true);
     if (result != SoLoud::SO_NO_ERROR) {
-        TraceLog(LOG_WARNING, "AUDIO: failed to load stream %s (%d)", resolved->string().c_str(),
+        TraceLog(LOG_WARNING, "AUDIO: failed to load stream %s (%d)", pathForLog(*resolved).c_str(),
                  static_cast<int>(result));
         return nullptr;
     }
@@ -249,8 +303,14 @@ SoLoud::WavStream* AudioWorld::loadStreamForDef(
         return nullptr;
     }
 
+    const std::vector<unsigned char> bytes = readFileBytes(*resolved);
+    if (bytes.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to read stream for def %s", key.c_str());
+        return nullptr;
+    }
+
     auto stream = std::make_unique<SoLoud::WavStream>();
-    const SoLoud::result result = stream->load(resolved->string().c_str());
+    const SoLoud::result result = stream->loadMem(bytes.data(), static_cast<unsigned int>(bytes.size()), true);
     if (result != SoLoud::SO_NO_ERROR) {
         TraceLog(LOG_WARNING, "AUDIO: failed to load stream for def %s (%d)", key.c_str(),
                  static_cast<int>(result));
@@ -480,9 +540,14 @@ tsf* AudioWorld::loadSoundFont(AssetStore& assets, std::string_view path) {
         return nullptr;
     }
 
-    tsf* font = tsf_load_filename(resolved->string().c_str());
+    const std::vector<unsigned char> bytes = readFileBytes(*resolved);
+    if (bytes.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to read soundfont %s", pathForLog(*resolved).c_str());
+        return nullptr;
+    }
+    tsf* font = tsf_load_memory(bytes.data(), static_cast<int>(bytes.size()));
     if (font == nullptr) {
-        TraceLog(LOG_WARNING, "AUDIO: failed to load soundfont %s", resolved->string().c_str());
+        TraceLog(LOG_WARNING, "AUDIO: failed to load soundfont %s", pathForLog(*resolved).c_str());
         return nullptr;
     }
 
@@ -506,9 +571,14 @@ const tml_message* AudioWorld::loadMidiMessages(AssetStore& assets, std::string_
         return nullptr;
     }
 
-    tml_message* messages = tml_load_filename(resolved->string().c_str());
+    const std::vector<unsigned char> bytes = readFileBytes(*resolved);
+    if (bytes.empty()) {
+        TraceLog(LOG_WARNING, "AUDIO: failed to read midi %s", pathForLog(*resolved).c_str());
+        return nullptr;
+    }
+    tml_message* messages = tml_load_memory(bytes.data(), static_cast<int>(bytes.size()));
     if (messages == nullptr) {
-        TraceLog(LOG_WARNING, "AUDIO: failed to load midi %s", resolved->string().c_str());
+        TraceLog(LOG_WARNING, "AUDIO: failed to load midi %s", pathForLog(*resolved).c_str());
         return nullptr;
     }
 
