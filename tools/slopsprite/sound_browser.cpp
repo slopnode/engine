@@ -31,6 +31,14 @@ bool isSoundExtension(const std::filesystem::path& path) {
     return path.extension() == ".ogg";
 }
 
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
+}
+
 } // namespace
 
 void SoundBrowser::rescan(const slopengine::AssetStore& assets) {
@@ -57,7 +65,7 @@ void SoundBrowser::rescan(const slopengine::AssetStore& assets) {
                 continue;
             }
             relative.replace_extension();
-            seen.insert(relative.generic_string());
+            seen.insert(genericUtf8(relative));
         }
     }
 

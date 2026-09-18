@@ -28,8 +28,11 @@ int nextPowerOfTwo(int value) {
 std::string relativeId(const std::filesystem::path& root, const std::filesystem::path& file) {
     std::filesystem::path relative = std::filesystem::relative(file, root);
     relative.replace_extension();
-    std::string id = relative.generic_string();
-    return id;
+    // generic_string() converts through the process's narrow codepage on Windows and throws
+    // for a filename that codepage can't represent; generic_u8string() reads it as UTF-8
+    // with no codepage involved, matching how POSIX already treats it.
+    const std::u8string generic = relative.generic_u8string();
+    return std::string(generic.begin(), generic.end());
 }
 
 bool collectIcons(const std::filesystem::path& sourceDir, std::vector<IconSource>& out) {
