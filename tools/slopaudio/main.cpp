@@ -618,12 +618,18 @@ int main(int argc, char* argv[]) {
 
     slopengine::Log::init(config->mount.verbose ? slopengine::LogLevel::Debug : slopengine::LogLevel::Info);
     slopengine::Log::addDefaultConsoleSink();
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_MAXIMIZED);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(1400, 820, "slopaudio");
     if (!IsWindowReady()) {
         std::cerr << "slopaudio: failed to initialize window\n";
         return 1;
     }
+    // Requesting FLAG_WINDOW_MAXIMIZED before InitWindow applies the maximize before GLFW's
+    // resize callbacks are registered (see rcore_desktop_glfw.c), so the OS window maximizes
+    // but raylib's tracked screen size never updates to match - the ImGui layout stays sized
+    // for the pre-maximize window until the user manually un-maximizes and re-maximizes.
+    // Maximizing here instead, after InitWindow, happens once those callbacks already exist.
+    MaximizeWindow();
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 
