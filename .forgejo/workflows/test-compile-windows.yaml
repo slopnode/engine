@@ -32,9 +32,11 @@ jobs:
             -DSTEAM_AUDIO_ROOT="$env:STEAM_AUDIO_ROOT"
           cmake --build build --config Release --target `
             slopengine `
+            slopcsg `
             slopbsp `
             sloprad `
             slopvis `
+            slopnav `
             slopmap `
             slopsprite `
             slopicons `

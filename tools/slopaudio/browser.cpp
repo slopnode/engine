@@ -67,7 +67,13 @@ void collectFromDir(
             continue;
         }
         relative.replace_extension();
-        seen[relative.generic_string()] = packageId;
+        // generic_string() converts through the process's narrow codepage on Windows and
+        // throws std::system_error for a filename that codepage can't represent (e.g. a
+        // Cyrillic name on a non-Cyrillic system codepage), crashing the whole scan for one
+        // unrelated file. generic_u8string() reads the path as UTF-8 with no codepage
+        // involved, matching how POSIX already treats it here.
+        const std::u8string generic = relative.generic_u8string();
+        seen[std::string(generic.begin(), generic.end())] = packageId;
     }
 }
 
