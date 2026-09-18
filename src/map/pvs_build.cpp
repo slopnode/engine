@@ -124,45 +124,62 @@ void pvsSetBitSymmetricAtomic(PvsFile& pvs, int a, int b) {
     pvsSetBitAtomic(pvs, b, a);
 }
 
-void floodFromPortal(
+struct FloodWorkItem {
+    int leaf = -1;
+    int cameFromLeaf = -1;
+    PvsPlane clipPlane{};
+    std::vector<Vector3> pass;
+};
+
+// Recursing one call per portal hop used to blow the stack on Windows: a
+// std::thread there defaults to a ~1MiB stack (vs. glibc's 8MiB pthread
+// default on Linux), and a portal-dense map can chain thousands of hops deep
+// before a source leaf's flood bottoms out. An explicit worklist moves that
+// state off the call stack and onto the heap, where it belongs — `stack` is
+// reused across every source leaf a worker processes so its capacity is paid
+// for once, not on every flood. LIFO push/pop still walks depth-first, just
+// with sibling portals visited in reverse order versus the old recursive
+// calls; the area-relaxation below re-expands a leaf whenever a wider path
+// reaches it regardless of visitation order, so the result is unaffected.
+void floodFromSource(
     const std::vector<DirectedPortal>& portals,
     const std::vector<std::vector<LeafPortalRef>>& leafPortals,
     PvsFile& pvs,
     int sourceLeaf,
-    int leaf,
-    const DirectedPortal& basePortal,
-    const std::vector<Vector3>& pass,
-    std::vector<float>& bestPassArea) {
-    pvsSetBitSymmetricAtomic(pvs, sourceLeaf, leaf);
-    if (leaf < 0 || leaf >= static_cast<int>(leafPortals.size())) {
-        return;
+    std::vector<float>& bestPassArea,
+    std::vector<FloodWorkItem>& stack) {
+    stack.clear();
+    for (const LeafPortalRef& ref : leafPortals[static_cast<std::size_t>(sourceLeaf)]) {
+        const DirectedPortal& portal = portals[static_cast<std::size_t>(ref.portalIndex)];
+        stack.push_back(FloodWorkItem{portal.toLeaf, portal.fromLeaf, portal.plane, portal.winding});
     }
 
-    const float area = windingArea(pass);
-    if (area <= bestPassArea[static_cast<std::size_t>(leaf)] + kPvsEps) {
-        return;
-    }
-    bestPassArea[static_cast<std::size_t>(leaf)] = area;
+    while (!stack.empty()) {
+        FloodWorkItem item = std::move(stack.back());
+        stack.pop_back();
 
-    for (const LeafPortalRef& ref : leafPortals[static_cast<std::size_t>(leaf)]) {
-        if (ref.otherLeaf == basePortal.fromLeaf) {
+        pvsSetBitSymmetricAtomic(pvs, sourceLeaf, item.leaf);
+        if (item.leaf < 0 || item.leaf >= static_cast<int>(leafPortals.size())) {
             continue;
         }
-        const DirectedPortal& next = portals[static_cast<std::size_t>(ref.portalIndex)];
-        std::vector<Vector3> clipped =
-            clipPolygonAgainstPlane(next.winding, basePortal.plane, true);
-        if (clipped.size() < 3) {
+
+        const float area = windingArea(item.pass);
+        if (area <= bestPassArea[static_cast<std::size_t>(item.leaf)] + kPvsEps) {
             continue;
         }
-        floodFromPortal(
-            portals,
-            leafPortals,
-            pvs,
-            sourceLeaf,
-            next.toLeaf,
-            next,
-            clipped,
-            bestPassArea);
+        bestPassArea[static_cast<std::size_t>(item.leaf)] = area;
+
+        for (const LeafPortalRef& ref : leafPortals[static_cast<std::size_t>(item.leaf)]) {
+            if (ref.otherLeaf == item.cameFromLeaf) {
+                continue;
+            }
+            const DirectedPortal& next = portals[static_cast<std::size_t>(ref.portalIndex)];
+            std::vector<Vector3> clipped = clipPolygonAgainstPlane(next.winding, item.clipPlane, true);
+            if (clipped.size() < 3) {
+                continue;
+            }
+            stack.push_back(FloodWorkItem{next.toLeaf, next.fromLeaf, next.plane, std::move(clipped)});
+        }
     }
 }
 
@@ -255,6 +272,7 @@ PvsFile buildPvs(const BspTree& tree, const std::vector<std::uint8_t>* exteriorE
     std::atomic<int> nextSource{0};
     auto worker = [&]() {
         std::vector<float> bestPassArea(static_cast<std::size_t>(n), 0.0f);
+        std::vector<FloodWorkItem> stack;
         for (;;) {
             const int source = nextSource.fetch_add(1, std::memory_order_relaxed);
             if (source >= n) {
@@ -266,18 +284,7 @@ PvsFile buildPvs(const BspTree& tree, const std::vector<std::uint8_t>* exteriorE
             pvsSetBitAtomic(pvs, source, source);
             std::fill(bestPassArea.begin(), bestPassArea.end(), 0.0f);
             bestPassArea[static_cast<std::size_t>(source)] = std::numeric_limits<float>::infinity();
-            for (const LeafPortalRef& ref : leafPortals[static_cast<std::size_t>(source)]) {
-                const DirectedPortal& portal = portals[static_cast<std::size_t>(ref.portalIndex)];
-                floodFromPortal(
-                    portals,
-                    leafPortals,
-                    pvs,
-                    source,
-                    portal.toLeaf,
-                    portal,
-                    portal.winding,
-                    bestPassArea);
-            }
+            floodFromSource(portals, leafPortals, pvs, source, bestPassArea, stack);
         }
     };
 
