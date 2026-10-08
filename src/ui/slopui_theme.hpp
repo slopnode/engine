@@ -4,6 +4,7 @@
 #include <imgui.h>
 
 #include <array>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -50,6 +51,30 @@ struct ThemeColorRef {
     bool set = false;
 };
 
+struct ThemePaint {
+    ThemeColorRef a;
+    ThemeColorRef b;
+    bool gradient = false;
+    bool set = false;
+};
+
+struct ThemePaintResolved {
+    ThemeColor a;
+    ThemeColor b;
+    bool gradient = false;
+};
+
+struct ThemeSkin {
+    std::string texture;
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+    int states = 1;
+    float scale = 1.0f;
+    bool set = false;
+};
+
 struct SlopUiTheme {
     std::array<ThemeFont, static_cast<std::size_t>(ThemeFontSlot::Count)> fonts;
 
@@ -71,7 +96,7 @@ struct SlopUiTheme {
     struct MenuBar {
         float height = 30.0f;
         ThemeFontSlot font = ThemeFontSlot::Normal;
-        ThemeColorRef bg;
+        ThemePaint bg;
         bool icons = true;
         bool versionLabel = true;
     } menuBar;
@@ -79,10 +104,45 @@ struct SlopUiTheme {
     struct Window {
         ThemeFontSlot titleFont = ThemeFontSlot::Bold;
         bool titleCentered = true;
-        ThemeColorRef titleBg;
-        ThemeColorRef titleBgActive;
+        ThemePaint bg;
+        ThemePaint titleBg;
+        ThemePaint titleBgActive;
+        ThemeColorRef titleText;
         bool draggable = true;
     } window;
+
+    struct Button {
+        ThemePaint bg;
+        ThemePaint bgHover;
+        ThemePaint bgActive;
+        ThemePaint bgDisabled;
+        ThemePaint primaryBg;
+        ThemePaint primaryBgHover;
+        ThemePaint primaryBgActive;
+        ThemeColorRef text;
+        ThemeColorRef textHover;
+    } button;
+
+    struct Panel {
+        ThemePaint bg;
+        ThemeColorRef border;
+    } panel;
+
+    struct Skins {
+        ThemeSkin window;
+        ThemeSkin title;
+        ThemeSkin button;
+        ThemeSkin primaryButton;
+        ThemeSkin panel;
+        ThemeSkin menuBar;
+    } skin;
+
+    struct Sounds {
+        std::string hover;
+        std::string confirm;
+        std::string back;
+        float volume = 1.0f;
+    } sounds;
 
     struct Chrome {
         std::string pauseTitle = "Paused";
@@ -97,6 +157,9 @@ struct SlopUiTheme {
 
     bool paletteColor(std::string_view token, ThemeColor& out) const;
     ThemeColor resolve(const ThemeColorRef& ref, const ThemeColor& fallback) const;
+    ThemePaintResolved resolvePaint(const ThemePaint& paint, const ThemeColor& fallback) const;
+    ThemePaintResolved resolvePaint(const ThemePaint& paint, const ThemePaintResolved& fallback) const;
+    ThemeColor borderColor() const;
 };
 
 SlopUiTheme defaultSlopUiTheme();
@@ -104,6 +167,10 @@ SlopUiTheme defaultSlopUiTheme();
 void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme);
 
 SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme);
+
+std::string serializeSlopUiTheme(const SlopUiTheme& theme);
+
+bool exportSlopUiTheme(const SlopUiTheme& theme, const std::filesystem::path& path);
 
 struct SlopUiFonts {
     std::array<ImFont*, static_cast<std::size_t>(ThemeFontSlot::Count)> fonts{};
@@ -119,19 +186,14 @@ struct SlopUiThemeReload {
 
 void applySlopUiTheme(const SlopUiTheme& theme, AssetStore& assets, SlopUiFonts& fonts);
 
+void applySlopUiStyle(const SlopUiTheme& theme);
+
 void installSlopUiTheme(flecs::world& world, AssetStore& assets, s7_scheme* scheme);
 
 void pushThemeFont(const SlopUiFonts& fonts, ThemeFontSlot slot);
 void popThemeFont();
 
 ImGuiWindowFlags themedWindowFlags(const SlopUiTheme& theme);
-
-bool beginThemedWindow(
-    const SlopUiTheme& theme,
-    const SlopUiFonts& fonts,
-    const char* name,
-    bool* open = nullptr,
-    ImGuiWindowFlags extraFlags = 0);
 
 ImVec2 themedMenuBarPadding(const SlopUiTheme& theme, const SlopUiFonts& fonts);
 

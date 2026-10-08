@@ -22,13 +22,33 @@
     (menu-bar
       (height 32)
       (font normal)
-      (bg surface)
+      (bg (gradient (40 42 50) (29 31 38)))
       (icons #t)
       (version-label #t))
     (window
       (title-font bold)
       (title-align center)
+      (bg bg)
+      (title-bg (gradient (36 38 46) (24 25 30)))
+      (title-bg-active (gradient (78 64 42) (44 40 36)))
+      (title-text text)
       (draggable #t))
+    (button
+      (bg (gradient (48 50 58) (36 38 45)))
+      (bg-hover (gradient (112 92 60) (78 66 48)))
+      (bg-active (gradient (140 108 58) (96 78 48)))
+      (bg-disabled surface)
+      (primary-bg (gradient (134 104 54) (98 76 42)))
+      (primary-bg-hover (gradient (176 134 64) (128 98 50)))
+      (primary-bg-active (gradient (204 152 68) (150 112 54)))
+      (text text)
+      (text-hover text))
+    (panel
+      (bg surface)
+      (border border))
+    (skin)
+    (sounds
+      (volume 1.0))
     (chrome
       (pause-title "Paused")
       (pause-dim 0.55)

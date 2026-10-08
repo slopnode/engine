@@ -230,6 +230,9 @@ add_executable(slopengine
     src/ui/ui_module.cpp
     src/ui/imgui_fonts.cpp
     src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_editor.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/sight_module.cpp

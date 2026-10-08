@@ -33,7 +33,9 @@
 #include "script/script_context.hpp"
 #include "script/ui_script.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_editor.hpp"
 #include "ui/slopui_theme.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "ui/ui_state.hpp"
 
 #include "imgui.h"
@@ -187,10 +189,15 @@ void drawPauseMenu(
 
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
-    if (beginThemedWindow(theme, fonts, theme.chrome.pauseTitle.c_str(), nullptr, flags)) {
-        if (buttonWithIcon(
-                assets, kDefaultIconSet, "control_play", "Resume", {-1.0f, theme.buttonHeight})) {
+    if (beginThemedWindow(theme, fonts, &assets, theme.chrome.pauseTitle.c_str(), nullptr, flags)) {
+        if (themedButton(
+                theme, fonts, &assets, "Resume", {-1.0f, theme.buttonHeight}, false, kDefaultIconSet,
+                "control_play")) {
             contexts.pop(InputContext::PauseMenu);
+            playUiSound(world, UiSoundKind::Back);
+        }
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetItemDefaultFocus();
         }
         callDrawPauseMenu(world);
     }
@@ -209,7 +216,7 @@ void drawGraphicsSettings(
     }
 
     ImGui::SetNextWindowSize({420.0f, 320.0f}, ImGuiCond_FirstUseEver);
-    if (!beginThemedWindow(theme, fonts, "Graphics", &settingsUi.graphicsOpen)) {
+    if (!beginThemedWindow(theme, fonts, &assets, "Graphics", &settingsUi.graphicsOpen)) {
         ImGui::End();
         return;
     }
@@ -322,18 +329,21 @@ void drawGraphicsSettings(
     }
 
     ImGui::Separator();
-    if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
+    if (themedButton(theme, fonts, &assets, "Apply", {}, true, kDefaultIconSet, "accept")) {
         applyGraphicsDraft(world, settings, draft);
+        playUiSound(world, UiSoundKind::Confirm);
     }
     ImGui::SameLine();
-    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
+    if (themedButton(theme, fonts, &assets, "Reset", {}, false, kDefaultIconSet, "arrow_refresh")) {
         draft = UserSettings::defaults().graphics;
+        playUiSound(world, UiSoundKind::Confirm);
     }
 
     ImGui::End();
 }
 
 void drawControlsSettings(
+    flecs::world world,
     AssetStore& assets,
     SettingsUiState& settingsUi,
     UserSettings& settings,
@@ -344,7 +354,7 @@ void drawControlsSettings(
     }
 
     ImGui::SetNextWindowSize({420.0f, 420.0f}, ImGuiCond_FirstUseEver);
-    if (!beginThemedWindow(theme, fonts, "Controls", &settingsUi.controlsOpen)) {
+    if (!beginThemedWindow(theme, fonts, &assets, "Controls", &settingsUi.controlsOpen)) {
         settingsUi.rebindingAction = -1;
         settingsUi.rebindingWaitMouseRelease = false;
         ImGui::End();
@@ -376,7 +386,7 @@ void drawControlsSettings(
             const char* label = bindDisplayName(bind, keyBuffer, sizeof(keyBuffer));
             ImGui::PushID(i);
             const bool listening = settingsUi.rebindingAction == i;
-            if (ImGui::Button(listening ? "..." : label, {140.0f, 0.0f})) {
+            if (themedButton(theme, fonts, &assets, listening ? "..." : label, {140.0f, 0.0f})) {
                 settingsUi.rebindingAction = i;
                 settingsUi.rebindingWaitMouseRelease = true;
             }
@@ -386,13 +396,15 @@ void drawControlsSettings(
     }
 
     ImGui::Separator();
-    if (buttonWithIcon(assets, kDefaultIconSet, "accept", "Apply")) {
+    if (themedButton(theme, fonts, &assets, "Apply", {}, true, kDefaultIconSet, "accept")) {
         applyControlsDraft(settings, settingsUi.controlsDraft);
         settingsUi.rebindingAction = -1;
         settingsUi.rebindingWaitMouseRelease = false;
+        playUiSound(world, UiSoundKind::Confirm);
     }
     ImGui::SameLine();
-    if (buttonWithIcon(assets, kDefaultIconSet, "arrow_refresh", "Reset")) {
+    if (themedButton(theme, fonts, &assets, "Reset", {}, false, kDefaultIconSet, "arrow_refresh")) {
+        playUiSound(world, UiSoundKind::Confirm);
         settingsUi.controlsDraft = ControlsSettings::defaults();
         settingsUi.rebindingAction = -1;
         settingsUi.rebindingWaitMouseRelease = false;
@@ -417,9 +429,7 @@ void drawMainMenuBar(
     const SlopUiTheme& theme,
     const SlopUiFonts& fonts,
     SlopUiThemeReload& themeReload) {
-    pushThemeFont(fonts, theme.menuBar.font);
-    if (!beginMainMenuBar(themedMenuBarPadding(theme, fonts))) {
-        popThemeFont();
+    if (!beginThemedMainMenuBar(theme, fonts, &assets)) {
         return;
     }
 
@@ -429,12 +439,20 @@ void drawMainMenuBar(
         return icons ? beginMenuWithIcon(assets, kIcons, icon, label, bar) : ImGui::BeginMenu(label);
     };
     auto item = [&](const char* icon, const char* label, bool* selected = nullptr) {
-        return icons ? menuItemWithIcon(assets, kIcons, icon, label, nullptr, selected)
-                     : ImGui::MenuItem(label, nullptr, selected);
+        const bool clicked = icons ? menuItemWithIcon(assets, kIcons, icon, label, nullptr, selected)
+                                   : ImGui::MenuItem(label, nullptr, selected);
+        if (clicked) {
+            playUiSound(world, UiSoundKind::Confirm);
+        }
+        return clicked;
     };
     auto itemState = [&](const char* icon, const char* label, bool selected, bool enabled) {
-        return icons ? menuItemWithIcon(assets, kIcons, icon, label, nullptr, selected, enabled)
-                     : ImGui::MenuItem(label, nullptr, selected, enabled);
+        const bool clicked = icons ? menuItemWithIcon(assets, kIcons, icon, label, nullptr, selected, enabled)
+                                   : ImGui::MenuItem(label, nullptr, selected, enabled);
+        if (clicked) {
+            playUiSound(world, UiSoundKind::Confirm);
+        }
+        return clicked;
     };
 
     if (menu("folder", "File", true)) {
@@ -526,6 +544,7 @@ void drawMainMenuBar(
         if (item("arrow_refresh", "Reload Theme")) {
             themeReload.pending = true;
         }
+        item("palette", "Theme Editor", &debugUi.themeEditorOpen);
         callDrawDebugMenu(world);
         ImGui::EndMenu();
     }
@@ -548,8 +567,7 @@ void drawMainMenuBar(
         ImGui::TextDisabled("%s", versionLabel.c_str());
     }
 
-    endMainMenuBar();
-    popThemeFont();
+    endThemedMainMenuBar();
 }
 
 const char* entityKindLabel(flecs::entity entity) {
@@ -1188,7 +1206,7 @@ void drawInteractPanel(
         {0.5f, 0.5f});
 
     const char* title = target.prompt.empty() ? "Interact" : target.prompt.c_str();
-    if (beginThemedWindow(theme, fonts, title)) {
+    if (beginThemedWindow(theme, fonts, nullptr, title)) {
         if (!target.onUse.empty()) {
             ImGui::Text("Event: %s", target.onUse.id.c_str());
         }
@@ -1209,7 +1227,7 @@ void drawConsole(
     const SlopUiFonts& fonts,
     SlopUiThemeReload& themeReload) {
     ImGui::SetNextWindowSize({640.0f, 360.0f}, ImGuiCond_FirstUseEver);
-    if (beginThemedWindow(theme, fonts, "Console", &console.open)) {
+    if (beginThemedWindow(theme, fonts, nullptr, "Console", &console.open)) {
         ImGui::BeginChild("ConsoleLog", {0.0f, -ImGui::GetFrameHeightWithSpacing()}, false);
         pushThemeFont(fonts, ThemeFontSlot::Mono);
         for (const std::string& line : console.log) {
@@ -1413,6 +1431,7 @@ void registerSystems(flecs::world& world) {
             if (input.pressed(Action::Pause)) {
                 if (contexts.contains(InputContext::PauseMenu)) {
                     contexts.pop(InputContext::PauseMenu);
+                    playUiSound(it.world(), UiSoundKind::Back);
                 } else if (contexts.top() == InputContext::Gameplay) {
                     contexts.push(InputContext::PauseMenu);
                 } else if (contexts.contains(InputContext::InteractUI)) {
@@ -1439,6 +1458,8 @@ void registerUiModule(flecs::world& world, bool debugEnabled, std::string profil
     if (!world.has<SlopUiThemeReload>()) {
         world.set<SlopUiThemeReload>({});
     }
+    world.component<SlopUiSoundState>();
+    world.set<SlopUiSoundState>({});
     world.set<ConsoleState>(ConsoleState{});
     flecs::world_t* worldPtr = world.c_ptr();
     Log::addDeferredSink([worldPtr](const LogEntry& entry) {
@@ -1495,14 +1516,22 @@ void drawUi(flecs::world world) {
         const EngineSessionInfo& sessionInfo = world.get<EngineSessionInfo>();
         drawMainMenuBar(
             world, *assets, quit, settingsUi, debugUi, settings, sessionInfo, theme, fonts, themeReload);
+        const bool graphicsWasOpen = settingsUi.graphicsOpen;
+        const bool controlsWasOpen = settingsUi.controlsOpen;
         drawGraphicsSettings(world, *assets, settingsUi, settings, theme, fonts);
-        drawControlsSettings(*assets, settingsUi, settings, theme, fonts);
+        drawControlsSettings(world, *assets, settingsUi, settings, theme, fonts);
+        if ((graphicsWasOpen && !settingsUi.graphicsOpen) || (controlsWasOpen && !settingsUi.controlsOpen)) {
+            playUiSound(world, UiSoundKind::Back);
+        }
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
     }
 
     if (world.has<DebugUiState>()) {
         drawPerformanceWindow(world, world.get_mut<DebugUiState>());
+        if (assets != nullptr) {
+            drawThemeEditor(world, *assets, world.get_mut<DebugUiState>());
+        }
     }
 
     if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {
@@ -1518,6 +1547,8 @@ void drawUi(flecs::world world) {
     if (contexts.contains(InputContext::Console)) {
         drawConsole(console, contexts, theme, fonts, themeReload);
     }
+
+    updateUiHoverSound(world);
 }
 
 }

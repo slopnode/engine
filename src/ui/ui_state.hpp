@@ -79,6 +79,7 @@ struct DebugUiState {
     bool showAudioSources = false;
     bool showAudioOcclusionMesh = false;
     bool showPerformance = false;
+    bool themeEditorOpen = false;
     bool unlit = false;
     bool noclip = false;
     bool freeCamera = false;

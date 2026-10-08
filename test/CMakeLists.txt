@@ -36,6 +36,7 @@ add_executable(sloptests
     test_sun_shadow_softness.cpp
     test_seam_stitch.cpp
     test_sight.cpp
+    test_slopui_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
@@ -46,6 +47,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/slopui_theme_data.cpp
 )
 
 target_include_directories(sloptests PRIVATE
@@ -53,7 +55,7 @@ target_include_directories(sloptests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(sloptests PRIVATE sloplib Jolt::Jolt flecs::flecs_static)
+target_link_libraries(sloptests PRIVATE sloplib Jolt::Jolt flecs::flecs_static imgui)
 
 if(MSVC)
     target_compile_options(sloptests PRIVATE /W4 /permissive-)
@@ -93,3 +95,4 @@ add_test(NAME sloptests.lightmap_pack COMMAND sloptests lightmap_pack)
 add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
 add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)
+add_test(NAME sloptests.slopui_theme COMMAND sloptests slopui_theme)

@@ -69,6 +69,7 @@ App::App(AppConfig config)
         audioWorld_->loadBusConfig(*busConfig);
     }
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true, "slopengine");
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     init_script();
     installSlopUiTheme(world_, assetStore_, scheme_);
     userSettings_.controls = ControlsSettings::defaults();

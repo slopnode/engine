@@ -5,8 +5,10 @@
 #include "input/input_context.hpp"
 #include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
+#include "assets/asset_services.hpp"
 #include "script/script_context.hpp"
 #include "ui/slopui_theme.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -50,6 +52,19 @@ const SlopUiFonts* uiFonts() {
         return nullptr;
     }
     return &g_uiWorld->get<SlopUiFonts>();
+}
+
+AssetStore* uiAssets() {
+    if (g_uiWorld == nullptr || !g_uiWorld->has<AssetServices>()) {
+        return nullptr;
+    }
+    return g_uiWorld->get_mut<AssetServices>().store;
+}
+
+void uiConfirmSound() {
+    if (g_uiWorld != nullptr) {
+        playUiSound(*g_uiWorld, UiSoundKind::Confirm);
+    }
 }
 
 bool readFontSlotArg(s7_scheme* sc, s7_pointer cell, const char* fn, ThemeFontSlot& slot) {
@@ -132,12 +147,20 @@ s7_pointer g_ui_button(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "ui-button", 1, s7_car(args), "string");
     }
     const SlopUiTheme* theme = uiTheme();
-    if (g_uiSlot == PackageUiDrawSlot::PauseMenu && theme != nullptr) {
-        return ImGui::Button(s7_string(s7_car(args)), ImVec2{-FLT_MIN, theme->buttonHeight})
-            ? s7_t(sc)
-            : s7_f(sc);
+    const SlopUiFonts* fonts = uiFonts();
+    bool pressed = false;
+    if (theme != nullptr && fonts != nullptr) {
+        const ImVec2 size = g_uiSlot == PackageUiDrawSlot::PauseMenu
+            ? ImVec2{-1.0f, theme->buttonHeight}
+            : ImVec2{0.0f, 0.0f};
+        pressed = themedButton(*theme, *fonts, uiAssets(), s7_string(s7_car(args)), size);
+    } else {
+        pressed = ImGui::Button(s7_string(s7_car(args)));
     }
-    return ImGui::Button(s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+    if (pressed) {
+        uiConfirmSound();
+    }
+    return pressed ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_menu_item(s7_scheme* sc, s7_pointer args) {
@@ -154,7 +177,11 @@ s7_pointer g_ui_menu_item(s7_scheme* sc, s7_pointer args) {
     if (s7_is_pair(s7_cdr(args))) {
         enabled = s7_boolean(sc, s7_cadr(args));
     }
-    return ImGui::MenuItem(s7_string(s7_car(args)), nullptr, false, enabled) ? s7_t(sc) : s7_f(sc);
+    const bool clicked = ImGui::MenuItem(s7_string(s7_car(args)), nullptr, false, enabled);
+    if (clicked) {
+        uiConfirmSound();
+    }
+    return clicked ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_menu_check(s7_scheme* sc, s7_pointer args) {
@@ -171,7 +198,9 @@ s7_pointer g_ui_menu_check(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "ui-menu-check", 2, s7_cadr(args), "boolean");
     }
     bool selected = s7_boolean(sc, s7_cadr(args));
-    ImGui::MenuItem(s7_string(s7_car(args)), nullptr, &selected, true);
+    if (ImGui::MenuItem(s7_string(s7_car(args)), nullptr, &selected, true)) {
+        uiConfirmSound();
+    }
     return selected ? s7_t(sc) : s7_f(sc);
 }
 
@@ -186,7 +215,11 @@ s7_pointer g_ui_selectable(s7_scheme* sc, s7_pointer args) {
     if (s7_is_pair(s7_cdr(args))) {
         selected = s7_boolean(sc, s7_cadr(args));
     }
-    return ImGui::Selectable(s7_string(s7_car(args)), selected) ? s7_t(sc) : s7_f(sc);
+    const bool clicked = ImGui::Selectable(s7_string(s7_car(args)), selected);
+    if (clicked) {
+        uiConfirmSound();
+    }
+    return clicked ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_begin(s7_scheme* sc, s7_pointer args) {
@@ -199,7 +232,7 @@ s7_pointer g_ui_begin(s7_scheme* sc, s7_pointer args) {
     const SlopUiTheme* theme = uiTheme();
     const SlopUiFonts* fonts = uiFonts();
     if (theme != nullptr && fonts != nullptr) {
-        return beginThemedWindow(*theme, *fonts, s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+        return beginThemedWindow(*theme, *fonts, uiAssets(), s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
     }
     const bool open = ImGui::Begin(
         s7_string(s7_car(args)),
@@ -331,6 +364,9 @@ s7_pointer g_ui_combo_item(s7_scheme* sc, s7_pointer args) {
         selected = s7_boolean(sc, s7_cadr(args));
     }
     const bool clicked = ImGui::Selectable(s7_string(s7_car(args)), selected);
+    if (clicked) {
+        uiConfirmSound();
+    }
     if (selected) {
         ImGui::SetItemDefaultFocus();
     }
@@ -447,15 +483,17 @@ s7_pointer g_ui_primary_button(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "ui-primary-button", 1, s7_car(args), "string");
     }
     const SlopUiTheme* theme = uiTheme();
-    if (theme == nullptr) {
-        return ImGui::Button(s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+    const SlopUiFonts* fonts = uiFonts();
+    bool clicked = false;
+    if (theme == nullptr || fonts == nullptr) {
+        clicked = ImGui::Button(s7_string(s7_car(args)));
+    } else {
+        clicked = themedButton(
+            *theme, *fonts, uiAssets(), s7_string(s7_car(args)), ImVec2{-1.0f, theme->buttonHeight}, true);
     }
-    ImGui::PushStyleColor(ImGuiCol_Button, themeMix(theme->surface, theme->accent, 0.5f).vec());
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, themeMix(theme->surface, theme->accent, 0.7f).vec());
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, themeMix(theme->surface, theme->accent, 0.85f).vec());
-    const bool clicked =
-        ImGui::Button(s7_string(s7_car(args)), ImVec2{-FLT_MIN, theme->buttonHeight});
-    ImGui::PopStyleColor(3);
+    if (clicked) {
+        uiConfirmSound();
+    }
     return clicked ? s7_t(sc) : s7_f(sc);
 }
 
@@ -471,22 +509,23 @@ s7_pointer g_ui_begin_panel(s7_scheme* sc, s7_pointer args) {
         height = static_cast<float>(s7_number_to_real(sc, s7_cadr(args)));
     }
     const SlopUiTheme* theme = uiTheme();
-    const ImVec4 bg = theme != nullptr ? theme->surface.vec() : ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
-    ImGuiChildFlags flags = ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding;
-    if (height <= 0.0f) {
-        flags |= ImGuiChildFlags_AutoResizeY;
+    if (theme == nullptr) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_PopupBg));
+        ImGuiChildFlags flags = ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding;
+        if (height <= 0.0f) {
+            flags |= ImGuiChildFlags_AutoResizeY;
+        }
+        const bool open = ImGui::BeginChild(s7_string(s7_car(args)), ImVec2{0.0f, height}, flags);
+        return open ? s7_t(sc) : s7_f(sc);
     }
-    const bool open = ImGui::BeginChild(s7_string(s7_car(args)), ImVec2{0.0f, height}, flags);
-    return open ? s7_t(sc) : s7_f(sc);
+    return beginThemedPanel(*theme, uiAssets(), s7_string(s7_car(args)), height) ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_end_panel(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::UiDraw)) {
         return s7_f(sc);
     }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
+    endThemedPanel();
     return s7_t(sc);
 }
 

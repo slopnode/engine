@@ -44,6 +44,7 @@ void runRadiosityEmitterTests();
 void runSunShadowSoftnessTests();
 void runSeamStitchTests();
 void runSightTests();
+void runSlopUiThemeTests();
 
 }
 
@@ -91,6 +92,7 @@ const Suite kSuites[] = {
     {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
     {"sight", slopengine::runSightTests},
+    {"slopui_theme", slopengine::runSlopUiThemeTests},
 };
 
 bool runSuite(const Suite& suite) {
