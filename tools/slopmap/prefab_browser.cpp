@@ -26,6 +26,14 @@ bool containsIgnoreCase(const std::string& haystack, const std::string& needle) 
     return h.find(n) != std::string::npos;
 }
 
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
+}
+
 } // namespace
 
 void PrefabBrowser::rescan(const slopengine::AssetStore& assets) {
@@ -52,7 +60,7 @@ void PrefabBrowser::rescan(const slopengine::AssetStore& assets) {
                 continue;
             }
             relative.replace_extension();
-            seen[relative.generic_string()] = true;
+            seen[genericUtf8(relative)] = true;
         }
     }
 
