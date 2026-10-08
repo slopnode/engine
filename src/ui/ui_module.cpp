@@ -33,11 +33,13 @@
 #include "script/script_context.hpp"
 #include "script/ui_script.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_theme.hpp"
 #include "ui/ui_state.hpp"
 
 #include "imgui.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -166,16 +168,28 @@ void applyControlsDraft(UserSettings& settings, const ControlsSettings& draft) {
     settings.save();
 }
 
-void drawPauseMenu(flecs::world world, AssetStore& assets, InputContextStack& contexts) {
-    ImGui::SetNextWindowSize({320.0f, 220.0f}, ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(
-        {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f},
-        ImGuiCond_Always,
-        {0.5f, 0.5f});
+void drawPauseMenu(
+    flecs::world world,
+    AssetStore& assets,
+    InputContextStack& contexts,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    if (theme.chrome.pauseDim > 0.0f) {
+        ImGui::GetBackgroundDrawList()->AddRectFilled(
+            ImVec2{0.0f, 0.0f}, display, theme.bg.withAlpha(theme.chrome.pauseDim).u32());
+    }
+    if (theme.chrome.pauseWidth > 0.0f) {
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2{theme.chrome.pauseWidth, 0.0f}, ImVec2{theme.chrome.pauseWidth, FLT_MAX});
+    }
+    ImGui::SetNextWindowPos({display.x * 0.5f, display.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
 
-    if (ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize)) {
-        ImGui::TextUnformatted("Simulation is paused.");
-        if (buttonWithIcon(assets, kDefaultIconSet, "control_play", "Resume")) {
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+    if (beginThemedWindow(theme, fonts, theme.chrome.pauseTitle.c_str(), nullptr, flags)) {
+        if (buttonWithIcon(
+                assets, kDefaultIconSet, "control_play", "Resume", {-1.0f, theme.buttonHeight})) {
             contexts.pop(InputContext::PauseMenu);
         }
         callDrawPauseMenu(world);
@@ -187,13 +201,15 @@ void drawGraphicsSettings(
     flecs::world world,
     AssetStore& assets,
     SettingsUiState& settingsUi,
-    UserSettings& settings) {
+    UserSettings& settings,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
     if (!settingsUi.graphicsOpen) {
         return;
     }
 
     ImGui::SetNextWindowSize({420.0f, 320.0f}, ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Graphics", &settingsUi.graphicsOpen, ImGuiWindowFlags_NoCollapse)) {
+    if (!beginThemedWindow(theme, fonts, "Graphics", &settingsUi.graphicsOpen)) {
         ImGui::End();
         return;
     }
@@ -317,13 +333,18 @@ void drawGraphicsSettings(
     ImGui::End();
 }
 
-void drawControlsSettings(AssetStore& assets, SettingsUiState& settingsUi, UserSettings& settings) {
+void drawControlsSettings(
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    UserSettings& settings,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
     if (!settingsUi.controlsOpen) {
         return;
     }
 
     ImGui::SetNextWindowSize({420.0f, 420.0f}, ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Controls", &settingsUi.controlsOpen, ImGuiWindowFlags_NoCollapse)) {
+    if (!beginThemedWindow(theme, fonts, "Controls", &settingsUi.controlsOpen)) {
         settingsUi.rebindingAction = -1;
         settingsUi.rebindingWaitMouseRelease = false;
         ImGui::End();
@@ -392,33 +413,52 @@ void drawMainMenuBar(
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
     const UserSettings& settings,
-    const EngineSessionInfo& sessionInfo) {
-    if (!beginMainMenuBar()) {
+    const EngineSessionInfo& sessionInfo,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts,
+    SlopUiThemeReload& themeReload) {
+    pushThemeFont(fonts, theme.menuBar.font);
+    if (!beginMainMenuBar(themedMenuBarPadding(theme, fonts))) {
+        popThemeFont();
         return;
     }
 
     constexpr const char* kIcons = kDefaultIconSet;
+    const bool icons = theme.menuBar.icons;
+    auto menu = [&](const char* icon, const char* label, bool bar) {
+        return icons ? beginMenuWithIcon(assets, kIcons, icon, label, bar) : ImGui::BeginMenu(label);
+    };
+    auto item = [&](const char* icon, const char* label, bool* selected = nullptr) {
+        return icons ? menuItemWithIcon(assets, kIcons, icon, label, nullptr, selected)
+                     : ImGui::MenuItem(label, nullptr, selected);
+    };
+    auto itemState = [&](const char* icon, const char* label, bool selected, bool enabled) {
+        return icons ? menuItemWithIcon(assets, kIcons, icon, label, nullptr, selected, enabled)
+                     : ImGui::MenuItem(label, nullptr, selected, enabled);
+    };
 
-    if (beginMenuWithIcon(assets, kIcons, "folder", "File", true)) {
+    if (menu("folder", "File", true)) {
         callDrawFileMenu(world);
-        if (menuItemWithIcon(assets, kIcons, "door", "Quit")) {
+        if (item("door", "Quit")) {
             quit.requested = true;
         }
         ImGui::EndMenu();
     }
 
-    if (beginMenuWithIcon(assets, kIcons, "cog", "Config", true)) {
-        if (menuItemWithIcon(assets, kIcons, "monitor", "Graphics")) {
+    if (menu("cog", "Config", true)) {
+        if (item("monitor", "Graphics")) {
             openGraphicsSettings(settingsUi, settings);
         }
-        if (menuItemWithIcon(assets, kIcons, "keyboard", "Controls")) {
+        if (item("keyboard", "Controls")) {
             openControlsSettings(settingsUi, settings);
         }
         ImGui::EndMenu();
     }
 
-    if (debugUi.menuAvailable && beginMenuWithIcon(assets, kIcons, "bug", "Debug", true)) {
-        if (beginMenuWithIcon(assets, kIcons, "map", "Map")) {
+    callDrawMenuBar(world);
+
+    if (debugUi.menuAvailable && menu("bug", "Debug", true)) {
+        if (menu("map", "Map", false)) {
             const std::string currentId =
                 world.has<CurrentMap>() ? world.get<CurrentMap>().id : std::string{};
             const auto maps = assets.listMaps();
@@ -427,15 +467,14 @@ void drawMainMenuBar(
             } else {
                 for (const AssetStore::MapListEntry& entry : maps) {
                     const bool selected = entry.id == currentId;
-                    if (menuItemWithIcon(
-                            assets, kIcons, "world", entry.name.c_str(), nullptr, selected)) {
+                    if (itemState("world", entry.name.c_str(), selected, true)) {
                         requestMapLoad(entry.id);
                     }
                 }
             }
             ImGui::EndMenu();
         }
-        if (beginMenuWithIcon(assets, kIcons, "chart_organisation", "BSP")) {
+        if (menu("chart_organisation", "BSP", false)) {
             ImGui::MenuItem("Outlines", nullptr, &debugUi.showBspOutlines);
             ImGui::MenuItem("Leaf Faces", nullptr, &debugUi.showBspLeafFaces);
             ImGui::MenuItem("Portals", nullptr, &debugUi.showBspPortals);
@@ -443,25 +482,25 @@ void drawMainMenuBar(
             ImGui::MenuItem("Current Leaf Only", nullptr, &debugUi.showBspCurrentLeafOnly);
             ImGui::EndMenu();
         }
-        if (beginMenuWithIcon(assets, kIcons, "film", "Sprites")) {
+        if (menu("film", "Sprites", false)) {
             ImGui::MenuItem("Masks", nullptr, &debugUi.showSpriteMasks);
             ImGui::MenuItem("Aim", nullptr, &debugUi.showSpriteAim);
             ImGui::EndMenu();
         }
-        if (beginMenuWithIcon(assets, kIcons, "color_wheel", "Light Probes")) {
+        if (menu("color_wheel", "Light Probes", false)) {
             ImGui::MenuItem("Fine Grid", nullptr, &debugUi.showLightProbesFine);
             ImGui::MenuItem("Coarse Grid", nullptr, &debugUi.showLightProbesCoarse);
             ImGui::MenuItem("Sprite Sample Taps", nullptr, &debugUi.showLightProbeSampleTaps);
             ImGui::EndMenu();
         }
-        if (beginMenuWithIcon(assets, kIcons, "sound", "Audio")) {
+        if (menu("sound", "Audio", false)) {
             ImGui::MenuItem("Sources (occlusion/reverb)", nullptr, &debugUi.showAudioSources);
             ImGui::MenuItem("Occluder Mesh", nullptr, &debugUi.showAudioOcclusionMesh);
             ImGui::EndMenu();
         }
-        menuItemWithIcon(assets, kIcons, "chart_line", "Graphs", nullptr, &debugUi.showGraphs);
-        menuItemWithIcon(assets, kIcons, "arrow_branch", "Nav Paths", nullptr, &debugUi.showNavPaths);
-        if (beginMenuWithIcon(assets, kIcons, "shape_square", "Nav Polys (baked)")) {
+        item("chart_line", "Graphs", &debugUi.showGraphs);
+        item("arrow_branch", "Nav Paths", &debugUi.showNavPaths);
+        if (menu("shape_square", "Nav Polys (baked)", false)) {
             if (!world.has<MapNavProfiles>() || world.get<MapNavProfiles>().profiles.empty()) {
                 ImGui::MenuItem("(none baked)", nullptr, false, false);
             } else {
@@ -476,40 +515,41 @@ void drawMainMenuBar(
             }
             ImGui::EndMenu();
         }
-        menuItemWithIcon(
-            assets, kIcons, "box", "Actor Colliders", nullptr, &debugUi.showActorColliders);
-        menuItemWithIcon(
-            assets, kIcons, "chart_curve", "Performance", nullptr, &debugUi.showPerformance);
-        menuItemWithIcon(
-            assets, kIcons, "lightbulb", "Unlit (disable lightmaps)", nullptr, &debugUi.unlit);
-        menuItemWithIcon(assets, kIcons, "user_go", "Noclip", nullptr, &debugUi.noclip);
-        menuItemWithIcon(
-            assets, kIcons, "camera_go", "Free Camera", nullptr, &debugUi.freeCamera);
-        menuItemWithIcon(assets, kIcons, "picture_empty", "Hide HUD", nullptr, &debugUi.hideHud);
-        menuItemWithIcon(
-            assets, kIcons, "user", "Hide FP View", nullptr, &debugUi.hideFpScene);
-        menuItemWithIcon(
-            assets, kIcons, "application_view_list", "Entities", nullptr, &debugUi.entityListOpen);
+        item("box", "Actor Colliders", &debugUi.showActorColliders);
+        item("chart_curve", "Performance", &debugUi.showPerformance);
+        item("lightbulb", "Unlit (disable lightmaps)", &debugUi.unlit);
+        item("user_go", "Noclip", &debugUi.noclip);
+        item("camera_go", "Free Camera", &debugUi.freeCamera);
+        item("picture_empty", "Hide HUD", &debugUi.hideHud);
+        item("user", "Hide FP View", &debugUi.hideFpScene);
+        item("application_view_list", "Entities", &debugUi.entityListOpen);
+        if (item("arrow_refresh", "Reload Theme")) {
+            themeReload.pending = true;
+        }
         callDrawDebugMenu(world);
         ImGui::EndMenu();
     }
 
-    if (beginMenuWithIcon(assets, kIcons, "information", "Help", true)) {
-        menuItemWithIcon(assets, kIcons, "information", "About", nullptr, false, false);
+    if (menu("information", "Help", true)) {
+        itemState("information", "About", false, false);
         ImGui::EndMenu();
     }
 
-    const std::vector<Package>& packages = assets.packages();
-    std::string versionLabel;
-    if (packages.size() >= 2) {
-        versionLabel = "engine " + packages[0].meta().version + " - " + packages[1].meta().id
-            + " " + packages[1].meta().version + " - " + sessionInfo.profile;
+    if (theme.menuBar.versionLabel) {
+        const std::vector<Package>& packages = assets.packages();
+        std::string versionLabel;
+        if (packages.size() >= 2) {
+            versionLabel = "engine " + packages[0].meta().version + " - " + packages[1].meta().id
+                + " " + packages[1].meta().version + " - " + sessionInfo.profile;
+        }
+        const float versionWidth = ImGui::CalcTextSize(versionLabel.c_str()).x;
+        ImGui::SameLine(
+            ImGui::GetWindowWidth() - versionWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+        ImGui::TextDisabled("%s", versionLabel.c_str());
     }
-    const float versionWidth = ImGui::CalcTextSize(versionLabel.c_str()).x;
-    ImGui::SameLine(ImGui::GetWindowWidth() - versionWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
-    ImGui::TextUnformatted(versionLabel.c_str());
 
     endMainMenuBar();
+    popThemeFont();
 }
 
 const char* entityKindLabel(flecs::entity entity) {
@@ -1136,7 +1176,11 @@ void drawEntityList(flecs::world world, DebugUiState& debugUi) {
     ImGui::End();
 }
 
-void drawInteractPanel(InputContextStack& contexts, InteractionTarget& target) {
+void drawInteractPanel(
+    InputContextStack& contexts,
+    InteractionTarget& target,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
     ImGui::SetNextWindowSize({360.0f, 160.0f}, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(
         {ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f},
@@ -1144,7 +1188,7 @@ void drawInteractPanel(InputContextStack& contexts, InteractionTarget& target) {
         {0.5f, 0.5f});
 
     const char* title = target.prompt.empty() ? "Interact" : target.prompt.c_str();
-    if (ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoCollapse)) {
+    if (beginThemedWindow(theme, fonts, title)) {
         if (!target.onUse.empty()) {
             ImGui::Text("Event: %s", target.onUse.id.c_str());
         }
@@ -1158,21 +1202,22 @@ void drawInteractPanel(InputContextStack& contexts, InteractionTarget& target) {
     ImGui::End();
 }
 
-void drawConsole(ConsoleState& console, InputContextStack& contexts) {
+void drawConsole(
+    ConsoleState& console,
+    InputContextStack& contexts,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts,
+    SlopUiThemeReload& themeReload) {
     ImGui::SetNextWindowSize({640.0f, 360.0f}, ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Console", &console.open, ImGuiWindowFlags_NoCollapse)) {
+    if (beginThemedWindow(theme, fonts, "Console", &console.open)) {
         ImGui::BeginChild("ConsoleLog", {0.0f, -ImGui::GetFrameHeightWithSpacing()}, false);
-        if (console.monoFont != nullptr) {
-            ImGui::PushFont(console.monoFont, 0.0f);
-        }
+        pushThemeFont(fonts, ThemeFontSlot::Mono);
         for (const std::string& line : console.log) {
             ImGui::PushStyleColor(ImGuiCol_Text, consoleLogLineColor(line));
             ImGui::TextUnformatted(line.c_str());
             ImGui::PopStyleColor();
         }
-        if (console.monoFont != nullptr) {
-            ImGui::PopFont();
-        }
+        popThemeFont();
         if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
             ImGui::SetScrollHereY(1.0f);
         }
@@ -1186,6 +1231,9 @@ void drawConsole(ConsoleState& console, InputContextStack& contexts) {
                 ImGuiInputTextFlags_EnterReturnsTrue)) {
             if (console.inputBuffer[0] != '\0') {
                 logConsoleMessage(console, console.inputBuffer);
+                if (std::strcmp(console.inputBuffer, "reload-theme") == 0) {
+                    themeReload.pending = true;
+                }
             }
             console.inputBuffer[0] = '\0';
         }
@@ -1218,7 +1266,7 @@ void drawInteractionPrompt(const InteractionTarget& target, const InputContextSt
     ImGui::End();
 }
 
-void drawScriptingErrorBanner(AssetStore& assets) {
+void drawScriptingErrorBanner(AssetStore& assets, const SlopUiTheme& theme, const SlopUiFonts& fonts) {
     if (!scriptingErrorsOccurred()) {
         return;
     }
@@ -1226,7 +1274,7 @@ void drawScriptingErrorBanner(AssetStore& assets) {
     constexpr float kPad = 8.0f;
     ImGui::SetNextWindowBgAlpha(0.55f);
     ImGui::SetNextWindowPos(
-        {ImGui::GetIO().DisplaySize.x - kPad, mainMenuBarHeight() + kPad},
+        {ImGui::GetIO().DisplaySize.x - kPad, mainMenuBarHeight(themedMenuBarPadding(theme, fonts)) + kPad},
         ImGuiCond_Always,
         {1.0f, 0.0f});
     ImGui::Begin(
@@ -1236,7 +1284,7 @@ void drawScriptingErrorBanner(AssetStore& assets) {
             ImGuiWindowFlags_NoNav);
     drawIconImGui(assets, kDefaultIconSet, "error");
     ImGui::SameLine();
-    ImGui::TextUnformatted("Scripting Errors! See program output.");
+    ImGui::TextColored(theme.danger.vec(), "Scripting Errors! See program output.");
     ImGui::End();
 }
 
@@ -1259,6 +1307,24 @@ void registerComponents(flecs::world& world) {
 }
 
 void registerSystems(flecs::world& world) {
+    world.system("SlopUiThemeReload")
+        .kind(flecs::PreUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world w = it.world();
+            if (!w.has<SlopUiThemeReload>() || !w.get<SlopUiThemeReload>().pending) {
+                return;
+            }
+            w.get_mut<SlopUiThemeReload>().pending = false;
+            if (!w.has<AssetServices>() || w.get<AssetServices>().store == nullptr) {
+                return;
+            }
+            if (!w.has<ScriptContext>() || w.get<ScriptContext>().scheme == nullptr) {
+                return;
+            }
+            installSlopUiTheme(w, *w.get_mut<AssetServices>().store, w.get<ScriptContext>().scheme);
+            TraceLog(LOG_INFO, "THEME: reloaded");
+        });
+
     world.system("HandleUiActions")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
@@ -1362,11 +1428,18 @@ void registerSystems(flecs::world& world) {
 
 }
 
-void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile, ImFont* monoFont) {
+void registerUiModule(flecs::world& world, bool debugEnabled, std::string profile) {
     registerComponents(world);
-    ConsoleState console{};
-    console.monoFont = monoFont;
-    world.set<ConsoleState>(console);
+    if (!world.has<SlopUiTheme>()) {
+        world.set<SlopUiTheme>(defaultSlopUiTheme());
+    }
+    if (!world.has<SlopUiFonts>()) {
+        world.set<SlopUiFonts>({});
+    }
+    if (!world.has<SlopUiThemeReload>()) {
+        world.set<SlopUiThemeReload>({});
+    }
+    world.set<ConsoleState>(ConsoleState{});
     flecs::world_t* worldPtr = world.c_ptr();
     Log::addDeferredSink([worldPtr](const LogEntry& entry) {
         flecs::world scopedWorld(worldPtr);
@@ -1400,6 +1473,9 @@ void drawUi(flecs::world world) {
     QuitRequest& quit = world.get_mut<QuitRequest>();
     SettingsUiState& settingsUi = world.get_mut<SettingsUiState>();
     UserSettings& settings = world.get_mut<UserSettings>();
+    const SlopUiTheme& theme = world.get<SlopUiTheme>();
+    const SlopUiFonts& fonts = world.get<SlopUiFonts>();
+    SlopUiThemeReload& themeReload = world.get_mut<SlopUiThemeReload>();
 
     applyImGuiCursorPolicy(contexts);
 
@@ -1411,15 +1487,16 @@ void drawUi(flecs::world world) {
     }
 
     if (assets != nullptr) {
-        drawScriptingErrorBanner(*assets);
+        drawScriptingErrorBanner(*assets, theme, fonts);
     }
 
     if (contexts.contains(InputContext::MainMenu) && assets != nullptr) {
         DebugUiState& debugUi = world.get_mut<DebugUiState>();
         const EngineSessionInfo& sessionInfo = world.get<EngineSessionInfo>();
-        drawMainMenuBar(world, *assets, quit, settingsUi, debugUi, settings, sessionInfo);
-        drawGraphicsSettings(world, *assets, settingsUi, settings);
-        drawControlsSettings(*assets, settingsUi, settings);
+        drawMainMenuBar(
+            world, *assets, quit, settingsUi, debugUi, settings, sessionInfo, theme, fonts, themeReload);
+        drawGraphicsSettings(world, *assets, settingsUi, settings, theme, fonts);
+        drawControlsSettings(*assets, settingsUi, settings, theme, fonts);
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
     }
@@ -1429,17 +1506,17 @@ void drawUi(flecs::world world) {
     }
 
     if (contexts.contains(InputContext::PauseMenu) && assets != nullptr) {
-        drawPauseMenu(world, *assets, contexts);
+        drawPauseMenu(world, *assets, contexts, theme, fonts);
     }
 
     callDrawModals(world);
 
     if (contexts.contains(InputContext::InteractUI)) {
-        drawInteractPanel(contexts, target);
+        drawInteractPanel(contexts, target, theme, fonts);
     }
 
     if (contexts.contains(InputContext::Console)) {
-        drawConsole(console, contexts);
+        drawConsole(console, contexts, theme, fonts, themeReload);
     }
 }
 

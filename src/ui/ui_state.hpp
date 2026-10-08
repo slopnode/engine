@@ -25,7 +25,6 @@ struct ConsoleState {
     bool open = false;
     char inputBuffer[512]{};
     std::vector<std::string> log;
-    ImFont* monoFont = nullptr;
 };
 
 /** Singleton set when the player requests application quit.

@@ -37,6 +37,7 @@ const char* kEngineHooks[] = {
     "draw-hud",
     "draw-title",
     "draw-file-menu",
+    "draw-menu-bar",
     "draw-pause-menu",
     "draw-debug-menu",
     "draw-modals",

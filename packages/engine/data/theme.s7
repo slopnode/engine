@@ -1,0 +1,35 @@
+(define *package-theme*
+  '((fonts
+      (normal  "FiraSans/FiraSans-Regular" 16)
+      (bold    "FiraSans/FiraSans-Bold" 16)
+      (heading "FiraSans/FiraSans-Bold" 28)
+      (mono    "JetBrainsMono/JetBrainsMono" 14))
+    (colors
+      (bg       17 18 22)
+      (surface  29 31 38)
+      (accent   214 160 70)
+      (text     232 228 218)
+      (text-dim 146 143 136)
+      (danger   204 64 58))
+    (metrics
+      (rounding 3)
+      (border 1)
+      (frame-border 0)
+      (padding 14 12)
+      (frame-padding 10 6)
+      (spacing 8 6)
+      (button-height 34))
+    (menu-bar
+      (height 32)
+      (font normal)
+      (bg surface)
+      (icons #t)
+      (version-label #t))
+    (window
+      (title-font bold)
+      (title-align center)
+      (draggable #t))
+    (chrome
+      (pause-title "Paused")
+      (pause-dim 0.55)
+      (pause-width 320))))

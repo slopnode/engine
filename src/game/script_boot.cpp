@@ -10,6 +10,7 @@
 #include "script/post_script.hpp"
 #include "script/save_script.hpp"
 #include "script/script_scope.hpp"
+#include "script/theme_script.hpp"
 #include "script/thing_script.hpp"
 #include "navigation/nav_script.hpp"
 #include "script/ui_script.hpp"
@@ -30,6 +31,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
     bindSaveApi(world, assets, scheme);
     bindHookApi(scheme);
     bindUiApi(world, scheme);
+    bindThemeApi(world, scheme);
     {
         ScriptScopeGuard bootScope(ScriptScope::Boot);
         const std::string baseId{assets.basePackageId()};

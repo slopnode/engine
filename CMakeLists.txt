@@ -229,6 +229,7 @@ add_executable(slopengine
     src/interact/interact_module.cpp
     src/ui/ui_module.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/sight_module.cpp
@@ -288,6 +289,7 @@ add_executable(slopengine
     src/script/thing_script.cpp
     src/script/save_script.cpp
     src/script/ui_script.cpp
+    src/script/theme_script.cpp
 )
 
 target_link_libraries(slopengine PRIVATE

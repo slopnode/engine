@@ -16,8 +16,8 @@ namespace slopengine {
 inline constexpr const char* kDefaultIconSet = "silk";
 inline constexpr ImVec2 kMainMenuBarFramePadding{6.0f, 6.0f};
 
-inline float mainMenuBarHeight() {
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, kMainMenuBarFramePadding);
+inline float mainMenuBarHeight(const ImVec2& padding = kMainMenuBarFramePadding) {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
     const float height = ImGui::GetFrameHeight();
     ImGui::PopStyleVar();
     return height;
@@ -72,8 +72,8 @@ inline void drawMainMenuBarIcon(
     ImGui::Dummy(ImVec2(size, rowHeight));
 }
 
-inline bool beginMainMenuBar() {
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, kMainMenuBarFramePadding);
+inline bool beginMainMenuBar(const ImVec2& padding = kMainMenuBarFramePadding) {
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
     return ImGui::BeginMainMenuBar();
 }
 
