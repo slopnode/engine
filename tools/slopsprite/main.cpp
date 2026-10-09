@@ -1565,7 +1565,7 @@ int main(int argc, char* argv[]) {
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
                 ImGuiWindowFlags_NoScrollWithMouse);
-        if (ImGui::BeginTabBar("##previewTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+        if (slopengine::slopuiBeginTabBar("##previewTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
             auto previewTabButton = [&](const char* label, slopsprite::PreviewMode mode) {
                 const bool selected = editor.mode == mode;
                 if (selected) {
@@ -1574,7 +1574,7 @@ int main(int argc, char* argv[]) {
                     ImGui::PushStyleColor(
                         ImGuiCol_TabHovered, ImGui::GetStyleColorVec4(ImGuiCol_TabSelected));
                 }
-                if (ImGui::TabItemButton(label)) {
+                if (slopengine::slopuiTabItemButton(label)) {
                     setPreviewMode(mode);
                 }
                 if (selected) {
@@ -1584,7 +1584,7 @@ int main(int argc, char* argv[]) {
             previewTabButton("World", slopsprite::PreviewMode::World);
             previewTabButton("FP", slopsprite::PreviewMode::FirstPerson);
             previewTabButton("Sprite", slopsprite::PreviewMode::Align);
-            ImGui::EndTabBar();
+            slopengine::slopuiEndTabBar();
         }
         ImGui::End();
 

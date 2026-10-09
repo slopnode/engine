@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 
 namespace slopengine {
 
@@ -527,6 +528,159 @@ bool slopuiBegin(const char* name, bool* open, ImGuiWindowFlags flags) {
         return ImGui::Begin(name, open, flags);
     }
     return beginThemedWindow(*theme, *fonts, activeSlopUiAssets(), name, open, flags);
+}
+
+namespace {
+
+struct TabBarState {
+    bool themed = false;
+    bool hasSelected = false;
+    ImVec2 selectedMin;
+    ImVec2 selectedMax;
+    ImVec2 barMin;
+    ImVec2 barMax;
+};
+
+std::vector<TabBarState> g_tabBars;
+
+void drawClassicTab(const SlopUiTheme& theme, const ImVec2& min, const ImVec2& max, bool selected, const char* label) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ThemeColor face = theme.surface;
+    const ImU32 faceCol = styledColor(face);
+    const ImU32 light = styledColor(themeLighten(face, 0.9f));
+    const ImU32 dark1 = styledColor(themeDarken(face, 0.33f));
+    const ImU32 dark2 = styledColor(themeDarken(face, 0.65f));
+    const float top = selected ? min.y : min.y + 2.0f;
+    const float bottom = selected ? max.y + 2.0f : max.y;
+    const float x0 = min.x;
+    const float x1 = max.x;
+    draw->PushClipRect(ImVec2{x0, top}, ImVec2{x1, bottom}, false);
+    draw->AddRectFilled(ImVec2{x0 + 1.0f, top + 1.0f}, ImVec2{x1 - 2.0f, bottom}, faceCol);
+    draw->AddRectFilled(ImVec2{x0, top + 2.0f}, ImVec2{x0 + 1.0f, bottom}, light);
+    draw->AddRectFilled(ImVec2{x0 + 2.0f, top}, ImVec2{x1 - 2.0f, top + 1.0f}, light);
+    draw->AddRectFilled(ImVec2{x0 + 1.0f, top + 1.0f}, ImVec2{x0 + 2.0f, top + 2.0f}, light);
+    draw->AddRectFilled(ImVec2{x1 - 2.0f, top + 2.0f}, ImVec2{x1 - 1.0f, bottom}, dark1);
+    draw->AddRectFilled(ImVec2{x1 - 1.0f, top + 2.0f}, ImVec2{x1, bottom}, dark2);
+    draw->AddRectFilled(ImVec2{x1 - 2.0f, top + 1.0f}, ImVec2{x1 - 1.0f, top + 2.0f}, dark1);
+    const char* textEnd = ImGui::FindRenderedTextEnd(label);
+    const ImVec2 textSize = ImGui::CalcTextSize(label, textEnd);
+    const ImVec2 textPos{
+        x0 + (x1 - x0 - textSize.x) * 0.5f,
+        top + (max.y - top - textSize.y) * 0.5f};
+    draw->AddText(textPos, styledColor(theme.text), label, textEnd);
+    draw->PopClipRect();
+}
+
+} // namespace
+
+bool slopuiBeginTabBar(const char* id, ImGuiTabBarFlags flags) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    const bool themed = theme != nullptr && theme->bevel > 0.0f;
+    if (themed) {
+        ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 0.0f);
+    }
+    const bool open = ImGui::BeginTabBar(id, flags);
+    if (!open) {
+        if (themed) {
+            ImGui::PopStyleVar(2);
+        }
+        return false;
+    }
+    TabBarState state;
+    state.themed = themed;
+    if (themed) {
+        if (ImGuiTabBar* bar = ImGui::GetCurrentTabBar()) {
+            state.barMin = bar->BarRect.Min;
+            state.barMax = bar->BarRect.Max;
+        }
+    }
+    g_tabBars.push_back(state);
+    return true;
+}
+
+void slopuiEndTabBar() {
+    TabBarState state;
+    if (!g_tabBars.empty()) {
+        state = g_tabBars.back();
+        g_tabBars.pop_back();
+    }
+    ImGui::EndTabBar();
+    if (!state.themed) {
+        return;
+    }
+    ImGui::PopStyleVar(2);
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    if (theme == nullptr) {
+        return;
+    }
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const ImU32 light = styledColor(themeLighten(theme->surface, 0.9f));
+    const float y = state.barMax.y - 1.0f;
+    draw->PushClipRect(state.barMin, ImVec2{state.barMax.x, state.barMax.y + 2.0f}, false);
+    if (state.hasSelected) {
+        if (state.selectedMin.x > state.barMin.x) {
+            draw->AddRectFilled(ImVec2{state.barMin.x, y}, ImVec2{state.selectedMin.x, y + 1.0f}, light);
+        }
+        if (state.selectedMax.x < state.barMax.x) {
+            draw->AddRectFilled(ImVec2{state.selectedMax.x - 1.0f, y}, ImVec2{state.barMax.x, y + 1.0f}, light);
+        }
+    } else {
+        draw->AddRectFilled(ImVec2{state.barMin.x, y}, ImVec2{state.barMax.x, y + 1.0f}, light);
+    }
+    draw->PopClipRect();
+}
+
+bool slopuiBeginTabItem(const char* label, bool* open, ImGuiTabItemFlags flags) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    if (g_tabBars.empty() || !g_tabBars.back().themed || theme == nullptr) {
+        return ImGui::BeginTabItem(label, open, flags);
+    }
+    ImGui::PushStyleColor(ImGuiCol_Tab, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmed, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_Text, kTransparent);
+    const bool selected = ImGui::BeginTabItem(label, open, flags);
+    ImGui::PopStyleColor(8);
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    if (max.x > min.x && max.y > min.y) {
+        drawClassicTab(*theme, min, max, selected, label);
+        if (selected) {
+            TabBarState& state = g_tabBars.back();
+            state.hasSelected = true;
+            state.selectedMin = min;
+            state.selectedMax = max;
+        }
+    }
+    return selected;
+}
+
+bool slopuiTabItemButton(const char* label, ImGuiTabItemFlags flags) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    if (g_tabBars.empty() || !g_tabBars.back().themed || theme == nullptr) {
+        return ImGui::TabItemButton(label, flags);
+    }
+    ImGui::PushStyleColor(ImGuiCol_Tab, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmed, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, kTransparent);
+    ImGui::PushStyleColor(ImGuiCol_Text, kTransparent);
+    const bool pressed = ImGui::TabItemButton(label, flags);
+    ImGui::PopStyleColor(8);
+    const ImVec2 min = ImGui::GetItemRectMin();
+    const ImVec2 max = ImGui::GetItemRectMax();
+    if (max.x > min.x && max.y > min.y) {
+        drawClassicTab(*theme, min, max, false, label);
+    }
+    return pressed;
 }
 
 bool slopuiButton(const char* label, const ImVec2& size, bool selected) {

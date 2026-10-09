@@ -3236,8 +3236,8 @@ int main(int argc, char* argv[]) {
                     propsH = std::max(0.0f, splitAvail - listMinH);
                 }
 
-                if (ImGui::BeginTabBar("##propsTabs", ImGuiTabBarFlags_None)) {
-                    if (ImGui::BeginTabItem("Select")) {
+                if (slopengine::slopuiBeginTabBar("##propsTabs", ImGuiTabBarFlags_None)) {
+                    if (slopengine::slopuiBeginTabItem("Select")) {
                         if (d.selectionMode == slopmap::SelectionMode::Entity) {
                             thingPanel.drawSection(editor, assets, materialBrowser, soundBrowser, propsH);
                         } else {
@@ -3245,17 +3245,17 @@ int main(int argc, char* argv[]) {
                         }
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Map")) {
+                    if (slopengine::slopuiBeginTabItem("Map")) {
                         thingPanel.drawMapSection(editor, assets, materialBrowser, propsH);
                         ImGui::EndTabItem();
                     }
-                    ImGui::EndTabBar();
+                    slopengine::slopuiEndTabBar();
                 }
 
                 ImGui::Separator();
 
-                if (ImGui::BeginTabBar("##sceneTabs", ImGuiTabBarFlags_None)) {
-                    if (ImGui::BeginTabItem("Brushes")) {
+                if (slopengine::slopuiBeginTabBar("##sceneTabs", ImGuiTabBarFlags_None)) {
+                    if (slopengine::slopuiBeginTabItem("Brushes")) {
                         ImGui::InputTextWithHint(
                             "##sceneBrushFilter", "Filter…", sceneBrushFilter, sizeof(sceneBrushFilter));
                         const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
@@ -3289,7 +3289,7 @@ int main(int argc, char* argv[]) {
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Prefabs")) {
+                    if (slopengine::slopuiBeginTabItem("Prefabs")) {
                         ImGui::InputTextWithHint(
                             "##scenePrefabFilter",
                             "Filter…",
@@ -3327,7 +3327,7 @@ int main(int argc, char* argv[]) {
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Things")) {
+                    if (slopengine::slopuiBeginTabItem("Things")) {
                         ImGui::InputTextWithHint(
                             "##sceneThingFilter", "Filter…", sceneThingFilter, sizeof(sceneThingFilter));
                         const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
@@ -3381,7 +3381,7 @@ int main(int argc, char* argv[]) {
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
-                    ImGui::EndTabBar();
+                    slopengine::slopuiEndTabBar();
                 }
             }
             ImGui::End();
@@ -3401,8 +3401,8 @@ int main(int argc, char* argv[]) {
                 const float bodyH = std::max(0.0f, ImGui::GetContentRegionAvail().y -
                     ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.y);
 
-                if (ImGui::BeginTabBar("##libraryTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
-                    if (ImGui::BeginTabItem("Surface")) {
+                if (slopengine::slopuiBeginTabBar("##libraryTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+                    if (slopengine::slopuiBeginTabItem("Surface")) {
                         const slopmap::MaterialBrowserResult matResult =
                             materialBrowser.drawSurfaceSection(
                                 editor, assets, editorSettings, texturePanel, bodyH);
@@ -3414,7 +3414,7 @@ int main(int argc, char* argv[]) {
                         }
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Things")) {
+                    if (slopengine::slopuiBeginTabItem("Things")) {
                         if (slopengine::slopuiBeginChild(
                                 "##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                             const float btnW = ImGui::GetContentRegionAvail().x;
@@ -3843,7 +3843,7 @@ int main(int argc, char* argv[]) {
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Prefabs")) {
+                    if (slopengine::slopuiBeginTabItem("Prefabs")) {
                         const slopmap::PrefabBrowserResult prefabResult =
                             prefabBrowser.drawSection(editor, assets, bodyH);
                         if (prefabResult.requestRescan) {
@@ -3881,7 +3881,7 @@ int main(int argc, char* argv[]) {
                         }
                         ImGui::EndTabItem();
                     }
-                    ImGui::EndTabBar();
+                    slopengine::slopuiEndTabBar();
                 }
             }
             ImGui::End();
@@ -5014,14 +5014,14 @@ int main(int argc, char* argv[]) {
                     }
                     ImGui::Separator();
                 }
-                if (ImGui::BeginTabBar("##compile_tabs")) {
+                if (slopengine::slopuiBeginTabBar("##compile_tabs")) {
                     auto drawStageLog =
                         [&](slopmap::CompileStage stage, const char* label, const char* childId) {
                         ImGuiTabItemFlags flags = 0;
                         if (compile.outputTabFocusPending() && compile.selectedOutputTab() == stage) {
                             flags |= ImGuiTabItemFlags_SetSelected;
                         }
-                        if (ImGui::BeginTabItem(label, nullptr, flags)) {
+                        if (slopengine::slopuiBeginTabItem(label, nullptr, flags)) {
                             compile.setSelectedOutputTab(stage);
                             if (ImGui::SmallButton("Copy")) {
                                 ImGui::SetClipboardText(compile.logText(stage).c_str());
@@ -5068,7 +5068,7 @@ int main(int argc, char* argv[]) {
                     drawStageLog(slopmap::CompileStage::Vis, "VIS", "##compile_log_vis");
                     drawStageLog(slopmap::CompileStage::Rad, "RAD", "##compile_log_rad");
                     drawStageLog(slopmap::CompileStage::Nav, "NAV", "##compile_log_nav");
-                    ImGui::EndTabBar();
+                    slopengine::slopuiEndTabBar();
                     if (compile.outputTabFocusPending()) {
                         compile.clearOutputTabFocusPending();
                     }

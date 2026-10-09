@@ -79,6 +79,13 @@ void endThemedMainMenuBar();
 /** ImGui::Begin through the active theme when one is installed, plain ImGui::Begin otherwise. */
 bool slopuiBegin(const char* name, bool* open = nullptr, ImGuiWindowFlags flags = 0);
 
+/** Tab bars drawn as classic bevelled tabs when the active theme has a bevel; plain ImGui tabs otherwise.
+ *  Pair slopuiBeginTabBar with slopuiEndTabBar and slopuiBeginTabItem with ImGui::EndTabItem. */
+bool slopuiBeginTabBar(const char* id, ImGuiTabBarFlags flags = 0);
+void slopuiEndTabBar();
+bool slopuiBeginTabItem(const char* label, bool* open = nullptr, ImGuiTabItemFlags flags = 0);
+bool slopuiTabItemButton(const char* label, ImGuiTabItemFlags flags = 0);
+
 /** ImGui::Button through the active theme when one is installed, plain ImGui::Button otherwise. */
 bool slopuiButton(const char* label, const ImVec2& size = ImVec2{0.0f, 0.0f}, bool selected = false);
 

@@ -419,16 +419,16 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
     ImGui::Separator();
 
     if (slopengine::slopuiBeginChild("##sprframestabs", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-        if (ImGui::BeginTabBar("##browserTabs")) {
-            if (ImGui::BeginTabItem("Frames")) {
+        if (slopengine::slopuiBeginTabBar("##browserTabs")) {
+            if (slopengine::slopuiBeginTabItem("Frames")) {
                 drawFramesSection(editor, assets);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Clips")) {
+            if (slopengine::slopuiBeginTabItem("Clips")) {
                 drawClipFramesSection(editor, assets);
                 ImGui::EndTabItem();
             }
-            ImGui::EndTabBar();
+            slopengine::slopuiEndTabBar();
         }
     }
     ImGui::EndChild();

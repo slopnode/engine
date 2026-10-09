@@ -777,16 +777,16 @@ int main(int argc, char* argv[]) {
             "##maintabs",
             nullptr,
             panelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground);
-        if (ImGui::BeginTabBar("MainTabs")) {
-            if (ImGui::BeginTabItem("Sources")) {
+        if (slopengine::slopuiBeginTabBar("MainTabs")) {
+            if (slopengine::slopuiBeginTabItem("Sources")) {
                 activeTab = TopTab::Sources;
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Bus")) {
+            if (slopengine::slopuiBeginTabItem("Bus")) {
                 activeTab = TopTab::Bus;
                 ImGui::EndTabItem();
             }
-            ImGui::EndTabBar();
+            slopengine::slopuiEndTabBar();
         }
         ImGui::End();
 

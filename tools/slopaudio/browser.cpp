@@ -199,33 +199,33 @@ void Browser::draw(Editor& editor, slopengine::AssetStore& assets, slopengine::A
     ImGui::Separator();
 
     if (slopengine::slopuiBeginChild("##audiobrowserlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
-        if (ImGui::BeginTabBar("##audioBrowserTabs")) {
-            if (ImGui::BeginTabItem("Definitions")) {
+        if (slopengine::slopuiBeginTabBar("##audioBrowserTabs")) {
+            if (slopengine::slopuiBeginTabItem("Definitions")) {
                 activeTab = SourceKind::Definition;
                 drawEntryList(editor, assets, entries, filter, SourceKind::Definition);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Procedural")) {
+            if (slopengine::slopuiBeginTabItem("Procedural")) {
                 activeTab = SourceKind::Procedural;
                 drawEntryList(editor, assets, entries, filter, SourceKind::Procedural);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Files")) {
+            if (slopengine::slopuiBeginTabItem("Files")) {
                 activeTab = SourceKind::Clip;
                 drawEntryList(editor, assets, entries, filter, SourceKind::Clip);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Midi")) {
+            if (slopengine::slopuiBeginTabItem("Midi")) {
                 activeTab = SourceKind::Midi;
                 drawEntryList(editor, assets, entries, filter, SourceKind::Midi);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Soundfonts")) {
+            if (slopengine::slopuiBeginTabItem("Soundfonts")) {
                 activeTab = SourceKind::SoundFont;
                 drawEntryList(editor, assets, entries, filter, SourceKind::SoundFont);
                 ImGui::EndTabItem();
             }
-            ImGui::EndTabBar();
+            slopengine::slopuiEndTabBar();
         }
     }
     ImGui::EndChild();
