@@ -3417,30 +3417,30 @@ int main(int argc, char* argv[]) {
                     if (slopengine::slopuiBeginTabItem("Things")) {
                         if (slopengine::slopuiBeginChild(
                                 "##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
-                            const float btnW = ImGui::GetContentRegionAvail().x;
                             const float iconSz = 16.0f;
-                            const float rowH = ImGui::GetFrameHeight();
+                            constexpr ImGuiTreeNodeFlags kCatalogNodeFlags =
+                                ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen |
+                                ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_DrawLinesFull;
                             auto placeKindButton =
                                 [&](const char* icon,
                                     const char* label,
                                     bool active,
                                     const std::function<void()>& onClick) {
                                     ImGui::PushID(label);
+                                    ImGuiTreeNodeFlags leafFlags = ImGuiTreeNodeFlags_Leaf |
+                                        ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                        ImGuiTreeNodeFlags_SpanAvailWidth |
+                                        ImGuiTreeNodeFlags_FramePadding;
                                     if (active) {
-                                        ImGui::PushStyleColor(
-                                            ImGuiCol_Button,
-                                            ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                                        leafFlags |= ImGuiTreeNodeFlags_Selected;
                                     }
-                                    const bool pressed = slopengine::slopuiButton("##", ImVec2(btnW, rowH));
-                                    if (active) {
-                                        ImGui::PopStyleColor();
-                                    }
+                                    ImGui::TreeNodeEx("##leaf", leafFlags);
+                                    const bool pressed = ImGui::IsItemClicked();
                                     const ImVec2 min = ImGui::GetItemRectMin();
                                     const ImVec2 max = ImGui::GetItemRectMax();
-                                    const float pad = ImGui::GetStyle().FramePadding.x;
                                     const float iconY = min.y + (max.y - min.y - iconSz) * 0.5f;
                                     const IconAtlas* atlas = assets.getIconAtlas(kIconSet);
-                                    float textX = min.x + pad;
+                                    float textX = min.x + ImGui::GetTreeNodeToLabelSpacing();
                                     if (atlas != nullptr && atlas->texture.id != 0) {
                                         if (const auto rect = findIconRect(*atlas, icon)) {
                                             const float tw =
@@ -3449,15 +3449,14 @@ int main(int argc, char* argv[]) {
                                                 static_cast<float>(atlas->texture.height);
                                             ImGui::GetWindowDrawList()->AddImage(
                                                 (ImTextureID)(intptr_t)atlas->texture.id,
-                                                ImVec2(min.x + pad, iconY),
-                                                ImVec2(min.x + pad + iconSz, iconY + iconSz),
+                                                ImVec2(textX, iconY),
+                                                ImVec2(textX + iconSz, iconY + iconSz),
                                                 ImVec2(rect->x / tw, rect->y / th),
                                                 ImVec2(
                                                     (rect->x + rect->width) / tw,
                                                     (rect->y + rect->height) / th),
                                                 ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
-                                            textX = min.x + pad + iconSz +
-                                                ImGui::GetStyle().ItemInnerSpacing.x;
+                                            textX += iconSz + ImGui::GetStyle().ItemInnerSpacing.x;
                                         }
                                     }
                                     const float textY = min.y +
@@ -3517,11 +3516,7 @@ int main(int argc, char* argv[]) {
                                     }
                                     ImGui::PushID(folderId.c_str());
                                     const bool open = ImGui::TreeNodeEx(
-                                        "##folder",
-                                        ImGuiTreeNodeFlags_SpanAvailWidth |
-                                            ImGuiTreeNodeFlags_DefaultOpen |
-                                            ImGuiTreeNodeFlags_FramePadding |
-                                            ImGuiTreeNodeFlags_AllowOverlap);
+                                        "##folder", kCatalogNodeFlags | ImGuiTreeNodeFlags_AllowOverlap);
                                     {
                                         const ImVec2 min = ImGui::GetItemRectMin();
                                         const ImVec2 max = ImGui::GetItemRectMax();
@@ -3601,10 +3596,7 @@ int main(int argc, char* argv[]) {
                                         "");
                                 };
 
-                            if (ImGui::TreeNodeEx(
-                                    "Engine",
-                                    ImGuiTreeNodeFlags_SpanAvailWidth |
-                                        ImGuiTreeNodeFlags_DefaultOpen)) {
+                            if (ImGui::TreeNodeEx("Engine", kCatalogNodeFlags)) {
                                 placeKindButton(
                                     "user",
                                     "player-start",
@@ -3767,10 +3759,7 @@ int main(int argc, char* argv[]) {
                                 ImGui::TreePop();
                             }
 
-                            if (ImGui::TreeNodeEx(
-                                    "Base Game",
-                                    ImGuiTreeNodeFlags_SpanAvailWidth |
-                                        ImGuiTreeNodeFlags_DefaultOpen)) {
+                            if (ImGui::TreeNodeEx("Base Game", kCatalogNodeFlags)) {
                                 drawCatalogDefs(
                                     slopengine::thingDefRegistry().defsForRole(
                                         slopengine::PackageRole::Base),
@@ -3795,10 +3784,7 @@ int main(int argc, char* argv[]) {
                             }
                             for (const auto& [packageId, defs] : modDefsByPackage) {
                                 ImGui::PushID(packageId.c_str());
-                                if (ImGui::TreeNodeEx(
-                                        packageId.c_str(),
-                                        ImGuiTreeNodeFlags_SpanAvailWidth |
-                                            ImGuiTreeNodeFlags_DefaultOpen)) {
+                                if (ImGui::TreeNodeEx(packageId.c_str(), kCatalogNodeFlags)) {
                                     drawCatalogDefs(
                                         defs,
                                         "plugin",
