@@ -6,6 +6,7 @@
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -281,7 +282,7 @@ BrushPanelResult drawBrushSection(
     SoundBrowser& soundBrowser,
     float bodyHeight) {
     BrushPanelResult result{};
-    if (!ImGui::BeginChild("##brushsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##brushsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }

@@ -16,11 +16,31 @@ namespace slopengine {
 inline constexpr const char* kDefaultIconSet = "silk";
 inline constexpr ImVec2 kMainMenuBarFramePadding{6.0f, 6.0f};
 
-inline float mainMenuBarHeight(const ImVec2& padding = kMainMenuBarFramePadding) {
+int slopuiActiveMainMenuBarBegin();
+bool slopuiActiveMainMenuBarEnd();
+bool slopuiActiveMainMenuBarHeight(float& height);
+bool slopuiActiveIconButton(
+    AssetStore& assets,
+    std::string_view set,
+    std::string_view iconId,
+    const char* label,
+    const ImVec2& size,
+    float iconSize,
+    bool& pressed);
+
+inline float mainMenuBarHeight(const ImVec2& padding) {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
     const float height = ImGui::GetFrameHeight();
     ImGui::PopStyleVar();
     return height;
+}
+
+inline float mainMenuBarHeight() {
+    float height = 0.0f;
+    if (slopuiActiveMainMenuBarHeight(height)) {
+        return height;
+    }
+    return mainMenuBarHeight(kMainMenuBarFramePadding);
 }
 
 inline bool drawIconImGui(
@@ -67,17 +87,28 @@ inline void drawMainMenuBarIcon(
         ImVec2(cursor.x + size, y + size),
         ImVec2(rect->x / tw, rect->y / th),
         ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th),
-        ImGui::GetColorU32(ImGuiCol_Text));
+        ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
 
     ImGui::Dummy(ImVec2(size, rowHeight));
 }
 
-inline bool beginMainMenuBar(const ImVec2& padding = kMainMenuBarFramePadding) {
+inline bool beginMainMenuBar(const ImVec2& padding) {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);
     return ImGui::BeginMainMenuBar();
 }
 
+inline bool beginMainMenuBar() {
+    const int themed = slopuiActiveMainMenuBarBegin();
+    if (themed >= 0) {
+        return themed == 1;
+    }
+    return beginMainMenuBar(kMainMenuBarFramePadding);
+}
+
 inline void endMainMenuBar() {
+    if (slopuiActiveMainMenuBarEnd()) {
+        return;
+    }
     ImGui::EndMainMenuBar();
     ImGui::PopStyleVar();
 }
@@ -111,7 +142,7 @@ inline void drawIconInButton(
                 ImVec2(x + iconSize, yIcon + iconSize),
                 ImVec2(rect->x / tw, rect->y / th),
                 ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th),
-                ImGui::GetColorU32(ImGuiCol_Text));
+                ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
         }
     }
     if (!iconOnly) {
@@ -131,6 +162,10 @@ inline bool buttonWithIcon(
     const ImVec2& size = ImVec2(0, 0),
     float iconSize = 16.0f) {
     const bool iconOnly = label == nullptr || label[0] == '\0';
+    bool themedPressed = false;
+    if (slopuiActiveIconButton(assets, set, iconId, iconOnly ? "" : label, size, iconSize, themedPressed)) {
+        return themedPressed;
+    }
     ImGui::PushID(iconOnly ? iconId.data() : label);
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 textSize = label != nullptr ? ImGui::CalcTextSize(label) : ImVec2{};

@@ -1,6 +1,7 @@
 #include "sound_browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -110,7 +111,7 @@ bool SoundBrowser::drawModal(slopengine::AssetStore& assets, std::string& outPat
             combined.erase(std::unique(combined.begin(), combined.end()), combined.end());
             list = &combined;
         }
-        if (ImGui::BeginChild("##soundlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
+        if (slopengine::slopuiBeginChild("##soundlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
             for (const std::string& path : *list) {
                 if (!containsIgnoreCase(path, filter)) {
                     continue;

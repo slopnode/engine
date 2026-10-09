@@ -1,6 +1,7 @@
 #include "browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -197,7 +198,7 @@ void Browser::draw(Editor& editor, slopengine::AssetStore& assets, slopengine::A
     }
     ImGui::Separator();
 
-    if (ImGui::BeginChild("##audiobrowserlist", ImVec2(0.0f, 0.0f), false)) {
+    if (slopengine::slopuiBeginChild("##audiobrowserlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTabBar("##audioBrowserTabs")) {
             if (ImGui::BeginTabItem("Definitions")) {
                 activeTab = SourceKind::Definition;

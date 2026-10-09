@@ -1,4 +1,5 @@
 #include "midi_track_view.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -171,7 +172,7 @@ void drawMidiTrackPanel(const MidiTrackView& midi, float& windowMs, float playhe
     ImGui::SameLine(0.0f, 0.0f);
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::BeginChild(
+    slopengine::slopuiBeginChild(
         "##midiscroll",
         ImVec2(availWidth, childHeight),
         false,

@@ -7,6 +7,7 @@
 #include "audio/audio_world.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -126,7 +127,7 @@ void BusEditor::drawBusList(AssetStore& assets, AudioWorld& audio) {
     ensureLoaded(assets, audio);
 
     ImGui::BeginDisabled(!dirty);
-    if (ImGui::Button("Save", ImVec2(-1.0f, 0.0f))) {
+    if (slopengine::slopuiButton("Save", ImVec2(-1.0f, 0.0f))) {
         statusMessage = save(assets) ? "Saved audio/buses.saudio" : "Save failed";
     }
     ImGui::EndDisabled();

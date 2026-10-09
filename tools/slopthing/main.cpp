@@ -11,6 +11,8 @@
 #include "game/app_config.hpp"
 #include "map/map_script.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_tool.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "ui/imgui_fonts.hpp"
 
 #include "imgui.h"
@@ -157,8 +159,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    ImFont* monoFont = slopengine::setupImGuiWithUiAndMonoFont(
-        assets, slopengine::kDefaultUiFontPath, slopengine::kMonoUiFontPath, true, "slopthing");
+    ImFont* monoFont = slopengine::installToolTheme(assets, "slopthing");
 
     slopthing::Editor editor;
     editor.scheme = s7_init();
@@ -228,19 +229,19 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(0.0f, bodyTop));
         ImGui::SetNextWindowSize(ImVec2(leftWidth, bodyHeight));
-        ImGui::Begin("Browser", nullptr, panelFlags);
+        slopengine::slopuiBegin("Browser", nullptr, panelFlags);
         slopthing::drawBrowserPanel(editor, assets, bodyHeight - ImGui::GetFrameHeightWithSpacing() * 2.5f);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(leftWidth, bodyTop));
         ImGui::SetNextWindowSize(ImVec2(inspectorWidth, bodyHeight));
-        ImGui::Begin("Inspector", nullptr, panelFlags | ImGuiWindowFlags_NoScrollWithMouse);
+        slopengine::slopuiBegin("Inspector", nullptr, panelFlags | ImGuiWindowFlags_NoScrollWithMouse);
         slopthing::drawInspectorPanel(editor, assets, monoFont, bodyHeight - 8.0f);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(leftWidth + inspectorWidth, bodyTop));
         ImGui::SetNextWindowSize(ImVec2(previewWidth, bodyHeight));
-        ImGui::Begin("Collider Preview", nullptr, panelFlags);
+        slopengine::slopuiBegin("Collider Preview", nullptr, panelFlags);
         {
             slopthing::ThingEntry* sel = editor.selected();
             if (sel == nullptr) {
@@ -270,7 +271,7 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(0.0f, screenH - statusHeight));
         ImGui::SetNextWindowSize(ImVec2(screenW, statusHeight));
-        ImGui::Begin(
+        slopengine::slopuiBegin(
             "##status",
             nullptr,
             panelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollWithMouse);

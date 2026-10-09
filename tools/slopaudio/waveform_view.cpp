@@ -1,4 +1,5 @@
 #include "waveform_view.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "audio/audio_world.hpp"
 
@@ -399,7 +400,7 @@ void drawWaveformPanel(
     // fill `childHeight`, so any padding would push the true content height past that and pop a
     // needless vertical scrollbar even though nothing is actually cut off.
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::BeginChild(
+    slopengine::slopuiBeginChild(
         "##wavescroll",
         ImVec2(availWidth, childHeight),
         false,

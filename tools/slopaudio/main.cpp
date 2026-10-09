@@ -14,6 +14,8 @@
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_tool.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "ui/imgui_fonts.hpp"
 
 #include "imgui.h"
@@ -595,7 +597,7 @@ void drawInspector(
             ImGui::Separator();
             ImGui::Text("Presets: %d", info.presetCount);
             if (!info.presets.empty()) {
-                ImGui::BeginChild(
+                slopengine::slopuiBeginChild(
                     "##soundfontpresets", ImVec2(0.0f, ImGui::GetContentRegionAvail().y), true);
                 for (const slopaudio::SoundFontPreset& preset : info.presets) {
                     ImGui::Text("%3d:%-3d  %s", preset.bank, preset.program, preset.name.c_str());
@@ -641,7 +643,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    slopengine::setupImGuiWithUiFont(assets, slopengine::kDefaultUiFontPath, true, "slopaudio");
+    slopengine::installToolTheme(assets, "slopaudio");
 
     slopaudio::Editor editor;
     editor.targetRoot = config->target;
@@ -771,7 +773,7 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(layout.tabBar.x, layout.tabBar.y));
         ImGui::SetNextWindowSize(ImVec2(layout.tabBar.width, layout.tabBar.height));
-        ImGui::Begin(
+        slopengine::slopuiBegin(
             "##maintabs",
             nullptr,
             panelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground);
@@ -791,19 +793,19 @@ int main(int argc, char* argv[]) {
         if (activeTab == TopTab::Sources) {
             ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
             ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
-            ImGui::Begin("Browser", nullptr, panelFlags);
+            slopengine::slopuiBegin("Browser", nullptr, panelFlags);
             browser.draw(editor, assets, audioWorld);
             ImGui::End();
 
             ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
             ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
-            ImGui::Begin("Inspector", nullptr, scrollablePanelFlags);
+            slopengine::slopuiBegin("Inspector", nullptr, scrollablePanelFlags);
             drawInspector(editor, assets, browser, audioWorld);
             ImGui::End();
 
             ImGui::SetNextWindowPos(ImVec2(layout.content.x, layout.content.y));
             ImGui::SetNextWindowSize(ImVec2(layout.content.width, layout.content.height));
-            ImGui::Begin(
+            slopengine::slopuiBegin(
                 "Waveform",
                 nullptr,
                 panelFlags | ImGuiWindowFlags_NoTitleBar);
@@ -884,7 +886,7 @@ int main(int argc, char* argv[]) {
         } else {
             ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
             ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
-            ImGui::Begin("Buses", nullptr, panelFlags);
+            slopengine::slopuiBegin("Buses", nullptr, panelFlags);
             busEditor.drawBusList(assets, audioWorld);
             ImGui::End();
 
@@ -896,7 +898,7 @@ int main(int argc, char* argv[]) {
             };
             ImGui::SetNextWindowPos(ImVec2(busSettingsRect.x, busSettingsRect.y));
             ImGui::SetNextWindowSize(ImVec2(busSettingsRect.width, busSettingsRect.height));
-            ImGui::Begin("Bus Settings", nullptr, scrollablePanelFlags);
+            slopengine::slopuiBegin("Bus Settings", nullptr, scrollablePanelFlags);
             busEditor.drawBusSettings(assets, audioWorld);
             ImGui::End();
         }
@@ -919,7 +921,7 @@ int main(int argc, char* argv[]) {
         ImGui::SetNextWindowSize(
             ImVec2(static_cast<float>(GetScreenWidth()), statusHeight), ImGuiCond_Always);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
-        if (ImGui::Begin(
+        if (slopengine::slopuiBegin(
                 "##status",
                 nullptr,
                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |

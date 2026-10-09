@@ -1,6 +1,5 @@
 #pragma once
 
-#include <flecs.h>
 #include <imgui.h>
 
 #include <array>
@@ -28,6 +27,9 @@ struct ThemeColor {
 ThemeColor themeMix(const ThemeColor& a, const ThemeColor& b, float t);
 ThemeColor themeLighten(const ThemeColor& c, float t);
 ThemeColor themeDarken(const ThemeColor& c, float t);
+float themeLuminance(const ThemeColor& c);
+bool themeIsLight(const ThemeColor& c);
+ThemeColor themeRaise(const ThemeColor& c, float t);
 
 enum class ThemeFontSlot {
     Normal,
@@ -55,6 +57,7 @@ struct ThemePaint {
     ThemeColorRef a;
     ThemeColorRef b;
     bool gradient = false;
+    bool horizontal = false;
     bool set = false;
 };
 
@@ -62,6 +65,7 @@ struct ThemePaintResolved {
     ThemeColor a;
     ThemeColor b;
     bool gradient = false;
+    bool horizontal = false;
 };
 
 struct ThemeSkin {
@@ -88,13 +92,14 @@ struct SlopUiTheme {
     float rounding = 0.0f;
     float border = 1.0f;
     float frameBorder = 0.0f;
-    ImVec2 padding{12.0f, 10.0f};
-    ImVec2 framePadding{8.0f, 5.0f};
-    ImVec2 spacing{8.0f, 6.0f};
-    float buttonHeight = 32.0f;
+    float bevel = 0.0f;
+    ImVec2 padding{10.0f, 8.0f};
+    ImVec2 framePadding{8.0f, 4.0f};
+    ImVec2 spacing{6.0f, 4.0f};
+    float buttonHeight = 30.0f;
 
     struct MenuBar {
-        float height = 30.0f;
+        float height = 28.0f;
         ThemeFontSlot font = ThemeFontSlot::Normal;
         ThemePaint bg;
         bool icons = true;
@@ -164,9 +169,9 @@ struct SlopUiTheme {
 
 SlopUiTheme defaultSlopUiTheme();
 
-void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme);
+void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme, bool editor = false);
 
-SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme);
+SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor = false);
 
 std::string serializeSlopUiTheme(const SlopUiTheme& theme);
 
@@ -188,7 +193,10 @@ void applySlopUiTheme(const SlopUiTheme& theme, AssetStore& assets, SlopUiFonts&
 
 void applySlopUiStyle(const SlopUiTheme& theme);
 
-void installSlopUiTheme(flecs::world& world, AssetStore& assets, s7_scheme* scheme);
+void setActiveSlopUi(const SlopUiTheme* theme, const SlopUiFonts* fonts, AssetStore* assets);
+const SlopUiTheme* activeSlopUiTheme();
+const SlopUiFonts* activeSlopUiFonts();
+AssetStore* activeSlopUiAssets();
 
 void pushThemeFont(const SlopUiFonts& fonts, ThemeFontSlot slot);
 void popThemeFont();

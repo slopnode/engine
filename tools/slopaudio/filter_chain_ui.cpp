@@ -3,6 +3,7 @@
 #include "audio/audio_world.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -269,7 +270,7 @@ bool drawFilterChain(
     }
 
     ImGui::BeginDisabled(activeCount >= slopengine::kMaxFiltersPerBus);
-    if (ImGui::Button("Add Filter...")) {
+    if (slopengine::slopuiButton("Add Filter...")) {
         ImGui::OpenPopup("AddFilterPopup");
     }
     ImGui::EndDisabled();

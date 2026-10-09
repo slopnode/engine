@@ -36,6 +36,7 @@
 #include "ui/slopui_editor.hpp"
 #include "ui/slopui_theme.hpp"
 #include "ui/slopui_widgets.hpp"
+#include "ui/slopui_world.hpp"
 #include "ui/ui_state.hpp"
 
 #include "imgui.h"
@@ -179,7 +180,7 @@ void drawPauseMenu(
     const ImVec2 display = ImGui::GetIO().DisplaySize;
     if (theme.chrome.pauseDim > 0.0f) {
         ImGui::GetBackgroundDrawList()->AddRectFilled(
-            ImVec2{0.0f, 0.0f}, display, theme.bg.withAlpha(theme.chrome.pauseDim).u32());
+            ImVec2{0.0f, 0.0f}, display, ThemeColor{0.0f, 0.0f, 0.0f, theme.chrome.pauseDim}.u32());
     }
     if (theme.chrome.pauseWidth > 0.0f) {
         ImGui::SetNextWindowSizeConstraints(
@@ -215,8 +216,9 @@ void drawGraphicsSettings(
         return;
     }
 
-    ImGui::SetNextWindowSize({420.0f, 320.0f}, ImGuiCond_FirstUseEver);
-    if (!beginThemedWindow(theme, fonts, &assets, "Graphics", &settingsUi.graphicsOpen)) {
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(
+            theme, fonts, &assets, "Graphics", &settingsUi.graphicsOpen, ImGuiWindowFlags_NoResize)) {
         ImGui::End();
         return;
     }
@@ -1506,6 +1508,7 @@ void drawUi(flecs::world world) {
     if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
         assets = world.get_mut<AssetServices>().store;
     }
+    setActiveSlopUi(&theme, &fonts, assets);
 
     if (assets != nullptr) {
         drawScriptingErrorBanner(*assets, theme, fonts);

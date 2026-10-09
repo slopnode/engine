@@ -2,7 +2,6 @@
 
 #include "ui/slopui_theme.hpp"
 
-#include <flecs.h>
 #include <imgui.h>
 
 #include <string_view>
@@ -11,20 +10,6 @@ namespace slopengine {
 
 class AssetStore;
 
-enum class UiSoundKind {
-    Hover,
-    Confirm,
-    Back,
-};
-
-struct SlopUiSoundState {
-    ImGuiID lastHovered = 0;
-};
-
-void playUiSound(flecs::world world, UiSoundKind kind);
-
-void updateUiHoverSound(flecs::world world);
-
 void drawThemePaint(
     ImDrawList* draw,
     const ImVec2& min,
@@ -32,6 +17,14 @@ void drawThemePaint(
     const ThemePaintResolved& paint,
     float rounding,
     ImDrawFlags flags = 0);
+
+void drawThemeBevel(
+    ImDrawList* draw,
+    const ImVec2& min,
+    const ImVec2& max,
+    const ThemeColor& face,
+    float thickness,
+    bool raised);
 
 bool drawThemeSkin(
     ImDrawList* draw,
@@ -59,12 +52,34 @@ bool themedButton(
     bool primary = false,
     std::string_view iconSet = {},
     std::string_view iconId = {},
-    float iconSize = 16.0f);
+    float iconSize = 16.0f,
+    bool selected = false);
 
 bool beginThemedPanel(const SlopUiTheme& theme, AssetStore* assets, const char* id, float height);
+bool beginThemedPanelEx(
+    const SlopUiTheme& theme,
+    AssetStore* assets,
+    const char* id,
+    const ImVec2& size,
+    ImGuiChildFlags childFlags,
+    ImGuiWindowFlags windowFlags);
 void endThemedPanel();
+
+/** ImGui::BeginChild that renders bordered children as themed sunken panels when a theme is installed.
+ *  Always pair with ImGui::EndChild(). */
+bool slopuiBeginChild(
+    const char* id,
+    const ImVec2& size = ImVec2{0.0f, 0.0f},
+    ImGuiChildFlags childFlags = 0,
+    ImGuiWindowFlags windowFlags = 0);
 
 bool beginThemedMainMenuBar(const SlopUiTheme& theme, const SlopUiFonts& fonts, AssetStore* assets);
 void endThemedMainMenuBar();
+
+/** ImGui::Begin through the active theme when one is installed, plain ImGui::Begin otherwise. */
+bool slopuiBegin(const char* name, bool* open = nullptr, ImGuiWindowFlags flags = 0);
+
+/** ImGui::Button through the active theme when one is installed, plain ImGui::Button otherwise. */
+bool slopuiButton(const char* label, const ImVec2& size = ImVec2{0.0f, 0.0f}, bool selected = false);
 
 }

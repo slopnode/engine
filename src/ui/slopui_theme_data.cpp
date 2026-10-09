@@ -79,6 +79,9 @@ bool readString(s7_pointer rest, std::string& out, const char* section, const ch
 }
 
 bool readColorCells(s7_scheme* sc, s7_pointer cells, ThemeColorRef& out) {
+    if (s7_is_pair(cells) && s7_is_pair(s7_car(cells)) && s7_is_number(s7_car(s7_car(cells)))) {
+        cells = s7_car(cells);
+    }
     if (s7_is_pair(cells) && s7_is_symbol(s7_car(cells))) {
         out.token = s7_symbol_name(s7_car(cells));
         out.set = true;
@@ -136,6 +139,15 @@ bool readPaint(s7_scheme* sc, s7_pointer rest, ThemePaint& out, const char* sect
             !s7_is_pair(stops) || !readGradientStop(sc, s7_cdr(stops), paint.b)) {
             TraceLog(LOG_WARNING, "THEME: %s.%s gradient expects two color stops", section, key);
             return false;
+        }
+        const s7_pointer direction = s7_is_pair(stops) && s7_is_pair(s7_cdr(stops)) ? s7_cdr(s7_cdr(stops)) : s7_nil(sc);
+        if (s7_is_pair(direction) && s7_is_symbol(s7_car(direction))) {
+            const char* name = s7_symbol_name(s7_car(direction));
+            if (std::strcmp(name, "horizontal") == 0) {
+                paint.horizontal = true;
+            } else if (std::strcmp(name, "vertical") != 0) {
+                TraceLog(LOG_WARNING, "THEME: %s.%s gradient direction must be vertical or horizontal", section, key);
+            }
         }
         paint.gradient = true;
         paint.set = true;
@@ -293,6 +305,8 @@ void parseMetrics(s7_scheme* sc, s7_pointer section, SlopUiTheme& theme) {
             if (readReal(sc, rest, value)) theme.border = std::max(value, 0.0f);
         } else if (std::strcmp(key, "frame-border") == 0) {
             if (readReal(sc, rest, value)) theme.frameBorder = std::max(value, 0.0f);
+        } else if (std::strcmp(key, "bevel") == 0) {
+            if (readReal(sc, rest, value)) theme.bevel = std::clamp(value, 0.0f, 4.0f);
         } else if (std::strcmp(key, "padding") == 0) {
             readVec2(sc, rest, theme.padding, "metrics", key);
         } else if (std::strcmp(key, "frame-padding") == 0) {
@@ -475,6 +489,18 @@ ThemeColor themeDarken(const ThemeColor& c, float t) {
     return themeMix(c, ThemeColor{0.0f, 0.0f, 0.0f, c.a}, t);
 }
 
+float themeLuminance(const ThemeColor& c) {
+    return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+}
+
+bool themeIsLight(const ThemeColor& c) {
+    return themeLuminance(c) > 0.5f;
+}
+
+ThemeColor themeRaise(const ThemeColor& c, float t) {
+    return themeIsLight(c) ? themeDarken(c, t) : themeLighten(c, t);
+}
+
 bool parseThemeFontSlot(std::string_view name, ThemeFontSlot& out) {
     for (std::size_t i = 0; i < static_cast<std::size_t>(ThemeFontSlot::Count); ++i) {
         if (name == kFontSlotNames[i]) {
@@ -542,12 +568,13 @@ ThemePaintResolved SlopUiTheme::resolvePaint(
     ThemePaintResolved out;
     out.a = resolve(paint.a, fallback.a);
     out.gradient = paint.gradient;
+    out.horizontal = paint.horizontal;
     out.b = paint.gradient ? resolve(paint.b, out.a) : out.a;
     return out;
 }
 
 ThemeColor SlopUiTheme::borderColor() const {
-    return themeLighten(surface, 0.10f);
+    return themeIsLight(surface) ? themeDarken(surface, 0.25f) : themeLighten(surface, 0.10f);
 }
 
 SlopUiTheme defaultSlopUiTheme() {
@@ -568,15 +595,7 @@ SlopUiTheme defaultSlopUiTheme() {
     return theme;
 }
 
-void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme) {
-    if (scheme == nullptr) {
-        return;
-    }
-    const s7_pointer catalog = s7_name_to_value(scheme, "*package-theme*");
-    if (catalog == s7_undefined(scheme) || !s7_is_pair(catalog)) {
-        return;
-    }
-
+void applyThemeSections(s7_scheme* scheme, s7_pointer catalog, SlopUiTheme& theme, bool allowEditor) {
     forEachEntry(catalog, [&](const char* key, s7_pointer rest) {
         if (std::strcmp(key, "fonts") == 0) {
             parseFonts(scheme, rest, theme);
@@ -598,13 +617,36 @@ void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme) {
             parseSounds(scheme, rest, theme);
         } else if (std::strcmp(key, "chrome") == 0) {
             parseChrome(scheme, rest, theme);
+        } else if (std::strcmp(key, "editor") == 0) {
+            if (!allowEditor) {
+                TraceLog(LOG_WARNING, "THEME: editor section cannot be nested");
+            }
         } else {
             TraceLog(LOG_WARNING, "THEME: unknown section '%s'", key);
         }
     });
 }
 
-SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme) {
+void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme, bool editor) {
+    if (scheme == nullptr) {
+        return;
+    }
+    const s7_pointer catalog = s7_name_to_value(scheme, "*package-theme*");
+    if (catalog == s7_undefined(scheme) || !s7_is_pair(catalog)) {
+        return;
+    }
+    applyThemeSections(scheme, catalog, theme, true);
+    if (!editor) {
+        return;
+    }
+    forEachEntry(catalog, [&](const char* key, s7_pointer rest) {
+        if (std::strcmp(key, "editor") == 0) {
+            applyThemeSections(scheme, rest, theme, false);
+        }
+    });
+}
+
+SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor) {
     SlopUiTheme theme = defaultSlopUiTheme();
     if (scheme == nullptr) {
         return theme;
@@ -615,7 +657,7 @@ SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme) {
         if (!assets.loadDataFromPackage(scheme, id, "theme")) {
             continue;
         }
-        overlayPackageThemeFromScheme(scheme, theme);
+        overlayPackageThemeFromScheme(scheme, theme, editor);
         TraceLog(LOG_INFO, "THEME: applied data/theme.s7 from '%s'", id.c_str());
     }
     return theme;
@@ -648,7 +690,8 @@ std::string gradientStopText(const ThemeColorRef& ref) {
 
 std::string paintText(const ThemePaint& paint) {
     if (paint.gradient) {
-        return "(gradient " + gradientStopText(paint.a) + " " + gradientStopText(paint.b) + ")";
+        return "(gradient " + gradientStopText(paint.a) + " " + gradientStopText(paint.b) +
+            (paint.horizontal ? " horizontal)" : ")");
     }
     return colorRefText(paint.a);
 }
@@ -729,6 +772,7 @@ std::string serializeSlopUiTheme(const SlopUiTheme& theme) {
     out << "      (rounding " << numberText(theme.rounding) << ")\n";
     out << "      (border " << numberText(theme.border) << ")\n";
     out << "      (frame-border " << numberText(theme.frameBorder) << ")\n";
+    out << "      (bevel " << numberText(theme.bevel) << ")\n";
     out << "      (padding " << numberText(theme.padding.x) << ' ' << numberText(theme.padding.y) << ")\n";
     out << "      (frame-padding " << numberText(theme.framePadding.x) << ' ' << numberText(theme.framePadding.y) << ")\n";
     out << "      (spacing " << numberText(theme.spacing.x) << ' ' << numberText(theme.spacing.y) << ")\n";

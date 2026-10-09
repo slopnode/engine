@@ -1,6 +1,7 @@
 #include "browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -87,7 +88,7 @@ void drawFramesSection(Editor& editor, slopengine::AssetStore& assets) {
         }
         const float pickSize = ImGui::GetFrameHeight();
         const ImVec2 pickPos = ImGui::GetCursorScreenPos();
-        if (ImGui::Button("##pick", ImVec2(pickSize, pickSize))) {
+        if (slopengine::slopuiButton("##pick", ImVec2(pickSize, pickSize))) {
             editor.selectFrameIndex(i);
         }
         ImGui::PopStyleColor(3);
@@ -236,7 +237,7 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets) {
         }
         const float pickSize = ImGui::GetFrameHeight();
         const ImVec2 pickPos = ImGui::GetCursorScreenPos();
-        if (ImGui::Button("##pick", ImVec2(pickSize, pickSize))) {
+        if (slopengine::slopuiButton("##pick", ImVec2(pickSize, pickSize))) {
             editor.doc.selectedClipFrameIndex = i;
         }
         ImGui::PopStyleColor(3);
@@ -391,7 +392,7 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
 
     const float listHeight = std::max(120.0f, ImGui::GetContentRegionAvail().y * 0.5f);
 
-    if (ImGui::BeginChild("##spritebrowserlist", ImVec2(0.0f, listHeight), false)) {
+    if (slopengine::slopuiBeginChild("##spritebrowserlist", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders)) {
         for (const SpriteBrowserEntry& entry : entries) {
             if (!containsIgnoreCase(entry.virtualPath, filter) &&
                 !containsIgnoreCase(entry.packageId, filter)) {
@@ -417,7 +418,7 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
 
     ImGui::Separator();
 
-    if (ImGui::BeginChild("##sprframestabs", ImVec2(0.0f, 0.0f), false)) {
+    if (slopengine::slopuiBeginChild("##sprframestabs", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         if (ImGui::BeginTabBar("##browserTabs")) {
             if (ImGui::BeginTabItem("Frames")) {
                 drawFramesSection(editor, assets);
@@ -484,7 +485,7 @@ bool SpritePicker::drawModal(slopengine::AssetStore& assets, std::string& outPat
             filter = filterBuf;
         }
         ImGui::Separator();
-        if (ImGui::BeginChild(
+        if (slopengine::slopuiBeginChild(
                 "##spritepicklist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
             for (const std::string& path : sprites) {
                 if (!containsIgnoreCase(path, filter)) {

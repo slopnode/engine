@@ -16,6 +16,8 @@
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_tool.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "ui/imgui_fonts.hpp"
 
 #include "imgui.h"
@@ -424,7 +426,7 @@ void drawRotationSection(
         } else {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
         }
-        if (ImGui::Button(label, ImVec2(28.0f, 0.0f))) {
+        if (slopengine::slopuiButton(label, ImVec2(28.0f, 0.0f))) {
             editor.doc.selectedRot = rot;
         }
         ImGui::PopStyleColor();
@@ -1316,7 +1318,7 @@ void drawInspector(
     sectionOpen[0] = collapsingHeaderWithIcon(
         assets, kDefaultIconSet, "picture_edit", "Rotation", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[0]) {
-        if (ImGui::BeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
+        if (slopengine::slopuiBeginChild("##rotation", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
             drawRotationSection(editor, assets, textureBrowser);
         }
         ImGui::EndChild();
@@ -1325,7 +1327,7 @@ void drawInspector(
     sectionOpen[1] = collapsingHeaderWithIcon(
         assets, kDefaultIconSet, "shape_handles", "Base transforms", ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[1]) {
-        if (ImGui::BeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
+        if (slopengine::slopuiBeginChild("##basetrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
             drawBaseTransformSection(editor, assets);
         }
         ImGui::EndChild();
@@ -1338,7 +1340,7 @@ void drawInspector(
         "Anim transforms",
         ImGuiTreeNodeFlags_DefaultOpen);
     if (sectionOpen[2]) {
-        if (ImGui::BeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
+        if (slopengine::slopuiBeginChild("##animtrans", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
             drawAnimFrameSection(editor, assets);
         }
         ImGui::EndChild();
@@ -1348,7 +1350,7 @@ void drawInspector(
         sectionOpen[3] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "layers", "Onion skin", ImGuiTreeNodeFlags_DefaultOpen);
         if (sectionOpen[3]) {
-            if (ImGui::BeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
+            if (slopengine::slopuiBeginChild("##onion", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                 drawOnionSection(editor, assets, onionSpritePicker);
             }
             ImGui::EndChild();
@@ -1357,7 +1359,7 @@ void drawInspector(
         sectionOpen[3] = collapsingHeaderWithIcon(
             assets, kDefaultIconSet, "film", "Clip frame", ImGuiTreeNodeFlags_DefaultOpen);
         if (sectionOpen[3]) {
-            if (ImGui::BeginChild("##clipframe", ImVec2(0.0f, bodyH), ImGuiChildFlags_None)) {
+            if (slopengine::slopuiBeginChild("##clipframe", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                 drawClipFramePropertiesSection(editor, assets, soundBrowser);
             }
             ImGui::EndChild();
@@ -1397,7 +1399,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    slopengine::setupImGuiWithUiFont(assets, slopengine::kDefaultUiFontPath, true, "slopsprite");
+    slopengine::installToolTheme(assets, "slopsprite");
 
     slopsprite::Editor editor;
     editor.targetRoot = config->target;
@@ -1557,7 +1559,7 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(layout.viewTabBar.x, layout.viewTabBar.y));
         ImGui::SetNextWindowSize(ImVec2(layout.viewTabBar.width, layout.viewTabBar.height));
-        ImGui::Begin(
+        slopengine::slopuiBegin(
             "##viewTabBar",
             nullptr,
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -1588,19 +1590,19 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y));
         ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
-        ImGui::Begin("Browser", nullptr, panelFlags);
+        slopengine::slopuiBegin("Browser", nullptr, panelFlags);
         browser.draw(editor, assets);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));
         ImGui::SetNextWindowSize(ImVec2(layout.rightPanel.width, layout.rightPanel.height));
-        ImGui::Begin("Inspector", nullptr, panelFlags);
+        slopengine::slopuiBegin("Inspector", nullptr, panelFlags);
         drawInspector(editor, assets, textureBrowser, onionSpritePicker, soundBrowser);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(layout.animPanel.x, layout.animPanel.y));
         ImGui::SetNextWindowSize(ImVec2(layout.animPanel.width, layout.animPanel.height));
-        ImGui::Begin(
+        slopengine::slopuiBegin(
             "Animation",
             nullptr,
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -1618,7 +1620,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowPos(
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.72f);
-            if (ImGui::Begin("##worldoverlay", nullptr, overlayFlags)) {
+            if (slopengine::slopuiBegin("##worldoverlay", nullptr, overlayFlags)) {
                 constexpr const char* kIcons = kDefaultIconSet;
                 if (buttonWithIcon(
                         assets,
@@ -1679,7 +1681,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowPos(
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.72f);
-            if (ImGui::Begin("##fpoverlay", nullptr, overlayFlags)) {
+            if (slopengine::slopuiBegin("##fpoverlay", nullptr, overlayFlags)) {
                 constexpr const char* kIcons = kDefaultIconSet;
                 if (buttonWithIcon(assets, kIcons, "arrow_undo", "Reset")) {
                     editor.doc.fpZoom = 1.0f;
@@ -1712,7 +1714,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowPos(
                 ImVec2(layout.content.x + 8.0f, layout.content.y + 8.0f), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.72f);
-            if (ImGui::Begin("##alignoverlay", nullptr, overlayFlags)) {
+            if (slopengine::slopuiBegin("##alignoverlay", nullptr, overlayFlags)) {
                 constexpr const char* kIcons = kDefaultIconSet;
                 if (buttonWithIcon(assets, kIcons, "arrow_undo", "Reset")) {
                     editor.doc.alignZoom = 2.0f;
@@ -1785,7 +1787,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowSize(
                 ImVec2(static_cast<float>(GetScreenWidth()), statusHeight), ImGuiCond_Always);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
-            if (ImGui::Begin(
+            if (slopengine::slopuiBegin(
                     "##status",
                     nullptr,
                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |

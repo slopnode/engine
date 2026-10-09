@@ -32,7 +32,7 @@
 #include "script/scheme_harden.hpp"
 #include "script/script_scope.hpp"
 #include "ui/imgui_fonts.hpp"
-#include "ui/slopui_theme.hpp"
+#include "ui/slopui_world.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
 

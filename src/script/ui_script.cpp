@@ -9,6 +9,7 @@
 #include "script/script_context.hpp"
 #include "ui/slopui_theme.hpp"
 #include "ui/slopui_widgets.hpp"
+#include "ui/slopui_world.hpp"
 
 #include "imgui.h"
 
@@ -260,7 +261,7 @@ s7_pointer g_ui_begin_child(s7_scheme* sc, s7_pointer args) {
     if (s7_is_pair(s7_cdr(args)) && s7_is_number(s7_cadr(args))) {
         height = static_cast<float>(s7_number_to_real(sc, s7_cadr(args)));
     }
-    const bool open = ImGui::BeginChild(
+    const bool open = slopuiBeginChild(
         s7_string(s7_car(args)),
         ImVec2{0.0f, height},
         ImGuiChildFlags_Borders);

@@ -34,7 +34,7 @@ void runSlopUiThemeTests() {
     {
         const SlopUiTheme theme = overlayFromText(
             "(define *package-theme* '((colors (accent 10 20 30))"
-            " (window (title-bg (gradient accent (1 2 3))) (title-text text-dim) (title-align left))"
+            " (window (title-bg (gradient accent (1 2 3) horizontal)) (title-text text-dim) (title-align left))"
             " (menu-bar (bg surface) (icons #f))"
             " (skin (button \"ui/button\" (slice 4) (states 4) (scale 2))"
             "       (title \"ui/title\" (slice 1 2 3 4)))"
@@ -45,6 +45,7 @@ void runSlopUiThemeTests() {
         CHECK(theme.window.titleBg.set);
         CHECK(theme.window.titleBg.gradient);
         CHECK_EQ(theme.window.titleBg.a.token, std::string{"accent"});
+        CHECK(theme.window.titleBg.horizontal);
         CHECK(sameColor(theme.window.titleBg.b.color, ThemeColor{1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 1.0f}));
         CHECK_EQ(theme.window.titleText.token, std::string{"text-dim"});
         CHECK_FALSE(theme.window.titleCentered);
@@ -77,6 +78,14 @@ void runSlopUiThemeTests() {
         SlopUiTheme original = defaultSlopUiTheme();
         original.accent = ThemeColor{0.5f, 0.25f, 0.125f, 1.0f};
         original.rounding = 6.0f;
+        original.bevel = 2.0f;
+        original.window.titleBg.a.color = ThemeColor{0.1f, 0.1f, 0.4f, 1.0f};
+        original.window.titleBg.a.set = true;
+        original.window.titleBg.b.token = "accent";
+        original.window.titleBg.b.set = true;
+        original.window.titleBg.gradient = true;
+        original.window.titleBg.horizontal = true;
+        original.window.titleBg.set = true;
         original.padding = ImVec2{9.0f, 7.0f};
         original.menuBar.icons = false;
         original.menuBar.font = ThemeFontSlot::Bold;
@@ -109,6 +118,10 @@ void runSlopUiThemeTests() {
 
         CHECK(sameColor(loaded.accent, original.accent));
         CHECK(near(loaded.rounding, 6.0f));
+        CHECK(near(loaded.bevel, 2.0f));
+        CHECK(loaded.window.titleBg.gradient);
+        CHECK(loaded.window.titleBg.horizontal);
+        CHECK_EQ(loaded.window.titleBg.b.token, std::string{"accent"});
         CHECK(near(loaded.padding.x, 9.0f) && near(loaded.padding.y, 7.0f));
         CHECK_FALSE(loaded.menuBar.icons);
         CHECK(loaded.menuBar.font == ThemeFontSlot::Bold);

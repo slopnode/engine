@@ -140,6 +140,7 @@ void drawThemeEditor(flecs::world world, AssetStore& assets, DebugUiState& debug
         changed |= ImGui::SliderFloat("rounding", &theme.rounding, 0.0f, 16.0f, "%.0f");
         changed |= ImGui::SliderFloat("border", &theme.border, 0.0f, 4.0f, "%.0f");
         changed |= ImGui::SliderFloat("frame-border", &theme.frameBorder, 0.0f, 4.0f, "%.0f");
+        changed |= ImGui::SliderFloat("bevel", &theme.bevel, 0.0f, 4.0f, "%.0f");
         changed |= vec2Edit("padding", theme.padding, 0.0f, 32.0f);
         changed |= vec2Edit("frame-padding", theme.framePadding, 0.0f, 24.0f);
         changed |= vec2Edit("spacing", theme.spacing, 0.0f, 24.0f);

@@ -39,8 +39,10 @@ ImFont* ensureThemeFont(AssetStore& assets, const std::string& path, float sizeP
 void applySlopUiStyle(const SlopUiTheme& theme) {
     ImGuiStyle& style = ImGui::GetStyle();
 
-    const ThemeColor border = theme.borderColor();
+    const bool light = themeIsLight(theme.surface);
+    const ThemeColor border = theme.bevel > 0.0f ? themeDarken(theme.surface, 0.55f) : theme.borderColor();
     const ThemeColor transparent{0.0f, 0.0f, 0.0f, 0.0f};
+    const ThemeColor dimBase{0.0f, 0.0f, 0.0f, 1.0f};
     const ThemeColor header = themeMix(theme.surface, theme.accent, 0.30f);
     const ThemeColor headerHovered = themeMix(theme.surface, theme.accent, 0.45f);
     const ThemeColor headerActive = themeMix(theme.surface, theme.accent, 0.60f);
@@ -57,22 +59,25 @@ void applySlopUiStyle(const SlopUiTheme& theme) {
     c[ImGuiCol_PopupBg] = theme.surface.vec();
     c[ImGuiCol_Border] = border.vec();
     c[ImGuiCol_BorderShadow] = transparent.vec();
-    c[ImGuiCol_FrameBg] = theme.surface.vec();
-    c[ImGuiCol_FrameBgHovered] = themeLighten(theme.surface, 0.06f).vec();
-    c[ImGuiCol_FrameBgActive] = themeLighten(theme.surface, 0.12f).vec();
+    const ThemeColor frameBg = theme.bevel > 0.0f
+        ? (light ? themeLighten(theme.surface, 0.9f) : themeDarken(theme.surface, 0.3f))
+        : theme.surface;
+    c[ImGuiCol_FrameBg] = frameBg.vec();
+    c[ImGuiCol_FrameBgHovered] = themeRaise(frameBg, 0.06f).vec();
+    c[ImGuiCol_FrameBgActive] = themeRaise(frameBg, 0.12f).vec();
     c[ImGuiCol_TitleBg] = titleBg.vec();
     c[ImGuiCol_TitleBgActive] = titleBgActive.vec();
     c[ImGuiCol_TitleBgCollapsed] = titleBg.vec();
     c[ImGuiCol_MenuBarBg] = menuBarBg.vec();
-    c[ImGuiCol_ScrollbarBg] = theme.bg.vec();
-    c[ImGuiCol_ScrollbarGrab] = themeLighten(theme.surface, 0.15f).vec();
-    c[ImGuiCol_ScrollbarGrabHovered] = themeLighten(theme.surface, 0.25f).vec();
-    c[ImGuiCol_ScrollbarGrabActive] = themeLighten(theme.surface, 0.35f).vec();
+    c[ImGuiCol_ScrollbarBg] = (light ? themeLighten(theme.bg, 0.5f) : theme.bg).vec();
+    c[ImGuiCol_ScrollbarGrab] = themeRaise(theme.surface, 0.15f).vec();
+    c[ImGuiCol_ScrollbarGrabHovered] = themeRaise(theme.surface, 0.25f).vec();
+    c[ImGuiCol_ScrollbarGrabActive] = themeRaise(theme.surface, 0.35f).vec();
     c[ImGuiCol_CheckMark] = theme.accent.vec();
     c[ImGuiCol_CheckboxSelectedBg] = theme.surface.vec();
     c[ImGuiCol_SliderGrab] = theme.accent.vec();
     c[ImGuiCol_SliderGrabActive] = themeLighten(theme.accent, 0.15f).vec();
-    c[ImGuiCol_Button] = themeLighten(theme.surface, 0.08f).vec();
+    c[ImGuiCol_Button] = themeRaise(theme.surface, 0.08f).vec();
     c[ImGuiCol_ButtonHovered] = themeMix(theme.surface, theme.accent, 0.40f).vec();
     c[ImGuiCol_ButtonActive] = themeMix(theme.surface, theme.accent, 0.60f).vec();
     c[ImGuiCol_Header] = header.vec();
@@ -86,7 +91,7 @@ void applySlopUiStyle(const SlopUiTheme& theme) {
     c[ImGuiCol_ResizeGripActive] = transparent.vec();
     c[ImGuiCol_InputTextCursor] = theme.text.vec();
     c[ImGuiCol_TabHovered] = headerHovered.vec();
-    c[ImGuiCol_Tab] = themeLighten(theme.surface, 0.08f).vec();
+    c[ImGuiCol_Tab] = themeRaise(theme.surface, 0.08f).vec();
     c[ImGuiCol_TabSelected] = header.vec();
     c[ImGuiCol_TabSelectedOverline] = theme.accent.vec();
     c[ImGuiCol_TabDimmed] = theme.surface.vec();
@@ -96,7 +101,7 @@ void applySlopUiStyle(const SlopUiTheme& theme) {
     c[ImGuiCol_PlotLinesHovered] = themeLighten(theme.accent, 0.2f).vec();
     c[ImGuiCol_PlotHistogram] = theme.accent.vec();
     c[ImGuiCol_PlotHistogramHovered] = themeLighten(theme.accent, 0.2f).vec();
-    c[ImGuiCol_TableHeaderBg] = themeLighten(theme.surface, 0.05f).vec();
+    c[ImGuiCol_TableHeaderBg] = themeRaise(theme.surface, 0.05f).vec();
     c[ImGuiCol_TableBorderStrong] = border.vec();
     c[ImGuiCol_TableBorderLight] = border.withAlpha(0.5f).vec();
     c[ImGuiCol_TableRowBg] = transparent.vec();
@@ -109,8 +114,8 @@ void applySlopUiStyle(const SlopUiTheme& theme) {
     c[ImGuiCol_UnsavedMarker] = theme.accent.vec();
     c[ImGuiCol_NavCursor] = theme.accent.vec();
     c[ImGuiCol_NavWindowingHighlight] = theme.accent.vec();
-    c[ImGuiCol_NavWindowingDimBg] = theme.bg.withAlpha(0.6f).vec();
-    c[ImGuiCol_ModalWindowDimBg] = theme.bg.withAlpha(theme.chrome.pauseDim).vec();
+    c[ImGuiCol_NavWindowingDimBg] = dimBase.withAlpha(0.6f).vec();
+    c[ImGuiCol_ModalWindowDimBg] = dimBase.withAlpha(theme.chrome.pauseDim).vec();
 
     style.WindowRounding = theme.rounding;
     style.ChildRounding = theme.rounding;
@@ -162,18 +167,30 @@ void applySlopUiTheme(const SlopUiTheme& theme, AssetStore& assets, SlopUiFonts&
     applySlopUiStyle(theme);
 }
 
-void installSlopUiTheme(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
-    world.component<SlopUiTheme>();
-    world.component<SlopUiFonts>();
-    world.component<SlopUiThemeReload>();
-    SlopUiTheme theme = loadSlopUiTheme(assets, scheme);
-    SlopUiFonts fonts{};
-    applySlopUiTheme(theme, assets, fonts);
-    world.set<SlopUiTheme>(std::move(theme));
-    world.set<SlopUiFonts>(fonts);
-    if (!world.has<SlopUiThemeReload>()) {
-        world.set<SlopUiThemeReload>({});
-    }
+namespace {
+
+const SlopUiTheme* g_activeTheme = nullptr;
+const SlopUiFonts* g_activeFonts = nullptr;
+AssetStore* g_activeAssets = nullptr;
+
+} // namespace
+
+void setActiveSlopUi(const SlopUiTheme* theme, const SlopUiFonts* fonts, AssetStore* assets) {
+    g_activeTheme = theme;
+    g_activeFonts = fonts;
+    g_activeAssets = assets;
+}
+
+const SlopUiTheme* activeSlopUiTheme() {
+    return g_activeTheme;
+}
+
+const SlopUiFonts* activeSlopUiFonts() {
+    return g_activeFonts;
+}
+
+AssetStore* activeSlopUiAssets() {
+    return g_activeAssets;
 }
 
 void pushThemeFont(const SlopUiFonts& fonts, ThemeFontSlot slot) {

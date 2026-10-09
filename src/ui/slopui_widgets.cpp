@@ -1,7 +1,6 @@
 #include "ui/slopui_widgets.hpp"
 
 #include "assets/asset_store.hpp"
-#include "audio/audio_module.hpp"
 #include "ui/icon_ui.hpp"
 
 #include <imgui_internal.h>
@@ -10,7 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
-#include <unordered_set>
 
 namespace slopengine {
 
@@ -23,7 +21,7 @@ ImU32 styledColor(const ThemeColor& color) {
 }
 
 ThemePaintResolved buttonPaint(const SlopUiTheme& theme, int state, bool primary) {
-    const ThemeColor base = themeLighten(theme.surface, 0.08f);
+    const ThemeColor base = themeRaise(theme.surface, 0.08f);
     if (primary) {
         const ThemePaintResolved normal =
             theme.resolvePaint(theme.button.primaryBg, themeMix(theme.surface, theme.accent, 0.5f));
@@ -55,13 +53,50 @@ bool itemDisabled() {
     return g != nullptr && (g->CurrentItemFlags & ImGuiItemFlags_Disabled) != 0;
 }
 
+bool sameVec4(const ImVec4& a, const ImVec4& b) {
+    return std::fabs(a.x - b.x) < 0.002f && std::fabs(a.y - b.y) < 0.002f &&
+        std::fabs(a.z - b.z) < 0.002f && std::fabs(a.w - b.w) < 0.002f;
+}
+
+bool buttonColorsOverridden(const SlopUiTheme& theme) {
+    return !sameVec4(ImGui::GetStyleColorVec4(ImGuiCol_Button), themeRaise(theme.surface, 0.08f).vec());
+}
+
+bool g_menuBarThemed = false;
+
+template <typename Fn>
+void fillAroundScrollbars(ImDrawList* draw, const ImVec2& pos, const ImVec2& max, Fn&& fn) {
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window == nullptr || !window->ScrollbarY) {
+        draw->PushClipRect(pos, max, false);
+        fn();
+        draw->PopClipRect();
+        return;
+    }
+    const ImRect sb = ImGui::GetWindowScrollbarRect(window, ImGuiAxis_Y);
+    const ImRect regions[3] = {
+        ImRect(pos.x, pos.y, sb.Min.x, max.y),
+        ImRect(sb.Min.x, pos.y, max.x, sb.Min.y),
+        ImRect(sb.Min.x, sb.Max.y, max.x, max.y),
+    };
+    for (const ImRect& r : regions) {
+        if (r.Max.x <= r.Min.x || r.Max.y <= r.Min.y) {
+            continue;
+        }
+        draw->PushClipRect(r.Min, r.Max, false);
+        fn();
+        draw->PopClipRect();
+    }
+}
+
 void drawWindowChrome(
     const SlopUiTheme& theme,
     const SlopUiFonts& fonts,
     AssetStore* assets,
     const char* name,
     bool* open,
-    bool customBg) {
+    bool customBg,
+    ImGuiWindowFlags flags) {
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImGuiStyle& style = ImGui::GetStyle();
     const ImVec2 pos = ImGui::GetWindowPos();
@@ -72,23 +107,37 @@ void drawWindowChrome(
 
     draw->PushClipRect(pos, max, false);
 
-    if (customBg) {
-        if (!(theme.skin.window.set && drawThemeSkin(draw, pos, max, assets, theme.skin.window, 0))) {
-            drawThemePaint(draw, pos, max, theme.resolvePaint(theme.window.bg, theme.bg), style.WindowRounding);
-            if (theme.border > 0.0f) {
-                draw->AddRect(pos, max, styledColor(theme.borderColor()), style.WindowRounding, theme.border);
+    const float frameInset = theme.bevel > 0.0f ? theme.bevel : 0.0f;
+    const ThemePaintResolved bgPaint = theme.resolvePaint(theme.window.bg, theme.bg);
+    const bool hasBg = (flags & ImGuiWindowFlags_NoBackground) == 0;
+    if (customBg && hasBg) {
+        fillAroundScrollbars(draw, pos, max, [&]() {
+            if (!(theme.skin.window.set && drawThemeSkin(draw, pos, max, assets, theme.skin.window, 0))) {
+                drawThemePaint(draw, pos, max, bgPaint, style.WindowRounding);
+                if (theme.bevel <= 0.0f && theme.border > 0.0f) {
+                    draw->AddRect(pos, max, styledColor(theme.borderColor()), style.WindowRounding, theme.border);
+                }
             }
-        }
+        });
+    }
+    if (hasBg && theme.bevel > 0.0f && !theme.skin.window.set) {
+        drawThemeBevel(draw, pos, max, bgPaint.a, theme.bevel, true);
     }
 
-    const ImVec2 titleMax{max.x, pos.y + titleH};
+    if (flags & ImGuiWindowFlags_NoTitleBar) {
+        draw->PopClipRect();
+        return;
+    }
+
+    const ImVec2 titleMin{pos.x + frameInset, pos.y + frameInset};
+    const ImVec2 titleMax{max.x - frameInset, pos.y + titleH};
     const int titleState = focused && theme.skin.title.states > 1 ? 1 : 0;
-    if (!(theme.skin.title.set && drawThemeSkin(draw, pos, titleMax, assets, theme.skin.title, titleState))) {
+    if (!(theme.skin.title.set && drawThemeSkin(draw, titleMin, titleMax, assets, theme.skin.title, titleState))) {
         const ThemePaintResolved titlePaint = focused
             ? theme.resolvePaint(theme.window.titleBgActive, themeMix(theme.surface, theme.accent, 0.25f))
             : theme.resolvePaint(theme.window.titleBg, themeMix(theme.bg, theme.surface, 0.5f));
-        drawThemePaint(draw, pos, titleMax, titlePaint, style.WindowRounding, ImDrawFlags_RoundCornersTop);
-        if (theme.border > 0.0f) {
+        drawThemePaint(draw, titleMin, titleMax, titlePaint, style.WindowRounding, ImDrawFlags_RoundCornersTop);
+        if (theme.border > 0.0f && theme.bevel <= 0.0f) {
             draw->AddLine(
                 ImVec2{pos.x, titleMax.y - 0.5f},
                 ImVec2{max.x, titleMax.y - 0.5f},
@@ -136,56 +185,6 @@ void drawWindowChrome(
 
 } // namespace
 
-void playUiSound(flecs::world world, UiSoundKind kind) {
-    if (!world.has<SlopUiTheme>() || !world.has<AudioContext>()) {
-        return;
-    }
-    const SlopUiTheme& theme = world.get<SlopUiTheme>();
-    const std::string* path = nullptr;
-    switch (kind) {
-    case UiSoundKind::Hover:
-        path = &theme.sounds.hover;
-        break;
-    case UiSoundKind::Confirm:
-        path = &theme.sounds.confirm;
-        break;
-    case UiSoundKind::Back:
-        path = &theme.sounds.back;
-        break;
-    }
-    if (path == nullptr || path->empty()) {
-        return;
-    }
-    const AudioContext& ctx = world.get<AudioContext>();
-    if (ctx.world == nullptr || ctx.assets == nullptr || !ctx.world->ready()) {
-        return;
-    }
-    const AudioDef* def = ctx.assets->getAudioDef(*path);
-    if (def == nullptr) {
-        static std::unordered_set<std::string> warned;
-        if (warned.insert(*path).second) {
-            TraceLog(LOG_WARNING, "THEME: ui sound def not found: %s", path->c_str());
-        }
-        return;
-    }
-    ctx.world->playAudioDef(*ctx.assets, *path, *def, theme.sounds.volume);
-}
-
-void updateUiHoverSound(flecs::world world) {
-    if (!world.has<SlopUiSoundState>()) {
-        world.set<SlopUiSoundState>({});
-    }
-    SlopUiSoundState& state = world.get_mut<SlopUiSoundState>();
-    const ImGuiID hovered = ImGui::GetHoveredID();
-    if (hovered == state.lastHovered) {
-        return;
-    }
-    state.lastHovered = hovered;
-    if (hovered != 0) {
-        playUiSound(world, UiSoundKind::Hover);
-    }
-}
-
 void drawThemePaint(
     ImDrawList* draw,
     const ImVec2& min,
@@ -203,14 +202,45 @@ void drawThemePaint(
     const int vtxStart = draw->VtxBuffer.Size;
     draw->AddRectFilled(min, max, styledColor(paint.a), rounding, flags);
     const int vtxEnd = draw->VtxBuffer.Size;
+    const ImVec2 p1 = paint.horizontal ? ImVec2{max.x, min.y} : ImVec2{min.x, max.y};
     ImGui::ShadeVertsLinearColorGradientKeepAlpha(
         draw,
         vtxStart,
         vtxEnd,
         ImVec2{min.x, min.y},
-        ImVec2{min.x, max.y},
+        p1,
         styledColor(paint.a),
         styledColor(paint.b));
+}
+
+void drawThemeBevel(
+    ImDrawList* draw,
+    const ImVec2& min,
+    const ImVec2& max,
+    const ThemeColor& face,
+    float thickness,
+    bool raised) {
+    const int rings = static_cast<int>(std::lround(thickness));
+    if (rings <= 0 || max.x - min.x < 4.0f || max.y - min.y < 4.0f) {
+        return;
+    }
+    for (int i = 0; i < rings; ++i) {
+        const bool outer = i == 0;
+        ThemeColor light = themeLighten(face, outer ? 0.9f : 0.35f);
+        ThemeColor dark = themeDarken(face, outer ? 0.65f : 0.33f);
+        if (!raised) {
+            std::swap(light, dark);
+        }
+        const float inset = static_cast<float>(i);
+        const ImVec2 a{min.x + inset, min.y + inset};
+        const ImVec2 b{max.x - inset, max.y - inset};
+        const ImU32 lightCol = styledColor(light);
+        const ImU32 darkCol = styledColor(dark);
+        draw->AddRectFilled(a, ImVec2{b.x - 1.0f, a.y + 1.0f}, lightCol);
+        draw->AddRectFilled(a, ImVec2{a.x + 1.0f, b.y - 1.0f}, lightCol);
+        draw->AddRectFilled(ImVec2{a.x, b.y - 1.0f}, b, darkCol);
+        draw->AddRectFilled(ImVec2{b.x - 1.0f, a.y}, b, darkCol);
+    }
 }
 
 bool drawThemeSkin(
@@ -279,10 +309,10 @@ bool beginThemedWindow(
     ImGuiWindowFlags flags = themedWindowFlags(theme) | extraFlags;
     if (customBg) {
         flags |= ImGuiWindowFlags_NoBackground;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, bgPaint.a.vec());
     }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, theme.bevel > 0.0f ? theme.bevel : (customBg ? 0.0f : theme.border));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, bgPaint.a.vec());
+    ImGui::PushStyleColor(ImGuiCol_Border, theme.bevel > 0.0f ? kTransparent : ImGui::GetStyleColorVec4(ImGuiCol_Border));
     ImGui::PushStyleColor(ImGuiCol_Text, kTransparent);
     ImGui::PushStyleColor(ImGuiCol_TitleBg, kTransparent);
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, kTransparent);
@@ -292,15 +322,11 @@ bool beginThemedWindow(
     pushThemeFont(fonts, theme.window.titleFont);
     const bool visible = ImGui::Begin(name, open, flags);
     popThemeFont();
-    ImGui::PopStyleColor(6);
-    if (customBg) {
-        ImGui::PopStyleVar();
-    } else {
-        ImGui::PopStyleColor();
-    }
+    ImGui::PopStyleColor(8);
+    ImGui::PopStyleVar();
 
     if (visible) {
-        drawWindowChrome(theme, fonts, assets, name, open, customBg);
+        drawWindowChrome(theme, fonts, assets, name, open, customBg, extraFlags);
     }
     return visible;
 }
@@ -314,7 +340,8 @@ bool themedButton(
     bool primary,
     std::string_view iconSet,
     std::string_view iconId,
-    float iconSize) {
+    float iconSize,
+    bool selected) {
     (void)fonts;
     const ImGuiStyle& style = ImGui::GetStyle();
     const bool hasIcon = assets != nullptr && !iconSet.empty() && !iconId.empty();
@@ -342,18 +369,32 @@ bool themedButton(
     const bool disabled = itemDisabled();
     const bool hovered = ImGui::IsItemHovered();
     const bool held = ImGui::IsItemActive();
-    const int state = disabled ? 3 : held ? 2 : hovered ? 1 : 0;
+    const int state = disabled ? 3 : (held || selected) ? 2 : hovered ? 1 : 0;
 
     const ImVec2 min = ImGui::GetItemRectMin();
     const ImVec2 max = ImGui::GetItemRectMax();
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ThemeSkin& skin = primary && theme.skin.primaryButton.set ? theme.skin.primaryButton : theme.skin.button;
-    if (!drawThemeSkin(draw, min, max, assets, skin, state)) {
-        drawThemePaint(draw, min, max, buttonPaint(theme, state, primary), style.FrameRounding);
-        if (style.FrameBorderSize > 0.0f) {
+    const bool sunken = held || selected;
+    if (buttonColorsOverridden(theme)) {
+        const ImGuiCol slot = state == 2 ? ImGuiCol_ButtonActive : state == 1 ? ImGuiCol_ButtonHovered : ImGuiCol_Button;
+        const ImVec4 face = ImGui::GetStyleColorVec4(slot);
+        draw->AddRectFilled(min, max, ImGui::GetColorU32(slot), style.FrameRounding);
+        if (theme.bevel > 0.0f) {
+            drawThemeBevel(draw, min, max, ThemeColor{face.x, face.y, face.z, face.w}, theme.bevel, !sunken);
+        } else if (style.FrameBorderSize > 0.0f) {
+            draw->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), style.FrameRounding, style.FrameBorderSize);
+        }
+    } else if (!drawThemeSkin(draw, min, max, assets, skin, state)) {
+        const ThemePaintResolved facePaint = buttonPaint(theme, state, primary);
+        drawThemePaint(draw, min, max, facePaint, style.FrameRounding);
+        if (theme.bevel > 0.0f) {
+            drawThemeBevel(draw, min, max, facePaint.a, theme.bevel, !sunken);
+        } else if (style.FrameBorderSize > 0.0f) {
             draw->AddRect(min, max, styledColor(theme.borderColor()), style.FrameRounding, style.FrameBorderSize);
         }
     }
+    const ImVec2 pressOffset = theme.bevel > 0.0f && sunken ? ImVec2{1.0f, 1.0f} : ImVec2{0.0f, 0.0f};
 
     ThemeColor textColor = theme.resolve(theme.button.text, theme.text);
     if (hovered || held) {
@@ -363,46 +404,81 @@ bool themedButton(
         textColor = theme.textDim;
     }
     ImGui::PushStyleColor(ImGuiCol_Text, textColor.vec());
+    const ImVec2 contentMin{min.x + pressOffset.x, min.y + pressOffset.y};
+    const ImVec2 contentMax{max.x + pressOffset.x, max.y + pressOffset.y};
     if (hasIcon) {
-        drawIconInButton(*assets, iconSet, iconId, label, min, max, iconSize);
+        drawIconInButton(*assets, iconSet, iconId, label, contentMin, contentMax, iconSize);
     } else {
         const ImVec2 textPos{
-            min.x + std::max(style.FramePadding.x, (size.x - textSize.x) * 0.5f),
-            min.y + (size.y - textSize.y) * 0.5f};
+            contentMin.x + std::max(style.FramePadding.x, (size.x - textSize.x) * 0.5f),
+            contentMin.y + (size.y - textSize.y) * 0.5f};
         draw->AddText(textPos, ImGui::GetColorU32(ImGuiCol_Text), label, ImGui::FindRenderedTextEnd(label));
     }
     ImGui::PopStyleColor();
     return pressed;
 }
 
-bool beginThemedPanel(const SlopUiTheme& theme, AssetStore* assets, const char* id, float height) {
+bool beginThemedPanelEx(
+    const SlopUiTheme& theme,
+    AssetStore* assets,
+    const char* id,
+    const ImVec2& size,
+    ImGuiChildFlags childFlags,
+    ImGuiWindowFlags windowFlags) {
     const ImGuiStyle& style = ImGui::GetStyle();
     ImGui::PushStyleColor(ImGuiCol_ChildBg, kTransparent);
-    ImGuiChildFlags flags = ImGuiChildFlags_AlwaysUseWindowPadding;
-    if (height <= 0.0f) {
-        flags |= ImGuiChildFlags_AutoResizeY;
+    ImGui::PushStyleColor(ImGuiCol_Border, kTransparent);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, theme.bevel > 0.0f ? theme.bevel : 0.0f);
+    ImGuiChildFlags flags = childFlags | ImGuiChildFlags_AlwaysUseWindowPadding;
+    if (theme.bevel > 0.0f) {
+        flags |= ImGuiChildFlags_Borders;
+    } else {
+        flags &= ~ImGuiChildFlags_Borders;
     }
-    const bool open = ImGui::BeginChild(id, ImVec2{0.0f, height}, flags);
+    const bool open = ImGui::BeginChild(id, size, flags, windowFlags);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImVec2 pos = ImGui::GetWindowPos();
-    const ImVec2 size = ImGui::GetWindowSize();
-    const ImVec2 max{pos.x + size.x, pos.y + size.y};
-    draw->PushClipRect(pos, max, false);
-    if (!drawThemeSkin(draw, pos, max, assets, theme.skin.panel, 0)) {
-        drawThemePaint(draw, pos, max, theme.resolvePaint(theme.panel.bg, theme.surface), style.ChildRounding);
-        if (theme.border > 0.0f) {
-            draw->AddRect(
-                pos, max, styledColor(theme.resolve(theme.panel.border, theme.borderColor())),
-                style.ChildRounding, theme.border);
+    const ImVec2 winSize = ImGui::GetWindowSize();
+    const ImVec2 max{pos.x + winSize.x, pos.y + winSize.y};
+    fillAroundScrollbars(draw, pos, max, [&]() {
+        if (!drawThemeSkin(draw, pos, max, assets, theme.skin.panel, 0)) {
+            const ThemePaintResolved panelPaint = theme.resolvePaint(theme.panel.bg, theme.surface);
+            drawThemePaint(draw, pos, max, panelPaint, style.ChildRounding);
+            if (theme.bevel <= 0.0f && theme.border > 0.0f) {
+                draw->AddRect(
+                    pos, max, styledColor(theme.resolve(theme.panel.border, theme.borderColor())),
+                    style.ChildRounding, theme.border);
+            }
         }
+    });
+    if (theme.bevel > 0.0f && !theme.skin.panel.set) {
+        draw->PushClipRect(pos, max, false);
+        drawThemeBevel(draw, pos, max, theme.resolve(theme.panel.border, theme.surface), theme.bevel, false);
+        draw->PopClipRect();
     }
-    draw->PopClipRect();
     return open;
+}
+
+bool beginThemedPanel(const SlopUiTheme& theme, AssetStore* assets, const char* id, float height) {
+    ImGuiChildFlags flags = 0;
+    if (height == 0.0f) {
+        flags |= ImGuiChildFlags_AutoResizeY;
+    }
+    return beginThemedPanelEx(theme, assets, id, ImVec2{0.0f, height}, flags, 0);
 }
 
 void endThemedPanel() {
     ImGui::EndChild();
-    ImGui::PopStyleColor();
+}
+
+bool slopuiBeginChild(const char* id, const ImVec2& size, ImGuiChildFlags childFlags, ImGuiWindowFlags windowFlags) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    if (theme == nullptr || (childFlags & ImGuiChildFlags_Borders) == 0) {
+        return ImGui::BeginChild(id, size, childFlags, windowFlags);
+    }
+    return beginThemedPanelEx(*theme, activeSlopUiAssets(), id, size, childFlags, windowFlags);
 }
 
 bool beginThemedMainMenuBar(const SlopUiTheme& theme, const SlopUiFonts& fonts, AssetStore* assets) {
@@ -412,14 +488,17 @@ bool beginThemedMainMenuBar(const SlopUiTheme& theme, const SlopUiFonts& fonts, 
     if (custom) {
         ImGui::PushStyleColor(ImGuiCol_MenuBarBg, kTransparent);
     }
-    const bool ok = beginMainMenuBar(themedMenuBarPadding(theme, fonts));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, themedMenuBarPadding(theme, fonts));
+    const bool ok = ImGui::BeginMainMenuBar();
     if (custom) {
         ImGui::PopStyleColor();
     }
     if (!ok) {
+        ImGui::PopStyleVar();
         popThemeFont();
         return false;
     }
+    g_menuBarThemed = true;
     if (custom) {
         ImDrawList* draw = ImGui::GetWindowDrawList();
         const ImVec2 pos = ImGui::GetWindowPos();
@@ -435,8 +514,83 @@ bool beginThemedMainMenuBar(const SlopUiTheme& theme, const SlopUiFonts& fonts, 
 }
 
 void endThemedMainMenuBar() {
-    endMainMenuBar();
+    ImGui::EndMainMenuBar();
+    ImGui::PopStyleVar();
     popThemeFont();
+    g_menuBarThemed = false;
+}
+
+bool slopuiBegin(const char* name, bool* open, ImGuiWindowFlags flags) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    const SlopUiFonts* fonts = activeSlopUiFonts();
+    if (theme == nullptr || fonts == nullptr) {
+        return ImGui::Begin(name, open, flags);
+    }
+    return beginThemedWindow(*theme, *fonts, activeSlopUiAssets(), name, open, flags);
+}
+
+bool slopuiButton(const char* label, const ImVec2& size, bool selected) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    const SlopUiFonts* fonts = activeSlopUiFonts();
+    if (theme == nullptr || fonts == nullptr) {
+        return ImGui::Button(label, size);
+    }
+    return themedButton(*theme, *fonts, activeSlopUiAssets(), label, size, false, {}, {}, 16.0f, selected);
+}
+
+int slopuiActiveMainMenuBarBegin() {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    const SlopUiFonts* fonts = activeSlopUiFonts();
+    if (theme == nullptr || fonts == nullptr) {
+        return -1;
+    }
+    return beginThemedMainMenuBar(*theme, *fonts, activeSlopUiAssets()) ? 1 : 0;
+}
+
+bool slopuiActiveMainMenuBarEnd() {
+    if (!g_menuBarThemed) {
+        return false;
+    }
+    endThemedMainMenuBar();
+    return true;
+}
+
+bool slopuiActiveMainMenuBarHeight(float& height) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    const SlopUiFonts* fonts = activeSlopUiFonts();
+    if (theme == nullptr || fonts == nullptr) {
+        return false;
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, themedMenuBarPadding(*theme, *fonts));
+    pushThemeFont(*fonts, theme->menuBar.font);
+    height = ImGui::GetFrameHeight();
+    popThemeFont();
+    ImGui::PopStyleVar();
+    return true;
+}
+
+bool slopuiActiveIconButton(
+    AssetStore& assets,
+    std::string_view set,
+    std::string_view iconId,
+    const char* label,
+    const ImVec2& size,
+    float iconSize,
+    bool& pressed) {
+    const SlopUiTheme* theme = activeSlopUiTheme();
+    const SlopUiFonts* fonts = activeSlopUiFonts();
+    if (theme == nullptr || fonts == nullptr) {
+        return false;
+    }
+    const bool iconOnly = label == nullptr || label[0] == '\0';
+    if (iconOnly) {
+        ImGui::PushID(iconId.data(), iconId.data() + iconId.size());
+    }
+    pressed = themedButton(*theme, *fonts, &assets, iconOnly ? "" : label, size, false, set, iconId, iconSize);
+    if (iconOnly) {
+        ImGui::PopID();
+    }
+    return true;
 }
 
 }

@@ -1,6 +1,7 @@
 #include "prefab_browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -77,7 +78,7 @@ PrefabBrowserResult PrefabBrowser::drawSection(
     slopengine::AssetStore& assets,
     float bodyHeight) {
     PrefabBrowserResult result{};
-    if (!ImGui::BeginChild("##presection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##presection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }
@@ -94,7 +95,7 @@ PrefabBrowserResult PrefabBrowser::drawSection(
         editor.placePrefabPath.empty() ? "(none)" : editor.placePrefabPath.c_str());
 
     ImGui::Separator();
-    if (ImGui::BeginChild("##prelist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+    if (slopengine::slopuiBeginChild("##prelist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         const std::string filterStr = filter;
         for (const std::string& path : prefabs) {
             if (!containsIgnoreCase(path, filterStr)) {

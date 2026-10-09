@@ -232,6 +232,7 @@ add_executable(slopengine
     src/ui/slopui_theme.cpp
     src/ui/slopui_theme_data.cpp
     src/ui/slopui_widgets.cpp
+    src/ui/slopui_world.cpp
     src/ui/slopui_editor.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
@@ -403,6 +404,10 @@ add_executable(slopmap
     tools/slopmap/layout.cpp
     tools/slopmap/compile.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
 )
 target_include_directories(slopmap PRIVATE tools/slopmap)
 target_link_libraries(slopmap PRIVATE sloplib rlImGui)
@@ -424,6 +429,10 @@ add_executable(slopsprite
     tools/slopsprite/sound_browser.cpp
     tools/slopsprite/layout.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
     src/audio/audio_world.cpp
     src/audio/midi_source.cpp
     src/audio/graphic_eq_filter.cpp
@@ -447,6 +456,10 @@ add_executable(slopaudio
     tools/slopaudio/asset_info.cpp
     tools/slopaudio/layout.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
     src/audio/audio_world.cpp
     src/audio/midi_source.cpp
     src/audio/graphic_eq_filter.cpp
@@ -469,6 +482,10 @@ add_executable(slopthing
     tools/slopthing/inspector_panel.cpp
     tools/slopthing/collider_preview.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
 )
 target_include_directories(slopthing PRIVATE tools/slopthing)
 target_link_libraries(slopthing PRIVATE sloplib rlImGui)

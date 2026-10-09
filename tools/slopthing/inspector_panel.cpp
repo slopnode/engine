@@ -5,6 +5,7 @@
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -691,7 +692,7 @@ void drawInspectorPanel(
     Editor& editor, slopengine::AssetStore& assets, ImFont* monoFont, float bodyHeight) {
     ThingEntry* tptr = editor.selected();
 
-    ImGui::BeginChild("##inspector", ImVec2(0, bodyHeight), false);
+    slopengine::slopuiBeginChild("##inspector", ImVec2(0, bodyHeight), ImGuiChildFlags_Borders);
     if (tptr == nullptr) {
         ImGui::TextDisabled("Select a thing on the left, or create a new one.");
         ImGui::EndChild();

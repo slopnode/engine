@@ -4,6 +4,7 @@
 #include "material_browser.hpp"
 #include "sound_browser.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
@@ -461,7 +462,7 @@ bool drawPresentationSection(
         geoPaths = scanPackageAssets(assets, "geometry", ".geo");
         assetListsReady = true;
     }
-    if (ImGui::Button("Refresh assets")) {
+    if (slopengine::slopuiButton("Refresh assets")) {
         spritePaths = scanPackageAssets(assets, "sprites", ".spr");
         geoPaths = scanPackageAssets(assets, "geometry", ".geo");
     }
@@ -818,7 +819,7 @@ bool drawWorldPoseSection(Editor& editor, const std::vector<int>& targets) {
             editor.statusMessage = "Set world roll";
         }
     }
-    if (ImGui::Button("Reset Rotation")) {
+    if (slopengine::slopuiButton("Reset Rotation")) {
         if (forEachTarget(
                 editor,
                 targets,
@@ -1165,7 +1166,7 @@ bool drawParticleSection(
         }
     }
 
-    if (ImGui::Button("Restart preview")) {
+    if (slopengine::slopuiButton("Restart preview")) {
         editor.particlePreviewEnabled = true;
         editor.particlePreviewRestartRequest = true;
         if (forEachParticle(editor, targets, [](slopengine::Thing& thing) {
@@ -2269,7 +2270,7 @@ void drawMapPropertyExtrasWarning(
         "%d extra %s thing(s) elsewhere in this map",
         extra,
         label);
-    if (ImGui::Button("Remove extras")) {
+    if (slopengine::slopuiButton("Remove extras")) {
         editor.prepareEdit();
         EditorDocument& mut = editor.doc();
         std::vector<slopengine::Thing> kept;
@@ -2340,7 +2341,7 @@ ThingPanelResult ThingPanel::drawMapSection(
     MaterialBrowser& materialBrowser,
     float bodyHeight) {
     ThingPanelResult result{};
-    if (!ImGui::BeginChild("##mapsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##mapsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }
@@ -2443,7 +2444,7 @@ ThingPanelResult ThingPanel::drawSection(
     SoundBrowser& soundBrowser,
     float bodyHeight) {
     ThingPanelResult result{};
-    if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }

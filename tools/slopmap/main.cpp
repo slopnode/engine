@@ -34,6 +34,8 @@
 #include "map/map_meta.hpp"
 #include "map/thing_def_registry.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_tool.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "ui/imgui_fonts.hpp"
 
 #include "imgui.h"
@@ -74,17 +76,6 @@ bool containsIgnoreCase(std::string_view haystack, std::string_view needle) {
     std::transform(haystack.begin(), haystack.end(), h.begin(), lower);
     std::transform(needle.begin(), needle.end(), n.begin(), lower);
     return h.find(n) != std::string::npos;
-}
-
-void applySharpImGuiStyle() {
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 0.0f;
-    style.ChildRounding = 0.0f;
-    style.FrameRounding = 0.0f;
-    style.PopupRounding = 0.0f;
-    style.ScrollbarRounding = 0.0f;
-    style.GrabRounding = 0.0f;
-    style.TabRounding = 0.0f;
 }
 
 constexpr float kRotateSnaps[] = {0.0f, 1.0f, 5.0f, 15.0f, 45.0f, 90.0f};
@@ -1281,9 +1272,7 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
-    ImFont* monoFont = setupImGuiWithUiAndMonoFont(
-        assets, kDefaultUiFontPath, kMonoUiFontPath, true, "slopmap");
-    applySharpImGuiStyle();
+    ImFont* monoFont = installToolTheme(assets, "slopmap");
 
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {
@@ -1453,8 +1442,8 @@ int main(int argc, char* argv[]) {
 
         const float chromeHeight = mainMenuBarHeight();
         const float statusHeight = ImGui::GetFrameHeightWithSpacing();
-        const float toolbarRowH = ImGui::GetFrameHeight() + 8.0f;
-        const float toolbarHeight = toolbarRowH * 2.0f;
+        const float toolbarButtonH = ImGui::GetFontSize() + 8.0f;
+        const float toolbarHeight = toolbarButtonH * 2.0f + 12.0f;
         const slopmap::UiLayout layout = slopmap::computeUiLayout(chromeHeight, statusHeight);
         Rectangle viewport = layout.content;
         viewport.y += toolbarHeight;
@@ -2649,7 +2638,7 @@ int main(int argc, char* argv[]) {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 4.0f));
-            if (ImGui::Begin(
+            if (slopengine::slopuiBegin(
                     "##editorToolbar",
                     nullptr,
                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -2681,7 +2670,7 @@ int main(int argc, char* argv[]) {
                     if (!enabled) {
                         ImGui::BeginDisabled();
                     }
-                    const bool pressed = ImGui::Button("##tb", ImVec2(width, height));
+                    const bool pressed = slopengine::slopuiButton("##tb", ImVec2(width, height), selected);
                     const ImVec2 min = ImGui::GetItemRectMin();
                     const ImVec2 max = ImGui::GetItemRectMax();
                     const float contentW = kIcon + st.ItemInnerSpacing.x + textSize.x;
@@ -2707,13 +2696,6 @@ int main(int argc, char* argv[]) {
                         ImVec2(x + kIcon + st.ItemInnerSpacing.x, yText),
                         ImGui::GetColorU32(ImGuiCol_Text),
                         label);
-                    if (selected) {
-                        draw->AddRectFilled(
-                            ImVec2(min.x + 3.0f, max.y - 3.0f),
-                            ImVec2(max.x - 3.0f, max.y - 1.0f),
-                            ImGui::GetColorU32(ImGuiCol_CheckMark));
-                    }
-
                     if (!enabled) {
                         ImGui::EndDisabled();
                     }
@@ -3233,7 +3215,7 @@ int main(int argc, char* argv[]) {
                 ImGuiWindowFlags_NoScrollWithMouse;
             ImGui::SetNextWindowPos(ImVec2(layout.leftPanel.x, layout.leftPanel.y), ImGuiCond_Always);
             ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height), ImGuiCond_Always);
-            if (ImGui::Begin("Scene", nullptr, panelFlags)) {
+            if (slopengine::slopuiBegin("Scene", nullptr, panelFlags)) {
                 slopmap::EditorDocument& d = editor.doc();
                 constexpr const char* kIconSet = kDefaultIconSet;
 
@@ -3277,7 +3259,7 @@ int main(int argc, char* argv[]) {
                         ImGui::InputTextWithHint(
                             "##sceneBrushFilter", "Filter…", sceneBrushFilter, sizeof(sceneBrushFilter));
                         const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
-                        if (ImGui::BeginChild(
+                        if (slopengine::slopuiBeginChild(
                                 "##brushes", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
                             const std::string_view brushFilter = sceneBrushFilter;
                             bool anyVisible = false;
@@ -3314,7 +3296,7 @@ int main(int argc, char* argv[]) {
                             scenePrefabFilter,
                             sizeof(scenePrefabFilter));
                         const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
-                        if (ImGui::BeginChild(
+                        if (slopengine::slopuiBeginChild(
                                 "##instances", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
                             const std::string_view prefabFilter = scenePrefabFilter;
                             bool anyVisible = false;
@@ -3349,7 +3331,7 @@ int main(int argc, char* argv[]) {
                         ImGui::InputTextWithHint(
                             "##sceneThingFilter", "Filter…", sceneThingFilter, sizeof(sceneThingFilter));
                         const float listH = std::max(0.0f, ImGui::GetContentRegionAvail().y);
-                        if (ImGui::BeginChild(
+                        if (slopengine::slopuiBeginChild(
                                 "##things", ImVec2(0.0f, listH), ImGuiChildFlags_Borders)) {
                             const std::string_view thingFilter = sceneThingFilter;
                             bool anyVisible = false;
@@ -3414,7 +3396,7 @@ int main(int argc, char* argv[]) {
             ImGui::SetNextWindowSize(
                 ImVec2(layout.rightPanel.width, layout.rightPanel.height),
                 ImGuiCond_Always);
-            if (ImGui::Begin("Library", nullptr, panelFlags)) {
+            if (slopengine::slopuiBegin("Library", nullptr, panelFlags)) {
                 constexpr const char* kIconSet = kDefaultIconSet;
                 const float bodyH = std::max(0.0f, ImGui::GetContentRegionAvail().y -
                     ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.y);
@@ -3433,7 +3415,7 @@ int main(int argc, char* argv[]) {
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Things")) {
-                        if (ImGui::BeginChild(
+                        if (slopengine::slopuiBeginChild(
                                 "##placekinds", ImVec2(0.0f, bodyH), ImGuiChildFlags_Borders)) {
                             const float btnW = ImGui::GetContentRegionAvail().x;
                             const float iconSz = 16.0f;
@@ -3449,7 +3431,7 @@ int main(int argc, char* argv[]) {
                                             ImGuiCol_Button,
                                             ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
                                     }
-                                    const bool pressed = ImGui::Button("##", ImVec2(btnW, rowH));
+                                    const bool pressed = slopengine::slopuiButton("##", ImVec2(btnW, rowH));
                                     if (active) {
                                         ImGui::PopStyleColor();
                                     }
@@ -3473,7 +3455,7 @@ int main(int argc, char* argv[]) {
                                                 ImVec2(
                                                     (rect->x + rect->width) / tw,
                                                     (rect->y + rect->height) / th),
-                                                ImGui::GetColorU32(ImGuiCol_Text));
+                                                ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
                                             textX = min.x + pad + iconSz +
                                                 ImGui::GetStyle().ItemInnerSpacing.x;
                                         }
@@ -3563,7 +3545,7 @@ int main(int argc, char* argv[]) {
                                                     ImVec2(
                                                         (rect->x + rect->width) / tw,
                                                         (rect->y + rect->height) / th),
-                                                    ImGui::GetColorU32(ImGuiCol_Text));
+                                                    ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
                                                 textX += iconSz +
                                                     ImGui::GetStyle().ItemInnerSpacing.x;
                                             }
@@ -3912,7 +3894,7 @@ int main(int argc, char* argv[]) {
                 ImGuiCond_Always);
             ImGui::SetNextWindowSize(ImVec2(static_cast<float>(GetScreenWidth()), statusH), ImGuiCond_Always);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
-            if (ImGui::Begin(
+            if (slopengine::slopuiBegin(
                     "##status",
                     nullptr,
                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -4018,20 +4000,23 @@ int main(int argc, char* argv[]) {
                                 const float v0 = rect->y / th;
                                 const float u1 = (rect->x + rect->width) / tw;
                                 const float v1 = (rect->y + rect->height) / th;
-                                ImU32 tint = ImGui::GetColorU32(ImGuiCol_Text);
+                                bool dimmed = false;
+                                bool on = false;
                                 if (!editor.showGrid && std::strcmp(id, "grid-toggle") == 0) {
-                                    tint = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                                    dimmed = true;
                                 }
                                 if (editor.showNodraw && std::strcmp(id, "nodraw-toggle") == 0) {
-                                    tint = ImGui::GetColorU32(ImGuiCol_CheckMark);
+                                    on = true;
                                 }
                                 if (std::strcmp(id, "nav-toggle") == 0) {
                                     if (!editor.bakedNavValid) {
-                                        tint = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                                        dimmed = true;
                                     } else if (editor.showNavMesh) {
-                                        tint = ImGui::GetColorU32(ImGuiCol_CheckMark);
+                                        on = true;
                                     }
                                 }
+                                const ImU32 tint =
+                                    ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, dimmed ? 0.35f : 1.0f));
                                 ImGui::GetWindowDrawList()->AddImage(
                                     (ImTextureID)(intptr_t)atlas->texture.id,
                                     ImVec2(x, y),
@@ -4039,6 +4024,12 @@ int main(int argc, char* argv[]) {
                                     ImVec2(u0, v0),
                                     ImVec2(u1, v1),
                                     tint);
+                                if (on) {
+                                    ImGui::GetWindowDrawList()->AddRectFilled(
+                                        ImVec2(x, y + iconSize + 1.0f),
+                                        ImVec2(x + iconSize, y + iconSize + 3.0f),
+                                        ImGui::GetColorU32(ImGuiCol_CheckMark));
+                                }
                             }
                         }
                         ImGui::PopID();
@@ -4384,13 +4375,13 @@ int main(int argc, char* argv[]) {
             }
             ImGui::TextUnformatted("Wall thickness");
             ImGui::DragFloat("##hollowthick", &editor.hollowThickness, 0.01f, 0.01f, 10.0f, "%.3f");
-            if (ImGui::Button("Hollow", ImVec2(120, 0))) {
+            if (slopengine::slopuiButton("Hollow", ImVec2(120, 0))) {
                 applyHollow(editor);
                 previewNeedsRebuild = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            if (slopengine::slopuiButton("Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -4429,13 +4420,13 @@ int main(int argc, char* argv[]) {
                     editor.createSpiralSides = 3;
                 }
             }
-            if (ImGui::Button("Create", ImVec2(120, 0))) {
+            if (slopengine::slopuiButton("Create", ImVec2(120, 0))) {
                 createTool.commitPending(editor);
                 previewNeedsRebuild = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            if (slopengine::slopuiButton("Cancel", ImVec2(120, 0))) {
                 createTool.reset();
                 editor.showPrimitiveParamsModal = false;
                 ImGui::CloseCurrentPopup();
@@ -4504,7 +4495,7 @@ int main(int argc, char* argv[]) {
 
         if (editor.showValidateBrushesWindow) {
             ImGui::SetNextWindowSize(ImVec2(520, 320), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin(
+            if (slopengine::slopuiBegin(
                     "Validate Brushes",
                     &editor.showValidateBrushesWindow,
                     ImGuiWindowFlags_None)) {
@@ -4544,7 +4535,7 @@ int main(int argc, char* argv[]) {
 
         if (editor.showLeakWindow) {
             ImGui::SetNextWindowSize(ImVec2(560, 360), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Detect Leak", &editor.showLeakWindow, ImGuiWindowFlags_None)) {
+            if (slopengine::slopuiBegin("Detect Leak", &editor.showLeakWindow, ImGuiWindowFlags_None)) {
                 constexpr const char* kIcons = kDefaultIconSet;
                 if (!editor.leakChecked) {
                     ImGui::TextUnformatted("Not checked yet.");
@@ -5015,7 +5006,7 @@ int main(int argc, char* argv[]) {
 
         if (compile.showOutputWindow) {
             ImGui::SetNextWindowSize(ImVec2(720.0f, 360.0f), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Compile Output", &compile.showOutputWindow)) {
+            if (slopengine::slopuiBegin("Compile Output", &compile.showOutputWindow)) {
                 if (compile.running()) {
                     constexpr const char* kIcons = kDefaultIconSet;
                     if (buttonWithIcon(assets, kIcons, "cancel", "Cancel Compile")) {
@@ -5038,7 +5029,7 @@ int main(int argc, char* argv[]) {
                             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
                                 ImGui::SetTooltip("Copy full log to clipboard");
                             }
-                            if (ImGui::BeginChild(
+                            if (slopengine::slopuiBeginChild(
                                     childId,
                                     ImVec2(0.0f, 0.0f),
                                     ImGuiChildFlags_Borders)) {

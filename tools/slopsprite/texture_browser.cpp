@@ -1,6 +1,7 @@
 #include "texture_browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -88,7 +89,7 @@ bool TextureBrowser::drawModal(slopengine::AssetStore& assets, std::string& outP
             filter = filterBuf;
         }
         ImGui::Separator();
-        if (ImGui::BeginChild("##texlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
+        if (slopengine::slopuiBeginChild("##texlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
             for (const std::string& path : textures) {
                 if (!containsIgnoreCase(path, filter)) {
                     continue;
