@@ -9,6 +9,8 @@
 #include "brush_panel.hpp"
 #include "thing_panel.hpp"
 #include "place_tool.hpp"
+#include "path_draw.hpp"
+#include "path_panel.hpp"
 #include "punch_tool.hpp"
 #include "clip_tool.hpp"
 #include "extrude_tool.hpp"
@@ -689,6 +691,11 @@ void drawDiagnosticsMenu(slopmap::Editor& editor, slopengine::AssetStore& assets
                 d.activeEntity.index < static_cast<int>(d.instances.size())) {
                 const auto& instance = d.instances[static_cast<std::size_t>(d.activeEntity.index)];
                 ImGui::Text("Active instance: %s", instance.id.c_str());
+            } else if (d.activeEntity.kind == slopmap::EntityRef::Kind::Knot && d.knotAt(d.activeEntity) != nullptr) {
+                ImGui::Text(
+                    "Active knot: %s #%d",
+                    d.graphs.paths[static_cast<std::size_t>(d.activeEntity.path)].id.c_str(),
+                    d.activeEntity.index + 1);
             }
         }
     } else {
@@ -1005,6 +1012,27 @@ void drawScene(
         }
     }
     slopmap::drawThings(assets, d.things, selectedThings, camera, editor.showGizmos);
+    if (editor.showCameraPaths && editor.scene == slopmap::EditorScene::Level) {
+        std::optional<slopengine::CameraPose> previewPose;
+        if (editor.pathPreview.active) {
+            if (const slopengine::CameraPath* path = d.pathAt(d.activePath)) {
+                previewPose = slopengine::sampleCameraPath(*path, editor.pathPreview.time);
+            }
+        }
+        rlDrawRenderBatchActive();
+        rlDisableDepthTest();
+        rlDisableDepthMask();
+        slopmap::drawCameraPaths(
+            d.graphs,
+            d.selectionMode == slopmap::SelectionMode::Entity ? d.selectedEntities
+                                                                : std::vector<slopmap::EntityRef>{},
+            d.activePath,
+            editor.showGizmos,
+            previewPose);
+        rlDrawRenderBatchActive();
+        rlEnableDepthMask();
+        rlEnableDepthTest();
+    }
     if (particlePreview.enabled) {
         slopmap::drawParticlePreview(particlePreview, assets, d.things, camera);
     }
@@ -1322,6 +1350,7 @@ int main(int argc, char* argv[]) {
     slopmap::SoundBrowser soundBrowser;
     slopmap::TexturePanel texturePanel;
     slopmap::ThingPanel thingPanel;
+    slopmap::PathPanel pathPanel;
     slopmap::BrushPanel brushPanel;
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
@@ -2541,6 +2570,7 @@ int main(int argc, char* argv[]) {
             editor.contentViewport =
                 (activeRect.width >= 1.0f && activeRect.height >= 1.0f) ? activeRect : viewport;
         }
+        slopmap::updatePathPreview(editor);
         const Camera3D camera = editor.camera.toRaylib();
 
         const bool wasSelectTransform = selectTool.active();
@@ -3238,7 +3268,10 @@ int main(int argc, char* argv[]) {
 
                 if (slopengine::slopuiBeginTabBar("##propsTabs", ImGuiTabBarFlags_None)) {
                     if (slopengine::slopuiBeginTabItem("Select")) {
-                        if (d.selectionMode == slopmap::SelectionMode::Entity) {
+                        if (d.selectionMode == slopmap::SelectionMode::Entity &&
+                            d.activeEntity.kind == slopmap::EntityRef::Kind::Knot) {
+                            pathPanel.drawKnotSection(editor, propsH);
+                        } else if (d.selectionMode == slopmap::SelectionMode::Entity) {
                             thingPanel.drawSection(editor, assets, materialBrowser, soundBrowser, propsH);
                         } else {
                             brushPanel.drawSection(editor, assets, soundBrowser, propsH);
@@ -3247,6 +3280,10 @@ int main(int argc, char* argv[]) {
                     }
                     if (slopengine::slopuiBeginTabItem("Map")) {
                         thingPanel.drawMapSection(editor, assets, materialBrowser, propsH);
+                        ImGui::EndTabItem();
+                    }
+                    if (slopengine::slopuiBeginTabItem("Paths")) {
+                        pathPanel.drawSection(editor, assets, propsH);
                         ImGui::EndTabItem();
                     }
                     slopengine::slopuiEndTabBar();
@@ -4001,6 +4038,9 @@ int main(int argc, char* argv[]) {
                                         on = true;
                                     }
                                 }
+                                if (editor.showCameraPaths && std::strcmp(id, "path-toggle") == 0) {
+                                    on = true;
+                                }
                                 const ImU32 tint =
                                     ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, dimmed ? 0.35f : 1.0f));
                                 ImGui::GetWindowDrawList()->AddImage(
@@ -4274,6 +4314,21 @@ int main(int argc, char* argv[]) {
                             editor.bakedNavValid
                                 ? (editor.showNavMesh ? "Hide baked nav mesh" : "Show baked nav mesh")
                                 : "No baked nav mesh (run NAV compile)");
+                    }
+
+                    ImGui::SameLine(0.0f, gap);
+
+                    if (iconButton("path-toggle", "camera")) {
+                        editor.showCameraPaths = !editor.showCameraPaths;
+                        if (!editor.showCameraPaths) {
+                            editor.endPathPreview();
+                        }
+                        editor.statusMessage =
+                            editor.showCameraPaths ? "Camera paths: shown" : "Camera paths: hidden";
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                        ImGui::SetTooltip(
+                            editor.showCameraPaths ? "Hide camera paths" : "Show camera paths");
                     }
 
                     ImGui::SameLine(0.0f, gap);

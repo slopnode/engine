@@ -161,6 +161,8 @@ set(SLOPLIB_SOURCES
     src/map/thing_def_registry.cpp
     src/map/nav_profile_registry.cpp
     src/map/graph_script.cpp
+    src/map/graph_write.cpp
+    src/map/camera_path.cpp
     src/map/lightmap.cpp
     src/map/light_occlusion.cpp
     src/map/light_probes.cpp
@@ -226,6 +228,8 @@ add_executable(slopengine
     src/input/bind_code.cpp
     src/input/input_module.cpp
     src/camera/camera_module.cpp
+    src/camera/camera_path_player.cpp
+    src/script/camera_path_script.cpp
     src/interact/interact_module.cpp
     src/ui/ui_module.cpp
     src/ui/imgui_fonts.cpp
@@ -388,6 +392,8 @@ add_executable(slopmap
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
+    tools/slopmap/path_draw.cpp
+    tools/slopmap/path_panel.cpp
     tools/slopmap/punch_tool.cpp
     tools/slopmap/clip_tool.cpp
     tools/slopmap/extrude_tool.cpp

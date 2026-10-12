@@ -1,6 +1,7 @@
 #pragma once
 
 #include "map/brush.hpp"
+#include "map/graph.hpp"
 #include "map/thing.hpp"
 #include "map/prefab.hpp"
 
@@ -50,14 +51,23 @@ struct EdgeRef {
 };
 
 struct EntityRef {
-    enum class Kind { Thing, Instance } kind = Kind::Thing;
+    enum class Kind { Thing, Instance, Knot } kind = Kind::Thing;
     int index = -1;
+    int path = -1;
 
-    bool valid() const { return index >= 0; }
+    bool valid() const { return index >= 0 && (kind != Kind::Knot || path >= 0); }
     bool operator==(const EntityRef& other) const {
-        return kind == other.kind && index == other.index;
+        return kind == other.kind && index == other.index && path == other.path;
     }
 };
+
+inline EntityRef knotRef(int path, int knot) {
+    EntityRef ref{};
+    ref.kind = EntityRef::Kind::Knot;
+    ref.index = knot;
+    ref.path = path;
+    return ref;
+}
 
 /** One brush that Editor::detectLeak() found sitting in exterior-flagged
  *  space (i.e. flagged by MapHullAnalysis::detailOutsideWarnings). Kept as
@@ -74,6 +84,8 @@ struct EditorDocument {
     std::vector<slopengine::Brush> brushes;
     std::vector<slopengine::PrefabInstance> instances;
     std::vector<slopengine::Thing> things;
+    slopengine::GraphDocument graphs;
+    int activePath = -1;
     bool dirty = false;
     SelectionMode selectionMode = SelectionMode::Brush;
     std::vector<int> selectedBrushes;
@@ -97,6 +109,10 @@ struct EditorDocument {
     bool isEdgeSelected(EdgeRef ref) const;
     bool isVertSelected(VertRef ref) const;
     bool isEntitySelected(EntityRef ref) const;
+    slopengine::CameraPath* pathAt(int index);
+    const slopengine::CameraPath* pathAt(int index) const;
+    slopengine::PathKnot* knotAt(EntityRef ref);
+    const slopengine::PathKnot* knotAt(EntityRef ref) const;
 };
 
 }

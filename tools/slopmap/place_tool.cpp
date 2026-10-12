@@ -1,5 +1,6 @@
 #include "place_tool.hpp"
 
+#include "map/camera_path.hpp"
 #include "map/prefab.hpp"
 #include "map/thing_def_registry.hpp"
 #include "preview.hpp"
@@ -76,7 +77,8 @@ bool PlaceTool::needsPosition(const Editor& editor) const {
     if (editor.mode != EditorMode::Place) {
         return false;
     }
-    if (editor.placeTarget == PlaceTarget::PrefabInstance) {
+    if (editor.placeTarget == PlaceTarget::PrefabInstance ||
+        editor.placeTarget == PlaceTarget::PathKnot) {
         return true;
     }
     if (!editor.placeThingKind.has_value()) {
@@ -119,7 +121,6 @@ void PlaceTool::update(
     const Camera3D& camera,
     bool uiWantsMouse,
     bool uiWantsKeyboard) {
-    (void)uiWantsKeyboard;
     if (editor.mode != EditorMode::Place) {
         resetHover();
         return;
@@ -178,6 +179,57 @@ void PlaceTool::update(
         resetHover();
         editor.statusMessage = "Placed " + editor.doc().instances.back().id + " (" +
             editor.placePrefabPath + ") — G move, R rotate";
+        return;
+    }
+
+    if (editor.placeTarget == PlaceTarget::PathKnot) {
+        if (editor.scene != EditorScene::Level) {
+            editor.statusMessage = "Place: camera paths only in Level scene";
+            return;
+        }
+        if (!uiWantsKeyboard && IsKeyPressed(KEY_ESCAPE)) {
+            editor.mode = EditorMode::Select;
+            resetHover();
+            editor.statusMessage = "Stopped placing knots";
+            return;
+        }
+        if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            editor.statusMessage = hoverValid
+                ? "Place knot: click to add, Esc to finish"
+                : "Place knot: aim at the grid or a brush face";
+            return;
+        }
+        if (!hoverValid) {
+            editor.statusMessage = "Place: aim at the grid or a brush face";
+            return;
+        }
+        editor.prepareEdit();
+        const int pathIndex = editor.ensureActivePath();
+        slopengine::CameraPath& path = *editor.doc().pathAt(pathIndex);
+        slopengine::PathKnot knot{};
+        knot.at = hoverPoint;
+        if (hoverPlane.normal.y > 0.7f) {
+            knot.at.y += editor.pathKnotPlaceLift;
+        }
+        const FlyCamera& cam = editor.viewports[static_cast<std::size_t>(editor.activeViewport)].camera;
+        knot.yaw = cam.yaw;
+        knot.pitch = cam.orthographic ? 0.0f : cam.pitch;
+        if (!path.knots.empty()) {
+            const slopengine::PathKnot& prev = path.knots.back();
+            const Vector3 delta = sub3(knot.at, prev.at);
+            if (length3(delta) > 1e-4f) {
+                slopengine::yawPitchFromDirection(delta, knot.yaw, knot.pitch);
+                knot.pitch = 0.0f;
+            }
+        }
+        path.knots.push_back(knot);
+        editor.selectEntity(knotRef(pathIndex, static_cast<int>(path.knots.size()) - 1), false);
+        editor.mode = EditorMode::Place;
+        editor.placeTarget = PlaceTarget::PathKnot;
+        editor.markDirty();
+        editor.endEdit();
+        editor.statusMessage = "Added knot " + std::to_string(path.knots.size()) + " to " + path.id +
+            " — click to add more, Esc to finish";
         return;
     }
 

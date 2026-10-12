@@ -4,6 +4,7 @@
 #include "assets/skeleton_loader.hpp"
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
+#include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
@@ -172,6 +173,7 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapGraphs>()) {
         world.remove<MapGraphs>();
     }
+    resetCameraPathPlayer(world);
     if (world.has<DynamicLightShadowState>()) {
         world.remove<DynamicLightShadowState>();
     }
@@ -394,6 +396,12 @@ bool assembleMapScene(
         lens.camera.target = Vector3Add(lens.camera.position, forward);
         player.set<Lens>(lens);
         world.set<PlayerEntity>(PlayerEntity{player});
+        if (world.has<MenuBackground>() && !world.get<MenuBackground>().pathId.empty()) {
+            const std::string& pathId = world.get<MenuBackground>().pathId;
+            if (!startCameraPath(world, pathId, true, 1.0f, 0.0f)) {
+                TraceLog(LOG_WARNING, "TITLE: camera path '%s' not found", pathId.c_str());
+            }
+        }
         callOnMapReady(world, mapName, reason);
         world.set<CurrentMap>(CurrentMap{std::string(mapName)});
         return true;

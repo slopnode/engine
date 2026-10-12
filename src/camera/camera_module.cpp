@@ -1,5 +1,6 @@
 #include "camera/camera_module.hpp"
 
+#include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "input/actions.hpp"
 #include "input/input_command.hpp"
@@ -34,6 +35,7 @@ void registerComponents(flecs::world& world) {
     world.component<FirstPersonController>();
     world.component<ViewEyeOffset>();
     world.component<FreeFlyCamera>();
+    registerCameraPathPlayer(world);
 }
 
 void registerSystems(flecs::world& world) {

@@ -3,6 +3,7 @@
 #include "core/package.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
+#include "script/camera_path_script.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hook_registry.hpp"
 #include "script/hud_script.hpp"
@@ -23,6 +24,7 @@ namespace slopengine {
 
 void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
     bindFirstPersonApi(world, scheme);
+    bindCameraPathApi(world, scheme);
     bindHudApi(world, scheme);
     bindPostProcessApi(world, scheme);
     bindInputApi(world, scheme);

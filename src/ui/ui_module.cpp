@@ -1,6 +1,7 @@
 #include "ui/ui_module.hpp"
 
 #include "assets/asset_services.hpp"
+#include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
 #include "core/log.hpp"
@@ -519,6 +520,30 @@ void drawMainMenuBar(
             ImGui::EndMenu();
         }
         item("chart_line", "Graphs", &debugUi.showGraphs);
+        if (menu("camera", "Camera Paths", false)) {
+            const bool playing = cameraPathActive(world);
+            if (ImGui::MenuItem("Stop", nullptr, false, playing)) {
+                stopCameraPath(world, 0.5f);
+            }
+            ImGui::Separator();
+            if (!world.has<MapGraphs>() || world.get<MapGraphs>().document.paths.empty()) {
+                ImGui::MenuItem("(no paths in map)", nullptr, false, false);
+            } else {
+                const std::string activeId =
+                    playing ? world.get<CameraPathPlayer>().pathId : std::string{};
+                for (const CameraPath& path : world.get<MapGraphs>().document.paths) {
+                    const bool isActive = playing && path.id == activeId;
+                    if (ImGui::MenuItem(path.id.c_str(), nullptr, isActive)) {
+                        if (isActive) {
+                            stopCameraPath(world, 0.5f);
+                        } else {
+                            startCameraPath(world, path.id, true, 1.0f, 0.5f);
+                        }
+                    }
+                }
+            }
+            ImGui::EndMenu();
+        }
         item("arrow_branch", "Nav Paths", &debugUi.showNavPaths);
         if (menu("shape_square", "Nav Polys (baked)", false)) {
             if (!world.has<MapNavProfiles>() || world.get<MapNavProfiles>().profiles.empty()) {

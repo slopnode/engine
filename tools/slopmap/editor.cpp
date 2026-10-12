@@ -8,6 +8,9 @@
 #include "map/mover_brushes.hpp"
 #include "map/nav_io.hpp"
 #include "map/nav_profile_registry.hpp"
+#include "map/camera_path.hpp"
+#include "map/graph_script.hpp"
+#include "map/graph_write.hpp"
 #include "map/things_script.hpp"
 #include "map/things_write.hpp"
 #include "select_tool.hpp"
@@ -704,6 +707,42 @@ bool EditorDocument::isEntitySelected(EntityRef ref) const {
         selectedEntities.end();
 }
 
+slopengine::CameraPath* EditorDocument::pathAt(int index) {
+    if (index < 0 || index >= static_cast<int>(graphs.paths.size())) {
+        return nullptr;
+    }
+    return &graphs.paths[static_cast<std::size_t>(index)];
+}
+
+const slopengine::CameraPath* EditorDocument::pathAt(int index) const {
+    if (index < 0 || index >= static_cast<int>(graphs.paths.size())) {
+        return nullptr;
+    }
+    return &graphs.paths[static_cast<std::size_t>(index)];
+}
+
+slopengine::PathKnot* EditorDocument::knotAt(EntityRef ref) {
+    if (ref.kind != EntityRef::Kind::Knot) {
+        return nullptr;
+    }
+    slopengine::CameraPath* path = pathAt(ref.path);
+    if (path == nullptr || ref.index < 0 || ref.index >= static_cast<int>(path->knots.size())) {
+        return nullptr;
+    }
+    return &path->knots[static_cast<std::size_t>(ref.index)];
+}
+
+const slopengine::PathKnot* EditorDocument::knotAt(EntityRef ref) const {
+    if (ref.kind != EntityRef::Kind::Knot) {
+        return nullptr;
+    }
+    const slopengine::CameraPath* path = pathAt(ref.path);
+    if (path == nullptr || ref.index < 0 || ref.index >= static_cast<int>(path->knots.size())) {
+        return nullptr;
+    }
+    return &path->knots[static_cast<std::size_t>(ref.index)];
+}
+
 void Editor::clearSelection() {
     EditorDocument& d = doc();
     d.selectedBrushes.clear();
@@ -932,6 +971,15 @@ void Editor::selectEntity(EntityRef ref, bool additive) {
         }
         return;
     }
+    if (ref.kind == EntityRef::Kind::Knot) {
+        if (d.knotAt(ref) == nullptr) {
+            if (!additive) {
+                clearSelection();
+            }
+            return;
+        }
+        d.activePath = ref.path;
+    }
     if (!additive) {
         d.selectedEntities.clear();
         d.selectedEntities.push_back(ref);
@@ -1017,6 +1065,8 @@ void Editor::newMap(const std::string& mapName) {
     levelDoc.brushes.clear();
     levelDoc.instances.clear();
     levelDoc.things.clear();
+    levelDoc.graphs = {};
+    levelDoc.activePath = -1;
     levelDoc.dirty = false;
     resetSelectionSerial(levelDoc);
     levelHistory.clear();
@@ -1063,11 +1113,16 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
         return false;
     }
 
+    auto graphs = slopengine::loadMapGraphs(scheme, assets, mapName);
+
     scene = EditorScene::Level;
     levelDoc.assetPath = mapName;
     levelDoc.brushes = std::move(loaded->brushes);
     levelDoc.instances = std::move(loaded->instances);
     levelDoc.things = std::move(things->things);
+    levelDoc.graphs = graphs ? std::move(*graphs) : slopengine::GraphDocument{};
+    levelDoc.activePath = levelDoc.graphs.paths.empty() ? -1 : 0;
+    endPathPreview();
     levelDoc.dirty = false;
     if (auto owned = assets.resolveOwned(slopengine::AssetKind::MapMeta, mapName + "/map");
         owned && owned->package != nullptr) {
@@ -1097,6 +1152,9 @@ bool Editor::load(slopengine::AssetStore& assets, s7_scheme* schemeIn, const std
     if (invalidCount > 0) {
         statusMessage += " — " + std::to_string(invalidCount) +
             " brush(es) failed validation (Edit → Validate Brushes)";
+    }
+    if (!graphs) {
+        statusMessage += " — graphs.s7 failed to load (see log)";
     }
     return true;
 }
@@ -1196,6 +1254,16 @@ bool Editor::saveAs(slopengine::AssetStore& assets, const std::string& mapName) 
     if (!slopengine::writeMapThings(thingsPath, thingDoc)) {
         statusMessage = "Save failed: things write error";
         return false;
+    }
+
+    const std::filesystem::path graphsPath = packageRoot / "maps" / mapName / "graphs.s7";
+    const bool haveGraphs =
+        !levelDoc.graphs.graphs.empty() || !levelDoc.graphs.paths.empty();
+    if (haveGraphs || std::filesystem::exists(graphsPath)) {
+        if (!slopengine::writeMapGraphs(graphsPath, levelDoc.graphs)) {
+            statusMessage = "Save failed: graphs write error";
+            return false;
+        }
     }
 
     levelDoc.assetPath = mapName;
@@ -1886,6 +1954,87 @@ std::string Editor::allocatePrefabId() {
     return "prefab-" + std::to_string(doc().nextPrefabSerial++);
 }
 
+std::string Editor::allocatePathId() {
+    const EditorDocument& d = doc();
+    for (int serial = 1;; ++serial) {
+        const std::string id = "path-" + std::to_string(serial);
+        if (d.graphs.findPath(id) == nullptr) {
+            return id;
+        }
+    }
+}
+
+int Editor::ensureActivePath() {
+    EditorDocument& d = doc();
+    if (d.pathAt(d.activePath) != nullptr) {
+        return d.activePath;
+    }
+    if (!d.graphs.paths.empty()) {
+        d.activePath = 0;
+        return 0;
+    }
+    slopengine::CameraPath path{};
+    path.id = allocatePathId();
+    d.graphs.paths.push_back(std::move(path));
+    d.activePath = static_cast<int>(d.graphs.paths.size()) - 1;
+    return d.activePath;
+}
+
+bool Editor::knotPoseFromCamera(slopengine::PathKnot& knot) const {
+    const FlyCamera& cam = viewports[static_cast<std::size_t>(activeViewport)].camera;
+    if (cam.orthographic) {
+        return false;
+    }
+    knot.at = cam.position;
+    knot.yaw = cam.yaw;
+    knot.pitch = cam.pitch;
+    return true;
+}
+
+void Editor::applyPoseToCamera(const slopengine::CameraPose& pose) {
+    syncBankFromActiveCamera();
+    FlyCamera& persp = viewports[0].camera;
+    persp.position = pose.position;
+    persp.yaw = pose.yaw;
+    persp.pitch = pose.pitch;
+    if (activeViewport != 0 || viewports[0].camera.orthographic) {
+        setViewPlane(ViewPlane::PerspectiveY0);
+    }
+    syncActiveCameraFromBank();
+}
+
+void Editor::applyKnotPoseToCamera(const slopengine::PathKnot& knot) {
+    slopengine::CameraPose pose{};
+    pose.position = knot.at;
+    pose.yaw = knot.yaw;
+    pose.pitch = knot.pitch;
+    applyPoseToCamera(pose);
+}
+
+void Editor::beginPathPreview() {
+    if (pathPreview.active) {
+        return;
+    }
+    syncBankFromActiveCamera();
+    pathPreview.restoreCamera = viewports[0].camera;
+    pathPreview.restoreValid = true;
+    pathPreview.active = true;
+}
+
+void Editor::endPathPreview() {
+    if (!pathPreview.active) {
+        return;
+    }
+    pathPreview.active = false;
+    pathPreview.playing = false;
+    if (pathPreview.restoreValid) {
+        syncBankFromActiveCamera();
+        viewports[0].camera = pathPreview.restoreCamera;
+        syncActiveCameraFromBank();
+        pathPreview.restoreValid = false;
+    }
+}
+
 std::string Editor::allocateThingId(const char* prefix) {
     return std::string(prefix) + "-" + std::to_string(doc().nextThingSerial++);
 }
@@ -1968,6 +2117,9 @@ void Editor::frameWorldPoint(Vector3 center) {
 Vector3 Editor::selectionCenter() const {
     const EditorDocument& d = doc();
     if (d.selectionMode == SelectionMode::Entity && d.activeEntity.valid()) {
+        if (const slopengine::PathKnot* knot = d.knotAt(d.activeEntity)) {
+            return knot->at;
+        }
         if (d.activeEntity.kind == EntityRef::Kind::Thing &&
             d.activeEntity.index < static_cast<int>(d.things.size())) {
             const slopengine::Thing& thing =

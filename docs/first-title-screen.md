@@ -6,7 +6,7 @@ To help players know what game they've loaded and to help brand your game it is 
 2. An immediate mode style API for drawing graphics and animations on a 2D canvas
 3. A 3D mode which loads a map file and displays a scene using the player start as a camera position.
 
-The 3rd mode is still a work in progress and won't be covered in this tutorial.
+The 3rd mode can also fly the camera along a path authored in slopmap. It is described on the @ref camera_paths page and not covered in this tutorial.
 
 ![Just another PNG image](images/first-title-pic.png)
 

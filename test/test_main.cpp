@@ -17,6 +17,7 @@ void runSchemeHardenTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
 void runMapScriptTests();
+void runCameraPathTests();
 void runCsgCompileTests();
 void runPvsBuildTests();
 void runNavGraphTests();
@@ -65,6 +66,7 @@ const Suite kSuites[] = {
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
     {"map_script", slopengine::runMapScriptTests},
+    {"camera_path", slopengine::runCameraPathTests},
     {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
     {"nav_graph", slopengine::runNavGraphTests},

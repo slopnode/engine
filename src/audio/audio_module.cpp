@@ -1,6 +1,7 @@
 #include "audio/audio_module.hpp"
 
 #include "audio/components.hpp"
+#include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "render/components.hpp"
 #include "script/audio_script.hpp"
@@ -116,10 +117,11 @@ void registerSystems(flecs::world& world) {
                     return;
                 }
                 if (entity.has<Lens>()) {
-                    const Lens& lens = entity.get<Lens>();
-                    listenerPos = lens.camera.position;
-                    at = Vector3Normalize(Vector3Subtract(lens.camera.target, lens.camera.position));
-                    up = lens.camera.up;
+                    Camera3D camera = entity.get<Lens>().camera;
+                    cameraPathApplyToCamera(world, camera);
+                    listenerPos = camera.position;
+                    at = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+                    up = camera.up;
                 } else {
                     if (entity.has<GlobalTransformation>()) {
                         listenerPos = translationFromMatrix(entity.get<GlobalTransformation>().matrix);

@@ -24,6 +24,7 @@ struct TitleCanvas {
 
 struct MenuBackground {
     std::string mapName;
+    std::string pathId;
     std::string imagePath;
     TitleImageFit imageFit = TitleImageFit::Stretch;
     TitleCanvas canvas{};

@@ -43,6 +43,7 @@ const char* kEngineHooks[] = {
     "draw-modals",
     "on-sprite-hint",
     "on-sight",
+    "on-camera-path-end",
     "sight-filter",
 };
 

@@ -3,6 +3,7 @@
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
 #include "audio/steam_audio_types.hpp"
+#include "map/camera_path.hpp"
 #include "map/nav_graph.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
@@ -204,6 +205,35 @@ void drawGraphDebugOverlays(const GraphDocument& document) {
                 continue;
             }
             DrawLine3D(from->at, to->at, edgeColor);
+        }
+    }
+
+    const Color knotColor{255, 170, 60, 255};
+    const Color curveColor{255, 220, 120, 220};
+    const Color lookColor{255, 90, 90, 255};
+    std::vector<Vector3> points;
+    for (const CameraPath& path : document.paths) {
+        points.clear();
+        tessellateCameraPath(path, 12, points);
+        for (std::size_t i = 1; i < points.size(); ++i) {
+            DrawLine3D(points[i - 1], points[i], curveColor);
+        }
+        const int segments = cameraPathSegmentCount(path);
+        for (std::size_t i = 0; i < path.knots.size(); ++i) {
+            const PathKnot& knot = path.knots[i];
+            DrawSphereWires(knot.at, 0.1f, 6, 6, knotColor);
+            CameraPose pose{};
+            if (segments > 0) {
+                const int segment = std::min(static_cast<int>(i), segments - 1);
+                const float u = static_cast<int>(i) < segments ? 0.0f : 1.0f;
+                pose = sampleCameraPathSegment(path, segment, u);
+            } else {
+                pose.position = knot.at;
+                pose.yaw = knot.yaw;
+                pose.pitch = knot.pitch;
+            }
+            DrawLine3D(
+                knot.at, Vector3Add(knot.at, Vector3Scale(cameraPoseForward(pose), 0.6f)), lookColor);
         }
     }
 

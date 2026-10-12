@@ -144,6 +144,16 @@ MenuBackground parsePackageTitleFromScheme(s7_scheme* scheme) {
                 continue;
             }
             bg.mapName = path;
+            for (s7_pointer option = s7_cdr(rest); s7_is_pair(option); option = s7_cdr(option)) {
+                const s7_pointer clause = s7_car(option);
+                if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
+                    continue;
+                }
+                if (std::strcmp(s7_symbol_name(s7_car(clause)), "path") == 0 &&
+                    s7_is_pair(s7_cdr(clause)) && s7_is_string(s7_cadr(clause))) {
+                    bg.pathId = s7_string(s7_cadr(clause));
+                }
+            }
             continue;
         }
 

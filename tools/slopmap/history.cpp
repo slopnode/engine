@@ -8,6 +8,8 @@ DocumentSnapshot DocumentHistory::capture(const EditorDocument& doc, std::uint64
     snap.brushes = doc.brushes;
     snap.instances = doc.instances;
     snap.things = doc.things;
+    snap.graphs = doc.graphs;
+    snap.activePath = doc.activePath;
     snap.selectionMode = doc.selectionMode;
     snap.selectedBrushes = doc.selectedBrushes;
     snap.selectedFaces = doc.selectedFaces;
@@ -30,6 +32,8 @@ void DocumentHistory::apply(EditorDocument& doc, const DocumentSnapshot& snap) {
     doc.brushes = snap.brushes;
     doc.instances = snap.instances;
     doc.things = snap.things;
+    doc.graphs = snap.graphs;
+    doc.activePath = snap.activePath;
     doc.selectionMode = snap.selectionMode;
     doc.selectedBrushes = snap.selectedBrushes;
     doc.selectedFaces = snap.selectedFaces;
