@@ -1577,6 +1577,11 @@ Returns a mover's full state as an association list.
   id : string?) ↵ alist?
 </code></pre>
 
+### mover-ids {#mover-ids}
+Returns the ids of every mover in the loaded map, doors and lifts alike.
+<pre><code class="language-scheme">(mover-ids) ↵ list?
+</code></pre>
+
 ### mover-set-state {#mover-set-state}
 Sets a mover's open/closed target, progress, and optionally its locked state.
 <pre><code class="language-scheme">(mover-set-state

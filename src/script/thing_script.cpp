@@ -2341,6 +2341,24 @@ s7_pointer g_mover_state(s7_scheme* sc, s7_pointer args) {
     return s7_list(sc, 3, openPair, progressPair, lockedPair);
 }
 
+s7_pointer g_mover_ids(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld) || g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    std::vector<std::string> ids;
+    g_thingWorld->each([&](flecs::entity entity, const RigidMover&) {
+        const char* name = entity.name();
+        if (name != nullptr && name[0] != '\0') {
+            ids.emplace_back(name);
+        }
+    });
+    s7_pointer result = s7_nil(sc);
+    for (auto it = ids.rbegin(); it != ids.rend(); ++it) {
+        result = s7_cons(sc, s7_make_string(sc, it->c_str()), result);
+    }
+    return result;
+}
+
 s7_pointer g_mover_set_state(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -3273,6 +3291,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "mover-locked?", g_mover_locked_p, 1, 0, false, "(mover-locked? id)");
     s7_define_function(scheme, "mover-progress", g_mover_progress, 1, 0, false, "(mover-progress id)");
     s7_define_function(scheme, "mover-state", g_mover_state, 1, 0, false, "(mover-state id)");
+    s7_define_function(scheme, "mover-ids", g_mover_ids, 0, 0, false, "(mover-ids)");
     s7_define_function(
         scheme,
         "mover-set-state",
