@@ -1299,6 +1299,7 @@ SoLoud::Wav* AudioWorld::bakeMidiStereo(MidiSource& midi, std::string_view cache
         return nullptr;
     }
     instance->init(midi, 0);
+    instance->mFlags &= ~static_cast<unsigned int>(SoLoud::AudioSourceInstance::LOOPING);
 
     const unsigned int rate =
         midi.mBaseSamplerate > 0.0f ? static_cast<unsigned int>(midi.mBaseSamplerate) : 44100u;
