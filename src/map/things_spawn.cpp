@@ -61,6 +61,7 @@ struct SpawnContext {
     Vector3 prefabAt{};
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
+    std::vector<NavProfileDef> navProfiles;
 };
 
 MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -703,8 +704,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             if (!placement.motorNavProfile.empty()) {
                 navAgent.navProfile = placement.motorNavProfile;
             } else if (
-                const NavProfileDef* autoProfile = resolveAutoNavProfile(
-                    navProfileRegistry().defsOrDefault(), motor.radius, motor.height)) {
+                const NavProfileDef* autoProfile =
+                    resolveAutoNavProfile(ctx.navProfiles, motor.radius, motor.height)) {
                 navAgent.navProfile = autoProfile->name;
             }
             entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
@@ -914,6 +915,7 @@ void spawnThings(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = brushes;
+    ctx.navProfiles = navProfileRegistry().defsOrDefault();
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
@@ -941,6 +943,7 @@ PlayerStart spawnMapThings(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = &brushes;
+    ctx.navProfiles = navProfileRegistry().defsOrDefault();
     ctx.rad = rad;
     if (rad != nullptr) {
         for (const LightmapChart& chart : rad->charts) {
