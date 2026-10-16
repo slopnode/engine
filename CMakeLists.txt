@@ -140,6 +140,7 @@ set(SLOPLIB_SOURCES
     src/assets/sprite_loader.cpp
     src/assets/sprite_anim_loader.cpp
     src/assets/texture_anim_loader.cpp
+    src/assets/texture_graph.cpp
     src/assets/skeleton_loader.cpp
     src/assets/anim_loader.cpp
     src/particles/particle_sim.cpp
@@ -499,6 +500,33 @@ if(MSVC)
     target_compile_options(slopthing PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopthing PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopmat
+    tools/slopmat/main.cpp
+    tools/slopmat/editor.cpp
+    tools/slopmat/browser.cpp
+    tools/slopmat/asset_picker.cpp
+    tools/slopmat/preview.cpp
+    tools/slopmat/graph_panel.cpp
+    tools/slopmat/material_panel.cpp
+    tools/slopmat/anim_panel.cpp
+    tools/slopmat/thumb_cache.cpp
+    tools/slopmat/world_preview.cpp
+    tools/slopmat/drag_drop.cpp
+    tools/slopmat/layout.cpp
+    src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
+)
+target_include_directories(slopmat PRIVATE tools/slopmat)
+target_link_libraries(slopmat PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopmat PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopmat PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(sloplauncher

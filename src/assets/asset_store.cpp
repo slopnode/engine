@@ -128,6 +128,10 @@ void AssetStore::releaseGpuResources() {
         UnloadTexture(texture);
     }
     textures_.clear();
+    for (auto& [_, texture] : textureGraphOutputs_) {
+        UnloadTexture(texture);
+    }
+    textureGraphOutputs_.clear();
     for (auto& [_, cubemap] : cubemaps_) {
         UnloadTexture(cubemap);
     }
@@ -499,6 +503,10 @@ bool AssetStore::hasTextureAnim(std::string_view path) const {
     return vfs_.exists(AssetKind::TextureAnim, path);
 }
 
+bool AssetStore::hasTextureGraph(std::string_view path) const {
+    return vfs_.exists(AssetKind::TextureGraph, path);
+}
+
 bool AssetStore::hasParticle(std::string_view path) const {
     return vfs_.exists(AssetKind::Particle, path);
 }
@@ -853,12 +861,15 @@ Material AssetStore::resolveMaterial(std::string_view path) {
     const TextureAnimFrameResolver resolveAnimFrame = [this](std::string_view animPath, int frameIndex) {
         return resolveTextureAnimFrame(animPath, "default", frameIndex);
     };
+    const TextureGraphOutputResolver resolveGraphOutput = [this](std::string_view graphPath, std::string_view outputName) {
+        return resolveTextureGraphOutput(graphPath, outputName);
+    };
 
     const MaterialAsset* asset = getMaterialAsset(path);
     if (asset == nullptr) {
-        return createRaylibMaterial({}, resolveTexture, resolveAnimFrame);
+        return createRaylibMaterial({}, resolveTexture, resolveAnimFrame, resolveGraphOutput);
     }
-    return createRaylibMaterial(*asset, resolveTexture, resolveAnimFrame);
+    return createRaylibMaterial(*asset, resolveTexture, resolveAnimFrame, resolveGraphOutput);
 }
 
 const MaterialAsset* AssetStore::getMaterialAsset(std::string_view path) {
@@ -881,6 +892,10 @@ const MaterialAsset* AssetStore::getMaterialAsset(std::string_view path) {
     }
 
     return &materialAssets_.emplace(key, std::move(asset)).first->second;
+}
+
+void AssetStore::invalidateMaterial(std::string_view path) {
+    materialAssets_.erase(cacheKey(path.empty() ? "default/unassigned" : path));
 }
 
 const SkeletonAsset* AssetStore::getSkeletonAsset(std::string_view path) {
@@ -1128,6 +1143,90 @@ std::string AssetStore::getTextureAnimSource(std::string_view path) {
     return vfs_.readText(AssetKind::TextureAnim, path);
 }
 
+std::string AssetStore::getTextureGraphSource(std::string_view path) {
+    return vfs_.readText(AssetKind::TextureGraph, path);
+}
+
+const TextureGraph* AssetStore::getTextureGraph(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto existing = textureGraphs_.find(key);
+    if (existing != textureGraphs_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasTextureGraph(path)) {
+        TraceLog(LOG_WARNING, "Texture graph not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    TextureGraph graph{};
+    std::string error;
+    if (!parseTextureGraph(getTextureGraphSource(path), graph, &error)) {
+        TraceLog(LOG_WARNING, "Failed to parse texture graph %s: %s", key.c_str(), error.c_str());
+        return nullptr;
+    }
+
+    return &textureGraphs_.emplace(key, std::move(graph)).first->second;
+}
+
+bool AssetStore::evaluateTextureGraphImage(
+    std::string_view path,
+    std::string_view outputName,
+    Image& out,
+    std::string& error) {
+    const TextureGraph* graph = getTextureGraph(path);
+    if (graph == nullptr) {
+        error = "texture graph not found or invalid: " + std::string(path);
+        return false;
+    }
+    const TextureGraphImageResolver resolveImage = [this](std::string_view texturePath, Image& image) {
+        const auto resolved = vfs_.resolve(AssetKind::Texture, texturePath);
+        if (!resolved) {
+            return false;
+        }
+        image = LoadImage(resolved->string().c_str());
+        return image.data != nullptr;
+    };
+    return evaluateTextureGraph(*graph, outputName, resolveImage, out, error);
+}
+
+Texture2D AssetStore::resolveTextureGraphOutput(std::string_view path, std::string_view outputName) {
+    const std::string key = cacheKey(path) + "|" + std::string(outputName);
+    const auto existing = textureGraphOutputs_.find(key);
+    if (existing != textureGraphOutputs_.end()) {
+        return existing->second;
+    }
+
+    Image image{};
+    std::string error;
+    if (!evaluateTextureGraphImage(path, outputName, image, error)) {
+        TraceLog(LOG_WARNING, "Texture graph %s output '%s': %s", std::string(path).c_str(), std::string(outputName).c_str(), error.c_str());
+        return {};
+    }
+    const Texture2D texture = LoadTextureFromImage(image);
+    UnloadImage(image);
+    if (texture.id == 0) {
+        return {};
+    }
+    textureGraphOutputs_.emplace(key, texture);
+    return texture;
+}
+
+void AssetStore::invalidateTextureGraph(std::string_view path) {
+    const std::string key = cacheKey(path);
+    textureGraphs_.erase(key);
+    const std::string prefix = key + "|";
+    for (auto it = textureGraphOutputs_.begin(); it != textureGraphOutputs_.end();) {
+        if (it->first.compare(0, prefix.size(), prefix) == 0) {
+            UnloadTexture(it->second);
+            it = textureGraphOutputs_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    materialAssets_.clear();
+}
+
 const TextureAnimBank* AssetStore::getTextureAnimBank(std::string_view path) {
     const std::string key = cacheKey(path);
     const auto existing = textureAnimBanks_.find(key);
@@ -1147,6 +1246,11 @@ const TextureAnimBank* AssetStore::getTextureAnimBank(std::string_view path) {
     }
 
     return &textureAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+void AssetStore::invalidateTextureAnim(std::string_view path) {
+    textureAnimBanks_.erase(cacheKey(path));
+    materialAssets_.clear();
 }
 
 Texture2D AssetStore::resolveTextureAnimFrame(

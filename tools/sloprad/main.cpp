@@ -521,11 +521,25 @@ int main(int argc, char* argv[]) {
                 info.albedoImage = LoadImageFromTexture(texture);
                 info.hasAlbedoImage = info.albedoImage.data != nullptr;
             }
+        } else if (!info.asset.textureGraphPath.empty()) {
+            std::string error;
+            if (assets.evaluateTextureGraphImage(info.asset.textureGraphPath, "albedo", info.albedoImage, error)) {
+                info.hasAlbedoImage = info.albedoImage.data != nullptr;
+            } else {
+                TraceLog(LOG_WARNING, "sloprad: %s", error.c_str());
+            }
         }
         if (!info.asset.emissionTexture.empty()) {
             const auto path = assets.resolvePath(AssetKind::Texture, info.asset.emissionTexture);
             if (path) {
                 info.emissionImage = LoadImage(path->string().c_str());
+                info.hasEmissionImage = info.emissionImage.data != nullptr;
+            }
+        } else if (!info.asset.textureGraphPath.empty()) {
+            const TextureGraph* graph = assets.getTextureGraph(info.asset.textureGraphPath);
+            std::string error;
+            if (graph != nullptr && graph->findOutput("emission") != nullptr &&
+                assets.evaluateTextureGraphImage(info.asset.textureGraphPath, "emission", info.emissionImage, error)) {
                 info.hasEmissionImage = info.emissionImage.data != nullptr;
             }
         }

@@ -4,7 +4,7 @@
 
 namespace sloplauncher {
 
-/** "Development" tab: pick a save target and launch slopmap/slopsprite/slopthing against it. */
+/** "Development" tab: pick a save target and launch slopmap/slopsprite/slopthing/slopmat against it. */
 void drawDevelopmentTab(LauncherState& state);
 
 }

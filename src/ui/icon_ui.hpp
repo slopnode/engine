@@ -127,7 +127,8 @@ inline void drawIconInButton(
     const float height = max.y - min.y;
     const float contentW =
         iconOnly ? iconSize : iconSize + style.ItemInnerSpacing.x + textSize.x;
-    const float x = min.x + std::max(style.FramePadding.x, (max.x - min.x - contentW) * 0.5f);
+    const float x = iconOnly ? min.x + (max.x - min.x - contentW) * 0.5f
+                             : min.x + std::max(style.FramePadding.x, (max.x - min.x - contentW) * 0.5f);
     const float yIcon = min.y + (height - iconSize) * 0.5f;
 
     ImDrawList* draw = ImGui::GetWindowDrawList();

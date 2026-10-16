@@ -12,6 +12,7 @@ void runSexprTests();
 void runPackageSearchTests();
 void runPackageMetaTests();
 void runAssetTests();
+void runTextureGraphTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
 void runBspBuildTests();
@@ -61,6 +62,7 @@ const Suite kSuites[] = {
     {"package_search", slopengine::runPackageSearchTests},
     {"package_meta", slopengine::runPackageMetaTests},
     {"assets", slopengine::runAssetTests},
+    {"texture_graph", slopengine::runTextureGraphTests},
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},
     {"bsp_build", slopengine::runBspBuildTests},

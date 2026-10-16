@@ -28,6 +28,7 @@ struct MaterialAsset {
     Color baseColor = WHITE;
     std::string albedoTexture; /**< Texture virtual path, or empty. */
     std::string textureAnimPath; /**< .texanim virtual path, or empty. */
+    std::string textureGraphPath; /**< .texgraph virtual path, or empty; supplies the albedo output and, unless emission is set, the emission output. */
     float pixelsPerMeter = 64.0f; /**< World texel density (texel-size). */
     float ior = 1.0f; /**< Bake-time index of refraction; 1.0 = no bend. */
     std::string emissionTexture;
@@ -75,14 +76,19 @@ struct MaterialAsset {
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;
 using TextureAnimFrameResolver = std::function<Texture2D(std::string_view animPath, int frameIndex)>;
+using TextureGraphOutputResolver = std::function<Texture2D(std::string_view graphPath, std::string_view outputName)>;
 
 /** Parses .mat text into @p asset. */
 bool parseMaterialAsset(std::string_view source, MaterialAsset& asset);
+
+/** Serializes @p asset to .mat text; fields at their default value are left out. */
+std::string serializeMaterialAsset(const MaterialAsset& asset);
 
 /** Builds a raylib Material from @p asset, resolving textures via @p resolveTexture. */
 Material createRaylibMaterial(
     const MaterialAsset& asset,
     const TextureResolver& resolveTexture = {},
-    const TextureAnimFrameResolver& resolveAnimFrame = {});
+    const TextureAnimFrameResolver& resolveAnimFrame = {},
+    const TextureGraphOutputResolver& resolveGraphOutput = {});
 
 }

@@ -1,0 +1,28 @@
+(texture-graph
+  (node "base" image
+    (texture "engine/dev/dev-grey-128")
+  )
+  (node "grime" noise
+    (size 128 128)
+    (type perlin)
+    (scale 4)
+    (octaves 3)
+    (seed 7)
+  )
+  (node "stain" gradient-map
+    (input "grime")
+    (stop 0 0.35 0.25 0.15 1)
+    (stop 1 1 1 1 1)
+  )
+  (node "pools" noise
+    (size 128 128)
+    (type worley)
+    (scale 3)
+    (seed 2)
+  )
+  (node "composite" stack
+    (layer "base" (repeat 1))
+    (layer "stain" (blend multiply) (opacity 0.7) (repeat 1) (mask "pools"))
+  )
+  (output "albedo" "composite")
+)

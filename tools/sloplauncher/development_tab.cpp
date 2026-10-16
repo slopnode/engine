@@ -12,7 +12,7 @@ void drawDevelopmentTab(LauncherState& state) {
 
     ImGui::TextDisabled("Save target");
     ImGui::Separator();
-    ImGui::TextWrapped("Which mounted package should slopmap/slopsprite/slopthing save new content into?");
+    ImGui::TextWrapped("Which mounted package should slopmap/slopsprite/slopthing/slopmat save new content into?");
     ImGui::Spacing();
 
     for (const std::string& id : state.mountedPackageIds()) {
@@ -56,6 +56,12 @@ void drawDevelopmentTab(LauncherState& state) {
     }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Thing-def (weapons/actors/pickups) editor");
+    }
+    if (ImGui::Button("Launch slopmat", ImVec2(-1.0f, 0.0f))) {
+        state.launchDevTool("slopmat");
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Material studio: materials, textures, texture graphs");
     }
     ImGui::EndDisabled();
 }

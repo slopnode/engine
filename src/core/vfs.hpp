@@ -15,6 +15,7 @@ namespace slopengine {
 enum class AssetKind {
     Texture,       /**< PNG under textures/ */
     TextureAnim,   /**< .texanim under textures/ */
+    TextureGraph,  /**< .texgraph under textures/ -- composited / procedural texture definition */
     Material,      /**< .mat under materials/ */
     Mesh,          /**< .glb under meshes/ */
     Shader,        /**< .glsl under shaders/ */
