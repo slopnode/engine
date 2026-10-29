@@ -131,6 +131,7 @@ const std::unordered_map<std::string, Spec>& specs() {
         {"image", {Kind::Block, ChildRule::Inline}},
         {"hr", {Kind::Block, ChildRule::None}},
         {"html", {Kind::Both, ChildRule::Raw}},
+        {"package-info", {Kind::Block, ChildRule::None}},
         {"em", {Kind::Inline, ChildRule::Inline}},
         {"strong", {Kind::Inline, ChildRule::Inline}},
         {"kbd", {Kind::Inline, ChildRule::Inline}},

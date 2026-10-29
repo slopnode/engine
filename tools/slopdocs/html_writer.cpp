@@ -312,6 +312,28 @@ void renderBlock(PageContext& ctx, const DocNode& node, std::string& out) {
         out += "</figure>\n";
     } else if (tag == "hr") {
         out += "<hr" + classAttr(node, "sd-hr") + ">\n";
+    } else if (tag == "package-info") {
+        const slopengine::PackageMeta& meta = ctx.site->meta;
+        out += "<table" + classAttr(node, "sd-table sd-package-info") + ">";
+        auto rowOf = [&](const char* field, const std::string& value) {
+            out += "<tr><th class=\"sd-cell\">" + std::string(field) + "</th><td class=\"sd-cell\">" + value + "</td></tr>";
+        };
+        rowOf("Id", "<code class=\"sd-code\">" + escapeHtml(meta.id) + "</code>");
+        rowOf("Name", escapeHtml(meta.name));
+        rowOf("Version", escapeHtml(meta.version));
+        std::string depends;
+        for (const slopengine::PackageDependency& dep : meta.depends) {
+            if (!depends.empty()) {
+                depends += ", ";
+            }
+            depends += "<code class=\"sd-code\">" + escapeHtml(dep.id);
+            if (!dep.versionConstraint.empty()) {
+                depends += "@" + escapeHtml(dep.versionConstraint);
+            }
+            depends += "</code>";
+        }
+        rowOf("Depends", depends.empty() ? std::string("none") : depends);
+        out += "</table>\n";
     } else if (tag == "html") {
         out += codeText(node);
         out += "\n";
@@ -326,7 +348,7 @@ std::string renderNav(const Site& site, const std::string& currentId, const std:
     std::string out = "<nav id=\"sd-nav\"><ul class=\"sd-nav-list\">";
     auto link = [&](const std::string& id) {
         const Page* page = site.findPage(id);
-        const std::string title = page != nullptr ? page->title : id;
+        const std::string title = page != nullptr ? page->title : id == "index" ? std::string("Home") : id;
         const bool current = id == currentId;
         out += "<li class=\"sd-nav-item" + std::string(current ? " sd-current" : "") + "\"><a href=\"" +
                escapeHtml(rel + pageUrl(id)) + "\">" + escapeHtml(title) + "</a></li>";
@@ -382,6 +404,9 @@ std::string renderShell(const Site& site, const std::string& pageId, const std::
     std::string out = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                       "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n";
     out += "<title>" + escapeHtml(pageTitle) + " - " + escapeHtml(site.config.title) + "</title>\n";
+    out += "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
+           "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
+           "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap\">\n";
     out += "<link rel=\"stylesheet\" href=\"" + escapeHtml(rel) + "style.css\">\n";
     for (const std::string& sheet : site.config.stylesheets) {
         out += "<link rel=\"stylesheet\" href=\"" + escapeHtml(rel + sheet) + "\">\n";

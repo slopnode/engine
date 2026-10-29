@@ -47,6 +47,7 @@
 (define (hr . args) (sd-node 'hr args))
 (define (br . args) (sd-node 'br args))
 (define (html . args) (sd-node 'html args))
+(define (package-info . args) (sd-node 'package-info args))
 
 (define (section . args)
   (let* ((split (sd-split-attrs 'section args))

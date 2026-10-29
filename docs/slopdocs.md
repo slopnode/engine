@@ -103,6 +103,7 @@ Node|Form
 `quote-block`|`(quote-block inline...)` or `(quote-block block...)`
 `hr`|`(hr)`
 `html`|`(html "raw markup")`. Also usable inline.
+`package-info`|`(package-info)`. A table of the package's id, name, version and dependencies from `package.meta`.
 
 ## Inline nodes
 
@@ -154,7 +155,7 @@ A `:class` attribute is added alongside the `sd-` classes, so a custom rule only
   images/
 ```
 
-Pages in subfolders link back with relative paths, so the site works from `file://` as well as from a web server. Nothing is fetched from a CDN. Search is a client-side filter over page and section titles.
+Pages in subfolders link back with relative paths, so the site works from `file://` as well as from a web server. The only external request is the Fira Sans and JetBrains Mono stylesheet from Google Fonts; without a network the theme falls back to system fonts. Search is a client-side filter over page and section titles.
 
 # Sandbox
 

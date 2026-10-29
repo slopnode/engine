@@ -1,0 +1,54 @@
+(require-doc "lib")
+
+(define (vector-ops n)
+  (let ((v (string-append "Vector" (number->string n))))
+    (fn-table
+      (fn (string-append "(" v " " (if (= n 2) "x y" (if (= n 3) "x y z" "x y z w")) ")")
+          "Macro building a list of " (number->string n) " numbers.")
+      (fn (string-append "(" v "? v)")
+          (code "#t") " for a list of exactly " (number->string n) " numbers.")
+      (fn (string-append "(" v "-add a b)") "Componentwise sum.")
+      (fn (string-append "(" v "-sub a b)") "Componentwise difference.")
+      (fn (string-append "(" v "-scale v s)") "Every component multiplied by " (code "s") ".")
+      (fn (string-append "(" v "-negate v)") "Every component negated.")
+      (fn (string-append "(" v "-dot a b)") "Dot product.")
+      (fn (string-append "(" v "-length v)") "Euclidean length.")
+      (fn (string-append "(" v "-normalize v)")
+          "Unit vector in the same direction, or the zero vector when the length is 0.")
+      (fn (string-append "(" v "-lerp a b t)")
+          "Linear interpolation from " (code "a") " to " (code "b") " by " (code "t") "."))))
+
+(page "math" "math.s7"
+  (p "Scalar helpers and list-backed vectors. A vector is a plain list of numbers, which is "
+     "also the shape the engine bindings use for positions and directions, so a value from "
+     (ref "actor-pos") " can go straight into " (code "Vector3-sub") ".")
+
+  (section "Scalars"
+    (fn-table
+      (fn "(clamp x lo hi)" "x limited to the range lo to hi.")
+      (fn "(clamp01 x)" "x limited to 0 to 1.")
+      (fn "(lerp a b t)" "a plus t times the difference to b.")))
+
+  (section "Vector2"
+    (vector-ops 2))
+
+  (section "Vector3"
+    (vector-ops 3)
+    (fn-table
+      (fn "(Vector3-cross a b)" "Cross product."))
+    (code 'scheme "
+      (define (toward id target)
+        (Vector3-normalize
+          (Vector3-sub (actor-pos target) (actor-pos id))))
+
+      (define (step-toward id target speed dt)
+        (Vector3-scale (toward id target) (* speed dt)))"))
+
+  (section "Vector4"
+    (vector-ops 4))
+
+  (section "Vector2 cross"
+    (fn-table
+      (fn "(Vector2-cross a b)"
+          "The scalar z of the 3D cross product, positive when " (code "b") " is "
+          "counterclockwise from " (code "a") "."))))

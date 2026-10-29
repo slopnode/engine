@@ -1,0 +1,42 @@
+(require-doc "lib")
+
+(page "lists" "lists.s7"
+  (p "Small helpers for the list shapes package data uses everywhere: positional access into "
+     "fixed-length lists, association lists keyed by " (code "equal?") ", and hash tables "
+     "with a default.")
+
+  (section "Positional accessors"
+    (p (code "first") " through " (code "tenth") " are macros that expand to "
+       (code "list-ref") ", so they work on any list and raise on one that is too short.")
+    (code 'scheme "
+      (define *spawn* (list \"poss\" 12.5 0 -3))
+      (first *spawn*)   ; \"poss\"
+      (second *spawn*)  ; 12.5"))
+
+  (section "Association lists"
+    (p "An alist is a list of " (code "(key . value)") " pairs. Keys are compared with "
+       (code "equal?") ", so strings and symbols both work. These functions never mutate; "
+       "each returns a new list.")
+    (fn-table
+      (fn "(alist-ref alist key [default])"
+          "The value for " (code "key") ", or " (code "default") " when given, or " (code "#f") ".")
+      (fn "(alist-set alist key value)"
+          "A copy with " (code "key") " bound to " (code "value") " at the front and any earlier "
+          "binding removed.")
+      (fn "(alist-remove key alist)"
+          "A copy without every pair whose key is " (code "key") ". Note the argument order."))
+    (code 'scheme "
+      (define def '((label . \"Clip\") (kind . pickup)))
+      (alist-ref def 'kind)            ; pickup
+      (alist-ref def 'health 20)       ; 20
+      (alist-set def 'kind 'prop)      ; ((kind . prop) (label . \"Clip\"))
+      (alist-remove 'label def)        ; ((kind . pickup))")
+    (tip "Thing-def behavior params, item catalogs and most " (code "data/") " entries are "
+         "alists, so " (code "alist-ref") " with a default is the usual way to read an optional "
+         "field."))
+
+  (section "Hash tables"
+    (fn-table
+      (fn "(hash-ref table key [default])"
+          "Like " (code "hash-table-ref") " but returns " (code "default") " when the key is "
+          "missing. A stored " (code "#f") " is indistinguishable from a missing key."))))
