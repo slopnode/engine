@@ -240,7 +240,14 @@ NavEntry buildTree(const std::string& label, const std::string& prefix, const st
         }
     }
     for (const auto& [folder, rest] : folders) {
-        node.children.push_back(buildTree(folder, prefix + folder + "/", rest));
+        NavEntry child = buildTree(folder, prefix + folder + "/", rest);
+        const std::string own = prefix + folder;
+        const auto it = std::find(node.pages.begin(), node.pages.end(), own);
+        if (it != node.pages.end()) {
+            child.page = own;
+            node.pages.erase(it);
+        }
+        node.children.push_back(std::move(child));
     }
     return node;
 }

@@ -20,6 +20,7 @@ struct NavEntry {
     std::string label;
     std::vector<std::string> pages;
     bool group = false;
+    std::string page;
     std::vector<NavEntry> children;
 };
 

@@ -244,6 +244,16 @@ a:hover {
     background: var(--sd-surface);
 }
 
+#sd-nav .sd-nav-folder > summary a {
+    display: inline;
+    padding: 0;
+}
+
+#sd-nav li.sd-current > .sd-nav-folder > summary {
+    background: var(--sd-surface);
+    font-weight: 600;
+}
+
 #sd-nav .sd-nav-group-label {
     display: block;
     margin-top: 0.6rem;

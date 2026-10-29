@@ -396,6 +396,9 @@ void renderBlock(PageContext& ctx, const DocNode& node, std::string& out) {
 }
 
 bool navContains(const NavEntry& entry, const std::string& id) {
+    if (entry.page == id) {
+        return true;
+    }
     for (const std::string& page : entry.pages) {
         if (page == id) {
             return true;
@@ -432,8 +435,15 @@ void renderNavEntries(const Site& site, const std::vector<NavEntry>& entries, co
             out += "<li class=\"sd-nav-group\"><span class=\"sd-nav-group-label\">" + escapeHtml(entry.label) + "</span><ul>";
         } else {
             const bool open = navContains(entry, currentId);
-            out += "<li class=\"sd-nav-folder-item\"><details class=\"sd-nav-folder\"" + std::string(open ? " open" : "") +
-                   "><summary>" + escapeHtml(entry.label) + "</summary><ul>";
+            const bool current = !entry.page.empty() && entry.page == currentId;
+            out += "<li class=\"sd-nav-folder-item" + std::string(current ? " sd-current" : "") + "\"><details class=\"sd-nav-folder\"" +
+                   std::string(open ? " open" : "") + "><summary>";
+            if (entry.page.empty()) {
+                out += escapeHtml(entry.label);
+            } else {
+                out += "<a href=\"" + escapeHtml(rel + pageUrl(entry.page)) + "\">" + escapeHtml(entry.label) + "</a>";
+            }
+            out += "</summary><ul>";
         }
         for (const std::string& id : entry.pages) {
             link(id);
