@@ -1,16 +1,23 @@
 #version 330
 
+/// Skins mesh vertices with up to 128 bone matrices.
+///
+/// @used-by Skeletal geometry, paired with `default/skinning_frag`.
+
 #define MAX_BONE_NUM 128
 
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
 in vec4 vertexColor;
 in vec3 vertexNormal;
+/// Four bone indices per vertex.
 in vec4 vertexBoneIndices;
+/// Matching weights for the four bones.
 in vec4 vertexBoneWeights;
 
 uniform mat4 mvp;
 uniform mat4 matNormal;
+/// Bone transforms indexed by vertexBoneIndices.
 uniform mat4 boneMatrices[MAX_BONE_NUM];
 
 out vec2 fragTexCoord;

@@ -15,14 +15,6 @@
       (item (page-ref "math") ": clamp, lerp and list-backed vector types.")
       (item (page-ref "ui") ": the screen wrapper over the " (code "ui-*") " ImGui bindings.")))
 
-  (section "Assets"
-    (p "The package also carries the engine's default textures, materials, sounds, particles, "
-       "icons, fonts and GLSL shaders. A game can override any of them by placing a file at the "
-       "same virtual path in its own package.")
-    (ul
-      (item (page-ref "shaders") ": every shader the renderer and the tools load, and how to "
-            "write a post-process pass.")))
-
   (section "Engine bindings"
     (p "Functions bound from C++, such as " (ref "actor-pos") " or " (ref "ui-button")
        ", are documented in the engine's scripting API reference. Names from that reference "

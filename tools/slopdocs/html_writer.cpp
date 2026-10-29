@@ -91,9 +91,12 @@ std::string engineAnchor(const std::string& name) {
     return anchor;
 }
 
-std::string resolveSymbol(const Site& site, const std::string& name) {
+std::string resolveSymbol(const Site& site, const std::string& rel, const std::string& name) {
     if (!site.config.engineDocs.empty() && site.engineNames.count(name) > 0) {
         return site.config.engineDocs + "scriptingapi.html#" + engineAnchor(name);
+    }
+    if (site.findShader(name) != nullptr) {
+        return rel + "shaders/" + name + ".html";
     }
     return {};
 }
@@ -150,9 +153,12 @@ void renderCodeBody(PageContext& ctx, const DocNode& node, const std::string& te
     const std::string* lang = node.attr("lang");
     if (lang != nullptr && *lang == "scheme") {
         const Site& site = *ctx.site;
-        out += highlightScheme(text, [&site](std::string_view name) {
-            return resolveSymbol(site, std::string(name));
+        const std::string rel = ctx.rel;
+        out += highlightScheme(text, [&site, rel](std::string_view name) {
+            return resolveSymbol(site, rel, std::string(name));
         });
+    } else if (lang != nullptr && *lang == "glsl") {
+        out += highlightGlsl(text);
     } else {
         out += escapeHtml(text);
     }
@@ -199,7 +205,7 @@ void renderInline(PageContext& ctx, const DocNode& node, std::string& out) {
         out += "</a>";
     } else if (tag == "ref") {
         const std::string* name = node.attr("name");
-        const std::string href = name ? resolveSymbol(*ctx.site, *name) : std::string();
+        const std::string href = name ? resolveSymbol(*ctx.site, ctx.rel, *name) : std::string();
         if (href.empty()) {
             if (ctx.error.empty()) {
                 ctx.error = "ref to unknown symbol \"" + (name ? *name : std::string()) + "\"";
@@ -344,28 +350,57 @@ void renderBlock(PageContext& ctx, const DocNode& node, std::string& out) {
     }
 }
 
-std::string renderNav(const Site& site, const std::string& currentId, const std::string& rel) {
-    std::string out = "<nav id=\"sd-nav\"><ul class=\"sd-nav-list\">";
+bool navContains(const NavEntry& entry, const std::string& id) {
+    for (const std::string& page : entry.pages) {
+        if (page == id) {
+            return true;
+        }
+    }
+    for (const NavEntry& child : entry.children) {
+        if (navContains(child, id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void renderNavEntries(const Site& site, const std::vector<NavEntry>& entries, const std::string& currentId,
+                      const std::string& rel, int depth, std::string& out) {
     auto link = [&](const std::string& id) {
         const Page* page = site.findPage(id);
-        const std::string title = page != nullptr ? page->title : id == "index" ? std::string("Home") : id;
+        std::string title = id == "index" ? std::string("Home") : id;
+        if (page != nullptr) {
+            title = page->navTitle.empty() ? page->title : page->navTitle;
+        }
         const bool current = id == currentId;
         out += "<li class=\"sd-nav-item" + std::string(current ? " sd-current" : "") + "\"><a href=\"" +
                escapeHtml(rel + pageUrl(id)) + "\">" + escapeHtml(title) + "</a></li>";
     };
-    for (const NavEntry& entry : site.config.nav) {
-        if (entry.group) {
-            out += "<li class=\"sd-nav-group\"><span class=\"sd-nav-group-label\">" + escapeHtml(entry.label) + "</span><ul>";
+    for (const NavEntry& entry : entries) {
+        if (!entry.group) {
             for (const std::string& id : entry.pages) {
                 link(id);
             }
-            out += "</ul></li>";
-        } else {
-            for (const std::string& id : entry.pages) {
-                link(id);
-            }
+            continue;
         }
+        if (depth == 0) {
+            out += "<li class=\"sd-nav-group\"><span class=\"sd-nav-group-label\">" + escapeHtml(entry.label) + "</span><ul>";
+        } else {
+            const bool open = navContains(entry, currentId);
+            out += "<li class=\"sd-nav-folder-item\"><details class=\"sd-nav-folder\"" + std::string(open ? " open" : "") +
+                   "><summary>" + escapeHtml(entry.label) + "</summary><ul>";
+        }
+        for (const std::string& id : entry.pages) {
+            link(id);
+        }
+        renderNavEntries(site, entry.children, currentId, rel, depth + 1, out);
+        out += depth == 0 ? "</ul></li>" : "</ul></details></li>";
     }
+}
+
+std::string renderNav(const Site& site, const std::string& currentId, const std::string& rel) {
+    std::string out = "<nav id=\"sd-nav\"><ul class=\"sd-nav-list\">";
+    renderNavEntries(site, site.config.nav, currentId, rel, 0, out);
     out += "</ul></nav>";
     return out;
 }
@@ -374,7 +409,7 @@ std::string renderToc(const std::vector<TocEntry>& toc) {
     if (toc.size() < 2) {
         return {};
     }
-    std::string out = "<nav id=\"sd-toc\"><p class=\"sd-toc-title\">On this page</p><ul>";
+    std::string out = "<nav id=\"sd-toc\"><ul>";
     int depth = 1;
     for (const TocEntry& entry : toc) {
         if (entry.level > 2) {
@@ -424,9 +459,10 @@ std::string renderShell(const Site& site, const std::string& pageId, const std::
     out += "<div class=\"sd-layout\">\n";
     out += renderNav(site, pageId, rel);
     out += "\n<main id=\"sd-content\">\n<h1 class=\"sd-page-title\">" + escapeHtml(pageTitle) + "</h1>\n";
-    out += toc;
     out += body;
-    out += "</main>\n</div>\n</body>\n</html>\n";
+    out += "</main>\n";
+    out += toc;
+    out += "</div>\n</body>\n</html>\n";
     return out;
 }
 

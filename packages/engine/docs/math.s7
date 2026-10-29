@@ -18,7 +18,7 @@
       (fn (string-append "(" v "-lerp a b t)")
           "Linear interpolation from " (code "a") " to " (code "b") " by " (code "t") "."))))
 
-(page "math" "math.s7"
+(page "math" "math"
   (p "Scalar helpers and list-backed vectors. A vector is a plain list of numbers, which is "
      "also the shape the engine bindings use for positions and directions, so a value from "
      (ref "actor-pos") " can go straight into " (code "Vector3-sub") ".")

@@ -1,15 +1,33 @@
 #version 330
 
+/// Draws one sprite frame out of its atlas with an optional brightmap and part mask.
+///
+/// `albedoRect` and `atlasSize` map the quad onto the frame's rectangle in the atlas.
+/// With `useBrightmap` set, the red channel of `texture1` marks texels that ignore
+/// lighting. With `usePartMask` set, `texture2` holds a part index per texel and any
+/// part whose bit is set in `hiddenPartsMask` is discarded.
+///
+/// @used-by World sprites and first-person sprites.
+/// @see sprite-hide-part! fp-set-sprite-frame
+
 in vec2 fragTexCoord;
 in vec4 fragColor;
 
+/// Sprite atlas.
 uniform sampler2D texture0;
+/// Brightmap, red channel marks unlit texels.
 uniform sampler2D texture1;
+/// Part mask, one part index per texel.
 uniform sampler2D texture2;
+/// Frame rectangle in the atlas as x, y, width, height in texels.
 uniform vec4 albedoRect;
+/// Atlas dimensions in texels.
 uniform vec2 atlasSize;
+/// 1 to apply the brightmap.
 uniform int useBrightmap;
+/// 1 to apply the part mask.
 uniform int usePartMask;
+/// Bit set of hidden part indices.
 uniform int hiddenPartsMask;
 
 out vec4 finalColor;

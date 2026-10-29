@@ -119,13 +119,39 @@ strings|Plain text. Newlines and the indentation after them collapse to one spac
 
 Block nodes inside inline content, and bare text inside a section, are errors.
 
+# Shaders
+
+Every `.glsl` file under the package's `shaders/` folder gets a generated page at `shaders/<path>.html`. The sidebar lists them as a folder tree under Assets whenever the package has shaders, and they are reachable through search and `ref`. The page is built from the file's declarations and its doc comments.
+
+<pre><code class="language-glsl">#version 330
+
+/// Tints the scene red by `strength`, for a hurt flash.
+///
+/// Pushed with `post-push-shader` against `default/post_vert`.
+///
+/// @used-by The player lifecycle script.
+/// @see post-push-shader post-set-float
+
+in vec2 fragTexCoord;
+
+/// The rendered scene.
+uniform sampler2D texture0;
+/// Blend toward red, 0 to 1.
+uniform float strength;
+</code></pre>
+
+A doc comment is a run of lines starting with `///`. The first run that is not directly followed by a declaration documents the file: its first paragraph is the summary shown in the index, later paragraphs follow on the page, `@used-by` fills the table at the top, and `@see` lists symbols under See also. A run directly above a `uniform`, `in`, `out` or `buffer` declaration documents that declaration. Backticks in any doc text become inline code, and become links when they name an engine function, a hook or another shader's path.
+
+The generated page also shows the stage from the file name suffix (`_vert`, `_frag`, `_comp`, anything else is an include), the GLSL version, the paired vertex or fragment shader when one exists, `#include` lines, the compute work group size, every uniform with its type, every buffer with its binding and access, and the inputs and outputs. A `ref` to a shader path links its page, and so does the path in backticks inside a doc comment.
+
 # Styling
 
 The output carries a stable class contract so a stylesheet can restyle anything:
 
 - Every element has a class named after its node with the `sd-` prefix: `sd-section`, `sd-p`, `sd-code`, `sd-table`, `sd-note`, `sd-image`, and so on. Sections also carry `sd-section-1` to `sd-section-6` for their depth. Code blocks add `sd-code-block` and `sd-lang-scheme`.
-- The shell uses fixed ids: `sd-title`, `sd-search`, `sd-nav`, `sd-toc`, `sd-content`.
-- Scheme tokens are `sd-tok-comment`, `sd-tok-string`, `sd-tok-number`, `sd-tok-boolean`, `sd-tok-char`, `sd-tok-keyword`, `sd-tok-special`, `sd-tok-call`, `sd-tok-symbol`, `sd-tok-paren`, `sd-tok-quote`, and a linked symbol is wrapped in `a.sd-tok-link`.
+- The shell uses fixed ids: `sd-title`, `sd-search`, `sd-nav`, `sd-content`, and `sd-toc` for the page outline shown beside the content on wide screens.
+- Scheme tokens are `sd-tok-comment`, `sd-tok-string`, `sd-tok-number`, `sd-tok-boolean`, `sd-tok-char`, `sd-tok-keyword`, `sd-tok-special`, `sd-tok-call`, `sd-tok-symbol`, `sd-tok-paren`, `sd-tok-quote`, and a linked symbol is wrapped in `a.sd-tok-link`. GLSL adds `sd-tok-doc`, `sd-tok-preprocessor` and `sd-tok-type`.
+- Generated shader pages use `sd-shader-facts`, `sd-shader-uniforms`, `sd-shader-buffers`, `sd-shader-inputs` and `sd-shader-outputs` on their tables. Nested sidebar folders are `details.sd-nav-folder`.
 - Colors, fonts, spacing and the content width are custom properties on `:root` in the built-in `style.css`, with a dark set under `prefers-color-scheme: dark`. Changing the look of the whole site is overriding a handful of variables.
 
 A `:class` attribute is added alongside the `sd-` classes, so a custom rule only has to add what differs:

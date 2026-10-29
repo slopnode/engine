@@ -1,5 +1,13 @@
 #version 430
 
+/// Bounce lighting pass of the GPU radiosity baker.
+///
+/// Each invocation gathers the light shot by other luxels in the previous pass,
+/// giving one indirect bounce per run. When this file is missing sloprad warns and
+/// uses the CPU path.
+///
+/// @used-by sloprad.
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 struct BounceLuxel {
@@ -132,44 +140,55 @@ const float kLightOcclusionAlphaThreshold = 0.5;
 const int kMaxAlphaOcclusionSteps = 8;
 const float kRayAdvanceEpsilon = 0.001;
 
+/// Alpha masks of transparent materials, for occlusion tinting.
 uniform sampler2D materialAlphaAtlas;
 
+/// Luxel positions and normals.
 layout(std430, binding = 0) readonly buffer LuxelBuffer {
     BounceLuxel luxels[];
 };
 
+/// Receives the gathered bounce light.
 layout(std430, binding = 1) writeonly buffer GatherBuffer {
     Rgb gathered[];
 };
 
+/// Light shot by each luxel in the previous pass.
 layout(std430, binding = 2) readonly buffer ShootBuffer {
     Rgb shoot[];
 };
 
+/// Per-face luxel grid layout.
 layout(std430, binding = 3) readonly buffer FaceGridBuffer {
     FaceGrid faceGrids[];
 };
 
+/// BVH nodes over the map geometry for occlusion.
 layout(std430, binding = 4) readonly buffer NodeBuffer {
     BvhNode nodes[];
 };
 
+/// BVH primitives over the map geometry.
 layout(std430, binding = 5) readonly buffer PrimBuffer {
     BvhPrim prims[];
 };
 
+/// Bake settings.
 layout(std430, binding = 6) readonly buffer ParamsBuffer {
     Params params;
 };
 
+/// Faces with alpha-masked materials.
 layout(std430, binding = 7) readonly buffer FaceTransparentBuffer {
     int faceTransparent[];
 };
 
+/// Per-face occlusion flags.
 layout(std430, binding = 8) readonly buffer FaceOcclusionBuffer {
     FaceOcclusion faceOcclusion[];
 };
 
+/// Rectangles of each material in materialAlphaAtlas.
 layout(std430, binding = 9) readonly buffer MaterialRectBuffer {
     MaterialRect materialRects[];
 };

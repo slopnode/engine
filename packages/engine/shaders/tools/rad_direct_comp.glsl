@@ -1,5 +1,13 @@
 #version 430
 
+/// Direct lighting pass of the GPU radiosity baker.
+///
+/// One invocation per luxel gathers point, spot and sun lights plus emissive faces,
+/// with occlusion raycasts through the BSP tree. When this file is missing sloprad
+/// warns and uses the CPU path.
+///
+/// @used-by sloprad.
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 const float kPi = 3.14159265358979323846;
@@ -223,64 +231,80 @@ const float kLightOcclusionAlphaThreshold = 0.5;
 const int kMaxAlphaOcclusionSteps = 8;
 const float kRayAdvanceEpsilon = 0.001;
 
+/// Alpha masks of transparent materials, for occlusion tinting.
 uniform sampler2D materialAlphaAtlas;
 
+/// Luxel positions and normals; receives the gathered light.
 layout(std430, binding = 0) buffer LuxelBuffer {
     Luxel luxels[];
 };
 
+/// Emissive faces treated as area lights.
 layout(std430, binding = 1) readonly buffer EmissiveFaceBuffer {
     EmissiveFace emissiveFaces[];
 };
 
+/// BVH nodes over the map geometry for occlusion.
 layout(std430, binding = 2) readonly buffer NodeBuffer {
     BvhNode nodes[];
 };
 
+/// BVH primitives over the map geometry.
 layout(std430, binding = 3) readonly buffer PrimBuffer {
     BvhPrim prims[];
 };
 
+/// Bake settings.
 layout(std430, binding = 4) readonly buffer ParamsBuffer {
     Params params;
 };
 
+/// Point, spot and sun lights.
 layout(std430, binding = 5) readonly buffer LightBuffer {
     Light lights[];
 };
 
+/// Per-face light reach culling.
 layout(std430, binding = 6) readonly buffer ReachBuffer {
     uint reachBits[];
 };
 
+/// Faces that see the sky.
 layout(std430, binding = 7) readonly buffer FaceSkyBuffer {
     int faceSky[];
 };
 
+/// Faces with alpha-masked materials.
 layout(std430, binding = 8) readonly buffer FaceTransparentBuffer {
     int faceTransparent[];
 };
 
+/// Per-face occlusion flags.
 layout(std430, binding = 12) readonly buffer FaceOcclusionBuffer {
     FaceOcclusion faceOcclusion[];
 };
 
+/// Rectangles of each material in materialAlphaAtlas.
 layout(std430, binding = 13) readonly buffer MaterialRectBuffer {
     MaterialRect materialRects[];
 };
 
+/// BVH nodes over emissive faces.
 layout(std430, binding = 9) readonly buffer EmitterNodeBuffer {
     BvhNode emitterNodes[];
 };
 
+/// BVH primitives over emissive faces.
 layout(std430, binding = 10) readonly buffer EmitterPrimBuffer {
     EmitterBvhPrim emitterPrims[];
 };
 
+/// Fine emission grid per emissive face.
 layout(std430, binding = 11) readonly buffer EmissionGridBuffer {
     GridSample emissionGrid[];
 };
 
+/// Precomputed stratified samples per emissive face.
 layout(std430, binding = 14) readonly buffer DirectSampleBuffer {
     DirectSample directSamples[];
 };

@@ -1,5 +1,9 @@
 #version 330
 
+/// Passes grid plane vertices through with their world position.
+///
+/// @used-by slopmap's preview grid, paired with `tools/grid_frag`.
+
 in vec3 vertexPosition;
 
 uniform mat4 mvp;

@@ -1,8 +1,13 @@
 #version 330
 
+/// Transforms world brush vertices and passes both UV sets to the fragment stage.
+///
+/// @used-by World brushes, paired with `default/lightmap_frag`.
+
 in vec3 vertexPosition;
 in vec3 vertexNormal;
 in vec2 vertexTexCoord;
+/// Lightmap atlas coordinates, the second UV set written by sloprad.
 in vec2 vertexTexCoord2;
 in vec4 vertexColor;
 

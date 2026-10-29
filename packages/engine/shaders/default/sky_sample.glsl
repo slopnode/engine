@@ -1,13 +1,33 @@
+/// Sky sampling shared by `default/skybox_frag` and `default/sky_face_frag`.
+///
+/// Not a program on its own. The engine replaces the line `#include "SKY_SAMPLE"`
+/// in a host shader with this file's text, which provides `sampleSky` and the
+/// uniforms below. `skyMode` selects a solid color, a vertical gradient, a cube map
+/// or a cylinder panorama, matching the sky block of a material.
+///
+/// @used-by Both sky fragment shaders.
+
+/// 0 solid color, 1 cube map, 2 gradient, 3 cylinder panorama.
 uniform int skyMode;
+/// Color for mode 0.
 uniform vec3 skySolidColor;
+/// Cube map for mode 1.
 uniform samplerCube skyCube;
+/// Panorama texture for mode 3.
 uniform sampler2D skyCylinder;
+/// Horizontal offset of the panorama.
 uniform float skyCylinderOffset;
+/// Vertical scale of the panorama.
 uniform float skyCylinderScale;
+/// Horizontal repeats around the cylinder.
 uniform int skyCylinderRepeat;
+/// Fill color above the panorama.
 uniform vec3 skyCylinderTopColor;
+/// Fill color below the panorama.
 uniform vec3 skyCylinderBottomColor;
+/// Up to four gradient stops for mode 2.
 uniform vec4 skyGradientColors[4];
+/// Vertical position of each gradient stop.
 uniform float skyGradientPositions[4];
 
 vec3 sampleSkyGradient(float t)

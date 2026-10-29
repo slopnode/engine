@@ -1,6 +1,6 @@
 (require-doc "lib")
 
-(page "lists" "lists.s7"
+(page "lists" "lists"
   (p "Small helpers for the list shapes package data uses everywhere: positional access into "
      "fixed-length lists, association lists keyed by " (code "equal?") ", and hash tables "
      "with a default.")

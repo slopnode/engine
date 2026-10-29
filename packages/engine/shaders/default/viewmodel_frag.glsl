@@ -1,15 +1,31 @@
 #version 330
 
+/// Lights first-person geometry from the probe at the eye plus a key light and a rim.
+///
+/// `probeRgb` and `ambient` set the base lighting. `keyDir` with `keyStrength` adds a
+/// directional term, and `rimStrength` brightens edges facing away from the viewer so
+/// the weapon separates from the scene behind it.
+///
+/// @used-by Geometry attached through `fp-attach-geo`.
+/// @see fp-attach-geo fp-set-shading fp-set-rad-tint
+
 in vec3 fragNormal;
 in vec2 fragTexCoord;
 in vec4 fragColor;
 
+/// Albedo texture.
 uniform sampler2D texture0;
+/// Material base color.
 uniform vec4 colDiffuse;
+/// Lighting probe sample at the eye.
 uniform vec3 probeRgb;
+/// Ambient light scale.
 uniform float ambient;
+/// Key light direction.
 uniform vec3 keyDir;
+/// Key light weight.
 uniform float keyStrength;
+/// Rim light weight.
 uniform float rimStrength;
 
 out vec4 finalColor;

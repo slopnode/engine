@@ -1,4 +1,4 @@
 (docs
   (title "Slopengine Engine")
-  (nav "index" ("Scripts" "lang" "lists" "math" "ui") ("Assets" "shaders"))
+  (nav "index" ("Scripts" "lang" "lists" "math" "ui"))
   (engine-docs "https://pages.slopnode.net/engine-docs/"))

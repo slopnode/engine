@@ -1,6 +1,6 @@
 (require-doc "lib")
 
-(page "ui" "ui.s7"
+(page "ui" "ui"
   (p "A declarative wrapper over the " (code "ui-*") " ImGui bindings. A screen is declared "
      "once with " (ref "define-screen") " and a builder thunk, built on first render into a "
      "tree of nodes, and walked every frame by " (ref "ui-screen-render") ". Only "

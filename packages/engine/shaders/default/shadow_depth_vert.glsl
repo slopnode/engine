@@ -1,5 +1,9 @@
 #version 330
 
+/// Transforms vertices for a dynamic light's shadow map pass.
+///
+/// @used-by Shadow map passes for dynamic lights, paired with `default/shadow_depth_frag`.
+
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
 

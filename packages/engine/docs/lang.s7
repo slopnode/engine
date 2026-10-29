@@ -1,6 +1,6 @@
 (require-doc "lib")
 
-(page "lang" "lang.s7"
+(page "lang" "lang"
   (p "Loads the rest of the library and defines the two forms a package uses to split its "
      "code across files. Both resolve paths inside the package whose file is currently being "
      "evaluated, so a mod's " (code "(require \"player/weapons\")") " reads the mod's own "

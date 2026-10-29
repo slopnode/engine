@@ -1,6 +1,7 @@
 #include "site.hpp"
 
 #include "embedded.hpp"
+#include "shader_pages.hpp"
 
 #include "core/sexpr.hpp"
 #include "script/scheme_harden.hpp"
@@ -10,6 +11,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 
 namespace slopdocs {
@@ -20,6 +22,15 @@ const Page* Site::findPage(const std::string& id) const {
     for (const Page& page : pages) {
         if (page.id == id) {
             return &page;
+        }
+    }
+    return nullptr;
+}
+
+const ShaderDoc* Site::findShader(const std::string& path) const {
+    for (const ShaderDoc& shader : shaders) {
+        if (shader.path == path) {
+            return &shader;
         }
     }
     return nullptr;
@@ -226,7 +237,7 @@ bool resolveNav(Site& site, std::string& error) {
     }
     std::vector<std::string> rest;
     for (const Page& page : site.pages) {
-        if (listed.count(page.id) == 0 && page.id != "index") {
+        if (listed.count(page.id) == 0 && page.id != "index" && !page.generated) {
             rest.push_back(page.id);
         }
     }
@@ -240,6 +251,32 @@ bool resolveNav(Site& site, std::string& error) {
         NavEntry entry;
         entry.pages = {id};
         site.config.nav.push_back(std::move(entry));
+    }
+    if (!site.shaders.empty()) {
+        std::map<std::string, NavEntry> folders;
+        for (const ShaderDoc& shader : site.shaders) {
+            const std::size_t slash = shader.path.rfind('/');
+            const std::string folder = slash == std::string::npos ? std::string() : shader.path.substr(0, slash);
+            NavEntry& entry = folders[folder];
+            entry.group = true;
+            entry.label = folder;
+            entry.pages.push_back("shaders/" + shader.path);
+        }
+        NavEntry shaders;
+        shaders.group = true;
+        shaders.label = "Shaders";
+        for (auto& [folder, entry] : folders) {
+            if (folder.empty()) {
+                shaders.pages.insert(shaders.pages.end(), entry.pages.begin(), entry.pages.end());
+            } else {
+                shaders.children.push_back(std::move(entry));
+            }
+        }
+        NavEntry assets;
+        assets.group = true;
+        assets.label = "Assets";
+        assets.children.push_back(std::move(shaders));
+        site.config.nav.push_back(std::move(assets));
     }
     return true;
 }
@@ -308,6 +345,10 @@ bool loadSite(const fs::path& packageRoot, Site& out, std::string& error, bool v
     s7_quit(sc);
     if (!ok) {
         error = loader.error;
+        return false;
+    }
+    out.shaders = scanShaders(packageRoot);
+    if (!buildShaderPages(out, error)) {
         return false;
     }
     return resolveNav(out, error);

@@ -1,5 +1,9 @@
 #version 330
 
+/// Transforms first-person attachment geometry and passes its normal in world space.
+///
+/// @used-by Geometry attached to first-person sockets, paired with `default/viewmodel_frag`.
+
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
 in vec3 vertexNormal;

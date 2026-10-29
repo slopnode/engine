@@ -1,19 +1,41 @@
 #version 330
 
+/// Shades world brushes with the baked lightmap, the material's emission, and the
+/// dynamic light overlay with shadow maps.
+///
+/// The lit path multiplies the albedo by the lightmap sample. `solidLit` draws the
+/// material's base color without sampling the albedo. Emission is the mask in
+/// `texture5` times the color in `colSpecular` times `emissionPower`, added on top,
+/// and `colSpecular.a` selects the fullbright mode. Up to 128 dynamic lights are
+/// accumulated per fragment and the ones with a shadow slot sample the shadow map
+/// array.
+///
+/// @used-by Every material whose shader field is `default`, drawn by the world pass.
+/// @see dyn-light-spawn dyn-light-set-pos! dyn-light-set-hsv!
+
 in vec3 fragPosition;
 in vec3 fragNormal;
 in vec2 fragTexCoord;
 in vec2 fragTexCoord2;
 in vec4 fragColor;
 
+/// Albedo texture of the material.
 uniform sampler2D texture0;
+/// Baked lightmap atlas for this face.
 uniform sampler2D texture1;
+/// Emission mask; its rgb scales the emission color per texel.
 uniform sampler2D texture5;
+/// Material base color.
 uniform vec4 colDiffuse;
+/// Emission color in rgb; alpha above 0.1 means fullbright, above 0.75 additive fullbright.
 uniform vec4 colSpecular;
+/// 1 to multiply by the lightmap, 0 to draw fullbright.
 uniform int useLightmap;
+/// 1 to draw colDiffuse lit by the lightmap without sampling the albedo.
 uniform int solidLit;
+/// How texture1 is decoded; nonzero means RGBE packed.
 uniform int lightmapEncoding;
+/// Scale applied to emissive texels before they are added to the lit color.
 uniform float emissionPower;
 
 const int MAX_DYN_LIGHTS = 128;
@@ -22,14 +44,22 @@ const int SHADOW_FACES = 6;
 const int MAX_SHADOW_MAPS = MAX_SHADOW_SLOTS * SHADOW_FACES;
 const float SHADOW_MAP_TEXEL = 1.0 / 512.0;
 
+/// Number of active entries in the dynLight arrays.
 uniform int dynLightCount;
+/// World position in xyz and range in w, per light.
 uniform vec4 dynLightPosRange[MAX_DYN_LIGHTS];
+/// Color in rgb and intensity in w, per light.
 uniform vec4 dynLightColorIntensity[MAX_DYN_LIGHTS];
+/// Spot direction in xyz and cone cosine in w, per light.
 uniform vec4 dynLightDirCone[MAX_DYN_LIGHTS];
+/// x is the light kind, y the shadow slot, per light.
 uniform vec4 dynLightMeta[MAX_DYN_LIGHTS];
 
+/// Depth bias applied when comparing against the shadow maps.
 uniform float dynShadowBias;
+/// View-projection matrix per shadow map face.
 uniform mat4 dynShadowVp[MAX_SHADOW_MAPS];
+/// Depth map array, six faces per shadowed light.
 uniform sampler2DArray dynShadowMaps;
 
 out vec4 finalColor;
