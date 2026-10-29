@@ -4,6 +4,7 @@
 #include "brush_panel.hpp"
 #include "texture_panel.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -18,6 +19,14 @@
 namespace slopmap {
 
 namespace {
+
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
+}
 
 bool containsIgnoreCase(const std::string& haystack, const std::string& needle) {
     if (needle.empty()) {
@@ -226,7 +235,7 @@ bool drawPickerGridView(
                     if (thumb.valid()) {
                         clicked = drawThumbButton("##thumb", thumb, kGridThumb);
                     } else {
-                        clicked = ImGui::Button("##thumb", ImVec2(kGridThumb, kGridThumb));
+                        clicked = slopengine::slopuiButton("##thumb", ImVec2(kGridThumb, kGridThumb));
                         const ImVec2 min = ImGui::GetItemRectMin();
                         const ImVec2 restore = ImGui::GetCursorScreenPos();
                         ImGui::SetCursorScreenPos(ImVec2(
@@ -240,7 +249,7 @@ bool drawPickerGridView(
                         ImGui::SetCursorScreenPos(restore);
                     }
                 } else {
-                    clicked = ImGui::Button("##thumb", ImVec2(kGridThumb, kGridThumb));
+                    clicked = slopengine::slopuiButton("##thumb", ImVec2(kGridThumb, kGridThumb));
                     const ImVec2 min = ImGui::GetItemRectMin();
                     const ImVec2 restore = ImGui::GetCursorScreenPos();
                     ImGui::SetCursorScreenPos(ImVec2(
@@ -378,7 +387,7 @@ void scanAssetsInto(
                 continue;
             }
             relative.replace_extension();
-            seen[relative.generic_string()] = true;
+            seen[genericUtf8(relative)] = true;
         }
     }
     out.clear();
@@ -540,7 +549,7 @@ MaterialBrowserResult MaterialBrowser::drawPopup(
     const char* title =
         pickerKind == AssetPickerKind::Material ? "Browse Materials" : "Browse Textures";
     ImGui::SetNextWindowSize(ImVec2(640.0f, 480.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin(title, &pickerOpen, ImGuiWindowFlags_None)) {
+    if (!slopengine::slopuiBegin(title, &pickerOpen, ImGuiWindowFlags_None)) {
         ImGui::End();
         return result;
     }
@@ -626,7 +635,7 @@ MaterialBrowserResult MaterialBrowser::drawPopup(
         }
     }
 
-    if (ImGui::BeginChild("##pickerlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+    if (slopengine::slopuiBeginChild("##pickerlist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         if (folderView && !browseFolderPath.empty()) {
             ImGui::TextDisabled("Folder: %s", browseFolderPath.c_str());
             ImGui::Separator();
@@ -677,7 +686,7 @@ MaterialBrowserResult MaterialBrowser::drawSurfaceSection(
     TexturePanel& texturePanel,
     float bodyHeight) {
     MaterialBrowserResult result{};
-    if (!ImGui::BeginChild("##surfacesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##surfacesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }

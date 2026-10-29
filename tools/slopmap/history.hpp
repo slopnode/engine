@@ -12,6 +12,8 @@ struct DocumentSnapshot {
     std::vector<slopengine::Brush> brushes;
     std::vector<slopengine::PrefabInstance> instances;
     std::vector<slopengine::Thing> things;
+    slopengine::GraphDocument graphs;
+    int activePath = -1;
     SelectionMode selectionMode = SelectionMode::Brush;
     std::vector<int> selectedBrushes;
     std::vector<FaceRef> selectedFaces;

@@ -11,12 +11,24 @@
 
 namespace slopengine {
 
+/** Acoustic properties for Steam Audio simulation; defaults match prior engine-wide constant. */
+struct MaterialSoundProfile {
+    float absorptionLow = 0.05f;
+    float absorptionMid = 0.08f;
+    float absorptionHigh = 0.12f;
+    float scattering = 0.15f;
+    float transmissionLow = 0.120f;
+    float transmissionMid = 0.070f;
+    float transmissionHigh = 0.040f;
+};
+
 /** Parsed .mat material fields (albedo + emission; no PBR maps). */
 struct MaterialAsset {
     std::string shader = "default";
     Color baseColor = WHITE;
     std::string albedoTexture; /**< Texture virtual path, or empty. */
     std::string textureAnimPath; /**< .texanim virtual path, or empty. */
+    std::string textureGraphPath; /**< .texgraph virtual path, or empty; supplies the albedo output and, unless emission is set, the emission output. */
     float pixelsPerMeter = 64.0f; /**< World texel density (texel-size). */
     float ior = 1.0f; /**< Bake-time index of refraction; 1.0 = no bend. */
     std::string emissionTexture;
@@ -59,18 +71,24 @@ struct MaterialAsset {
     float skyCylinderOffset = 0.0f;
     float skyCylinderScale = 1.0f;
     int skyCylinderRepeat = 1;
+    MaterialSoundProfile sound;
 };
 
 using TextureResolver = std::function<Texture2D(std::string_view path)>;
 using TextureAnimFrameResolver = std::function<Texture2D(std::string_view animPath, int frameIndex)>;
+using TextureGraphOutputResolver = std::function<Texture2D(std::string_view graphPath, std::string_view outputName)>;
 
 /** Parses .mat text into @p asset. */
 bool parseMaterialAsset(std::string_view source, MaterialAsset& asset);
+
+/** Serializes @p asset to .mat text; fields at their default value are left out. */
+std::string serializeMaterialAsset(const MaterialAsset& asset);
 
 /** Builds a raylib Material from @p asset, resolving textures via @p resolveTexture. */
 Material createRaylibMaterial(
     const MaterialAsset& asset,
     const TextureResolver& resolveTexture = {},
-    const TextureAnimFrameResolver& resolveAnimFrame = {});
+    const TextureAnimFrameResolver& resolveAnimFrame = {},
+    const TextureGraphOutputResolver& resolveGraphOutput = {});
 
 }

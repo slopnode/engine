@@ -2,7 +2,9 @@
 
 #include "handler_ui.hpp"
 #include "material_browser.hpp"
+#include "sound_browser.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "map/handler_binding.hpp"
 #include "map/map_handler_registry.hpp"
 #include "map/thing.hpp"
@@ -42,6 +44,10 @@ bool colorEqual(Vector3 a, Vector3 b) {
 
 bool sizeEqual(Vector2 a, Vector2 b) {
     return nearlyEqual(a.x, b.x) && nearlyEqual(a.y, b.y);
+}
+
+float iconButtonWidth() {
+    return ImGui::GetFrameHeight() + ImGui::GetStyle().FramePadding.x;
 }
 
 enum class ThingEditKind {
@@ -117,6 +123,14 @@ std::vector<int> collectEditableTargets(const EditorDocument& doc, ThingEditKind
     return targets;
 }
 
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
+}
+
 std::vector<std::string> scanPackageAssets(
     const slopengine::AssetStore& assets,
     const char* folder,
@@ -142,7 +156,7 @@ std::vector<std::string> scanPackageAssets(
                 continue;
             }
             relative.replace_extension();
-            seen[relative.generic_string()] = true;
+            seen[genericUtf8(relative)] = true;
         }
     }
     std::vector<std::string> paths;
@@ -448,7 +462,7 @@ bool drawPresentationSection(
         geoPaths = scanPackageAssets(assets, "geometry", ".geo");
         assetListsReady = true;
     }
-    if (ImGui::Button("Refresh assets")) {
+    if (slopengine::slopuiButton("Refresh assets")) {
         spritePaths = scanPackageAssets(assets, "sprites", ".spr");
         geoPaths = scanPackageAssets(assets, "geometry", ".geo");
     }
@@ -805,7 +819,7 @@ bool drawWorldPoseSection(Editor& editor, const std::vector<int>& targets) {
             editor.statusMessage = "Set world roll";
         }
     }
-    if (ImGui::Button("Reset Rotation")) {
+    if (slopengine::slopuiButton("Reset Rotation")) {
         if (forEachTarget(
                 editor,
                 targets,
@@ -1003,9 +1017,14 @@ bool drawLightSection(Editor& editor, const std::vector<int>& targets) {
     return changed;
 }
 
-bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
+bool drawSoundSection(
+    Editor& editor,
+    slopengine::AssetStore& assets,
+    SoundBrowser& soundBrowser,
+    const std::vector<int>& targets) {
     bool changed = false;
     const EditorDocument& doc = editor.doc();
+    constexpr const char* kIcons = slopengine::kDefaultIconSet;
 
     ImGui::Text("Kind: sound-source");
     ImGui::Text("%d sound(s)", static_cast<int>(targets.size()));
@@ -1015,36 +1034,16 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
         doc,
         targets,
         [](const slopengine::Thing& t) { return t.audio; });
-    const auto clipCommon = commonValue<std::string>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.clip; });
-    const auto volumeCommon = commonValue<float>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.volume; },
-        [](float a, float b) { return nearlyEqual(a, b); });
-    const auto minCommon = commonValue<float>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.minDistance; },
-        [](float a, float b) { return nearlyEqual(a, b); });
-    const auto maxCommon = commonValue<float>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.maxDistance; },
-        [](float a, float b) { return nearlyEqual(a, b); });
-    const auto loopingCommon = commonValue<bool>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.looping; });
-    const auto spatialCommon = commonValue<bool>(
-        doc,
-        targets,
-        [](const slopengine::Thing& t) { return t.spatial; });
 
     char audioBuf[256];
     copyToBuf(audioBuf, sizeof(audioBuf), audioCommon.value_or(std::string{}));
+    ImGui::PushID("soundAudio");
+    const bool pickAudio =
+        slopengine::iconButton(assets, kIcons, "sound", ImVec2(iconButtonWidth(), 0.0f));
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Pick sound");
+    }
+    ImGui::SameLine();
     if (inputTextMixed("Audio", audioBuf, sizeof(audioBuf), !audioCommon.has_value())) {
         const std::string audio = audioBuf;
         if (forEachSound(editor, targets, [&audio](slopengine::Thing& thing) {
@@ -1054,81 +1053,42 @@ bool drawSoundSection(Editor& editor, const std::vector<int>& targets) {
             editor.statusMessage = "Set sound audio";
         }
     }
+    ImGui::PopID();
+    if (pickAudio) {
+        soundBrowser.rescan(assets);
+        soundBrowser.filter.clear();
+        soundBrowser.mode = SoundBrowserMode::DefinedOnly;
+        soundBrowser.open = true;
+    }
 
-    char clipBuf[256];
-    copyToBuf(clipBuf, sizeof(clipBuf), clipCommon.value_or(std::string{}));
-    if (inputTextMixed("Clip", clipBuf, sizeof(clipBuf), !clipCommon.has_value())) {
-        const std::string clip = clipBuf;
-        if (forEachSound(editor, targets, [&clip](slopengine::Thing& thing) {
-                thing.clip = clip;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound clip";
+    if (soundBrowser.open) {
+        std::string picked;
+        if (soundBrowser.drawModal(assets, picked)) {
+            if (forEachSound(editor, targets, [&](slopengine::Thing& thing) {
+                    thing.audio = picked;
+                })) {
+                changed = true;
+                editor.statusMessage = "Set sound audio";
+            }
         }
     }
 
-    float volume = volumeCommon.value_or(1.0f);
-    if (dragFloatMixed("Volume", &volume, !volumeCommon.has_value(), 0.01f, 0.0f, 4.0f)) {
-        if (volume < 0.0f) {
-            volume = 0.0f;
-        }
-        if (forEachSound(editor, targets, [volume](slopengine::Thing& thing) {
-                thing.volume = volume;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound volume";
-        }
-    }
-
-    float minDistance = minCommon.value_or(1.0f);
-    if (dragFloatMixed("Min distance", &minDistance, !minCommon.has_value(), 0.05f, 0.01f, 1000.0f)) {
-        if (minDistance < 0.01f) {
-            minDistance = 0.01f;
-        }
-        if (forEachSound(editor, targets, [minDistance](slopengine::Thing& thing) {
-                thing.minDistance = minDistance;
-                if (thing.maxDistance < thing.minDistance) {
-                    thing.maxDistance = thing.minDistance;
-                }
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound min distance";
-        }
-    }
-
-    float maxDistance = maxCommon.value_or(30.0f);
-    if (dragFloatMixed("Max distance", &maxDistance, !maxCommon.has_value(), 0.1f, 0.01f, 1000.0f)) {
-        if (maxDistance < 0.01f) {
-            maxDistance = 0.01f;
-        }
-        if (forEachSound(editor, targets, [maxDistance](slopengine::Thing& thing) {
-                thing.maxDistance = maxDistance;
-                if (thing.minDistance > thing.maxDistance) {
-                    thing.minDistance = thing.maxDistance;
-                }
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound max distance";
-        }
-    }
-
-    bool looping = loopingCommon.value_or(true);
-    if (checkboxMixed("Looping", &looping, !loopingCommon.has_value())) {
-        if (forEachSound(editor, targets, [looping](slopengine::Thing& thing) {
-                thing.looping = looping;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound looping";
-        }
-    }
-
-    bool spatial = spatialCommon.value_or(true);
-    if (checkboxMixed("Spatial", &spatial, !spatialCommon.has_value())) {
-        if (forEachSound(editor, targets, [spatial](slopengine::Thing& thing) {
-                thing.spatial = spatial;
-            })) {
-            changed = true;
-            editor.statusMessage = "Set sound spatial";
+    ImGui::Separator();
+    if (!audioCommon.has_value() || audioCommon->empty()) {
+        ImGui::TextDisabled("Pick a sound to see its properties");
+    } else {
+        const slopengine::AudioDef* def = assets.getAudioDef(*audioCommon);
+        if (def == nullptr) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Sound definition not found");
+        } else {
+            ImGui::TextDisabled("Defined in %s -- edit in slopaudio", audioCommon->c_str());
+            ImGui::Text("Volume: %.3f", def->volume);
+            ImGui::Text("Loop: %s", def->loop ? "yes" : "no");
+            ImGui::Text("Spatial: %s", def->spatial ? "yes" : "no");
+            if (def->spatial) {
+                ImGui::Text("Min distance: %.2f", def->minDistance);
+                ImGui::Text("Max distance: %.2f", def->maxDistance);
+            }
         }
     }
 
@@ -1206,7 +1166,7 @@ bool drawParticleSection(
         }
     }
 
-    if (ImGui::Button("Restart preview")) {
+    if (slopengine::slopuiButton("Restart preview")) {
         editor.particlePreviewEnabled = true;
         editor.particlePreviewRestartRequest = true;
         if (forEachParticle(editor, targets, [](slopengine::Thing& thing) {
@@ -2310,7 +2270,7 @@ void drawMapPropertyExtrasWarning(
         "%d extra %s thing(s) elsewhere in this map",
         extra,
         label);
-    if (ImGui::Button("Remove extras")) {
+    if (slopengine::slopuiButton("Remove extras")) {
         editor.prepareEdit();
         EditorDocument& mut = editor.doc();
         std::vector<slopengine::Thing> kept;
@@ -2381,7 +2341,7 @@ ThingPanelResult ThingPanel::drawMapSection(
     MaterialBrowser& materialBrowser,
     float bodyHeight) {
     ThingPanelResult result{};
-    if (!ImGui::BeginChild("##mapsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##mapsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }
@@ -2481,9 +2441,10 @@ ThingPanelResult ThingPanel::drawSection(
     Editor& editor,
     slopengine::AssetStore& assets,
     MaterialBrowser& materialBrowser,
+    SoundBrowser& soundBrowser,
     float bodyHeight) {
     ThingPanelResult result{};
-    if (!ImGui::BeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##thingsection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }
@@ -2509,7 +2470,7 @@ ThingPanelResult ThingPanel::drawSection(
     if (editKind == ThingEditKind::Light) {
         result.changed = drawLightSection(editor, targets) || result.changed;
     } else if (editKind == ThingEditKind::Sound) {
-        result.changed = drawSoundSection(editor, targets) || result.changed;
+        result.changed = drawSoundSection(editor, assets, soundBrowser, targets) || result.changed;
     } else if (editKind == ThingEditKind::Prop) {
         result.changed = drawPropSection(editor, assets, targets) || result.changed;
     } else if (editKind == ThingEditKind::Actor) {

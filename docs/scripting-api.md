@@ -1577,6 +1577,11 @@ Returns a mover's full state as an association list.
   id : string?) ↵ alist?
 </code></pre>
 
+### mover-ids {#mover-ids}
+Returns the ids of every mover in the loaded map, doors and lifts alike.
+<pre><code class="language-scheme">(mover-ids) ↵ list?
+</code></pre>
+
 ### mover-set-state {#mover-set-state}
 Sets a mover's open/closed target, progress, and optionally its locked state.
 <pre><code class="language-scheme">(mover-set-state
@@ -1663,6 +1668,55 @@ Checks whether an actor has reached its pathfinding goal.
   id : string?) ↵ boolean?
 </code></pre>
 
+## Camera paths {#camera-paths}
+
+Camera paths are authored in slopmap or by hand in a map's `graphs.s7` file. See @ref camera_paths for the file format and the editor workflow. While a path plays it replaces the presentation camera and the audio listener. The player entity does not move, so a cutscene usually pairs `camera-path-play` with `player-set-control`.
+
+### camera-path-play {#camera-path-play}
+Starts playing a camera path from the current map. `loop?` defaults to `#f`, `speed` to `1.0` and `blend-out` (seconds to ease back to the player view when the path ends or is stopped) to `0`. Returns `#f` when the map has no path with that id.
+<pre><code class="language-scheme">(camera-path-play
+  id : string?
+  [loop?] : boolean?
+  [speed] : real?
+  [blend-out] : real?)
+  ↵ boolean?
+</code></pre>
+
+### camera-path-stop {#camera-path-stop}
+Stops the playing path. With a positive `blend-out` the view eases back to the player over that many seconds. Returns whether a path was playing.
+<pre><code class="language-scheme">(camera-path-stop
+  [blend-out] : real?) ↵ boolean?
+</code></pre>
+
+### camera-path-playing? {#camera-path-playing}
+Checks whether a camera path is currently driving the view.
+<pre><code class="language-scheme">(camera-path-playing?) ↵ boolean?
+</code></pre>
+
+### camera-path-progress {#camera-path-progress}
+Returns the playing path's progress from `0` to `1`, or `#f` when nothing is playing.
+<pre><code class="language-scheme">(camera-path-progress) ↵ (or real? \#f)
+</code></pre>
+
+### camera-path-duration {#camera-path-duration}
+Returns the total duration of a path in seconds, or `#f` for an unknown id.
+<pre><code class="language-scheme">(camera-path-duration
+  id : string?) ↵ (or real? \#f)
+</code></pre>
+
+### camera-path-sample {#camera-path-sample}
+Samples a path at `t` seconds without playing it. Returns `(x y z yaw pitch fov)`, with `fov` as `0` when the path does not set one. Useful for driving a thing or an actor along a path from `tick`.
+<pre><code class="language-scheme">(camera-path-sample
+  id : string?
+  t : real?)
+  ↵ (or (list real? real? real? real? real? real?) \#f)
+</code></pre>
+
+### camera-paths {#camera-paths-list}
+Lists the camera path ids defined by the current map.
+<pre><code class="language-scheme">(camera-paths) ↵ (listof string?)
+</code></pre>
+
 ## Hooks {#hooks}
 
 The base package defines owner procedures with exact names below. Mods extend them using `(hook-add 'name proc)`.
@@ -1736,6 +1790,12 @@ Called when an enabled `ActorSight` scanner acquires line of sight on a target.
 Optional veto called during sight scans; return \#f to reject a candidate target.
 <pre><code class="language-scheme">(sight-filter
   observer-id, target-id : string?) ↵ boolean?
+</code></pre>
+
+### on-camera-path-end {#on-camera-path-end}
+Called when a non-looping camera path reaches its end. Starting another path from this hook is allowed.
+<pre><code class="language-scheme">(on-camera-path-end
+  path-id : string?)
 </code></pre>
 
 ### on-action-{id} {#on-action-id}

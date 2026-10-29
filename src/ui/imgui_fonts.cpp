@@ -18,16 +18,19 @@ namespace {
 
 float defaultFontSizePixels() {
     static constexpr float kDefaultFontSize = 13.0f;
-    float size = kDefaultFontSize;
-#if !defined(__APPLE__)
-    if (!IsWindowState(FLAG_WINDOW_HIGHDPI)) {
-        size = std::ceil(size * GetWindowScaleDPI().y);
-    }
-#endif
-    return size;
+    return std::ceil(kDefaultFontSize * uiFontDpiScale());
 }
 
 } // namespace
+
+float uiFontDpiScale() {
+#if !defined(__APPLE__)
+    if (!IsWindowState(FLAG_WINDOW_HIGHDPI)) {
+        return GetWindowScaleDPI().y;
+    }
+#endif
+    return 1.0f;
+}
 
 void setImGuiIniPath(std::string_view toolName) {
     // ImGui keeps the pointer, not a copy, so the backing string must outlive the context.

@@ -7,6 +7,7 @@
 - @subpage slopnav
 - @subpage sloprad
 - @subpage slopsprite
+- @subpage slopmat
 - @subpage slopicon
 - @subpage sloprepl
 - @subpage blender

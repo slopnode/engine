@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
 
     auto config = AppConfig::parse(argc, argv);
     if (!config || !config->map) {
-        std::cerr << "Usage: slopbsp --base-game <path> [--mod <path>]... --map <name>\n";
+        std::cerr << "Usage: slopbsp --game <path> [--mod <path>]... --map <name>\n";
         return 1;
     }
 

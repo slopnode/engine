@@ -1,6 +1,7 @@
 #include "browser_panel.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -74,7 +75,7 @@ void drawThingRow(Editor& editor, slopengine::AssetStore& assets, const ThingEnt
         ImGui::PushStyleColor(
             ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
     }
-    const bool pressed = ImGui::Button("##row", ImVec2(-1.0f, ImGui::GetFrameHeight()));
+    const bool pressed = slopengine::slopuiButton("##row", ImVec2(-1.0f, ImGui::GetFrameHeight()));
     if (selected) {
         ImGui::PopStyleColor(2);
     }
@@ -99,7 +100,7 @@ void drawThingRow(Editor& editor, slopengine::AssetStore& assets, const ThingEnt
                 ImVec2(textX + iconSize, iconY + iconSize),
                 ImVec2(rect->x / tw, rect->y / th),
                 ImVec2((rect->x + rect->width) / tw, (rect->y + rect->height) / th),
-                ImGui::GetColorU32(ImGuiCol_Text));
+                ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, 1.0f)));
             textX += iconSize + ImGui::GetStyle().ItemInnerSpacing.x;
         }
     }
@@ -146,7 +147,7 @@ void drawBrowserPanel(Editor& editor, slopengine::AssetStore& assets, float body
 
     ImGui::Separator();
 
-    ImGui::BeginChild("##thinglist", ImVec2(0, bodyHeight), false);
+    slopengine::slopuiBeginChild("##thinglist", ImVec2(0, bodyHeight), ImGuiChildFlags_Borders);
 
     std::vector<bool> used(editor.doc.things.size(), false);
 

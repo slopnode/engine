@@ -5,6 +5,8 @@
 #include <rlgl.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <sstream>
 #include <string>
 
 namespace slopengine {
@@ -12,12 +14,10 @@ namespace slopengine {
 namespace {
 
 Color colorFromNormalized(float r, float g, float b, float a) {
-    return {
-        static_cast<unsigned char>(r * 255.0f),
-        static_cast<unsigned char>(g * 255.0f),
-        static_cast<unsigned char>(b * 255.0f),
-        static_cast<unsigned char>(a * 255.0f),
+    auto channel = [](float value) {
+        return static_cast<unsigned char>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
     };
+    return {channel(r), channel(g), channel(b), channel(a)};
 }
 
 bool readStringField(const Sexpr& form, std::string& out) {
@@ -150,6 +150,49 @@ bool applySkyCubeField(const Sexpr& form, MaterialAsset& asset, SexprParseError&
     return true;
 }
 
+bool applySoundField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
+    if (!form.isList() || !form.list[0].isAtom("sound")) {
+        error = {"(sound (absorption lo mid hi) (scattering n) (transmission lo mid hi))", form.line, form.column};
+        return false;
+    }
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        const Sexpr& clause = form.list[i];
+        if (!clause.isList() || clause.list.empty() || clause.list[0].kind != SexprKind::Atom) {
+            error = {"sound expected (absorption|scattering|transmission ...)", clause.line, clause.column};
+            return false;
+        }
+        const std::string& clauseTag = clause.list[0].text;
+        if (clauseTag == "absorption") {
+            float values[3] = {};
+            if (!readNumberField(clause, 3, values)) {
+                error = {"(absorption lo mid hi)", clause.line, clause.column};
+                return false;
+            }
+            asset.sound.absorptionLow = values[0];
+            asset.sound.absorptionMid = values[1];
+            asset.sound.absorptionHigh = values[2];
+        } else if (clauseTag == "scattering") {
+            if (!readNumberField(clause, 1, &asset.sound.scattering)) {
+                error = {"(scattering n)", clause.line, clause.column};
+                return false;
+            }
+        } else if (clauseTag == "transmission") {
+            float values[3] = {};
+            if (!readNumberField(clause, 3, values)) {
+                error = {"(transmission lo mid hi)", clause.line, clause.column};
+                return false;
+            }
+            asset.sound.transmissionLow = values[0];
+            asset.sound.transmissionMid = values[1];
+            asset.sound.transmissionHigh = values[2];
+        } else {
+            error = {"unknown sound field '" + clauseTag + "'", clause.line, clause.column};
+            return false;
+        }
+    }
+    return true;
+}
+
 bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError& error) {
     if (!form.isList() || form.list.empty() || form.list[0].kind != SexprKind::Atom) {
         error = {"expected material field list", form.line, form.column};
@@ -174,6 +217,13 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
     if (tag == "texture-anim") {
         if (!readStringField(form, asset.textureAnimPath)) {
             error = {"(texture-anim \"path\")", form.line, form.column};
+            return false;
+        }
+        return true;
+    }
+    if (tag == "texture-graph") {
+        if (!readStringField(form, asset.textureGraphPath)) {
+            error = {"(texture-graph \"path\")", form.line, form.column};
             return false;
         }
         return true;
@@ -343,6 +393,9 @@ bool applyMaterialField(const Sexpr& form, MaterialAsset& asset, SexprParseError
     if (tag == "sky-cube") {
         return applySkyCubeField(form, asset, error);
     }
+    if (tag == "sound") {
+        return applySoundField(form, asset, error);
+    }
     if (tag == "sky-cylinder") {
         if (!readStringField(form, asset.skyCylinderTexture)) {
             error = {"(sky-cylinder \"path\")", form.line, form.column};
@@ -411,7 +464,9 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
     if (skyAppearanceCount > 1) {
         return false;
     }
-    if (!asset.albedoTexture.empty() && !asset.textureAnimPath.empty()) {
+    const int albedoSources = (asset.albedoTexture.empty() ? 0 : 1) + (asset.textureAnimPath.empty() ? 0 : 1) +
+        (asset.textureGraphPath.empty() ? 0 : 1);
+    if (albedoSources > 1) {
         return false;
     }
     return true;
@@ -420,7 +475,8 @@ bool parseMaterialAsset(std::string_view source, MaterialAsset& asset) {
 Material createRaylibMaterial(
     const MaterialAsset& asset,
     const TextureResolver& resolveTexture,
-    const TextureAnimFrameResolver& resolveAnimFrame) {
+    const TextureAnimFrameResolver& resolveAnimFrame,
+    const TextureGraphOutputResolver& resolveGraphOutput) {
     Material material = LoadMaterialDefault();
     material.maps[MATERIAL_MAP_ALBEDO].color = asset.baseColor;
     if (!asset.textureAnimPath.empty() && resolveAnimFrame) {
@@ -431,6 +487,12 @@ Material createRaylibMaterial(
         }
     } else if (!asset.albedoTexture.empty() && resolveTexture) {
         const Texture2D texture = resolveTexture(asset.albedoTexture);
+        if (texture.id != 0) {
+            SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
+            SetMaterialTexture(&material, MATERIAL_MAP_ALBEDO, texture);
+        }
+    } else if (!asset.textureGraphPath.empty() && resolveGraphOutput) {
+        const Texture2D texture = resolveGraphOutput(asset.textureGraphPath, "albedo");
         if (texture.id != 0) {
             SetTextureWrap(texture, TEXTURE_WRAP_REPEAT);
             SetMaterialTexture(&material, MATERIAL_MAP_ALBEDO, texture);
@@ -464,7 +526,14 @@ Material createRaylibMaterial(
     material.maps[MATERIAL_MAP_SPECULAR].value =
         asset.emissionMultiply ? asset.emissionBlendScale : asset.emissionPower * asset.emissionBlendScale;
 
-    if (!asset.emissionTexture.empty() && resolveTexture) {
+    Texture2D graphEmission{};
+    if (asset.emissionTexture.empty() && !asset.textureGraphPath.empty() && resolveGraphOutput) {
+        graphEmission = resolveGraphOutput(asset.textureGraphPath, "emission");
+    }
+    if (graphEmission.id != 0) {
+        SetTextureWrap(graphEmission, TEXTURE_WRAP_REPEAT);
+        SetMaterialTexture(&material, MATERIAL_MAP_EMISSION, graphEmission);
+    } else if (!asset.emissionTexture.empty() && resolveTexture) {
         const Texture2D emission = resolveTexture(asset.emissionTexture);
         if (emission.id != 0) {
             SetTextureWrap(emission, TEXTURE_WRAP_REPEAT);
@@ -488,6 +557,148 @@ Material createRaylibMaterial(
         };
     }
     return material;
+}
+
+namespace {
+
+std::string fmtMaterialNumber(float value) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(value));
+    return buf;
+}
+
+std::string fmtMaterialColor(Color color) {
+    return fmtMaterialNumber(color.r / 255.0f) + " " + fmtMaterialNumber(color.g / 255.0f) + " " +
+        fmtMaterialNumber(color.b / 255.0f) + " " + fmtMaterialNumber(color.a / 255.0f);
+}
+
+std::string fmtMaterialVec3(Vector3 v) {
+    return fmtMaterialNumber(v.x) + " " + fmtMaterialNumber(v.y) + " " + fmtMaterialNumber(v.z);
+}
+
+std::string quoteMaterialString(const std::string& text) {
+    std::string out = "\"";
+    for (const char c : text) {
+        if (c == '"' || c == '\\') {
+            out.push_back('\\');
+        }
+        out.push_back(c);
+    }
+    out.push_back('"');
+    return out;
+}
+
+} // namespace
+
+std::string serializeMaterialAsset(const MaterialAsset& asset) {
+    const MaterialAsset defaults{};
+    std::ostringstream out;
+    out << "(material\n";
+    out << "  (shader " << quoteMaterialString(asset.shader) << ")\n";
+    if (!asset.albedoTexture.empty()) {
+        out << "  (texture " << quoteMaterialString(asset.albedoTexture) << ")\n";
+    } else if (!asset.textureAnimPath.empty()) {
+        out << "  (texture-anim " << quoteMaterialString(asset.textureAnimPath) << ")\n";
+    } else if (!asset.textureGraphPath.empty()) {
+        out << "  (texture-graph " << quoteMaterialString(asset.textureGraphPath) << ")\n";
+    }
+    out << "  (texel-size " << fmtMaterialNumber(asset.pixelsPerMeter) << ")\n";
+    out << "  (base-color " << fmtMaterialColor(asset.baseColor) << ")\n";
+    if (asset.ior != defaults.ior) {
+        out << "  (ior " << fmtMaterialNumber(asset.ior) << ")\n";
+    }
+    if (!asset.emissionTexture.empty()) {
+        out << "  (emission " << quoteMaterialString(asset.emissionTexture) << ")\n";
+    }
+    if (asset.emissionColor.r != defaults.emissionColor.r || asset.emissionColor.g != defaults.emissionColor.g ||
+        asset.emissionColor.b != defaults.emissionColor.b || asset.emissionColor.a != defaults.emissionColor.a) {
+        out << "  (emission-color " << fmtMaterialColor(asset.emissionColor) << ")\n";
+    }
+    if (asset.emissionPower != defaults.emissionPower) {
+        out << "  (emission-power " << fmtMaterialNumber(asset.emissionPower) << ")\n";
+    }
+    if (asset.emissionRange != defaults.emissionRange) {
+        out << "  (emission-range " << fmtMaterialNumber(asset.emissionRange) << ")\n";
+    }
+    if (asset.preciseEmission) {
+        out << "  (precise-emission)\n";
+    }
+    if (asset.exactEmission) {
+        out << "  (exact-emission)\n";
+    }
+    if (asset.fullbright) {
+        out << "  (fullbright)\n";
+    }
+    if (asset.emissionMultiply || asset.emissionBlendScale != defaults.emissionBlendScale) {
+        out << "  (emission-blend " << (asset.emissionMultiply ? "\"multiply\"" : "\"add\"") << " "
+            << fmtMaterialNumber(asset.emissionBlendScale) << ")\n";
+    }
+    if (asset.bakeEmission) {
+        out << "  (bake-emission)\n";
+    }
+    if (asset.sky) {
+        out << "  (sky)\n";
+    }
+    if (asset.haveSkyMode) {
+        switch (asset.skyMode) {
+        case SkyboxMode::Solid:
+            out << "  (sky-color " << fmtMaterialVec3(asset.skySolidColor) << ")\n";
+            break;
+        case SkyboxMode::Gradient:
+            out << "  (sky-gradient\n";
+            for (int i = 0; i < asset.skyGradientStopCount; ++i) {
+                const SkyGradientStop& stop = asset.skyGradientStops[static_cast<std::size_t>(i)];
+                out << "    (stop " << fmtMaterialNumber(stop.position) << " " << fmtMaterialVec3(stop.color) << ")\n";
+            }
+            out << "  )\n";
+            break;
+        case SkyboxMode::Cube: {
+            static const char* kFaceTags[6] = {"px", "nx", "py", "ny", "pz", "nz"};
+            out << "  (sky-cube";
+            for (int i = 0; i < 6; ++i) {
+                out << " (" << kFaceTags[i] << " " << quoteMaterialString(asset.skyCubeFaces[i]) << ")";
+            }
+            out << ")\n";
+            break;
+        }
+        case SkyboxMode::Cylinder:
+            out << "  (sky-cylinder " << quoteMaterialString(asset.skyCylinderTexture) << ")\n";
+            if (asset.skyCylinderOffset != defaults.skyCylinderOffset) {
+                out << "  (sky-cylinder-offset " << fmtMaterialNumber(asset.skyCylinderOffset) << ")\n";
+            }
+            if (asset.skyCylinderScale != defaults.skyCylinderScale) {
+                out << "  (sky-cylinder-scale " << fmtMaterialNumber(asset.skyCylinderScale) << ")\n";
+            }
+            if (asset.skyCylinderRepeat != defaults.skyCylinderRepeat) {
+                out << "  (sky-cylinder-repeat " << asset.skyCylinderRepeat << ")\n";
+            }
+            break;
+        }
+    }
+    const MaterialSoundProfile& s = asset.sound;
+    const MaterialSoundProfile& d = defaults.sound;
+    const bool absorptionChanged = s.absorptionLow != d.absorptionLow || s.absorptionMid != d.absorptionMid ||
+        s.absorptionHigh != d.absorptionHigh;
+    const bool scatteringChanged = s.scattering != d.scattering;
+    const bool transmissionChanged = s.transmissionLow != d.transmissionLow ||
+        s.transmissionMid != d.transmissionMid || s.transmissionHigh != d.transmissionHigh;
+    if (absorptionChanged || scatteringChanged || transmissionChanged) {
+        out << "  (sound";
+        if (absorptionChanged) {
+            out << " (absorption " << fmtMaterialNumber(s.absorptionLow) << " " << fmtMaterialNumber(s.absorptionMid)
+                << " " << fmtMaterialNumber(s.absorptionHigh) << ")";
+        }
+        if (scatteringChanged) {
+            out << " (scattering " << fmtMaterialNumber(s.scattering) << ")";
+        }
+        if (transmissionChanged) {
+            out << " (transmission " << fmtMaterialNumber(s.transmissionLow) << " "
+                << fmtMaterialNumber(s.transmissionMid) << " " << fmtMaterialNumber(s.transmissionHigh) << ")";
+        }
+        out << ")\n";
+    }
+    out << ")\n";
+    return out.str();
 }
 
 }

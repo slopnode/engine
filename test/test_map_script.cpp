@@ -62,7 +62,7 @@ void runMapScriptTests() {
         ")\n");
 
     AppConfig config{};
-    config.base_game = root;
+    config.game = root;
     AssetStore assets(config);
 
     s7_scheme* scheme = s7_init();

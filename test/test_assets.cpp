@@ -22,6 +22,13 @@ void runAssetTests() {
         CHECK_EQ(asset.albedoTexture, std::string("freedom/WALL"));
         CHECK_EQ(asset.pixelsPerMeter, 64.0f);
         CHECK_FALSE(asset.fullbright);
+        CHECK_EQ(asset.sound.absorptionLow, 0.05f);
+        CHECK_EQ(asset.sound.absorptionMid, 0.08f);
+        CHECK_EQ(asset.sound.absorptionHigh, 0.12f);
+        CHECK_EQ(asset.sound.scattering, 0.15f);
+        CHECK_EQ(asset.sound.transmissionLow, 0.120f);
+        CHECK_EQ(asset.sound.transmissionMid, 0.070f);
+        CHECK_EQ(asset.sound.transmissionHigh, 0.040f);
     }
 
     {
@@ -30,6 +37,26 @@ void runAssetTests() {
             "(material (shader \"default\") (texure \"typo\"))",
             asset);
         CHECK_FALSE(ok);
+    }
+
+    {
+        MaterialAsset asset{};
+        const bool ok = parseMaterialAsset(
+            "(material\n"
+            "  (shader \"default\")\n"
+            "  (texture \"metal/plate\")\n"
+            "  (sound\n"
+            "    (absorption 0.01 0.02 0.03)\n"
+            "    (transmission 0.5 0.4 0.3)))\n",
+            asset);
+        CHECK(ok);
+        CHECK_EQ(asset.sound.absorptionLow, 0.01f);
+        CHECK_EQ(asset.sound.absorptionMid, 0.02f);
+        CHECK_EQ(asset.sound.absorptionHigh, 0.03f);
+        CHECK_EQ(asset.sound.transmissionLow, 0.5f);
+        CHECK_EQ(asset.sound.transmissionMid, 0.4f);
+        CHECK_EQ(asset.sound.transmissionHigh, 0.3f);
+        CHECK_EQ(asset.sound.scattering, 0.15f);
     }
 
     {

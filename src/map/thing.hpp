@@ -136,12 +136,6 @@ struct Thing {
     std::string prefabPath;
 
     std::string audio;
-    std::string clip;
-    float volume = 1.0f;
-    float minDistance = 1.0f;
-    float maxDistance = 30.0f;
-    bool looping = true;
-    bool spatial = true;
 
     std::string particleSystem;
     bool particlePlay = true;
@@ -182,11 +176,6 @@ inline Thing makeDefaultLightThing(ThingKind kind) {
 inline Thing makeDefaultSoundSourceThing() {
     Thing t{};
     t.kind = ThingKind::SoundSource;
-    t.volume = 1.0f;
-    t.minDistance = 1.0f;
-    t.maxDistance = 30.0f;
-    t.looping = true;
-    t.spatial = true;
     return t;
 }
 

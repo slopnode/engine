@@ -12,11 +12,13 @@ void runSexprTests();
 void runPackageSearchTests();
 void runPackageMetaTests();
 void runAssetTests();
+void runTextureGraphTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
 void runMapScriptTests();
+void runCameraPathTests();
 void runCsgCompileTests();
 void runPvsBuildTests();
 void runNavGraphTests();
@@ -44,6 +46,7 @@ void runRadiosityEmitterTests();
 void runSunShadowSoftnessTests();
 void runSeamStitchTests();
 void runSightTests();
+void runSlopUiThemeTests();
 
 }
 
@@ -59,11 +62,13 @@ const Suite kSuites[] = {
     {"package_search", slopengine::runPackageSearchTests},
     {"package_meta", slopengine::runPackageMetaTests},
     {"assets", slopengine::runAssetTests},
+    {"texture_graph", slopengine::runTextureGraphTests},
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},
     {"map_script", slopengine::runMapScriptTests},
+    {"camera_path", slopengine::runCameraPathTests},
     {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
     {"nav_graph", slopengine::runNavGraphTests},
@@ -91,6 +96,7 @@ const Suite kSuites[] = {
     {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
     {"sight", slopengine::runSightTests},
+    {"slopui_theme", slopengine::runSlopUiThemeTests},
 };
 
 bool runSuite(const Suite& suite) {

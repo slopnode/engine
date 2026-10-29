@@ -5,12 +5,17 @@
 #include "input/input_context.hpp"
 #include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
+#include "assets/asset_services.hpp"
 #include "script/script_context.hpp"
+#include "ui/slopui_theme.hpp"
+#include "ui/slopui_widgets.hpp"
+#include "ui/slopui_world.hpp"
 
 #include "imgui.h"
 
 #include <s7.h>
 
+#include <cfloat>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -27,8 +32,54 @@ std::unordered_map<std::string, std::string> g_inputTextBuffers;
 std::unordered_map<std::string, std::vector<char>> g_inputTextScratch;
 
 bool inMenuItemSlot() {
-    return g_uiSlot == PackageUiDrawSlot::FileMenu || g_uiSlot == PackageUiDrawSlot::PauseMenu ||
+    return g_uiSlot == PackageUiDrawSlot::FileMenu || g_uiSlot == PackageUiDrawSlot::MenuBar ||
+           g_uiSlot == PackageUiDrawSlot::PauseMenu || g_uiSlot == PackageUiDrawSlot::DebugMenu;
+}
+
+bool inMenuSlot() {
+    return g_uiSlot == PackageUiDrawSlot::FileMenu || g_uiSlot == PackageUiDrawSlot::MenuBar ||
            g_uiSlot == PackageUiDrawSlot::DebugMenu;
+}
+
+const SlopUiTheme* uiTheme() {
+    if (g_uiWorld == nullptr || !g_uiWorld->has<SlopUiTheme>()) {
+        return nullptr;
+    }
+    return &g_uiWorld->get<SlopUiTheme>();
+}
+
+const SlopUiFonts* uiFonts() {
+    if (g_uiWorld == nullptr || !g_uiWorld->has<SlopUiFonts>()) {
+        return nullptr;
+    }
+    return &g_uiWorld->get<SlopUiFonts>();
+}
+
+AssetStore* uiAssets() {
+    if (g_uiWorld == nullptr || !g_uiWorld->has<AssetServices>()) {
+        return nullptr;
+    }
+    return g_uiWorld->get_mut<AssetServices>().store;
+}
+
+void uiConfirmSound() {
+    if (g_uiWorld != nullptr) {
+        playUiSound(*g_uiWorld, UiSoundKind::Confirm);
+    }
+}
+
+bool readFontSlotArg(s7_scheme* sc, s7_pointer cell, const char* fn, ThemeFontSlot& slot) {
+    const char* name = nullptr;
+    if (s7_is_symbol(cell)) {
+        name = s7_symbol_name(cell);
+    } else if (s7_is_string(cell)) {
+        name = s7_string(cell);
+    }
+    if (name == nullptr || !parseThemeFontSlot(name, slot)) {
+        s7_wrong_type_arg_error(sc, fn, 1, cell, "font slot normal|bold|heading|mono");
+        return false;
+    }
+    return true;
 }
 
 bool contextContains(InputContext context) {
@@ -96,7 +147,21 @@ s7_pointer g_ui_button(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "ui-button", 1, s7_car(args), "string");
     }
-    return ImGui::Button(s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
+    const SlopUiTheme* theme = uiTheme();
+    const SlopUiFonts* fonts = uiFonts();
+    bool pressed = false;
+    if (theme != nullptr && fonts != nullptr) {
+        const ImVec2 size = g_uiSlot == PackageUiDrawSlot::PauseMenu
+            ? ImVec2{-1.0f, theme->buttonHeight}
+            : ImVec2{0.0f, 0.0f};
+        pressed = themedButton(*theme, *fonts, uiAssets(), s7_string(s7_car(args)), size);
+    } else {
+        pressed = ImGui::Button(s7_string(s7_car(args)));
+    }
+    if (pressed) {
+        uiConfirmSound();
+    }
+    return pressed ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_menu_item(s7_scheme* sc, s7_pointer args) {
@@ -113,7 +178,11 @@ s7_pointer g_ui_menu_item(s7_scheme* sc, s7_pointer args) {
     if (s7_is_pair(s7_cdr(args))) {
         enabled = s7_boolean(sc, s7_cadr(args));
     }
-    return ImGui::MenuItem(s7_string(s7_car(args)), nullptr, false, enabled) ? s7_t(sc) : s7_f(sc);
+    const bool clicked = ImGui::MenuItem(s7_string(s7_car(args)), nullptr, false, enabled);
+    if (clicked) {
+        uiConfirmSound();
+    }
+    return clicked ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_menu_check(s7_scheme* sc, s7_pointer args) {
@@ -130,7 +199,9 @@ s7_pointer g_ui_menu_check(s7_scheme* sc, s7_pointer args) {
         return s7_wrong_type_arg_error(sc, "ui-menu-check", 2, s7_cadr(args), "boolean");
     }
     bool selected = s7_boolean(sc, s7_cadr(args));
-    ImGui::MenuItem(s7_string(s7_car(args)), nullptr, &selected, true);
+    if (ImGui::MenuItem(s7_string(s7_car(args)), nullptr, &selected, true)) {
+        uiConfirmSound();
+    }
     return selected ? s7_t(sc) : s7_f(sc);
 }
 
@@ -145,7 +216,11 @@ s7_pointer g_ui_selectable(s7_scheme* sc, s7_pointer args) {
     if (s7_is_pair(s7_cdr(args))) {
         selected = s7_boolean(sc, s7_cadr(args));
     }
-    return ImGui::Selectable(s7_string(s7_car(args)), selected) ? s7_t(sc) : s7_f(sc);
+    const bool clicked = ImGui::Selectable(s7_string(s7_car(args)), selected);
+    if (clicked) {
+        uiConfirmSound();
+    }
+    return clicked ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_ui_begin(s7_scheme* sc, s7_pointer args) {
@@ -154,6 +229,11 @@ s7_pointer g_ui_begin(s7_scheme* sc, s7_pointer args) {
     }
     if (!s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "ui-begin", 1, s7_car(args), "string");
+    }
+    const SlopUiTheme* theme = uiTheme();
+    const SlopUiFonts* fonts = uiFonts();
+    if (theme != nullptr && fonts != nullptr) {
+        return beginThemedWindow(*theme, *fonts, uiAssets(), s7_string(s7_car(args))) ? s7_t(sc) : s7_f(sc);
     }
     const bool open = ImGui::Begin(
         s7_string(s7_car(args)),
@@ -181,7 +261,7 @@ s7_pointer g_ui_begin_child(s7_scheme* sc, s7_pointer args) {
     if (s7_is_pair(s7_cdr(args)) && s7_is_number(s7_cadr(args))) {
         height = static_cast<float>(s7_number_to_real(sc, s7_cadr(args)));
     }
-    const bool open = ImGui::BeginChild(
+    const bool open = slopuiBeginChild(
         s7_string(s7_car(args)),
         ImVec2{0.0f, height},
         ImGuiChildFlags_Borders);
@@ -285,6 +365,9 @@ s7_pointer g_ui_combo_item(s7_scheme* sc, s7_pointer args) {
         selected = s7_boolean(sc, s7_cadr(args));
     }
     const bool clicked = ImGui::Selectable(s7_string(s7_car(args)), selected);
+    if (clicked) {
+        uiConfirmSound();
+    }
     if (selected) {
         ImGui::SetItemDefaultFocus();
     }
@@ -313,6 +396,162 @@ s7_pointer g_ui_unindent(s7_scheme* sc, s7_pointer) {
         return s7_f(sc);
     }
     ImGui::Unindent();
+    return s7_t(sc);
+}
+
+s7_pointer g_ui_push_font(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    ThemeFontSlot slot;
+    if (!readFontSlotArg(sc, s7_car(args), "ui-push-font", slot)) {
+        return s7_f(sc);
+    }
+    const SlopUiFonts* fonts = uiFonts();
+    if (fonts == nullptr) {
+        ImGui::PushFont(nullptr, 0.0f);
+        return s7_t(sc);
+    }
+    pushThemeFont(*fonts, slot);
+    return s7_t(sc);
+}
+
+s7_pointer g_ui_pop_font(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    ImGui::PopFont();
+    return s7_t(sc);
+}
+
+s7_pointer textInSlot(s7_scheme* sc, s7_pointer args, const char* fn, ThemeFontSlot slot) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, fn, 1, s7_car(args), "string");
+    }
+    const SlopUiFonts* fonts = uiFonts();
+    if (fonts != nullptr) {
+        pushThemeFont(*fonts, slot);
+    }
+    ImGui::TextUnformatted(s7_string(s7_car(args)));
+    if (fonts != nullptr) {
+        ImGui::PopFont();
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_ui_heading(s7_scheme* sc, s7_pointer args) {
+    return textInSlot(sc, args, "ui-heading", ThemeFontSlot::Heading);
+}
+
+s7_pointer g_ui_mono_text(s7_scheme* sc, s7_pointer args) {
+    return textInSlot(sc, args, "ui-mono-text", ThemeFontSlot::Mono);
+}
+
+s7_pointer g_ui_text_dim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "ui-text-dim", 1, s7_car(args), "string");
+    }
+    ImGui::TextDisabled("%s", s7_string(s7_car(args)));
+    return s7_t(sc);
+}
+
+s7_pointer g_ui_spacer(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    float height = ImGui::GetStyle().ItemSpacing.y;
+    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
+        const float requested = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        if (requested > 0.0f) {
+            height = requested;
+        }
+    }
+    ImGui::Dummy(ImVec2{0.0f, height});
+    return s7_t(sc);
+}
+
+s7_pointer g_ui_primary_button(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "ui-primary-button", 1, s7_car(args), "string");
+    }
+    const SlopUiTheme* theme = uiTheme();
+    const SlopUiFonts* fonts = uiFonts();
+    bool clicked = false;
+    if (theme == nullptr || fonts == nullptr) {
+        clicked = ImGui::Button(s7_string(s7_car(args)));
+    } else {
+        clicked = themedButton(
+            *theme, *fonts, uiAssets(), s7_string(s7_car(args)), ImVec2{-1.0f, theme->buttonHeight}, true);
+    }
+    if (clicked) {
+        uiConfirmSound();
+    }
+    return clicked ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_ui_begin_panel(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "ui-begin-panel", 1, s7_car(args), "string");
+    }
+    float height = 0.0f;
+    if (s7_is_pair(s7_cdr(args)) && s7_is_number(s7_cadr(args))) {
+        height = static_cast<float>(s7_number_to_real(sc, s7_cadr(args)));
+    }
+    const SlopUiTheme* theme = uiTheme();
+    if (theme == nullptr) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_PopupBg));
+        ImGuiChildFlags flags = ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding;
+        if (height <= 0.0f) {
+            flags |= ImGuiChildFlags_AutoResizeY;
+        }
+        const bool open = ImGui::BeginChild(s7_string(s7_car(args)), ImVec2{0.0f, height}, flags);
+        return open ? s7_t(sc) : s7_f(sc);
+    }
+    return beginThemedPanel(*theme, uiAssets(), s7_string(s7_car(args)), height) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_ui_end_panel(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    endThemedPanel();
+    return s7_t(sc);
+}
+
+s7_pointer g_ui_begin_menu(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    if (!inMenuSlot()) {
+        return s7_f(sc);
+    }
+    if (!s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "ui-begin-menu", 1, s7_car(args), "string");
+    }
+    bool enabled = true;
+    if (s7_is_pair(s7_cdr(args))) {
+        enabled = s7_boolean(sc, s7_cadr(args));
+    }
+    return ImGui::BeginMenu(s7_string(s7_car(args)), enabled) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_ui_end_menu(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::UiDraw)) {
+        return s7_f(sc);
+    }
+    ImGui::EndMenu();
     return s7_t(sc);
 }
 
@@ -370,6 +609,20 @@ void bindUiApi(flecs::world& world, s7_scheme* scheme) {
         scheme, "ui-combo-item", g_ui_combo_item, 1, 1, false, "(ui-combo-item label [selected?])");
     s7_define_function(scheme, "ui-end-combo", g_ui_end_combo, 0, 0, false, "(ui-end-combo)");
     s7_define_function(scheme, "ui-indent", g_ui_indent, 0, 0, false, "(ui-indent)");
+    s7_define_function(scheme, "ui-push-font", g_ui_push_font, 1, 0, false, "(ui-push-font slot)");
+    s7_define_function(scheme, "ui-pop-font", g_ui_pop_font, 0, 0, false, "(ui-pop-font)");
+    s7_define_function(scheme, "ui-heading", g_ui_heading, 1, 0, false, "(ui-heading str)");
+    s7_define_function(scheme, "ui-text-dim", g_ui_text_dim, 1, 0, false, "(ui-text-dim str)");
+    s7_define_function(scheme, "ui-mono-text", g_ui_mono_text, 1, 0, false, "(ui-mono-text str)");
+    s7_define_function(scheme, "ui-spacer", g_ui_spacer, 0, 1, false, "(ui-spacer [height])");
+    s7_define_function(
+        scheme, "ui-primary-button", g_ui_primary_button, 1, 0, false, "(ui-primary-button label)");
+    s7_define_function(
+        scheme, "ui-begin-panel", g_ui_begin_panel, 1, 1, false, "(ui-begin-panel id [height])");
+    s7_define_function(scheme, "ui-end-panel", g_ui_end_panel, 0, 0, false, "(ui-end-panel)");
+    s7_define_function(
+        scheme, "ui-begin-menu", g_ui_begin_menu, 1, 1, false, "(ui-begin-menu label [enabled?])");
+    s7_define_function(scheme, "ui-end-menu", g_ui_end_menu, 0, 0, false, "(ui-end-menu)");
     s7_define_function(scheme, "ui-unindent", g_ui_unindent, 0, 0, false, "(ui-unindent)");
 }
 
@@ -380,6 +633,12 @@ void setPackageUiDrawSlot(PackageUiDrawSlot slot) {
 void callDrawFileMenu(flecs::world& world) {
     setPackageUiDrawSlot(PackageUiDrawSlot::FileMenu);
     callNamedHook(world, "draw-file-menu");
+    setPackageUiDrawSlot(PackageUiDrawSlot::None);
+}
+
+void callDrawMenuBar(flecs::world& world) {
+    setPackageUiDrawSlot(PackageUiDrawSlot::MenuBar);
+    callNamedHook(world, "draw-menu-bar");
     setPackageUiDrawSlot(PackageUiDrawSlot::None);
 }
 

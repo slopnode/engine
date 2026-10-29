@@ -1,6 +1,7 @@
 #include "sound_browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -28,12 +29,19 @@ bool containsIgnoreCase(const std::string& haystack, const std::string& needle) 
 }
 
 bool isSoundExtension(const std::filesystem::path& path) {
-    const std::string ext = path.extension().string();
-    return ext == ".ogg" || ext == ".wav";
+    return path.extension() == ".ogg";
 }
 
 bool isSaudioExtension(const std::filesystem::path& path) {
     return path.extension().string() == ".saudio";
+}
+
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
 }
 
 void collectFromDir(
@@ -55,21 +63,24 @@ void collectFromDir(
             continue;
         }
         relative.replace_extension();
-        seen.insert(relative.generic_string());
+        seen.insert(genericUtf8(relative));
     }
 }
 
 } // namespace
 
 void SoundBrowser::rescan(const slopengine::AssetStore& assets) {
-    std::unordered_set<std::string> seen;
+    std::unordered_set<std::string> seenDefined;
+    std::unordered_set<std::string> seenRaw;
     for (const slopengine::Package& package : assets.packages()) {
-        collectFromDir(package.root() / "sound", isSoundExtension, seen);
-        collectFromDir(package.root() / "audio", isSaudioExtension, seen);
+        collectFromDir(package.root() / "audio", isSaudioExtension, seenDefined);
+        collectFromDir(package.root() / "sounds", isSoundExtension, seenRaw);
     }
 
-    sounds.assign(seen.begin(), seen.end());
-    std::sort(sounds.begin(), sounds.end());
+    definedSounds.assign(seenDefined.begin(), seenDefined.end());
+    std::sort(definedSounds.begin(), definedSounds.end());
+    rawClips.assign(seenRaw.begin(), seenRaw.end());
+    std::sort(rawClips.begin(), rawClips.end());
 }
 
 bool SoundBrowser::drawModal(slopengine::AssetStore& assets, std::string& outPath) {
@@ -91,8 +102,17 @@ bool SoundBrowser::drawModal(slopengine::AssetStore& assets, std::string& outPat
             filter = filterBuf;
         }
         ImGui::Separator();
-        if (ImGui::BeginChild("##soundlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
-            for (const std::string& path : sounds) {
+        std::vector<std::string> combined;
+        const std::vector<std::string>* list = &definedSounds;
+        if (mode == SoundBrowserMode::Combined) {
+            combined = definedSounds;
+            combined.insert(combined.end(), rawClips.begin(), rawClips.end());
+            std::sort(combined.begin(), combined.end());
+            combined.erase(std::unique(combined.begin(), combined.end()), combined.end());
+            list = &combined;
+        }
+        if (slopengine::slopuiBeginChild("##soundlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
+            for (const std::string& path : *list) {
                 if (!containsIgnoreCase(path, filter)) {
                     continue;
                 }

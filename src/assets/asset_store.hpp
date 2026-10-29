@@ -9,6 +9,7 @@
 #include "assets/sprite_anim_loader.hpp"
 #include "assets/sprite_loader.hpp"
 #include "assets/texture_anim_loader.hpp"
+#include "assets/texture_graph.hpp"
 #include "core/vfs.hpp"
 #include "game/app_config.hpp"
 
@@ -53,23 +54,50 @@ public:
     /** Returns true when a font exists at @p path. */
     bool hasFont(std::string_view path) const;
 
-    /** Returns true when a sound exists as .ogg or .wav at @p path. */
+    /** Returns true when a sound exists at @p path. */
     bool hasSound(std::string_view path) const;
 
-    /** Resolves a sound to a filesystem path (.ogg preferred, then .wav). */
+    /** Resolves a sound to a filesystem path. */
     std::optional<std::filesystem::path> resolveSoundPath(std::string_view path) const;
 
     /** Returns true when an audio def exists at @p path. */
     bool hasAudio(std::string_view path) const;
 
-    /** Returns a cached audio def, loading and evaluating it when needed. */
-    const AudioDef* getAudioDef(s7_scheme* scheme, std::string_view path);
+    /** Returns true when a MIDI file exists at @p path. */
+    bool hasMidi(std::string_view path) const;
 
-    /** True while an audio def script is being evaluated for registration. */
-    bool isLoadingAudioDef() const { return audioDefLoadActive_; }
+    /** Resolves a MIDI file to a filesystem path. */
+    std::optional<std::filesystem::path> resolveMidiPath(std::string_view path) const;
 
-    /** Commits a def registered by Scheme during getAudioDef load. */
-    bool commitAudioDef(AudioDef def);
+    /** Returns true when a soundfont exists at @p path. */
+    bool hasSoundFont(std::string_view path) const;
+
+    /** Resolves a soundfont to a filesystem path. */
+    std::optional<std::filesystem::path> resolveSoundFontPath(std::string_view path) const;
+
+    /** Returns a cached audio def, loading it when needed. */
+    const AudioDef* getAudioDef(std::string_view path);
+
+    /** Drops the cached audio def for @p path so the next getAudioDef reloads from disk. */
+    void invalidateAudioDef(std::string_view path);
+
+    /** Returns true when a procedural (.sfxr) def exists at @p path. */
+    bool hasProcedural(std::string_view path) const;
+
+    /** Returns a cached procedural def, loading it when needed. */
+    const ProceduralDef* getProceduralDef(std::string_view path);
+
+    /** Drops the cached procedural def for @p path so the next getProceduralDef reloads from disk. */
+    void invalidateProceduralDef(std::string_view path);
+
+    /** Returns true when a bus mixer config exists at the fixed audio/buses.saudio path. */
+    bool hasBusConfig() const;
+
+    /** Returns the cached bus mixer config, loading it from audio/buses.saudio when needed. */
+    const BusConfig* getBusConfig();
+
+    /** Drops the cached bus config so the next getBusConfig reloads from disk. */
+    void invalidateBusConfig();
 
     /** Returns true when a material exists at @p path. */
     bool hasMaterial(std::string_view path) const;
@@ -161,6 +189,9 @@ public:
     /** Returns true when a texture animation bank exists at @p path. */
     bool hasTextureAnim(std::string_view path) const;
 
+    /** Returns true when a texture graph exists at @p path. */
+    bool hasTextureGraph(std::string_view path) const;
+
     /** Returns true when a particle system exists at @p path. */
     bool hasParticle(std::string_view path) const;
 
@@ -188,6 +219,9 @@ public:
     /** Returns the cached parsed material asset for @p path, loading it when needed. */
     const MaterialAsset* getMaterialAsset(std::string_view path);
 
+    /** Drops the cached parsed material at @p path so the next get re-reads from disk. */
+    void invalidateMaterial(std::string_view path);
+
     /** Returns a cached skeleton asset, loading it when needed. */
     const SkeletonAsset* getSkeletonAsset(std::string_view path);
 
@@ -209,11 +243,30 @@ public:
     /** Returns a cached texture animation bank, loading it when needed. */
     const TextureAnimBank* getTextureAnimBank(std::string_view path);
 
+    /** Drops the cached bank at @p path so the next get re-reads from disk. */
+    void invalidateTextureAnim(std::string_view path);
+
     /** Returns the albedo texture for @p frameIndex in @p clipName of @p animPath. */
     Texture2D resolveTextureAnimFrame(
         std::string_view animPath,
         std::string_view clipName,
         int frameIndex);
+
+    /** Returns a cached parsed texture graph, loading it when needed; nullptr when missing or invalid. */
+    const TextureGraph* getTextureGraph(std::string_view path);
+
+    /** Evaluates @p outputName of the graph at @p path on the CPU; caller unloads @p out. */
+    bool evaluateTextureGraphImage(
+        std::string_view path,
+        std::string_view outputName,
+        Image& out,
+        std::string& error);
+
+    /** Returns a cached GPU texture for @p outputName of the graph at @p path; id 0 when it cannot be built. */
+    Texture2D resolveTextureGraphOutput(std::string_view path, std::string_view outputName);
+
+    /** Drops the parsed graph and its uploaded outputs so the next get re-reads from disk. */
+    void invalidateTextureGraph(std::string_view path);
 
     /** Returns a cached particle system asset, loading it when needed. */
     const ParticleSystemAsset* getParticleAsset(std::string_view path);
@@ -283,6 +336,9 @@ public:
 
     /** Returns the text source of the texture animation bank at @p path. */
     std::string getTextureAnimSource(std::string_view path);
+
+    /** Returns the text source of the texture graph at @p path. */
+    std::string getTextureGraphSource(std::string_view path);
 
     /** Reads the full binary contents of an asset identified by @p kind. */
     std::vector<std::byte> readBinary(std::string_view path, AssetKind kind);
@@ -354,14 +410,14 @@ private:
     std::unordered_map<std::string, SpriteAtlas> spriteAtlases_;
     std::unordered_map<std::string, SpriteAnimBank> spriteAnimBanks_;
     std::unordered_map<std::string, TextureAnimBank> textureAnimBanks_;
+    std::unordered_map<std::string, TextureGraph> textureGraphs_;
+    std::unordered_map<std::string, Texture2D> textureGraphOutputs_;
     std::unordered_map<std::string, ParticleSystemAsset> particleAssets_;
     std::unordered_map<std::string, std::filesystem::file_time_type> spriteSourceMtimes_;
     std::unordered_map<std::string, IconAtlas> iconAtlases_;
     std::unordered_map<std::string, AudioDef> audioDefs_;
-    std::string audioDefLoadPath_;
-    AudioDef audioDefStaging_{};
-    bool audioDefLoadActive_ = false;
-    bool audioDefRegistered_ = false;
+    std::unordered_map<std::string, ProceduralDef> proceduralDefs_;
+    std::optional<BusConfig> busConfig_;
 };
 
 }

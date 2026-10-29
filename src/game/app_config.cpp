@@ -23,12 +23,12 @@ void AppConfig::printVersion(const char* program) {
 void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag>& schema) {
     std::cerr << programDisplayName(program) << " - v" << kSlopengineVersion << "\n\n";
     std::cerr << "Usage: " << program
-              << " --base-game <path|name> [--mod <path|name>]... [--profile <name>] [package-flags...]\n"
+              << " --game <path|name> [--mod <path|name>]... [--profile <name>] [package-flags...]\n"
               << "\n"
-              << "  --base-game   Base game package: a directory path, or a name looked up in\n"
+              << "  --game        Game package: a directory path, or a name looked up in\n"
               << "                the configured search paths (required)\n"
               << "  --mod         Additional mod package: path or name, same lookup as\n"
-              << "                --base-game (repeatable)\n"
+              << "                --game (repeatable)\n"
               << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
               << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n"
               << "  --verbose     Raise the trace log level to show DEBUG messages\n"
@@ -59,11 +59,11 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
 
-        if (arg == "--base-game") {
+        if (arg == "--game") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
-            config.base_game = argv[++i];
+            config.game = argv[++i];
             continue;
         }
 
@@ -104,7 +104,7 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
         config.pendingArgs.push_back(arg);
     }
 
-    if (config.base_game.empty()) {
+    if (config.game.empty()) {
         return std::nullopt;
     }
 

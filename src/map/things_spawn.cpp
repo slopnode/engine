@@ -61,6 +61,7 @@ struct SpawnContext {
     Vector3 prefabAt{};
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
+    std::vector<NavProfileDef> navProfiles;
 };
 
 MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -703,8 +704,8 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
             if (!placement.motorNavProfile.empty()) {
                 navAgent.navProfile = placement.motorNavProfile;
             } else if (
-                const NavProfileDef* autoProfile = resolveAutoNavProfile(
-                    navProfileRegistry().defsOrDefault(), motor.radius, motor.height)) {
+                const NavProfileDef* autoProfile =
+                    resolveAutoNavProfile(ctx.navProfiles, motor.radius, motor.height)) {
                 navAgent.navProfile = autoProfile->name;
             }
             entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(navAgent);
@@ -762,18 +763,20 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
 
     if (placement.kind == ThingKind::SoundSource) {
         entity.add<WorldSpace>().set<LocalTransformation>(makeLocalTransform(placement, ctx));
-        entity.set<AudioSource>({
-            .audio = placement.audio,
-            .clip = placement.clip,
-            .volume = placement.volume,
-            .minDistance = placement.minDistance,
-            .maxDistance = placement.maxDistance,
-            .looping = placement.looping,
-            .spatial = placement.spatial,
-            .autoplay = true,
-            .playing = false,
-            .voice = 0,
-        });
+        const AudioDef* def = ctx.assets != nullptr ? ctx.assets->getAudioDef(placement.audio) : nullptr;
+        AudioSource source{};
+        source.audio = placement.audio;
+        source.autoplay = true;
+        source.playing = false;
+        source.voice = 0;
+        if (def != nullptr) {
+            source.volume = def->volume;
+            source.minDistance = def->minDistance;
+            source.maxDistance = def->maxDistance;
+            source.looping = def->loop;
+            source.spatial = def->spatial;
+        }
+        entity.set<AudioSource>(source);
         return;
     }
 
@@ -912,6 +915,7 @@ void spawnThings(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = brushes;
+    ctx.navProfiles = navProfileRegistry().defsOrDefault();
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
@@ -939,6 +943,7 @@ PlayerStart spawnMapThings(
     ctx.assets = &assets;
     ctx.scheme = scheme;
     ctx.brushes = &brushes;
+    ctx.navProfiles = navProfileRegistry().defsOrDefault();
     ctx.rad = rad;
     if (rad != nullptr) {
         for (const LightmapChart& chart : rad->charts) {

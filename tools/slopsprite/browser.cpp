@@ -1,6 +1,7 @@
 #include "browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -18,6 +19,14 @@
 namespace slopsprite {
 
 namespace {
+
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
+}
 
 bool containsIgnoreCase(const std::string& haystack, const std::string& needle) {
     if (needle.empty()) {
@@ -79,7 +88,7 @@ void drawFramesSection(Editor& editor, slopengine::AssetStore& assets) {
         }
         const float pickSize = ImGui::GetFrameHeight();
         const ImVec2 pickPos = ImGui::GetCursorScreenPos();
-        if (ImGui::Button("##pick", ImVec2(pickSize, pickSize))) {
+        if (slopengine::slopuiButton("##pick", ImVec2(pickSize, pickSize))) {
             editor.selectFrameIndex(i);
         }
         ImGui::PopStyleColor(3);
@@ -228,7 +237,7 @@ void drawClipFramesSection(Editor& editor, slopengine::AssetStore& assets) {
         }
         const float pickSize = ImGui::GetFrameHeight();
         const ImVec2 pickPos = ImGui::GetCursorScreenPos();
-        if (ImGui::Button("##pick", ImVec2(pickSize, pickSize))) {
+        if (slopengine::slopuiButton("##pick", ImVec2(pickSize, pickSize))) {
             editor.doc.selectedClipFrameIndex = i;
         }
         ImGui::PopStyleColor(3);
@@ -348,7 +357,7 @@ void SpriteBrowser::rescan(const slopengine::AssetStore& assets) {
                 continue;
             }
             relative.replace_extension();
-            const std::string virtualPath = relative.generic_string();
+            const std::string virtualPath = genericUtf8(relative);
             owningPackage[virtualPath] = package.meta().id;
         }
     }
@@ -383,7 +392,7 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
 
     const float listHeight = std::max(120.0f, ImGui::GetContentRegionAvail().y * 0.5f);
 
-    if (ImGui::BeginChild("##spritebrowserlist", ImVec2(0.0f, listHeight), false)) {
+    if (slopengine::slopuiBeginChild("##spritebrowserlist", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders)) {
         for (const SpriteBrowserEntry& entry : entries) {
             if (!containsIgnoreCase(entry.virtualPath, filter) &&
                 !containsIgnoreCase(entry.packageId, filter)) {
@@ -409,17 +418,17 @@ void SpriteBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
 
     ImGui::Separator();
 
-    if (ImGui::BeginChild("##sprframestabs", ImVec2(0.0f, 0.0f), false)) {
-        if (ImGui::BeginTabBar("##browserTabs")) {
-            if (ImGui::BeginTabItem("Frames")) {
+    if (slopengine::slopuiBeginChild("##sprframestabs", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+        if (slopengine::slopuiBeginTabBar("##browserTabs")) {
+            if (slopengine::slopuiBeginTabItem("Frames")) {
                 drawFramesSection(editor, assets);
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Clips")) {
+            if (slopengine::slopuiBeginTabItem("Clips")) {
                 drawClipFramesSection(editor, assets);
                 ImGui::EndTabItem();
             }
-            ImGui::EndTabBar();
+            slopengine::slopuiEndTabBar();
         }
     }
     ImGui::EndChild();
@@ -449,7 +458,7 @@ void SpritePicker::rescan(const slopengine::AssetStore& assets) {
                 continue;
             }
             relative.replace_extension();
-            seen.insert(relative.generic_string());
+            seen.insert(genericUtf8(relative));
         }
     }
 
@@ -476,7 +485,7 @@ bool SpritePicker::drawModal(slopengine::AssetStore& assets, std::string& outPat
             filter = filterBuf;
         }
         ImGui::Separator();
-        if (ImGui::BeginChild(
+        if (slopengine::slopuiBeginChild(
                 "##spritepicklist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
             for (const std::string& path : sprites) {
                 if (!containsIgnoreCase(path, filter)) {

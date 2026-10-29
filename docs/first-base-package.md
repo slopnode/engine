@@ -15,7 +15,7 @@ The only requirement for the engine to load a package is that it is a folder wit
   (depends "whatever.you.want")) ; same as ID
 </code></pre>
 
-A base-game package will not have other dependencies. From this point on you can run `slopengine --base-game path/to/game`. However, the menu will be black and the file menu empty. 
+A base-game package will not have other dependencies. From this point on you can run `slopengine --game path/to/game`. However, the menu will be black and the file menu empty. 
 
 ![Blank Package](images/first-base-package.png)
 

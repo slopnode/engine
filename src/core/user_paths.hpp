@@ -15,7 +15,7 @@ std::filesystem::path userCacheDirectory();
 /**
  * Path to the global settings.cfg: package search paths ([paths]) live here,
  * unscoped by profile or mounted package, because they're what resolves a
- * --base-game/--mod name in the first place -- scoping them by package would
+ * --game/--mod name in the first place -- scoping them by package would
  * make finding the package depend on already having found it.
  */
 std::filesystem::path userSettingsPath();

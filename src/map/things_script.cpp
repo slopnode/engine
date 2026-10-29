@@ -481,13 +481,6 @@ s7_pointer g_audio(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "audio", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
-s7_pointer g_clip(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "clip", 1, args, "path");
-    }
-    return makeTaggedList(sc, "clip", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
 s7_pointer g_system(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "system", 1, args, "path");
@@ -888,23 +881,16 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
             readVec2(sc, s7_car(rest), s7_cadr(rest), out.size);
         } else if (std::strcmp(tag, "audio") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.audio);
-        } else if (std::strcmp(tag, "clip") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), out.clip);
         } else if (std::strcmp(tag, "volume") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
-            out.volume = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "loop") == 0 && s7_is_pair(rest)) {
-            readBool(sc, s7_car(rest), out.looping);
         } else if (std::strcmp(tag, "spatial") == 0 && s7_is_pair(rest)) {
-            readBool(sc, s7_car(rest), out.spatial);
         } else if (std::strcmp(tag, "cast-shadows") == 0 && s7_is_pair(rest)) {
             readBool(sc, s7_car(rest), out.dynamicCastShadows);
         } else if (std::strcmp(tag, "min-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
-            out.minDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "max-distance") == 0 && s7_is_pair(rest) &&
                    s7_is_number(s7_car(rest))) {
-            out.maxDistance = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
         } else if (std::strcmp(tag, "system") == 0 && s7_is_pair(rest)) {
             readString(sc, s7_car(rest), out.particleSystem);
         } else if (std::strcmp(tag, "play") == 0 && s7_is_pair(rest)) {
@@ -1466,11 +1452,11 @@ s7_pointer g_sound_source(s7_scheme* sc, s7_pointer args) {
             s7_make_symbol(sc, "thing-error"),
             s7_list(sc, 1, s7_make_string(sc, "sound-source has invalid clauses")));
     }
-    if (placement.audio.empty() && placement.clip.empty()) {
+    if (placement.audio.empty()) {
         return s7_error(
             sc,
             s7_make_symbol(sc, "thing-error"),
-            s7_list(sc, 1, s7_make_string(sc, "sound-source requires audio or clip")));
+            s7_list(sc, 1, s7_make_string(sc, "sound-source requires audio")));
     }
     return appendThing(sc, std::move(placement), "sound-source requires id and at", true);
 }
@@ -1611,7 +1597,6 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "cone", g_cone, 1, 0, false, "(cone radians)");
     s7_define_function(sc, "size", g_size, 2, 0, false, "(size width height)");
     s7_define_function(sc, "audio", g_audio, 1, 0, false, "(audio path)");
-    s7_define_function(sc, "clip", g_clip, 1, 0, false, "(clip path)");
     s7_define_function(sc, "system", g_system, 1, 0, false, "(system path)");
     s7_define_function(sc, "play", g_play, 1, 0, false, "(play bool)");
     s7_define_function(sc, "volume", g_volume, 1, 0, false, "(volume value)");

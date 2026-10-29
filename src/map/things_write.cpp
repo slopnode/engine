@@ -328,14 +328,6 @@ void writeSoundSourceFields(std::ostringstream& out, const Thing& p) {
     if (!p.audio.empty()) {
         writeIndentClause(out, "(audio " + escapeSchemeString(p.audio) + ")");
     }
-    if (!p.clip.empty()) {
-        writeIndentClause(out, "(clip " + escapeSchemeString(p.clip) + ")");
-    }
-    writeIndentClause(out, "(volume " + formatFloat(p.volume) + ")");
-    writeIndentClause(out, std::string("(loop ") + (p.looping ? "#t" : "#f") + ")");
-    writeIndentClause(out, std::string("(spatial ") + (p.spatial ? "#t" : "#f") + ")");
-    writeIndentClause(out, "(min-distance " + formatFloat(p.minDistance) + ")");
-    writeIndentClause(out, "(max-distance " + formatFloat(p.maxDistance) + ")");
 }
 
 void writeTriggerFields(std::ostringstream& out, const Thing& p) {

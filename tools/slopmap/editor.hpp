@@ -6,6 +6,7 @@
 #include "editor_types.hpp"
 #include "history.hpp"
 #include "map/brush.hpp"
+#include "map/camera_path.hpp"
 #include "map/nav_graph.hpp"
 #include "map/thing.hpp"
 #include "map/prefab.hpp"
@@ -53,6 +54,15 @@ enum class CreatePrimitive {
 enum class PlaceTarget {
     PrefabInstance,
     Thing,
+    PathKnot,
+};
+
+struct PathPreview {
+    bool active = false;
+    bool playing = false;
+    float time = 0.0f;
+    bool restoreValid = false;
+    FlyCamera restoreCamera;
 };
 
 enum class PlacePresentation {
@@ -96,6 +106,9 @@ struct Editor {
     bool showGizmos = true;
     bool showNodraw = false;
     bool showNavMesh = false;
+    bool showCameraPaths = true;
+    PathPreview pathPreview;
+    float pathKnotPlaceLift = 1.6f;
     slopengine::MapNavigation bakedNav{};
     bool bakedNavValid = false;
     GridPlane gridPlane = GridPlane::XZ;
@@ -219,6 +232,13 @@ struct Editor {
     std::string allocateBrushId();
     std::string allocatePrefabId();
     std::string allocateThingId(const char* prefix);
+    std::string allocatePathId();
+    int ensureActivePath();
+    bool knotPoseFromCamera(slopengine::PathKnot& knot) const;
+    void applyKnotPoseToCamera(const slopengine::PathKnot& knot);
+    void applyPoseToCamera(const slopengine::CameraPose& pose);
+    void beginPathPreview();
+    void endPathPreview();
     bool renameBrush(int index, std::string_view newId);
     void clearSelection();
     void setSelectionMode(SelectionMode mode);

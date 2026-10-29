@@ -3,6 +3,7 @@
 #include "core/package.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
+#include "script/camera_path_script.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hook_registry.hpp"
 #include "script/hud_script.hpp"
@@ -10,6 +11,7 @@
 #include "script/post_script.hpp"
 #include "script/save_script.hpp"
 #include "script/script_scope.hpp"
+#include "script/theme_script.hpp"
 #include "script/thing_script.hpp"
 #include "navigation/nav_script.hpp"
 #include "script/ui_script.hpp"
@@ -22,6 +24,7 @@ namespace slopengine {
 
 void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
     bindFirstPersonApi(world, scheme);
+    bindCameraPathApi(world, scheme);
     bindHudApi(world, scheme);
     bindPostProcessApi(world, scheme);
     bindInputApi(world, scheme);
@@ -30,6 +33,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
     bindSaveApi(world, assets, scheme);
     bindHookApi(scheme);
     bindUiApi(world, scheme);
+    bindThemeApi(world, scheme);
     {
         ScriptScopeGuard bootScope(ScriptScope::Boot);
         const std::string baseId{assets.basePackageId()};

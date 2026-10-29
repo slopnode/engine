@@ -10,4 +10,5 @@
 - @subpage file_formats
 - @subpage lighting_model
 - @subpage navigation_model
+- @subpage camera_paths
 - @subpage ecs_pipeline

@@ -1,6 +1,7 @@
 #include "prefab_browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -24,6 +25,14 @@ bool containsIgnoreCase(const std::string& haystack, const std::string& needle) 
     std::transform(haystack.begin(), haystack.end(), h.begin(), lower);
     std::transform(needle.begin(), needle.end(), n.begin(), lower);
     return h.find(n) != std::string::npos;
+}
+
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
 }
 
 } // namespace
@@ -52,7 +61,7 @@ void PrefabBrowser::rescan(const slopengine::AssetStore& assets) {
                 continue;
             }
             relative.replace_extension();
-            seen[relative.generic_string()] = true;
+            seen[genericUtf8(relative)] = true;
         }
     }
 
@@ -69,7 +78,7 @@ PrefabBrowserResult PrefabBrowser::drawSection(
     slopengine::AssetStore& assets,
     float bodyHeight) {
     PrefabBrowserResult result{};
-    if (!ImGui::BeginChild("##presection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##presection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }
@@ -86,7 +95,7 @@ PrefabBrowserResult PrefabBrowser::drawSection(
         editor.placePrefabPath.empty() ? "(none)" : editor.placePrefabPath.c_str());
 
     ImGui::Separator();
-    if (ImGui::BeginChild("##prelist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+    if (slopengine::slopuiBeginChild("##prelist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
         const std::string filterStr = filter;
         for (const std::string& path : prefabs) {
             if (!containsIgnoreCase(path, filterStr)) {

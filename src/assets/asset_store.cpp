@@ -128,6 +128,10 @@ void AssetStore::releaseGpuResources() {
         UnloadTexture(texture);
     }
     textures_.clear();
+    for (auto& [_, texture] : textureGraphOutputs_) {
+        UnloadTexture(texture);
+    }
+    textureGraphOutputs_.clear();
     for (auto& [_, cubemap] : cubemaps_) {
         UnloadTexture(cubemap);
     }
@@ -167,7 +171,7 @@ void AssetStore::mountPackages(const AppConfig& config) {
         applicationSearchPaths(userConfiguredSearchPaths());
 
     const std::filesystem::path baseGamePath =
-        resolveApplicationPackagePath(config.base_game, searchPaths);
+        resolveApplicationPackagePath(config.game, searchPaths);
     Package base{baseGamePath};
     if (!base.valid()) {
         throw std::runtime_error(
@@ -240,75 +244,111 @@ bool AssetStore::hasFont(std::string_view path) const {
 }
 
 bool AssetStore::hasSound(std::string_view path) const {
-    return vfs_.exists(AssetKind::Sound, path) || vfs_.exists(AssetKind::SoundWav, path);
+    return vfs_.exists(AssetKind::Sound, path);
 }
 
 std::optional<std::filesystem::path> AssetStore::resolveSoundPath(std::string_view path) const {
-    if (auto ogg = vfs_.resolve(AssetKind::Sound, path)) {
-        return ogg;
-    }
-    return vfs_.resolve(AssetKind::SoundWav, path);
+    return vfs_.resolve(AssetKind::Sound, path);
 }
 
 bool AssetStore::hasAudio(std::string_view path) const {
-    return vfs_.exists(AssetKind::AudioSaudio, path) || vfs_.exists(AssetKind::Audio, path);
+    return vfs_.exists(AssetKind::AudioSaudio, path);
 }
 
-bool AssetStore::commitAudioDef(AudioDef def) {
-    if (!audioDefLoadActive_) {
-        return false;
-    }
-    if (def.kind == AudioDefKind::Sample && def.source.empty()) {
-        return false;
-    }
-    audioDefStaging_ = std::move(def);
-    audioDefRegistered_ = true;
-    return true;
+bool AssetStore::hasMidi(std::string_view path) const {
+    return vfs_.exists(AssetKind::Midi, path);
 }
 
-const AudioDef* AssetStore::getAudioDef(s7_scheme* scheme, std::string_view path) {
+std::optional<std::filesystem::path> AssetStore::resolveMidiPath(std::string_view path) const {
+    return vfs_.resolve(AssetKind::Midi, path);
+}
+
+bool AssetStore::hasSoundFont(std::string_view path) const {
+    return vfs_.exists(AssetKind::SoundFont, path);
+}
+
+std::optional<std::filesystem::path> AssetStore::resolveSoundFontPath(std::string_view path) const {
+    return vfs_.resolve(AssetKind::SoundFont, path);
+}
+
+const AudioDef* AssetStore::getAudioDef(std::string_view path) {
     const std::string key = cacheKey(path);
     if (auto it = audioDefs_.find(key); it != audioDefs_.end()) {
         return &it->second;
     }
 
-    if (vfs_.exists(AssetKind::AudioSaudio, path)) {
-        const std::string text = vfs_.readText(AssetKind::AudioSaudio, path);
-        AudioDef def{};
-        if (!parseSaudioAsset(text, def)) {
-            return nullptr;
-        }
-        auto [it, _] = audioDefs_.emplace(key, std::move(def));
+    if (!vfs_.exists(AssetKind::AudioSaudio, path)) {
+        return nullptr;
+    }
+
+    const std::string text = vfs_.readText(AssetKind::AudioSaudio, path);
+    AudioDef def{};
+    if (!parseSaudioAsset(text, def)) {
+        return nullptr;
+    }
+    auto [it, _] = audioDefs_.emplace(key, std::move(def));
+    return &it->second;
+}
+
+void AssetStore::invalidateAudioDef(std::string_view path) {
+    audioDefs_.erase(cacheKey(path));
+}
+
+bool AssetStore::hasProcedural(std::string_view path) const {
+    return vfs_.exists(AssetKind::AudioProcedural, path);
+}
+
+const ProceduralDef* AssetStore::getProceduralDef(std::string_view path) {
+    const std::string key = cacheKey(path);
+    if (auto it = proceduralDefs_.find(key); it != proceduralDefs_.end()) {
         return &it->second;
     }
 
-    if (scheme == nullptr) {
+    if (!vfs_.exists(AssetKind::AudioProcedural, path)) {
         return nullptr;
     }
 
-    const auto resolved = vfs_.resolve(AssetKind::Audio, path);
-    if (!resolved) {
+    const std::string text = vfs_.readText(AssetKind::AudioProcedural, path);
+    ProceduralDef def{};
+    if (!parseProceduralAsset(text, def)) {
         return nullptr;
     }
-
-    audioDefLoadPath_ = key;
-    audioDefStaging_ = {};
-    audioDefLoadActive_ = true;
-    audioDefRegistered_ = false;
-    s7_load(scheme, resolved->string().c_str());
-    audioDefLoadActive_ = false;
-
-    if (!audioDefRegistered_) {
-        audioDefLoadPath_.clear();
-        return nullptr;
-    }
-
-    audioDefStaging_.kind = AudioDefKind::Sample;
-    auto [it, _] = audioDefs_.emplace(key, std::move(audioDefStaging_));
-    audioDefLoadPath_.clear();
-    audioDefStaging_ = {};
-    audioDefRegistered_ = false;
+    auto [it, _] = proceduralDefs_.emplace(key, std::move(def));
     return &it->second;
+}
+
+void AssetStore::invalidateProceduralDef(std::string_view path) {
+    proceduralDefs_.erase(cacheKey(path));
+}
+
+namespace {
+// Fixed virtual path for the engine-wide bus mixer, resolved the same way any
+// other .saudio def is (layered across mounted packages, highest priority wins).
+constexpr std::string_view kBusConfigPath = "buses";
+}
+
+bool AssetStore::hasBusConfig() const {
+    return vfs_.exists(AssetKind::AudioSaudio, kBusConfigPath);
+}
+
+const BusConfig* AssetStore::getBusConfig() {
+    if (busConfig_) {
+        return &*busConfig_;
+    }
+    if (!vfs_.exists(AssetKind::AudioSaudio, kBusConfigPath)) {
+        return nullptr;
+    }
+    const std::string text = vfs_.readText(AssetKind::AudioSaudio, kBusConfigPath);
+    BusConfig config{};
+    if (!parseBusConfig(text, config)) {
+        return nullptr;
+    }
+    busConfig_ = std::move(config);
+    return &*busConfig_;
+}
+
+void AssetStore::invalidateBusConfig() {
+    busConfig_.reset();
 }
 
 bool AssetStore::hasMaterial(std::string_view path) const {
@@ -461,6 +501,10 @@ bool AssetStore::hasSpriteAnim(std::string_view path) const {
 
 bool AssetStore::hasTextureAnim(std::string_view path) const {
     return vfs_.exists(AssetKind::TextureAnim, path);
+}
+
+bool AssetStore::hasTextureGraph(std::string_view path) const {
+    return vfs_.exists(AssetKind::TextureGraph, path);
 }
 
 bool AssetStore::hasParticle(std::string_view path) const {
@@ -817,12 +861,15 @@ Material AssetStore::resolveMaterial(std::string_view path) {
     const TextureAnimFrameResolver resolveAnimFrame = [this](std::string_view animPath, int frameIndex) {
         return resolveTextureAnimFrame(animPath, "default", frameIndex);
     };
+    const TextureGraphOutputResolver resolveGraphOutput = [this](std::string_view graphPath, std::string_view outputName) {
+        return resolveTextureGraphOutput(graphPath, outputName);
+    };
 
     const MaterialAsset* asset = getMaterialAsset(path);
     if (asset == nullptr) {
-        return createRaylibMaterial({}, resolveTexture, resolveAnimFrame);
+        return createRaylibMaterial({}, resolveTexture, resolveAnimFrame, resolveGraphOutput);
     }
-    return createRaylibMaterial(*asset, resolveTexture, resolveAnimFrame);
+    return createRaylibMaterial(*asset, resolveTexture, resolveAnimFrame, resolveGraphOutput);
 }
 
 const MaterialAsset* AssetStore::getMaterialAsset(std::string_view path) {
@@ -845,6 +892,10 @@ const MaterialAsset* AssetStore::getMaterialAsset(std::string_view path) {
     }
 
     return &materialAssets_.emplace(key, std::move(asset)).first->second;
+}
+
+void AssetStore::invalidateMaterial(std::string_view path) {
+    materialAssets_.erase(cacheKey(path.empty() ? "default/unassigned" : path));
 }
 
 const SkeletonAsset* AssetStore::getSkeletonAsset(std::string_view path) {
@@ -1092,6 +1143,90 @@ std::string AssetStore::getTextureAnimSource(std::string_view path) {
     return vfs_.readText(AssetKind::TextureAnim, path);
 }
 
+std::string AssetStore::getTextureGraphSource(std::string_view path) {
+    return vfs_.readText(AssetKind::TextureGraph, path);
+}
+
+const TextureGraph* AssetStore::getTextureGraph(std::string_view path) {
+    const std::string key = cacheKey(path);
+    const auto existing = textureGraphs_.find(key);
+    if (existing != textureGraphs_.end()) {
+        return &existing->second;
+    }
+
+    if (!hasTextureGraph(path)) {
+        TraceLog(LOG_WARNING, "Texture graph not found: %s", key.c_str());
+        return nullptr;
+    }
+
+    TextureGraph graph{};
+    std::string error;
+    if (!parseTextureGraph(getTextureGraphSource(path), graph, &error)) {
+        TraceLog(LOG_WARNING, "Failed to parse texture graph %s: %s", key.c_str(), error.c_str());
+        return nullptr;
+    }
+
+    return &textureGraphs_.emplace(key, std::move(graph)).first->second;
+}
+
+bool AssetStore::evaluateTextureGraphImage(
+    std::string_view path,
+    std::string_view outputName,
+    Image& out,
+    std::string& error) {
+    const TextureGraph* graph = getTextureGraph(path);
+    if (graph == nullptr) {
+        error = "texture graph not found or invalid: " + std::string(path);
+        return false;
+    }
+    const TextureGraphImageResolver resolveImage = [this](std::string_view texturePath, Image& image) {
+        const auto resolved = vfs_.resolve(AssetKind::Texture, texturePath);
+        if (!resolved) {
+            return false;
+        }
+        image = LoadImage(resolved->string().c_str());
+        return image.data != nullptr;
+    };
+    return evaluateTextureGraph(*graph, outputName, resolveImage, out, error);
+}
+
+Texture2D AssetStore::resolveTextureGraphOutput(std::string_view path, std::string_view outputName) {
+    const std::string key = cacheKey(path) + "|" + std::string(outputName);
+    const auto existing = textureGraphOutputs_.find(key);
+    if (existing != textureGraphOutputs_.end()) {
+        return existing->second;
+    }
+
+    Image image{};
+    std::string error;
+    if (!evaluateTextureGraphImage(path, outputName, image, error)) {
+        TraceLog(LOG_WARNING, "Texture graph %s output '%s': %s", std::string(path).c_str(), std::string(outputName).c_str(), error.c_str());
+        return {};
+    }
+    const Texture2D texture = LoadTextureFromImage(image);
+    UnloadImage(image);
+    if (texture.id == 0) {
+        return {};
+    }
+    textureGraphOutputs_.emplace(key, texture);
+    return texture;
+}
+
+void AssetStore::invalidateTextureGraph(std::string_view path) {
+    const std::string key = cacheKey(path);
+    textureGraphs_.erase(key);
+    const std::string prefix = key + "|";
+    for (auto it = textureGraphOutputs_.begin(); it != textureGraphOutputs_.end();) {
+        if (it->first.compare(0, prefix.size(), prefix) == 0) {
+            UnloadTexture(it->second);
+            it = textureGraphOutputs_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    materialAssets_.clear();
+}
+
 const TextureAnimBank* AssetStore::getTextureAnimBank(std::string_view path) {
     const std::string key = cacheKey(path);
     const auto existing = textureAnimBanks_.find(key);
@@ -1111,6 +1246,11 @@ const TextureAnimBank* AssetStore::getTextureAnimBank(std::string_view path) {
     }
 
     return &textureAnimBanks_.emplace(key, std::move(bank)).first->second;
+}
+
+void AssetStore::invalidateTextureAnim(std::string_view path) {
+    textureAnimBanks_.erase(cacheKey(path));
+    materialAssets_.clear();
 }
 
 Texture2D AssetStore::resolveTextureAnimFrame(

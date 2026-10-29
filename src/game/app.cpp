@@ -32,6 +32,7 @@
 #include "script/scheme_harden.hpp"
 #include "script/script_scope.hpp"
 #include "ui/imgui_fonts.hpp"
+#include "ui/slopui_world.hpp"
 #include "ui/ui_module.hpp"
 #include "ui/ui_state.hpp"
 
@@ -64,10 +65,13 @@ App::App(AppConfig config)
     init_window();
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
+    } else if (const BusConfig* busConfig = assetStore_.getBusConfig()) {
+        audioWorld_->loadBusConfig(*busConfig);
     }
-    ImFont* consoleMonoFont =
-        setupImGuiWithUiAndMonoFont(assetStore_, kDefaultUiFontPath, kMonoUiFontPath, true, "slopengine");
+    setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true, "slopengine");
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     init_script();
+    installSlopUiTheme(world_, assetStore_, scheme_);
     userSettings_.controls = ControlsSettings::defaults();
     UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);
     if (!hadProfileSettings) {
@@ -80,7 +84,7 @@ App::App(AppConfig config)
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
     registerInputModule(world_);
-    registerUiModule(world_, config_.debug, config_.profile, consoleMonoFont);
+    registerUiModule(world_, config_.debug, config_.profile);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
     registerNavModule(world_);

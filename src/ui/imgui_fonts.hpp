@@ -11,6 +11,8 @@ namespace slopengine {
 inline constexpr std::string_view kDefaultUiFontPath = "FiraSans/FiraSans-Regular";
 inline constexpr std::string_view kMonoUiFontPath = "JetBrainsMono/JetBrainsMono";
 
+float uiFontDpiScale();
+
 ImFont* loadImGuiFont(AssetStore& assets, std::string_view path, float sizePixels = 0.0f);
 
 /** Points ImGui's ini persistence at a per-tool file under the user config dir instead of cwd. */

@@ -7,6 +7,24 @@
 
 namespace slopengine {
 
+namespace {
+
+// Virtual paths are UTF-8 by convention. std::filesystem::path's plain-char constructor and
+// .string() instead go through the process's native codepage on Windows (POSIX just passes
+// the bytes through, so this is a no-op there) - for a non-ASCII asset name that codepage
+// can't represent, the round trip silently produces a path that doesn't match the real file,
+// so lookups fail with no error. These force the UTF-8-aware conversion on every platform.
+std::filesystem::path pathFromUtf8(std::string_view utf8) {
+    return std::filesystem::path{std::u8string(utf8.begin(), utf8.end())};
+}
+
+std::string utf8FromPath(const std::filesystem::path& path) {
+    const std::u8string u8 = path.generic_u8string();
+    return std::string(u8.begin(), u8.end());
+}
+
+} // namespace
+
 void VirtualFileSystem::setBasePackage(Package package) {
     packages_.clear();
     packages_.push_back(std::move(package));
@@ -20,6 +38,7 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     switch (kind) {
     case AssetKind::Texture: return "textures";
     case AssetKind::TextureAnim: return "textures";
+    case AssetKind::TextureGraph: return "textures";
     case AssetKind::Material: return "materials";
     case AssetKind::Mesh: return "meshes";
     case AssetKind::Shader: return "shaders";
@@ -49,10 +68,11 @@ const char* VirtualFileSystem::kindDirectory(AssetKind kind) {
     case AssetKind::IconMap: return "icons";
     case AssetKind::Data: return "data";
     case AssetKind::Font: return "fonts";
-    case AssetKind::Sound: return "sound";
-    case AssetKind::SoundWav: return "sound";
-    case AssetKind::Audio: return "audio";
+    case AssetKind::Sound: return "sounds";
     case AssetKind::AudioSaudio: return "audio";
+    case AssetKind::AudioProcedural: return "sounds";
+    case AssetKind::SoundFont: return "sounds";
+    case AssetKind::Midi: return "sounds";
     case AssetKind::Particle: return "particles";
     }
     return "";
@@ -62,6 +82,7 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     switch (kind) {
     case AssetKind::Texture: return ".png";
     case AssetKind::TextureAnim: return ".texanim";
+    case AssetKind::TextureGraph: return ".texgraph";
     case AssetKind::Material: return ".mat";
     case AssetKind::Mesh: return ".glb";
     case AssetKind::Shader: return ".glsl";
@@ -92,9 +113,10 @@ const char* VirtualFileSystem::implicitExtension(AssetKind kind) {
     case AssetKind::Data: return ".s7";
     case AssetKind::Font: return ".ttf";
     case AssetKind::Sound: return ".ogg";
-    case AssetKind::SoundWav: return ".wav";
-    case AssetKind::Audio: return ".s7";
     case AssetKind::AudioSaudio: return ".saudio";
+    case AssetKind::AudioProcedural: return ".sfxr";
+    case AssetKind::SoundFont: return ".sf2";
+    case AssetKind::Midi: return ".mid";
     case AssetKind::Particle: return ".prt";
     }
     return "";
@@ -116,7 +138,7 @@ std::filesystem::path VirtualFileSystem::normalizeVirtualPath(std::string_view v
         normalized.erase(normalized.begin());
     }
 
-    return std::filesystem::path{normalized}.lexically_normal();
+    return pathFromUtf8(normalized).lexically_normal();
 }
 
 std::filesystem::path VirtualFileSystem::followSymlinks(const std::filesystem::path& path) {
@@ -160,7 +182,7 @@ bool VirtualFileSystem::buildAssetRelative(
     }
 
     const auto assetPath = std::filesystem::path{kindDirectory(kind)} / relative;
-    outFilename = assetPath.filename().string() + implicitExtension(kind);
+    outFilename = utf8FromPath(assetPath.filename()) + implicitExtension(kind);
     outDirectory = assetPath.parent_path();
     return true;
 }
@@ -179,7 +201,7 @@ std::optional<ResolvedAsset> VirtualFileSystem::resolveOwned(
     }
 
     for (auto it = packages_.rbegin(); it != packages_.rend(); ++it) {
-        const auto candidate = it->root() / directory / filename;
+        const auto candidate = it->root() / directory / pathFromUtf8(filename);
         const auto resolved = followSymlinks(candidate);
         if (!resolved.empty() && std::filesystem::exists(resolved)) {
             return ResolvedAsset{resolved, &(*it)};
@@ -216,7 +238,7 @@ std::optional<ResolvedAsset> VirtualFileSystem::resolveInPackage(
         return std::nullopt;
     }
 
-    const auto candidate = package->root() / directory / filename;
+    const auto candidate = package->root() / directory / pathFromUtf8(filename);
     const auto resolved = followSymlinks(candidate);
     if (!resolved.empty() && std::filesystem::exists(resolved)) {
         return ResolvedAsset{resolved, package};

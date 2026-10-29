@@ -1,6 +1,7 @@
 #include "texture_browser.hpp"
 
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "imgui.h"
 
@@ -25,6 +26,14 @@ bool containsIgnoreCase(const std::string& haystack, const std::string& needle) 
     std::transform(haystack.begin(), haystack.end(), h.begin(), lower);
     std::transform(needle.begin(), needle.end(), n.begin(), lower);
     return h.find(n) != std::string::npos;
+}
+
+// generic_string() converts through the process's narrow codepage on Windows and throws for
+// a filename that codepage can't represent; generic_u8string() reads it as UTF-8 with no
+// codepage involved, matching how POSIX already treats it.
+std::string genericUtf8(const std::filesystem::path& path) {
+    const std::u8string generic = path.generic_u8string();
+    return std::string(generic.begin(), generic.end());
 }
 
 } // namespace
@@ -53,7 +62,7 @@ void TextureBrowser::rescan(const slopengine::AssetStore& assets) {
                 continue;
             }
             relative.replace_extension();
-            seen.insert(relative.generic_string());
+            seen.insert(genericUtf8(relative));
         }
     }
 
@@ -80,7 +89,7 @@ bool TextureBrowser::drawModal(slopengine::AssetStore& assets, std::string& outP
             filter = filterBuf;
         }
         ImGui::Separator();
-        if (ImGui::BeginChild("##texlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
+        if (slopengine::slopuiBeginChild("##texlist", ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()), true)) {
             for (const std::string& path : textures) {
                 if (!containsIgnoreCase(path, filter)) {
                     continue;

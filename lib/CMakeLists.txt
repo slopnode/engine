@@ -154,6 +154,22 @@ add_library(rlImGui STATIC ${RLIMGUI_SOURCES})
 target_include_directories(rlImGui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/rlImGui)
 target_link_libraries(rlImGui PUBLIC imgui raylib)
 
+add_library(tsf STATIC tsf_impl.c)
+target_include_directories(tsf PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/TinySoundFont)
+set_target_properties(tsf PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+)
+if(MSVC)
+    target_compile_options(tsf PRIVATE /W0)
+else()
+    target_compile_options(tsf PRIVATE -w)
+endif()
+if(UNIX AND NOT APPLE)
+    target_link_libraries(tsf PUBLIC m)
+endif()
+
 set(RECASTNAVIGATION_DEMO OFF CACHE BOOL "" FORCE)
 set(RECASTNAVIGATION_TESTS OFF CACHE BOOL "" FORCE)
 set(RECASTNAVIGATION_EXAMPLES OFF CACHE BOOL "" FORCE)

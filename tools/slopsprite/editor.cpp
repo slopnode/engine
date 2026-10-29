@@ -135,7 +135,7 @@ void firePreviewSound(
         if (!frame.hasSound()) {
             return;
         }
-        audio->playSound(assets, frame.sound, frame.soundVolume);
+        audio->playSound(assets, frame.sound, frame.soundVolume >= 0.0f ? frame.soundVolume : 1.0f);
     };
     if (previousIndex < 0) {
         playHold(currentIndex);

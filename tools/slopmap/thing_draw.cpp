@@ -406,10 +406,13 @@ void drawThings(
                 DrawSphere(pos, 0.18f, color);
             }
             if (showGizmos) {
-                const float radius = std::max(thing.maxDistance, 0.01f);
-                DrawSphereWires(pos, radius, 8, 8, color);
-                if (thing.minDistance > 0.01f && thing.minDistance < radius) {
-                    DrawSphereWires(pos, thing.minDistance, 6, 6, Fade(color, 0.45f));
+                const slopengine::AudioDef* def = assets.getAudioDef(thing.audio);
+                if (def != nullptr && def->spatial) {
+                    const float radius = std::max(def->maxDistance, 0.01f);
+                    DrawSphereWires(pos, radius, 8, 8, color);
+                    if (def->minDistance > 0.01f && def->minDistance < radius) {
+                        DrawSphereWires(pos, def->minDistance, 6, 6, Fade(color, 0.45f));
+                    }
                 }
             }
             break;

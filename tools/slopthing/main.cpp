@@ -11,6 +11,8 @@
 #include "game/app_config.hpp"
 #include "map/map_script.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_tool.hpp"
+#include "ui/slopui_widgets.hpp"
 #include "ui/imgui_fonts.hpp"
 
 #include "imgui.h"
@@ -40,11 +42,12 @@ struct ToolConfig {
 
 void printUsage() {
     std::cerr
-        << "Usage: slopthing --base-game <path> [--mod <path>]... --target <path>\n"
+        << "Usage: slopthing --game <path> [--mod <path>]... [--target <path>]\n"
         << "\n"
-        << "  --base-game   Base game package directory (required)\n"
+        << "  --game        Game package directory (required)\n"
         << "  --mod         Additional mod package directory (repeatable)\n"
         << "  --target      Package directory whose data/things.s7 is edited\n"
+        << "                (defaults to --game; required when --mod is given)\n"
         << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
 
@@ -59,12 +62,12 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
             return argv[++i];
         };
 
-        if (arg == "--base-game") {
+        if (arg == "--game") {
             const char* value = needValue();
             if (value == nullptr) {
                 return std::nullopt;
             }
-            config.mount.base_game = value;
+            config.mount.game = value;
             continue;
         }
         if (arg == "--mod") {
@@ -92,8 +95,16 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         return std::nullopt;
     }
 
-    if (config.mount.base_game.empty() || config.target.empty()) {
+    if (config.mount.game.empty()) {
         return std::nullopt;
+    }
+    if (config.target.empty()) {
+        if (!config.mount.mods.empty()) {
+            return std::nullopt;
+        }
+        config.target = slopengine::resolveApplicationPackagePath(
+            config.mount.game,
+            slopengine::applicationSearchPaths(slopengine::userConfiguredSearchPaths()));
     }
     return config;
 }
@@ -148,8 +159,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    ImFont* monoFont = slopengine::setupImGuiWithUiAndMonoFont(
-        assets, slopengine::kDefaultUiFontPath, slopengine::kMonoUiFontPath, true, "slopthing");
+    ImFont* monoFont = slopengine::installToolTheme(assets, "slopthing");
 
     slopthing::Editor editor;
     editor.scheme = s7_init();
@@ -219,19 +229,19 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(0.0f, bodyTop));
         ImGui::SetNextWindowSize(ImVec2(leftWidth, bodyHeight));
-        ImGui::Begin("Browser", nullptr, panelFlags);
+        slopengine::slopuiBegin("Browser", nullptr, panelFlags);
         slopthing::drawBrowserPanel(editor, assets, bodyHeight - ImGui::GetFrameHeightWithSpacing() * 2.5f);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(leftWidth, bodyTop));
         ImGui::SetNextWindowSize(ImVec2(inspectorWidth, bodyHeight));
-        ImGui::Begin("Inspector", nullptr, panelFlags | ImGuiWindowFlags_NoScrollWithMouse);
+        slopengine::slopuiBegin("Inspector", nullptr, panelFlags | ImGuiWindowFlags_NoScrollWithMouse);
         slopthing::drawInspectorPanel(editor, assets, monoFont, bodyHeight - 8.0f);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(leftWidth + inspectorWidth, bodyTop));
         ImGui::SetNextWindowSize(ImVec2(previewWidth, bodyHeight));
-        ImGui::Begin("Collider Preview", nullptr, panelFlags);
+        slopengine::slopuiBegin("Collider Preview", nullptr, panelFlags);
         {
             slopthing::ThingEntry* sel = editor.selected();
             if (sel == nullptr) {
@@ -261,7 +271,7 @@ int main(int argc, char* argv[]) {
 
         ImGui::SetNextWindowPos(ImVec2(0.0f, screenH - statusHeight));
         ImGui::SetNextWindowSize(ImVec2(screenW, statusHeight));
-        ImGui::Begin(
+        slopengine::slopuiBegin(
             "##status",
             nullptr,
             panelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollWithMouse);

@@ -44,6 +44,27 @@
 (define (separator)
   (make-node 'separator #f '() '()))
 
+(define (heading label)
+  (make-node 'heading #f '() (list (cons 'label label))))
+
+(define (label-dim label)
+  (make-node 'label-dim #f '() (list (cons 'label label))))
+
+(define (mono-text label)
+  (make-node 'mono-text #f '() (list (cons 'label label))))
+
+(define (spacer . height)
+  (make-node 'spacer #f '() (list (cons 'height (if (pair? height) (car height) 0)))))
+
+(define (panel id height . children)
+  (make-node 'panel id children (list (cons 'height height))))
+
+(define (primary-button id label on-click)
+  (make-node 'primary-button id '() (list (cons 'label label) (cons 'on-click on-click))))
+
+(define (menu id label . children)
+  (make-node 'menu id children (list (cons 'label label))))
+
 (define (dynamic builder)
   (make-node 'dynamic #f '() (list (cons 'builder builder))))
 
@@ -113,6 +134,24 @@
        (render-children node)
        (ui-unindent))
       ((eq? type 'text) (ui-text (node-prop node 'label)))
+      ((eq? type 'heading) (ui-heading (node-prop node 'label)))
+      ((eq? type 'label-dim) (ui-text-dim (node-prop node 'label)))
+      ((eq? type 'mono-text) (ui-mono-text (node-prop node 'label)))
+      ((eq? type 'spacer) (ui-spacer (node-prop node 'height)))
+      ((eq? type 'panel)
+       (let ((open (ui-begin-panel (node-id node) (node-prop node 'height))))
+         (if open (render-children node) #f)
+         (ui-end-panel)))
+      ((eq? type 'primary-button)
+       (let ((clicked (ui-primary-button (node-prop node 'label))))
+         (node-prop-set! node 'clicked? clicked)
+         (if clicked ((node-prop node 'on-click)) #f)))
+      ((eq? type 'menu)
+       (if (ui-begin-menu (node-prop node 'label))
+           (begin
+             (render-children node)
+             (ui-end-menu))
+           #f))
       ((eq? type 'dynamic-text) (ui-text ((node-prop node 'label-getter))))
       ((eq? type 'separator) (ui-separator))
       ((eq? type 'dynamic) (for-each render-node ((node-prop node 'builder))))

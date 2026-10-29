@@ -1,6 +1,7 @@
 #include "render/render_module.hpp"
 
 #include "assets/asset_services.hpp"
+#include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
 #include "core/screenshot.hpp"
@@ -162,9 +163,10 @@ void registerRenderSystems(flecs::world& world) {
                 }
                 presentCam = presentationCamera(lens, controller, eyeOffset);
             }
+            const bool usePathCam = !useFreeCam && cameraPathApplyToCamera(world, presentCam);
             Lens presentLens = lens;
             presentLens.camera = presentCam;
-            const Lens& worldLens = useFreeCam ? presentLens : lens;
+            const Lens& worldLens = (useFreeCam || usePathCam) ? presentLens : lens;
 
             const float aspect = static_cast<float>(GetRenderWidth()) /
                 static_cast<float>(GetRenderHeight() > 0 ? GetRenderHeight() : 1);
@@ -265,6 +267,7 @@ void registerRenderSystems(flecs::world& world) {
             if (playing) {
                 const bool hideFp =
                     (debugUiState != nullptr && debugUiState->hideFpScene) || useFreeCam ||
+                    usePathCam ||
                     (world.has<FpViewOverride>() && world.get<FpViewOverride>().hideWeapon);
                 const bool hideHud = debugUiState != nullptr && debugUiState->hideHud;
 

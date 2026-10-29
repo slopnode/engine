@@ -38,13 +38,13 @@ A source checkout may resolve headers but still needs a prebuilt `libphonon` unl
 ## Run
 
 ```bash
-build/slopengine --base-game packages/base
+build/slopengine --game packages/base
 ```
 
 Optional mods load on top of the base package:
 
 ```bash
-build/slopengine --base-game packages/base --mod path/to/my-mod
+build/slopengine --game packages/base --mod path/to/my-mod
 ```
 
 ## Packages

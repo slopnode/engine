@@ -43,7 +43,7 @@ bool parseSoundForm(const Sexpr& form, SpriteAnimFrame& out) {
         return false;
     }
     out.sound = form.list[1].text;
-    out.soundVolume = 1.0f;
+    out.soundVolume = -1.0f;
     if (form.list.size() == 3) {
         if (!form.list[2].isNumber()) {
             return false;
@@ -228,7 +228,7 @@ void writeSoundSuffix(std::ostringstream& out, const SpriteAnimFrame& frame) {
         return;
     }
     out << " (sound \"" << frame.sound << '"';
-    if (frame.soundVolume != 1.0f) {
+    if (frame.soundVolume >= 0.0f) {
         out << ' ' << frame.soundVolume;
     }
     out << ')';

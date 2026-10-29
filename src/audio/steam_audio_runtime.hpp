@@ -4,6 +4,8 @@
 
 #include "core/win32.hpp"
 
+#include "assets/asset_store.hpp"
+#include "audio/steam_audio_scene.hpp"
 #include "audio/steam_audio_types.hpp"
 #include "map/brush.hpp"
 
@@ -11,6 +13,7 @@
 #include <soloud.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -41,6 +44,8 @@ public:
     static constexpr int kReflectionOrder = 1;
     static constexpr float kMaxReflectionDuration = 1.5f;
     static constexpr float kWetMix = 0.55f;
+    static constexpr float kDirectSmoothingTime = 0.1f;
+    static constexpr float kReverbSmoothingTime = 0.25f;
 
     SteamAudioRuntime();
     ~SteamAudioRuntime();
@@ -65,7 +70,8 @@ public:
 
     bool setSceneFromBrushes(
         const std::vector<Brush>& brushes,
-        const std::unordered_set<std::string>* excludeBrushIds);
+        const std::unordered_set<std::string>* excludeBrushIds,
+        AssetStore& assets);
     void clearScene();
 
     int trackVoice(
@@ -86,6 +92,11 @@ public:
     SteamAudioSlotRenderParams slotParams(int slot) const;
     std::mutex& playMutex() { return playMutex_; }
 
+    // Debug-only introspection for audio visualization tooling; not used by the mixer.
+    // Not const: locks playMutex_, which (like the rest of the play-side state) isn't mutable.
+    std::vector<SteamAudioDebugSourceInfo> debugSources();
+    SteamAudioDebugScene debugScene() const;
+
 private:
     struct Slot {
         IPLSource source = nullptr;
@@ -97,6 +108,12 @@ private:
         float maxDistance = 30.0f;
         float baseVolume = 1.0f;
         bool used = false;
+
+        float smoothedOcclusion = 1.0f;
+        float smoothedTransmission[3] = {1.0f, 1.0f, 1.0f};
+        float smoothedDistanceAttenuation = 1.0f;
+        float smoothedReverbTimes[3] = {0.0f, 0.0f, 0.0f};
+        bool smoothingInit = false;
     };
 
     int allocSlotUnlocked();
@@ -113,10 +130,17 @@ private:
     bool ready_ = false;
     bool sceneReady_ = false;
 
+    // Retained alongside scene_/staticMesh_ purely so debugScene() can wireframe it; only
+    // touched from the main thread at scene (re)build time, same as scene_/staticMesh_.
+    SteamAudioSceneMesh debugMesh_{};
+
     std::array<Slot, kMaxSlots> slots_{};
     std::array<SteamAudioSlotRenderParams, kMaxSlots> renderParams_{};
     mutable std::mutex renderMutex_;
     std::mutex playMutex_;
+
+    std::chrono::steady_clock::time_point lastUpdateTime_{};
+    bool hasLastUpdateTime_ = false;
 
     std::unique_ptr<SteamAudioSpatializeFilter> spatializeFilter_;
 };

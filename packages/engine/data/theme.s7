@@ -1,0 +1,56 @@
+(define *package-theme*
+  '((fonts
+      (normal  "FiraSans/FiraSans-Regular" 15)
+      (bold    "FiraSans/FiraSans-Bold" 15)
+      (heading "FiraSans/FiraSans-Bold" 24)
+      (mono    "JetBrainsMono/JetBrainsMono" 13))
+    (colors
+      (bg       192 192 192)
+      (surface  192 192 192)
+      (accent   0 0 128)
+      (text     0 0 0)
+      (text-dim 112 112 112)
+      (danger   176 0 0))
+    (metrics
+      (rounding 0)
+      (border 1)
+      (frame-border 1)
+      (bevel 2)
+      (padding 10 8)
+      (frame-padding 8 4)
+      (spacing 6 4)
+      (button-height 28))
+    (menu-bar
+      (height 28)
+      (font normal)
+      (bg surface)
+      (icons #t)
+      (version-label #t))
+    (window
+      (title-font bold)
+      (title-align left)
+      (bg bg)
+      (title-bg (gradient (112 112 112) (168 168 168) horizontal))
+      (title-bg-active (gradient (0 0 128) (16 132 208) horizontal))
+      (title-text 255 255 255)
+      (draggable #t))
+    (button
+      (bg surface)
+      (bg-hover 204 204 204)
+      (bg-active surface)
+      (bg-disabled surface)
+      (primary-bg 184 192 212)
+      (primary-bg-hover 196 204 224)
+      (primary-bg-active 184 192 212)
+      (text text)
+      (text-hover text))
+    (panel
+      (bg 255 255 255)
+      (border surface))
+    (skin)
+    (sounds
+      (volume 1.0))
+    (chrome
+      (pause-title "Paused")
+      (pause-dim 0.5)
+      (pause-width 320))))

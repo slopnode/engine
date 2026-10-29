@@ -9,6 +9,7 @@ namespace slopengine {
 enum class PackageUiDrawSlot {
     None,
     FileMenu,
+    MenuBar,
     PauseMenu,
     DebugMenu,
     Modals,
@@ -22,6 +23,9 @@ void setPackageUiDrawSlot(PackageUiDrawSlot slot);
 
 /** Calls (draw-file-menu) when defined. */
 void callDrawFileMenu(flecs::world& world);
+
+/** Calls (draw-menu-bar) when defined, with the main menu bar open. */
+void callDrawMenuBar(flecs::world& world);
 
 /** Calls (draw-pause-menu) when defined. */
 void callDrawPauseMenu(flecs::world& world);

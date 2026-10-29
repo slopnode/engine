@@ -32,9 +32,11 @@ jobs:
             -DSTEAM_AUDIO_ROOT="$env:STEAM_AUDIO_ROOT"
           cmake --build build --config Release --target `
             slopengine `
+            slopcsg `
             slopbsp `
             sloprad `
             slopvis `
+            slopnav `
             slopmap `
             slopsprite `
             slopicons
@@ -46,9 +48,11 @@ jobs:
           Copy-Item "build/Release/sloplib.dll" "$dest/"
           $bins = @(
             "slopengine",
+            "slopcsg",
             "slopbsp",
             "sloprad",
             "slopvis",
+            "slopnav",
             "slopmap",
             "slopsprite",
             "slopicons"

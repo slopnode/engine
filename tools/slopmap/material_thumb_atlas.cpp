@@ -117,6 +117,15 @@ Image makeThumbImage(slopengine::AssetStore& assets, const std::string& material
                     }
                 }
             }
+        } else if (!asset->textureGraphPath.empty()) {
+            Image evaluated{};
+            std::string error;
+            if (assets.evaluateTextureGraphImage(asset->textureGraphPath, "albedo", evaluated, error)) {
+                Image canvas = letterboxThumbImage(evaluated, cell);
+                if (canvas.data != nullptr) {
+                    return canvas;
+                }
+            }
         }
     }
     Image swatch = GenImageColor(cell, cell, fill);
@@ -185,6 +194,22 @@ std::string MaterialThumbAtlas::buildFingerprint(
                     assets.resolvePath(slopengine::AssetKind::Texture, framePath);
                 out << '\t' << framePath;
                 out << '\t' << (texDisk ? fileMtimeNs(*texDisk) : 0ULL);
+            }
+        } else if (asset != nullptr && !asset->textureGraphPath.empty()) {
+            const auto graphDisk =
+                assets.resolvePath(slopengine::AssetKind::TextureGraph, asset->textureGraphPath);
+            out << '\t' << asset->textureGraphPath;
+            out << '\t' << (graphDisk ? fileMtimeNs(*graphDisk) : 0ULL);
+            const slopengine::TextureGraph* graph = assets.getTextureGraph(asset->textureGraphPath);
+            if (graph != nullptr) {
+                for (const slopengine::TextureGraphNode& node : graph->nodes) {
+                    if (node.kind != slopengine::TextureGraphNodeKind::Image || node.texture.empty()) {
+                        continue;
+                    }
+                    const auto texDisk = assets.resolvePath(slopengine::AssetKind::Texture, node.texture);
+                    out << '\t' << node.texture;
+                    out << '\t' << (texDisk ? fileMtimeNs(*texDisk) : 0ULL);
+                }
             }
         } else if (asset != nullptr) {
             out << "\t#color\t" << static_cast<int>(asset->baseColor.r) << ','

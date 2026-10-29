@@ -2,6 +2,7 @@
 
 #include "material_browser.hpp"
 #include "ui/icon_ui.hpp"
+#include "ui/slopui_widgets.hpp"
 
 #include "map/uv_math.hpp"
 
@@ -500,7 +501,7 @@ TexturePanelResult TexturePanel::drawSection(
     Editor& editor,
     slopengine::AssetStore& assets,
     float bodyHeight) {
-    if (!ImGui::BeginChild("##texturesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+    if (!slopengine::slopuiBeginChild("##texturesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return {};
     }
@@ -517,7 +518,7 @@ TexturePanelResult TexturePanel::drawUvSection(
     TexturePanelResult result{};
     const bool ownChild = !skipMaterialHeader;
     if (ownChild &&
-        !ImGui::BeginChild("##texturesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
+        !slopengine::slopuiBeginChild("##texturesection", ImVec2(0.0f, bodyHeight), ImGuiChildFlags_Borders)) {
         ImGui::EndChild();
         return result;
     }

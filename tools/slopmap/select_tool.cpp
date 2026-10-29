@@ -1,5 +1,7 @@
 #include "select_tool.hpp"
 
+#include "path_draw.hpp"
+
 #include "assets/material_loader.hpp"
 #include "map/brush.hpp"
 #include "map/csg_compile.hpp"
@@ -132,6 +134,9 @@ Vector3 currentTranslateDelta(const Editor& editor, const SelectTool& tool) {
     if (d.selectionMode == SelectionMode::Entity && !tool.entitySnapshotRefs.empty() &&
         !tool.entityAtSnapshots.empty()) {
         const EntityRef& ref = tool.entitySnapshotRefs[0];
+        if (const slopengine::PathKnot* knot = d.knotAt(ref)) {
+            return sub3(knot->at, tool.entityAtSnapshots[0]);
+        }
         if (ref.kind == EntityRef::Kind::Instance &&
             ref.index >= 0 && ref.index < static_cast<int>(d.instances.size())) {
             return sub3(
@@ -1142,6 +1147,9 @@ void SelectTool::beginTranslate(Editor& editor, const Camera3D& camera) {
                 entitySnapshotRefs.push_back(ref);
                 entityAtSnapshots.push_back(
                     d.instances[static_cast<std::size_t>(ref.index)].at);
+            } else if (const slopengine::PathKnot* knot = d.knotAt(ref)) {
+                entitySnapshotRefs.push_back(ref);
+                entityAtSnapshots.push_back(knot->at);
             }
         }
         if (entitySnapshotRefs.empty()) {
@@ -1271,6 +1279,8 @@ void SelectTool::applyTranslate(Editor& editor, slopengine::AssetStore& assets, 
                 ref.index < static_cast<int>(d.instances.size())) {
                 d.instances[static_cast<std::size_t>(ref.index)].at =
                     add3(entityAtSnapshots[i], delta);
+            } else if (slopengine::PathKnot* knot = d.knotAt(ref)) {
+                knot->at = add3(entityAtSnapshots[i], delta);
             }
         }
         return;
@@ -2067,6 +2077,13 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
             hits.push_back({{EntityRef::Kind::Thing, static_cast<int>(i)}, hit.distance});
         }
     }
+    if (editor.showCameraPaths) {
+        EntityRef knotHit{};
+        float knotDistance = 0.0f;
+        if (pickKnot(d.graphs, ray, knotHit, knotDistance)) {
+            hits.push_back({knotHit, knotDistance});
+        }
+    }
 
     std::sort(hits.begin(), hits.end(), [](const EntityHit& a, const EntityHit& b) {
         return a.t < b.t;
@@ -2105,6 +2122,9 @@ void SelectTool::pick(Editor& editor, const Camera3D& camera) {
     std::string msg;
     if (best.kind == EntityRef::Kind::Thing) {
         msg = "Selected " + d.things[static_cast<std::size_t>(best.index)].id;
+    } else if (best.kind == EntityRef::Kind::Knot) {
+        msg = "Selected knot " + std::to_string(best.index + 1) + " of " +
+            d.graphs.paths[static_cast<std::size_t>(best.path)].id;
     } else {
         msg = "Selected instance " + d.instances[static_cast<std::size_t>(best.index)].id;
     }
@@ -2123,15 +2143,28 @@ void SelectTool::deleteSelected(Editor& editor, slopengine::AssetStore& assets) 
         editor.prepareEdit();
         std::vector<int> thingIndices;
         std::vector<int> instanceIndices;
+        std::vector<EntityRef> knotRefs;
         for (const EntityRef& ref : d.selectedEntities) {
             if (ref.kind == EntityRef::Kind::Thing) {
                 thingIndices.push_back(ref.index);
+            } else if (ref.kind == EntityRef::Kind::Knot) {
+                knotRefs.push_back(ref);
             } else {
                 instanceIndices.push_back(ref.index);
             }
         }
         std::sort(thingIndices.begin(), thingIndices.end(), std::greater<int>());
         std::sort(instanceIndices.begin(), instanceIndices.end(), std::greater<int>());
+        std::sort(knotRefs.begin(), knotRefs.end(), [](const EntityRef& a, const EntityRef& b) {
+            return a.path != b.path ? a.path > b.path : a.index > b.index;
+        });
+        for (const EntityRef& ref : knotRefs) {
+            slopengine::CameraPath* path = d.pathAt(ref.path);
+            if (path == nullptr || ref.index < 0 || ref.index >= static_cast<int>(path->knots.size())) {
+                continue;
+            }
+            path->knots.erase(path->knots.begin() + ref.index);
+        }
         slopengine::ThingKind kind = slopengine::ThingKind::Prop;
         bool anyThing = false;
         bool anyInstance = false;
@@ -2243,6 +2276,21 @@ void SelectTool::duplicateSelected(Editor& editor, const Camera3D& camera) {
                 anyInstance = true;
             }
         }
+        std::vector<EntityRef> knotRefs;
+        for (const EntityRef& ref : d.selectedEntities) {
+            if (ref.kind == EntityRef::Kind::Knot && d.knotAt(ref) != nullptr) {
+                knotRefs.push_back(ref);
+            }
+        }
+        std::sort(knotRefs.begin(), knotRefs.end(), [](const EntityRef& a, const EntityRef& b) {
+            return a.path != b.path ? a.path > b.path : a.index > b.index;
+        });
+        for (const EntityRef& ref : knotRefs) {
+            slopengine::CameraPath* path = d.pathAt(ref.path);
+            const slopengine::PathKnot copy = path->knots[static_cast<std::size_t>(ref.index)];
+            path->knots.insert(path->knots.begin() + ref.index + 1, copy);
+            created.push_back(knotRef(ref.path, ref.index + 1));
+        }
         if (created.empty()) {
             editor.abortEdit();
             return;
@@ -2335,6 +2383,12 @@ void SelectTool::beginRotate(Editor& editor, const Camera3D& camera) {
                 entityYawSnapshots.push_back(instance.angles.y);
                 entityAnglesSnapshots.push_back(instance.angles);
                 entityHaveAnglesSnapshots.push_back(true);
+            } else if (const slopengine::PathKnot* knot = d.knotAt(ref)) {
+                entitySnapshotRefs.push_back(ref);
+                entityAtSnapshots.push_back(knot->at);
+                entityYawSnapshots.push_back(knot->yaw);
+                entityAnglesSnapshots.push_back({});
+                entityHaveAnglesSnapshots.push_back(false);
             }
         }
         if (entitySnapshotRefs.empty()) {
@@ -2393,6 +2447,13 @@ void SelectTool::applyRotate(Editor& editor, slopengine::AssetStore& assets, flo
             const EntityRef& ref = entitySnapshotRefs[i];
             const Vector3 local = sub3(entityAtSnapshots[i], rotateOrigin);
             const Vector3 at = add3(Vector3Transform(local, rotation), rotateOrigin);
+            if (slopengine::PathKnot* knot = d.knotAt(ref)) {
+                knot->at = at;
+                if (rotateAxisLock == TranslateAxis::Y || rotateAxisLock == TranslateAxis::None) {
+                    knot->yaw = entityYawSnapshots[i] + angleRadians;
+                }
+                continue;
+            }
             if (ref.kind == EntityRef::Kind::Thing &&
                 ref.index >= 0 && ref.index < static_cast<int>(d.things.size())) {
                 slopengine::Thing& thing = d.things[static_cast<std::size_t>(ref.index)];

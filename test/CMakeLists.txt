@@ -4,11 +4,13 @@ add_executable(sloptests
     test_package_search.cpp
     test_package_meta.cpp
     test_assets.cpp
+    test_texture_graph.cpp
     test_script_scope.cpp
     test_scheme_harden.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
     test_map_script.cpp
+    test_camera_path.cpp
     test_csg_compile.cpp
     test_pvs_build.cpp
     test_nav_graph.cpp
@@ -36,6 +38,7 @@ add_executable(sloptests
     test_sun_shadow_softness.cpp
     test_seam_stitch.cpp
     test_sight.cpp
+    test_slopui_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
@@ -46,6 +49,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/slopui_theme_data.cpp
 )
 
 target_include_directories(sloptests PRIVATE
@@ -53,7 +57,7 @@ target_include_directories(sloptests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_link_libraries(sloptests PRIVATE sloplib Jolt::Jolt flecs::flecs_static)
+target_link_libraries(sloptests PRIVATE sloplib Jolt::Jolt flecs::flecs_static imgui)
 
 if(MSVC)
     target_compile_options(sloptests PRIVATE /W4 /permissive-)
@@ -65,11 +69,13 @@ add_test(NAME sloptests.sexpr COMMAND sloptests sexpr)
 add_test(NAME sloptests.package_search COMMAND sloptests package_search)
 add_test(NAME sloptests.package_meta COMMAND sloptests package_meta)
 add_test(NAME sloptests.assets COMMAND sloptests assets)
+add_test(NAME sloptests.texture_graph COMMAND sloptests texture_graph)
 add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.map_script COMMAND sloptests map_script)
+add_test(NAME sloptests.camera_path COMMAND sloptests camera_path)
 add_test(NAME sloptests.csg_compile COMMAND sloptests csg_compile)
 add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
 add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
@@ -93,3 +99,4 @@ add_test(NAME sloptests.lightmap_pack COMMAND sloptests lightmap_pack)
 add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
 add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)
+add_test(NAME sloptests.slopui_theme COMMAND sloptests slopui_theme)

@@ -34,7 +34,7 @@ struct SpriteAnimFrame {
     bool tweenScale = false;
     bool tweenTranslate = false;
     std::string sound;
-    float soundVolume = 1.0f;
+    float soundVolume = -1.0f;
     std::vector<std::string> hints;
     std::vector<SpriteAnimOverlay> overlays;
     std::vector<SpriteAnimParticle> particles;

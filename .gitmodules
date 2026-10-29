@@ -22,3 +22,6 @@
 [submodule "lib/recastnavigation"]
 	path = lib/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git
+[submodule "lib/TinySoundFont"]
+	path = lib/TinySoundFont
+	url = https://github.com/schellingb/TinySoundFont.git

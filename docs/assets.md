@@ -17,6 +17,7 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 |---|---|---|---|
 | Texture | `textures/` | `.png` | |
 | TextureAnim | `textures/` | `.texanim` | Parsed kind exists in the VFS, but nothing in the engine loads it yet -- effectively reserved. |
+| TextureGraph | `textures/` | `.texgraph` | Composited / procedural texture definition, evaluated when a material loads; see @ref slopmat. |
 | Material | `materials/` | `.mat` | |
 | Shader | `shaders/` | `.glsl` | |
 | Script | `scripts/` | `.s7` | Behavior: `init.s7`, `things.s7`, per-weapon/actor logic. |
@@ -44,9 +45,11 @@ Each kind is fixed to exactly one directory and one extension -- there's no way 
 | IconMap | `icons/` | `.iconmap` | Frame rects into an `Icon` atlas. |
 | Data | `data/` | `.s7` | Declarative catalogs (actions, items, CLI flags, ...); see @ref dataapi. |
 | Font | `fonts/` | `.ttf` | |
-| Sound | `sound/` | `.ogg` | |
-| Audio | `audio/` | `.s7` | Procedural audio defs. Currently broken by a name collision in the engine -- use plain `sound/` clips with `play-sound` instead. |
-| AudioSaudio | `audio/` | `.saudio` | Sample playback defs; this path works. |
+| Sound | `sounds/` | `.ogg` | Baked clips. |
+| AudioSaudio | `audio/` | `.saudio` | Playable definitions: source (a `sounds/` clip or `AudioProcedural` def) + bus/volume/distance/loop/spatial/filters. `audio/` holds only these -- no raw source material. |
+| AudioProcedural | `sounds/` | `.sfxr` | Procedural sfxr synth params, no playback wrapper. |
+| SoundFont | `sounds/` | `.sf2` | Reserved; not yet loaded by the engine. |
+| Midi | `sounds/` | `.mid` | Reserved; not yet loaded by the engine. |
 | Particle | `particles/` | `.prt` | |
 
 # Override order {#override-order}
@@ -66,6 +69,10 @@ Materials, particle systems, and icon atlases don't have their own tutorial yet;
   (texel-size 64)
   (base-color 1 1 1 1))
 </code></pre>
+
+A material can take its albedo from a texture graph instead of a PNG with `(texture-graph "path")`; the graph format and how its outputs map onto the material are on the @ref slopmat page.
+
+A material can also carry an optional `(sound ...)` block giving Steam Audio's per-surface acoustic properties (`(absorption low mid high)`, `(scattering n)`, `(transmission low mid high)`); any field left out, or the whole block left out, keeps the engine's default acoustic values.
 
 <pre><code class="language-scheme">; particles/fx/generic-smoke.prt
 (particle-system

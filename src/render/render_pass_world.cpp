@@ -1359,6 +1359,13 @@ void drawWorldDebugOverlays(flecs::world& world) {
         drawActorColliderDebugOverlays(world, world.get<DebugUiState>());
     }
 
+    if (world.has<DebugUiState>()) {
+        const DebugUiState& audioDebugUi = world.get<DebugUiState>();
+        if (audioDebugUi.showAudioSources || audioDebugUi.showAudioOcclusionMesh) {
+            drawAudioDebugOverlays(world, audioDebugUi);
+        }
+    }
+
     if (world.has<DebugLinePool>()) {
         drawDebugLinePool(world.get<DebugLinePool>());
     }

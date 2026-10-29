@@ -1,19 +1,34 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace slopengine {
 
+inline constexpr unsigned int kMaxFiltersPerBus = 8;
+
+/** One SoLoud builtin filter attached to a filter chain slot -- either a bus's mixer
+ *  chain or an AudioDef's per-definition chain -- with its param values in
+ *  SoLoud::Filter param-index order. Empty name means the slot is unused. */
+struct BusFilterSlot {
+    std::string name;
+    std::vector<float> params;
+};
+
 enum class AudioDefBus {
     Sfx,
     Music,
-};
-
-enum class AudioDefKind {
-    Sample,
-    Sfxr,
+    Ui,
+    Hud,
+    Voices,
+    Ambience,
+    Player,
+    View,
+    Count,
 };
 
 enum SaudioField : std::uint32_t {
@@ -79,17 +94,76 @@ struct SaudioParams {
     float soundVol = 0.5f;
 };
 
-struct AudioDef {
-    AudioDefKind kind = AudioDefKind::Sample;
-    std::string source;
+/** A pure procedural sound source: sfxr synth params, nothing else. Never played
+ *  directly -- an AudioDef::source references it the same way it can reference a
+ *  sounds/ clip, and playback picks whichever one resolves. */
+struct ProceduralDef {
     SaudioParams sfxr;
+};
+
+inline constexpr unsigned int kMidiChannelCount = 16;
+
+/** Forces a MIDI channel's instrument to a specific GM program, overriding whatever Program
+ *  Change events are baked into the .mid file itself for that channel. `program == -1` (the
+ *  default) means "no override, use the file's own program changes". Indexed by MIDI channel
+ *  (0-15) in AudioDef::midiInstrumentOverrides -- it's per-channel, not per-track, since that's
+ *  the only granularity the underlying soundfont synth exposes; two file tracks that share a
+ *  channel share an override too. */
+struct MidiInstrumentOverride {
+    int program = -1;
+};
+
+/** The thing the game actually plays: a source (a sounds/ clip, an AudioProcedural
+ *  def, or a sounds/ .mid file, resolved by name at load time) wrapped with bus
+ *  routing, volume/distance, looping/spatialization, and post filters. */
+struct AudioDef {
+    std::string source;
+    std::string soundfont;
     float volume = 1.0f;
     float minDistance = 1.0f;
     float maxDistance = 30.0f;
     bool loop = false;
     bool spatial = false;
     AudioDefBus bus = AudioDefBus::Sfx;
-    std::vector<std::string> filters;
+    std::array<BusFilterSlot, kMaxFiltersPerBus> filters{};
+    std::array<MidiInstrumentOverride, kMidiChannelCount> midiInstrumentOverrides{}; // Only used when source is a .mid file.
+};
+
+/** Appends a filter into the first unused slot of `def.filters`; returns nullptr if the
+ *  chain is already full (kMaxFiltersPerBus slots) instead of appending. */
+inline BusFilterSlot* pushAudioDefFilter(AudioDef& def, std::string name) {
+    for (BusFilterSlot& slot : def.filters) {
+        if (slot.name.empty()) {
+            slot.name = std::move(name);
+            slot.params.clear();
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+/** True if any slot in a filter chain is occupied. */
+inline bool hasAnyFilterSlots(const std::array<BusFilterSlot, kMaxFiltersPerBus>& slots) {
+    for (const BusFilterSlot& slot : slots) {
+        if (!slot.name.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Persisted mixer state for a single AudioBusKind: volume, mute, and its
+ *  ordered filter chain (up to kMaxFiltersPerBus slots). */
+struct BusDef {
+    float volume = 1.0f;
+    bool muted = false;
+    std::array<BusFilterSlot, kMaxFiltersPerBus> slots{};
+};
+
+/** The full bus mixer, one BusDef per AudioDefBus. Loaded from
+ *  audio/buses.saudio and applied to AudioWorld at startup. */
+struct BusConfig {
+    std::array<BusDef, static_cast<std::size_t>(AudioDefBus::Count)> buses{};
 };
 
 }

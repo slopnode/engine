@@ -140,6 +140,7 @@ set(SLOPLIB_SOURCES
     src/assets/sprite_loader.cpp
     src/assets/sprite_anim_loader.cpp
     src/assets/texture_anim_loader.cpp
+    src/assets/texture_graph.cpp
     src/assets/skeleton_loader.cpp
     src/assets/anim_loader.cpp
     src/particles/particle_sim.cpp
@@ -161,6 +162,8 @@ set(SLOPLIB_SOURCES
     src/map/thing_def_registry.cpp
     src/map/nav_profile_registry.cpp
     src/map/graph_script.cpp
+    src/map/graph_write.cpp
+    src/map/camera_path.cpp
     src/map/lightmap.cpp
     src/map/light_occlusion.cpp
     src/map/light_probes.cpp
@@ -226,9 +229,16 @@ add_executable(slopengine
     src/input/bind_code.cpp
     src/input/input_module.cpp
     src/camera/camera_module.cpp
+    src/camera/camera_path_player.cpp
+    src/script/camera_path_script.cpp
     src/interact/interact_module.cpp
     src/ui/ui_module.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_world.cpp
+    src/ui/slopui_editor.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
     src/physics/sight_module.cpp
@@ -245,6 +255,8 @@ add_executable(slopengine
     src/render/view_sprite_attachment.cpp
     src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
+    src/audio/midi_source.cpp
+    src/audio/graphic_eq_filter.cpp
     src/audio/audio_module.cpp
     src/map/things_spawn.cpp
     src/map/brush_door.cpp
@@ -286,6 +298,7 @@ add_executable(slopengine
     src/script/thing_script.cpp
     src/script/save_script.cpp
     src/script/ui_script.cpp
+    src/script/theme_script.cpp
 )
 
 target_link_libraries(slopengine PRIVATE
@@ -294,6 +307,7 @@ target_link_libraries(slopengine PRIVATE
     Jolt::Jolt
     rlImGui
     soloud
+    tsf
 )
 
 if(SLOPENGINE_HAS_STEAM_AUDIO)
@@ -379,6 +393,8 @@ add_executable(slopmap
     tools/slopmap/create_tool.cpp
     tools/slopmap/select_tool.cpp
     tools/slopmap/place_tool.cpp
+    tools/slopmap/path_draw.cpp
+    tools/slopmap/path_panel.cpp
     tools/slopmap/punch_tool.cpp
     tools/slopmap/clip_tool.cpp
     tools/slopmap/extrude_tool.cpp
@@ -395,6 +411,10 @@ add_executable(slopmap
     tools/slopmap/layout.cpp
     tools/slopmap/compile.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
 )
 target_include_directories(slopmap PRIVATE tools/slopmap)
 target_link_libraries(slopmap PRIVATE sloplib rlImGui)
@@ -416,14 +436,47 @@ add_executable(slopsprite
     tools/slopsprite/sound_browser.cpp
     tools/slopsprite/layout.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
     src/audio/audio_world.cpp
+    src/audio/midi_source.cpp
+    src/audio/graphic_eq_filter.cpp
 )
 target_include_directories(slopsprite PRIVATE tools/slopsprite)
-target_link_libraries(slopsprite PRIVATE sloplib rlImGui soloud)
+target_link_libraries(slopsprite PRIVATE sloplib rlImGui soloud tsf)
 if(MSVC)
     target_compile_options(slopsprite PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopaudio
+    tools/slopaudio/main.cpp
+    tools/slopaudio/editor.cpp
+    tools/slopaudio/browser.cpp
+    tools/slopaudio/bus_editor.cpp
+    tools/slopaudio/filter_chain_ui.cpp
+    tools/slopaudio/waveform_view.cpp
+    tools/slopaudio/midi_track_view.cpp
+    tools/slopaudio/asset_info.cpp
+    tools/slopaudio/layout.cpp
+    src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
+    src/audio/audio_world.cpp
+    src/audio/midi_source.cpp
+    src/audio/graphic_eq_filter.cpp
+)
+target_include_directories(slopaudio PRIVATE tools/slopaudio)
+target_link_libraries(slopaudio PRIVATE sloplib rlImGui soloud tsf)
+if(MSVC)
+    target_compile_options(slopaudio PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopaudio PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(slopthing
@@ -436,6 +489,10 @@ add_executable(slopthing
     tools/slopthing/inspector_panel.cpp
     tools/slopthing/collider_preview.cpp
     src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
 )
 target_include_directories(slopthing PRIVATE tools/slopthing)
 target_link_libraries(slopthing PRIVATE sloplib rlImGui)
@@ -443,6 +500,33 @@ if(MSVC)
     target_compile_options(slopthing PRIVATE /W4 /permissive-)
 else()
     target_compile_options(slopthing PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(slopmat
+    tools/slopmat/main.cpp
+    tools/slopmat/editor.cpp
+    tools/slopmat/browser.cpp
+    tools/slopmat/asset_picker.cpp
+    tools/slopmat/preview.cpp
+    tools/slopmat/graph_panel.cpp
+    tools/slopmat/material_panel.cpp
+    tools/slopmat/anim_panel.cpp
+    tools/slopmat/thumb_cache.cpp
+    tools/slopmat/world_preview.cpp
+    tools/slopmat/drag_drop.cpp
+    tools/slopmat/layout.cpp
+    src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
+)
+target_include_directories(slopmat PRIVATE tools/slopmat)
+target_link_libraries(slopmat PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopmat PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopmat PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 add_executable(sloplauncher
