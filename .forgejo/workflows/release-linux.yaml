@@ -5,7 +5,7 @@ on:
 
 jobs:
   release:
-    runs-on: alma10
+    runs-on: linux
     steps:
       - name: Checkout
         uses: actions/checkout@v4
