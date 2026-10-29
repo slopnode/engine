@@ -503,7 +503,10 @@ std::string renderShell(const Site& site, const std::string& pageId, const std::
            "<ul id=\"sd-search-results\" hidden></ul></div></header>\n";
     out += "<div class=\"sd-layout\">\n";
     out += renderNav(site, pageId, rel);
-    out += "\n<main id=\"sd-content\">\n<h1 class=\"sd-page-title\">" + escapeHtml(pageTitle) + "</h1>\n";
+    out += "\n<main id=\"sd-content\">\n";
+    if (pageId != "index") {
+        out += "<h1 class=\"sd-page-title\">" + escapeHtml(pageTitle) + "</h1>\n";
+    }
     out += body;
     out += "</main>\n";
     out += toc;

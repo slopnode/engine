@@ -55,26 +55,52 @@ bool isPairLike(const DataValue& v) {
            v.items.size() >= 2;
 }
 
+struct Field {
+    std::string key;
+    DataValue value;
+};
+
 DocNode keyNode(const std::string& key) {
     return withAttr(codeInline(key), "class", "sd-key");
 }
 
-std::vector<DocNode> leafValue(const DataValue& v) {
-    if (isScalar(v)) {
-        return {textNode(cellText(v))};
-    }
-    if (v.kind == DataValue::Kind::List && !v.dotted && !v.items.empty() &&
-        std::all_of(v.items.begin(), v.items.end(), isScalar)) {
-        std::string joined;
-        for (const DataValue& item : v.items) {
-            if (!joined.empty()) {
-                joined.push_back(' ');
-            }
-            joined += cellText(item);
+std::vector<Field> alistFields(const DataValue& alist);
+
+std::string entryTitle(const std::vector<Field>& fields, std::string& id) {
+    std::string title;
+    for (const Field& f : fields) {
+        if (f.key == "id" && isScalar(f.value)) {
+            id = cellText(f.value);
         }
-        return {textNode(joined)};
     }
-    return {codeInline(cellText(v))};
+    for (const char* key : {"label", "title", "name"}) {
+        for (const Field& f : fields) {
+            if (f.key == key && isScalar(f.value)) {
+                return cellText(f.value);
+            }
+        }
+    }
+    return id;
+}
+
+std::vector<std::string> headedKeys(const std::vector<Field>& fields, const std::string& title, const std::string& id) {
+    std::vector<std::string> skip;
+    for (const char* key : {"label", "title", "name"}) {
+        for (const Field& f : fields) {
+            if (f.key == key && isScalar(f.value) && cellText(f.value) == title) {
+                skip.push_back(key);
+            }
+        }
+    }
+    if (!id.empty()) {
+        skip.push_back("id");
+    }
+    return skip;
+}
+
+bool isScalarList(const DataValue& v) {
+    return v.kind == DataValue::Kind::List && !v.dotted && !v.items.empty() &&
+           std::all_of(v.items.begin(), v.items.end(), isScalar);
 }
 
 bool isTreeValue(const DataValue& v) {
@@ -94,31 +120,95 @@ bool isTreeValue(const DataValue& v) {
 
 DocNode leafItem(const std::string& key, const DataValue& v) {
     std::vector<DocNode> line = {keyNode(key)};
-    line.push_back(withAttr(elem("span", leafValue(v)), "class", "sd-val"));
+    std::vector<DocNode> value;
+    if (isScalar(v)) {
+        value.push_back(textNode(cellText(v)));
+    } else if (isScalarList(v)) {
+        std::string joined;
+        for (const DataValue& item : v.items) {
+            if (!joined.empty()) {
+                joined.push_back(' ');
+            }
+            joined += cellText(item);
+        }
+        value.push_back(textNode(joined));
+    } else {
+        value.push_back(codeInline(cellText(v)));
+    }
+    line.push_back(withAttr(elem("span", std::move(value)), "class", "sd-val"));
     return withAttr(elem("item", {elem("p", std::move(line))}), "class", "sd-leaf");
 }
 
-DocNode treeFromValue(const DataValue& v);
-
-DocNode branchItem(const std::string& key, const DataValue& v) {
+DocNode branchItem(const std::string& key, const std::string& extra, DocNode children) {
     std::vector<DocNode> line = {keyNode(key)};
-    std::string scalars;
-    for (const DataValue& item : v.items) {
-        if (isScalar(item)) {
-            if (!scalars.empty()) {
-                scalars.push_back(' ');
-            }
-            scalars += cellText(item);
-        }
+    if (!extra.empty()) {
+        line.push_back(withAttr(elem("span", {textNode(extra)}), "class", "sd-val"));
     }
-    if (!scalars.empty()) {
-        line.push_back(withAttr(elem("span", {textNode(scalars)}), "class", "sd-val"));
-    }
-    return withAttr(elem("item", {elem("p", std::move(line)), treeFromValue(v)}), "class", "sd-branch");
+    return withAttr(elem("item", {elem("p", std::move(line)), std::move(children)}), "class", "sd-branch");
 }
 
+DocNode treeFromFields(const std::vector<Field>& fields, const std::vector<std::string>& skip);
+
+DocNode treeFromValue(const DataValue& v);
+
 DocNode fieldItem(const std::string& key, const DataValue& v) {
-    return isTreeValue(v) ? branchItem(key, v) : leafItem(key, v);
+    if (isCatalog(v)) {
+        DocNode tree = withAttr(elem("ul"), "class", "sd-tree");
+        for (const DataValue& entry : v.items) {
+            DataValue alist;
+            if (entry.dotted) {
+                alist = entry.items[1];
+            } else {
+                alist.kind = DataValue::Kind::List;
+                alist.items.assign(entry.items.begin() + 1, entry.items.end());
+            }
+            std::vector<Field> fields = alistFields(alist);
+            std::string id = entry.items.front().text;
+            std::string title = entryTitle(fields, id);
+            id = entry.items.front().text;
+            tree.children.push_back(branchItem(title, title == id ? std::string() : id, treeFromFields(fields, headedKeys(fields, title, id))));
+        }
+        return branchItem(key, std::string(), std::move(tree));
+    }
+    if (isAlistList(v)) {
+        DocNode tree = withAttr(elem("ul"), "class", "sd-tree");
+        std::size_t n = 0;
+        for (const DataValue& entry : v.items) {
+            ++n;
+            std::vector<Field> fields = alistFields(entry);
+            std::string id;
+            std::string title = entryTitle(fields, id);
+            if (title.empty()) {
+                title = "#" + std::to_string(n);
+            }
+            tree.children.push_back(branchItem(title, title == id ? std::string() : id, treeFromFields(fields, headedKeys(fields, title, id))));
+        }
+        return branchItem(key, std::string(), std::move(tree));
+    }
+    if (isTreeValue(v)) {
+        std::string scalars;
+        for (const DataValue& item : v.items) {
+            if (isScalar(item)) {
+                if (!scalars.empty()) {
+                    scalars.push_back(' ');
+                }
+                scalars += cellText(item);
+            }
+        }
+        return branchItem(key, scalars, treeFromValue(v));
+    }
+    return leafItem(key, v);
+}
+
+DocNode treeFromFields(const std::vector<Field>& fields, const std::vector<std::string>& skip) {
+    DocNode tree = withAttr(elem("ul"), "class", "sd-tree");
+    for (const Field& f : fields) {
+        if (std::find(skip.begin(), skip.end(), f.key) != skip.end()) {
+            continue;
+        }
+        tree.children.push_back(fieldItem(f.key, f.value));
+    }
+    return tree;
 }
 
 DocNode treeFromValue(const DataValue& v) {
@@ -142,11 +232,6 @@ DocNode treeFromValue(const DataValue& v) {
     return tree;
 }
 
-struct Field {
-    std::string key;
-    DataValue value;
-};
-
 std::vector<Field> alistFields(const DataValue& alist) {
     std::vector<Field> out;
     for (const DataValue& entry : alist.items) {
@@ -157,7 +242,7 @@ std::vector<Field> alistFields(const DataValue& alist) {
         } else {
             f.value.kind = DataValue::Kind::List;
             f.value.items.assign(entry.items.begin() + 1, entry.items.end());
-            if (f.value.items.size() == 1 && f.value.items.front().kind != DataValue::Kind::List) {
+            if (f.value.items.size() == 1 && isScalar(f.value.items.front())) {
                 f.value = f.value.items.front();
             }
         }
@@ -166,147 +251,108 @@ std::vector<Field> alistFields(const DataValue& alist) {
     return out;
 }
 
-DocNode keyedTable(const std::string& symbol, const std::vector<std::pair<std::string, std::vector<Field>>>& rows, bool withId) {
-    std::vector<std::string> columns;
-    for (const auto& [id, fields] : rows) {
-        for (const Field& f : fields) {
-            if (std::find(columns.begin(), columns.end(), f.key) == columns.end()) {
-                columns.push_back(f.key);
-            }
-        }
+DocNode entrySection(const std::string& symbol, const std::string& title, const std::string& id, const std::vector<Field>& fields, const std::string& groupKey) {
+    const std::vector<std::string> skip = headedKeys(fields, title, id);
+    DocNode entry = withAttr(elem("section"), "title", title);
+    if (!id.empty() && id != title) {
+        entry = withAttr(entry, "subtitle", id);
     }
-    DocNode table = withAttr(elem("table"), "class", "sd-data sd-data-catalog");
-    std::vector<std::string> header;
-    if (withId) {
-        header.push_back("Id");
-    }
-    header.insert(header.end(), columns.begin(), columns.end());
-    table.children.push_back(headerRow(header));
-    for (const auto& [id, fields] : rows) {
-        std::vector<DocNode> cells;
-        if (withId) {
-            cells.push_back(cell({codeInline(id)}));
+    entry = withAttr(entry, "id", slug(symbol) + "-" + slug(id.empty() ? title : id));
+    entry = withAttr(entry, "class", "sd-entry");
+    DocNode props = withAttr(elem("ul"), "class", "sd-tree sd-entry-props");
+    for (const Field& f : fields) {
+        if (std::find(skip.begin(), skip.end(), f.key) != skip.end() || (!groupKey.empty() && f.key == groupKey)) {
+            continue;
         }
-        for (const std::string& column : columns) {
-            std::vector<DocNode> content;
+        props.children.push_back(fieldItem(f.key, f.value));
+    }
+    if (!props.children.empty()) {
+        entry.children.push_back(std::move(props));
+    }
+    return entry;
+}
+
+void renderCatalog(const std::string& symbol, const DataValue& value, std::vector<DocNode>& blocks) {
+    std::vector<std::pair<std::string, std::vector<Field>>> rows;
+    for (const DataValue& entry : value.items) {
+        DataValue alist;
+        if (entry.dotted) {
+            alist = entry.items[1];
+        } else {
+            alist.kind = DataValue::Kind::List;
+            alist.items.assign(entry.items.begin() + 1, entry.items.end());
+        }
+        rows.emplace_back(entry.items.front().text, alistFields(alist));
+    }
+    std::string groupKey;
+    for (const char* candidate : {"path", "folder", "group", "category", "kind"}) {
+        std::size_t have = 0;
+        for (const auto& [id, fields] : rows) {
             for (const Field& f : fields) {
-                if (f.key == column) {
-                    if (f.value.kind == DataValue::Kind::String || f.value.kind == DataValue::Kind::Number ||
-                        f.value.kind == DataValue::Kind::Bool || f.value.kind == DataValue::Kind::Symbol) {
-                        content.push_back(textNode(cellText(f.value)));
-                    } else {
-                        content.push_back(codeInline(cellText(f.value)));
-                    }
+                if (f.key == candidate) {
+                    ++have;
                     break;
                 }
             }
-            cells.push_back(cell(std::move(content)));
         }
-        DocNode r = row(std::move(cells));
-        if (withId) {
-            r = withAttr(r, "id", slug(symbol) + "-" + slug(id));
+        if (have * 2 >= rows.size()) {
+            groupKey = candidate;
+            break;
         }
-        table.children.push_back(std::move(r));
     }
-    return table;
+    std::vector<std::string> groups;
+    std::map<std::string, std::vector<const std::pair<std::string, std::vector<Field>>*>> byGroup;
+    for (const auto& r : rows) {
+        std::string group;
+        for (const Field& f : r.second) {
+            if (f.key == groupKey) {
+                group = cellText(f.value);
+                break;
+            }
+        }
+        if (byGroup.count(group) == 0) {
+            groups.push_back(group);
+        }
+        byGroup[group].push_back(&r);
+    }
+    for (const std::string& group : groups) {
+        std::vector<DocNode> entries;
+        for (const auto* r : byGroup[group]) {
+            std::string id = r->first;
+            const std::string title = entryTitle(r->second, id);
+            entries.push_back(entrySection(symbol, title, r->first, r->second, groupKey));
+        }
+        if (groupKey.empty()) {
+            for (DocNode& n : entries) {
+                blocks.push_back(std::move(n));
+            }
+        } else {
+            blocks.push_back(withAttr(withAttr(elem("section", std::move(entries)), "title", group.empty() ? "ungrouped" : group), "class", "sd-data-group"));
+        }
+    }
+}
+
+void renderAlistList(const std::string& symbol, const DataValue& value, std::vector<DocNode>& blocks) {
+    std::size_t n = 0;
+    for (const DataValue& entry : value.items) {
+        ++n;
+        std::vector<Field> fields = alistFields(entry);
+        std::string id;
+        std::string title = entryTitle(fields, id);
+        if (title.empty()) {
+            title = "#" + std::to_string(n);
+        }
+        blocks.push_back(entrySection(symbol, title, id, fields, std::string()));
+    }
 }
 
 void renderValue(const std::string& symbol, const DataValue& value, std::vector<DocNode>& blocks, std::vector<std::pair<std::string, std::string>>& scalars) {
     if (isCatalog(value)) {
-        std::vector<std::pair<std::string, std::vector<Field>>> rows;
-        std::vector<std::string> columns;
-        for (const DataValue& entry : value.items) {
-            DataValue alist;
-            if (entry.dotted) {
-                alist = entry.items[1];
-            } else {
-                alist.kind = DataValue::Kind::List;
-                alist.items.assign(entry.items.begin() + 1, entry.items.end());
-            }
-            rows.emplace_back(entry.items.front().text, alistFields(alist));
-            for (const Field& f : rows.back().second) {
-                if (std::find(columns.begin(), columns.end(), f.key) == columns.end()) {
-                    columns.push_back(f.key);
-                }
-            }
-        }
-        if (columns.size() <= 6 && rows.size() <= 12) {
-            blocks.push_back(keyedTable(symbol, rows, true));
-            return;
-        }
-        std::string groupKey;
-        for (const char* candidate : {"path", "folder", "group", "category", "kind"}) {
-            std::size_t have = 0;
-            for (const auto& [id, fields] : rows) {
-                for (const Field& f : fields) {
-                    if (f.key == candidate) {
-                        ++have;
-                        break;
-                    }
-                }
-            }
-            if (have * 2 >= rows.size()) {
-                groupKey = candidate;
-                break;
-            }
-        }
-        std::vector<std::string> groups;
-        std::map<std::string, std::vector<const std::pair<std::string, std::vector<Field>>*>> byGroup;
-        for (const auto& r : rows) {
-            std::string group;
-            for (const Field& f : r.second) {
-                if (f.key == groupKey) {
-                    group = cellText(f.value);
-                    break;
-                }
-            }
-            if (byGroup.count(group) == 0) {
-                groups.push_back(group);
-            }
-            byGroup[group].push_back(&r);
-        }
-        for (const std::string& group : groups) {
-            std::vector<DocNode> entries;
-            for (const auto* r : byGroup[group]) {
-                std::string label;
-                DocNode props = withAttr(elem("ul"), "class", "sd-tree sd-entry-props");
-                for (const Field& f : r->second) {
-                    if (f.key == "label" && f.value.kind == DataValue::Kind::String) {
-                        label = f.value.text;
-                        continue;
-                    }
-                    if (f.key == groupKey) {
-                        continue;
-                    }
-                    props.children.push_back(fieldItem(f.key, f.value));
-                }
-                DocNode entry = withAttr(elem("section"), "title", label.empty() ? r->first : label);
-                if (!label.empty()) {
-                    entry = withAttr(entry, "subtitle", r->first);
-                }
-                entry = withAttr(entry, "id", slug(symbol) + "-" + slug(r->first));
-                entry = withAttr(entry, "class", "sd-entry");
-                if (!props.children.empty()) {
-                    entry.children.push_back(std::move(props));
-                }
-                entries.push_back(std::move(entry));
-            }
-            if (groupKey.empty()) {
-                for (DocNode& n : entries) {
-                    blocks.push_back(std::move(n));
-                }
-            } else {
-                blocks.push_back(withAttr(withAttr(elem("section", std::move(entries)), "title", group.empty() ? "ungrouped" : group), "class", "sd-data-group"));
-            }
-        }
+        renderCatalog(symbol, value, blocks);
         return;
     }
     if (isAlistList(value)) {
-        std::vector<std::pair<std::string, std::vector<Field>>> rows;
-        for (const DataValue& entry : value.items) {
-            rows.emplace_back(std::string(), alistFields(entry));
-        }
-        blocks.push_back(keyedTable(symbol, rows, false));
+        renderAlistList(symbol, value, blocks);
         return;
     }
     if (isAlist(value)) {
@@ -323,22 +369,17 @@ void renderValue(const std::string& symbol, const DataValue& value, std::vector<
                     std::vector<DocNode> inner;
                     std::vector<std::pair<std::string, std::string>> innerScalars;
                     renderValue(symbol + " " + f.key, f.value, inner, innerScalars);
-                    blocks.push_back(withAttr(elem("section", std::move(inner)), "title", f.key));
-                    for (auto& s : innerScalars) {
-                        scalars.push_back(std::move(s));
+                    for (auto& sc : innerScalars) {
+                        inner.push_back(elem("p", {codeInline(sc.first), textNode(" "), codeInline(sc.second)}));
                     }
+                    blocks.push_back(withAttr(withAttr(elem("section", std::move(inner)), "title", f.key), "class", "sd-data-group"));
                 } else {
                     scalars.emplace_back(f.key, cellText(f.value));
                 }
             }
             return;
         }
-        DocNode table = withAttr(elem("table"), "class", "sd-data sd-data-alist");
-        table.children.push_back(headerRow({"Key", "Value"}));
-        for (const Field& f : fields) {
-            table.children.push_back(row({cell({codeInline(f.key)}), cell({textNode(cellText(f.value))})}));
-        }
-        blocks.push_back(std::move(table));
+        blocks.push_back(withAttr(treeFromFields(fields, {}), "class", "sd-tree sd-entry-props"));
         return;
     }
     scalars.emplace_back(symbol, writeDataValue(value));

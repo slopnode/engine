@@ -248,10 +248,7 @@ a:hover {
     display: block;
     margin-top: 0.6rem;
     padding: 0.2rem 0.4rem;
-    color: var(--sd-muted);
-    font-size: 0.8em;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-weight: 700;
 }
 
 #sd-content {
@@ -409,7 +406,6 @@ pre.sd-code-block code {
 }
 
 .sd-package-info th {
-    width: 8rem;
     background: var(--sd-table-head-bg);
     font-weight: 600;
 }
@@ -417,6 +413,42 @@ pre.sd-code-block code {
 .sd-table .sd-count {
     text-align: right;
     font-variant-numeric: tabular-nums;
+}
+
+.sd-package-info,
+.sd-asset-counts,
+.sd-catalog-counts {
+    width: 32rem;
+    max-width: 100%;
+    table-layout: fixed;
+}
+
+.sd-package-info {
+    width: 44rem;
+}
+
+.sd-package-info td {
+    overflow-wrap: anywhere;
+}
+
+.sd-package-info th,
+.sd-asset-counts td:first-child,
+.sd-asset-counts th:first-child,
+.sd-catalog-counts td:first-child,
+.sd-catalog-counts th:first-child {
+    width: 18rem;
+}
+
+.sd-asset-counts .sd-count,
+.sd-catalog-counts .sd-count,
+.sd-asset-counts th:last-child,
+.sd-catalog-counts th:last-child {
+    width: 6rem;
+    text-align: right;
+}
+
+[id] {
+    scroll-margin-top: 4rem;
 }
 
 .sd-shader-facts td:first-child {
@@ -654,6 +686,12 @@ section.sd-def > pre.sd-code-block {
 
 section.sd-data-group {
     margin-top: 1.5rem;
+}
+
+section.sd-section > section.sd-entry:first-of-type,
+section.sd-section > section.sd-def:first-of-type {
+    border-top: 0;
+    padding-top: 0;
 }
 
 section.sd-data-group > .sd-heading {
