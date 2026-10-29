@@ -102,7 +102,7 @@ bool convert(s7_scheme* sc, s7_pointer v, DocNode& out, std::string& error, cons
 
 enum class Kind { Block, Inline, Both, Special };
 
-enum class ChildRule { None, Inline, Blocks, InlineOrBlocks, Text, ListItems, TableRows, Cells, DlEntries, Raw };
+enum class ChildRule { None, Inline, Blocks, InlineOrBlocks, Mixed, Text, ListItems, TableRows, Cells, DlEntries, Raw };
 
 struct Spec {
     Kind kind;
@@ -123,7 +123,7 @@ const std::unordered_map<std::string, Spec>& specs() {
         {"row", {Kind::Special, ChildRule::Cells}},
         {"cell", {Kind::Special, ChildRule::Inline}},
         {"dl", {Kind::Block, ChildRule::DlEntries}},
-        {"term", {Kind::Special, ChildRule::Inline}},
+        {"term", {Kind::Special, ChildRule::Mixed}},
         {"note", {Kind::Block, ChildRule::InlineOrBlocks}},
         {"tip", {Kind::Block, ChildRule::InlineOrBlocks}},
         {"warning", {Kind::Block, ChildRule::InlineOrBlocks}},
@@ -132,7 +132,9 @@ const std::unordered_map<std::string, Spec>& specs() {
         {"hr", {Kind::Block, ChildRule::None}},
         {"html", {Kind::Both, ChildRule::Raw}},
         {"package-info", {Kind::Block, ChildRule::None}},
+        {"asset-counts", {Kind::Block, ChildRule::None}},
         {"em", {Kind::Inline, ChildRule::Inline}},
+        {"span", {Kind::Inline, ChildRule::Inline}},
         {"strong", {Kind::Inline, ChildRule::Inline}},
         {"kbd", {Kind::Inline, ChildRule::Inline}},
         {"link", {Kind::Inline, ChildRule::Inline}},
@@ -276,6 +278,14 @@ bool validate(DocNode& node, const std::string& path, std::string& error) {
             return false;
         }
         return validateChildren(node, here, error);
+    case ChildRule::Mixed:
+        for (const DocNode& child : node.children) {
+            if (!isInlineNode(child) && !isBlockNode(child)) {
+                error = here + ": " + describe(child) + " is not allowed here";
+                return false;
+            }
+        }
+        return validateChildren(node, here, error);
     case ChildRule::ListItems: {
         std::vector<DocNode> items;
         for (DocNode& child : node.children) {
@@ -338,6 +348,10 @@ bool validate(DocNode& node, const std::string& path, std::string& error) {
 
 bool docNodeFromS7(s7_scheme* sc, s7_pointer value, DocNode& out, std::string& error) {
     return convert(sc, value, out, error, "");
+}
+
+bool isInlineDocNode(const DocNode& node) {
+    return isInlineNode(node);
 }
 
 bool validateDocPage(DocNode& page, std::string& error) {

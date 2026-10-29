@@ -1,0 +1,19 @@
+"Entry point of the fixture game. Loads the player module and registers the startup hook."
+
+(require "player/health")
+
+(define *difficulty* 'normal)
+
+(define (on-startup)
+  "Loads the map named by the --map flag, or shows the title screen.
+   @return #t"
+  (let ((map-id (startup-arg "map")))
+    (if map-id (request-map-load map-id "fresh") #t)))
+
+;;; Picks a spawn point by name. Falls back to the first start.
+;;; @param name string? spawn name from the map
+;;; @return (or string? #f)
+(define (spawn-for name)
+  (if (string=? name "") #f name))
+
+(define undocumented-helper (lambda (x) (+ x 1)))

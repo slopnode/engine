@@ -1,6 +1,8 @@
 #include "site.hpp"
 
+#include "data_pages.hpp"
 #include "embedded.hpp"
+#include "script_pages.hpp"
 #include "shader_pages.hpp"
 
 #include "core/sexpr.hpp"
@@ -224,6 +226,25 @@ void loadEngineNames(Site& site) {
     }
 }
 
+NavEntry buildTree(const std::string& label, const std::string& prefix, const std::vector<std::string>& paths) {
+    NavEntry node;
+    node.group = true;
+    node.label = label;
+    std::map<std::string, std::vector<std::string>> folders;
+    for (const std::string& path : paths) {
+        const std::size_t slash = path.find('/');
+        if (slash == std::string::npos) {
+            node.pages.push_back(prefix + path);
+        } else {
+            folders[path.substr(0, slash)].push_back(path.substr(slash + 1));
+        }
+    }
+    for (const auto& [folder, rest] : folders) {
+        node.children.push_back(buildTree(folder, prefix + folder + "/", rest));
+    }
+    return node;
+}
+
 bool resolveNav(Site& site, std::string& error) {
     std::unordered_set<std::string> listed;
     for (const NavEntry& entry : site.config.nav) {
@@ -252,30 +273,29 @@ bool resolveNav(Site& site, std::string& error) {
         entry.pages = {id};
         site.config.nav.push_back(std::move(entry));
     }
-    if (!site.shaders.empty()) {
-        std::map<std::string, NavEntry> folders;
-        for (const ShaderDoc& shader : site.shaders) {
-            const std::size_t slash = shader.path.rfind('/');
-            const std::string folder = slash == std::string::npos ? std::string() : shader.path.substr(0, slash);
-            NavEntry& entry = folders[folder];
-            entry.group = true;
-            entry.label = folder;
-            entry.pages.push_back("shaders/" + shader.path);
+    if (!site.scripts.empty()) {
+        std::vector<std::string> paths;
+        for (const ScriptDoc& script : site.scripts) {
+            paths.push_back(script.path);
         }
-        NavEntry shaders;
-        shaders.group = true;
-        shaders.label = "Shaders";
-        for (auto& [folder, entry] : folders) {
-            if (folder.empty()) {
-                shaders.pages.insert(shaders.pages.end(), entry.pages.begin(), entry.pages.end());
-            } else {
-                shaders.children.push_back(std::move(entry));
-            }
+        site.config.nav.push_back(buildTree("Scripts", "scripts/", paths));
+    }
+    if (!site.data.empty()) {
+        std::vector<std::string> paths;
+        for (const DataDoc& data : site.data) {
+            paths.push_back(data.path);
+        }
+        site.config.nav.push_back(buildTree("Data", "data/", paths));
+    }
+    if (!site.shaders.empty()) {
+        std::vector<std::string> paths;
+        for (const ShaderDoc& shader : site.shaders) {
+            paths.push_back(shader.path);
         }
         NavEntry assets;
         assets.group = true;
         assets.label = "Assets";
-        assets.children.push_back(std::move(shaders));
+        assets.children.push_back(buildTree("Shaders", "shaders/", paths));
         site.config.nav.push_back(std::move(assets));
     }
     return true;
@@ -347,10 +367,19 @@ bool loadSite(const fs::path& packageRoot, Site& out, std::string& error, bool v
         error = loader.error;
         return false;
     }
+    out.scripts = scanScripts(packageRoot);
+    out.data = scanData(packageRoot, verbose);
     out.shaders = scanShaders(packageRoot);
+    if (!buildDataPages(out, error)) {
+        return false;
+    }
+    if (!buildScriptPages(out, error)) {
+        return false;
+    }
     if (!buildShaderPages(out, error)) {
         return false;
     }
+    out.counts = countAssets(packageRoot, verbose);
     return resolveNav(out, error);
 }
 

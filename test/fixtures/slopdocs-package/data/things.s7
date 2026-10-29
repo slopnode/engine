@@ -1,0 +1,24 @@
+"Thing templates placed from the map editor."
+
+;;; Folders the editor groups things under, with an icon each.
+(define *package-thing-folders*
+  '(("ammo" . "bullet_black")
+    ("monsters" . "group")))
+
+;;; Every placeable thing. Pickups need a sprite and an on-enter handler.
+(define *package-things*
+  (list
+    (cons "clip"
+          '((label . "Clip")
+            (path . "ammo")
+            (kind . pickup)
+            (sprite . "items/clip")
+            (on-enter "on-enter-ammo" (ammo "clip"))
+            (trigger-size 1 1.5 1)))
+    (cons "poss"
+          '((label . "Zombieman")
+            (path . "monsters")
+            (kind . actor)
+            (sprite . "monsters/poss")
+            (health . 20)
+            (tags "actor" "team:hell")))))

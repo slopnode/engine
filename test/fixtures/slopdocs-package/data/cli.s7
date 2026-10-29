@@ -1,0 +1,7 @@
+(define *package-cli*
+  '((flags
+     ((name "map") (value "string") (help "Initial map folder under maps/"))
+     ((name "god-mode") (value "flag") (help "Player takes no damage")))))
+
+;;; Canvas size the HUD is laid out on.
+(define *hud-canvas* '(640 400))

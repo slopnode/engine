@@ -365,6 +365,12 @@ add_executable(slopdocs
     tools/slopdocs/highlight.cpp
     tools/slopdocs/shader_doc.cpp
     tools/slopdocs/shader_pages.cpp
+    tools/slopdocs/asset_counts.cpp
+    tools/slopdocs/data_doc.cpp
+    tools/slopdocs/data_pages.cpp
+    tools/slopdocs/doc_text.cpp
+    tools/slopdocs/script_doc.cpp
+    tools/slopdocs/script_pages.cpp
     src/script/scheme_harden.cpp
     ${SLOPDOCS_EMBED_SOURCES}
 )

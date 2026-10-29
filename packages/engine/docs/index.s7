@@ -1,27 +1,5 @@
 (page "index" "Home"
   (p "The engine package is mounted before every game and mod. It holds the engine's own "
-     "assets and a small Scheme library that every package script can use without loading "
-     "anything: list and alist helpers, vector math, and the declarative UI screen wrapper.")
+     "assets and the Scheme library every package script can use without loading anything.")
   (package-info)
-
-  (section "Scripts"
-    (p (code "scripts/lang.s7") " is loaded by the engine at boot. It defines "
-       (code "require") " and " (code "require-data") " and then loads the three library "
-       "files, so everything on these pages is available from the first line of a game's "
-       (code "init.s7") ".")
-    (ul
-      (item (page-ref "lang") ": loading other scripts and data files from the current package.")
-      (item (page-ref "lists") ": positional accessors, alist and hash table helpers.")
-      (item (page-ref "math") ": clamp, lerp and list-backed vector types.")
-      (item (page-ref "ui") ": the screen wrapper over the " (code "ui-*") " ImGui bindings.")))
-
-  (section "Engine bindings"
-    (p "Functions bound from C++, such as " (ref "actor-pos") " or " (ref "ui-button")
-       ", are documented in the engine's scripting API reference. Names from that reference "
-       "are linked wherever they appear in code on these pages.")
-    (code 'scheme "
-      (define (on-startup)
-        (let ((map-id (startup-arg \"map\")))
-          (if map-id
-              (request-map-load map-id \"fresh\")
-              #t)))")))
+  (asset-counts))

@@ -25,6 +25,8 @@ bool docNodeFromS7(s7_scheme* sc, s7_pointer value, DocNode& out, std::string& e
 
 bool validateDocPage(DocNode& page, std::string& error);
 
+bool isInlineDocNode(const DocNode& node);
+
 std::string collapseWhitespace(const std::string& text);
 std::string dedentCode(const std::string& text);
 

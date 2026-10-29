@@ -6,6 +6,7 @@
     --sd-content-width: 56rem;
     --sd-nav-width: 16rem;
     --sd-toc-width: 14rem;
+    --sd-key-width: 8rem;
     --sd-space: 1rem;
     --sd-radius: 6px;
 
@@ -284,6 +285,10 @@ a:hover {
     padding-left: 0.8rem;
 }
 
+#sd-toc ul ul ul a {
+    font-size: 0.95em;
+}
+
 #sd-toc li a {
     display: block;
     padding: 0.15rem 0.8rem;
@@ -409,6 +414,11 @@ pre.sd-code-block code {
     font-weight: 600;
 }
 
+.sd-table .sd-count {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
 .sd-shader-facts td:first-child {
     width: 8rem;
     background: var(--sd-table-head-bg);
@@ -428,7 +438,7 @@ pre.sd-code-block code {
 }
 
 .sd-dl .sd-term {
-    font-weight: 600;
+    font-weight: 700;
     margin-top: 0.5rem;
 }
 
@@ -577,4 +587,139 @@ a.sd-tok-link:hover {
         min-width: 0;
         width: 100%;
     }
+}
+
+.sd-defs td:first-child {
+    white-space: nowrap;
+    width: 1%;
+}
+
+.sd-defs .sd-param {
+    font-weight: 600;
+}
+
+.sd-defs .sd-type {
+    color: var(--sd-muted);
+}
+
+.sd-data td:first-child {
+    white-space: nowrap;
+}
+
+.sd-data-catalog {
+    font-size: 0.88em;
+}
+
+.sd-data-catalog {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.sd-data-catalog td,
+.sd-data-catalog td code {
+    white-space: nowrap;
+}
+
+section.sd-entry {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--sd-border);
+}
+
+section.sd-entry > .sd-heading {
+    margin: 0 0 0.4rem;
+    font-size: 1em;
+}
+
+section.sd-def {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--sd-border);
+}
+
+section.sd-def > .sd-heading {
+    margin: 0 0 0.4rem;
+    font-size: 1em;
+}
+
+section.sd-def > pre.sd-code-block {
+    margin-bottom: 0.6rem;
+}
+
+.sd-def-params {
+    margin-bottom: 0.6rem;
+}
+
+section.sd-data-group {
+    margin-top: 1.5rem;
+}
+
+section.sd-data-group > .sd-heading {
+    padding-bottom: 0.25rem;
+    border-bottom: 2px solid var(--sd-accent);
+}
+
+.sd-heading .sd-subtitle {
+    margin-left: 0.3rem;
+    padding: 0.05em 0.35em;
+    border-radius: 0.2em;
+    background: var(--sd-code-bg);
+    color: var(--sd-muted);
+    font-family: var(--sd-mono);
+    font-size: 0.75em;
+    font-weight: normal;
+}
+
+ul.sd-tree {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.92em;
+}
+
+ul.sd-tree ul.sd-tree {
+    margin: 0.1rem 0 0.2rem 0.45rem;
+    padding-left: 1rem;
+    border-left: 1px solid var(--sd-border);
+    font-size: 1em;
+}
+
+ul.sd-tree > li {
+    margin: 0;
+    padding: 0.05rem 0;
+}
+
+ul.sd-tree .sd-key {
+    display: inline-block;
+    min-width: var(--sd-key-width);
+    padding: 0;
+    background: none;
+    color: var(--sd-fg);
+    font-size: 0.92em;
+    font-weight: 600;
+}
+
+ul.sd-tree li.sd-branch > .sd-p {
+    margin: 0;
+}
+
+ul.sd-tree li.sd-branch > .sd-p > .sd-key {
+    color: var(--sd-fg);
+    font-weight: 600;
+}
+
+ul.sd-tree li.sd-branch > .sd-p > .sd-key::before {
+    content: "\25BE ";
+    color: var(--sd-muted);
+    font-weight: normal;
+}
+
+ul.sd-tree .sd-val code {
+    font-size: 0.95em;
+}
+
+.sd-entry-props {
+    margin-bottom: 0.6rem;
 }

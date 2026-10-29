@@ -31,6 +31,7 @@
 
 (define (p . args) (sd-node 'p args))
 (define (em . args) (sd-node 'em args))
+(define (span . args) (sd-node 'span args))
 (define (strong . args) (sd-node 'strong args))
 (define (kbd . args) (sd-node 'kbd args))
 (define (ul . args) (sd-node 'ul args))
@@ -48,6 +49,7 @@
 (define (br . args) (sd-node 'br args))
 (define (html . args) (sd-node 'html args))
 (define (package-info . args) (sd-node 'package-info args))
+(define (asset-counts . args) (sd-node 'asset-counts args))
 
 (define (section . args)
   (let* ((split (sd-split-attrs 'section args))

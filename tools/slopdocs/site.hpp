@@ -1,12 +1,16 @@
 #pragma once
 
+#include "asset_counts.hpp"
+#include "data_doc.hpp"
 #include "doc_model.hpp"
+#include "script_doc.hpp"
 #include "shader_doc.hpp"
 
 #include "core/package_meta.hpp"
 
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -42,6 +46,10 @@ struct Site {
     SiteConfig config;
     std::vector<Page> pages;
     std::vector<ShaderDoc> shaders;
+    std::vector<ScriptDoc> scripts;
+    std::vector<DataDoc> data;
+    std::unordered_map<std::string, std::string> symbols;
+    AssetCounts counts;
     std::unordered_set<std::string> engineNames;
 
     const Page* findPage(const std::string& id) const;

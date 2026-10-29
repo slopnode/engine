@@ -277,8 +277,12 @@ std::string highlightScheme(std::string_view src, const SymbolLinker& linker) {
             span(out, "boolean", token);
         } else if (looksNumeric(token)) {
             span(out, "number", token);
+        } else if (token == ":" || token == "\xE2\x86\x92" || token == "=") {
+            span(out, "paren", token);
         } else if (token.front() == ':' || token.back() == ':') {
             span(out, "keyword", token);
+        } else if (!headPosition && token.size() > 1 && token.back() == '?') {
+            span(out, "type", token);
         } else if (specialForms().count(token) > 0) {
             span(out, "special", token);
         } else {

@@ -92,7 +92,7 @@ Every node takes leading keyword attributes before its content. `:id` sets the e
 
 Node|Form
 -|-
-`section`|`(section "Title" block...)`. Sections nest and become h2 to h6. The anchor is slugged from the title unless `:id` is given.
+`section`|`(section "Title" block...)`. Sections nest and become h2 to h6. The anchor is slugged from the title unless `:id` is given. `:subtitle "text"` adds a muted code label after the title.
 `p`|`(p inline...)`
 `code`|`(code 'scheme "text")` or `(code "text")`. Common leading indentation is removed. Inline when used inside inline content.
 `ul`, `ol`|`(ul entry...)`. Each entry is inline content or `(item block...)`.
@@ -104,13 +104,14 @@ Node|Form
 `hr`|`(hr)`
 `html`|`(html "raw markup")`. Also usable inline.
 `package-info`|`(package-info)`. A table of the package's id, name, version and dependencies from `package.meta`.
+`asset-counts`|`(asset-counts)`. Two tables: files per asset kind under the package's folders, and entries per catalog symbol declared in `data/`. The data files are evaluated in the sandbox with the engine's list and math helpers to count them.
 
 ## Inline nodes
 
 Node|Form
 -|-
 strings|Plain text. Newlines and the indentation after them collapse to one space.
-`em`, `strong`, `kbd`|`(em inline...)`
+`em`, `strong`, `kbd`, `span`|`(em inline...)`. `span` carries no styling of its own and exists for `:class`.
 `code`|`(code "text")`
 `link`|`(link "url" inline...)`. Without content the url is shown.
 `page-ref`|`(page-ref "id" inline...)`. Without content the page title is shown.
@@ -118,6 +119,34 @@ strings|Plain text. Newlines and the indentation after them collapse to one spac
 `br`|`(br)`
 
 Block nodes inside inline content, and bare text inside a section, are errors.
+
+# Scripts
+
+Every `.s7` file under the package's `scripts/` folder gets a generated page at `scripts/<path>.html`, and the sidebar lists them as a folder tree under Scripts. The page shows the file's summary, what it requires, a table of variables, and a block per function and macro in the style of the Racket reference: the signature with optional arguments in brackets and rest arguments with an ellipsis, the return type after an arrow, and one line per argument with its type, followed by the description and the argument notes. Definitions appear whether or not they are documented, so an undocumented package still shows its surface.
+
+<pre><code class="language-scheme">"Player health and armor."
+
+(define (damage! amount . source)
+  "Applies AMOUNT of damage, less armor, and returns the remaining health.
+   @param amount integer? raw damage
+   @param source string? attacker id when known
+   @return integer?
+   @see heal!"
+  ...)
+
+;;; Picks a spawn point by name.
+;;; @param name string? spawn name from the map
+(define (spawn-for name)
+  ...)
+</code></pre>
+
+A bare string as the first form of the file is its summary. A definition is documented either by a docstring, the string that is the first form of its body, or by a run of `;;;` lines directly above it. The first paragraph is the summary, later paragraphs follow, and the tags are `@param name [type] text`, `@return [type] text` and `@see name...`. A type is recognised when it ends in `?` or starts with `(`. Backticks become inline code, and links when they name a definition in this package, an engine function or hook, or a shader path. A definition whose name is an engine hook says so and links the hook. `define`, `define*`, `define-macro` and `define-constant` are read, including `(define name (lambda ...))`. Scripts are read, never evaluated, so the pages need no engine.
+
+A `ref` to a definition name links its entry, and so do definition names in `scheme` code blocks.
+
+# Data
+
+Every `.s7` file under `data/` gets a page at `data/<path>.html`, listed under Data in the sidebar. Data files are evaluated in the sandbox with the engine's list and math helpers loaded, so the page shows what each defined symbol holds rather than how it was written. A symbol whose value is a catalog, a list of `(id . alist)` entries, becomes a table with an Id column and one column per key when it is small, up to six keys and twelve entries. A larger catalog is listed instead: entries grouped by their `path`, `folder`, `group`, `category` or `kind` key, each shown as its label and id with its properties as a tree underneath, where a value made of key and value pairs becomes a branch with its own indented children. A list of alists becomes the same table without the Id column. A plain alist becomes a key and value table, with any nested catalog pulled out under its key. Everything else goes in a Values table. A bare string as the first form of the file is its summary, and a run of `;;;` lines above a define describes that symbol. A file that fails to evaluate still gets a page, with a note and no values.
 
 # Shaders
 
@@ -151,7 +180,7 @@ The output carries a stable class contract so a stylesheet can restyle anything:
 - Every element has a class named after its node with the `sd-` prefix: `sd-section`, `sd-p`, `sd-code`, `sd-table`, `sd-note`, `sd-image`, and so on. Sections also carry `sd-section-1` to `sd-section-6` for their depth. Code blocks add `sd-code-block` and `sd-lang-scheme`.
 - The shell uses fixed ids: `sd-title`, `sd-search`, `sd-nav`, `sd-content`, and `sd-toc` for the page outline shown beside the content on wide screens.
 - Scheme tokens are `sd-tok-comment`, `sd-tok-string`, `sd-tok-number`, `sd-tok-boolean`, `sd-tok-char`, `sd-tok-keyword`, `sd-tok-special`, `sd-tok-call`, `sd-tok-symbol`, `sd-tok-paren`, `sd-tok-quote`, and a linked symbol is wrapped in `a.sd-tok-link`. GLSL adds `sd-tok-doc`, `sd-tok-preprocessor` and `sd-tok-type`.
-- Generated shader pages use `sd-shader-facts`, `sd-shader-uniforms`, `sd-shader-buffers`, `sd-shader-inputs` and `sd-shader-outputs` on their tables. Nested sidebar folders are `details.sd-nav-folder`.
+- Generated shader pages use `sd-shader-facts`, `sd-shader-uniforms`, `sd-shader-buffers`, `sd-shader-inputs` and `sd-shader-outputs` on their tables. Data pages use `sd-data` with `sd-data-catalog`, `sd-data-alist` or `sd-data-values` on their tables. Script pages use `sd-script-facts`, and `sd-defs` with `sd-defs-variables`, `sd-defs-functions` or `sd-defs-macros` on their tables; each row carries the definition anchor. Nested sidebar folders are `details.sd-nav-folder`.
 - Colors, fonts, spacing and the content width are custom properties on `:root` in the built-in `style.css`, with a dark set under `prefers-color-scheme: dark`. Changing the look of the whole site is overriding a handful of variables.
 
 A `:class` attribute is added alongside the `sd-` classes, so a custom rule only has to add what differs:

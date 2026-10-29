@@ -1,0 +1,19 @@
+"Player health and armor."
+
+(define *health* 100)
+
+(define (damage! amount . source)
+  "Applies AMOUNT of damage, less armor, and returns the remaining health.
+   @param amount integer? raw damage
+   @param source string? attacker id when known
+   @return integer?
+   @see heal!"
+  (set! *health* (max 0 (- *health* amount)))
+  *health*)
+
+(define (heal! amount)
+  "Restores AMOUNT of health up to 100.
+   @param amount integer?
+   @return integer?"
+  (set! *health* (min 100 (+ *health* amount)))
+  *health*)

@@ -1,4 +1,11 @@
+"Loads the engine library and defines require and require-data, the two forms a package uses to split its code across files. Both resolve paths inside the package whose file is currently loading, so a mod's (require \"player/weapons\") reads the mod's own scripts/player/weapons.s7, never the base game's. Loaded by the engine at boot before any package script."
+
 (define (require path)
+  "Loads scripts/PATH.s7 from the current package.
+
+   Raises when no package is loading or the file is missing, so it only works from a package script or data file, not from a hook such as `tick`.
+   @param path string? script path without the extension
+   @return #t"
   (let ((pkg (current-package-id)))
     (if (not pkg)
         (error 'require "require: no current package context (only usable while a package script/data file is loading)")
@@ -7,6 +14,9 @@
             #t))))
 
 (define (require-data path)
+  "Loads data/PATH.s7 from the current package, with the same errors as `require`.
+   @param path string? data path without the extension
+   @return #t"
   (let ((pkg (current-package-id)))
     (if (not pkg)
         (error 'require-data "require-data: no current package context (only usable while a package script/data file is loading)")

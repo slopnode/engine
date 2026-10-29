@@ -1,4 +1,12 @@
+"A declarative wrapper over the ui-* ImGui bindings. A screen is declared once with `define-screen` and a builder thunk, built on first render into a tree of nodes, and walked every frame by `ui-screen-render`. Only `dynamic` and `dynamic-text` nodes re-evaluate anything per frame."
+
 (define (make-node type id children props)
+  "Builds a node: a hash table with its type, id, children and the given props. Every constructor below goes through this.
+   @param type symbol? node type the renderer dispatches on
+   @param id (or string? #f) id for `ui-screen-node`, or #f
+   @param children list? child nodes
+   @param props alist? extra properties
+   @return hash-table?"
   (let ((n (make-hash-table)))
     (hash-table-set! n 'node-type type)
     (hash-table-set! n 'node-id id)
@@ -6,93 +14,180 @@
     (for-each (lambda (kv) (hash-table-set! n (car kv) (cdr kv))) props)
     n))
 
-(define (node-type node) (hash-table-ref node 'node-type))
-(define (node-id node) (hash-table-ref node 'node-id))
-(define (node-children node) (hash-table-ref node 'node-children))
-(define (node-children-set! node children) (hash-table-set! node 'node-children children))
-(define (node-prop node key) (hash-table-ref node key))
-(define (node-prop-set! node key value) (hash-table-set! node key value))
+(define (node-type node)
+  "The type symbol of NODE."
+  (hash-table-ref node 'node-type))
+(define (node-id node)
+  "The id of NODE, or #f."
+  (hash-table-ref node 'node-id))
+(define (node-children node)
+  "The child list of NODE."
+  (hash-table-ref node 'node-children))
+(define (node-children-set! node children)
+  "Replaces the child list of NODE."
+  (hash-table-set! node 'node-children children))
+(define (node-prop node key)
+  "The property KEY of NODE, or #f."
+  (hash-table-ref node key))
+(define (node-prop-set! node key value)
+  "Sets property KEY of NODE to VALUE in place."
+  (hash-table-set! node key value))
 
 (define (when-visible? getter node)
+  "Marks NODE so it is skipped while GETTER returns #f, and returns it. The tree is not rebuilt; the getter runs every frame.
+   @param getter procedure? thunk returning whether the node shows
+   @param node hash-table? node to wrap
+   @return hash-table?"
   (node-prop-set! node 'visible-getter getter)
   node)
 
 (define (window title . children)
+  "A `ui-begin` / `ui-end` window titled TITLE.
+   @param title string? window title
+   @param children hash-table? child nodes"
   (make-node 'window #f children (list (cons 'title title))))
 
 (define (modal title width height . children)
+  "A centered window of fixed size, for dialogs.
+   @param title string? window title
+   @param width real? width in pixels
+   @param height real? height in pixels
+   @param children hash-table? child nodes"
   (make-node 'modal #f children (list (cons 'title title) (cons 'width width) (cons 'height height))))
 
 (define (vbox . children)
+  "Children in order, one per line."
   (make-node 'vbox #f children '()))
 
 (define (hbox . children)
+  "Children on one line, joined with `ui-same-line`."
   (make-node 'hbox #f children '()))
 
 (define (indent . children)
+  "Children indented one level."
   (make-node 'indent #f children '()))
 
 (define (ui-child id height . children)
+  "A scrolling child region of the given height.
+   @param id string? node id
+   @param height real? height in pixels"
   (make-node 'child id children (list (cons 'height height))))
 
 (define (text label)
+  "A line of text.
+   @param label string?"
   (make-node 'text #f '() (list (cons 'label label))))
 
 (define (dynamic-text label-getter)
+  "Text from calling LABEL-GETTER every frame.
+   @param label-getter procedure? thunk returning the string to show"
   (make-node 'dynamic-text #f '() (list (cons 'label-getter label-getter))))
 
 (define (separator)
+  "A horizontal separator."
   (make-node 'separator #f '() '()))
 
 (define (heading label)
+  "Larger text.
+   @param label string?"
   (make-node 'heading #f '() (list (cons 'label label))))
 
 (define (label-dim label)
+  "Dimmed text.
+   @param label string?"
   (make-node 'label-dim #f '() (list (cons 'label label))))
 
 (define (mono-text label)
+  "Monospace text.
+   @param label string?"
   (make-node 'mono-text #f '() (list (cons 'label label))))
 
 (define (spacer . height)
+  "Vertical space of HEIGHT pixels, 0 when omitted."
   (make-node 'spacer #f '() (list (cons 'height (if (pair? height) (car height) 0)))))
 
 (define (panel id height . children)
+  "A framed panel of the given height.
+   @param id string? node id
+   @param height real? height in pixels"
   (make-node 'panel id children (list (cons 'height height))))
 
 (define (primary-button id label on-click)
+  "An emphasized button. ON-CLICK runs when it fires, and the node's clicked? property holds whether it fired this frame.
+   @param id string? node id
+   @param label string? button text
+   @param on-click procedure? thunk run on click"
   (make-node 'primary-button id '() (list (cons 'label label) (cons 'on-click on-click))))
 
 (define (menu id label . children)
+  "A submenu, for use inside a menu bar hook.
+   @param id string? node id
+   @param label string? menu label"
   (make-node 'menu id children (list (cons 'label label))))
 
 (define (dynamic builder)
+  "Calls BUILDER every frame and renders the list of nodes it returns. Use for rows whose count changes; keep the builder cheap.
+   @param builder procedure? thunk returning a list of nodes"
   (make-node 'dynamic #f '() (list (cons 'builder builder))))
 
 (define (button id label on-click)
+  "A `ui-button`. ON-CLICK runs when it fires, and the node's clicked? property holds whether it fired this frame.
+   @param id string? node id
+   @param label string? button text
+   @param on-click procedure? thunk run on click"
   (make-node 'button id '() (list (cons 'label label) (cons 'on-click on-click))))
 
 (define (menu-item id label enabled-getter on-click)
+  "A `ui-menu-item`.
+   @param id string? node id
+   @param label string? item text
+   @param enabled-getter procedure? thunk returning whether the item is enabled
+   @param on-click procedure? thunk run on click"
   (make-node 'menu-item id '() (list (cons 'label label) (cons 'enabled-getter enabled-getter) (cons 'on-click on-click))))
 
 (define (menu-check id label checked-getter on-toggle)
+  "A `ui-menu-check`. ON-TOGGLE receives the new value when it changes.
+   @param id string? node id
+   @param label string? item text
+   @param checked-getter procedure? thunk returning the current state
+   @param on-toggle procedure? called with the new boolean"
   (make-node 'menu-check id '() (list (cons 'label label) (cons 'checked-getter checked-getter) (cons 'on-toggle on-toggle))))
 
 (define (selectable id label selected-getter on-click)
+  "A `ui-selectable` row.
+   @param id string? node id
+   @param label string? row text
+   @param selected-getter procedure? thunk returning whether the row is selected
+   @param on-click procedure? thunk run on click"
   (make-node 'selectable id '() (list (cons 'label label) (cons 'selected-getter selected-getter) (cons 'on-click on-click))))
 
 (define (input-text id initial on-change)
+  "A text field. ON-CHANGE receives the new string, and the node keeps it in its value property.
+   @param id string? node id
+   @param initial string? starting text
+   @param on-change procedure? called with the new string"
   (make-node 'input-text id '() (list (cons 'value initial) (cons 'on-change on-change))))
 
 (define (combo id preview-getter . items)
+  "A dropdown whose closed label comes from PREVIEW-GETTER.
+   @param id string? node id
+   @param preview-getter procedure? thunk returning the closed label
+   @param items hash-table? `combo-item` nodes"
   (make-node 'combo id items (list (cons 'preview-getter preview-getter))))
 
 (define (combo-item label selected-getter on-click)
+  "One dropdown entry.
+   @param label string? entry text
+   @param selected-getter procedure? thunk returning whether it is selected
+   @param on-click procedure? thunk run on click"
   (make-node 'combo-item #f '() (list (cons 'label label) (cons 'selected-getter selected-getter) (cons 'on-click on-click))))
 
 (define (render-children node)
+  "Renders every child of NODE."
   (for-each render-node (node-children node)))
 
 (define (render-hbox-children node)
+  "Renders the children of NODE on one line."
   (let ((children (node-children node)))
     (if (pair? children)
         (begin
@@ -105,12 +200,14 @@
         #f)))
 
 (define (render-node node)
+  "Renders NODE unless its visible-getter returns #f."
   (let ((visible-getter (node-prop node 'visible-getter)))
     (if (and visible-getter (not (visible-getter)))
         #f
         (render-node* node))))
 
 (define (render-node* node)
+  "Dispatches on the node type and calls the matching ui-* bindings. Raises on an unknown type."
   (let ((type (node-type node)))
     (cond
       ((eq? type 'window)
@@ -197,6 +294,9 @@
 (define *ui-screens* (make-hash-table))
 
 (define (define-screen name builder)
+  "Registers a screen under the symbol NAME. BUILDER is a thunk returning the root node; it runs once, on first use.
+   @param name symbol? screen name
+   @param builder procedure? thunk returning the root node"
   (let ((entry (make-hash-table)))
     (hash-table-set! entry 'builder builder)
     (hash-table-set! entry 'root #f)
@@ -204,21 +304,25 @@
     (hash-table-set! *ui-screens* name entry)))
 
 (define (ui-screen-entry name)
+  "The registry entry for NAME. Raises when unknown."
   (or (hash-table-ref *ui-screens* name)
       (error 'ui-screen-entry "unknown ui screen: ~A" name)))
 
 (define (index-node! index node)
+  "Adds NODE and its descendants with ids to INDEX."
   (if (node-id node)
       (hash-table-set! index (node-id node) node)
       #f)
   (for-each (lambda (child) (index-node! index child)) (node-children node)))
 
 (define (rebuild-index! entry)
+  "Rebuilds the id index of ENTRY from its root."
   (let ((index (make-hash-table)))
     (index-node! index (hash-table-ref entry 'root))
     (hash-table-set! entry 'index index)))
 
 (define (ensure-screen-built! entry)
+  "Runs the builder of ENTRY if its root does not exist yet."
   (if (hash-table-ref entry 'root)
       #f
       (begin
@@ -226,11 +330,16 @@
         (rebuild-index! entry))))
 
 (define (ui-screen-render name)
+  "Builds the screen if needed and renders it. Call from a ui-scope hook such as `draw-pause-menu` or `draw-modals`.
+   @param name symbol? screen name"
   (let ((entry (ui-screen-entry name)))
     (ensure-screen-built! entry)
     (render-node (hash-table-ref entry 'root))))
 
 (define (ui-screen-append! name node)
+  "Adds NODE as the last child of the root of screen NAME and reindexes ids. The only structural change after the build.
+   @param name symbol? screen name
+   @param node hash-table? node to append"
   (let ((entry (ui-screen-entry name)))
     (ensure-screen-built! entry)
     (let ((root (hash-table-ref entry 'root)))
@@ -238,13 +347,27 @@
     (rebuild-index! entry)))
 
 (define (ui-screen-node name id)
+  "The node with ID in the built screen NAME. Raises when unknown.
+   @param name symbol? screen name
+   @param id string? node id
+   @return hash-table?"
   (let ((entry (ui-screen-entry name)))
     (ensure-screen-built! entry)
     (or (hash-table-ref (hash-table-ref entry 'index) id)
         (error 'ui-screen-node "unknown ui element ~A in screen ~A" id name))))
 
 (define (ui-set! name id key value)
+  "Sets property KEY of the node ID in screen NAME in place.
+   @param name symbol? screen name
+   @param id string? node id
+   @param key symbol? property
+   @param value any? new value"
   (node-prop-set! (ui-screen-node name id) key value))
 
 (define (ui-get name id key)
+  "The property KEY of the node ID in screen NAME.
+   @param name symbol? screen name
+   @param id string? node id
+   @param key symbol? property
+   @return any?"
   (node-prop (ui-screen-node name id) key))

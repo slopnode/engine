@@ -92,6 +92,10 @@ std::string engineAnchor(const std::string& name) {
 }
 
 std::string resolveSymbol(const Site& site, const std::string& rel, const std::string& name) {
+    const auto local = site.symbols.find(name);
+    if (local != site.symbols.end()) {
+        return rel + local->second;
+    }
     if (!site.config.engineDocs.empty() && site.engineNames.count(name) > 0) {
         return site.config.engineDocs + "scriptingapi.html#" + engineAnchor(name);
     }
@@ -170,7 +174,7 @@ void renderInline(PageContext& ctx, const DocNode& node, std::string& out) {
         return;
     }
     const std::string& tag = node.tag;
-    if (tag == "em" || tag == "strong" || tag == "kbd") {
+    if (tag == "em" || tag == "strong" || tag == "kbd" || tag == "span") {
         out += "<" + tag + classAttr(node, "sd-" + tag) + ">";
         renderInlineChildren(ctx, node, out);
         out += "</" + tag + ">";
@@ -237,8 +241,13 @@ void renderSection(PageContext& ctx, const DocNode& node, std::string& out) {
     }
     out += "<section" + classAttr(node, "sd-section sd-section-" + std::to_string(ctx.depth)) +
            " id=\"" + escapeHtml(id) + "\">";
+    const std::string* subtitle = node.attr("subtitle");
     out += "<h" + std::to_string(level) + " class=\"sd-heading\"><a class=\"sd-anchor\" href=\"#" +
-           escapeHtml(id) + "\">" + escapeHtml(title ? *title : "") + "</a></h" + std::to_string(level) + ">";
+           escapeHtml(id) + "\">" + escapeHtml(title ? *title : "") + "</a>";
+    if (subtitle != nullptr) {
+        out += " <code class=\"sd-subtitle\">" + escapeHtml(*subtitle) + "</code>";
+    }
+    out += "</h" + std::to_string(level) + ">";
     renderBlockChildren(ctx, node, out);
     out += "</section>\n";
     ctx.depth -= 1;
@@ -275,7 +284,9 @@ void renderBlock(PageContext& ctx, const DocNode& node, std::string& out) {
         out += "<table" + classAttr(node, "sd-table") + ">";
         for (const DocNode& rowNode : node.children) {
             const bool head = rowNode.tag == "header";
-            out += head ? "<thead><tr>" : "<tr>";
+            const std::string* rowId = rowNode.attr("id");
+            const std::string rowOpen = rowId ? "<tr id=\"" + escapeHtml(*rowId) + "\">" : "<tr>";
+            out += head ? "<thead>" + rowOpen : rowOpen;
             for (const DocNode& cell : rowNode.children) {
                 const char* cellTag = head ? "th" : "td";
                 out += std::string("<") + cellTag + classAttr(cell, "sd-cell") + ">";
@@ -290,7 +301,13 @@ void renderBlock(PageContext& ctx, const DocNode& node, std::string& out) {
         for (const DocNode& entry : node.children) {
             const std::string* term = entry.attr("term");
             out += "<dt class=\"sd-term\">" + escapeHtml(term ? *term : "") + "</dt><dd class=\"sd-desc\">";
-            renderInlineChildren(ctx, entry, out);
+            for (const DocNode& child : entry.children) {
+                if (isInlineDocNode(child)) {
+                    renderInline(ctx, child, out);
+                } else {
+                    renderBlock(ctx, child, out);
+                }
+            }
             out += "</dd>";
         }
         out += "</dl>\n";
@@ -318,6 +335,34 @@ void renderBlock(PageContext& ctx, const DocNode& node, std::string& out) {
         out += "</figure>\n";
     } else if (tag == "hr") {
         out += "<hr" + classAttr(node, "sd-hr") + ">\n";
+    } else if (tag == "asset-counts") {
+        const AssetCounts& counts = ctx.site->counts;
+        out += "<table" + classAttr(node, "sd-table sd-asset-counts") + "><thead><tr><th class=\"sd-cell\">Assets</th><th class=\"sd-cell\">Count</th></tr></thead>";
+        for (const AssetCount& c : counts.assets) {
+            if (c.count == 0) {
+                continue;
+            }
+            out += "<tr><td class=\"sd-cell\">" + escapeHtml(c.kind) + "</td><td class=\"sd-cell sd-count\">" + std::to_string(c.count) + "</td></tr>";
+        }
+        if (counts.scriptFiles > 0) {
+            out += "<tr><td class=\"sd-cell\">Script definitions</td><td class=\"sd-cell sd-count\">" +
+                   std::to_string(counts.scriptDefinitions) + "</td></tr>";
+        }
+        out += "</table>\n";
+        bool anyCatalog = false;
+        for (const CatalogCount& c : counts.catalogs) {
+            anyCatalog = anyCatalog || c.present;
+        }
+        if (anyCatalog) {
+            out += "<table" + classAttr(node, "sd-table sd-catalog-counts") + "><thead><tr><th class=\"sd-cell\">Declared</th><th class=\"sd-cell\">Count</th></tr></thead>";
+            for (const CatalogCount& c : counts.catalogs) {
+                if (!c.present) {
+                    continue;
+                }
+                out += "<tr><td class=\"sd-cell\">" + escapeHtml(c.catalog) + "</td><td class=\"sd-cell sd-count\">" + std::to_string(c.count) + "</td></tr>";
+            }
+            out += "</table>\n";
+        }
     } else if (tag == "package-info") {
         const slopengine::PackageMeta& meta = ctx.site->meta;
         out += "<table" + classAttr(node, "sd-table sd-package-info") + ">";
@@ -412,7 +457,7 @@ std::string renderToc(const std::vector<TocEntry>& toc) {
     std::string out = "<nav id=\"sd-toc\"><ul>";
     int depth = 1;
     for (const TocEntry& entry : toc) {
-        if (entry.level > 2) {
+        if (entry.level > 3) {
             continue;
         }
         while (depth < entry.level) {
@@ -510,15 +555,15 @@ bool copyTree(const fs::path& from, const fs::path& to, std::string& error) {
 }
 
 std::string generatedIndex(const Site& site) {
-    std::string body = "<p class=\"sd-p\">" + escapeHtml(site.meta.name.empty() ? site.meta.id : site.meta.name);
-    if (!site.meta.version.empty()) {
-        body += " " + escapeHtml(site.meta.version);
-    }
-    body += "</p>\n<ul class=\"sd-list sd-ul\">";
-    for (const Page& page : site.pages) {
-        body += "<li class=\"sd-item\"><a href=\"" + escapeHtml(pageUrl(page.id)) + "\">" + escapeHtml(page.title) + "</a></li>";
-    }
-    body += "</ul>\n";
+    PageContext ctx;
+    ctx.site = &site;
+    std::string body;
+    DocNode info;
+    info.tag = "package-info";
+    renderBlock(ctx, info, body);
+    DocNode counts;
+    counts.tag = "asset-counts";
+    renderBlock(ctx, counts, body);
     return body;
 }
 

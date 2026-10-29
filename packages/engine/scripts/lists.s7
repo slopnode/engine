@@ -1,28 +1,71 @@
-(define-macro (first lst) `(list-ref ,lst 0))
-(define-macro (second lst) `(list-ref ,lst 1))
-(define-macro (third lst) `(list-ref ,lst 2))
-(define-macro (fourth lst) `(list-ref ,lst 3))
-(define-macro (fifth lst) `(list-ref ,lst 4))
-(define-macro (sixth lst) `(list-ref ,lst 5))
-(define-macro (seventh lst) `(list-ref ,lst 6))
-(define-macro (eighth lst) `(list-ref ,lst 7))
-(define-macro (ninth lst) `(list-ref ,lst 8))
-(define-macro (tenth lst) `(list-ref ,lst 9))
+"Helpers for the list shapes package data uses: positional access into fixed-length lists, association lists keyed by equal?, and hash tables with a default."
+
+(define-macro (first lst)
+  "The first element of LST, expanding to list-ref. Raises on a shorter list."
+  `(list-ref ,lst 0))
+(define-macro (second lst)
+  "The second element of LST."
+  `(list-ref ,lst 1))
+(define-macro (third lst)
+  "The third element of LST."
+  `(list-ref ,lst 2))
+(define-macro (fourth lst)
+  "The fourth element of LST."
+  `(list-ref ,lst 3))
+(define-macro (fifth lst)
+  "The fifth element of LST."
+  `(list-ref ,lst 4))
+(define-macro (sixth lst)
+  "The sixth element of LST."
+  `(list-ref ,lst 5))
+(define-macro (seventh lst)
+  "The seventh element of LST."
+  `(list-ref ,lst 6))
+(define-macro (eighth lst)
+  "The eighth element of LST."
+  `(list-ref ,lst 7))
+(define-macro (ninth lst)
+  "The ninth element of LST."
+  `(list-ref ,lst 8))
+(define-macro (tenth lst)
+  "The tenth element of LST."
+  `(list-ref ,lst 9))
 
 (define (alist-remove key lst)
+  "A copy of LST without every pair whose key is equal? to KEY. Note the argument order, key first.
+   @param key any? key to drop
+   @param lst alist? association list
+   @return alist?"
   (cond
     ((null? lst) '())
     ((equal? (car (car lst)) key) (alist-remove key (cdr lst)))
     (else (cons (car lst) (alist-remove key (cdr lst))))))
 
 (define (alist-ref alist key . default)
+  "The value for KEY in ALIST, or DEFAULT when given, or #f.
+
+   Thing-def behavior params, item catalogs and most data/ entries are alists, so this with a default is the usual way to read an optional field.
+   @param alist alist? association list
+   @param key any? key compared with equal?
+   @param default any? value when the key is missing
+   @return any?"
   (cond
     ((assoc key alist) => cdr)
     ((pair? default) (car default))
     (else #f)))
 
 (define (alist-set alist key val)
+  "A copy of ALIST with KEY bound to VAL at the front and any earlier binding removed.
+   @param alist alist? association list
+   @param key any? key to bind
+   @param val any? value to bind
+   @return alist?"
   (cons (cons key val) (alist-remove key alist)))
 
 (define (hash-ref table key . default)
+  "Like hash-table-ref but returns DEFAULT when KEY is missing. A stored #f is indistinguishable from a missing key.
+   @param table hash-table? table to read
+   @param key any? key to look up
+   @param default any? value when the key is missing
+   @return any?"
   (or (hash-table-ref table key) (and (pair? default) (car default))))
