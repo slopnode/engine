@@ -8,6 +8,7 @@
 - @subpage sloprad
 - @subpage slopsprite
 - @subpage slopmat
+- @subpage slopdocs
 - @subpage slopicon
 - @subpage sloprepl
 - @subpage blender

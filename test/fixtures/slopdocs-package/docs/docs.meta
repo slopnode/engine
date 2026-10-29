@@ -1,0 +1,5 @@
+(docs
+  (title "Fixture Game")
+  (nav "index" "modding" ("Guides" "guides/weapons"))
+  (stylesheet "custom.css")
+  (engine-docs "https://pages.slopnode.net/engine-docs/"))

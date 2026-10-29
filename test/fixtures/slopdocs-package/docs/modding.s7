@@ -1,0 +1,38 @@
+(require-doc "lib")
+
+(page "modding" "Modding Fixture Game"
+  (p "A mod is a package mounted on top of the game with " (code "--mod") ". "
+     "It can override any asset by path and add behaviors through registration functions.")
+
+  (section "Behaviors"
+    (p "Behaviors are registered by name and selected from a thing-def's "
+       (code "behaviors") " clause. Engine calls such as " (ref "thing-type") " and "
+       (ref "actor-pos") " link to the engine reference.")
+    (code 'scheme "
+      (define (behavior-register! name def)
+        (set! *behavior-defs*
+              (cons (cons name def) (alist-remove name *behavior-defs*))))
+
+      (behavior-register! \"lunge\"
+        '((cooldown . 1.5)
+          (range . 6)
+          (anim . \"attack\")))
+
+      (define (tick dt)
+        (let ([pos (actor-pos \"poss-1\")])
+          (if (> dt 0.1) #t #f)))
+      ; a comment with :keyword and #\\a"))
+
+  (section "Weapons"
+    (p "Slots and ammo pools are fixed. The table below is built by a helper in "
+       (code "docs/lib.s7") " from a list in the same file.")
+    (weapon-table))
+
+  (section :id "rules" "House rules"
+    (note "Mods run with the mod role and cannot call world-mutating engine functions directly.")
+    (tip (p "Keep registration in " (code "init.s7") ".") (p "Everything else can load lazily."))
+    (warning "Overriding " (code "things.s7") " replaces the whole catalog.")
+    (p :class "fine-print" "Text with a custom class, and a " (strong "strong") " word, and a "
+       (link "https://example.com" "link") " and a bare " (link "https://example.org") "."
+       (br) "A line after a break.")
+    (html "<div class=\"raw\">raw <b>html</b> block</div>")))

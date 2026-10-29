@@ -100,3 +100,7 @@ add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
 add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)
 add_test(NAME sloptests.slopui_theme COMMAND sloptests slopui_theme)
+
+add_test(NAME slopdocs.fixture
+    COMMAND slopdocs "${CMAKE_SOURCE_DIR}/test/fixtures/slopdocs-package" --out "${CMAKE_BINARY_DIR}/test/slopdocs-fixture"
+)

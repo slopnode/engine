@@ -1,0 +1,5 @@
+(package
+  (id "slopdocs-fixture")
+  (name "Fixture Game")
+  (version "0.1.0")
+  (depends "slopengine.engine@>=0.7.0"))

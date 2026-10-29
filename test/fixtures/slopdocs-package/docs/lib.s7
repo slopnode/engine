@@ -1,0 +1,13 @@
+(define *weapons*
+  '((1 "fist" "none")
+    (2 "pistol" "bullets")
+    (3 "shotgun" "shells")))
+
+(define (weapon-table)
+  (table :class "weapons"
+    (header "Slot" "Weapon" "Ammo")
+    (map (lambda (w)
+           (row (number->string (car w))
+                (code (cadr w))
+                (caddr w)))
+         *weapons*)))

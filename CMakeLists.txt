@@ -339,6 +339,41 @@ else()
 endif()
 
 
+set(SLOPDOCS_EMBED_DIR "${CMAKE_BINARY_DIR}/generated/slopdocs")
+set(SLOPDOCS_EMBED_SOURCES)
+foreach(embed IN ITEMS "prelude.s7;slopdocs_prelude" "theme.css;slopdocs_theme_css" "docs.js;slopdocs_docs_js" "engine-names.txt;slopdocs_engine_names")
+    list(GET embed 0 embedFile)
+    list(GET embed 1 embedSymbol)
+    set(embedInput "${CMAKE_SOURCE_DIR}/tools/slopdocs/${embedFile}")
+    set(embedOutput "${SLOPDOCS_EMBED_DIR}/${embedSymbol}.cpp")
+    add_custom_command(
+        OUTPUT "${embedOutput}"
+        COMMAND "${CMAKE_COMMAND}" -DINPUT=${embedInput} -DOUTPUT=${embedOutput} -DSYMBOL=${embedSymbol}
+                -P "${CMAKE_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        DEPENDS "${embedInput}" "${CMAKE_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        COMMENT "Embedding ${embedFile} into slopdocs"
+        VERBATIM
+    )
+    list(APPEND SLOPDOCS_EMBED_SOURCES "${embedOutput}")
+endforeach()
+
+add_executable(slopdocs
+    tools/slopdocs/main.cpp
+    tools/slopdocs/doc_model.cpp
+    tools/slopdocs/site.cpp
+    tools/slopdocs/html_writer.cpp
+    tools/slopdocs/highlight.cpp
+    src/script/scheme_harden.cpp
+    ${SLOPDOCS_EMBED_SOURCES}
+)
+target_include_directories(slopdocs PRIVATE tools/slopdocs)
+target_link_libraries(slopdocs PRIVATE sloplib)
+if(MSVC)
+    target_compile_options(slopdocs PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopdocs PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 add_executable(slopcsg tools/slopcsg/main.cpp)
 target_link_libraries(slopcsg PRIVATE sloplib)
 if(MSVC)

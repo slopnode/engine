@@ -1,0 +1,10 @@
+(require-doc "lib")
+
+(page "guides/weapons" "Weapons"
+  (p "This page lives in a subfolder, so links and images resolve one level up. "
+     "Back to " (page-ref "index") ".")
+  (image "images/banner.png" "Banner again")
+  (weapon-table)
+  '(section (@ (title "Quoted data"))
+     (p "This section was written as quoted data instead of constructor calls."
+        (em " Same tree, same output."))))
