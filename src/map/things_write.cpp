@@ -253,6 +253,9 @@ void writePresentation(std::ostringstream& out, const Thing& p) {
         clause += ")";
         writeIndentClause(out, clause);
     }
+    if (!p.animBank.empty()) {
+        writeIndentClause(out, "(anims " + escapeSchemeString(p.animBank) + ")");
+    }
 }
 
 void writeLightFields(std::ostringstream& out, const Thing& p) {
@@ -395,6 +398,9 @@ void writeTypedThing(std::ostringstream& out, const Thing& p, const ThingDef& de
             clause += p.animLoop ? " #t)" : " #f)";
             writeIndentClause(out, clause);
         }
+    }
+    if (p.animBank != baseline.animBank && !p.animBank.empty()) {
+        writeIndentClause(out, "(anims " + escapeSchemeString(p.animBank) + ")");
     }
     if (p.kind == ThingKind::Actor) {
         const bool motorDiffers = p.haveMotor != baseline.haveMotor ||

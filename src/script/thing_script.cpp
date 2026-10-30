@@ -13,6 +13,7 @@
 #include "map/sound_propagation.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
+#include "map/things_spawn.hpp"
 #include "navigation/nav_components.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
@@ -21,6 +22,8 @@
 #include "physics/sight_components.hpp"
 #include "physics/sight_module.hpp"
 #include "physics/trigger_components.hpp"
+#include "render/animation_player.hpp"
+#include "render/bone_attachment.hpp"
 #include "render/components.hpp"
 #include "render/debug_line_pool.hpp"
 #include "render/dynamic_light.hpp"
@@ -1259,6 +1262,9 @@ s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
             return s7_f(sc);
         }
         entity.set<Model3D>({model, WHITE});
+        if (model.skeleton.boneCount > 0) {
+            attachGeoAnimationPlayer(entity, assets, path, {}, {}, true);
+        }
     }
 
     CharacterMotor motor{};
@@ -1578,6 +1584,130 @@ s7_pointer g_actor_water_exit_dir(s7_scheme* sc, s7_pointer args) {
     return s7_list(sc, 2, s7_make_real(sc, dirX), s7_make_real(sc, dirZ));
 }
 
+void destroyAttachment(flecs::entity child) {
+    if (!child.is_valid()) {
+        return;
+    }
+    if (child.has<Model3D>()) {
+        unloadClonedGeoModelInstance(child.get_mut<Model3D>().model);
+    }
+    child.destruct();
+}
+
+s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    const char* names[4] = {"id", "name", "bone", "geo"};
+    std::string values[4];
+    for (int i = 0; i < 4; ++i) {
+        if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "actor-attach-geo", i + 1, args, names[i]);
+        }
+        values[i] = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    float numbers[7] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    for (float& value : numbers) {
+        if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+            break;
+        }
+        value = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    flecs::entity actor = lookupActor(values[0].c_str());
+    if (!actor.is_valid() || !actor.has<Model3D>()) {
+        return s7_f(sc);
+    }
+    const Model& actorModel = actor.get<Model3D>().model;
+    const int boneIndex = findModelBoneIndex(actorModel, values[2]);
+    if (boneIndex < 0) {
+        TraceLog(LOG_WARNING, "actor-attach-geo: '%s' has no bone '%s'", values[0].c_str(), values[2].c_str());
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasGeo(values[3])) {
+        TraceLog(LOG_WARNING, "actor-attach-geo: missing geo '%s'", values[3].c_str());
+        return s7_f(sc);
+    }
+    const Model source = assets.getGeoModel(values[3]);
+    Model model = cloneGeoModelInstance(source);
+    if (model.meshCount <= 0) {
+        return s7_f(sc);
+    }
+
+    destroyAttachment(actor.lookup(values[1].c_str()));
+
+    BoneAttachment attachment{};
+    attachment.bone = values[2];
+    attachment.boneIndex = boneIndex;
+    attachment.offset = {numbers[0], numbers[1], numbers[2]};
+    attachment.rotation = QuaternionFromEuler(numbers[3], numbers[4], numbers[5]);
+    attachment.scale = {numbers[6], numbers[6], numbers[6]};
+
+    LocalTransformation local{};
+    local.scale = attachment.scale;
+    flecs::entity child = g_thingWorld->entity().child_of(actor);
+    child.set_name(values[1].c_str());
+    child.add<WorldSpace>()
+        .add<MapOwned>()
+        .set<LocalTransformation>(local)
+        .set<GlobalTransformation>(GlobalTransformation{})
+        .set<Model3D>({model, WHITE})
+        .set<BoneAttachment>(attachment);
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_detach(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-detach", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "actor-detach", 2, rest, "name string");
+    }
+    flecs::entity actor = lookupActor(id);
+    if (!actor.is_valid()) {
+        return s7_f(sc);
+    }
+    flecs::entity child = actor.lookup(s7_string(s7_car(rest)));
+    if (!child.is_valid() || !child.has<BoneAttachment>()) {
+        return s7_f(sc);
+    }
+    destroyAttachment(child);
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_anim_busy(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-anim-busy?", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<AnimationPlayer>()) {
+        const AnimationPlayer& player = entity.get<AnimationPlayer>();
+        return (player.playing && !player.loop) ? s7_t(sc) : s7_f(sc);
+    }
+    if (entity.has<SpriteAnimator>()) {
+        const SpriteAnimator& animator = entity.get<SpriteAnimator>();
+        return (animator.playing && !animator.loop) ? s7_t(sc) : s7_f(sc);
+    }
+    return s7_f(sc);
+}
+
 s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -1602,7 +1732,30 @@ s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
     }
 
     flecs::entity entity = lookupActor(id);
-    if (!entity.is_valid() || !entity.has<SpriteInstance>()) {
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<AnimationPlayer>()) {
+        AnimationPlayer player = entity.get<AnimationPlayer>();
+        const AnimBank* bank = nullptr;
+        if (g_thingWorld->has<AssetServices>() &&
+            g_thingWorld->get<AssetServices>().store != nullptr) {
+            bank = g_thingWorld->get_mut<AssetServices>().store->getAnimBank(player.animBankPath);
+        }
+        if (bank == nullptr || bank->clipIndexByName.count(clip) == 0) {
+            TraceLog(
+                LOG_WARNING,
+                "actor-play-anim: '%s' bank '%s' has no clip '%s'",
+                id,
+                player.animBankPath.c_str(),
+                clip);
+            return s7_f(sc);
+        }
+        player.play(clip, loop);
+        entity.set<AnimationPlayer>(player);
+        return s7_t(sc);
+    }
+    if (!entity.has<SpriteInstance>()) {
         return s7_f(sc);
     }
 
@@ -3181,6 +3334,30 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         1,
         false,
         "(actor-play-anim id clip [loop])");
+    s7_define_function(
+        scheme,
+        "actor-anim-busy?",
+        g_actor_anim_busy,
+        1,
+        0,
+        false,
+        "(actor-anim-busy? id)");
+    s7_define_function(
+        scheme,
+        "actor-attach-geo",
+        g_actor_attach_geo,
+        4,
+        7,
+        false,
+        "(actor-attach-geo id name bone geo [x y z] [pitch yaw roll] [scale])");
+    s7_define_function(
+        scheme,
+        "actor-detach",
+        g_actor_detach,
+        2,
+        0,
+        false,
+        "(actor-detach id name)");
     s7_define_function(scheme, "actor-tags", g_actor_tags, 1, 0, false, "(actor-tags id)");
     s7_define_function(
         scheme, "actors-with-tag", g_actors_with_tag, 1, 0, false, "(actors-with-tag tag)");

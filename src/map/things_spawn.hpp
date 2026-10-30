@@ -27,6 +27,16 @@ struct PlayerStart {
     float motorEyeHeight = 0.8f;
 };
 
+/** Attaches an AnimationPlayer to a skinned geo entity, resolving its clip bank from
+ *  @p animBank or, when empty, from the skeleton the geo binds to. Plays @p clip when set. */
+void attachGeoAnimationPlayer(
+    flecs::entity entity,
+    AssetStore& assets,
+    std::string_view geoPath,
+    std::string_view animBank,
+    std::string_view clip,
+    bool loop);
+
 void spawnThings(
     flecs::world& world,
     AssetStore& assets,

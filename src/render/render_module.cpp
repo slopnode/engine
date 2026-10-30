@@ -12,6 +12,7 @@
 #include "map/bsp.hpp"
 #include "map/light_components.hpp"
 #include "render/animation_player.hpp"
+#include "render/bone_attachment.hpp"
 #include "render/animation_systems.hpp"
 #include "render/components.hpp"
 #include "render/material_anim_types.hpp"
@@ -77,6 +78,7 @@ void registerComponents(flecs::world& world) {
     world.component<SpriteOverlay>();
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
+    world.component<BoneAttachment>();
     world.component<AnimationClipFlipTest>();
     world.component<MaterialAnimTargets>();
     world.component<MaterialAnimClocks>();

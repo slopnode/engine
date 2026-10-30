@@ -144,6 +144,16 @@ bool parseAnimAsset(std::string_view source, AnimAsset& asset) {
             } else if (auto tracks = readQuotedField(line, "tracks ")) {
                 current.tracksFile = *tracks;
                 current.tracksImplicit = false;
+            } else if (startsWith(line, "event ")) {
+                AnimEvent event{};
+                const std::string_view rest = trim(line.substr(6));
+                const auto parsed = std::from_chars(rest.data(), rest.data() + rest.size(), event.frame);
+                const auto name = readQuotedField(line, "event ");
+                if (parsed.ec != std::errc{} || !name || name->empty()) {
+                    return false;
+                }
+                event.name = *name;
+                current.events.push_back(std::move(event));
             } else if (startsWith(line, "tracks implicit")) {
                 current.tracksImplicit = true;
             } else if (startsWith(line, ")")) {
@@ -164,6 +174,23 @@ bool parseAnimAsset(std::string_view source, AnimAsset& asset) {
     }
 
     return !asset.clips.empty();
+}
+
+void collectAnimEvents(
+    const AnimClip& clip,
+    float previousFrame,
+    float frame,
+    bool wrapped,
+    std::vector<const AnimEvent*>& out) {
+    for (const AnimEvent& event : clip.events) {
+        const float at = static_cast<float>(event.frame);
+        const bool crossed = wrapped
+            ? (at > previousFrame || at <= frame)
+            : (at > previousFrame && at <= frame);
+        if (crossed) {
+            out.push_back(&event);
+        }
+    }
 }
 
 bool loadTracksToModelAnimation(

@@ -39,7 +39,22 @@ Exports the active (or first selected) armature as a `.skel` file, under the ske
 
 ## Animation {#export-anim}
 
-Exports every action on the selected armature into one `.anim` file, one clip per action — this covers both a directly assigned action and any actions reachable through NLA strips. Frames are resampled at the chosen rate (30 fps by default) rather than exported at Blender's native keyframe times, so raising or lowering it trades animation file size against smoothness.
+Exports every action on the selected armature into one `.anim` file, one clip per action — this covers both a directly assigned action and any actions reachable through NLA strips. Frames are resampled at the chosen rate (30 fps by default) rather than exported at Blender's native keyframe times, so raising or lowering it trades animation file size against smoothness. The Clips field takes a comma separated list of action names and limits the export to those, which keeps a bank small when the source file carries a whole animation library.
+
+# Headless export {#blender-headless}
+
+`tools/blender/export_asset.py` runs the Multiple export without the UI. It imports a `.blend`, `.glb` or `.fbx` into an empty scene, so the engine side never sees those formats, and writes the package folders the same way the menu entry does.
+
+```
+blender -b --python tools/blender/export_asset.py -- \
+  --input source.glb --root path/to/package --asset mannequin \
+  --skeleton mannequin --fps 24 --clips "Idle_Loop,Walk_Loop" \
+  --meshes Mannequin --rename-material M_Main=mannequin/main
+```
+
+Pose markers on an action (Pose Markers in the Action Editor) export as clip events, named after the marker and placed on the nearest sampled frame. Hand written `event` lines in an existing `.anim` survive a re-export, and so do clips that were exported earlier but left out of the current `--clips` list, as long as their `.tracks` files are still there. A bank therefore accumulates the way a Half-Life model's sequence list does.
+
+`--skeleton` defaults to the asset name. `--armature` and `--meshes` pick the objects when the file holds more than one rig, otherwise the first armature and every mesh skinned to it are used. `--rename-material OLD=NEW` renames a Blender material before export so its slot resolves to a package material path, and can be given more than once.
 
 # Conventions {#conventions}
 
@@ -47,6 +62,6 @@ Blender's Z-up axis convention is converted automatically, so models and animati
 
 Material slot names decide where the engine looks for the material. A slot named `human01/skin` or `human01.skin` both resolve to the material at that path in the package; an empty slot falls back to a placeholder material rather than failing the export. Object, material, and action names get sanitized on the way out — anything other than letters, numbers, underscores, hyphens, dots, and slashes becomes an underscore.
 
-Skeletons and skinned geometry always export from the armature's rest pose, not whatever frame the timeline happens to be sitting on, so it's safe to leave the armature posed or mid-animation in the viewport when exporting. A mesh object can also be moved, rotated, or scaled relative to its armature (or, for static geometry, relative to the scene origin) and that offset gets baked into the exported vertices rather than lost.
+Skeletons and skinned geometry always export from the armature's rest pose, with the NLA stack and the assigned action switched off for the duration, so it's safe to leave the armature posed or mid-animation in the viewport when exporting. A mesh object can also be moved, rotated, or scaled relative to its armature (or, for static geometry, relative to the scene origin) and that offset gets baked into the exported vertices rather than lost.
 
 Each vertex carries at most four bone influences, sorted by weight and renormalized to sum to one; a vertex group name that doesn't match a bone name is skipped and reported as a warning rather than silently dropped. Non-triangular faces are triangulated automatically, and a mesh with no UV layer gets an empty one created so the export doesn't fail, though it won't have meaningful texture coordinates until real UVs are added.

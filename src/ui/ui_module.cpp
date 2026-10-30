@@ -545,6 +545,7 @@ void drawMainMenuBar(
             ImGui::EndMenu();
         }
         item("arrow_branch", "Nav Paths", &debugUi.showNavPaths);
+        item("user", "Skeletons", &debugUi.showSkeletons);
         if (menu("shape_square", "Nav Polys (baked)", false)) {
             if (!world.has<MapNavProfiles>() || world.get<MapNavProfiles>().profiles.empty()) {
                 ImGui::MenuItem("(none baked)", nullptr, false, false);

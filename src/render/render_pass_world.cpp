@@ -882,6 +882,9 @@ void drawWorldModels(
         renderWorldModel(modelEntity, model, global, lens, unlit, skipMeshes, nullptr);
     });
     rlDisableShader();
+    if (!world.has<DebugUiState>() || !world.get<DebugUiState>().showSkeletons) {
+        return;
+    }
     context.animOverlayQuery.each(
         [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
             if (!modelEntity.has<MapLightmapState>()) {

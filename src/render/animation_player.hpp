@@ -16,6 +16,7 @@ struct AnimationPlayer {
     bool playing = false;
     bool justStarted = false;
     bool justFinished = false;
+    float lastFrame = -1.0f;
 
     /** Starts playback of @p clip at @p playbackSpeed, optionally looping. */
     void play(std::string_view clip, bool shouldLoop = true, float playbackSpeed = 1.0f);

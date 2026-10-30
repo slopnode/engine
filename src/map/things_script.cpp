@@ -155,6 +155,13 @@ s7_pointer g_anim(s7_scheme* sc, s7_pointer args) {
     return makeTaggedList(sc, "anim", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
+s7_pointer g_anims(s7_scheme* sc, s7_pointer args) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, "anims", 1, args, "path");
+    }
+    return makeTaggedList(sc, "anims", s7_cons(sc, s7_car(args), s7_nil(sc)));
+}
+
 s7_pointer g_prompt(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args)) {
         return s7_wrong_type_arg_error(sc, "prompt", 1, args, "text");
@@ -606,6 +613,8 @@ bool parseThingClauses(s7_scheme* sc, s7_pointer args, Thing& out) {
                     }
                 }
             }
+        } else if (std::strcmp(tag, "anims") == 0 && s7_is_pair(rest)) {
+            readString(sc, s7_car(rest), out.animBank);
         } else if (std::strcmp(tag, "prompt") == 0 && s7_is_pair(rest)) {
             out.havePrompt = readString(sc, s7_car(rest), out.prompt);
         } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
@@ -1543,6 +1552,7 @@ void bindThingApi(s7_scheme* sc) {
     s7_define_function(sc, "brush", g_brush, 1, 0, false, "(brush brush-id)");
     s7_define_function(sc, "frame", g_frame, 1, 0, false, "(frame id)");
     s7_define_function(sc, "anim", g_anim, 1, 1, false, "(anim clip [loop])");
+    s7_define_function(sc, "anims", g_anims, 1, 0, false, "(anims path)");
     s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt text)");
     s7_define_function(sc, "on-use", g_on_use, 1, 0, true, "(on-use handler arg-clause...)");
     s7_define_function(sc, "pivot", g_pivot, 3, 0, false, "(pivot x y z)");

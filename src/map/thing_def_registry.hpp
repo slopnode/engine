@@ -56,6 +56,7 @@ struct ThingDef {
     std::string animClip;
     bool animLoop = true;
     bool haveAnim = false;
+    std::string animBank;
 
     float motorRadius = 0.3f;
     float motorHeight = 1.1f;

@@ -10,6 +10,7 @@ void AnimationPlayer::play(std::string_view clip, bool shouldLoop, float playbac
     playing = true;
     justStarted = true;
     justFinished = false;
+    lastFrame = -1.0f;
 }
 
 void AnimationPlayer::stop() {

@@ -42,6 +42,7 @@ const char* kEngineHooks[] = {
     "draw-debug-menu",
     "draw-modals",
     "on-sprite-hint",
+    "on-anim-event",
     "on-sight",
     "on-camera-path-end",
     "sight-filter",
@@ -206,6 +207,28 @@ void callHook2String(
             2,
             s7_make_string(scheme, arg0.c_str()),
             s7_make_string(scheme, arg1.c_str())));
+}
+
+void callHook3String(
+    s7_scheme* scheme,
+    std::string_view name,
+    const std::string& arg0,
+    const std::string& arg1,
+    const std::string& arg2,
+    ScriptScope scope) {
+    if (scheme == nullptr) {
+        return;
+    }
+    ScriptScopeGuard guard(scope);
+    callOwnerThenContribs(
+        scheme,
+        name,
+        s7_list(
+            scheme,
+            3,
+            s7_make_string(scheme, arg0.c_str()),
+            s7_make_string(scheme, arg1.c_str()),
+            s7_make_string(scheme, arg2.c_str())));
 }
 
 bool callHook2StringAllTruthy(

@@ -143,6 +143,7 @@ set(SLOPLIB_SOURCES
     src/assets/texture_graph.cpp
     src/assets/skeleton_loader.cpp
     src/assets/anim_loader.cpp
+    src/render/bone_attachment.cpp
     src/particles/particle_sim.cpp
     src/game/app_config.cpp
     src/map/brush.cpp

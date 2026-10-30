@@ -78,28 +78,53 @@ class bind_pose_context:
         self.previous_action = (
             self.animation_data.action if self.animation_data is not None else None
         )
+        self.previous_use_nla = (
+            self.animation_data.use_nla if self.animation_data is not None else True
+        )
+        self.previous_pose_position = armature_obj.data.pose_position
 
     def __enter__(self):
         if self.armature_obj.mode != "POSE":
             bpy.ops.object.mode_set(mode="POSE")
         if self.animation_data is not None:
             self.animation_data.action = None
+            self.animation_data.use_nla = False
+        self.armature_obj.data.pose_position = "REST"
         self.scene.frame_set(0)
         self.context.view_layer.update()
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        self.armature_obj.data.pose_position = self.previous_pose_position
         if self.animation_data is not None:
-            self.animation_data.action = self.previous_action
+            self.animation_data.use_nla = self.previous_use_nla
+            assign_action(self.animation_data, self.previous_action)
         self.scene.frame_set(self.previous_frame)
         if self.previous_mode != "POSE":
             bpy.ops.object.mode_set(mode=self.previous_mode)
         return False
 
 
+def assign_action(animation_data, action):
+    animation_data.action = action
+    if action is None or not hasattr(animation_data, "action_slot"):
+        return
+    if animation_data.action_slot is not None:
+        return
+    for slot in getattr(action, "slots", []):
+        if slot.target_id_type in ("OBJECT", "UNSPECIFIED"):
+            animation_data.action_slot = slot
+            return
+
+
 def sanitize_name(name):
     cleaned = re.sub(r"[^\w\-./]", "_", name.strip())
     return cleaned or "unnamed"
+
+
+def parse_clip_filter(text):
+    names = [part.strip() for part in text.split(",")]
+    return [name for name in names if name] or None
 
 
 def material_path(material_name):
@@ -324,11 +349,11 @@ def sample_action_frames(context, armature_obj, order, action, fps):
     scene = context.scene
     animation_data = armature_obj.animation_data
     action_duration = (frame_end - frame_start) / scene.render.fps
-    sample_count = max(1, int(action_duration * fps) + 1)
+    sample_count = max(1, int(round(action_duration * fps)) + 1)
     frames = []
 
     if animation_data is not None:
-        animation_data.action = action
+        assign_action(animation_data, action)
     for sample_index in range(sample_count):
         time = sample_index / fps
         frame = frame_start + time * scene.render.fps
@@ -505,7 +530,8 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
             face_indices = []
             for loop_index in face.loop_indices:
                 vertex_index = mesh.loops[loop_index].vertex_index
-                export_key = (vertex_index, loop_index)
+                uv = uv_layer[loop_index].uv
+                export_key = (vertex_index, round(uv.x, 5), round(uv.y, 5))
                 if export_key not in loop_to_export:
                     loop_to_export[export_key] = len(positions) // 3
                     vertex = mesh.vertices[vertex_index]
@@ -516,7 +542,6 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
                     else:
                         normal = convert_direction(Vector((0.0, 0.0, 1.0)))
                     normals.extend((normal.x, normal.y, normal.z))
-                    uv = uv_layer[loop_index].uv
                     uvs.extend((uv.x, uv.y))
                     if vertex_weights is not None:
                         weights.append(vertex_weights[vertex_index])

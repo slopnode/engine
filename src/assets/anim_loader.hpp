@@ -31,6 +31,16 @@ struct AnimBank {
 /** Parses an animation asset from its text source into @p asset. */
 bool parseAnimAsset(std::string_view source, AnimAsset& asset);
 
+/** Appends the events of @p clip crossed by advancing from @p previousFrame to @p frame.
+ *  @p wrapped means playback looped past the clip end in between, so events after
+ *  @p previousFrame and events up to @p frame both fire. */
+void collectAnimEvents(
+    const AnimClip& clip,
+    float previousFrame,
+    float frame,
+    bool wrapped,
+    std::vector<const AnimEvent*>& out);
+
 /** Loads binary track data from @p data into @p animation and optional @p matrixClip. */
 bool loadTracksToModelAnimation(
     std::span<const std::byte> data,

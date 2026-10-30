@@ -56,7 +56,7 @@ Symbols `*package-things*` and `*package-thing-folders*`
 Thing templates are the props, pickups, and actors that map authors can place from `slopmap` or `slopsprite`. Each entry needs an id and a `kind` of `prop`, `pickup`, or `actor`; which other keys apply depends on the kind.
 
 - `label`, `icon`, `path` - browser presentation; `path` groups the thing under a folder declared in `*package-thing-folders*`
-- `sprite` or `geo`, `frame`, `anim` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`
+- `sprite` or `geo`, `frame`, `anim`, `anims` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`. On a sprite `anim` names a `.spanim` clip. On a skinned geo it names a clip in the animation bank at the geo's skeleton path (`animations/<skeleton>.anim`), and `anims` points at a different bank when the clips live elsewhere
 - `motor (radius ...) (height ...) (speed ...) (gravity ...) (step-height ...) (hover-height ...) (max-fall ...) (water-aversion ...) (hull box|capsule|sphere) (move try-move|slide|fly) (nav-profile ...)` - a physics-driven movement capsule; implied for `actor`, optional for the others. `nav-profile` names a baked nav profile (see the nav-profile catalog) for this thing's capsule size to path against instead of the auto-matched one
 - `tags` - a list of string tags, matched against `see-tags`/`ignore-tags` on other things and used by handlers
 - `on-enter`, `on-use` - handler bindings from the map handler catalog; a pickup requires at least one

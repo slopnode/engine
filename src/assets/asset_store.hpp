@@ -213,6 +213,9 @@ public:
     /** Returns a cached rigged geometry model, loading it when needed. */
     Model getGeoModel(std::string_view path);
 
+    /** Resolves the skeleton virtual path a geometry asset binds to, or empty for static geo. */
+    std::string resolveGeoSkeletonPath(std::string_view geoPath);
+
     /** Resolves and returns a raylib material for @p path. */
     Material resolveMaterial(std::string_view path);
 
@@ -394,6 +397,7 @@ private:
     Shader getSkinningShader();
     void applySkinningToModel(Model& model);
     void ensureSkeletonBindLoaded(std::string_view skeletonPath);
+    std::string resolveSkeletonPathForGeo(const GeoAsset& asset, std::string_view geoPath) const;
     static std::string skeletonBindPath(std::string_view skeletonPath);
 
     VirtualFileSystem vfs_;

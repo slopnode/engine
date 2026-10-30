@@ -459,6 +459,7 @@ void applyThingDef(const ThingDef& def, Thing& out) {
     out.haveAnim = def.haveAnim;
     out.animClip = def.animClip;
     out.animLoop = def.animLoop;
+    out.animBank = def.animBank;
     out.haveMotor = def.haveMotor;
     out.motorRadius = def.motorRadius;
     out.motorHeight = def.motorHeight;
@@ -587,6 +588,7 @@ bool registerPackageThingsFromScheme(s7_scheme* scheme) {
         if (readAssocBool(scheme, props, "anim-loop", animLoop) && def.haveAnim) {
             def.animLoop = animLoop;
         }
+        readAssocString(scheme, props, "anims", def.animBank);
 
         s7_pointer motorVal = nullptr;
         if (readAssoc(scheme, props, "motor", motorVal)) {

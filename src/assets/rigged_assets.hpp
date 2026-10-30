@@ -43,6 +43,12 @@ struct GeoAsset {
     std::vector<GeoPrimitive> primitives;
 };
 
+/** A named frame inside a clip, fired as a script hook when playback crosses it. */
+struct AnimEvent {
+    int frame = 0;
+    std::string name;
+};
+
 /** One clip entry from a .anim file. */
 struct AnimClip {
     std::string name;
@@ -50,6 +56,7 @@ struct AnimClip {
     float duration = 0.0f;
     bool tracksImplicit = true;
     std::string tracksFile; /**< Optional explicit tracks path. */
+    std::vector<AnimEvent> events;
 };
 
 /** Parsed .anim bank metadata before tracks are loaded. */

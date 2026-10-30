@@ -144,6 +144,7 @@ void unloadMapScene(flecs::world& world) {
         if (!entity.is_valid()) {
             continue;
         }
+        entity.children([](flecs::entity child) { unloadMapGpuResources(child); });
         unloadMapGpuResources(entity);
         entity.destruct();
     }

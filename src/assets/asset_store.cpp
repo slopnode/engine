@@ -750,22 +750,9 @@ Model AssetStore::getGeoModel(std::string_view path) {
     }
 
     const SkeletonAsset* skeleton = nullptr;
-    std::string skeletonPath = asset.skeletonId;
+    const std::string skeletonPath = resolveSkeletonPathForGeo(asset, path);
     if (!skeletonPath.empty()) {
-        skeletonPath = resolveSkeletonVirtualPath(
-            skeletonPath,
-            path,
-            [this](std::string_view candidate) { return hasSkeleton(candidate); });
         skeleton = getSkeletonAsset(skeletonPath);
-    } else {
-        const std::string inferred = parentVirtualPath(path);
-        if (hasSkeleton(inferred)) {
-            skeletonPath = inferred;
-            skeleton = getSkeletonAsset(skeletonPath);
-        } else if (hasSkeleton(path)) {
-            skeletonPath = std::string{path};
-            skeleton = getSkeletonAsset(skeletonPath);
-        }
     }
 
     std::vector<VertexWeights> weights{};
@@ -804,6 +791,34 @@ Model AssetStore::getGeoModel(std::string_view path) {
 
     geos_.emplace(key, model);
     return model;
+}
+
+std::string AssetStore::resolveSkeletonPathForGeo(const GeoAsset& asset, std::string_view geoPath) const {
+    if (!asset.skeletonId.empty()) {
+        return resolveSkeletonVirtualPath(
+            asset.skeletonId,
+            geoPath,
+            [this](std::string_view candidate) { return hasSkeleton(candidate); });
+    }
+    const std::string inferred = parentVirtualPath(geoPath);
+    if (hasSkeleton(inferred)) {
+        return inferred;
+    }
+    if (hasSkeleton(geoPath)) {
+        return std::string{geoPath};
+    }
+    return {};
+}
+
+std::string AssetStore::resolveGeoSkeletonPath(std::string_view geoPath) {
+    if (!hasGeo(geoPath)) {
+        return {};
+    }
+    GeoAsset asset{};
+    if (!parseGeoAsset(getGeoSource(geoPath), asset)) {
+        return {};
+    }
+    return resolveSkeletonPathForGeo(asset, geoPath);
 }
 
 Shader AssetStore::getSkinningShader() {

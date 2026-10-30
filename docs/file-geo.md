@@ -41,6 +41,31 @@ Each vertex:
 | boneCount | u32 | Must match .skel bone order |
 | matrices[boneCount] | f32[16] | Column-major 4×4, engine Z-up / raylib float order |
 
+## .anim {#anim}
+
+The text bank that names the clips over one skeleton. Each clip lists one field per line.
+
+```
+(anim
+  (skeleton "mannequin")
+  (clips
+   (
+    (name "Sword_Regular_A"
+     fps 24
+     duration 0.416667
+     event 5 "swing"
+     event 10 "done"
+     tracks "mannequin_Sword_Regular_A.tracks")
+   )))
+```
+
+| Field | Notes |
+|-------|-------|
+| fps | Sample rate of the tracks file |
+| duration | Seconds, defaults to (frames - 1) / fps when 0 |
+| event | Frame index and name; playback crossing the frame calls `on-anim-event` |
+| tracks | Tracks file next to the bank, or `tracks implicit` for `<bank>.tracks` |
+
 ## .tracks {#tracks}
 
 | Field | Type | Notes |

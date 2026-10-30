@@ -1358,12 +1358,38 @@ Returns the direction toward the nearest water exit for a submerged actor, or \#
 </code></pre>
 
 ### actor-play-anim {#actor-play-anim}
-Plays an animation clip on an actor.
+Plays an animation clip on an actor. A sprite actor plays a `.spanim` clip, a skinned geo actor plays a clip from its animation bank. Returns \#f when the clip does not exist.
 <pre><code class="language-scheme">(actor-play-anim
   id : string?
   clip : string?
   [loop] : boolean? = \#t)
   ↵ boolean?
+</code></pre>
+
+### actor-anim-busy? {#actor-anim-busy}
+Returns \#t while a non-looping clip started by `actor-play-anim` is still playing.
+<pre><code class="language-scheme">(actor-anim-busy?
+  id : string?) ↵ boolean?
+</code></pre>
+
+### actor-attach-geo {#actor-attach-geo}
+Pins a static geo to a bone of a skinned geo actor, Half-Life attachment style. The geo follows the bone's pose each frame with the offset applied in bone space, pitch yaw roll in radians, and a uniform scale. A second call with the same `name` replaces the earlier attachment.
+<pre><code class="language-scheme">(actor-attach-geo
+  id : string?
+  name : string?
+  bone : string?
+  geo : string?
+  [x y z] : real? = 0
+  [pitch yaw roll] : real? = 0
+  [scale] : real? = 1)
+  ↵ boolean?
+</code></pre>
+
+### actor-detach {#actor-detach}
+Removes an attachment made by `actor-attach-geo`.
+<pre><code class="language-scheme">(actor-detach
+  id : string?
+  name : string?) ↵ boolean?
 </code></pre>
 
 ### actor-tags {#actor-tags}
@@ -1778,6 +1804,12 @@ Called every menu frame, for title screen chrome.
 Called when a `.spanim` hold cue with `(hint "name")` is entered.
 <pre><code class="language-scheme">(on-sprite-hint
   source, name : string?)
+</code></pre>
+
+### on-anim-event {#on-anim-event}
+Called when a skinned geo's clip playback crosses an `event` frame declared in its `.anim` bank. `source` is the entity id, `clip` the clip name. A looping clip fires its events every pass.
+<pre><code class="language-scheme">(on-anim-event
+  source, event, clip : string?)
 </code></pre>
 
 ### on-sight {#on-sight}

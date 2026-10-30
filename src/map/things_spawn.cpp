@@ -22,6 +22,7 @@
 #include "physics/rigid_mover.hpp"
 #include "physics/sight_components.hpp"
 #include "physics/trigger_components.hpp"
+#include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/material_anim.hpp"
 #include "render/sprite_animator.hpp"
@@ -291,6 +292,51 @@ bool applyBrushPresentation(flecs::entity entity, const Thing& placement, SpawnC
     return true;
 }
 
+} // namespace
+
+void attachGeoAnimationPlayer(
+    flecs::entity entity,
+    AssetStore& assets,
+    std::string_view geoPath,
+    std::string_view animBank,
+    std::string_view clip,
+    bool loop) {
+    std::string bankPath{animBank};
+    if (bankPath.empty()) {
+        bankPath = assets.resolveGeoSkeletonPath(geoPath);
+    }
+    const std::string geo{geoPath};
+    const std::string clipName{clip};
+    if (bankPath.empty() || !assets.hasAnim(bankPath)) {
+        if (!clipName.empty()) {
+            TraceLog(
+                LOG_WARNING,
+                "THING: geo '%s' has no animation bank at '%s' for clip '%s'",
+                geo.c_str(),
+                bankPath.c_str(),
+                clipName.c_str());
+        }
+        return;
+    }
+    AnimationPlayer player{};
+    player.animBankPath = bankPath;
+    if (!clipName.empty()) {
+        const AnimBank* bank = assets.getAnimBank(bankPath);
+        if (bank == nullptr || bank->clipIndexByName.count(clipName) == 0) {
+            TraceLog(
+                LOG_WARNING,
+                "THING: animation bank '%s' has no clip '%s'",
+                bankPath.c_str(),
+                clipName.c_str());
+        } else {
+            player.play(clipName, loop);
+        }
+    }
+    entity.set<AnimationPlayer>(player);
+}
+
+namespace {
+
 bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContext& ctx) {
     const bool hasSprite = !placement.sprite.empty();
     const bool hasGeo = !placement.geo.empty();
@@ -367,6 +413,22 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
     }
 
     entity.set<Model3D>({model, WHITE});
+    if (model.skeleton.boneCount > 0) {
+        attachGeoAnimationPlayer(
+            entity,
+            *ctx.assets,
+            placement.geo,
+            placement.animBank,
+            placement.haveAnim ? std::string_view{placement.animClip} : std::string_view{},
+            placement.animLoop);
+    } else if (placement.haveAnim) {
+        TraceLog(
+            LOG_WARNING,
+            "THING: '%s' has anim '%s' but geo '%s' has no skeleton",
+            placement.id.c_str(),
+            placement.animClip.c_str(),
+            placement.geo.c_str());
+    }
 
     GeoAsset geoAsset{};
     if (parseGeoAsset(ctx.assets->getGeoSource(placement.geo), geoAsset)) {

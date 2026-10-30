@@ -5,7 +5,107 @@ import bpy
 from .export_anim import export_anim_asset
 from .export_geo import export_geo_asset
 from .export_skeleton import export_skeleton_asset
-from .format_utils import active_armature, bind_pose_context, sanitize_name
+from .format_utils import active_armature, bind_pose_context, parse_clip_filter, sanitize_name
+
+
+def export_multiple_asset(
+    context,
+    project_root,
+    asset_name,
+    skeleton_id,
+    fps=30.0,
+    use_selection=True,
+    clip_names=None,
+):
+    result = {
+        "status": "FINISHED",
+        "error": None,
+        "warnings": [],
+        "info": [],
+    }
+
+    project_root = bpy.path.abspath(project_root).strip()
+    if not project_root:
+        result["status"] = "CANCELLED"
+        result["error"] = "Project root is required"
+        return result
+
+    asset_name = sanitize_name(asset_name.strip())
+    if not asset_name:
+        result["status"] = "CANCELLED"
+        result["error"] = "Asset name is required"
+        return result
+
+    skeleton_id = skeleton_id.strip()
+    if not skeleton_id:
+        result["status"] = "CANCELLED"
+        result["error"] = "Skeleton ID is required"
+        return result
+
+    skel_dir = os.path.join(project_root, "skeletons", asset_name)
+    geo_dir = os.path.join(project_root, "geometry", asset_name)
+    anim_dir = os.path.join(project_root, "animations", asset_name)
+
+    for output_dir in (skel_dir, geo_dir, anim_dir):
+        os.makedirs(output_dir, exist_ok=True)
+
+    exports = (
+        (
+            "skeleton",
+            export_skeleton_asset,
+            os.path.join(skel_dir, f"{asset_name}.skel"),
+            {"skeleton_id": skeleton_id},
+        ),
+        (
+            "geometry",
+            export_geo_asset,
+            os.path.join(geo_dir, f"{asset_name}.geo"),
+            {
+                "skeleton_id": skeleton_id,
+                "use_selection": use_selection,
+            },
+        ),
+        (
+            "animation",
+            export_anim_asset,
+            os.path.join(anim_dir, f"{asset_name}.anim"),
+            {
+                "skeleton_id": skeleton_id,
+                "fps": fps,
+                "clip_names": clip_names,
+            },
+        ),
+    )
+
+    failures = []
+
+    def run_exports(scene_pose_locked=False):
+        for label, export_fn, filepath, kwargs in exports:
+            export_kwargs = dict(kwargs)
+            if scene_pose_locked and label in ("skeleton", "geometry"):
+                export_kwargs["scene_pose_locked"] = True
+            export_result = export_fn(context, filepath, **export_kwargs)
+            for warning in export_result.get("warnings", []):
+                result["warnings"].append(f"{label}: {warning}")
+            for info in export_result.get("info", []):
+                result["info"].append(f"{label}: {info}")
+            if export_result["status"] != "FINISHED":
+                failures.append(f"{label}: {export_result.get('error', 'export failed')}")
+
+    armature_obj = active_armature(context)
+    if armature_obj is not None:
+        with bind_pose_context(context, armature_obj):
+            run_exports(scene_pose_locked=True)
+    else:
+        run_exports()
+
+    if failures:
+        result["status"] = "CANCELLED"
+        result["error"] = "; ".join(failures)
+        return result
+
+    result["info"].append(f"Exported '{asset_name}' to {project_root}")
+    return result
 
 
 class EXPORT_OT_slopengine_multiple(bpy.types.Operator):
@@ -59,6 +159,12 @@ class EXPORT_OT_slopengine_multiple(bpy.types.Operator):
         default=True,
     )
 
+    clips: bpy.props.StringProperty(
+        name="Clips",
+        description="Comma-separated action names to export; empty exports every action",
+        default="",
+    )
+
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
@@ -70,6 +176,7 @@ class EXPORT_OT_slopengine_multiple(bpy.types.Operator):
             self.layout.prop(self, "skeleton_id")
         self.layout.prop(self, "fps")
         self.layout.prop(self, "use_selection")
+        self.layout.prop(self, "clips")
 
     def resolve_skeleton_id(self, context):
         if self.skeleton_name_source == "OBJECT":
@@ -80,16 +187,6 @@ class EXPORT_OT_slopengine_multiple(bpy.types.Operator):
         return self.skeleton_id.strip()
 
     def execute(self, context):
-        project_root = bpy.path.abspath(self.project_root).strip()
-        if not project_root:
-            self.report({"ERROR"}, "Project root is required")
-            return {"CANCELLED"}
-
-        asset_name = sanitize_name(self.asset_name.strip())
-        if not asset_name:
-            self.report({"ERROR"}, "Asset name is required")
-            return {"CANCELLED"}
-
         skeleton_id = self.resolve_skeleton_id(context)
         if not skeleton_id:
             if self.skeleton_name_source == "OBJECT":
@@ -98,72 +195,22 @@ class EXPORT_OT_slopengine_multiple(bpy.types.Operator):
                 self.report({"ERROR"}, "Skeleton ID is required")
             return {"CANCELLED"}
 
-        skel_dir = os.path.join(project_root, "skeletons", asset_name)
-        geo_dir = os.path.join(project_root, "geometry", asset_name)
-        anim_dir = os.path.join(project_root, "animations", asset_name)
-
-        for output_dir in (skel_dir, geo_dir, anim_dir):
-            os.makedirs(output_dir, exist_ok=True)
-
-        exports = (
-            (
-                "skeleton",
-                export_skeleton_asset,
-                os.path.join(skel_dir, f"{asset_name}.skel"),
-                {"skeleton_id": skeleton_id},
-            ),
-            (
-                "geometry",
-                export_geo_asset,
-                os.path.join(geo_dir, f"{asset_name}.geo"),
-                {
-                    "skeleton_id": skeleton_id,
-                    "use_selection": self.use_selection,
-                },
-            ),
-            (
-                "animation",
-                export_anim_asset,
-                os.path.join(anim_dir, f"{asset_name}.anim"),
-                {
-                    "skeleton_id": skeleton_id,
-                    "fps": self.fps,
-                },
-            ),
+        result = export_multiple_asset(
+            context,
+            self.project_root,
+            self.asset_name,
+            skeleton_id,
+            fps=self.fps,
+            use_selection=self.use_selection,
+            clip_names=parse_clip_filter(self.clips),
         )
-
-        failures = []
-
-        def run_exports(scene_pose_locked=False):
-            nonlocal failures
-            for label, export_fn, filepath, kwargs in exports:
-                export_kwargs = dict(kwargs)
-                if scene_pose_locked and label in ("skeleton", "geometry"):
-                    export_kwargs["scene_pose_locked"] = True
-                result = export_fn(context, filepath, **export_kwargs)
-                for warning in result.get("warnings", []):
-                    self.report({"WARNING"}, f"{label}: {warning}")
-                for info in result.get("info", []):
-                    self.report({"INFO"}, f"{label}: {info}")
-                if result["status"] != "FINISHED":
-                    failures.append(f"{label}: {result.get('error', 'export failed')}")
-
-        armature_obj = active_armature(context)
-        if armature_obj is not None:
-            with bind_pose_context(context, armature_obj):
-                run_exports(scene_pose_locked=True)
-        else:
-            run_exports()
-
-        if failures:
-            for failure in failures:
-                self.report({"ERROR"}, failure)
+        for warning in result.get("warnings", []):
+            self.report({"WARNING"}, warning)
+        for info in result.get("info", []):
+            self.report({"INFO"}, info)
+        if result["status"] != "FINISHED":
+            self.report({"ERROR"}, result.get("error", "Export failed"))
             return {"CANCELLED"}
-
-        self.report(
-            {"INFO"},
-            f"Exported '{asset_name}' to {project_root}",
-        )
         return {"FINISHED"}
 
 

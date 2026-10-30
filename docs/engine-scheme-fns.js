@@ -1,5 +1,6 @@
 window.SLOPENGINE_SCHEME_FNS = [
   "action-down?", "action-pressed?", "actor-can-see?", "actor-grounded?", "actor-los?",
+  "actor-anim-busy?", "actor-attach-geo", "actor-detach",
   "actor-near-water-exit?", "actor-play-anim", "actor-pos", "actor-set-corpse!",
   "actor-set-move-speed!", "actor-set-wish", "actor-set-wish-3d", "actor-sight-get",
   "actor-sight-set!", "actor-spawn", "actor-submerged?", "actor-tags",

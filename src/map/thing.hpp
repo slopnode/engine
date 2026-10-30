@@ -60,6 +60,7 @@ struct Thing {
     std::string animClip;
     bool animLoop = true;
     bool haveAnim = false;
+    std::string animBank;
 
     std::string prompt = "Interact";
     HandlerBinding onUse;

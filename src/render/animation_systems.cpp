@@ -5,6 +5,7 @@
 #include "assets/skeleton_loader.hpp"
 #include "game/game_state.hpp"
 #include "render/animation_player.hpp"
+#include "render/bone_attachment.hpp"
 #include "render/components.hpp"
 #include "render/transform.hpp"
 #include "script/hook_registry.hpp"
@@ -14,6 +15,7 @@
 
 #include <cmath>
 #include <string>
+#include <vector>
 
 #include <raylib.h>
 #include <raymath.h>
@@ -53,10 +55,41 @@ void registerSchemeTickSystem(flecs::world& world) {
         });
 }
 
+namespace {
+
+void fireAnimEvents(
+    flecs::world world,
+    flecs::entity entity,
+    const std::string& clipName,
+    const std::vector<const AnimEvent*>& events) {
+    if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
+        return;
+    }
+    const char* name = entity.name().c_str();
+    if (name == nullptr || *name == '\0') {
+        static bool warnedAnonymous = false;
+        if (!warnedAnonymous) {
+            TraceLog(
+                LOG_WARNING,
+                "Animation event fired on unnamed entity (clip '%s'); (on-anim-event) skipped",
+                clipName.c_str());
+            warnedAnonymous = true;
+        }
+        return;
+    }
+    s7_scheme* scheme = world.get<ScriptContext>().scheme;
+    const std::string source{name};
+    for (const AnimEvent* event : events) {
+        callHook3String(scheme, "on-anim-event", source, event->name, clipName, ScriptScope::World);
+    }
+}
+
+} // namespace
+
 void registerAnimationSystems(flecs::world& world) {
     world.system<Model3D, AnimationPlayer>("AdvanceAnimationPlayer")
         .kind(flecs::OnUpdate)
-        .each([](flecs::iter& it, size_t, Model3D& model3d, AnimationPlayer& player) {
+        .each([](flecs::iter& it, size_t index_, Model3D& model3d, AnimationPlayer& player) {
             if (isSimulationPaused(it.world())) {
                 return;
             }
@@ -124,9 +157,11 @@ void registerAnimationSystems(flecs::world& world) {
             }
 
             player.time += GetFrameTime() * player.speed;
+            bool wrapped = false;
             if (clipDuration > 0.0f && player.time >= clipDuration) {
                 if (player.loop) {
                     player.time = std::fmod(player.time, clipDuration);
+                    wrapped = true;
                 } else {
                     player.time = clipDuration;
                     player.playing = false;
@@ -141,6 +176,38 @@ void registerAnimationSystems(flecs::world& world) {
                 frame,
                 bindMatrices,
                 matrixKeyframes);
+
+            if (!clipMeta.events.empty()) {
+                std::vector<const AnimEvent*> fired;
+                collectAnimEvents(clipMeta, player.lastFrame, frame, wrapped, fired);
+                if (!fired.empty()) {
+                    fireAnimEvents(it.world(), it.entity(index_), clipMeta.name, fired);
+                }
+            }
+            player.lastFrame = frame;
+        });
+
+    world.system<BoneAttachment, LocalTransformation>("ApplyBoneAttachments")
+        .kind(flecs::OnUpdate)
+        .each([](flecs::entity entity, BoneAttachment& attachment, LocalTransformation& local) {
+            flecs::entity parent = entity.parent();
+            if (!parent.is_valid() || !parent.has<Model3D>()) {
+                return;
+            }
+            const Model& model = parent.get<Model3D>().model;
+            if (model.currentPose == nullptr || model.skeleton.boneCount <= 0) {
+                return;
+            }
+            if (attachment.boneIndex < 0 || attachment.boneIndex >= model.skeleton.boneCount) {
+                attachment.boneIndex = findModelBoneIndex(model, attachment.bone);
+                if (attachment.boneIndex < 0) {
+                    return;
+                }
+            }
+            const Transform pose = composeBoneAttachment(model.currentPose[attachment.boneIndex], attachment);
+            local.position = pose.translation;
+            local.rotation = pose.rotation;
+            local.scale = pose.scale;
         });
 }
 

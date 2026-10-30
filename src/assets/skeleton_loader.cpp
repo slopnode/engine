@@ -394,6 +394,45 @@ void applyBindPoseFromGlobalMatrices(Model& model, const std::vector<Matrix>& bi
     }
 }
 
+namespace {
+
+bool isSkinnedMesh(const Mesh& mesh) {
+    return mesh.boneWeights != nullptr && mesh.boneIndices != nullptr && mesh.vertices != nullptr;
+}
+
+template <typename T>
+T* cloneArray(const T* source, std::size_t count) {
+    if (source == nullptr || count == 0) {
+        return nullptr;
+    }
+    T* copy = static_cast<T*>(RL_MALLOC(count * sizeof(T)));
+    std::memcpy(copy, source, count * sizeof(T));
+    return copy;
+}
+
+Mesh cloneSkinnedMesh(const Mesh& source) {
+    const std::size_t vertexCount = static_cast<std::size_t>(source.vertexCount);
+    Mesh mesh{};
+    mesh.vertexCount = source.vertexCount;
+    mesh.triangleCount = source.triangleCount;
+    mesh.vertices = cloneArray(source.vertices, vertexCount * 3);
+    mesh.texcoords = cloneArray(source.texcoords, vertexCount * 2);
+    mesh.texcoords2 = cloneArray(source.texcoords2, vertexCount * 2);
+    mesh.normals = cloneArray(source.normals, vertexCount * 3);
+    mesh.tangents = cloneArray(source.tangents, vertexCount * 4);
+    mesh.colors = cloneArray(source.colors, vertexCount * 4);
+    mesh.indices = cloneArray(source.indices, static_cast<std::size_t>(source.triangleCount) * 3);
+    mesh.boneCount = source.boneCount;
+    mesh.boneIndices = cloneArray(source.boneIndices, vertexCount * 4);
+    mesh.boneWeights = cloneArray(source.boneWeights, vertexCount * 4);
+    mesh.animVertices = cloneArray(source.vertices, vertexCount * 3);
+    mesh.animNormals = cloneArray(source.normals, vertexCount * 3);
+    UploadMesh(&mesh, true);
+    return mesh;
+}
+
+} // namespace
+
 Model cloneGeoModelInstance(const Model& source) {
     Model instance = source;
 
@@ -421,12 +460,32 @@ Model cloneGeoModelInstance(const Model& source) {
         instance.boneMatrices[index] = MatrixIdentity();
     }
 
+    if (source.meshCount > 0 && source.meshes != nullptr) {
+        instance.meshes = static_cast<Mesh*>(RL_CALLOC(source.meshCount, sizeof(Mesh)));
+        instance.meshMaterial = static_cast<int*>(RL_CALLOC(source.meshCount, sizeof(int)));
+        for (int index = 0; index < source.meshCount; ++index) {
+            instance.meshMaterial[index] =
+                source.meshMaterial != nullptr ? source.meshMaterial[index] : index;
+            const Mesh& mesh = source.meshes[index];
+            instance.meshes[index] = isSkinnedMesh(mesh) ? cloneSkinnedMesh(mesh) : mesh;
+        }
+    }
+
     return instance;
 }
 
 void unloadClonedGeoModelInstance(Model& model) {
     if (model.materials != nullptr) {
         RL_FREE(model.materials);
+    }
+    if (model.skeleton.bones != nullptr && model.meshes != nullptr) {
+        for (int index = 0; index < model.meshCount; ++index) {
+            if (isSkinnedMesh(model.meshes[index])) {
+                UnloadMesh(model.meshes[index]);
+            }
+        }
+        RL_FREE(model.meshes);
+        RL_FREE(model.meshMaterial);
     }
     RL_FREE(model.skeleton.bones);
     RL_FREE(model.skeleton.bindPose);
