@@ -296,7 +296,8 @@ void renderWorldModel(
     const Lens& lens,
     bool unlit,
     const std::unordered_set<int>* skipMeshIndices,
-    const std::unordered_set<int>* onlyMeshIndices) {
+    const std::unordered_set<int>* onlyMeshIndices,
+    const ModelLightingUniforms* modelLighting) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
 
@@ -333,6 +334,7 @@ void renderWorldModel(
                 entity.has<BakedLightmapModel>() ? mapUseLightmap : 0,
                 globalTransform.matrix,
                 world);
+            uploadModelLighting(mapLightmaps->lightmapShader, modelLighting);
             emissionPowerLoc = mapLightmaps->emissionPowerLoc;
         }
     }
@@ -403,14 +405,17 @@ void renderWorldModel(
             drawModelMeshes(
                 model.model, nullptr, nullptr, polygonOffsetBack, twoSided, emissionPowerLoc);
         } else {
-            drawModelMeshes(
-                model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, model.color);
+            const Color tint = (swappedPropShader && modelLighting != nullptr) ? WHITE : model.color;
+            drawModelMeshes(model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, tint);
         }
     }
 
     if (swappedPropShader) {
         for (int i = 0; i < model.model.materialCount; ++i) {
             model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
+        }
+        if (mapLightmaps != nullptr && modelLighting != nullptr) {
+            uploadModelLighting(mapLightmaps->lightmapShader, nullptr);
         }
         if (mapLightmaps != nullptr && mapLightmaps->useLightmapLoc >= 0) {
             SetShaderValue(
@@ -826,7 +831,17 @@ void drawWorldModels(
     const Lens& lens,
     const Frustum& frustum,
     bool unlit) {
+    const MapLightmapState* propLightmaps = mapLightmapState(world);
+    const bool perPixelModels = !unlit && propLightmaps != nullptr && world.has<MapLighting>() &&
+        world.has<ModelLightingState>() && modelLightingSupported(propLightmaps->lightmapShader);
+    ModelLightingState* modelLightingState = nullptr;
+    if (perPixelModels) {
+        modelLightingState = &world.get_mut<ModelLightingState>();
+        gatherStaticModelLights(world, *modelLightingState);
+    }
     context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
+        ModelLightingUniforms modelLighting{};
+        bool useModelLighting = false;
         if (!modelEntity.has<MapLightmapState>()) {
             const BoundingBox localBounds = GetModelBoundingBox(model.model);
             const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
@@ -848,10 +863,14 @@ void drawWorldModels(
                         moverClosedMatrix(modelEntity.get<RigidMover>(), scale);
                     closedMatrix = &closedMatrixStorage;
                 }
-                if (mapLightmapState(world) != nullptr) {
+                if (perPixelModels && !modelEntity.has<RigidMover>()) {
+                    useModelLighting = computeModelLighting(
+                        world, *modelLightingState, modelEntity, model.model, global.matrix, modelLighting);
+                }
+                if (!useModelLighting && mapLightmapState(world) != nullptr) {
                     model.color = sampleBakeTintColorForModel(
                         world, model.model, global.matrix, unlit, closedMatrix);
-                } else {
+                } else if (!useModelLighting) {
                     model.color = sampleReceiverTintColorForModel(
                         world, model.model, global.matrix, unlit, closedMatrix);
                 }
@@ -879,7 +898,15 @@ void drawWorldModels(
                 skipMeshes = &transparentSkip;
             }
         }
-        renderWorldModel(modelEntity, model, global, lens, unlit, skipMeshes, nullptr);
+        renderWorldModel(
+            modelEntity,
+            model,
+            global,
+            lens,
+            unlit,
+            skipMeshes,
+            nullptr,
+            useModelLighting ? &modelLighting : nullptr);
     });
     rlDisableShader();
     if (!world.has<DebugUiState>() || !world.get<DebugUiState>().showSkeletons) {

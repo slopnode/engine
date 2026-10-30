@@ -134,4 +134,6 @@ std::optional<Color> sampleLightProbe(
     Vector3 point,
     Vector3 direction);
 
+std::optional<ProbeSH> sampleLightProbeSH(const MapLighting& lighting, Vector3 point);
+
 }

@@ -112,7 +112,7 @@ ProbeGrid decodeProbeGrid(const LightProbeGridInfo& info) {
     return grid;
 }
 
-std::optional<Color> sampleProbeGrid(const ProbeGrid& grid, Vector3 point, Vector3 direction) {
+std::optional<ProbeSH> interpolateProbeGrid(const ProbeGrid& grid, Vector3 point) {
     if (grid.probesByCell.empty() || grid.cellSize <= 0.0f) {
         return std::nullopt;
     }
@@ -158,18 +158,28 @@ std::optional<Color> sampleProbeGrid(const ProbeGrid& grid, Vector3 point, Vecto
         return std::nullopt;
     }
     const float invWeight = 1.0f / totalWeight;
+    ProbeSH result;
+    for (int i = 0; i < 4; ++i) {
+        result.coeff[i] = {coeff[i].x * invWeight, coeff[i].y * invWeight, coeff[i].z * invWeight};
+    }
+    return result;
+}
+
+std::optional<Color> sampleProbeGrid(const ProbeGrid& grid, Vector3 point, Vector3 direction) {
+    const auto sh = interpolateProbeGrid(grid, point);
+    if (!sh) {
+        return std::nullopt;
+    }
+    const Vector3* coeff = sh->coeff;
     const float r = std::max(
         0.0f,
-        (coeff[0].x + coeff[1].x * direction.x + coeff[2].x * direction.y + coeff[3].x * direction.z)
-            * invWeight);
+        coeff[0].x + coeff[1].x * direction.x + coeff[2].x * direction.y + coeff[3].x * direction.z);
     const float g = std::max(
         0.0f,
-        (coeff[0].y + coeff[1].y * direction.x + coeff[2].y * direction.y + coeff[3].y * direction.z)
-            * invWeight);
+        coeff[0].y + coeff[1].y * direction.x + coeff[2].y * direction.y + coeff[3].y * direction.z);
     const float b = std::max(
         0.0f,
-        (coeff[0].z + coeff[1].z * direction.x + coeff[2].z * direction.y + coeff[3].z * direction.z)
-            * invWeight);
+        coeff[0].z + coeff[1].z * direction.x + coeff[2].z * direction.y + coeff[3].z * direction.z);
     return linearIrradianceToDisplayColor(r, g, b);
 }
 
@@ -282,6 +292,13 @@ std::optional<Color> sampleLightProbe(
         return fine;
     }
     return sampleProbeGrid(lighting.probeGridCoarse, point, dir);
+}
+
+std::optional<ProbeSH> sampleLightProbeSH(const MapLighting& lighting, Vector3 point) {
+    if (auto fine = interpolateProbeGrid(lighting.probeGridFine, point)) {
+        return fine;
+    }
+    return interpolateProbeGrid(lighting.probeGridCoarse, point);
 }
 
 }

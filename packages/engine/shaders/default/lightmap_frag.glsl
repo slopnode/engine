@@ -8,7 +8,9 @@
 /// `texture5` times the color in `colSpecular` times `emissionPower`, added on top,
 /// and `colSpecular.a` selects the fullbright mode. Up to 128 dynamic lights are
 /// accumulated per fragment and the ones with a shadow slot sample the shadow map
-/// array.
+/// array. With `modelLit` set, unlightmapped models are lit per pixel from the probe
+/// coefficients in `modelProbeSH` and up to four static map lights in the `modelLight`
+/// arrays, using the bake's falloff and wrap.
 ///
 /// @used-by Every material whose shader field is `default`, drawn by the world pass.
 /// @see dyn-light-spawn dyn-light-set-pos! dyn-light-set-hsv!
@@ -37,6 +39,23 @@ uniform int solidLit;
 uniform int lightmapEncoding;
 /// Scale applied to emissive texels before they are added to the lit color.
 uniform float emissionPower;
+/// 1 to light an unlightmapped model from the probe and static light uniforms.
+uniform int modelLit;
+/// Linear L1 probe coefficients at the model: constant, then x, y and z.
+uniform vec3 modelProbeSH[4];
+
+const int MAX_MODEL_LIGHTS = 4;
+
+/// Number of active entries in the modelLight arrays.
+uniform int modelLightCount;
+/// World position in xyz and range in w, per static light.
+uniform vec4 modelLightPosRange[MAX_MODEL_LIGHTS];
+/// Color times intensity times visibility in rgb, per static light.
+uniform vec4 modelLightColor[MAX_MODEL_LIGHTS];
+/// Spot direction in xyz and cone angle in w, zero for point lights.
+uniform vec4 modelLightDirCone[MAX_MODEL_LIGHTS];
+/// Wrap applied to the static light cosine, matching the bake.
+uniform float modelLightWrap;
 
 const int MAX_DYN_LIGHTS = 128;
 const int MAX_SHADOW_SLOTS = 16;
@@ -229,6 +248,50 @@ vec3 evalDynamicLights(vec3 worldPos, vec3 normal)
     return total;
 }
 
+vec3 evalModelProbe(vec3 normal)
+{
+    vec3 directional = modelProbeSH[1] * normal.x + modelProbeSH[2] * normal.y + modelProbeSH[3] * normal.z;
+    return max(modelProbeSH[0] + directional * (2.0 / 3.0), vec3(0.0));
+}
+
+vec3 evalModelStaticLights(vec3 worldPos, vec3 normal)
+{
+    vec3 total = vec3(0.0);
+    int count = clamp(modelLightCount, 0, MAX_MODEL_LIGHTS);
+    float wrap = max(modelLightWrap, 0.0);
+    for (int i = 0; i < count; ++i) {
+        vec3 delta = modelLightPosRange[i].xyz - worldPos;
+        float dist2Raw = dot(delta, delta);
+        if (dist2Raw < 1e-8) {
+            continue;
+        }
+        float dist = sqrt(dist2Raw);
+        float range = max(modelLightPosRange[i].w, 1e-4);
+        if (dist > range) {
+            continue;
+        }
+        vec3 toLight = delta / dist;
+        float ndotl = max((dot(normal, toLight) + wrap) / (1.0 + wrap), 0.0);
+        if (ndotl <= 0.0) {
+            continue;
+        }
+        float cone = modelLightDirCone[i].w;
+        float spot = 1.0;
+        if (cone > 0.0) {
+            vec3 forward = normalize(modelLightDirCone[i].xyz);
+            spot = smoothstep2(cos(cone), cos(cone * 0.8), dot(-toLight, forward));
+            if (spot <= 0.0) {
+                continue;
+            }
+        }
+        float t = dist / range;
+        float atten = max(0.0, 1.0 - t * t);
+        atten *= atten;
+        total += modelLightColor[i].rgb * (ndotl * atten * spot / max(dist2Raw, 0.0025));
+    }
+    return total;
+}
+
 vec3 decodeRgbe(vec4 rgbe)
 {
     if (rgbe.a <= 0.0) {
@@ -288,6 +351,9 @@ void main()
         lightTerm = sampleBakedIrradiance(fragTexCoord2) + dynamic;
     } else if (useLightmap != 0) {
         lightTerm = texture(texture1, fragTexCoord2).rgb + dynamic;
+    } else if (modelLit != 0) {
+        vec3 n = normalize(fragNormal);
+        lightTerm = (evalModelProbe(n) + evalModelStaticLights(fragPosition, n)) * fragColor.rgb + dynamic;
     } else {
         lightTerm = fragColor.rgb + dynamic;
     }

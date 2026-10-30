@@ -19,6 +19,7 @@
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/model_lighting.hpp"
 #include "render/hud.hpp"
 #include "render/loading_overlay.hpp"
 #include "render/render_context.hpp"
@@ -90,6 +91,7 @@ void registerComponents(flecs::world& world) {
     world.component<AmbientLight>();
     world.component<DynamicLight>();
     world.component<FxLocalLight>();
+    world.component<ModelLightingState>();
     world.component<MapOwned>();
     world.component<CurrentMap>();
     world.component<PlayerEntity>();
@@ -404,6 +406,7 @@ void registerRenderModule(
     });
     world.set<PlayerEntity>({});
     world.set<PostProcessState>({});
+    world.set<ModelLightingState>({});
     world.set<FpViewOverride>({});
 
     registerSpinSystem(world);
