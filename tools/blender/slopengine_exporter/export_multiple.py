@@ -16,6 +16,8 @@ def export_multiple_asset(
     fps=30.0,
     use_selection=True,
     clip_names=None,
+    only=None,
+    geo_name=None,
 ):
     result = {
         "status": "FINISHED",
@@ -49,6 +51,7 @@ def export_multiple_asset(
     for output_dir in (skel_dir, geo_dir, anim_dir):
         os.makedirs(output_dir, exist_ok=True)
 
+    geo_name = sanitize_name((geo_name or asset_name).strip())
     exports = (
         (
             "skeleton",
@@ -59,7 +62,7 @@ def export_multiple_asset(
         (
             "geometry",
             export_geo_asset,
-            os.path.join(geo_dir, f"{asset_name}.geo"),
+            os.path.join(geo_dir, f"{geo_name}.geo"),
             {
                 "skeleton_id": skeleton_id,
                 "use_selection": use_selection,
@@ -76,6 +79,13 @@ def export_multiple_asset(
             },
         ),
     )
+
+    if only:
+        exports = tuple(entry for entry in exports if entry[0] in only)
+        if not exports:
+            result["status"] = "CANCELLED"
+            result["error"] = "Nothing selected to export"
+            return result
 
     failures = []
 

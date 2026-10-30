@@ -23,6 +23,7 @@ if ADDON_DIR not in sys.path:
     sys.path.insert(0, ADDON_DIR)
 
 from slopengine_exporter.export_multiple import export_multiple_asset  # noqa: E402
+from slopengine_exporter.format_utils import descendant_bone_names, trim_mesh_to_bones  # noqa: E402
 from slopengine_exporter.format_utils import armature_from_mesh  # noqa: E402
 
 
@@ -42,6 +43,17 @@ def parse_args():
     parser.add_argument("--clips", default="", help="Comma-separated action names to export")
     parser.add_argument("--armature", default="", help="Armature object name to export")
     parser.add_argument("--meshes", default="", help="Comma-separated mesh object names")
+    parser.add_argument(
+        "--bones",
+        default="",
+        help="Keep only geometry weighted to these bones and their children, e.g. a hands rig",
+    )
+    parser.add_argument(
+        "--only",
+        default="",
+        help="Comma-separated subset of skeleton, geometry, animation to write",
+    )
+    parser.add_argument("--geo-name", default="", help="File name for the .geo (defaults to the asset name)")
     parser.add_argument(
         "--rename-material",
         action="append",
@@ -120,6 +132,15 @@ def main():
     if not meshes:
         raise SystemExit("No mesh objects to export")
 
+    bone_names = [name.strip() for name in args.bones.split(",") if name.strip()]
+    if bone_names:
+        if armature_obj is None:
+            raise SystemExit("--bones needs an armature")
+        keep = descendant_bone_names(armature_obj.data, bone_names)
+        for obj in meshes:
+            removed = trim_mesh_to_bones(obj, keep)
+            print(f"INFO: {obj.name}: kept {len(obj.data.vertices)} vertices on {len(keep)} bones, dropped {removed}")
+
     view_layer = bpy.context.view_layer
     for obj in bpy.data.objects:
         obj.select_set(False)
@@ -141,6 +162,8 @@ def main():
         fps=args.fps,
         use_selection=True,
         clip_names=clip_names,
+        only=[name.strip() for name in args.only.split(",") if name.strip()] or None,
+        geo_name=args.geo_name or None,
     )
     for warning in result["warnings"]:
         print(f"WARNING: {warning}")

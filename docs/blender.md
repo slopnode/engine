@@ -33,7 +33,7 @@ The skeleton ID written into the geometry and animation files can either be type
 
 Exports the selected mesh objects into one `.geo` file with a shared vertex buffer, one primitive per material used across the selection. If any of the meshes are skinned, they all need to share the same armature, and a skeleton ID is required so the geometry knows which skeleton its weights refer to; unskinned geometry leaves the skeleton ID blank. When a `.geo` already exists at the path, its `(view ...)` and `(attachments ...)` blocks are carried over unchanged, so the placement and attachment points authored in slopmodel survive a re-export of the mesh.
 
-Faces are triangulated but keep the winding the mesh was authored with. Recomputing normals on export was dropped because it flipped faces on models built from nested shells, such as the knee pads and chest piece of a segmented mannequin, which then culled away in the engine.
+Faces are triangulated but keep the winding the mesh was authored with. Recomputing normals on export was dropped because it flipped faces on models built from nested shells, such as the knee pads and chest piece of a segmented mannequin, which then culled away in the engine. Normals are read per face corner rather than per vertex, so sharp edges and custom normals imported from glTF survive, and a vertex on a hard edge is written once per distinct normal.
 
 ## Skeleton {#export-skel}
 
@@ -57,6 +57,14 @@ blender -b --python tools/blender/export_asset.py -- \
 Pose markers on an action (Pose Markers in the Action Editor) export as clip events, named after the marker and placed on the nearest sampled frame. Hand written `event` lines in an existing `.anim` survive a re-export, and so do clips that were exported earlier but left out of the current `--clips` list, as long as their `.tracks` files are still there. A bank therefore accumulates the way a Half-Life model's sequence list does.
 
 `--skeleton` defaults to the asset name. `--armature` and `--meshes` pick the objects when the file holds more than one rig, otherwise the first armature and every mesh skinned to it are used. `--rename-material OLD=NEW` renames a Blender material before export so its slot resolves to a package material path, and can be given more than once.
+
+`--bones` keeps only the geometry weighted mostly to the named bones and their children, which cuts a first-person arms rig out of a full body without touching the source file. `--only` limits the run to some of `skeleton`, `geometry` and `animation`, and `--geo-name` names the `.geo` file when it should not be the asset name, so a second geo can sit beside the body in the same folder and share its skeleton and bank:
+
+```
+blender -b --python tools/blender/export_asset.py -- \
+  --input source.glb --root path/to/package --asset mannequin \
+  --bones DEF-shoulder.L,DEF-shoulder.R --only geometry --geo-name arms
+```
 
 # Conventions {#conventions}
 

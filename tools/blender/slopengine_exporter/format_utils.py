@@ -453,6 +453,43 @@ def triangulate_mesh(mesh):
     mesh.update()
 
 
+def descendant_bone_names(armature_data, root_names):
+    keep = set()
+
+    def walk(bone):
+        keep.add(bone.name)
+        for child in bone.children:
+            walk(child)
+
+    for name in root_names:
+        bone = armature_data.bones.get(name)
+        if bone is None:
+            raise ValueError(f"Bone '{name}' not found in armature")
+        walk(bone)
+    return keep
+
+
+def trim_mesh_to_bones(obj, keep_bone_names):
+    """Deletes every vertex whose heaviest vertex group is not one of keep_bone_names."""
+    mesh = obj.data
+    group_names = {group.index: group.name for group in obj.vertex_groups}
+    remove = []
+    for vertex in mesh.vertices:
+        best = max(vertex.groups, key=lambda entry: entry.weight, default=None)
+        if best is None or group_names.get(best.group) not in keep_bone_names:
+            remove.append(vertex.index)
+    if not remove:
+        return 0
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.verts[index] for index in remove], context="VERTS")
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    return len(remove)
+
+
 def build_vertex_weights(obj, bone_order_list):
     bone_index = {bone.name: index for index, bone in enumerate(bone_order_list)}
     mesh = obj.data
@@ -506,6 +543,7 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
     if not mesh.uv_layers.active:
         mesh.uv_layers.new(name="ExportUV")
     uv_layer = mesh.uv_layers.active.data
+    corner_normals = mesh.corner_normals
 
     material_indices = sorted({face.material_index for face in mesh.polygons})
     if not material_indices:
@@ -530,16 +568,25 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
             for loop_index in face.loop_indices:
                 vertex_index = mesh.loops[loop_index].vertex_index
                 uv = uv_layer[loop_index].uv
-                export_key = (vertex_index, round(uv.x, 5), round(uv.y, 5))
+                corner_normal = corner_normals[loop_index].vector
+                if corner_normal.length_squared <= 0.0:
+                    corner_normal = mesh.vertices[vertex_index].normal
+                if corner_normal.length_squared <= 0.0:
+                    corner_normal = Vector((0.0, 0.0, 1.0))
+                export_key = (
+                    vertex_index,
+                    round(uv.x, 5),
+                    round(uv.y, 5),
+                    round(corner_normal.x, 3),
+                    round(corner_normal.y, 3),
+                    round(corner_normal.z, 3),
+                )
                 if export_key not in loop_to_export:
                     loop_to_export[export_key] = len(positions) // 3
                     vertex = mesh.vertices[vertex_index]
                     position = convert_position(vertex.co)
                     positions.extend((position.x, position.y, position.z))
-                    if vertex.normal.length_squared > 0.0:
-                        normal = convert_direction(vertex.normal)
-                    else:
-                        normal = convert_direction(Vector((0.0, 0.0, 1.0)))
+                    normal = convert_direction(corner_normal)
                     normals.extend((normal.x, normal.y, normal.z))
                     uvs.extend((uv.x, uv.y))
                     if vertex_weights is not None:
