@@ -616,13 +616,29 @@ Clears whatever is currently attached to a first-person socket.
 </code></pre>
 
 ### fp-attach-geo {#fp-attach-geo}
-Attaches a geometry asset to a first-person socket, with an optional local offset and scale.
+Attaches a geometry asset to a first-person socket, with an optional local offset, scale, and rotation in radians. A skinned geo gets an animation player over its skeleton's clip bank, so a hands rig attached here is driven with `fp-play-anim` and its clip events reach `on-anim-event` with the socket name as the source.
 <pre><code class="language-scheme">(fp-attach-geo
   socket : string?
   geo : string?
   [x, y, z] : real? = 0
-  [sx, sy, sz] : real? = 1)
+  [sx, sy, sz] : real? = 1
+  [pitch, yaw, roll] : real? = 0)
   ↵ boolean?
+</code></pre>
+
+### fp-play-anim {#fp-play-anim}
+Plays a clip on the skinned geo attached to a socket. Returns \#f when the socket holds no skinned geo or the bank has no such clip.
+<pre><code class="language-scheme">(fp-play-anim
+  socket : string?
+  clip : string?
+  [loop?] : boolean? = \#f)
+  ↵ boolean?
+</code></pre>
+
+### fp-anim-busy? {#fp-anim-busy}
+Checks whether a socket's skinned geo is still mid-way through a non-looping clip.
+<pre><code class="language-scheme">(fp-anim-busy?
+  socket : string?) ↵ boolean?
 </code></pre>
 
 ### fp-attach-sprite {#fp-attach-sprite}
@@ -1807,7 +1823,7 @@ Called when a `.spanim` hold cue with `(hint "name")` is entered.
 </code></pre>
 
 ### on-anim-event {#on-anim-event}
-Called when a skinned geo's clip playback crosses an `event` frame declared in its `.anim` bank. `source` is the entity id, `clip` the clip name. A looping clip fires its events every pass.
+Called when a skinned geo's clip playback crosses an `event` frame declared in its `.anim` bank. `source` is the entity id, or the socket name for first-person geo, and `clip` the clip name. A looping clip fires its events every pass.
 <pre><code class="language-scheme">(on-anim-event
   source, event, clip : string?)
 </code></pre>

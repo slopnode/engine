@@ -5,6 +5,8 @@
 #include "assets/asset_store.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
+#include "map/things_spawn.hpp"
+#include "render/animation_player.hpp"
 #include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
 #include "physics/components.hpp"
@@ -141,6 +143,7 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
 
     Vector3 position{0.2f, -0.15f, 0.35f};
     Vector3 scale{0.08f, 0.08f, 0.25f};
+    Vector3 euler{0.0f, 0.0f, 0.0f};
     float* floats[] = {
         &position.x,
         &position.y,
@@ -148,6 +151,9 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
         &scale.x,
         &scale.y,
         &scale.z,
+        &euler.x,
+        &euler.y,
+        &euler.z,
     };
     for (float* slot : floats) {
         if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
@@ -188,16 +194,19 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
     LocalTransformation local{};
     local.position = position;
     local.scale = scale;
-    local.rotation = QuaternionIdentity();
+    local.rotation = QuaternionFromEuler(euler.x, euler.y, euler.z);
     GlobalTransformation global{};
     global.matrix = makeTrsMatrix(local.position, local.rotation, local.scale);
 
-    g_fpWorld->entity()
+    flecs::entity attached = g_fpWorld->entity()
         .child_of(socket)
         .add<ViewSpace>()
         .set<LocalTransformation>(local)
         .set<GlobalTransformation>(global)
         .set<Model3D>({model, WHITE});
+    if (model.skeleton.boneCount > 0) {
+        attachGeoAnimationPlayer(attached, assets, geoPath, {}, {}, true);
+    }
 
     flecs::entity root = g_fpWorld->entity(scene.root);
     if (root.is_valid() && root.has<LocalTransformation>() && root.has<GlobalTransformation>()) {
@@ -373,6 +382,92 @@ s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
     sprite.frame = s7_string(s7_car(rest));
     entity.set<SpriteInstance>(sprite);
     return s7_t(sc);
+}
+
+flecs::entity findModelUnderSocket(flecs::entity socket) {
+    if (!socket.is_valid()) {
+        return {};
+    }
+    flecs::entity found{};
+    socket.children([&](flecs::entity child) {
+        if (!found.is_valid() && child.has<Model3D>() && child.has<AnimationPlayer>()) {
+            found = child;
+        }
+    });
+    return found;
+}
+
+s7_pointer g_fp_play_anim(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-play-anim", 1, args, "socket-name string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "fp-play-anim", 2, rest, "clip-name string");
+    }
+    const char* clipName = s7_string(s7_car(rest));
+    rest = s7_cdr(rest);
+    bool loop = false;
+    if (s7_is_pair(rest)) {
+        loop = s7_boolean(sc, s7_car(rest));
+    }
+
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
+    flecs::entity entity = findModelUnderSocket(socket);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    AnimationPlayer animPlayer = entity.get<AnimationPlayer>();
+    const AnimBank* bank = nullptr;
+    if (g_fpWorld->has<AssetServices>() && g_fpWorld->get<AssetServices>().store != nullptr) {
+        bank = g_fpWorld->get_mut<AssetServices>().store->getAnimBank(animPlayer.animBankPath);
+    }
+    if (bank == nullptr || bank->clipIndexByName.count(clipName) == 0) {
+        TraceLog(
+            LOG_WARNING,
+            "FP: bank '%s' has no clip '%s'",
+            animPlayer.animBankPath.c_str(),
+            clipName);
+        return s7_f(sc);
+    }
+    animPlayer.play(clipName, loop);
+    entity.set<AnimationPlayer>(animPlayer);
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_anim_busy(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-anim-busy?", 1, args, "socket-name string");
+    }
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
+    flecs::entity entity = findModelUnderSocket(socket);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    const AnimationPlayer& animPlayer = entity.get<AnimationPlayer>();
+    return (animPlayer.playing && !animPlayer.loop) ? s7_t(sc) : s7_f(sc);
 }
 
 s7_pointer g_fp_play_sprite_anim(s7_scheme* sc, s7_pointer args) {
@@ -1054,8 +1149,12 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
     }
 
     s7_define_function(scheme, "fp-clear-socket", g_fp_clear_socket, 1, 0, false, "(fp-clear-socket socket)");
-    s7_define_function(scheme, "fp-attach-geo", g_fp_attach_geo, 2, 6, false,
-                       "(fp-attach-geo socket geo [x y z sx sy sz])");
+    s7_define_function(scheme, "fp-attach-geo", g_fp_attach_geo, 2, 9, false,
+                       "(fp-attach-geo socket geo [x y z sx sy sz pitch yaw roll])");
+    s7_define_function(scheme, "fp-play-anim", g_fp_play_anim, 2, 1, false,
+                       "(fp-play-anim socket clip [loop])");
+    s7_define_function(scheme, "fp-anim-busy?", g_fp_anim_busy, 1, 0, false,
+                       "(fp-anim-busy? socket)");
     s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 3, false,
                        "(fp-attach-sprite socket sprite [clip] [canvas-x canvas-y]) -> (x y)");
     s7_define_function(scheme, "fp-set-sprite-frame", g_fp_set_sprite_frame, 2, 0, false,

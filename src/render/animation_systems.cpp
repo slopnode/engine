@@ -65,8 +65,15 @@ void fireAnimEvents(
     if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    const char* name = entity.name().c_str();
-    if (name == nullptr || *name == '\0') {
+    std::string source;
+    for (flecs::entity cursor = entity; cursor.is_valid(); cursor = cursor.parent()) {
+        const char* name = cursor.name().c_str();
+        if (name != nullptr && *name != '\0') {
+            source = name;
+            break;
+        }
+    }
+    if (source.empty()) {
         static bool warnedAnonymous = false;
         if (!warnedAnonymous) {
             TraceLog(
@@ -78,7 +85,6 @@ void fireAnimEvents(
         return;
     }
     s7_scheme* scheme = world.get<ScriptContext>().scheme;
-    const std::string source{name};
     for (const AnimEvent* event : events) {
         callHook3String(scheme, "on-anim-event", source, event->name, clipName, ScriptScope::World);
     }
