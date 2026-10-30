@@ -767,13 +767,13 @@ Enables or disables a light previously spawned under a socket.
 </code></pre>
 
 ### fp-set-rad-tint {#fp-set-rad-tint}
-Toggles whether viewmodels are tinted by the map's baked light probe.
+Toggles whether viewmodels take the map's baked light. In a lit map, first-person geo is then lit per pixel like world models, from the probe grid and nearby static lights, and view sprites are tinted by the probe.
 <pre><code class="language-scheme">(fp-set-rad-tint
   enabled : boolean?) ↵ boolean?
 </code></pre>
 
 ### fp-set-shading {#fp-set-shading}
-Toggles the viewmodel faux-lighting shader.
+Toggles the viewmodel faux-lighting shader, a fixed key and rim light. First-person geo uses it only when the map has no baked lighting or rad tint is off.
 <pre><code class="language-scheme">(fp-set-shading
   enabled : boolean?) ↵ boolean?
 </code></pre>

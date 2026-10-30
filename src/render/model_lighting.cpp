@@ -132,6 +132,8 @@ ModelLightingShaderLocs& shaderLocs(Shader shader) {
         locs.lightColor = GetShaderLocation(shader, "modelLightColor");
         locs.lightDirCone = GetShaderLocation(shader, "modelLightDirCone");
         locs.lightWrap = GetShaderLocation(shader, "modelLightWrap");
+        locs.viewSpace = GetShaderLocation(shader, "modelViewSpace");
+        locs.worldFromView = GetShaderLocation(shader, "modelWorldFromView");
     }
     return locs;
 }
@@ -301,6 +303,34 @@ bool computeModelLighting(
     return true;
 }
 
+Matrix firstPersonWorldFromView(const Camera3D& camera) {
+    Vector3 forward = Vector3Subtract(camera.target, camera.position);
+    if (Vector3LengthSqr(forward) < 1e-10f) {
+        forward = {0.0f, 0.0f, 1.0f};
+    }
+    forward = Vector3Normalize(forward);
+    Vector3 right = Vector3CrossProduct(forward, camera.up);
+    if (Vector3LengthSqr(right) < 1e-10f) {
+        right = Vector3CrossProduct(forward, {0.0f, 0.0f, 1.0f});
+    }
+    right = Vector3Normalize(right);
+    const Vector3 up = Vector3CrossProduct(right, forward);
+    Matrix m = MatrixIdentity();
+    m.m0 = right.x;
+    m.m1 = right.y;
+    m.m2 = right.z;
+    m.m4 = up.x;
+    m.m5 = up.y;
+    m.m6 = up.z;
+    m.m8 = forward.x;
+    m.m9 = forward.y;
+    m.m10 = forward.z;
+    m.m12 = camera.position.x;
+    m.m13 = camera.position.y;
+    m.m14 = camera.position.z;
+    return m;
+}
+
 bool modelLightingSupported(Shader shader) {
     if (shader.id == 0) {
         return false;
@@ -319,6 +349,13 @@ void uploadModelLighting(Shader shader, const ModelLightingUniforms* uniforms) {
     }
     const int enabled = uniforms != nullptr ? 1 : 0;
     SetShaderValue(shader, locs.modelLit, &enabled, SHADER_UNIFORM_INT);
+    const int viewSpace = (uniforms != nullptr && uniforms->viewSpace) ? 1 : 0;
+    if (locs.viewSpace >= 0) {
+        SetShaderValue(shader, locs.viewSpace, &viewSpace, SHADER_UNIFORM_INT);
+    }
+    if (viewSpace != 0 && locs.worldFromView >= 0) {
+        SetShaderValueMatrix(shader, locs.worldFromView, uniforms->worldFromView);
+    }
     if (uniforms == nullptr) {
         return;
     }

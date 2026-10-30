@@ -17,6 +17,8 @@ struct ModelLightingUniforms {
     Vector4 lightPosRange[kMaxModelStaticLights]{};
     Vector4 lightColor[kMaxModelStaticLights]{};
     Vector4 lightDirCone[kMaxModelStaticLights]{};
+    bool viewSpace = false;
+    Matrix worldFromView{};
 };
 
 struct StaticModelLight {
@@ -55,6 +57,8 @@ struct ModelLightingShaderLocs {
     int lightColor = -1;
     int lightDirCone = -1;
     int lightWrap = -1;
+    int viewSpace = -1;
+    int worldFromView = -1;
 };
 
 float staticLightScoreAtPoint(const StaticModelLight& light, Vector3 point, float radius);
@@ -68,6 +72,8 @@ bool computeModelLighting(
     const Model& model,
     const Matrix& globalMatrix,
     ModelLightingUniforms& out);
+
+Matrix firstPersonWorldFromView(const Camera3D& camera);
 
 bool modelLightingSupported(Shader shader);
 

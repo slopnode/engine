@@ -10,7 +10,9 @@
 /// accumulated per fragment and the ones with a shadow slot sample the shadow map
 /// array. With `modelLit` set, unlightmapped models are lit per pixel from the probe
 /// ambient cube in `modelProbeCube` and up to four static map lights in the `modelLight`
-/// arrays, using the bake's falloff and wrap.
+/// arrays, using the bake's falloff and wrap. With `modelViewSpace` also set, positions and
+/// normals arrive in first-person view space and `modelWorldFromView` carries them into the
+/// world before any lighting is evaluated.
 ///
 /// @used-by Every material whose shader field is `default`, drawn by the world pass.
 /// @see dyn-light-spawn dyn-light-set-pos! dyn-light-set-hsv!
@@ -56,6 +58,10 @@ uniform vec4 modelLightColor[MAX_MODEL_LIGHTS];
 uniform vec4 modelLightDirCone[MAX_MODEL_LIGHTS];
 /// Wrap applied to the static light cosine, matching the bake.
 uniform float modelLightWrap;
+/// 1 when fragment positions and normals are in first-person view space.
+uniform int modelViewSpace;
+/// View-to-world transform used when `modelViewSpace` is set.
+uniform mat4 modelWorldFromView;
 
 const int MAX_DYN_LIGHTS = 128;
 const int MAX_SHADOW_SLOTS = 16;
@@ -334,7 +340,13 @@ void main()
     vec4 tex = solidLit != 0 ? vec4(1.0) : texture(texture0, fragTexCoord) * colDiffuse;
     vec3 albedoRgb = tex.rgb;
     float albedoA = tex.a;
-    vec3 dynamic = evalDynamicLights(fragPosition, normalize(fragNormal));
+    vec3 worldPos = fragPosition;
+    vec3 worldNormal = normalize(fragNormal);
+    if (modelViewSpace != 0) {
+        worldPos = (modelWorldFromView * vec4(fragPosition, 1.0)).xyz;
+        worldNormal = normalize(mat3(modelWorldFromView) * fragNormal);
+    }
+    vec3 dynamic = evalDynamicLights(worldPos, worldNormal);
     vec3 emission = vec3(0.0);
     float emitMask = 0.0;
     if (solidLit == 0 && useLightmap != 0) {
@@ -354,8 +366,8 @@ void main()
     } else if (useLightmap != 0) {
         lightTerm = texture(texture1, fragTexCoord2).rgb + dynamic;
     } else if (modelLit != 0) {
-        vec3 n = normalize(fragNormal);
-        lightTerm = (evalModelProbe(n) + evalModelStaticLights(fragPosition, n)) * fragColor.rgb + dynamic;
+        lightTerm = (evalModelProbe(worldNormal) + evalModelStaticLights(worldPos, worldNormal)) * fragColor.rgb
+            + dynamic;
     } else {
         lightTerm = fragColor.rgb + dynamic;
     }

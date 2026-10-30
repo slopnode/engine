@@ -13,6 +13,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/hud.hpp"
+#include "render/model_lighting.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "script/first_person_script.hpp"
@@ -290,10 +291,39 @@ void drawFirstPersonPass(
         }
     }
 
+    const MapLightmapState* mapLightmaps = nullptr;
+    if (flecs::entity mapEntity = world.lookup("MapStatic");
+        mapEntity.is_valid() && mapEntity.has<MapLightmapState>()) {
+        const MapLightmapState& state = mapEntity.get<MapLightmapState>();
+        if (state.available && state.lightmapShader.id != 0) {
+            mapLightmaps = &state;
+        }
+    }
+    const bool fpModelLit = !unlit && useRadTint && mapLightmaps != nullptr &&
+        world.has<MapLighting>() && world.has<ModelLightingState>() &&
+        modelLightingSupported(mapLightmaps->lightmapShader);
+    const Matrix worldFromView = firstPersonWorldFromView(lens.camera);
+
     BeginMode3D(eyeCam);
     rlScalef(-1.0f, 1.0f, 1.0f);
     rlDisableBackfaceCulling();
     context.viewModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
+        if (fpModelLit) {
+            ModelLightingUniforms modelLighting{};
+            if (computeModelLighting(
+                    world,
+                    world.get_mut<ModelLightingState>(),
+                    modelEntity,
+                    model.model,
+                    MatrixMultiply(global.matrix, worldFromView),
+                    modelLighting)) {
+                modelLighting.viewSpace = true;
+                modelLighting.worldFromView = worldFromView;
+                renderWorldModel(modelEntity, model, global, lens, unlit, nullptr, nullptr, &modelLighting);
+                return;
+            }
+        }
+
         const Color previousColor = model.color;
         if (useRadTint && !shadedDraw) {
             model.color = fpTint;

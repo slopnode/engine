@@ -319,7 +319,7 @@ void renderWorldModel(
                 world);
             emissionPowerLoc = lightmaps.emissionPowerLoc;
         }
-    } else if (model.model.materialCount > 0) {
+    } else if (model.model.materialCount > 0 && (modelLighting != nullptr || !entity.has<ViewSpace>())) {
         mapLightmaps = mapLightmapState(world);
         if (mapLightmaps != nullptr) {
             previousShaders.reserve(static_cast<std::size_t>(model.model.materialCount));
