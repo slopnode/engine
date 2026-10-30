@@ -62,6 +62,29 @@ class EXPORT_OT_slopengine_geo(bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+PRESERVED_BLOCKS = ("(view", "(attachments")
+
+
+def read_preserved_geo_blocks(filepath):
+    if not os.path.exists(filepath):
+        return []
+    with open(filepath, "r", encoding="utf-8") as file_obj:
+        lines = file_obj.read().splitlines()
+    preserved = []
+    depth = 0
+    for line in lines:
+        stripped = line.strip()
+        if depth == 0 and any(stripped.startswith(block) for block in PRESERVED_BLOCKS):
+            depth = 0
+        elif depth == 0:
+            continue
+        preserved.append(line)
+        depth += line.count("(") - line.count(")")
+        if depth <= 0:
+            depth = 0
+    return preserved
+
+
 def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_pose_locked=False):
     result = {
         "status": "FINISHED",
@@ -81,6 +104,7 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
 
     output_dir = os.path.dirname(filepath)
     geo_basename = sanitize_name(os.path.splitext(os.path.basename(filepath))[0])
+    preserved_blocks = read_preserved_geo_blocks(filepath)
     vert_file = f"{geo_basename}.vert"
     weights_file = f"{geo_basename}.weights"
     skeleton_id = skeleton_id.strip()
@@ -176,6 +200,7 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
             lines.append("  (weights implicit)")
         if skeleton_id:
             lines.append(f'  (skeleton "{sanitize_name(skeleton_id)}")')
+        lines.extend(preserved_blocks)
         lines.append("  (primitives")
         lines.append("   (")
 
@@ -203,6 +228,9 @@ def export_geo_asset(context, filepath, skeleton_id, use_selection=True, scene_p
         result["info"].append(
             f"Baked object transforms for {baked_transform_count} mesh(es)"
         )
+
+    if preserved_blocks:
+        result["info"].append("Kept the view and attachment blocks of the existing .geo")
 
     result["info"].append(
         f"Exported {len(merged['primitives'])} primitive(s) to {filepath}"

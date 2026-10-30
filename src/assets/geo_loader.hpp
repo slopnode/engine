@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -32,6 +33,18 @@ struct VertexWeights {
 
 /** Parses a geometry asset from its text source into @p asset. */
 bool parseGeoAsset(std::string_view source, GeoAsset& asset);
+
+/** Writes @p asset back out as .geo text, the inverse of parseGeoAsset. */
+std::string serializeGeoAsset(const GeoAsset& asset);
+
+/** Finds the attachment named @p name on @p asset, or nullptr. */
+const GeoAttachment* findGeoAttachment(const GeoAsset& asset, std::string_view name);
+
+/** The bone-space transform of @p attachment, rotation converted from degrees. */
+Transform geoAttachmentTransform(const GeoAttachment& attachment);
+
+/** The socket-space transform of @p view, rotation converted from degrees. */
+Transform geoViewTransform(const GeoView& view);
 
 /** Loads a binary vertex buffer from @p data into @p buffer. */
 bool loadVertBuffer(std::span<const std::byte> data, VertBuffer& buffer);

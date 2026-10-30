@@ -1620,16 +1620,29 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
     if (!actor.is_valid() || !actor.has<Model3D>()) {
         return s7_f(sc);
     }
-    const Model& actorModel = actor.get<Model3D>().model;
-    const int boneIndex = findModelBoneIndex(actorModel, values[2]);
-    if (boneIndex < 0) {
-        TraceLog(LOG_WARNING, "actor-attach-geo: '%s' has no bone '%s'", values[0].c_str(), values[2].c_str());
-        return s7_f(sc);
-    }
     if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
         return s7_f(sc);
     }
     AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    const Model& actorModel = actor.get<Model3D>().model;
+    const GeoAsset* actorGeo =
+        actor.has<GeoSource>() ? assets.getGeoAsset(actor.get<GeoSource>().path) : nullptr;
+    BoneAttachment attachment{};
+    if (!resolveBoneAttachment(
+            actorModel,
+            actorGeo,
+            values[2],
+            {numbers[0], numbers[1], numbers[2]},
+            {numbers[3], numbers[4], numbers[5]},
+            numbers[6],
+            attachment)) {
+        TraceLog(
+            LOG_WARNING,
+            "actor-attach-geo: '%s' has no bone or attachment '%s'",
+            values[0].c_str(),
+            values[2].c_str());
+        return s7_f(sc);
+    }
     if (!assets.hasGeo(values[3])) {
         TraceLog(LOG_WARNING, "actor-attach-geo: missing geo '%s'", values[3].c_str());
         return s7_f(sc);
@@ -1642,13 +1655,6 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
 
     destroyAttachment(actor.lookup(values[1].c_str()));
 
-    BoneAttachment attachment{};
-    attachment.bone = values[2];
-    attachment.boneIndex = boneIndex;
-    attachment.offset = {numbers[0], numbers[1], numbers[2]};
-    attachment.rotation = QuaternionFromEuler(numbers[3], numbers[4], numbers[5]);
-    attachment.scale = {numbers[6], numbers[6], numbers[6]};
-
     LocalTransformation local{};
     local.scale = attachment.scale;
     flecs::entity child = g_thingWorld->entity().child_of(actor);
@@ -1658,6 +1664,7 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
         .set<LocalTransformation>(local)
         .set<GlobalTransformation>(GlobalTransformation{})
         .set<Model3D>({model, WHITE})
+        .set<GeoSource>({values[3]})
         .set<BoneAttachment>(attachment);
     return s7_t(sc);
 }
@@ -3349,7 +3356,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         4,
         7,
         false,
-        "(actor-attach-geo id name bone geo [x y z] [pitch yaw roll] [scale])");
+        "(actor-attach-geo id name point geo [x y z] [pitch yaw roll] [scale])");
     s7_define_function(
         scheme,
         "actor-detach",

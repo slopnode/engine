@@ -116,6 +116,14 @@ struct Model3D {
     bool ownsGpu = false;
 };
 
+/** The geometry asset a Model3D was built from, so attachments and view defaults can be
+ *  looked up by name later.
+ *  @ingroup render_components
+ */
+struct GeoSource {
+    std::string path;
+};
+
 /** Tag: mesh carries its own baked lightmap UV2 + atlas (e.g. a door frozen to its closed
  *  pose); skip the runtime flat-tint probe and sample the atlas instead.
  *  @ingroup render_components

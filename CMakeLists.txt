@@ -496,6 +496,29 @@ else()
     target_compile_options(slopsprite PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(slopmodel
+    tools/slopmodel/main.cpp
+    tools/slopmodel/camera.cpp
+    tools/slopmodel/editor.cpp
+    tools/slopmodel/browser.cpp
+    tools/slopmodel/model_draw.cpp
+    tools/slopmodel/world_preview.cpp
+    tools/slopmodel/fp_preview.cpp
+    tools/slopmodel/layout.cpp
+    src/ui/imgui_fonts.cpp
+    src/ui/slopui_theme.cpp
+    src/ui/slopui_theme_data.cpp
+    src/ui/slopui_widgets.cpp
+    src/ui/slopui_tool.cpp
+)
+target_include_directories(slopmodel PRIVATE tools/slopmodel)
+target_link_libraries(slopmodel PRIVATE sloplib rlImGui)
+if(MSVC)
+    target_compile_options(slopmodel PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(slopmodel PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 add_executable(slopaudio
     tools/slopaudio/main.cpp
     tools/slopaudio/editor.cpp

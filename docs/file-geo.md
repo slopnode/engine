@@ -1,5 +1,47 @@
 @page filegeo Mesh/Animation formats
 
+# .geo {#geo}
+
+The text description of a mesh. Vertex data lives in the sibling .vert (and .weights for skinned geo) and the primitives select ranges of it, one per material. The Blender exporter writes the file and slopmodel edits the view and attachments blocks, which the exporter keeps on re-export.
+
+```
+(geo
+  (vertices implicit)
+  (weights implicit)
+  (skeleton "mannequin")
+  (view
+   position 0.35 -1.5 -0.1
+   rotation 0 0 0
+   scale 1 1 1
+  )
+  (attachments
+   (
+    (name "hand"
+     bone "hand_r"
+     position 0 0.05 0
+     rotation 0 0 0
+     scale 1
+    )
+   ))
+  (primitives
+   (
+    (name "0"
+     material "mannequin/main"
+     vertex-offset 0
+     vertex-count 3389
+     index-offset 0
+     index-count 17193
+    )
+   )))
+```
+
+| Field | Notes |
+|-------|-------|
+| skeleton | Skeleton id the weights refer to, absent for static geo |
+| view | Where `fp-attach-geo` places the geo under a view socket when the script passes no placement: position in metres, rotation as pitch yaw roll in degrees, scale per axis |
+| attachments | Named points on bones, Half-Life style. `actor-attach-geo` and `fp-attach-held` accept the name in place of a bone, with the position in bone space, rotation as pitch yaw roll in degrees and a uniform scale |
+| primitives | One draw range per material: vertex and index offsets and counts into the .vert buffers |
+
 # .vert {#vert}
 
 | Field | Type | Notes |

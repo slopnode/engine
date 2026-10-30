@@ -616,7 +616,7 @@ Clears whatever is currently attached to a first-person socket.
 </code></pre>
 
 ### fp-attach-geo {#fp-attach-geo}
-Attaches a geometry asset to a first-person socket, with an optional local offset, scale, and rotation in radians. A skinned geo gets an animation player over its skeleton's clip bank, so a hands rig attached here is driven with `fp-play-anim` and its clip events reach `on-anim-event` with the socket name as the source.
+Attaches a geometry asset to a first-person socket, with an optional local offset, scale, and rotation in radians. When the arguments are left out the placement comes from the geo's `(view ...)` block, which slopmodel edits (see @ref filegeo). A skinned geo gets an animation player over its skeleton's clip bank, so a hands rig attached here is driven with `fp-play-anim` and its clip events reach `on-anim-event` with the socket name as the source.
 <pre><code class="language-scheme">(fp-attach-geo
   socket : string?
   geo : string?
@@ -639,6 +639,26 @@ Plays a clip on the skinned geo attached to a socket. Returns \#f when the socke
 Checks whether a socket's skinned geo is still mid-way through a non-looping clip.
 <pre><code class="language-scheme">(fp-anim-busy?
   socket : string?) ↵ boolean?
+</code></pre>
+
+### fp-attach-held {#fp-attach-held}
+Hangs a geo on a bone of the geo attached to a first-person socket, the held weapon on a hands rig. `point` is a bone name or the name of an attachment declared in the hands geo's `(attachments ...)` block, and the offset, rotation in radians and uniform scale apply relative to that point. A second call with the same `name` replaces the earlier one.
+<pre><code class="language-scheme">(fp-attach-held
+  socket : string?
+  name : string?
+  point : string?
+  geo : string?
+  [x y z] : real? = 0
+  [pitch yaw roll] : real? = 0
+  [scale] : real? = 1)
+  ↵ boolean?
+</code></pre>
+
+### fp-detach-held {#fp-detach-held}
+Removes a geo hung with `fp-attach-held`.
+<pre><code class="language-scheme">(fp-detach-held
+  socket : string?
+  name : string?) ↵ boolean?
 </code></pre>
 
 ### fp-attach-sprite {#fp-attach-sprite}
@@ -1389,11 +1409,11 @@ Returns \#t while a non-looping clip started by `actor-play-anim` is still playi
 </code></pre>
 
 ### actor-attach-geo {#actor-attach-geo}
-Pins a static geo to a bone of a skinned geo actor, Half-Life attachment style. The geo follows the bone's pose each frame with the offset applied in bone space, pitch yaw roll in radians, and a uniform scale. A second call with the same `name` replaces the earlier attachment.
+Pins a static geo to a bone of a skinned geo actor, Half-Life attachment style. `point` is a bone name or the name of an attachment declared in the actor geo's `(attachments ...)` block (see @ref filegeo). The geo follows the bone's pose each frame with the offset applied relative to that point, pitch yaw roll in radians, and a uniform scale. A second call with the same `name` replaces the earlier attachment.
 <pre><code class="language-scheme">(actor-attach-geo
   id : string?
   name : string?
-  bone : string?
+  point : string?
   geo : string?
   [x y z] : real? = 0
   [pitch yaw roll] : real? = 0

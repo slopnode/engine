@@ -74,6 +74,7 @@ void registerComponents(flecs::world& world) {
     world.component<FpViewOverride>();
     world.component<Spin>();
     world.component<Model3D>();
+    world.component<GeoSource>();
     world.component<SpriteInstance>();
     world.component<SpriteOverlay>();
     world.component<SpriteAnimator>();

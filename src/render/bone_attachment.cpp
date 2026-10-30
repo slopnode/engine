@@ -1,5 +1,7 @@
 #include "render/bone_attachment.hpp"
 
+#include "assets/geo_loader.hpp"
+
 #include <cstring>
 
 #include <raymath.h>
@@ -34,6 +36,42 @@ Transform composeBoneAttachment(const Transform& bone, const BoneAttachment& att
         attachment.scale.z * bone.scale.z,
     };
     return out;
+}
+
+bool resolveBoneAttachment(
+    const Model& model,
+    const GeoAsset* geo,
+    std::string_view point,
+    Vector3 offset,
+    Vector3 eulerRad,
+    float scale,
+    BoneAttachment& out) {
+    Transform base{};
+    base.rotation = {0.0f, 0.0f, 0.0f, 1.0f};
+    base.scale = {1.0f, 1.0f, 1.0f};
+    std::string bone{point};
+    if (geo != nullptr) {
+        if (const GeoAttachment* attachment = findGeoAttachment(*geo, point)) {
+            base = geoAttachmentTransform(*attachment);
+            bone = attachment->bone;
+        }
+    }
+    const int boneIndex = findModelBoneIndex(model, bone);
+    if (boneIndex < 0) {
+        return false;
+    }
+    BoneAttachment extra{};
+    extra.offset = offset;
+    extra.rotation = QuaternionFromEuler(eulerRad.x, eulerRad.y, eulerRad.z);
+    extra.scale = {scale, scale, scale};
+    const Transform composed = composeBoneAttachment(base, extra);
+    out = {};
+    out.bone = bone;
+    out.boneIndex = boneIndex;
+    out.offset = composed.translation;
+    out.rotation = composed.rotation;
+    out.scale = composed.scale;
+    return true;
 }
 
 }

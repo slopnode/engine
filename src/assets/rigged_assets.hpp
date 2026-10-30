@@ -35,11 +35,30 @@ struct GeoPrimitive {
     bool twoSided = false;
 };
 
+/** A named point on a bone, Half-Life attachment style: where a held geo or effect hangs. */
+struct GeoAttachment {
+    std::string name;
+    std::string bone;
+    Vector3 position{0.0f, 0.0f, 0.0f};
+    Vector3 rotationDeg{0.0f, 0.0f, 0.0f}; /**< Pitch, yaw, roll in degrees. */
+    float scale = 1.0f;
+};
+
+/** First-person placement defaults for a geo attached to a view socket. */
+struct GeoView {
+    bool present = false;
+    Vector3 position{0.0f, 0.0f, 0.0f};
+    Vector3 rotationDeg{0.0f, 0.0f, 0.0f}; /**< Pitch, yaw, roll in degrees. */
+    Vector3 scale{1.0f, 1.0f, 1.0f};
+};
+
 /** Parsed .geo mesh description (buffers live in sibling .vert / .weights). */
 struct GeoAsset {
     std::string skeletonId; /**< Empty for static props. */
     bool verticesImplicit = true;
     bool weightsImplicit = false;
+    GeoView view;
+    std::vector<GeoAttachment> attachments;
     std::vector<GeoPrimitive> primitives;
 };
 

@@ -413,6 +413,7 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
     }
 
     entity.set<Model3D>({model, WHITE});
+    entity.set<GeoSource>({placement.geo});
     if (model.skeleton.boneCount > 0) {
         attachGeoAnimationPlayer(
             entity,
@@ -430,9 +431,8 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
             placement.geo.c_str());
     }
 
-    GeoAsset geoAsset{};
-    if (parseGeoAsset(ctx.assets->getGeoSource(placement.geo), geoAsset)) {
-        attachMaterialAnimTargetsFromGeo(entity, geoAsset, *ctx.assets);
+    if (const GeoAsset* geoAsset = ctx.assets->getGeoAsset(placement.geo)) {
+        attachMaterialAnimTargetsFromGeo(entity, *geoAsset, *ctx.assets);
     }
     return true;
 }

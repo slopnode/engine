@@ -175,6 +175,47 @@ Matrix skinMatrixForGpu(const Matrix& bindMatrix, const Matrix& currentMatrix) {
     return MatrixMultiply(MatrixInvert(bindMatrix), currentMatrix);
 }
 
+bool parentsPrecedeChildren(const BoneInfo* bones, int boneCount) {
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        if (bones[boneIndex].parent >= boneIndex) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Blends two global-space pose frames in parent-local space and rebuilds the chain, so a
+ *  bone keeps its length while its parent swings instead of cutting the chord between the
+ *  two keyframes. */
+void interpolatePoseFrames(
+    const BoneInfo* bones,
+    int boneCount,
+    const Matrix* from,
+    const Matrix* to,
+    float blend,
+    std::vector<Matrix>& out) {
+    out.resize(static_cast<std::size_t>(boneCount));
+    if (blend <= 0.0f || blend >= 1.0f || !parentsPrecedeChildren(bones, boneCount)) {
+        for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+            out[static_cast<std::size_t>(boneIndex)] =
+                interpolatePoseMatrices(from[boneIndex], to[boneIndex], blend);
+        }
+        return;
+    }
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        const int parent = bones[boneIndex].parent;
+        Matrix fromLocal = from[boneIndex];
+        Matrix toLocal = to[boneIndex];
+        if (parent >= 0) {
+            fromLocal = MatrixMultiply(fromLocal, MatrixInvert(from[parent]));
+            toLocal = MatrixMultiply(toLocal, MatrixInvert(to[parent]));
+        }
+        const Matrix local = interpolatePoseMatrices(fromLocal, toLocal, blend);
+        out[static_cast<std::size_t>(boneIndex)] =
+            parent >= 0 ? MatrixMultiply(local, out[static_cast<std::size_t>(parent)]) : local;
+    }
+}
+
 const std::vector<Matrix>* resolveBindMatrices(
     const std::vector<Matrix>* bindGlobalMatrices,
     const std::vector<std::vector<Matrix>>* matrixKeyframes,
@@ -629,6 +670,7 @@ void updateRiggedModelAnimation(
         return;
     }
 
+    std::vector<Matrix> current;
     if (hasMatrixKeyframes && bindMatrices != nullptr) {
         static bool loggedMatrixSkinning = false;
         if (!loggedMatrixSkinning) {
@@ -638,13 +680,16 @@ void updateRiggedModelAnimation(
                 bindGlobalMatrices != nullptr ? ".bind file" : "clip frame 0");
             loggedMatrixSkinning = true;
         }
+        interpolatePoseFrames(
+            model.skeleton.bones,
+            boneCount,
+            (*matrixKeyframes)[static_cast<std::size_t>(currentFrame)].data(),
+            (*matrixKeyframes)[static_cast<std::size_t>(nextFrame)].data(),
+            blend,
+            current);
         for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
             const Matrix& bindMatrix = (*bindMatrices)[static_cast<std::size_t>(boneIndex)];
-            const Matrix& fromMatrix =
-                (*matrixKeyframes)[static_cast<std::size_t>(currentFrame)][static_cast<std::size_t>(boneIndex)];
-            const Matrix& toMatrix =
-                (*matrixKeyframes)[static_cast<std::size_t>(nextFrame)][static_cast<std::size_t>(boneIndex)];
-            const Matrix currentMatrix = interpolatePoseMatrices(fromMatrix, toMatrix, blend);
+            const Matrix& currentMatrix = current[static_cast<std::size_t>(boneIndex)];
             model.currentPose[boneIndex] = transformFromMatrix(currentMatrix);
             model.boneMatrices[boneIndex] = skinMatrixForGpu(bindMatrix, currentMatrix);
         }
@@ -652,22 +697,19 @@ void updateRiggedModelAnimation(
         return;
     }
 
+    std::vector<Matrix> fromFrame(static_cast<std::size_t>(boneCount));
+    std::vector<Matrix> toFrame(static_cast<std::size_t>(boneCount));
     for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
-        model.currentPose[boneIndex].translation = Vector3Lerp(
-            anim.keyframePoses[currentFrame][boneIndex].translation,
-            anim.keyframePoses[nextFrame][boneIndex].translation,
-            blend);
-        model.currentPose[boneIndex].rotation = QuaternionSlerp(
-            anim.keyframePoses[currentFrame][boneIndex].rotation,
-            anim.keyframePoses[nextFrame][boneIndex].rotation,
-            blend);
-        model.currentPose[boneIndex].scale = Vector3Lerp(
-            anim.keyframePoses[currentFrame][boneIndex].scale,
-            anim.keyframePoses[nextFrame][boneIndex].scale,
-            blend);
-
+        fromFrame[static_cast<std::size_t>(boneIndex)] =
+            matrixFromPoseTransform(anim.keyframePoses[currentFrame][boneIndex]);
+        toFrame[static_cast<std::size_t>(boneIndex)] =
+            matrixFromPoseTransform(anim.keyframePoses[nextFrame][boneIndex]);
+    }
+    interpolatePoseFrames(model.skeleton.bones, boneCount, fromFrame.data(), toFrame.data(), blend, current);
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
+        const Matrix& currentPoseMatrix = current[static_cast<std::size_t>(boneIndex)];
+        model.currentPose[boneIndex] = transformFromMatrix(currentPoseMatrix);
         const Matrix bindPoseMatrix = matrixFromPoseTransform(model.skeleton.bindPose[boneIndex]);
-        const Matrix currentPoseMatrix = matrixFromPoseTransform(model.currentPose[boneIndex]);
         model.boneMatrices[boneIndex] =
             MatrixMultiply(MatrixInvert(bindPoseMatrix), currentPoseMatrix);
     }

@@ -213,6 +213,15 @@ public:
     /** Returns a cached rigged geometry model, loading it when needed. */
     Model getGeoModel(std::string_view path);
 
+    /** Returns the cached parsed geometry asset at @p path, or nullptr when missing or invalid. */
+    const GeoAsset* getGeoAsset(std::string_view path);
+
+    /** Drops the cached parsed geometry asset at @p path so the next get re-reads from disk. */
+    void invalidateGeo(std::string_view path);
+
+    /** Drops the cached animation bank at @p path so the next get re-reads from disk. */
+    void invalidateAnim(std::string_view path);
+
     /** Resolves the skeleton virtual path a geometry asset binds to, or empty for static geo. */
     std::string resolveGeoSkeletonPath(std::string_view geoPath);
 
@@ -406,6 +415,7 @@ private:
     std::unordered_map<std::string, Texture> cubemaps_;
     std::unordered_map<std::string, Model> models_;
     std::unordered_map<std::string, Model> geos_;
+    std::unordered_map<std::string, GeoAsset> geoAssets_;
     std::unordered_map<std::string, MaterialAsset> materialAssets_;
     std::unordered_map<std::string, SkeletonAsset> skeletons_;
     std::unordered_map<std::string, std::vector<Matrix>> skeletonBindMatrices_;

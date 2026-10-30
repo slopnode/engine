@@ -1,11 +1,14 @@
 #include "assets/anim_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include <raymath.h>
 
@@ -174,6 +177,33 @@ bool parseAnimAsset(std::string_view source, AnimAsset& asset) {
     }
 
     return !asset.clips.empty();
+}
+
+std::string serializeAnimAsset(const AnimAsset& asset) {
+    std::ostringstream out;
+    out << "(anim\n";
+    out << "  (skeleton \"" << asset.skeletonId << "\")\n";
+    out << "  (clips\n";
+    out << "   (\n";
+    for (const AnimClip& clip : asset.clips) {
+        out << "    (name \"" << clip.name << "\"\n";
+        out << "     fps " << clip.fps << "\n";
+        out << "     duration " << clip.duration << "\n";
+        std::vector<AnimEvent> events = clip.events;
+        std::stable_sort(events.begin(), events.end(), [](const AnimEvent& a, const AnimEvent& b) {
+            return a.frame < b.frame;
+        });
+        for (const AnimEvent& event : events) {
+            out << "     event " << event.frame << " \"" << event.name << "\"\n";
+        }
+        if (!clip.tracksImplicit && !clip.tracksFile.empty()) {
+            out << "     tracks \"" << clip.tracksFile << "\"\n";
+        }
+        out << "    )\n";
+    }
+    out << "   ))\n";
+    out << ")\n";
+    return out.str();
 }
 
 void collectAnimEvents(

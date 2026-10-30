@@ -175,6 +175,35 @@ ByteWriter buildTracksFile(std::uint32_t boneCount = 2) {
     return writer;
 }
 
+/** Two frames where the root swings 90 degrees about Z and the child stays one unit along it. */
+ByteWriter buildSwingTracksFile(std::uint16_t version) {
+    ByteWriter writer;
+    writer.magic("DLKT");
+    writer.put<std::uint16_t>(version);
+    writer.put<std::uint32_t>(2);
+    writer.put<std::uint32_t>(2);
+    for (std::uint32_t frame = 0; frame < 2; ++frame) {
+        const Matrix root = frame == 0 ? MatrixIdentity() : MatrixRotateZ(kPi * 0.5f);
+        const Matrix childLocal = MatrixTranslate(0.0f, 1.0f, 0.0f);
+        if (version == 2) {
+            writer.matrix(root);
+            writer.matrix(MatrixMultiply(childLocal, root));
+        } else {
+            const Quaternion rootRotation = QuaternionFromMatrix(root);
+            const float rootValues[10] = {
+                0.0f, 0.0f, 0.0f, rootRotation.x, rootRotation.y, rootRotation.z, rootRotation.w, 1.0f, 1.0f, 1.0f};
+            const float childValues[10] = {0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+            for (float value : rootValues) {
+                writer.put(value);
+            }
+            for (float value : childValues) {
+                writer.put(value);
+            }
+        }
+    }
+    return writer;
+}
+
 Model buildTestModel(const VertBuffer& buffer, const std::vector<VertexWeights>& weights) {
     Model model{};
     model.meshCount = 1;
@@ -418,6 +447,27 @@ void runRiggedAssetTests() {
         CHECK(skinned[1] > 1.0f);
         CHECK(skinned[1] < 2.0f);
 
+        for (std::uint16_t version : {std::uint16_t{2}, std::uint16_t{1}}) {
+            ModelAnimation swing{};
+            AnimClipMatrices swingMatrices{};
+            const ByteWriter swingTracks = buildSwingTracksFile(version);
+            CHECK(loadTracksToModelAnimation(swingTracks.view(), skeleton, swing, &swingMatrices));
+            const std::vector<std::vector<Matrix>>* swingKeyframes =
+                version == 2 ? &swingMatrices.keyframes : nullptr;
+            updateRiggedModelAnimation(model, swing, 0.5f, &bindMatrices, swingKeyframes);
+            const Vector3 child = model.currentPose[1].translation;
+            CHECK(near(Vector3Length(child), 1.0f, 1e-3f));
+            CHECK(near(child.x, -0.70711f, 1e-3f));
+            CHECK(near(child.y, 0.70711f, 1e-3f));
+            const Vector3 childUp = Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, model.currentPose[1].rotation);
+            CHECK(near(childUp.x, -0.70711f, 1e-3f));
+            CHECK(near(childUp.y, 0.70711f, 1e-3f));
+            updateRiggedModelAnimation(model, swing, 1.0f, &bindMatrices, swingKeyframes);
+            CHECK(near(model.currentPose[1].translation.x, -1.0f, 1e-3f));
+            CHECK(near(model.currentPose[1].translation.y, 0.0f, 1e-3f));
+            unloadModelAnimation(swing);
+        }
+
         updateRiggedModelAnimation(model, clip, 1.0f, &bindMatrices, &matrices.keyframes);
         BoneAttachment attachment{};
         attachment.bone = "child";
@@ -438,7 +488,135 @@ void runRiggedAssetTests() {
         CHECK(near(up2.x, 0.0f));
         CHECK(near(up2.y, 1.0f));
 
+        GeoAsset attachGeo{};
+        GeoAttachment hand{};
+        hand.name = "hand";
+        hand.bone = "child";
+        hand.position = {0.0f, 1.0f, 0.0f};
+        hand.scale = 2.0f;
+        attachGeo.attachments.push_back(hand);
+        BoneAttachment resolved{};
+        CHECK(resolveBoneAttachment(model, &attachGeo, "hand", {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 1.0f, resolved));
+        CHECK_EQ(resolved.bone, std::string("child"));
+        CHECK_EQ(resolved.boneIndex, 1);
+        CHECK(near(resolved.offset.y, 1.0f));
+        CHECK(near(resolved.scale.x, 2.0f));
+        CHECK(resolveBoneAttachment(model, &attachGeo, "hand", {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 0.5f, resolved));
+        CHECK(near(resolved.offset.x, 2.0f));
+        CHECK(near(resolved.offset.y, 1.0f));
+        CHECK(near(resolved.scale.x, 1.0f));
+        CHECK(resolveBoneAttachment(model, &attachGeo, "child", {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 1.0f, resolved));
+        CHECK(near(resolved.offset.y, 0.0f));
+        CHECK_EQ(resolved.boneIndex, 1);
+        CHECK_FALSE(resolveBoneAttachment(model, &attachGeo, "nope", {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 1.0f, resolved));
+        CHECK_FALSE(resolveBoneAttachment(model, nullptr, "hand", {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, 1.0f, resolved));
+
         freeTestModel(model);
+    }
+
+    {
+        const char* kGeoWithExtras =
+            "(geo\n"
+            "  (vertices implicit)\n"
+            "  (weights implicit)\n"
+            "  (skeleton \"rig\")\n"
+            "  (view\n"
+            "   position 0.35 -1.5 -0.1\n"
+            "   rotation 0 90 0\n"
+            "   scale 1 2 3\n"
+            "  )\n"
+            "  (attachments\n"
+            "   (\n"
+            "    (name \"hand\"\n"
+            "     bone \"child\"\n"
+            "     position 0 0.5 0\n"
+            "     rotation 0 0 90\n"
+            "     scale 2\n"
+            "    )\n"
+            "   ))\n"
+            "  (primitives\n"
+            "   (\n"
+            "    (name \"0\"\n"
+            "     material \"rig/skin\"\n"
+            "     vertex-offset 0\n"
+            "     vertex-count 3\n"
+            "     index-offset 0\n"
+            "     index-count 3\n"
+            "    )\n"
+            "   ))\n"
+            ")\n";
+        GeoAsset extras{};
+        CHECK(parseGeoAsset(kGeoWithExtras, extras));
+        CHECK(extras.view.present);
+        CHECK(near(extras.view.position.x, 0.35f));
+        CHECK(near(extras.view.position.y, -1.5f));
+        CHECK(near(extras.view.rotationDeg.y, 90.0f));
+        CHECK(near(extras.view.scale.z, 3.0f));
+        CHECK_EQ(extras.attachments.size(), std::size_t{1});
+        CHECK_EQ(extras.attachments[0].name, std::string("hand"));
+        CHECK_EQ(extras.attachments[0].bone, std::string("child"));
+        CHECK(near(extras.attachments[0].position.y, 0.5f));
+        CHECK(near(extras.attachments[0].rotationDeg.z, 90.0f));
+        CHECK(near(extras.attachments[0].scale, 2.0f));
+        CHECK_EQ(extras.primitives.size(), std::size_t{1});
+        CHECK_EQ(extras.primitives[0].material, std::string("rig/skin"));
+        CHECK(findGeoAttachment(extras, "hand") != nullptr);
+        CHECK(findGeoAttachment(extras, "foot") == nullptr);
+
+        const Transform hand = geoAttachmentTransform(extras.attachments[0]);
+        CHECK(near(hand.scale.x, 2.0f));
+        const Vector3 rolled = Vector3RotateByQuaternion({1.0f, 0.0f, 0.0f}, hand.rotation);
+        CHECK(near(rolled.x, 0.0f));
+        CHECK(near(rolled.y, 1.0f));
+        const Transform view = geoViewTransform(extras.view);
+        const Vector3 yawed = Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, view.rotation);
+        CHECK(near(yawed.x, 1.0f));
+        CHECK(near(yawed.z, 0.0f));
+
+        const std::string text = serializeGeoAsset(extras);
+        GeoAsset again{};
+        CHECK(parseGeoAsset(text, again));
+        CHECK(again.view.present);
+        CHECK(near(again.view.position.z, -0.1f));
+        CHECK_EQ(again.attachments.size(), std::size_t{1});
+        CHECK_EQ(again.attachments[0].bone, std::string("child"));
+        CHECK_EQ(again.primitives.size(), std::size_t{1});
+        CHECK_EQ(again.primitives[0].indexCount, std::size_t{3});
+        CHECK_EQ(serializeGeoAsset(again), text);
+
+        const std::string plain = serializeGeoAsset(geo);
+        CHECK(plain.find("(view") == std::string::npos);
+        CHECK(plain.find("(attachments") == std::string::npos);
+        GeoAsset plainAgain{};
+        CHECK(parseGeoAsset(plain, plainAgain));
+        CHECK_EQ(plainAgain.primitives.size(), geo.primitives.size());
+        CHECK_EQ(plainAgain.skeletonId, geo.skeletonId);
+    }
+
+    {
+        AnimAsset bank{};
+        CHECK(parseAnimAsset(kAnimSource, bank));
+        const std::string text = serializeAnimAsset(bank);
+        AnimAsset again{};
+        CHECK(parseAnimAsset(text, again));
+        CHECK_EQ(again.skeletonId, std::string("rig"));
+        CHECK_EQ(again.clips.size(), std::size_t{2});
+        CHECK_EQ(again.clips[0].name, std::string("wave"));
+        CHECK(near(again.clips[0].fps, 10.0f));
+        CHECK_EQ(again.clips[0].events.size(), std::size_t{2});
+        CHECK_EQ(again.clips[0].events[1].name, std::string("hit"));
+        CHECK_EQ(again.clips[0].tracksFile, std::string("rig_wave.tracks"));
+        CHECK_FALSE(again.clips[0].tracksImplicit);
+        CHECK(again.clips[1].tracksImplicit);
+        CHECK_EQ(serializeAnimAsset(again), text);
+
+        bank.clips[1].events.push_back({3, "late"});
+        bank.clips[1].events.push_back({1, "early"});
+        AnimAsset sorted{};
+        CHECK(parseAnimAsset(serializeAnimAsset(bank), sorted));
+        CHECK_EQ(sorted.clips[1].events.size(), std::size_t{2});
+        CHECK_EQ(sorted.clips[1].events[0].name, std::string("early"));
+        CHECK_EQ(sorted.clips[1].events[1].frame, 3);
     }
 
     unloadModelAnimation(clip);

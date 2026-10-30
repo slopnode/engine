@@ -1,5 +1,7 @@
 #pragma once
 
+#include "assets/rigged_assets.hpp"
+
 #include <raylib.h>
 
 #include <string>
@@ -25,5 +27,17 @@ int findModelBoneIndex(const Model& model, std::string_view name);
 
 /** Composes @p bone (a model-space bone pose) with @p attachment's offset into a local transform. */
 Transform composeBoneAttachment(const Transform& bone, const BoneAttachment& attachment);
+
+/** Builds the attachment for @p point on @p model: either a bone name or, when @p geo is set,
+ *  the name of one of its attachments. @p offset, @p eulerRad and @p scale apply relative to
+ *  that point. Returns false when @p point names neither. */
+bool resolveBoneAttachment(
+    const Model& model,
+    const GeoAsset* geo,
+    std::string_view point,
+    Vector3 offset,
+    Vector3 eulerRad,
+    float scale,
+    BoneAttachment& out);
 
 }

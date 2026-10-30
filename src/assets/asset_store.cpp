@@ -738,10 +738,11 @@ Model AssetStore::getGeoModel(std::string_view path) {
         return {};
     }
 
-    GeoAsset asset{};
-    if (!parseGeoAsset(getGeoSource(path), asset)) {
+    const GeoAsset* parsed = getGeoAsset(path);
+    if (parsed == nullptr) {
         return {};
     }
+    const GeoAsset& asset = *parsed;
 
     const auto vertBytes = readGeoVert(path);
     VertBuffer buffer{};
@@ -811,14 +812,41 @@ std::string AssetStore::resolveSkeletonPathForGeo(const GeoAsset& asset, std::st
 }
 
 std::string AssetStore::resolveGeoSkeletonPath(std::string_view geoPath) {
-    if (!hasGeo(geoPath)) {
+    const GeoAsset* asset = getGeoAsset(geoPath);
+    if (asset == nullptr) {
         return {};
+    }
+    return resolveSkeletonPathForGeo(*asset, geoPath);
+}
+
+const GeoAsset* AssetStore::getGeoAsset(std::string_view path) {
+    const auto key = cacheKey(path);
+    const auto existing = geoAssets_.find(key);
+    if (existing != geoAssets_.end()) {
+        return &existing->second;
+    }
+    if (!hasGeo(path)) {
+        return nullptr;
     }
     GeoAsset asset{};
-    if (!parseGeoAsset(getGeoSource(geoPath), asset)) {
-        return {};
+    if (!parseGeoAsset(getGeoSource(path), asset)) {
+        TraceLog(LOG_WARNING, "Failed to parse geo: %s", key.c_str());
+        return nullptr;
     }
-    return resolveSkeletonPathForGeo(asset, geoPath);
+    return &geoAssets_.emplace(key, std::move(asset)).first->second;
+}
+
+void AssetStore::invalidateGeo(std::string_view path) {
+    geoAssets_.erase(cacheKey(path));
+}
+
+void AssetStore::invalidateAnim(std::string_view path) {
+    const auto it = animBanks_.find(cacheKey(path));
+    if (it == animBanks_.end()) {
+        return;
+    }
+    unloadAnimBank(it->second);
+    animBanks_.erase(it);
 }
 
 Shader AssetStore::getSkinningShader() {

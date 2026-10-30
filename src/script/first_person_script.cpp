@@ -3,10 +3,12 @@
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
+#include "assets/geo_loader.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "assets/sprite_anim_loader.hpp"
 #include "map/things_spawn.hpp"
 #include "render/animation_player.hpp"
+#include "render/bone_attachment.hpp"
 #include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
 #include "physics/components.hpp"
@@ -141,9 +143,27 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
     const char* geoPath = s7_string(s7_car(rest));
     rest = s7_cdr(rest);
 
+    if (!g_fpWorld->has<AssetServices>() || g_fpWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_fpWorld->get_mut<AssetServices>().store;
+    if (!assets.hasGeo(geoPath)) {
+        TraceLog(LOG_WARNING, "FP: missing geo '%s'", geoPath);
+        return s7_f(sc);
+    }
+
     Vector3 position{0.2f, -0.15f, 0.35f};
     Vector3 scale{0.08f, 0.08f, 0.25f};
     Vector3 euler{0.0f, 0.0f, 0.0f};
+    if (const GeoAsset* geo = assets.getGeoAsset(geoPath); geo != nullptr && geo->view.present) {
+        position = geo->view.position;
+        scale = geo->view.scale;
+        euler = {
+            geo->view.rotationDeg.x * DEG2RAD,
+            geo->view.rotationDeg.y * DEG2RAD,
+            geo->view.rotationDeg.z * DEG2RAD,
+        };
+    }
     float* floats[] = {
         &position.x,
         &position.y,
@@ -173,15 +193,6 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
-    if (!g_fpWorld->has<AssetServices>() || g_fpWorld->get<AssetServices>().store == nullptr) {
-        return s7_f(sc);
-    }
-    AssetStore& assets = *g_fpWorld->get_mut<AssetServices>().store;
-    if (!assets.hasGeo(geoPath)) {
-        TraceLog(LOG_WARNING, "FP: missing geo '%s'", geoPath);
-        return s7_f(sc);
-    }
-
     destroySocketChildren(socket);
 
     const Model source = assets.getGeoModel(geoPath);
@@ -203,7 +214,8 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
         .add<ViewSpace>()
         .set<LocalTransformation>(local)
         .set<GlobalTransformation>(global)
-        .set<Model3D>({model, WHITE});
+        .set<Model3D>({model, WHITE})
+        .set<GeoSource>({geoPath});
     if (model.skeleton.boneCount > 0) {
         attachGeoAnimationPlayer(attached, assets, geoPath, {}, {}, true);
     }
@@ -215,6 +227,138 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
             root.get_mut<LocalTransformation>(),
             root.get_mut<GlobalTransformation>());
     }
+    return s7_t(sc);
+}
+
+flecs::entity findGeoUnderSocket(flecs::entity socket) {
+    if (!socket.is_valid()) {
+        return {};
+    }
+    flecs::entity found{};
+    socket.children([&](flecs::entity child) {
+        if (!found.is_valid() && child.has<Model3D>() && child.has<GeoSource>()) {
+            found = child;
+        }
+    });
+    return found;
+}
+
+void destroyHeldGeo(flecs::entity child) {
+    if (!child.is_valid()) {
+        return;
+    }
+    if (child.has<Model3D>()) {
+        unloadClonedGeoModelInstance(child.get_mut<Model3D>().model);
+    }
+    child.destruct();
+}
+
+s7_pointer g_fp_attach_held(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    const char* names[4] = {"socket", "name", "point", "geo"};
+    std::string values[4];
+    for (int i = 0; i < 4; ++i) {
+        if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "fp-attach-held", i + 1, args, names[i]);
+        }
+        values[i] = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    float numbers[7] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    for (float& value : numbers) {
+        if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+            break;
+        }
+        value = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        args = s7_cdr(args);
+    }
+
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity host = findGeoUnderSocket(socketByName(*g_fpWorld, scene, values[0].c_str()));
+    if (!host.is_valid()) {
+        TraceLog(LOG_WARNING, "fp-attach-held: socket '%s' holds no geo", values[0].c_str());
+        return s7_f(sc);
+    }
+    if (!g_fpWorld->has<AssetServices>() || g_fpWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_fpWorld->get_mut<AssetServices>().store;
+    const Model& hostModel = host.get<Model3D>().model;
+    BoneAttachment attachment{};
+    if (!resolveBoneAttachment(
+            hostModel,
+            assets.getGeoAsset(host.get<GeoSource>().path),
+            values[2],
+            {numbers[0], numbers[1], numbers[2]},
+            {numbers[3], numbers[4], numbers[5]},
+            numbers[6],
+            attachment)) {
+        TraceLog(
+            LOG_WARNING,
+            "fp-attach-held: socket '%s' geo has no bone or attachment '%s'",
+            values[0].c_str(),
+            values[2].c_str());
+        return s7_f(sc);
+    }
+    if (!assets.hasGeo(values[3])) {
+        TraceLog(LOG_WARNING, "fp-attach-held: missing geo '%s'", values[3].c_str());
+        return s7_f(sc);
+    }
+    const Model source = assets.getGeoModel(values[3]);
+    Model model = cloneGeoModelInstance(source);
+    if (model.meshCount <= 0) {
+        return s7_f(sc);
+    }
+
+    destroyHeldGeo(host.lookup(values[1].c_str()));
+
+    LocalTransformation local{};
+    local.scale = attachment.scale;
+    flecs::entity child = g_fpWorld->entity().child_of(host);
+    child.set_name(values[1].c_str());
+    child.add<ViewSpace>()
+        .set<LocalTransformation>(local)
+        .set<GlobalTransformation>(GlobalTransformation{})
+        .set<Model3D>({model, WHITE})
+        .set<GeoSource>({values[3]})
+        .set<BoneAttachment>(attachment);
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_detach_held(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-detach-held", 1, args, "socket-name string");
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        return s7_wrong_type_arg_error(sc, "fp-detach-held", 2, rest, "name string");
+    }
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
+        return s7_f(sc);
+    }
+    flecs::entity host = findGeoUnderSocket(socketByName(*g_fpWorld, scene, s7_string(s7_car(args))));
+    if (!host.is_valid()) {
+        return s7_f(sc);
+    }
+    flecs::entity child = host.lookup(s7_string(s7_car(rest)));
+    if (!child.is_valid() || !child.has<BoneAttachment>()) {
+        return s7_f(sc);
+    }
+    destroyHeldGeo(child);
     return s7_t(sc);
 }
 
@@ -1155,6 +1299,10 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(fp-play-anim socket clip [loop])");
     s7_define_function(scheme, "fp-anim-busy?", g_fp_anim_busy, 1, 0, false,
                        "(fp-anim-busy? socket)");
+    s7_define_function(scheme, "fp-attach-held", g_fp_attach_held, 4, 7, false,
+                       "(fp-attach-held socket name point geo [x y z] [pitch yaw roll] [scale])");
+    s7_define_function(scheme, "fp-detach-held", g_fp_detach_held, 2, 0, false,
+                       "(fp-detach-held socket name)");
     s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 3, false,
                        "(fp-attach-sprite socket sprite [clip] [canvas-x canvas-y]) -> (x y)");
     s7_define_function(scheme, "fp-set-sprite-frame", g_fp_set_sprite_frame, 2, 0, false,

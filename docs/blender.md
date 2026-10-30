@@ -31,7 +31,9 @@ The skeleton ID written into the geometry and animation files can either be type
 
 ## Geometry {#export-geo}
 
-Exports the selected mesh objects into one `.geo` file with a shared vertex buffer, one primitive per material used across the selection. If any of the meshes are skinned, they all need to share the same armature, and a skeleton ID is required so the geometry knows which skeleton its weights refer to; unskinned geometry leaves the skeleton ID blank.
+Exports the selected mesh objects into one `.geo` file with a shared vertex buffer, one primitive per material used across the selection. If any of the meshes are skinned, they all need to share the same armature, and a skeleton ID is required so the geometry knows which skeleton its weights refer to; unskinned geometry leaves the skeleton ID blank. When a `.geo` already exists at the path, its `(view ...)` and `(attachments ...)` blocks are carried over unchanged, so the placement and attachment points authored in slopmodel survive a re-export of the mesh.
+
+Faces are triangulated but keep the winding the mesh was authored with. Recomputing normals on export was dropped because it flipped faces on models built from nested shells, such as the knee pads and chest piece of a segmented mannequin, which then culled away in the engine.
 
 ## Skeleton {#export-skel}
 
