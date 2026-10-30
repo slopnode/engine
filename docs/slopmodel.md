@@ -5,10 +5,11 @@ slopmodel is the 3D model studio, the counterpart of slopsprite for skinned and 
 # Running
 
 ```
-slopmodel --game <path> [--mod <path>]... [--target <path>] [--geo <path>] [--mode world|fp] [--verbose]
+slopmodel --game <path> [--mod <path>]... [--target <path>] [--geo <path>] [--mode world|fp]
+          [--clip <name>] [--frame <n>] [--preview <attachment>=<geo>]... [--two-sided] [--verbose]
 ```
 
-`--game` mounts the base package, `--mod` adds mods in order, and `--target` names the mounted package that receives saves. `--target` defaults to `--game` and is required once a `--mod` is given, same as the other editors (see @ref cli). `--geo` opens a geometry asset by virtual path at start and `--mode` picks the preview to start in. sloplauncher's Development tab launches it against the selected target.
+`--game` mounts the base package, `--mod` adds mods in order, and `--target` names the mounted package that receives saves. `--target` defaults to `--game` and is required once a `--mod` is given, same as the other editors (see @ref cli). `--geo` opens a geometry asset by virtual path at start and `--mode` picks the preview to start in. With `--geo`, `--clip` plays a clip, `--frame` pauses it on a frame, `--preview attachment=geo` hangs a geo on an attachment and `--two-sided` turns off backface culling, which makes a scripted capture of a given pose possible. sloplauncher's Development tab launches it against the selected target.
 
 # Layout
 
@@ -18,7 +19,7 @@ The world preview orbits with the right mouse button and zooms with the wheel. S
 
 The FP preview puts the eye at the origin looking down the socket's axis, with the engine's 75 degree field of view and the horizontal mirror the first-person pass applies, so what it shows is what `fp-attach-geo` produces. A faint floor and far wall at eye height give the placement something to read against. The fov field in the corner only changes the preview.
 
-The View menu toggles the skeleton overlay, the attachment markers, and shading. Shaded draws through the engine's view-model shader with a fixed key light so the form reads; off, the preview draws the materials flat.
+The View menu toggles the skeleton overlay, the attachment markers, shading and two-sided drawing. Shaded draws through the engine's view-model shader with a fixed key light so the form reads; off, the preview draws the materials flat. Two-sided draws back faces as well, for checking whether a hole in a model is missing geometry or a face wound the wrong way.
 
 # Inspector
 

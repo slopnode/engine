@@ -30,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 using slopengine::beginMainMenuBar;
@@ -49,6 +50,7 @@ struct ToolConfig {
     std::string openClip;
     float openFrame = -1.0f;
     bool twoSided = false;
+    std::vector<std::pair<std::string, std::string>> previews;
     slopmodel::PreviewMode mode = slopmodel::PreviewMode::World;
 };
 
@@ -64,6 +66,8 @@ void printUsage() {
         << "  --mode        Preview to start in: world (default) or fp\n"
         << "  --clip        Clip to play at start, with --geo\n"
         << "  --frame       Pause the clip at this frame instead of playing it\n"
+        << "  --preview     attachment=geo, show a geo on an attachment (repeatable)\n"
+        << "  --two-sided   Draw both faces of every triangle\n"
         << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
 
@@ -125,6 +129,19 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
                 return std::nullopt;
             }
             config.openFrame = static_cast<float>(std::atof(value));
+            continue;
+        }
+        if (arg == "--preview") {
+            const char* value = needValue();
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            const std::string spec = value;
+            const auto eq = spec.find('=');
+            if (eq == std::string::npos || eq == 0 || eq + 1 >= spec.size()) {
+                return std::nullopt;
+            }
+            config.previews.emplace_back(spec.substr(0, eq), spec.substr(eq + 1));
             continue;
         }
         if (arg == "--two-sided") {
@@ -614,11 +631,20 @@ int main(int argc, char* argv[]) {
     RenderTexture2D contentTarget{};
     bool quit = false;
 
-    if (!config->openGeo.empty() && editor.load(assets, config->openGeo) && !config->openClip.empty()) {
-        editor.playClip(config->openClip, true);
-        if (config->openFrame >= 0.0f) {
-            const slopmodel::ClipInfo info = editor.clipInfo(assets);
-            editor.scrub(assets, info.valid ? config->openFrame / info.fps : 0.0f);
+    if (!config->openGeo.empty() && editor.load(assets, config->openGeo)) {
+        if (!config->openClip.empty()) {
+            editor.playClip(config->openClip, true);
+            if (config->openFrame >= 0.0f) {
+                const slopmodel::ClipInfo info = editor.clipInfo(assets);
+                editor.scrub(assets, info.valid ? config->openFrame / info.fps : 0.0f);
+            }
+        }
+        for (const auto& [attachmentName, geoPath] : config->previews) {
+            for (int i = 0; i < static_cast<int>(editor.doc.geo.attachments.size()); ++i) {
+                if (editor.doc.geo.attachments[static_cast<std::size_t>(i)].name == attachmentName) {
+                    editor.setAttachmentPreview(assets, i, geoPath);
+                }
+            }
         }
     }
 
