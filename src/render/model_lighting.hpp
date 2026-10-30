@@ -12,7 +12,7 @@ constexpr int kMaxModelStaticLights = 4;
 constexpr float kModelStaticLightWrap = 0.35f;
 
 struct ModelLightingUniforms {
-    Vector3 probeSH[4]{};
+    Vector3 probeCube[6]{};
     int lightCount = 0;
     Vector4 lightPosRange[kMaxModelStaticLights]{};
     Vector4 lightColor[kMaxModelStaticLights]{};
@@ -49,7 +49,7 @@ struct ModelLightingState {
 struct ModelLightingShaderLocs {
     unsigned int shaderId = 0;
     int modelLit = -1;
-    int probeSH = -1;
+    int probeCube = -1;
     int lightCount = -1;
     int lightPosRange = -1;
     int lightColor = -1;

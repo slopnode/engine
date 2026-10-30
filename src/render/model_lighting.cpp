@@ -126,7 +126,7 @@ ModelLightingShaderLocs& shaderLocs(Shader shader) {
         locs = {};
         locs.shaderId = shader.id;
         locs.modelLit = GetShaderLocation(shader, "modelLit");
-        locs.probeSH = GetShaderLocation(shader, "modelProbeSH");
+        locs.probeCube = GetShaderLocation(shader, "modelProbeCube");
         locs.lightCount = GetShaderLocation(shader, "modelLightCount");
         locs.lightPosRange = GetShaderLocation(shader, "modelLightPosRange");
         locs.lightColor = GetShaderLocation(shader, "modelLightColor");
@@ -210,16 +210,19 @@ bool computeModelLighting(
     const float radius = Vector3Length(extent) * 0.5f;
     const Vector3 top{center.x, center.y + extent.y * 0.4f, center.z};
 
-    std::optional<ProbeSH> sh = sampleLightProbeSH(lighting, center);
-    if (!sh) {
-        sh = sampleLightProbeSH(lighting, {center.x, bounds.min.y + 0.25f, center.z});
+    std::optional<ProbeCube> cube = sampleLightProbeCube(lighting, center);
+    if (!cube) {
+        cube = sampleLightProbeCube(lighting, {center.x, bounds.min.y + 0.25f, center.z});
     }
-    if (sh) {
-        for (int i = 0; i < 4; ++i) {
-            out.probeSH[i] = sh->coeff[i];
+    if (cube) {
+        for (std::size_t i = 0; i < kProbeCubeFaces; ++i) {
+            out.probeCube[i] = cube->face[i];
         }
     } else {
-        out.probeSH[0] = inverseTonemap(sampleBakeTintColorForModel(world, model, globalMatrix, false));
+        const Vector3 flat = inverseTonemap(sampleBakeTintColorForModel(world, model, globalMatrix, false));
+        for (Vector3& face : out.probeCube) {
+            face = flat;
+        }
     }
 
     struct Candidate {
@@ -303,7 +306,7 @@ bool modelLightingSupported(Shader shader) {
         return false;
     }
     const ModelLightingShaderLocs& locs = shaderLocs(shader);
-    return locs.modelLit >= 0 && locs.probeSH >= 0;
+    return locs.modelLit >= 0 && locs.probeCube >= 0;
 }
 
 void uploadModelLighting(Shader shader, const ModelLightingUniforms* uniforms) {
@@ -319,8 +322,8 @@ void uploadModelLighting(Shader shader, const ModelLightingUniforms* uniforms) {
     if (uniforms == nullptr) {
         return;
     }
-    if (locs.probeSH >= 0) {
-        SetShaderValueV(shader, locs.probeSH, uniforms->probeSH, SHADER_UNIFORM_VEC3, 4);
+    if (locs.probeCube >= 0) {
+        SetShaderValueV(shader, locs.probeCube, uniforms->probeCube, SHADER_UNIFORM_VEC3, 6);
     }
     if (locs.lightCount >= 0) {
         SetShaderValue(shader, locs.lightCount, &uniforms->lightCount, SHADER_UNIFORM_INT);

@@ -103,16 +103,16 @@ ProbeGrid decodeProbeGrid(const LightProbeGridInfo& info) {
     grid.cellSize = info.cellSize;
     grid.probesByCell.reserve(info.probes.size());
     for (const LightProbe& probe : info.probes) {
-        ProbeSH sh;
-        for (int i = 0; i < 4; ++i) {
-            sh.coeff[static_cast<std::size_t>(i)] = decodeRgbe(probe.shRgbe[static_cast<std::size_t>(i)]);
+        ProbeCube cube;
+        for (std::size_t i = 0; i < kProbeCubeFaces; ++i) {
+            cube.face[i] = decodeRgbe(probe.cubeRgbe[i]);
         }
-        grid.probesByCell.emplace(ProbeCell{probe.cellX, probe.cellY, probe.cellZ}, sh);
+        grid.probesByCell.emplace(ProbeCell{probe.cellX, probe.cellY, probe.cellZ}, cube);
     }
     return grid;
 }
 
-std::optional<ProbeSH> interpolateProbeGrid(const ProbeGrid& grid, Vector3 point) {
+std::optional<ProbeCube> interpolateProbeGrid(const ProbeGrid& grid, Vector3 point) {
     if (grid.probesByCell.empty() || grid.cellSize <= 0.0f) {
         return std::nullopt;
     }
@@ -127,7 +127,7 @@ std::optional<ProbeSH> interpolateProbeGrid(const ProbeGrid& grid, Vector3 point
     const float fy = gy - static_cast<float>(iy0);
     const float fz = gz - static_cast<float>(iz0);
 
-    Vector3 coeff[4] = {};
+    Vector3 faces[kProbeCubeFaces] = {};
     float totalWeight = 0.0f;
     for (int dz = 0; dz <= 1; ++dz) {
         const float wz = dz == 0 ? (1.0f - fz) : fz;
@@ -144,10 +144,10 @@ std::optional<ProbeSH> interpolateProbeGrid(const ProbeGrid& grid, Vector3 point
                 if (it == grid.probesByCell.end()) {
                     continue;
                 }
-                for (int i = 0; i < 4; ++i) {
-                    coeff[i].x += it->second.coeff[i].x * weight;
-                    coeff[i].y += it->second.coeff[i].y * weight;
-                    coeff[i].z += it->second.coeff[i].z * weight;
+                for (std::size_t i = 0; i < kProbeCubeFaces; ++i) {
+                    faces[i].x += it->second.face[i].x * weight;
+                    faces[i].y += it->second.face[i].y * weight;
+                    faces[i].z += it->second.face[i].z * weight;
                 }
                 totalWeight += weight;
             }
@@ -158,29 +158,20 @@ std::optional<ProbeSH> interpolateProbeGrid(const ProbeGrid& grid, Vector3 point
         return std::nullopt;
     }
     const float invWeight = 1.0f / totalWeight;
-    ProbeSH result;
-    for (int i = 0; i < 4; ++i) {
-        result.coeff[i] = {coeff[i].x * invWeight, coeff[i].y * invWeight, coeff[i].z * invWeight};
+    ProbeCube result;
+    for (std::size_t i = 0; i < kProbeCubeFaces; ++i) {
+        result.face[i] = {faces[i].x * invWeight, faces[i].y * invWeight, faces[i].z * invWeight};
     }
     return result;
 }
 
 std::optional<Color> sampleProbeGrid(const ProbeGrid& grid, Vector3 point, Vector3 direction) {
-    const auto sh = interpolateProbeGrid(grid, point);
-    if (!sh) {
+    const auto cube = interpolateProbeGrid(grid, point);
+    if (!cube) {
         return std::nullopt;
     }
-    const Vector3* coeff = sh->coeff;
-    const float r = std::max(
-        0.0f,
-        coeff[0].x + coeff[1].x * direction.x + coeff[2].x * direction.y + coeff[3].x * direction.z);
-    const float g = std::max(
-        0.0f,
-        coeff[0].y + coeff[1].y * direction.x + coeff[2].y * direction.y + coeff[3].y * direction.z);
-    const float b = std::max(
-        0.0f,
-        coeff[0].z + coeff[1].z * direction.x + coeff[2].z * direction.y + coeff[3].z * direction.z);
-    return linearIrradianceToDisplayColor(r, g, b);
+    const Vector3 irradiance = evaluateProbeCube(*cube, direction);
+    return linearIrradianceToDisplayColor(irradiance.x, irradiance.y, irradiance.z);
 }
 
 std::vector<LightmapFace> probeFacesFromBsp(const BspTree& bsp) {
@@ -294,11 +285,24 @@ std::optional<Color> sampleLightProbe(
     return sampleProbeGrid(lighting.probeGridCoarse, point, dir);
 }
 
-std::optional<ProbeSH> sampleLightProbeSH(const MapLighting& lighting, Vector3 point) {
+std::optional<ProbeCube> sampleLightProbeCube(const MapLighting& lighting, Vector3 point) {
     if (auto fine = interpolateProbeGrid(lighting.probeGridFine, point)) {
         return fine;
     }
     return interpolateProbeGrid(lighting.probeGridCoarse, point);
+}
+
+Vector3 evaluateProbeCube(const ProbeCube& cube, Vector3 normal) {
+    const float axis[3] = {normal.x, normal.y, normal.z};
+    Vector3 result{};
+    for (int i = 0; i < 3; ++i) {
+        const float weight = axis[i] * axis[i];
+        const Vector3& face = cube.face[i * 2 + (axis[i] >= 0.0f ? 0 : 1)];
+        result.x += face.x * weight;
+        result.y += face.y * weight;
+        result.z += face.z * weight;
+    }
+    return result;
 }
 
 }

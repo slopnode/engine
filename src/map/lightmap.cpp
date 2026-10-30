@@ -621,6 +621,26 @@ Vector3 decodeRgbe(Color pixel) {
     };
 }
 
+std::array<Color, kProbeCubeFaces> probeCubeFromLegacySh(const std::array<Color, 4>& shRgbe) {
+    Vector3 coeff[4];
+    for (std::size_t i = 0; i < 4; ++i) {
+        coeff[i] = decodeRgbe(shRgbe[i]);
+    }
+    std::array<Color, kProbeCubeFaces> cube{};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        const Vector3 dc = coeff[0];
+        const Vector3 lobe = coeff[axis + 1];
+        for (std::size_t side = 0; side < 2; ++side) {
+            const float sign = side == 0 ? 1.0f : -1.0f;
+            cube[axis * 2 + side] = encodeRgbe(
+                std::max(0.0f, dc.x + sign * lobe.x * (2.0f / 3.0f)),
+                std::max(0.0f, dc.y + sign * lobe.y * (2.0f / 3.0f)),
+                std::max(0.0f, dc.z + sign * lobe.z * (2.0f / 3.0f)));
+        }
+    }
+    return cube;
+}
+
 Color linearIrradianceToDisplayColor(float r, float g, float b) {
     const auto tonemap = [](float value) {
         return static_cast<unsigned char>(
@@ -677,8 +697,8 @@ bool writeRadFile(const std::filesystem::path& path, const RadFile& rad) {
             writer.writePod(probe.cellX);
             writer.writePod(probe.cellY);
             writer.writePod(probe.cellZ);
-            for (const Color& term : probe.shRgbe) {
-                writer.writePod(term);
+            for (const Color& face : probe.cubeRgbe) {
+                writer.writePod(face);
             }
         }
     };
@@ -706,7 +726,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     if (magic != kRadMagic
         || (version != kRadVersionLegacy && version != kRadVersionPrevious
             && version != kRadVersionGroups && version != kRadVersionProbes
-            && version != kRadVersion)) {
+            && version != kRadVersionRotation && version != kRadVersion)) {
         return std::nullopt;
     }
 
@@ -767,7 +787,7 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
     }
 
     if (version >= kRadVersionProbes) {
-        auto readProbeGrid = [&reader](LightProbeGridInfo& grid) -> bool {
+        auto readProbeGrid = [&reader, version](LightProbeGridInfo& grid) -> bool {
             if (!reader.readPod(grid.cellSize)) {
                 return false;
             }
@@ -781,11 +801,21 @@ std::optional<RadFile> readRadBytes(std::span<const std::byte> data) {
                     || !reader.readPod(probe.cellZ)) {
                     return false;
                 }
-                for (Color& term : probe.shRgbe) {
+                if (version >= kRadVersionAmbientCube) {
+                    for (Color& face : probe.cubeRgbe) {
+                        if (!reader.readPod(face)) {
+                            return false;
+                        }
+                    }
+                    continue;
+                }
+                std::array<Color, 4> shRgbe{};
+                for (Color& term : shRgbe) {
                     if (!reader.readPod(term)) {
                         return false;
                     }
                 }
+                probe.cubeRgbe = probeCubeFromLegacySh(shRgbe);
             }
             return true;
         };

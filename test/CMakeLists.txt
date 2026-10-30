@@ -37,7 +37,7 @@ add_executable(sloptests
     test_lightmap_pack.cpp
     test_radiosity_emitters.cpp
     test_sun_shadow_softness.cpp
-    test_light_probe_sh.cpp
+    test_light_probe_cube.cpp
     test_seam_stitch.cpp
     test_sight.cpp
     test_slopui_theme.cpp
@@ -76,7 +76,7 @@ add_test(NAME sloptests.texture_graph COMMAND sloptests texture_graph)
 add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
-add_test(NAME sloptests.light_probe_sh COMMAND sloptests light_probe_sh)
+add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.map_script COMMAND sloptests map_script)
 add_test(NAME sloptests.camera_path COMMAND sloptests camera_path)

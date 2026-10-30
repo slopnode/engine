@@ -9,7 +9,7 @@
 /// and `colSpecular.a` selects the fullbright mode. Up to 128 dynamic lights are
 /// accumulated per fragment and the ones with a shadow slot sample the shadow map
 /// array. With `modelLit` set, unlightmapped models are lit per pixel from the probe
-/// coefficients in `modelProbeSH` and up to four static map lights in the `modelLight`
+/// ambient cube in `modelProbeCube` and up to four static map lights in the `modelLight`
 /// arrays, using the bake's falloff and wrap.
 ///
 /// @used-by Every material whose shader field is `default`, drawn by the world pass.
@@ -41,8 +41,8 @@ uniform int lightmapEncoding;
 uniform float emissionPower;
 /// 1 to light an unlightmapped model from the probe and static light uniforms.
 uniform int modelLit;
-/// Linear L1 probe coefficients at the model: constant, then x, y and z.
-uniform vec3 modelProbeSH[4];
+/// Linear probe ambient cube at the model, one color per face: +x, -x, +y, -y, +z, -z.
+uniform vec3 modelProbeCube[6];
 
 const int MAX_MODEL_LIGHTS = 4;
 
@@ -250,8 +250,10 @@ vec3 evalDynamicLights(vec3 worldPos, vec3 normal)
 
 vec3 evalModelProbe(vec3 normal)
 {
-    vec3 directional = modelProbeSH[1] * normal.x + modelProbeSH[2] * normal.y + modelProbeSH[3] * normal.z;
-    return max(modelProbeSH[0] + directional * (2.0 / 3.0), vec3(0.0));
+    vec3 n2 = normal * normal;
+    return n2.x * (normal.x >= 0.0 ? modelProbeCube[0] : modelProbeCube[1])
+        + n2.y * (normal.y >= 0.0 ? modelProbeCube[2] : modelProbeCube[3])
+        + n2.z * (normal.z >= 0.0 ? modelProbeCube[4] : modelProbeCube[5]);
 }
 
 vec3 evalModelStaticLights(vec3 worldPos, vec3 normal)
