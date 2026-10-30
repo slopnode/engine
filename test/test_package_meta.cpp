@@ -41,6 +41,13 @@ void testSatisfiesVersionConstraint() {
     CHECK_TRUE(satisfiesVersionConstraint("0.4.0", "<=0.4.0"));
     CHECK_FALSE(satisfiesVersionConstraint("0.4.1", "<0.4.1"));
     CHECK_FALSE(satisfiesVersionConstraint("not-a-version", ">=0.4.0"));
+    CHECK_TRUE(satisfiesVersionConstraint("0.9.0", ">=0.9.0 <0.10.0"));
+    CHECK_TRUE(satisfiesVersionConstraint("0.9.7", ">=0.9.0 <0.10.0"));
+    CHECK_FALSE(satisfiesVersionConstraint("0.10.0", ">=0.9.0 <0.10.0"));
+    CHECK_FALSE(satisfiesVersionConstraint("0.8.9", ">=0.9.0 <0.10.0"));
+    CHECK_TRUE(satisfiesVersionConstraint("1.2.3", ">=1.0.0, <2.0.0"));
+    CHECK_FALSE(satisfiesVersionConstraint("0.9.0", ">=0.9.0 <1.x"));
+    CHECK_FALSE(satisfiesVersionConstraint("0.9.0", "   "));
 }
 
 void testParsePackageMetaDependsWithConstraint() {

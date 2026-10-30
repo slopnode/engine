@@ -42,7 +42,7 @@ package 'slopenstein' requires 'slopengine.engine@>=0.4.0' but found version '0.
 
 ## Constraint syntax {#constraint-syntax}
 
-A constraint is an optional comparison operator followed by a version: `=`, `>=`, `>`, `<=`, `<`, or no operator at all (which means `=`). An empty constraint always matches.
+A constraint is one or more clauses separated by whitespace or commas, and every clause must hold. A clause is an optional comparison operator followed by a version: `=`, `>=`, `>`, `<=`, `<`, or no operator at all (which means `=`). So `>=0.9.0 <0.10.0` accepts any 0.9.x release. An empty constraint always matches.
 
 A version is `MAJOR[.MINOR[.PATCH]]` -- missing components default to `0`, so `"1.2"` parses the same as `"1.2.0"`. Anything with a non-numeric component (`"1.x.0"`) fails to parse, and a constraint that fails to parse -- on either side -- never matches rather than matching by accident:
 
@@ -54,6 +54,9 @@ A version is `MAJOR[.MINOR[.PATCH]]` -- missing components default to `0`, so `"
 "0.4.0", "0.4.0"           -> true  (no operator means =)
 "0.4.1", "0.4.0"           -> false
 "not-a-version", ">=0.4.0" -> false
+"0.9.0", ">=0.9.0 <0.10.0" -> true
+"0.10.0", ">=0.9.0 <0.10.0" -> false
+"1.2.3", ">=1.0.0, <2.0.0"  -> true
 ```
 
 Comparison is purely numeric major/minor/patch -- there's no pre-release or build-metadata concept (`1.0.0-rc1` isn't a version this parser understands at all, it just fails to parse).
