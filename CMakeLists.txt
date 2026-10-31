@@ -273,6 +273,7 @@ add_executable(slopengine
     src/render/sprite_animator_system.cpp
     src/render/material_anim.cpp
     src/render/animation_systems.cpp
+    src/render/attachment_path.cpp
     src/render/dynamic_light.cpp
     src/render/dynamic_light_compositing.cpp
     src/render/dynamic_light_shadow_math.cpp

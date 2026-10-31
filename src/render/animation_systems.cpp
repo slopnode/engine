@@ -5,6 +5,7 @@
 #include "assets/skeleton_loader.hpp"
 #include "game/game_state.hpp"
 #include "render/animation_player.hpp"
+#include "render/attachment_path.hpp"
 #include "render/bone_attachment.hpp"
 #include "render/components.hpp"
 #include "render/transform.hpp"
@@ -65,14 +66,7 @@ void fireAnimEvents(
     if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    std::string source;
-    for (flecs::entity cursor = entity; cursor.is_valid(); cursor = cursor.parent()) {
-        const char* name = cursor.name().c_str();
-        if (name != nullptr && *name != '\0') {
-            source = name;
-            break;
-        }
-    }
+    const std::string source = attachmentEventSource(entity);
     if (source.empty()) {
         static bool warnedAnonymous = false;
         if (!warnedAnonymous) {

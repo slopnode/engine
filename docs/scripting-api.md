@@ -627,24 +627,24 @@ Attaches a geometry asset to a first-person socket, with an optional local offse
 </code></pre>
 
 ### fp-play-anim {#fp-play-anim}
-Plays a clip on the skinned geo attached to a socket. Returns \#f when the socket holds no skinned geo or the bank has no such clip.
+Plays a clip on the skinned geo attached to a socket, or on geo hung from it. `path` is the socket name, optionally followed by attachment names such as `weapon/held`. Returns \#f when the path names no skinned geo or the bank has no such clip.
 <pre><code class="language-scheme">(fp-play-anim
-  socket : string?
+  path : string?
   clip : string?
   [loop?] : boolean? = \#f)
   ↵ boolean?
 </code></pre>
 
 ### fp-anim-busy? {#fp-anim-busy}
-Checks whether a socket's skinned geo is still mid-way through a non-looping clip.
+Checks whether the skinned geo `path` names is still mid-way through a non-looping clip.
 <pre><code class="language-scheme">(fp-anim-busy?
-  socket : string?) ↵ boolean?
+  path : string?) ↵ boolean?
 </code></pre>
 
 ### fp-attach-held {#fp-attach-held}
-Hangs a geo on a bone of the geo attached to a first-person socket, the held weapon on a hands rig. `point` is a bone name or the name of an attachment declared in the hands geo's `(attachments ...)` block, and the offset, rotation in radians and uniform scale apply relative to that point. A second call with the same `name` replaces the earlier one.
+Hangs a geo on a bone of the geo attached to a first-person socket, the held weapon on a hands rig. `path` is the socket name, or a path such as `weapon/held` to hang the geo on the held geo instead. `point` is a bone name or the name of an attachment declared in the host geo's `(attachments ...)` block, and the offset, rotation in radians and uniform scale apply relative to that point. A skinned geo gets an animation player over its skeleton's clip bank, driven with `fp-play-anim` on its path. A second call with the same `name` on the same host replaces the earlier one, along with anything hung on it.
 <pre><code class="language-scheme">(fp-attach-held
-  socket : string?
+  path : string?
   name : string?
   point : string?
   geo : string?
@@ -655,9 +655,9 @@ Hangs a geo on a bone of the geo attached to a first-person socket, the held wea
 </code></pre>
 
 ### fp-detach-held {#fp-detach-held}
-Removes a geo hung with `fp-attach-held`.
+Removes a geo hung with `fp-attach-held`, along with anything hung on it. `path` names the host it hangs on.
 <pre><code class="language-scheme">(fp-detach-held
-  socket : string?
+  path : string?
   name : string?) ↵ boolean?
 </code></pre>
 
@@ -1394,24 +1394,24 @@ Returns the direction toward the nearest water exit for a submerged actor, or \#
 </code></pre>
 
 ### actor-play-anim {#actor-play-anim}
-Plays an animation clip on an actor. A sprite actor plays a `.spanim` clip, a skinned geo actor plays a clip from its animation bank. Returns \#f when the clip does not exist.
+Plays an animation clip on an actor or on geo attached to it. `path` is an actor id, optionally followed by attachment names, such as `guard/held` or `guard/held/sight`. Actor ids that themselves contain a slash, such as prefab ids, are matched first, and the longest id that exists wins. A sprite actor plays a `.spanim` clip, and a skinned geo actor or attachment plays a clip from its animation bank. Returns \#f when the path or the clip does not exist.
 <pre><code class="language-scheme">(actor-play-anim
-  id : string?
+  path : string?
   clip : string?
   [loop] : boolean? = \#t)
   ↵ boolean?
 </code></pre>
 
 ### actor-anim-busy? {#actor-anim-busy}
-Returns \#t while a non-looping clip started by `actor-play-anim` is still playing.
+Returns \#t while a non-looping clip started by `actor-play-anim` is still playing on the actor or attachment `path` names.
 <pre><code class="language-scheme">(actor-anim-busy?
-  id : string?) ↵ boolean?
+  path : string?) ↵ boolean?
 </code></pre>
 
 ### actor-attach-geo {#actor-attach-geo}
-Pins a static geo to a bone of a skinned geo actor, Half-Life attachment style. `point` is a bone name or the name of an attachment declared in the actor geo's `(attachments ...)` block (see @ref filegeo). The geo follows the bone's pose each frame with the offset applied relative to that point, pitch yaw roll in radians, and a uniform scale. A second call with the same `name` replaces the earlier attachment.
+Pins a geo to a bone of a skinned geo actor, Half-Life attachment style. `path` is the actor id, or an attachment path such as `guard/held` to hang the geo on the held geo instead, which then needs bones of its own. `point` is a bone name or the name of an attachment declared in the host geo's `(attachments ...)` block (see @ref filegeo). The geo follows the bone's pose each frame with the offset applied relative to that point, pitch yaw roll in radians, and a uniform scale. A skinned geo gets an animation player over its skeleton's clip bank, driven with `actor-play-anim` on its path. A second call with the same `name` on the same host replaces the earlier attachment, along with anything attached to it.
 <pre><code class="language-scheme">(actor-attach-geo
-  id : string?
+  path : string?
   name : string?
   point : string?
   geo : string?
@@ -1422,9 +1422,9 @@ Pins a static geo to a bone of a skinned geo actor, Half-Life attachment style. 
 </code></pre>
 
 ### actor-detach {#actor-detach}
-Removes an attachment made by `actor-attach-geo`.
+Removes an attachment made by `actor-attach-geo`, along with anything attached to it. `path` names the host the attachment hangs on.
 <pre><code class="language-scheme">(actor-detach
-  id : string?
+  path : string?
   name : string?) ↵ boolean?
 </code></pre>
 
@@ -1843,7 +1843,7 @@ Called when a `.spanim` hold cue with `(hint "name")` is entered.
 </code></pre>
 
 ### on-anim-event {#on-anim-event}
-Called when a skinned geo's clip playback crosses an `event` frame declared in its `.anim` bank. `source` is the entity id, or the socket name for first-person geo, and `clip` the clip name. A looping clip fires its events every pass.
+Called when a skinned geo's clip playback crosses an `event` frame declared in its `.anim` bank. `source` is the entity id, or the socket name for first-person geo, followed by attachment names for attached geo, such as `guard/held` or `weapon/held`. It is the same path that addresses the geo in `actor-play-anim` and `fp-play-anim`. `clip` is the clip name. A looping clip fires its events every pass.
 <pre><code class="language-scheme">(on-anim-event
   source, event, clip : string?)
 </code></pre>

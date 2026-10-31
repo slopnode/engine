@@ -23,6 +23,7 @@
 #include "physics/sight_module.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
+#include "render/attachment_path.hpp"
 #include "render/bone_attachment.hpp"
 #include "render/components.hpp"
 #include "render/debug_line_pool.hpp"
@@ -85,6 +86,16 @@ flecs::entity lookupActor(std::string_view id) {
         return {};
     }
     return entity;
+}
+
+flecs::entity resolveActorPath(std::string_view path) {
+    const auto split = splitAttachmentPath(path, [](std::string_view prefix) {
+        return lookupActor(prefix).is_valid();
+    });
+    if (!split) {
+        return {};
+    }
+    return descendAttachmentPath(lookupActor(split->anchor), split->names);
 }
 
 bool actorHasTag(const CollisionTags& tags, std::string_view tag) {
@@ -1584,16 +1595,6 @@ s7_pointer g_actor_water_exit_dir(s7_scheme* sc, s7_pointer args) {
     return s7_list(sc, 2, s7_make_real(sc, dirX), s7_make_real(sc, dirZ));
 }
 
-void destroyAttachment(flecs::entity child) {
-    if (!child.is_valid()) {
-        return;
-    }
-    if (child.has<Model3D>()) {
-        unloadClonedGeoModelInstance(child.get_mut<Model3D>().model);
-    }
-    child.destruct();
-}
-
 s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -1616,21 +1617,21 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
         args = s7_cdr(args);
     }
 
-    flecs::entity actor = lookupActor(values[0].c_str());
-    if (!actor.is_valid() || !actor.has<Model3D>()) {
+    flecs::entity host = resolveActorPath(values[0]);
+    if (!host.is_valid() || !host.has<Model3D>()) {
         return s7_f(sc);
     }
     if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
         return s7_f(sc);
     }
     AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
-    const Model& actorModel = actor.get<Model3D>().model;
-    const GeoAsset* actorGeo =
-        actor.has<GeoSource>() ? assets.getGeoAsset(actor.get<GeoSource>().path) : nullptr;
+    const Model& hostModel = host.get<Model3D>().model;
+    const GeoAsset* hostGeo =
+        host.has<GeoSource>() ? assets.getGeoAsset(host.get<GeoSource>().path) : nullptr;
     BoneAttachment attachment{};
     if (!resolveBoneAttachment(
-            actorModel,
-            actorGeo,
+            hostModel,
+            hostGeo,
             values[2],
             {numbers[0], numbers[1], numbers[2]},
             {numbers[3], numbers[4], numbers[5]},
@@ -1653,11 +1654,11 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
-    destroyAttachment(actor.lookup(values[1].c_str()));
+    destroyAttachmentTree(host.lookup(values[1].c_str()));
 
     LocalTransformation local{};
     local.scale = attachment.scale;
-    flecs::entity child = g_thingWorld->entity().child_of(actor);
+    flecs::entity child = g_thingWorld->entity().child_of(host);
     child.set_name(values[1].c_str());
     child.add<WorldSpace>()
         .add<MapOwned>()
@@ -1666,6 +1667,9 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
         .set<Model3D>({model, WHITE})
         .set<GeoSource>({values[3]})
         .set<BoneAttachment>(attachment);
+    if (model.skeleton.boneCount > 0) {
+        attachGeoAnimationPlayer(child, assets, values[3], {}, {}, true);
+    }
     return s7_t(sc);
 }
 
@@ -1681,15 +1685,15 @@ s7_pointer g_actor_detach(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
         return s7_wrong_type_arg_error(sc, "actor-detach", 2, rest, "name string");
     }
-    flecs::entity actor = lookupActor(id);
-    if (!actor.is_valid()) {
+    flecs::entity host = resolveActorPath(id);
+    if (!host.is_valid()) {
         return s7_f(sc);
     }
-    flecs::entity child = actor.lookup(s7_string(s7_car(rest)));
-    if (!child.is_valid() || !child.has<BoneAttachment>()) {
+    flecs::entity child = findAttachmentChild(host, s7_string(s7_car(rest)));
+    if (!child.is_valid()) {
         return s7_f(sc);
     }
-    destroyAttachment(child);
+    destroyAttachmentTree(child);
     return s7_t(sc);
 }
 
@@ -1700,7 +1704,7 @@ s7_pointer g_actor_anim_busy(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
         return s7_wrong_type_arg_error(sc, "actor-anim-busy?", 1, args, "id string");
     }
-    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    flecs::entity entity = resolveActorPath(s7_string(s7_car(args)));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -1738,7 +1742,7 @@ s7_pointer g_actor_play_anim(s7_scheme* sc, s7_pointer args) {
         }
     }
 
-    flecs::entity entity = lookupActor(id);
+    flecs::entity entity = resolveActorPath(id);
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -3340,7 +3344,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         2,
         1,
         false,
-        "(actor-play-anim id clip [loop])");
+        "(actor-play-anim path clip [loop])");
     s7_define_function(
         scheme,
         "actor-anim-busy?",
@@ -3348,7 +3352,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         1,
         0,
         false,
-        "(actor-anim-busy? id)");
+        "(actor-anim-busy? path)");
     s7_define_function(
         scheme,
         "actor-attach-geo",
@@ -3356,7 +3360,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         4,
         7,
         false,
-        "(actor-attach-geo id name point geo [x y z] [pitch yaw roll] [scale])");
+        "(actor-attach-geo path name point geo [x y z] [pitch yaw roll] [scale])");
     s7_define_function(
         scheme,
         "actor-detach",
@@ -3364,7 +3368,7 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         2,
         0,
         false,
-        "(actor-detach id name)");
+        "(actor-detach path name)");
     s7_define_function(scheme, "actor-tags", g_actor_tags, 1, 0, false, "(actor-tags id)");
     s7_define_function(
         scheme, "actors-with-tag", g_actors_with_tag, 1, 0, false, "(actors-with-tag tag)");

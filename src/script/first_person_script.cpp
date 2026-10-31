@@ -8,6 +8,7 @@
 #include "assets/sprite_anim_loader.hpp"
 #include "map/things_spawn.hpp"
 #include "render/animation_player.hpp"
+#include "render/attachment_path.hpp"
 #include "render/bone_attachment.hpp"
 #include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
@@ -77,7 +78,7 @@ void destroySocketChildren(flecs::entity socket) {
     std::vector<flecs::entity> children;
     socket.children([&](flecs::entity child) { children.push_back(child); });
     for (flecs::entity child : children) {
-        child.destruct();
+        destroyAttachmentTree(child);
     }
 }
 
@@ -243,14 +244,14 @@ flecs::entity findGeoUnderSocket(flecs::entity socket) {
     return found;
 }
 
-void destroyHeldGeo(flecs::entity child) {
-    if (!child.is_valid()) {
-        return;
+flecs::entity resolveSocketPath(flecs::world& world, const FirstPersonScene& scene, std::string_view path) {
+    const auto split = splitAttachmentPath(path, [&](std::string_view prefix) {
+        return socketByName(world, scene, std::string(prefix).c_str()).is_valid();
+    });
+    if (!split) {
+        return {};
     }
-    if (child.has<Model3D>()) {
-        unloadClonedGeoModelInstance(child.get_mut<Model3D>().model);
-    }
-    child.destruct();
+    return descendAttachmentPath(findGeoUnderSocket(socketByName(world, scene, split->anchor.c_str())), split->names);
 }
 
 s7_pointer g_fp_attach_held(s7_scheme* sc, s7_pointer args) {
@@ -283,9 +284,9 @@ s7_pointer g_fp_attach_held(s7_scheme* sc, s7_pointer args) {
     if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
         return s7_f(sc);
     }
-    flecs::entity host = findGeoUnderSocket(socketByName(*g_fpWorld, scene, values[0].c_str()));
+    flecs::entity host = resolveSocketPath(*g_fpWorld, scene, values[0]);
     if (!host.is_valid()) {
-        TraceLog(LOG_WARNING, "fp-attach-held: socket '%s' holds no geo", values[0].c_str());
+        TraceLog(LOG_WARNING, "fp-attach-held: '%s' names no geo", values[0].c_str());
         return s7_f(sc);
     }
     if (!g_fpWorld->has<AssetServices>() || g_fpWorld->get<AssetServices>().store == nullptr) {
@@ -319,7 +320,7 @@ s7_pointer g_fp_attach_held(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
 
-    destroyHeldGeo(host.lookup(values[1].c_str()));
+    destroyAttachmentTree(host.lookup(values[1].c_str()));
 
     LocalTransformation local{};
     local.scale = attachment.scale;
@@ -331,6 +332,9 @@ s7_pointer g_fp_attach_held(s7_scheme* sc, s7_pointer args) {
         .set<Model3D>({model, WHITE})
         .set<GeoSource>({values[3]})
         .set<BoneAttachment>(attachment);
+    if (model.skeleton.boneCount > 0) {
+        attachGeoAnimationPlayer(child, assets, values[3], {}, {}, true);
+    }
     return s7_t(sc);
 }
 
@@ -350,15 +354,15 @@ s7_pointer g_fp_detach_held(s7_scheme* sc, s7_pointer args) {
     if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
         return s7_f(sc);
     }
-    flecs::entity host = findGeoUnderSocket(socketByName(*g_fpWorld, scene, s7_string(s7_car(args))));
+    flecs::entity host = resolveSocketPath(*g_fpWorld, scene, s7_string(s7_car(args)));
     if (!host.is_valid()) {
         return s7_f(sc);
     }
-    flecs::entity child = host.lookup(s7_string(s7_car(rest)));
-    if (!child.is_valid() || !child.has<BoneAttachment>()) {
+    flecs::entity child = findAttachmentChild(host, s7_string(s7_car(rest)));
+    if (!child.is_valid()) {
         return s7_f(sc);
     }
-    destroyHeldGeo(child);
+    destroyAttachmentTree(child);
     return s7_t(sc);
 }
 
@@ -528,19 +532,6 @@ s7_pointer g_fp_set_sprite_frame(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
-flecs::entity findModelUnderSocket(flecs::entity socket) {
-    if (!socket.is_valid()) {
-        return {};
-    }
-    flecs::entity found{};
-    socket.children([&](flecs::entity child) {
-        if (!found.is_valid() && child.has<Model3D>() && child.has<AnimationPlayer>()) {
-            found = child;
-        }
-    });
-    return found;
-}
-
 s7_pointer g_fp_play_anim(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::FpPresent)) {
         return s7_f(sc);
@@ -567,9 +558,8 @@ s7_pointer g_fp_play_anim(s7_scheme* sc, s7_pointer args) {
     if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
         return s7_f(sc);
     }
-    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
-    flecs::entity entity = findModelUnderSocket(socket);
-    if (!entity.is_valid()) {
+    flecs::entity entity = resolveSocketPath(*g_fpWorld, scene, s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<AnimationPlayer>()) {
         return s7_f(sc);
     }
     AnimationPlayer animPlayer = entity.get<AnimationPlayer>();
@@ -605,9 +595,8 @@ s7_pointer g_fp_anim_busy(s7_scheme* sc, s7_pointer args) {
     if (!tryGetPlayerScene(*g_fpWorld, player, scene)) {
         return s7_f(sc);
     }
-    flecs::entity socket = socketByName(*g_fpWorld, scene, s7_string(s7_car(args)));
-    flecs::entity entity = findModelUnderSocket(socket);
-    if (!entity.is_valid()) {
+    flecs::entity entity = resolveSocketPath(*g_fpWorld, scene, s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<AnimationPlayer>()) {
         return s7_f(sc);
     }
     const AnimationPlayer& animPlayer = entity.get<AnimationPlayer>();
@@ -1296,13 +1285,13 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "fp-attach-geo", g_fp_attach_geo, 2, 9, false,
                        "(fp-attach-geo socket geo [x y z sx sy sz pitch yaw roll])");
     s7_define_function(scheme, "fp-play-anim", g_fp_play_anim, 2, 1, false,
-                       "(fp-play-anim socket clip [loop])");
+                       "(fp-play-anim path clip [loop])");
     s7_define_function(scheme, "fp-anim-busy?", g_fp_anim_busy, 1, 0, false,
-                       "(fp-anim-busy? socket)");
+                       "(fp-anim-busy? path)");
     s7_define_function(scheme, "fp-attach-held", g_fp_attach_held, 4, 7, false,
-                       "(fp-attach-held socket name point geo [x y z] [pitch yaw roll] [scale])");
+                       "(fp-attach-held path name point geo [x y z] [pitch yaw roll] [scale])");
     s7_define_function(scheme, "fp-detach-held", g_fp_detach_held, 2, 0, false,
-                       "(fp-detach-held socket name)");
+                       "(fp-detach-held path name)");
     s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 3, false,
                        "(fp-attach-sprite socket sprite [clip] [canvas-x canvas-y]) -> (x y)");
     s7_define_function(scheme, "fp-set-sprite-frame", g_fp_set_sprite_frame, 2, 0, false,

@@ -46,6 +46,7 @@ void runLightmapPackTests();
 void runRadiosityEmitterTests();
 void runSunShadowSoftnessTests();
 void runLightProbeCubeTests();
+void runAttachmentPathTests();
 void runSeamStitchTests();
 void runSightTests();
 void runSlopUiThemeTests();
@@ -98,6 +99,7 @@ const Suite kSuites[] = {
     {"radiosity_emitters", slopengine::runRadiosityEmitterTests},
     {"sun_shadow_softness", slopengine::runSunShadowSoftnessTests},
     {"light_probe_cube", slopengine::runLightProbeCubeTests},
+    {"attachment_path", slopengine::runAttachmentPathTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
     {"sight", slopengine::runSightTests},
     {"slopui_theme", slopengine::runSlopUiThemeTests},

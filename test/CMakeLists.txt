@@ -38,6 +38,7 @@ add_executable(sloptests
     test_radiosity_emitters.cpp
     test_sun_shadow_softness.cpp
     test_light_probe_cube.cpp
+    test_attachment_path.cpp
     test_seam_stitch.cpp
     test_sight.cpp
     test_slopui_theme.cpp
@@ -48,6 +49,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/map/brush_door.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/attachment_path.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
@@ -77,6 +79,7 @@ add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)
+add_test(NAME sloptests.attachment_path COMMAND sloptests attachment_path)
 add_test(NAME sloptests.bsp_analyze COMMAND sloptests bsp_analyze)
 add_test(NAME sloptests.map_script COMMAND sloptests map_script)
 add_test(NAME sloptests.camera_path COMMAND sloptests camera_path)
