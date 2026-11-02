@@ -1,3 +1,4 @@
+import math
 import re
 import struct
 
@@ -144,6 +145,44 @@ def format_float(value):
     if text == "-0":
         return "0"
     return text
+
+
+def raylib_euler_degrees(quat):
+    x, y, z, w = quat.x, quat.y, quat.z, quat.w
+    pitch = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+    yaw = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
+    roll = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return Vector((math.degrees(pitch), math.degrees(yaw), math.degrees(roll)))
+
+
+def bone_parented_attachments(armature_obj, objects):
+    attachments = []
+    warnings = []
+    armature_inverse = armature_obj.matrix_world.inverted()
+    for obj in objects:
+        if obj.parent != armature_obj or obj.parent_type != "BONE" or not obj.parent_bone:
+            continue
+        if obj.get("slop_hitbox"):
+            continue
+        pose_bone = armature_obj.pose.bones.get(obj.parent_bone)
+        if pose_bone is None:
+            warnings.append(f"{obj.name}: parent bone '{obj.parent_bone}' not found")
+            continue
+        relative = convert_matrix(pose_bone.matrix.inverted() @ armature_inverse @ obj.matrix_world)
+        translation, rotation, scale = relative.decompose()
+        if max(scale) - min(scale) > 1e-4:
+            warnings.append(f"{obj.name}: non-uniform scale on a bone attachment, using the average")
+        euler = raylib_euler_degrees(rotation)
+        attachments.append(
+            {
+                "name": sanitize_name(obj.name),
+                "bone": obj.parent_bone,
+                "position": " ".join(format_float(round(v, 5)) for v in translation),
+                "rotation": " ".join(format_float(round(v, 3)) for v in euler),
+                "scale": format_float(round(sum(scale) / 3.0, 5)),
+            }
+        )
+    return attachments, warnings
 
 
 def format_vec3(vec):
@@ -369,9 +408,11 @@ def sample_action_frames(context, armature_obj, order, action, fps):
 
 def bone_order(armature_data):
     order = []
+    deform_only = any(bone.use_deform for bone in armature_data.bones)
 
     def walk(bone):
-        order.append(bone)
+        if bone.use_deform or not deform_only:
+            order.append(bone)
         for child in bone.children:
             walk(child)
 
@@ -382,30 +423,35 @@ def bone_order(armature_data):
     return order
 
 
+def exported_parent(bone, order):
+    parent = bone.parent
+    while parent is not None and parent not in order:
+        parent = parent.parent
+    return parent
+
+
 def bone_parent_index(bone, order):
-    if bone.parent is None:
+    parent = exported_parent(bone, order)
+    if parent is None:
         return -1
     for index, entry in enumerate(order):
-        if entry == bone.parent:
+        if entry == parent:
             return index
     return -1
 
 
-def bind_pose_transform(armature_obj, bone):
+def bind_pose_transform(armature_obj, bone, order):
     pose_bone = armature_obj.pose.bones.get(bone.name)
+    parent = exported_parent(bone, order)
     if pose_bone is not None:
-        return decompose_engine_transform(pose_bone_matrix_local(pose_bone))
-    return decompose_engine_transform(bone.matrix_local.copy())
-
-
-def pose_bone_matrix_local(pose_bone):
-    if hasattr(pose_bone, "matrix_local"):
-        return pose_bone.matrix_local.copy()
-    matrix = pose_bone.matrix.copy()
-    parent = pose_bone.parent
+        matrix = pose_bone.matrix.copy()
+        if parent is not None:
+            matrix = armature_obj.pose.bones[parent.name].matrix.inverted() @ matrix
+        return decompose_engine_transform(matrix)
+    matrix = bone.matrix_local.copy()
     if parent is not None:
-        matrix = parent.matrix.inverted() @ matrix
-    return matrix
+        matrix = parent.matrix_local.inverted() @ matrix
+    return decompose_engine_transform(matrix)
 
 
 def is_identity_transform(matrix, tolerance=1e-6):
@@ -588,7 +634,7 @@ def extract_material_parts(mesh, obj, vertex_weights=None):
                     positions.extend((position.x, position.y, position.z))
                     normal = convert_direction(corner_normal)
                     normals.extend((normal.x, normal.y, normal.z))
-                    uvs.extend((uv.x, uv.y))
+                    uvs.extend((uv.x, 1.0 - uv.y))
                     if vertex_weights is not None:
                         weights.append(vertex_weights[vertex_index])
                 face_indices.append(loop_to_export[export_key])

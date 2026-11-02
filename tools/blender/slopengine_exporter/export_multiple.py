@@ -89,8 +89,10 @@ def export_multiple_asset(
 
     failures = []
 
-    def run_exports(scene_pose_locked=False):
+    def run_exports(labels, scene_pose_locked=False):
         for label, export_fn, filepath, kwargs in exports:
+            if label not in labels:
+                continue
             export_kwargs = dict(kwargs)
             if scene_pose_locked and label in ("skeleton", "geometry"):
                 export_kwargs["scene_pose_locked"] = True
@@ -105,9 +107,10 @@ def export_multiple_asset(
     armature_obj = active_armature(context)
     if armature_obj is not None:
         with bind_pose_context(context, armature_obj):
-            run_exports(scene_pose_locked=True)
+            run_exports(("skeleton", "geometry"), scene_pose_locked=True)
+        run_exports(("animation",))
     else:
-        run_exports()
+        run_exports(("skeleton", "geometry", "animation"))
 
     if failures:
         result["status"] = "CANCELLED"
