@@ -328,12 +328,10 @@ void Editor::applyPose(slopengine::AssetStore& assets) {
         return;
     }
     const std::vector<Matrix>* bind = assets.getSkeletonBindMatrices(doc.skeletonPath);
-    const std::vector<std::vector<Matrix>>* matrixKeyframes = nullptr;
-    if (index < clips->matrixClips.size() && !clips->matrixClips[index].keyframes.empty()) {
-        matrixKeyframes = &clips->matrixClips[index].keyframes;
-    }
+    const slopengine::AnimClipMatrices* matrixClip =
+        index < clips->matrixClips.size() ? &clips->matrixClips[index] : nullptr;
     slopengine::updateRiggedModelAnimation(
-        doc.model, clips->clips[index], doc.time * info.fps, bind, matrixKeyframes);
+        doc.model, clips->clips[index], doc.time * info.fps, bind, matrixClip);
 }
 
 int Editor::addAttachment() {

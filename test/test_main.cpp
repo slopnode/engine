@@ -49,7 +49,11 @@ void runLightProbeCubeTests();
 void runAttachmentPathTests();
 void runSeamStitchTests();
 void runSightTests();
+void runViewRecoilTests();
+void runModelHitboxTests();
+void runRagdollTests();
 void runSlopUiThemeTests();
+void runTracerTests();
 
 }
 
@@ -102,7 +106,11 @@ const Suite kSuites[] = {
     {"attachment_path", slopengine::runAttachmentPathTests},
     {"seam_stitch", slopengine::runSeamStitchTests},
     {"sight", slopengine::runSightTests},
+    {"view_recoil", slopengine::runViewRecoilTests},
+    {"model_hitboxes", slopengine::runModelHitboxTests},
+    {"ragdoll", slopengine::runRagdollTests},
     {"slopui_theme", slopengine::runSlopUiThemeTests},
+    {"tracer", slopengine::runTracerTests},
 };
 
 bool runSuite(const Suite& suite) {

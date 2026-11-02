@@ -16,6 +16,8 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <raylib.h>
@@ -60,13 +62,16 @@ bool AssertFailedImpl(const char* expression, const char* message, const char* f
 namespace Layers {
 constexpr JPH::ObjectLayer NON_MOVING = 0;
 constexpr JPH::ObjectLayer MOVING = 1;
-constexpr JPH::ObjectLayer NUM_LAYERS = 2;
+constexpr JPH::ObjectLayer DEBRIS = 2;
+constexpr JPH::ObjectLayer PROPS = 3;
+constexpr JPH::ObjectLayer NUM_LAYERS = 4;
 }
 
 namespace BroadPhaseLayers {
 constexpr JPH::BroadPhaseLayer NON_MOVING(0);
 constexpr JPH::BroadPhaseLayer MOVING(1);
-constexpr unsigned int NUM_LAYERS = 2;
+constexpr JPH::BroadPhaseLayer DEBRIS(2);
+constexpr unsigned int NUM_LAYERS = 3;
 }
 
 class ObjectLayerPairFilterImpl final : public JPH::ObjectLayerPairFilter {
@@ -74,9 +79,13 @@ public:
     bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
         switch (a) {
         case Layers::NON_MOVING:
-            return b == Layers::MOVING;
+            return b == Layers::MOVING || b == Layers::DEBRIS;
         case Layers::MOVING:
-            return true;
+            return b != Layers::DEBRIS && b != Layers::PROPS;
+        case Layers::DEBRIS:
+            return b == Layers::NON_MOVING || b == Layers::PROPS;
+        case Layers::PROPS:
+            return b == Layers::DEBRIS;
         default:
             return false;
         }
@@ -88,6 +97,8 @@ public:
     BPLayerInterfaceImpl() {
         objectToBroadPhase_[Layers::NON_MOVING] = BroadPhaseLayers::NON_MOVING;
         objectToBroadPhase_[Layers::MOVING] = BroadPhaseLayers::MOVING;
+        objectToBroadPhase_[Layers::DEBRIS] = BroadPhaseLayers::DEBRIS;
+        objectToBroadPhase_[Layers::PROPS] = BroadPhaseLayers::NON_MOVING;
     }
 
     unsigned int GetNumBroadPhaseLayers() const override {
@@ -105,6 +116,8 @@ public:
             return "NON_MOVING";
         case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::MOVING:
             return "MOVING";
+        case (JPH::BroadPhaseLayer::Type)BroadPhaseLayers::DEBRIS:
+            return "DEBRIS";
         default:
             return "INVALID";
         }
@@ -120,9 +133,13 @@ public:
     bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broadPhase) const override {
         switch (layer) {
         case Layers::NON_MOVING:
-            return broadPhase == BroadPhaseLayers::MOVING;
+            return broadPhase == BroadPhaseLayers::MOVING || broadPhase == BroadPhaseLayers::DEBRIS;
         case Layers::MOVING:
-            return true;
+            return broadPhase != BroadPhaseLayers::DEBRIS;
+        case Layers::DEBRIS:
+            return broadPhase == BroadPhaseLayers::NON_MOVING;
+        case Layers::PROPS:
+            return broadPhase == BroadPhaseLayers::DEBRIS;
         default:
             return false;
         }
@@ -170,10 +187,10 @@ PhysicsWorld::PhysicsWorld() {
 
     system_ = std::make_unique<JPH::PhysicsSystem>();
     system_->Init(
-        1024,
+        4096,
         0,
-        1024,
-        1024,
+        4096,
+        4096,
         *broadPhaseLayerInterface_,
         *objectVsBroadPhaseLayerFilter_,
         *objectLayerPairFilter_);
@@ -199,6 +216,9 @@ PhysicsWorld::~PhysicsWorld() {
         kinematicBodies_.clear();
         kinematicBodyToEntity_.clear();
         kinematicSlide_.clear();
+        clearDebris();
+        clearProps();
+        clearRagdolls();
     }
 
     system_.reset();
@@ -417,6 +437,318 @@ void PhysicsWorld::createKinematicBox(
         halfExtents.x,
         halfExtents.y,
         halfExtents.z);
+}
+
+void PhysicsWorld::createDebrisBox(
+    std::uint64_t id,
+    Vector3 center,
+    Vector3 halfExtents,
+    Quaternion rotation,
+    Vector3 velocity,
+    Vector3 angularVelocity) {
+    if (!system_ || !finiteVec3(center) || !finiteVec3(halfExtents) || !finiteVec3(velocity) ||
+        !finiteVec3(angularVelocity)) {
+        return;
+    }
+    destroyDebris(id);
+
+    constexpr float kMinHalf = 0.06f;
+    JPH::BoxShapeSettings boxSettings(JPH::Vec3(
+        std::max(halfExtents.x, kMinHalf),
+        std::max(halfExtents.y, kMinHalf),
+        std::max(halfExtents.z, kMinHalf)));
+    auto result = boxSettings.Create();
+    if (result.HasError()) {
+        TraceLog(LOG_WARNING, "PHYSICS: debris box shape failed for id %llu: %s",
+            static_cast<unsigned long long>(id),
+            result.GetError().c_str());
+        return;
+    }
+
+    JPH::BodyCreationSettings settings(
+        result.Get(),
+        JPH::RVec3(center.x, center.y, center.z),
+        joltQuatFromRaylib(rotation),
+        JPH::EMotionType::Dynamic,
+        Layers::DEBRIS);
+    settings.mFriction = 0.7f;
+    settings.mRestitution = 0.15f;
+    settings.mLinearDamping = 0.1f;
+    settings.mAngularDamping = 0.4f;
+    settings.mMotionQuality = JPH::EMotionQuality::LinearCast;
+    settings.mLinearVelocity = JPH::Vec3(velocity.x, velocity.y, velocity.z);
+    settings.mAngularVelocity = JPH::Vec3(angularVelocity.x, angularVelocity.y, angularVelocity.z);
+
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    const JPH::BodyID bodyId = bodies.CreateAndAddBody(settings, JPH::EActivation::Activate);
+    if (bodyId.IsInvalid()) {
+        return;
+    }
+    debrisBodies_[id] = bodyId;
+}
+
+bool PhysicsWorld::debrisPose(std::uint64_t id, Vector3& center, Quaternion& rotation) const {
+    if (!system_) {
+        return false;
+    }
+    auto it = debrisBodies_.find(id);
+    if (it == debrisBodies_.end()) {
+        return false;
+    }
+    JPH::RVec3 position;
+    JPH::Quat orientation;
+    system_->GetBodyInterface().GetPositionAndRotation(it->second, position, orientation);
+    center = {
+        static_cast<float>(position.GetX()),
+        static_cast<float>(position.GetY()),
+        static_cast<float>(position.GetZ()),
+    };
+    rotation = {orientation.GetX(), orientation.GetY(), orientation.GetZ(), orientation.GetW()};
+    return true;
+}
+
+bool PhysicsWorld::hasDebris(std::uint64_t id) const {
+    return debrisBodies_.find(id) != debrisBodies_.end();
+}
+
+void PhysicsWorld::destroyDebris(std::uint64_t id) {
+    if (!system_) {
+        return;
+    }
+    auto it = debrisBodies_.find(id);
+    if (it == debrisBodies_.end()) {
+        return;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    bodies.RemoveBody(it->second);
+    bodies.DestroyBody(it->second);
+    debrisBodies_.erase(it);
+}
+
+void PhysicsWorld::clearDebris() {
+    if (!system_) {
+        debrisBodies_.clear();
+        return;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    for (const auto& [id, bodyId] : debrisBodies_) {
+        (void)id;
+        bodies.RemoveBody(bodyId);
+        bodies.DestroyBody(bodyId);
+    }
+    debrisBodies_.clear();
+}
+
+void PhysicsWorld::createPropBoxes(
+    std::uint64_t id,
+    Vector3 position,
+    Quaternion rotation,
+    Vector3 scale,
+    const std::vector<PropBox>& boxes) {
+    destroyProp(id);
+    if (!system_ || boxes.empty() || !finiteVec3(position) || !finiteVec3(scale)) {
+        return;
+    }
+    const JPH::Quat joltRotation = joltQuatFromRaylib(rotation).Normalized();
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    std::vector<JPH::BodyID> created;
+    for (const PropBox& box : boxes) {
+        const Vector3 localCenter{
+            (box.min.x + box.max.x) * 0.5f * scale.x,
+            (box.min.y + box.max.y) * 0.5f * scale.y,
+            (box.min.z + box.max.z) * 0.5f * scale.z,
+        };
+        const JPH::Vec3 half(
+            std::fabs((box.max.x - box.min.x) * 0.5f * scale.x),
+            std::fabs((box.max.y - box.min.y) * 0.5f * scale.y),
+            std::fabs((box.max.z - box.min.z) * 0.5f * scale.z));
+        if (half.GetX() <= 0.0f || half.GetY() <= 0.0f || half.GetZ() <= 0.0f) {
+            continue;
+        }
+        JPH::BoxShapeSettings boxSettings(half, std::min(0.02f, half.ReduceMin() * 0.5f));
+        auto shape = boxSettings.Create();
+        if (shape.HasError()) {
+            TraceLog(LOG_WARNING, "PHYSICS: prop box shape failed for id %llu: %s",
+                static_cast<unsigned long long>(id),
+                shape.GetError().c_str());
+            continue;
+        }
+        const JPH::Vec3 offset = joltRotation * JPH::Vec3(localCenter.x, localCenter.y, localCenter.z);
+        JPH::BodyCreationSettings settings(
+            shape.Get(),
+            JPH::RVec3(position.x, position.y, position.z) + offset,
+            joltRotation,
+            JPH::EMotionType::Static,
+            Layers::PROPS);
+        settings.mFriction = 0.8f;
+        const JPH::BodyID bodyId = bodies.CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+        if (!bodyId.IsInvalid()) {
+            created.push_back(bodyId);
+        }
+    }
+    if (!created.empty()) {
+        propBodies_[id] = std::move(created);
+    }
+}
+
+bool PhysicsWorld::hasProp(std::uint64_t id) const {
+    return propBodies_.find(id) != propBodies_.end();
+}
+
+std::size_t PhysicsWorld::propBoxCount(std::uint64_t id) const {
+    const auto it = propBodies_.find(id);
+    return it == propBodies_.end() ? 0 : it->second.size();
+}
+
+void PhysicsWorld::destroyProp(std::uint64_t id) {
+    auto it = propBodies_.find(id);
+    if (it == propBodies_.end()) {
+        return;
+    }
+    if (system_) {
+        JPH::BodyInterface& bodies = system_->GetBodyInterface();
+        for (const JPH::BodyID bodyId : it->second) {
+            bodies.RemoveBody(bodyId);
+            bodies.DestroyBody(bodyId);
+        }
+    }
+    propBodies_.erase(it);
+}
+
+void PhysicsWorld::clearProps() {
+    if (system_) {
+        JPH::BodyInterface& bodies = system_->GetBodyInterface();
+        for (const auto& [id, bodyIds] : propBodies_) {
+            (void)id;
+            for (const JPH::BodyID bodyId : bodyIds) {
+                bodies.RemoveBody(bodyId);
+                bodies.DestroyBody(bodyId);
+            }
+        }
+    }
+    propBodies_.clear();
+}
+
+bool PhysicsWorld::createRagdoll(std::uint64_t id, const std::vector<RagdollPartDesc>& parts) {
+    if (!system_ || parts.empty()) {
+        return false;
+    }
+    destroyRagdoll(id);
+
+    JPH::Ref<JPH::Skeleton> skeleton = new JPH::Skeleton();
+    JPH::Ref<JPH::RagdollSettings> settings = new JPH::RagdollSettings();
+    settings->mSkeleton = skeleton;
+    settings->mParts.resize(parts.size());
+    for (std::size_t index = 0; index < parts.size(); ++index) {
+        const RagdollPartDesc& part = parts[index];
+        if (part.parent >= static_cast<int>(index) || !finiteVec3(part.center) || !finiteVec3(part.pivot)) {
+            return false;
+        }
+        skeleton->AddJoint(std::to_string(index), part.parent);
+
+        const float minHalf = std::max(0.01f, std::min({part.halfExtents.x, part.halfExtents.y, part.halfExtents.z}));
+        JPH::BoxShapeSettings boxSettings(
+            JPH::Vec3(
+                std::max(part.halfExtents.x, 0.01f),
+                std::max(part.halfExtents.y, 0.01f),
+                std::max(part.halfExtents.z, 0.01f)),
+            std::min(0.02f, minHalf * 0.5f));
+        auto shape = boxSettings.Create();
+        if (shape.HasError()) {
+            return false;
+        }
+
+        JPH::RagdollSettings::Part& body = settings->mParts[index];
+        body.SetShape(shape.Get());
+        body.mPosition = JPH::RVec3(part.center.x, part.center.y, part.center.z);
+        body.mRotation = joltQuatFromRaylib(part.rotation).Normalized();
+        body.mMotionType = JPH::EMotionType::Dynamic;
+        body.mObjectLayer = Layers::DEBRIS;
+        body.mFriction = 0.8f;
+        body.mRestitution = 0.05f;
+        body.mLinearDamping = 0.05f;
+        body.mAngularDamping = 0.6f;
+        body.mMotionQuality = JPH::EMotionQuality::LinearCast;
+        body.mLinearVelocity = JPH::Vec3(part.velocity.x, part.velocity.y, part.velocity.z);
+        body.mAngularVelocity = JPH::Vec3(part.angularVelocity.x, part.angularVelocity.y, part.angularVelocity.z);
+
+        if (part.parent >= 0) {
+            JPH::Vec3 twist(part.twistAxis.x, part.twistAxis.y, part.twistAxis.z);
+            twist = twist.IsNearZero() ? JPH::Vec3::sAxisY() : twist.Normalized();
+            const JPH::Vec3 plane = twist.GetNormalizedPerpendicular();
+            JPH::Ref<JPH::SwingTwistConstraintSettings> joint = new JPH::SwingTwistConstraintSettings();
+            joint->mSpace = JPH::EConstraintSpace::WorldSpace;
+            joint->mPosition1 = joint->mPosition2 = JPH::RVec3(part.pivot.x, part.pivot.y, part.pivot.z);
+            joint->mTwistAxis1 = joint->mTwistAxis2 = twist;
+            joint->mPlaneAxis1 = joint->mPlaneAxis2 = plane;
+            joint->mNormalHalfConeAngle = part.swing;
+            joint->mPlaneHalfConeAngle = part.swing;
+            joint->mTwistMinAngle = -part.twist;
+            joint->mTwistMaxAngle = part.twist;
+            body.mToParent = joint;
+        }
+    }
+
+    settings->Stabilize();
+    settings->CalculateBodyIndexToConstraintIndex();
+    settings->CalculateConstraintIndexToBodyIdxPair();
+
+    JPH::Ref<JPH::Ragdoll> ragdoll = settings->CreateRagdoll(
+        static_cast<JPH::CollisionGroup::GroupID>(id & 0xffffffffu), id, system_.get());
+    if (ragdoll == nullptr) {
+        return false;
+    }
+    ragdoll->AddToPhysicsSystem(JPH::EActivation::Activate);
+    ragdolls_[id] = ragdoll;
+    return true;
+}
+
+bool PhysicsWorld::ragdollPartTransforms(std::uint64_t id, std::vector<Matrix>& out) const {
+    auto it = ragdolls_.find(id);
+    if (!system_ || it == ragdolls_.end()) {
+        return false;
+    }
+    const JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    const JPH::Ragdoll& ragdoll = *it->second;
+    out.resize(ragdoll.GetBodyCount());
+    for (std::size_t index = 0; index < ragdoll.GetBodyCount(); ++index) {
+        JPH::RVec3 position;
+        JPH::Quat rotation;
+        bodies.GetPositionAndRotation(ragdoll.GetBodyID(static_cast<int>(index)), position, rotation);
+        const Quaternion q{rotation.GetX(), rotation.GetY(), rotation.GetZ(), rotation.GetW()};
+        out[index] = MatrixMultiply(
+            QuaternionToMatrix(q),
+            MatrixTranslate(
+                static_cast<float>(position.GetX()),
+                static_cast<float>(position.GetY()),
+                static_cast<float>(position.GetZ())));
+    }
+    return true;
+}
+
+bool PhysicsWorld::hasRagdoll(std::uint64_t id) const {
+    return ragdolls_.find(id) != ragdolls_.end();
+}
+
+void PhysicsWorld::destroyRagdoll(std::uint64_t id) {
+    auto it = ragdolls_.find(id);
+    if (it == ragdolls_.end()) {
+        return;
+    }
+    if (system_) {
+        it->second->RemoveFromPhysicsSystem();
+    }
+    ragdolls_.erase(it);
+}
+
+void PhysicsWorld::clearRagdolls() {
+    if (system_) {
+        for (auto& [id, ragdoll] : ragdolls_) {
+            (void)id;
+            ragdoll->RemoveFromPhysicsSystem();
+        }
+    }
+    ragdolls_.clear();
 }
 
 void PhysicsWorld::setKinematicPose(
@@ -1506,6 +1838,19 @@ bool PhysicsWorld::characterSupported(std::uint64_t id) const {
     auto it = characters_.find(id);
     return it != characters_.end() && it->second.character != nullptr &&
         it->second.character->IsSupported();
+}
+
+bool PhysicsWorld::launchCharacter(std::uint64_t id, float upSpeed) {
+    auto it = characters_.find(id);
+    if (it == characters_.end() || it->second.character == nullptr ||
+        !it->second.character->IsSupported()) {
+        return false;
+    }
+    JPH::CharacterVirtual& character = *it->second.character;
+    const JPH::Vec3 up = character.GetUp();
+    const JPH::Vec3 velocity = character.GetLinearVelocity();
+    character.SetLinearVelocity(velocity - velocity.Dot(up) * up + up * upSpeed);
+    return true;
 }
 
 JPH::RVec3 PhysicsWorld::playerPosition() const {

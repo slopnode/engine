@@ -41,6 +41,7 @@ void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPla
     const Color boneColor = {255, 220, 0, 255};
     const Color jointColor = {255, 64, 64, 255};
 
+    rlDrawRenderBatchActive();
     rlDisableDepthTest();
     rlDisableDepthMask();
 
@@ -55,6 +56,7 @@ void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPla
         }
     }
 
+    rlDrawRenderBatchActive();
     rlEnableDepthMask();
     rlEnableDepthTest();
 }

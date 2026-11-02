@@ -443,20 +443,23 @@ void registerRigidMoverSystem(flecs::world& world) {
                 scale = entity.get<LocalTransformation>().scale;
             }
             const Matrix closedMatrix = moverClosedMatrix(mover, scale);
+            const BoundingBox localBounds = modelLocalBounds(model);
             model.color = sampleBakeTintColorForModel(
-                world, model.model, global.matrix, false, &closedMatrix);
+                world, model.model, global.matrix, false, &closedMatrix, &localBounds);
         });
 
     world.system<Model3D, GlobalTransformation>("WorldModelLightTint")
         .with<WorldSpace>()
+        .with<BakedLightmapModel>()
         .without<RigidMover>()
         .without<MapLightmapState>()
         .without<ViewSpace>()
         .kind(flecs::PreUpdate)
         .each([](flecs::entity entity, Model3D& model, const GlobalTransformation& global) {
             flecs::world world = entity.world();
-            model.color =
-                sampleBakeTintColorForModel(world, model.model, global.matrix, false);
+            const BoundingBox localBounds = modelLocalBounds(model);
+            model.color = sampleBakeTintColorForModel(
+                world, model.model, global.matrix, false, nullptr, &localBounds);
         });
 }
 

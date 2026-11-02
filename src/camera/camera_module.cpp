@@ -2,6 +2,7 @@
 
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
+#include "camera/view_recoil.hpp"
 #include "input/actions.hpp"
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
@@ -34,11 +35,46 @@ void registerComponents(flecs::world& world) {
     world.component<FpLightControl>();
     world.component<FirstPersonController>();
     world.component<ViewEyeOffset>();
+    world.component<ViewModelOffset>();
+    world.component<ViewRecoil>();
     world.component<FreeFlyCamera>();
     registerCameraPathPlayer(world);
 }
 
+constexpr float kMaxPitch = 1.4f;
+
 void registerSystems(flecs::world& world) {
+    world.system("ViewRecoil")
+        .kind(flecs::PreUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!world.get<InputContextStack>().allowsGameplay()) {
+                return;
+            }
+            const flecs::entity player = world.lookup("Player");
+            if (!player.is_valid() || !player.has<ViewRecoil>() ||
+                !player.has<FirstPersonController>()) {
+                return;
+            }
+            ViewRecoil& recoil = player.get_mut<ViewRecoil>();
+            const ViewRecoilLookDelta delta = stepViewRecoil(recoil, GetFrameTime());
+            FirstPersonController& controller = player.get_mut<FirstPersonController>();
+            if (controller.allowLook) {
+                controller.yaw -= delta.right;
+                if (controller.allowPitch) {
+                    controller.pitch = std::clamp(controller.pitch + delta.up, -kMaxPitch, kMaxPitch);
+                }
+            }
+            if (!player.has<ViewEyeOffset>()) {
+                player.set<ViewEyeOffset>({});
+            }
+            const Vector3 shake = viewRecoilShake(recoil);
+            ViewEyeOffset& eye = player.get_mut<ViewEyeOffset>();
+            eye.shakeUp = shake.x;
+            eye.shakeRight = shake.y;
+            eye.shakeRoll = shake.z;
+        });
+
     world.system("FirstPersonController")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
@@ -100,7 +136,6 @@ void registerSystems(flecs::world& world) {
                 if (controller.allowPitch) {
                     controller.pitch -= command.look.y * sensitivity;
 
-                    constexpr float kMaxPitch = 1.4f;
                     if (controller.pitch > kMaxPitch) {
                         controller.pitch = kMaxPitch;
                     }
@@ -154,8 +189,8 @@ void registerSystems(flecs::world& world) {
             InputState& input = world.get_mut<InputState>();
             fly.yaw -= input.mouseDelta.x * fly.lookSensitivity;
             fly.pitch -= input.mouseDelta.y * fly.lookSensitivity;
-            constexpr float kMaxPitch = 1.53f;
-            fly.pitch = std::clamp(fly.pitch, -kMaxPitch, kMaxPitch);
+            constexpr float kMaxFlyPitch = 1.53f;
+            fly.pitch = std::clamp(fly.pitch, -kMaxFlyPitch, kMaxFlyPitch);
 
             const float cosPitch = std::cos(fly.pitch);
             const Vector3 forward = Vector3Normalize({

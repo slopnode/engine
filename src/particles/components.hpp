@@ -19,6 +19,7 @@ struct Particle {
     Color color0 = WHITE;
     std::uint16_t bounceCount = 0;
     bool alive = false;
+    bool stuck = false;
 };
 
 struct ParticleEmitterRuntime {
@@ -56,6 +57,18 @@ struct ParticleFollowAttachPoint {
 struct ParticleFollowWorldAttachPoint {
     std::uint64_t host = 0;
     std::string name;
+};
+
+/** Keeps a particle system on a bone joint of a rigged host, aimed out of the limb: from
+ *  the reference bone's box centre through the joint. The reference is the bone itself, or
+ *  its nearest parent with a box when @p fromParent is set, which aims out of a stump.
+ *  @ingroup particles_components
+ */
+struct ParticleFollowBone {
+    std::uint64_t host = 0;
+    int bone = -1;
+    int reference = -1;
+    Vector3 referenceCenter{0.0f, 0.0f, 0.0f};
 };
 
 }

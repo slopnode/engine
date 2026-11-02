@@ -54,6 +54,7 @@ fp-attach-geo
 fp-attach-sprite
 fp-clear-socket
 fp-play-sprite-anim
+fp-point
 fp-set-eye-offset
 fp-set-light-enabled
 fp-set-rad-tint
@@ -201,6 +202,7 @@ thing-pos
 thing-type
 thing-yaw
 tick
+tracer-spawn
 trail-spawn
 trail-spawn-fp
 ui-begin

@@ -355,6 +355,8 @@ bool buildAnimBank(
             continue;
         }
 
+        matrixClip.localKeyframes = buildLocalPoseKeyframes(skeleton, matrixClip.keyframes);
+
         bank.clipIndexByName[clip.name] = bank.clips.size();
         bank.clipMeta.push_back(clip);
         bank.clips.push_back(animation);

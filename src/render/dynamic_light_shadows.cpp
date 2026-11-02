@@ -1,6 +1,7 @@
 #include "render/dynamic_light_shadows.hpp"
 
 #include "render/dynamic_light_shadow_math.hpp"
+#include "render/gpu_skinning.hpp"
 #include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "render/render_frustum.hpp"
@@ -34,7 +35,7 @@ void drawShadowCasters(
         if (!entity.has<WorldSpace>()) {
             return;
         }
-        const BoundingBox localBounds = GetModelBoundingBox(model.model);
+        const BoundingBox localBounds = modelLocalBounds(model);
         const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
         if (shouldSkipShadowCaster(entity.has<MapLightmapState>(), worldBounds, lightPosition)) {
             return;
@@ -65,19 +66,22 @@ void drawShadowCasters(
         }
         rlPushMatrix();
         rlMultMatrixf(MatrixToFloatV(global.matrix).v);
-        if (skipMeshes != nullptr) {
-            for (int meshIndex = 0; meshIndex < model.model.meshCount; ++meshIndex) {
-                if (skipMeshes->count(meshIndex) > 0) {
-                    continue;
+        setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
+        for (int meshIndex = 0; meshIndex < model.model.meshCount; ++meshIndex) {
+            if (skipMeshes != nullptr) {
+                if (skipMeshes->count(meshIndex) == 0) {
+                    drawModelMesh(model.model, meshIndex, model.model.materials[meshIndex]);
                 }
-                DrawMesh(
-                    model.model.meshes[meshIndex],
-                    model.model.materials[meshIndex],
-                    MatrixIdentity());
+                continue;
             }
-        } else {
-            DrawModel(model.model, Vector3Zero(), 1.0f, WHITE);
+            drawModelMesh(
+                model.model,
+                meshIndex,
+                model.model.materials[model.model.meshMaterial[meshIndex]],
+                {},
+                model.model.transform);
         }
+        setActiveShaderParams(nullptr);
         rlPopMatrix();
         for (int i = 0; i < model.model.materialCount; ++i) {
             model.model.materials[i].shader = previous[static_cast<std::size_t>(i)];
@@ -202,7 +206,7 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets, int re
         kMinDynamicShadowMapResolution,
         kMaxDynamicShadowMapResolution);
     DynamicLightShadowState state{};
-    const std::string vert = assets.getShaderSource("default/shadow_depth_vert");
+    const std::string vert = assets.getModelShaderSource("default/shadow_depth_vert");
     const std::string frag = assets.getShaderSource("default/shadow_depth_frag");
     if (!vert.empty() && !frag.empty()) {
         state.depthShader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
@@ -210,6 +214,7 @@ DynamicLightShadowState createDynamicLightShadowState(AssetStore& assets, int re
             state.depthShader.locs[SHADER_LOC_MAP_ALBEDO] =
                 GetShaderLocation(state.depthShader, "texture0");
             state.useAlphaClipLoc = GetShaderLocation(state.depthShader, "useAlphaClip");
+            state.depthShader.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(state.depthShader, "deformMask");
         }
     }
 

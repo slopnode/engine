@@ -29,6 +29,8 @@ struct s7_cell;
 
 namespace slopengine {
 
+std::string spliceModelDeform(std::string source, std::string deform);
+
 /** Cached asset loader backed by mounted packages. */
 class AssetStore {
 public:
@@ -307,6 +309,8 @@ public:
     /** Returns the text source of the shader at @p path. */
     std::string getShaderSource(std::string_view path);
 
+    std::string getModelShaderSource(std::string_view path);
+
     /** Returns the text source of the material at @p path. */
     std::string getMaterialSource(std::string_view path);
 
@@ -400,10 +404,11 @@ public:
     /** Loads and evaluates the prefab things script at @p path in @p scheme. */
     bool loadPrefabThings(s7_scheme* scheme, std::string_view path, s7_cell* environment = nullptr);
 
+    Shader getSkinningShader();
+
 private:
     static std::string cacheKey(std::string_view path);
     void mountPackages(const AppConfig& config);
-    Shader getSkinningShader();
     void applySkinningToModel(Model& model);
     void ensureSkeletonBindLoaded(std::string_view skeletonPath);
     std::string resolveSkeletonPathForGeo(const GeoAsset& asset, std::string_view geoPath) const;

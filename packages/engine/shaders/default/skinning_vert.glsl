@@ -24,6 +24,8 @@ out vec2 fragTexCoord;
 out vec4 fragColor;
 out vec3 fragNormal;
 
+#include "MODEL_DEFORM"
+
 void main()
 {
     int boneIndex0 = int(vertexBoneIndices.x);
@@ -43,6 +45,12 @@ void main()
         vertexBoneWeights.z*(boneMatrices[boneIndex2]*vec4(vertexNormal, 0.0)) +
         vertexBoneWeights.w*(boneMatrices[boneIndex3]*vec4(vertexNormal, 0.0));
     skinnedNormal.w = 0.0;
+
+    vec3 deformedPosition = skinnedPosition.xyz;
+    vec3 deformedNormal = skinnedNormal.xyz;
+    modelDeform(deformedPosition, deformedNormal, vertexTexCoord, vertexBoneIndices, vertexBoneWeights);
+    skinnedPosition = vec4(deformedPosition, 1.0);
+    skinnedNormal = vec4(deformedNormal, 0.0);
 
     fragTexCoord = vertexTexCoord;
     fragColor = vertexColor;

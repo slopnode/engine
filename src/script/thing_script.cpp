@@ -29,12 +29,16 @@
 #include "render/debug_line_pool.hpp"
 #include "render/dynamic_light.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/gpu_skinning.hpp"
+#include "render/model_hitboxes.hpp"
+#include "physics/ragdoll_rig.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
 #include "particles/components.hpp"
 #include "particles/particle_module.hpp"
 #include "particles/particle_sim.hpp"
 #include "fx/trail.hpp"
+#include "fx/tracer.hpp"
 #include "render/transform.hpp"
 #include "script/first_person_script.hpp"
 
@@ -44,6 +48,7 @@
 #include <algorithm>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <raylib.h>
@@ -955,6 +960,49 @@ s7_pointer g_particle_spawn_attach(s7_scheme* sc, s7_pointer args) {
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
 
+s7_pointer g_particle_spawn_bone(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    std::string fields[4];
+    const char* expected[4] = {"id string", "target string", "bone string", "path string"};
+    for (int index = 0; index < 4; ++index) {
+        if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "particle-spawn-bone", index + 1, args, expected[index]);
+        }
+        fields[index] = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    bool fromParent = false;
+    if (s7_is_pair(args)) {
+        s7_pointer mode = s7_car(args);
+        const char* name = s7_is_symbol(mode) ? s7_symbol_name(mode) : (s7_is_string(mode) ? s7_string(mode) : nullptr);
+        if (name != nullptr && std::strcmp(name, "stump") == 0) {
+            fromParent = true;
+        } else if (name == nullptr || std::strcmp(name, "limb") != 0) {
+            return s7_wrong_type_arg_error(sc, "particle-spawn-bone", 5, args, "'limb or 'stump");
+        }
+    }
+    if (fields[0].empty() || g_thingWorld->lookup(fields[0].c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasParticle(fields[3])) {
+        TraceLog(LOG_WARNING, "particle-spawn-bone: missing system '%s'", fields[3].c_str());
+        return s7_f(sc);
+    }
+    flecs::entity host = g_thingWorld->lookup(fields[1].c_str());
+    flecs::entity entity = spawnParticleSystemBone(
+        *g_thingWorld, assets, fields[0].c_str(), host, fields[2], fromParent, fields[3], true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
 s7_pointer g_trail_spawn(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::WorldMutate)) {
         return s7_f(sc);
@@ -1020,6 +1068,98 @@ s7_pointer g_trail_spawn(s7_scheme* sc, s7_pointer args) {
         width,
         true);
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+bool readTracerColor(s7_scheme* sc, s7_pointer value, Color& out) {
+    int channels[4] = {out.r, out.g, out.b, out.a};
+    int count = 0;
+    for (; count < 4 && s7_is_pair(value); ++count) {
+        if (!s7_is_number(s7_car(value))) {
+            return false;
+        }
+        channels[count] = static_cast<int>(s7_number_to_real(sc, s7_car(value)));
+        value = s7_cdr(value);
+    }
+    if (count < 3) {
+        return false;
+    }
+    out = {
+        static_cast<unsigned char>(std::clamp(channels[0], 0, 255)),
+        static_cast<unsigned char>(std::clamp(channels[1], 0, 255)),
+        static_cast<unsigned char>(std::clamp(channels[2], 0, 255)),
+        static_cast<unsigned char>(std::clamp(channels[3], 0, 255)),
+    };
+    return true;
+}
+
+bool applyTracerStyleEntry(s7_scheme* sc, const char* key, s7_pointer value, TracerStyle& style, float& lead) {
+    if (std::strcmp(key, "color") == 0) {
+        return readTracerColor(sc, value, style.core);
+    }
+    if (std::strcmp(key, "glow-color") == 0) {
+        return readTracerColor(sc, value, style.glow);
+    }
+    struct RealKey {
+        const char* name;
+        float* target;
+    };
+    const RealKey reals[] = {
+        {"speed", &style.speed},
+        {"length", &style.length},
+        {"width", &style.width},
+        {"glow-width", &style.glowWidth},
+        {"min-pixels", &style.minPixels},
+        {"tail-alpha", &style.tailAlpha},
+        {"lead", &lead},
+    };
+    if (s7_is_pair(value) && s7_is_null(sc, s7_cdr(value))) {
+        value = s7_car(value);
+    }
+    for (const RealKey& entry : reals) {
+        if (std::strcmp(key, entry.name) == 0) {
+            if (!s7_is_number(value)) {
+                return false;
+            }
+            *entry.target = static_cast<float>(s7_number_to_real(sc, value));
+            return true;
+        }
+    }
+    return false;
+}
+
+s7_pointer g_tracer_spawn(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    float sx = 0, sy = 0, sz = 0, ex = 0, ey = 0, ez = 0;
+    if (!readNumberArg(sc, args, sx, "tracer-spawn", 1) ||
+        !readNumberArg(sc, args, sy, "tracer-spawn", 2) ||
+        !readNumberArg(sc, args, sz, "tracer-spawn", 3) ||
+        !readNumberArg(sc, args, ex, "tracer-spawn", 4) ||
+        !readNumberArg(sc, args, ey, "tracer-spawn", 5) ||
+        !readNumberArg(sc, args, ez, "tracer-spawn", 6)) {
+        return s7_wrong_type_arg_error(sc, "tracer-spawn", 1, args, "sx sy sz ex ey ez numbers");
+    }
+    TracerStyle style{};
+    float lead = 0.0f;
+    if (s7_is_pair(args)) {
+        s7_pointer alist = s7_car(args);
+        if (!s7_is_pair(alist) && !s7_is_null(sc, alist)) {
+            return s7_wrong_type_arg_error(sc, "tracer-spawn", 7, alist, "style alist");
+        }
+        for (s7_pointer cursor = alist; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+            s7_pointer entry = s7_car(cursor);
+            if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry)) ||
+                !applyTracerStyleEntry(sc, s7_symbol_name(s7_car(entry)), s7_cdr(entry), style, lead)) {
+                return s7_wrong_type_arg_error(sc, "tracer-spawn", 7, entry, "style alist");
+            }
+        }
+    }
+    spawnTracer(*g_thingWorld, Vector3{sx, sy, sz}, Vector3{ex, ey, ez}, style, lead);
+    return s7_t(sc);
 }
 
 s7_pointer g_trail_spawn_fp(s7_scheme* sc, s7_pointer args) {
@@ -1273,8 +1413,12 @@ s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
             return s7_f(sc);
         }
         entity.set<Model3D>({model, WHITE});
+        entity.set<GeoSource>({path});
         if (model.skeleton.boneCount > 0) {
             attachGeoAnimationPlayer(entity, assets, path, {}, {}, true);
+            entity.set<HiddenBones>(
+                {std::vector<std::uint8_t>(static_cast<std::size_t>(model.skeleton.boneCount), 0), false});
+            entity.set<ModelHitboxes>({});
         }
     }
 
@@ -1520,6 +1664,614 @@ s7_pointer g_actor_set_move_speed(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_actor_set_yaw(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-set-yaw!", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    float yaw = 0.0f;
+    if (!readNumberArg(sc, rest, yaw, "actor-set-yaw!", 2)) {
+        return s7_wrong_type_arg_error(sc, "actor-set-yaw!", 2, rest, "yaw number");
+    }
+    flecs::entity entity = lookupActor(id);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<SpriteInstance>()) {
+        entity.get_mut<SpriteInstance>().facingYaw = yaw;
+    }
+    if (entity.has<LocalTransformation>()) {
+        entity.get_mut<LocalTransformation>().rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, yaw);
+    }
+    return s7_t(sc);
+}
+
+s7_pointer boneScaleArgsError(s7_scheme* sc, s7_pointer args, const char* name) {
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, name, 1, args, "id string");
+    }
+    if (!s7_is_pair(s7_cdr(args)) || !s7_is_string(s7_cadr(args))) {
+        return s7_wrong_type_arg_error(sc, name, 2, s7_cdr(args), "bone name string");
+    }
+    return nullptr;
+}
+
+flecs::entity boneScaleActor(s7_pointer args, std::string& bone) {
+    bone = s7_string(s7_cadr(args));
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<Model3D>() ||
+        findModelBoneIndex(entity.get<Model3D>().model, bone) < 0) {
+        return {};
+    }
+    return entity;
+}
+
+s7_pointer g_actor_set_bone_scale(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (s7_pointer error = boneScaleArgsError(sc, args, "actor-set-bone-scale!")) {
+        return error;
+    }
+    std::string bone;
+    flecs::entity entity = boneScaleActor(args, bone);
+    s7_pointer rest = s7_cddr(args);
+    BoneScale scale{};
+    if (!readNumberArg(sc, rest, scale.size, "actor-set-bone-scale!", 3) || scale.size <= 0.0f) {
+        return s7_wrong_type_arg_error(sc, "actor-set-bone-scale!", 3, rest, "positive size");
+    }
+    if (s7_is_pair(rest) && (!readNumberArg(sc, rest, scale.length, "actor-set-bone-scale!", 4) || scale.length <= 0.0f)) {
+        return s7_wrong_type_arg_error(sc, "actor-set-bone-scale!", 4, rest, "positive length");
+    }
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (!entity.has<BoneScales>()) {
+        entity.set<BoneScales>({});
+    }
+    BoneScales& scales = entity.get_mut<BoneScales>();
+    auto existing = std::find_if(scales.named.begin(), scales.named.end(), [&](const auto& entry) {
+        return entry.first == bone;
+    });
+    const bool identity = scale.size == 1.0f && scale.length == 1.0f;
+    if (existing != scales.named.end()) {
+        if (identity) {
+            scales.named.erase(existing);
+        } else {
+            existing->second = scale;
+        }
+    } else if (!identity) {
+        scales.named.emplace_back(bone, scale);
+    }
+    scales.dirty = true;
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_bone_scale(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (s7_pointer error = boneScaleArgsError(sc, args, "actor-bone-scale")) {
+        return error;
+    }
+    std::string bone;
+    flecs::entity entity = boneScaleActor(args, bone);
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    BoneScale scale{};
+    if (entity.has<BoneScales>()) {
+        for (const auto& [name, value] : entity.get<BoneScales>().named) {
+            if (name == bone) {
+                scale = value;
+            }
+        }
+    }
+    return s7_list(sc, 2, s7_make_real(sc, scale.size), s7_make_real(sc, scale.length));
+}
+
+s7_pointer g_actor_clear_bone_scales(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-clear-bone-scales!", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<BoneScales>()) {
+        BoneScales& scales = entity.get_mut<BoneScales>();
+        scales.named.clear();
+        scales.dirty = true;
+    }
+    return s7_t(sc);
+}
+
+std::unordered_map<flecs::entity_t, ShaderParams> g_pendingShaderParams;
+
+s7_pointer g_actor_set_shader_param(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-set-shader-param!", 1, args, "id string");
+    }
+    if (!s7_is_pair(s7_cdr(args)) || !s7_is_string(s7_cadr(args)) || s7_string(s7_cadr(args))[0] == '\0') {
+        return s7_wrong_type_arg_error(sc, "actor-set-shader-param!", 2, s7_cdr(args), "uniform name string");
+    }
+    float values[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    s7_pointer rest = s7_cddr(args);
+    for (int i = 0; i < 4 && s7_is_pair(rest); ++i) {
+        if (!readNumberArg(sc, rest, values[i], "actor-set-shader-param!", 3 + i)) {
+            return s7_wrong_type_arg_error(sc, "actor-set-shader-param!", 3 + i, rest, "number");
+        }
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<Model3D>()) {
+        return s7_f(sc);
+    }
+    const std::string name = s7_string(s7_cadr(args));
+    const Vector4 value{values[0], values[1], values[2], values[3]};
+    const auto upsert = [&](ShaderParams& params) {
+        auto existing = std::find_if(params.values.begin(), params.values.end(), [&](const auto& entry) {
+            return entry.first == name;
+        });
+        if (existing != params.values.end()) {
+            existing->second = value;
+        } else {
+            params.values.emplace_back(name, value);
+        }
+    };
+    if (entity.has<ShaderParams>()) {
+        g_pendingShaderParams.erase(entity.id());
+        upsert(entity.get_mut<ShaderParams>());
+    } else {
+        ShaderParams& pending = g_pendingShaderParams[entity.id()];
+        upsert(pending);
+        entity.set<ShaderParams>(pending);
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_clear_shader_params(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-clear-shader-params!", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    g_pendingShaderParams.erase(entity.id());
+    entity.remove<ShaderParams>();
+    return s7_t(sc);
+}
+
+constexpr int kMaxSeveredPieces = 48;
+std::uint64_t g_severedPieceCounter = 0;
+
+Matrix poseTransformMatrix(const Transform& pose) {
+    return MatrixMultiply(
+        MatrixMultiply(MatrixScale(pose.scale.x, pose.scale.y, pose.scale.z), QuaternionToMatrix(pose.rotation)),
+        MatrixTranslate(pose.translation.x, pose.translation.y, pose.translation.z));
+}
+
+Transform transformFromPoseMatrix(const Matrix& matrix) {
+    Transform pose{};
+    MatrixDecompose(matrix, &pose.translation, &pose.rotation, &pose.scale);
+    return pose;
+}
+
+flecs::entity riggedActor(s7_scheme* sc, s7_pointer args, const char* caller, std::string& bone, s7_pointer& error) {
+    error = nullptr;
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        error = s7_wrong_type_arg_error(sc, caller, 1, args, "id string");
+        return {};
+    }
+    s7_pointer rest = s7_cdr(args);
+    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
+        error = s7_wrong_type_arg_error(sc, caller, 2, rest, "bone string");
+        return {};
+    }
+    bone = s7_string(s7_car(rest));
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<Model3D>() || !entity.has<GlobalTransformation>()) {
+        return {};
+    }
+    const Model& model = entity.get<Model3D>().model;
+    if (model.skeleton.boneCount <= 0 || model.boneMatrices == nullptr || model.currentPose == nullptr) {
+        return {};
+    }
+    return entity;
+}
+
+HiddenBones* actorHiddenBones(flecs::entity entity, int boneCount) {
+    if (!entity.has<HiddenBones>()) {
+        return nullptr;
+    }
+    HiddenBones& hidden = entity.get_mut<HiddenBones>();
+    if (hidden.mask.size() != static_cast<std::size_t>(boneCount)) {
+        hidden.mask.assign(static_cast<std::size_t>(boneCount), 0);
+    }
+    return &hidden;
+}
+
+const std::vector<BoneHitbox>& actorHitboxes(
+    flecs::entity entity,
+    const Model& model,
+    std::vector<BoneHitbox>& scratch) {
+    if (entity.has<ModelHitboxes>()) {
+        return ensureModelHitboxes(model, entity.get_mut<ModelHitboxes>());
+    }
+    scratch = buildBoneHitboxes(model);
+    return scratch;
+}
+
+const Matrix& refreshedGlobal(flecs::entity entity) {
+    GlobalTransformation& global = entity.get_mut<GlobalTransformation>();
+    if (entity.has<LocalTransformation>()) {
+        updateTransform(entity, entity.get_mut<LocalTransformation>(), global);
+    }
+    return global.matrix;
+}
+
+void trimSeveredPieces(PhysicsWorld* physics) {
+    std::vector<std::pair<float, flecs::entity>> pieces;
+    g_thingWorld->each([&](flecs::entity entity, const DebrisBody& debris) {
+        pieces.emplace_back(debris.age, entity);
+    });
+    if (static_cast<int>(pieces.size()) < kMaxSeveredPieces) {
+        return;
+    }
+    std::sort(pieces.begin(), pieces.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    const std::size_t excess = pieces.size() - static_cast<std::size_t>(kMaxSeveredPieces) + 1;
+    for (std::size_t i = 0; i < excess; ++i) {
+        if (physics != nullptr) {
+            physics->destroyDebris(static_cast<std::uint64_t>(pieces[i].second.id()));
+        }
+        destroyAttachmentTree(pieces[i].second);
+    }
+}
+
+float randomSigned() {
+    return static_cast<float>(GetRandomValue(-1000, 1000)) / 1000.0f;
+}
+
+s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    std::string boneName;
+    s7_pointer error = nullptr;
+    flecs::entity entity = riggedActor(sc, args, "actor-sever-bone!", boneName, error);
+    if (error != nullptr) {
+        return error;
+    }
+    s7_pointer rest = s7_cddr(args);
+    Vector3 push{0.0f, 0.0f, 0.0f};
+    float speed = 3.0f;
+    float spin = 6.0f;
+    float lifetime = 20.0f;
+    if (s7_is_pair(rest) &&
+        (!readNumberArg(sc, rest, push.x, "actor-sever-bone!", 3) ||
+         !readNumberArg(sc, rest, push.y, "actor-sever-bone!", 4) ||
+         !readNumberArg(sc, rest, push.z, "actor-sever-bone!", 5))) {
+        return s7_wrong_type_arg_error(sc, "actor-sever-bone!", 3, rest, "dx dy dz numbers");
+    }
+    if (s7_is_pair(rest) && !readNumberArg(sc, rest, speed, "actor-sever-bone!", 6)) {
+        return s7_wrong_type_arg_error(sc, "actor-sever-bone!", 6, rest, "speed number");
+    }
+    if (s7_is_pair(rest) && !readNumberArg(sc, rest, spin, "actor-sever-bone!", 7)) {
+        return s7_wrong_type_arg_error(sc, "actor-sever-bone!", 7, rest, "spin number");
+    }
+    if (s7_is_pair(rest) && !readNumberArg(sc, rest, lifetime, "actor-sever-bone!", 8)) {
+        return s7_wrong_type_arg_error(sc, "actor-sever-bone!", 8, rest, "lifetime number");
+    }
+    if (!entity.is_valid() || !entity.has<GeoSource>() || !g_thingWorld->has<AssetServices>() ||
+        g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    const Model& model = entity.get<Model3D>().model;
+    const int boneCount = model.skeleton.boneCount;
+    const int boneIndex = findModelBoneIndex(model, boneName);
+    if (boneIndex < 0) {
+        return s7_f(sc);
+    }
+    HiddenBones* hiddenPtr = actorHiddenBones(entity, boneCount);
+    if (hiddenPtr == nullptr || hiddenPtr->mask[static_cast<std::size_t>(boneIndex)] != 0) {
+        return s7_f(sc);
+    }
+    HiddenBones& hidden = *hiddenPtr;
+    std::vector<int> subtree;
+    for (int bone : boneSubtree(model, boneIndex)) {
+        if (hidden.mask[static_cast<std::size_t>(bone)] == 0) {
+            subtree.push_back(bone);
+        }
+    }
+    std::vector<BoneHitbox> scratch;
+    const std::vector<BoneHitbox>& boxes = actorHitboxes(entity, model, scratch);
+    const Matrix world = refreshedGlobal(entity);
+    BoundingBox bounds{};
+    if (!posedBonesBounds(model, boxes, world, subtree, bounds)) {
+        return s7_f(sc);
+    }
+    const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
+    const Vector3 half = Vector3Scale(Vector3Subtract(bounds.max, bounds.min), 0.5f);
+
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    const std::string geoPath = entity.get<GeoSource>().path;
+    Model piece = cloneGeoModelInstance(assets.getGeoModel(geoPath));
+    if (piece.meshCount <= 0 || piece.skeleton.boneCount != boneCount || piece.boneMatrices == nullptr) {
+        unloadClonedGeoModelInstance(piece);
+        return s7_f(sc);
+    }
+    std::vector<std::uint8_t> inside(static_cast<std::size_t>(boneCount), 0);
+    for (int bone : subtree) {
+        inside[static_cast<std::size_t>(bone)] = 1;
+    }
+    const Vector3 cutJoint = model.currentPose[boneIndex].translation;
+    for (int other = 0; other < boneCount; ++other) {
+        if (inside[static_cast<std::size_t>(other)] != 0) {
+            piece.boneMatrices[other] = model.boneMatrices[other];
+            piece.currentPose[other] = model.currentPose[other];
+        } else {
+            piece.boneMatrices[other] = collapsedBoneMatrix(cutJoint);
+        }
+    }
+
+    Vector3 direction = push;
+    if (Vector3LengthSqr(direction) > 1e-8f) {
+        direction = Vector3Normalize(direction);
+    }
+    const Vector3 velocity = Vector3Add(Vector3Scale(direction, speed), Vector3{0.0f, speed * 0.35f, 0.0f});
+    Vector3 angular{randomSigned() * spin * 0.35f, randomSigned() * spin * 0.35f, randomSigned() * spin * 0.35f};
+    const Vector3 tumbleAxis = Vector3CrossProduct({0.0f, 1.0f, 0.0f}, direction);
+    if (Vector3LengthSqr(tumbleAxis) > 1e-6f) {
+        angular = Vector3Add(angular, Vector3Scale(Vector3Normalize(tumbleAxis), spin));
+    } else {
+        angular = Vector3Scale(angular, 1.0f / 0.35f);
+    }
+
+    PhysicsWorld* physics = physicsWorld();
+    trimSeveredPieces(physics);
+
+    const std::string pieceName = "severed-" + std::to_string(++g_severedPieceCounter);
+    LocalTransformation local{};
+    MatrixDecompose(world, &local.position, &local.rotation, &local.scale);
+    GlobalTransformation global{};
+    global.matrix = world;
+    Model3D pieceModel{piece, WHITE};
+    pieceModel.boundsLift = -2.0f;
+    flecs::entity pieceEntity = g_thingWorld->entity(pieceName.c_str())
+                                    .add<WorldSpace>()
+                                    .add<MapOwned>()
+                                    .set<LocalTransformation>(local)
+                                    .set<GlobalTransformation>(global)
+                                    .set<Model3D>(pieceModel)
+                                    .set<GeoSource>({geoPath})
+                                    .set<DebrisBody>({lifetime, 0.0f});
+
+    std::vector<flecs::entity> carried;
+    entity.children([&](flecs::entity child) {
+        if (!child.has<BoneAttachment>()) {
+            return;
+        }
+        const BoneAttachment& attachment = child.get<BoneAttachment>();
+        const int attachedBone = attachment.boneIndex >= 0 ? attachment.boneIndex
+                                                           : findModelBoneIndex(model, attachment.bone);
+        if (attachedBone >= 0 && inside[static_cast<std::size_t>(attachedBone)] != 0) {
+            carried.push_back(child);
+        }
+    });
+    for (flecs::entity child : carried) {
+        child.child_of(pieceEntity);
+    }
+
+    for (int bone : subtree) {
+        hidden.mask[static_cast<std::size_t>(bone)] = 1;
+    }
+    hidden.dirty = true;
+
+    const bool ragdolled = physics != nullptr &&
+        startEntityRagdoll(
+            pieceEntity, piece, world, *physics, boxes, inside, inside, velocity, angular, -1, {}, lifetime);
+    if (!ragdolled) {
+        const Matrix recenter = MatrixMultiply(world, MatrixTranslate(-center.x, -center.y, -center.z));
+        for (int bone : subtree) {
+            piece.boneMatrices[bone] = MatrixMultiply(piece.boneMatrices[bone], recenter);
+            piece.currentPose[bone] =
+                transformFromPoseMatrix(MatrixMultiply(poseTransformMatrix(piece.currentPose[bone]), recenter));
+        }
+        LocalTransformation boxLocal{};
+        boxLocal.position = center;
+        pieceEntity.set<LocalTransformation>(boxLocal);
+        pieceEntity.set<GlobalTransformation>({MatrixTranslate(center.x, center.y, center.z)});
+        if (physics != nullptr) {
+            physics->createDebrisBox(
+                static_cast<std::uint64_t>(pieceEntity.id()), center, half, QuaternionIdentity(), velocity, angular);
+        }
+    }
+    if (!modelUsesGpuSkinning(piece)) {
+        updateSkinnedMeshVertexBuffers(piece);
+    }
+    return s7_make_string(sc, pieceName.c_str());
+}
+
+s7_pointer g_actor_hide_bone(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    std::string boneName;
+    s7_pointer error = nullptr;
+    flecs::entity entity = riggedActor(sc, args, "actor-hide-bone!", boneName, error);
+    if (error != nullptr) {
+        return error;
+    }
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    const Model& model = entity.get<Model3D>().model;
+    const int boneIndex = findModelBoneIndex(model, boneName);
+    HiddenBones* hidden = actorHiddenBones(entity, model.skeleton.boneCount);
+    if (boneIndex < 0 || hidden == nullptr || hidden->mask[static_cast<std::size_t>(boneIndex)] != 0) {
+        return s7_f(sc);
+    }
+    for (int bone : boneSubtree(model, boneIndex)) {
+        hidden->mask[static_cast<std::size_t>(bone)] = 1;
+    }
+    hidden->dirty = true;
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_ragdoll(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-ragdoll!", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    s7_pointer rest = s7_cdr(args);
+    Vector3 push{0.0f, 0.0f, 0.0f};
+    float speed = 3.0f;
+    std::string hitBoneName;
+    float lifetime = 30.0f;
+    if (s7_is_pair(rest) &&
+        (!readNumberArg(sc, rest, push.x, "actor-ragdoll!", 2) ||
+         !readNumberArg(sc, rest, push.y, "actor-ragdoll!", 3) ||
+         !readNumberArg(sc, rest, push.z, "actor-ragdoll!", 4))) {
+        return s7_wrong_type_arg_error(sc, "actor-ragdoll!", 2, rest, "dx dy dz numbers");
+    }
+    if (s7_is_pair(rest) && !readNumberArg(sc, rest, speed, "actor-ragdoll!", 5)) {
+        return s7_wrong_type_arg_error(sc, "actor-ragdoll!", 5, rest, "speed number");
+    }
+    if (s7_is_pair(rest)) {
+        if (s7_is_string(s7_car(rest))) {
+            hitBoneName = s7_string(s7_car(rest));
+        } else if (s7_car(rest) != s7_f(sc)) {
+            return s7_wrong_type_arg_error(sc, "actor-ragdoll!", 6, rest, "hit bone string or #f");
+        }
+        rest = s7_cdr(rest);
+    }
+    if (s7_is_pair(rest) && !readNumberArg(sc, rest, lifetime, "actor-ragdoll!", 7)) {
+        return s7_wrong_type_arg_error(sc, "actor-ragdoll!", 7, rest, "lifetime number");
+    }
+    PhysicsWorld* physics = physicsWorld();
+    if (!entity.is_valid() || physics == nullptr || !entity.has<Model3D>() || !entity.has<GlobalTransformation>() ||
+        entity.has<RagdollRig>()) {
+        return s7_f(sc);
+    }
+    const Model& model = entity.get<Model3D>().model;
+    const int boneCount = model.skeleton.boneCount;
+    if (boneCount <= 0 || model.boneMatrices == nullptr || model.currentPose == nullptr) {
+        return s7_f(sc);
+    }
+    std::vector<std::uint8_t> physical(static_cast<std::size_t>(boneCount), 1);
+    if (const HiddenBones* hidden = actorHiddenBones(entity, boneCount)) {
+        for (int bone = 0; bone < boneCount; ++bone) {
+            physical[static_cast<std::size_t>(bone)] = hidden->mask[static_cast<std::size_t>(bone)] == 0 ? 1 : 0;
+        }
+    }
+    const std::vector<std::uint8_t> follow(static_cast<std::size_t>(boneCount), 1);
+    std::vector<BoneHitbox> scratch;
+    const std::vector<BoneHitbox>& boxes = actorHitboxes(entity, model, scratch);
+    const Matrix world = refreshedGlobal(entity);
+
+    Vector3 direction = push;
+    if (Vector3LengthSqr(direction) > 1e-8f) {
+        direction = Vector3Normalize(direction);
+    }
+    const Vector3 velocity = Vector3Add(Vector3Scale(direction, speed * 0.35f), Vector3{0.0f, speed * 0.1f, 0.0f});
+    const Vector3 hitVelocity = Vector3Scale(direction, speed);
+    const int hitBone = hitBoneName.empty() ? -1 : findModelBoneIndex(model, hitBoneName);
+    if (!startEntityRagdoll(
+            entity, model, world, *physics, boxes, physical, follow, velocity, {0.0f, 0.0f, 0.0f}, hitBone,
+            hitVelocity, lifetime)) {
+        return s7_f(sc);
+    }
+    physics->destroyCharacter(static_cast<std::uint64_t>(entity.id()));
+    if (entity.has<AnimationPlayer>()) {
+        entity.remove<AnimationPlayer>();
+    }
+    if (entity.has<CharacterMotor>()) {
+        CharacterMotor& motor = entity.get_mut<CharacterMotor>();
+        motor.wishX = 0.0f;
+        motor.wishZ = 0.0f;
+    }
+    if (!entity.has<ActorCorpse>()) {
+        entity.add<ActorCorpse>();
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_bone_severed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    std::string boneName;
+    s7_pointer error = nullptr;
+    flecs::entity entity = riggedActor(sc, args, "actor-bone-severed?", boneName, error);
+    if (error != nullptr) {
+        return error;
+    }
+    if (!entity.is_valid() || !entity.has<HiddenBones>()) {
+        return s7_f(sc);
+    }
+    const int boneIndex = findModelBoneIndex(entity.get<Model3D>().model, boneName);
+    const std::vector<std::uint8_t>& mask = entity.get<HiddenBones>().mask;
+    return s7_make_boolean(sc, boneHidden(&mask, boneIndex));
+}
+
+s7_pointer g_actor_bone_pos(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    std::string boneName;
+    s7_pointer error = nullptr;
+    flecs::entity entity = riggedActor(sc, args, "actor-bone-pos", boneName, error);
+    if (error != nullptr) {
+        return error;
+    }
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    const Model& model = entity.get<Model3D>().model;
+    const int boneIndex = findModelBoneIndex(model, boneName);
+    if (boneIndex < 0) {
+        return s7_f(sc);
+    }
+    const Matrix joint = MatrixMultiply(poseTransformMatrix(model.currentPose[boneIndex]), refreshedGlobal(entity));
+    return s7_list(
+        sc, 3, s7_make_real(sc, joint.m12), s7_make_real(sc, joint.m13), s7_make_real(sc, joint.m14));
+}
+
+s7_pointer g_actor_restore_bones(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-restore-bones!", 1, args, "id string");
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<HiddenBones>()) {
+        HiddenBones& hidden = entity.get_mut<HiddenBones>();
+        std::fill(hidden.mask.begin(), hidden.mask.end(), 0);
+        hidden.dirty = true;
+    }
+    return s7_t(sc);
+}
+
 s7_pointer g_actor_grounded(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1537,6 +2289,31 @@ s7_pointer g_actor_grounded(s7_scheme* sc, s7_pointer args) {
     }
     return physics->characterSupported(static_cast<std::uint64_t>(entity.id())) ? s7_t(sc)
                                                                                 : s7_f(sc);
+}
+
+s7_pointer g_actor_jump(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-jump!", 1, args, "id string");
+    }
+    const char* id = s7_string(s7_car(args));
+    s7_pointer rest = s7_cdr(args);
+    float speed = 0.0f;
+    if (!readNumberArg(sc, rest, speed, "actor-jump!", 2)) {
+        return s7_wrong_type_arg_error(sc, "actor-jump!", 2, rest, "speed number");
+    }
+    flecs::entity entity = lookupActor(id);
+    if (!entity.is_valid() || !entity.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_f(sc);
+    }
+    return physics->launchCharacter(static_cast<std::uint64_t>(entity.id()), speed) ? s7_t(sc)
+                                                                                   : s7_f(sc);
 }
 
 s7_pointer g_actor_submerged(s7_scheme* sc, s7_pointer args) {
@@ -2217,6 +2994,44 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
         }
         bestDistance = hit->distance;
         bestHit = *hit;
+        bestEntity = entity;
+    });
+
+    g_thingWorld->each([&](flecs::entity entity, Actor, Model3D& model3d, GlobalTransformation& global) {
+        if (!entity.has<WorldSpace>() || entity.has<ActorCorpse>()) {
+            return;
+        }
+        const Model& model = model3d.model;
+        if (model.skeleton.boneCount <= 0 || model.boneMatrices == nullptr) {
+            return;
+        }
+        if (!tagFilter.empty()) {
+            if (!entity.has<CollisionTags>() || !actorHasTag(entity.get<CollisionTags>(), tagFilter)) {
+                return;
+            }
+        }
+        if (entity.has<LocalTransformation>()) {
+            updateTransform(entity, entity.get_mut<LocalTransformation>(), global);
+        }
+        const Vector3 toActor = Vector3Subtract(Vector3{global.matrix.m12, global.matrix.m13, global.matrix.m14}, origin);
+        const float along = Clamp(Vector3DotProduct(toActor, dir), 0.0f, bestDistance);
+        constexpr float kCullRadius = 4.0f;
+        if (Vector3Length(Vector3Subtract(toActor, Vector3Scale(dir, along))) > kCullRadius) {
+            return;
+        }
+        std::vector<BoneHitbox> scratch;
+        const std::vector<BoneHitbox>& boxes = actorHitboxes(entity, model, scratch);
+        const std::vector<std::uint8_t>* hidden =
+            entity.has<HiddenBones>() ? &entity.get<HiddenBones>().mask : nullptr;
+        const auto hit = raycastModelBones(model, boxes, global.matrix, hidden, ray, bestDistance);
+        if (!hit || hit->distance >= bestDistance) {
+            return;
+        }
+        bestDistance = hit->distance;
+        bestHit = SpriteBillboardHit{};
+        bestHit.distance = hit->distance;
+        bestHit.point = hit->point;
+        bestHit.partName = model.skeleton.bones[hit->bone].name;
         bestEntity = entity;
     });
 
@@ -3185,6 +4000,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(particle-spawn-attach id target path attach)");
     s7_define_function(
         scheme,
+        "particle-spawn-bone",
+        g_particle_spawn_bone,
+        4,
+        1,
+        false,
+        "(particle-spawn-bone id target bone path ['limb|'stump])");
+    s7_define_function(
+        scheme,
         "trail-spawn-fp",
         g_trail_spawn_fp,
         8,
@@ -3199,6 +4022,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         1,
         false,
         "(trail-spawn id sx sy sz ex ey ez path lifetime [width])");
+    s7_define_function(
+        scheme,
+        "tracer-spawn",
+        g_tracer_spawn,
+        6,
+        1,
+        false,
+        "(tracer-spawn sx sy sz ex ey ez [style])");
     s7_define_function(
         scheme,
         "particle-play",
@@ -3281,6 +4112,64 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(actor-spawn id x y z yaw kind path [radius height speed gravity tags-list])");
     s7_define_function(scheme, "actor-pos", g_actor_pos, 1, 0, false, "(actor-pos id)");
     s7_define_function(scheme, "actor-yaw", g_actor_yaw, 1, 0, false, "(actor-yaw id)");
+    s7_define_function(scheme, "actor-set-yaw!", g_actor_set_yaw, 2, 0, false, "(actor-set-yaw! id yaw)");
+    s7_define_function(
+        scheme,
+        "actor-set-bone-scale!",
+        g_actor_set_bone_scale,
+        3,
+        1,
+        false,
+        "(actor-set-bone-scale! id bone size [length])");
+    s7_define_function(
+        scheme, "actor-bone-scale", g_actor_bone_scale, 2, 0, false, "(actor-bone-scale id bone)");
+    s7_define_function(
+        scheme,
+        "actor-sever-bone!",
+        g_actor_sever_bone,
+        2,
+        6,
+        false,
+        "(actor-sever-bone! id bone [dx dy dz] [speed] [spin] [lifetime])");
+    s7_define_function(
+        scheme, "actor-hide-bone!", g_actor_hide_bone, 2, 0, false, "(actor-hide-bone! id bone)");
+    s7_define_function(
+        scheme, "actor-bone-severed?", g_actor_bone_severed, 2, 0, false, "(actor-bone-severed? id bone)");
+    s7_define_function(
+        scheme,
+        "actor-ragdoll!",
+        g_actor_ragdoll,
+        1,
+        6,
+        false,
+        "(actor-ragdoll! id [dx dy dz] [speed] [hit-bone] [lifetime])");
+    s7_define_function(scheme, "actor-bone-pos", g_actor_bone_pos, 2, 0, false, "(actor-bone-pos id bone)");
+    s7_define_function(
+        scheme, "actor-restore-bones!", g_actor_restore_bones, 1, 0, false, "(actor-restore-bones! id)");
+    s7_define_function(
+        scheme,
+        "actor-clear-bone-scales!",
+        g_actor_clear_bone_scales,
+        1,
+        0,
+        false,
+        "(actor-clear-bone-scales! id)");
+    s7_define_function(
+        scheme,
+        "actor-set-shader-param!",
+        g_actor_set_shader_param,
+        2,
+        4,
+        false,
+        "(actor-set-shader-param! id name [x y z w])");
+    s7_define_function(
+        scheme,
+        "actor-clear-shader-params!",
+        g_actor_clear_shader_params,
+        1,
+        0,
+        false,
+        "(actor-clear-shader-params! id)");
     s7_define_function(scheme, "thing-pos", g_thing_pos, 1, 0, false, "(thing-pos id)");
     s7_define_function(scheme, "thing-yaw", g_thing_yaw, 1, 0, false, "(thing-yaw id)");
     s7_define_function(
@@ -3319,6 +4208,8 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(sprite-hide-part! id part-name)");
     s7_define_function(
         scheme, "actor-grounded?", g_actor_grounded, 1, 0, false, "(actor-grounded? id)");
+    s7_define_function(
+        scheme, "actor-jump!", g_actor_jump, 2, 0, false, "(actor-jump! id speed)");
     s7_define_function(
         scheme, "actor-submerged?", g_actor_submerged, 1, 0, false, "(actor-submerged? id)");
     s7_define_function(

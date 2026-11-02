@@ -17,6 +17,7 @@ namespace slopengine {
 /** Precomputed global matrix keyframes for one animation clip. */
 struct AnimClipMatrices {
     std::vector<std::vector<Matrix>> keyframes;
+    std::vector<std::vector<Transform>> localKeyframes;
 };
 
 /** Loaded animation clips and lookup tables for a skeleton. */

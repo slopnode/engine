@@ -52,6 +52,16 @@ struct ViewEyeOffset {
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
+    float roll = 0.0f;
+    float shakeUp = 0.0f;
+    float shakeRight = 0.0f;
+    float shakeRoll = 0.0f;
+};
+
+struct ViewModelOffset {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
 };
 
 /** Detached debug spectator camera, driven independently of the Player entity.

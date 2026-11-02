@@ -32,6 +32,7 @@ struct MaterialAsset {
     float pixelsPerMeter = 64.0f; /**< World texel density (texel-size). */
     float ior = 1.0f; /**< Bake-time index of refraction; 1.0 = no bend. */
     std::string emissionTexture;
+    std::string deformMask;
     Color emissionColor = {0, 0, 0, 255};
     float emissionPower = 0.0f;
     float emissionRange = 0.0f; /**< Max cast distance in world units; 0 = unlimited. */

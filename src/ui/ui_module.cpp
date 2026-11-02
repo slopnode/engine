@@ -77,12 +77,21 @@ void logConsoleMessage(ConsoleState& console, const std::string& message) {
     }
 }
 
+bool debugUiIsLight() {
+    const ImVec4 background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+    return 0.2126f * background.x + 0.7152f * background.y + 0.0722f * background.z > 0.5f;
+}
+
+ImVec4 debugUiColor(ImVec4 onDark, ImVec4 onLight) {
+    return debugUiIsLight() ? onLight : onDark;
+}
+
 ImVec4 consoleLogLineColor(std::string_view line) {
     if (line.rfind("[ERROR]", 0) == 0 || line.rfind("[FATAL]", 0) == 0) {
-        return ImVec4(1.0f, 0.38f, 0.38f, 1.0f);
+        return debugUiColor(ImVec4(1.0f, 0.38f, 0.38f, 1.0f), ImVec4(0.72f, 0.08f, 0.08f, 1.0f));
     }
     if (line.rfind("[WARN]", 0) == 0) {
-        return ImVec4(1.0f, 0.82f, 0.2f, 1.0f);
+        return debugUiColor(ImVec4(1.0f, 0.82f, 0.2f, 1.0f), ImVec4(0.62f, 0.38f, 0.0f, 1.0f));
     }
     if (line.rfind("[TRACE]", 0) == 0 || line.rfind("[DEBUG]", 0) == 0) {
         return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
@@ -1027,29 +1036,29 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
         displayRssMb = processRssMb();
     }
 
-    constexpr ImVec4 kFrameColor{0.45f, 0.85f, 1.0f, 1.0f};
-    constexpr ImVec4 kPhysicsColor{1.0f, 0.70f, 0.30f, 1.0f};
-    constexpr ImVec4 kRenderColor{0.45f, 0.90f, 0.50f, 1.0f};
-    constexpr ImVec4 kUiColor{0.90f, 0.50f, 0.95f, 1.0f};
+    const ImVec4 frameColor = debugUiColor({0.45f, 0.85f, 1.0f, 1.0f}, {0.0f, 0.36f, 0.62f, 1.0f});
+    const ImVec4 physicsColor = debugUiColor({1.0f, 0.70f, 0.30f, 1.0f}, {0.66f, 0.32f, 0.0f, 1.0f});
+    const ImVec4 renderColor = debugUiColor({0.45f, 0.90f, 0.50f, 1.0f}, {0.05f, 0.45f, 0.12f, 1.0f});
+    const ImVec4 uiColor = debugUiColor({0.90f, 0.50f, 0.95f, 1.0f}, {0.52f, 0.12f, 0.60f, 1.0f});
 
     if (ImGui::CollapsingHeader("Timings", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextColored(
-            kFrameColor,
+            frameColor,
             "Frame  %.2f ms  (%.0f FPS)",
             static_cast<double>(displayFrameMs),
             static_cast<double>(displayFps));
-        plotMsHistory("##frameMs", perf, perf.frameHistory, 16.7f, kFrameColor);
+        plotMsHistory("##frameMs", perf, perf.frameHistory, 16.7f, frameColor);
 
         ImGui::TextColored(
-            kPhysicsColor, "Physics  %.2f ms", static_cast<double>(displayPhysicsMs));
-        plotMsHistory("##physicsMs", perf, perf.physicsHistory, 4.0f, kPhysicsColor);
+            physicsColor, "Physics  %.2f ms", static_cast<double>(displayPhysicsMs));
+        plotMsHistory("##physicsMs", perf, perf.physicsHistory, 4.0f, physicsColor);
 
         ImGui::TextColored(
-            kRenderColor, "Render  %.2f ms", static_cast<double>(displayRenderMs));
-        plotMsHistory("##renderMs", perf, perf.renderHistory, 4.0f, kRenderColor);
+            renderColor, "Render  %.2f ms", static_cast<double>(displayRenderMs));
+        plotMsHistory("##renderMs", perf, perf.renderHistory, 4.0f, renderColor);
 
-        ImGui::TextColored(kUiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
-        plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, kUiColor);
+        ImGui::TextColored(uiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
+        plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, uiColor);
     }
 
     if (ImGui::CollapsingHeader("Memory", ImGuiTreeNodeFlags_DefaultOpen)) {

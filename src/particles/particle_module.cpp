@@ -8,7 +8,9 @@
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
+#include "render/bone_attachment.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/model_hitboxes.hpp"
 #include "render/view_sprite_attachment.hpp"
 #include "render/world_sprite_attachment.hpp"
 
@@ -128,7 +130,112 @@ void syncFollowWorldAttachPoints(flecs::world& world) {
     });
 }
 
+Matrix bonePoseMatrix(const Transform& pose) {
+    return MatrixMultiply(
+        MatrixMultiply(MatrixScale(pose.scale.x, pose.scale.y, pose.scale.z), QuaternionToMatrix(pose.rotation)),
+        MatrixTranslate(pose.translation.x, pose.translation.y, pose.translation.z));
+}
+
+bool boneEmitterPose(
+    flecs::entity host,
+    const ParticleFollowBone& follow,
+    Vector3& position,
+    Vector3& direction) {
+    if (!host.is_valid() || !host.has<Model3D>() || !host.has<GlobalTransformation>()) {
+        return false;
+    }
+    const Model& model = host.get<Model3D>().model;
+    if (follow.bone < 0 || follow.bone >= model.skeleton.boneCount || model.currentPose == nullptr ||
+        model.boneMatrices == nullptr) {
+        return false;
+    }
+    const Matrix& world = host.get<GlobalTransformation>().matrix;
+    const Matrix joint = MatrixMultiply(bonePoseMatrix(model.currentPose[follow.bone]), world);
+    position = {joint.m12, joint.m13, joint.m14};
+    direction = {0.0f, 1.0f, 0.0f};
+    if (follow.reference >= 0 && follow.reference < model.skeleton.boneCount) {
+        const Matrix skin = MatrixMultiply(model.boneMatrices[follow.reference], world);
+        const Vector3 center = Vector3Transform(follow.referenceCenter, skin);
+        const Vector3 out = Vector3Subtract(position, center);
+        if (Vector3LengthSqr(out) > 1e-8f) {
+            direction = Vector3Normalize(out);
+        }
+    }
+    return true;
+}
+
+void syncFollowBones(flecs::world& world) {
+    world.each([&](flecs::entity entity,
+                   ParticleFollowBone& follow,
+                   ParticleSystemInstance& instance,
+                   LocalTransformation& local,
+                   GlobalTransformation& global) {
+        if (!instance.playing) {
+            entity.destruct();
+            return;
+        }
+        Vector3 position{};
+        Vector3 direction{};
+        if (!boneEmitterPose(world.entity(static_cast<flecs::entity_t>(follow.host)), follow, position, direction)) {
+            instance.playing = false;
+            return;
+        }
+        writeWorldPoseAimed(local, global, position, direction);
+    });
+}
+
 } // namespace
+
+flecs::entity spawnParticleSystemBone(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity host,
+    std::string_view bone,
+    bool fromParent,
+    std::string_view path,
+    bool mapOwned) {
+    if (!host.is_valid() || !host.has<Model3D>()) {
+        return {};
+    }
+    const Model& model = host.get<Model3D>().model;
+    ParticleFollowBone follow{};
+    follow.host = static_cast<std::uint64_t>(host.id());
+    follow.bone = findModelBoneIndex(model, bone);
+    if (follow.bone < 0) {
+        return {};
+    }
+    std::vector<BoneHitbox> scratch;
+    const std::vector<BoneHitbox>* boxes = nullptr;
+    if (host.has<ModelHitboxes>()) {
+        boxes = &ensureModelHitboxes(model, host.get_mut<ModelHitboxes>());
+    } else {
+        scratch = buildBoneHitboxes(model);
+        boxes = &scratch;
+    }
+    int reference = fromParent ? model.skeleton.bones[follow.bone].parent : follow.bone;
+    while (reference >= 0 &&
+           (static_cast<std::size_t>(reference) >= boxes->size() || !(*boxes)[static_cast<std::size_t>(reference)].valid)) {
+        reference = model.skeleton.bones[reference].parent;
+    }
+    if (reference >= 0) {
+        const BoneHitbox& box = (*boxes)[static_cast<std::size_t>(reference)];
+        follow.reference = reference;
+        follow.referenceCenter = Vector3Scale(Vector3Add(box.min, box.max), 0.5f);
+    }
+    Vector3 position{};
+    Vector3 direction{};
+    if (!boneEmitterPose(host, follow, position, direction)) {
+        return {};
+    }
+    flecs::entity entity =
+        spawnParticleSystemAimed(world, assets, id, position, direction, path, true, mapOwned);
+    if (!entity.is_valid()) {
+        return {};
+    }
+    entity.set<ParticleFollowBone>(follow);
+    return entity;
+}
 
 flecs::entity spawnParticleSystem(
     flecs::world& world,
@@ -255,6 +362,7 @@ void updateParticleSystems(
 
     syncFollowAttachPoints(world);
     syncFollowWorldAttachPoints(world);
+    syncFollowBones(world);
 
     ParticleRaycastFn raycast;
     if (physics != nullptr) {
@@ -340,6 +448,7 @@ void registerParticleModule(flecs::world& world, AssetStore& assets) {
     world.component<ParticleSystemInstance>();
     world.component<ParticleFollowAttachPoint>();
     world.component<ParticleFollowWorldAttachPoint>();
+    world.component<ParticleFollowBone>();
 
     world.system("ParticleSystemUpdate")
         .kind(flecs::OnUpdate)

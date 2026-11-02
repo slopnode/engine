@@ -4,6 +4,7 @@
 #include "assets/skeleton_loader.hpp"
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
+#include "fx/tracer.hpp"
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "game/game_state.hpp"
@@ -132,9 +133,14 @@ void unloadMapScene(flecs::world& world) {
         if (physics != nullptr) {
             physics->clearStaticBrushes();
             physics->clearKinematics();
+            physics->clearDebris();
+            physics->clearProps();
+            physics->clearRagdolls();
             physics->destroyAllCharacters();
         }
     }
+
+    clearTracers(world);
 
     std::vector<flecs::entity> owned;
     world.each([&](flecs::entity entity, MapOwned) {

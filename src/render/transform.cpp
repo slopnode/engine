@@ -5,8 +5,9 @@
 namespace slopengine {
 
 void updateTransform(flecs::entity entity, LocalTransformation& local, GlobalTransformation& global) {
+    const float flipX = entity.has<ViewGeoRoot>() ? -1.0f : 1.0f;
     const Matrix mLocal = MatrixMultiply(
-        MatrixScale(local.scale.x, local.scale.y, local.scale.z),
+        MatrixScale(flipX * local.scale.x, local.scale.y, local.scale.z),
         MatrixMultiply(
             QuaternionToMatrix(local.rotation),
             MatrixTranslate(local.position.x, local.position.y, local.position.z)));

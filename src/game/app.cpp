@@ -24,6 +24,7 @@
 #include "navigation/nav_module.hpp"
 #include "particles/particle_module.hpp"
 #include "fx/trail.hpp"
+#include "fx/tracer.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
 #include "render/underwater_effect.hpp"
@@ -93,6 +94,7 @@ App::App(AppConfig config)
     registerInteractModule(world_);
     registerParticleModule(world_, assetStore_);
     registerTrailModule(world_);
+    registerTracerModule(world_);
     registerRenderModule(world_, assetStore_, config_, scheme_);
     registerLoadingSessionModule(world_);
     registerUnderwaterEffectModule(world_);

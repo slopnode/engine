@@ -1,15 +1,23 @@
 #pragma once
 
+#include "assets/bone_scale.hpp"
 #include "assets/rigged_assets.hpp"
 
 #include <raylib.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string_view>
 #include <vector>
 
 namespace slopengine {
+
+struct AnimClipMatrices;
+
+std::vector<std::vector<Transform>> buildLocalPoseKeyframes(
+    const SkeletonAsset& skeleton,
+    const std::vector<std::vector<Matrix>>& keyframes);
 
 /** Parses a skeleton asset from its text source into @p asset. */
 bool parseSkeletonAsset(std::string_view source, SkeletonAsset& asset);
@@ -42,11 +50,14 @@ void allocateModelSkinningBuffers(Model& model);
 void updateSkinnedMeshVertexBuffers(Model& model);
 
 /** Updates @p model for @p frame of @p anim, optionally using bind pose or matrix keyframes. */
-void updateRiggedModelAnimation(
+PoseScaleResult updateRiggedModelAnimation(
     Model& model,
     const ModelAnimation& anim,
     float frame,
     const std::vector<Matrix>* bindGlobalMatrices,
-    const std::vector<std::vector<Matrix>>* matrixKeyframes);
+    const AnimClipMatrices* matrixClip,
+    bool skinVertices = true,
+    const BoneScale* boneScales = nullptr,
+    const std::uint8_t* hiddenBones = nullptr);
 
 }

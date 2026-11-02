@@ -160,7 +160,7 @@ Vector3 sampleEmitDirection(const ParticleEmitterDef& def, const Matrix& world) 
         }
     }
 
-    if (def.space == ParticleSpace::Local) {
+    if (def.space == ParticleSpace::Local || def.orientDirection) {
         Vector3 worldDir = transformDirection(world, localDir);
         const float len = Vector3Length(worldDir);
         if (len > 1.0e-6f) {
@@ -204,6 +204,7 @@ void spawnParticle(ParticleEmitterRuntime& emitter, const Matrix& world) {
     p.size0 = std::max(0.001f, sampleRange(emitter.def.size));
     p.color0 = sampleColor(emitter.def.color);
     p.bounceCount = 0;
+    p.stuck = false;
     p.alive = true;
     ++emitter.aliveCount;
 }
@@ -253,6 +254,9 @@ void integrateEmitter(
             continue;
         }
 
+        if (p.stuck) {
+            continue;
+        }
         p.velocity.y -= emitter.def.gravity * dt;
         const Vector3 delta = Vector3Scale(p.velocity, dt);
         const float moveLen = Vector3Length(delta);
@@ -275,6 +279,12 @@ void integrateEmitter(
         if (emitter.def.dieOnHit) {
             p.alive = false;
             --emitter.aliveCount;
+            continue;
+        }
+        if (emitter.def.stickOnHit) {
+            p.position = Vector3Add(hit->point, Vector3Scale(hit->normal, 0.005f));
+            p.velocity = {0.0f, 0.0f, 0.0f};
+            p.stuck = true;
             continue;
         }
 

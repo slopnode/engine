@@ -221,9 +221,26 @@ Returns the player's current horizontal speed, in world units per second.
 <pre><code class="language-scheme">(player-speed) ↵ real?
 </code></pre>
 
+### player-velocity {#player-velocity}
+Returns the player's physics velocity as `(vx vy vz)`, in world units per second. Physics runs on a fixed step, so this is steadier than differencing `player-pose` between frames.
+<pre><code class="language-scheme">(player-velocity) ↵ (list real? real? real?)
+</code></pre>
+
 ### player-grounded? {#player-grounded}
 Checks whether the player's character motor is on the ground.
 <pre><code class="language-scheme">(player-grounded?) ↵ boolean?
+</code></pre>
+
+### player-jump! {#player-jump}
+Launches the player upward at `speed` meters per second if they are standing on something, keeping their horizontal velocity. Returns \#f when the player is airborne or has no physics body.
+<pre><code class="language-scheme">(player-jump!
+  speed : real?) ↵ boolean?
+</code></pre>
+
+### player-set-gravity! {#player-set-gravity}
+Sets the downward acceleration of the player's character motor in meters per second squared. The default is 9.81. Raising it together with the `player-jump!` speed gives a jump of the same height with less hang time. Returns \#f when there is no player.
+<pre><code class="language-scheme">(player-set-gravity!
+  gravity : real?) ↵ boolean?
 </code></pre>
 
 ### player-wish-speed {#player-wish-speed}
@@ -661,6 +678,14 @@ Removes a geo hung with `fp-attach-held`, along with anything hung on it. `path`
   name : string?) ↵ boolean?
 </code></pre>
 
+### fp-point {#fp-point}
+Returns where a point on a first-person geo is in the world, as `(x y z)`, or `#f` when `path` names nothing. `path` names a socket's geo or one hung under it, such as `"weapon/held"`, and the point is in that geo's own space, the origin when left out. A weapon's muzzle measured on its geo gives a world-space start for `tracer-spawn` that follows the gun through recoil and sway.
+<pre><code class="language-scheme">(fp-point
+  path : string?
+  [x, y, z] : real?)
+  ↵ list? or #f
+</code></pre>
+
 ### fp-attach-sprite {#fp-attach-sprite}
 Attaches a sprite to a first-person socket, with an optional starting clip and an explicit canvas position.
 <pre><code class="language-scheme">(fp-attach-sprite
@@ -784,6 +809,57 @@ Sets the package's view-space eye offset, in meters.
   x, y, z : real?) ↵ boolean?
 </code></pre>
 
+### fp-set-view-roll {#fp-set-view-roll}
+Rolls the presentation camera about its view direction, in radians. A positive roll tilts the view toward the right. First-person geo is drawn from its own unrolled camera, so it stays put on screen while the world tilts, the way a Quake strafe roll looks.
+<pre><code class="language-scheme">(fp-set-view-roll
+  roll : real?) ↵ boolean?
+</code></pre>
+
+### fp-set-view-offset {#fp-set-view-offset}
+Moves the whole first-person scene in view space, in meters, with +z pointing forward. Weapon bob is driven by setting it every frame.
+<pre><code class="language-scheme">(fp-set-view-offset
+  x, y, z : real?) ↵ boolean?
+</code></pre>
+
+### fp-recoil-tune! {#fp-recoil-tune}
+Sets how the player's recoil springs behave, usually once per weapon when it is raised. Keys left out take their defaults. `aim-*` tunes the aim punch, `kick-*` the first-person scene sliding back, lifting and sideways, and `twist-*` its rise, turn and roll about `pivot`, a view-space point in meters. Frequencies are in hertz and dampings are ratios from 0.05 to 1. `climb-time` is how long in seconds climb takes to reach the look angles. `recovery` is the fraction of climb that returns once `recovery-delay` seconds pass without a kick, over about `recovery-time` seconds. `shake-angle` is the largest camera shake in degrees, `shake-decay` how much shake fades per second and `shake-frequency` how fast it wobbles.
+<pre><code class="language-scheme">(fp-recoil-tune!
+  alist : alist?) ↵ boolean?
+</code></pre>
+
+Defaults:
+
+| Key | Default |
+| --- | --- |
+| `aim-frequency`, `aim-damping` | 9, 0.7 |
+| `kick-frequency`, `kick-damping` | 12, 0.5 |
+| `twist-frequency`, `twist-damping` | 9, 0.45 |
+| `climb-time` | 0.04 |
+| `recovery`, `recovery-delay`, `recovery-time` | 0, 0.12, 0.25 |
+| `pivot` | 0 -0.08 0.25 |
+| `shake-angle`, `shake-decay`, `shake-frequency` | 1.4, 3, 16 |
+
+<pre><code class="language-scheme">(fp-recoil-tune!
+  '((aim-frequency . 10) (kick-frequency . 14) (recovery . 0.45)
+    (pivot 0.0 -0.1 0.2)))
+</code></pre>
+
+### fp-recoil-kick! {#fp-recoil-kick}
+Adds one shot's recoil. Angles are degrees and lengths are meters, and each spring amount is roughly the peak a single kick reaches from rest. `punch-up` and `punch-right` jolt the aim and spring back. `climb-up` and `climb-right` move the aim for good, eased in over `climb-time`, for the player to pull back down. Both change where `player-look-dir` points, while mouse look keeps working on top. `back`, `lift` and `side` move the first-person scene, and `rise`, `turn` and `roll` swing it about the pivot. `shake` adds camera shake from 0 to 1, which moves only the world view, not the aim or the first-person scene.
+<pre><code class="language-scheme">(fp-recoil-kick!
+  alist : alist?) ↵ boolean?
+</code></pre>
+
+<pre><code class="language-scheme">(fp-recoil-kick!
+  '((punch-up . 0.7) (climb-up . 0.55) (climb-right . 0.1)
+    (back . 0.02) (rise . 2.2) (roll . -0.8) (shake . 0.06)))
+</code></pre>
+
+### fp-recoil-reset! {#fp-recoil-reset}
+Settles every recoil spring, pending climb and shake at once, keeping the tuning. Aim already moved by punch or climb stays where it is.
+<pre><code class="language-scheme">(fp-recoil-reset!) ↵ boolean?
+</code></pre>
+
 ### fp-set-weapon-hidden! {#fp-set-weapon-hidden}
 Hides or shows the viewmodel weapon.
 <pre><code class="language-scheme">(fp-set-weapon-hidden!
@@ -816,6 +892,12 @@ Sets the HUD drawing origin (e.g. `'top-left`, `'top-right`, `'center`).
 Sets the font used for subsequent HUD text drawing.
 <pre><code class="language-scheme">(hud-font
   path : string?) ↵ boolean?
+</code></pre>
+
+### hud-text-align {#hud-text-align}
+Sets how subsequent `hud-text` calls sit on their x position: `'left` starts the text there, `'right` ends it there and `'center` centers it. Resets to `'left` every frame.
+<pre><code class="language-scheme">(hud-text-align
+  symbol : symbol?) ↵ boolean?
 </code></pre>
 
 ### hud-rect {#hud-rect}
@@ -1204,6 +1286,14 @@ Spawns a particle system attached to an existing thing.
   ↵ boolean?
 </code></pre>
 
+### particle-spawn-bone {#particle-spawn-bone}
+Spawns a particle system on a bone joint of a rigged thing, an actor or a severed part, and keeps it there as the bone moves. It points out of the limb, from the middle of the bone's hitbox through the joint, or out of the stump with `'stump`, from the middle of the parent's hitbox through the joint, which suits a joint whose bone was cut off. Emitters need `(orient #t)` to spray that way. The system stops when its host is removed.
+<pre><code class="language-scheme">(particle-spawn-bone
+  id, target, bone, path : string?
+  [mode] : symbol? = 'limb)
+  ↵ boolean?
+</code></pre>
+
 ### trail-spawn-fp {#trail-spawn-fp}
 Spawns a trail effect anchored to a first-person socket, stretching toward a world-space endpoint.
 <pre><code class="language-scheme">(trail-spawn-fp
@@ -1227,6 +1317,31 @@ Spawns a world-space trail effect between two points.
   lifetime : real?
   [width] : real?)
   ↵ boolean?
+</code></pre>
+
+### tracer-spawn {#tracer-spawn}
+Fires a tracer streak from one world point to another. It is drawn additively, travels at `speed` meters per second, and is gone once its tail reaches the end point. It is only a visual and hits nothing, so a hitscan weapon traces its shot as usual and spawns a tracer from the muzzle to the hit point. Style keys left out take their defaults. `length` is the streak length and `width` the half width of its bright core in meters, with `glow-width` the half width of the softer glow around it. `min-pixels` keeps the core at least that many pixels wide however far away it is. The streak brightens from `tail-alpha` at its tail to full at its head. `lead` starts the head that many meters along the path. Colors are `r g b` with an optional alpha, from 0 to 255.
+<pre><code class="language-scheme">(tracer-spawn
+  sx, sy, sz : real?
+  ex, ey, ez : real?
+  [style] : alist?)
+  ↵ boolean?
+</code></pre>
+
+| Key | Default |
+| --- | --- |
+| `speed` | 240 |
+| `length` | 1.8 |
+| `width`, `glow-width` | 0.02, 0.09 |
+| `min-pixels` | 1.5 |
+| `tail-alpha` | 0 |
+| `color` | 255 240 190 255 |
+| `glow-color` | 255 140 30 150 |
+| `lead` | 0 |
+
+<pre><code class="language-scheme">(let ((muzzle (fp-point "weapon/held" 0.0 0.076 0.692)))
+  (tracer-spawn (car muzzle) (cadr muzzle) (caddr muzzle) hx hy hz
+                '((speed . 280) (length . 2.2) (color 255 240 180))))
 </code></pre>
 
 ### particle-play {#particle-play}
@@ -1306,12 +1421,12 @@ Sets an existing dynamic light's color via hue/saturation/value.
 ## Actors {#script-actors}
 
 ### actor-spawn {#actor-spawn}
-Spawns a package-driven actor.
+Spawns a package-driven actor. `kind` is `"sprite"` or `"geo"`.
 <pre><code class="language-scheme">(actor-spawn
   id : string?
   x, y, z : real?
   yaw : real?
-  kind : symbol?
+  kind : string?
   path : string?
   [radius, height] : real?
   [speed, gravity] : real?
@@ -1329,6 +1444,102 @@ Returns an actor's world position as `(x y z)`.
 Returns an actor's yaw, in radians.
 <pre><code class="language-scheme">(actor-yaw
   id : string?) ↵ real?
+</code></pre>
+
+### actor-set-yaw! {#actor-set-yaw}
+Turns an actor to face a yaw, in radians. A sprite actor's facing and a geo actor's rotation are both set, and a geo actor otherwise keeps the yaw it was placed with.
+<pre><code class="language-scheme">(actor-set-yaw!
+  id : string?
+  yaw : real?)
+  ↵ boolean?
+</code></pre>
+
+### actor-set-bone-scale! {#actor-set-bone-scale}
+Changes the proportions of one bone on a skinned geo actor, on top of whatever clip it plays. `size` scales the bone's own part and pushes the joints of its children out by the same amount, while the children keep their size. `length` stretches the part and its children's joints along the bone only. A size and length of 1 remove the bone's scale. When a leg changes, the whole body is raised or lowered so the lowest foot stays on the ground. Returns \#f when the actor has no such bone.
+<pre><code class="language-scheme">(actor-set-bone-scale!
+  id : string?
+  bone : string?
+  size : real?
+  [length : real? = 1])
+  ↵ boolean?
+</code></pre>
+
+### actor-bone-scale {#actor-bone-scale}
+Reads a bone's scale as `(size length)`, which is `(1 1)` for a bone without one. Returns \#f when the actor has no such bone.
+<pre><code class="language-scheme">(actor-bone-scale
+  id : string?
+  bone : string?)
+  ↵ (or list? boolean?)
+</code></pre>
+
+### actor-clear-bone-scales! {#actor-clear-bone-scales}
+Removes every bone scale from an actor, including those its thing-def gave it.
+<pre><code class="language-scheme">(actor-clear-bone-scales!
+  id : string?)
+  ↵ boolean?
+</code></pre>
+
+### actor-set-shader-param! {#actor-set-shader-param}
+Sets a `vec4` uniform for one geo actor's draws, read by the model deform hook described on the @ref assets page. `name` is the uniform as the shader declares it, and an array element such as `"jiggle[2]"` works too. Missing components are 0. The value is uploaded just before the actor draws, in the world and shadow passes, and set back to zero afterwards, so other models never see it. Returns \#f when the actor has no geo.
+<pre><code class="language-scheme">(actor-set-shader-param!
+  id : string?
+  name : string?
+  [x y z w : real? = 0])
+  ↵ boolean?
+</code></pre>
+
+### actor-clear-shader-params! {#actor-clear-shader-params}
+Removes every shader param from an actor.
+<pre><code class="language-scheme">(actor-clear-shader-params!
+  id : string?)
+  ↵ boolean?
+</code></pre>
+
+### actor-sever-bone! {#actor-sever-bone}
+Cuts a bone and everything below it off a rigged actor. The actor's copy of those bones collapses to the cut joint, and a new entity carrying just that part takes over from the same pose and flies off as a small ragdoll, so a cut arm still bends at the elbow. It collides only with world geometry, not with characters, other severed parts, linescans or sight. A part whose bones have no vertices falls back to a single tumbling box. Geo hung on the cut bones, such as a held weapon, goes with the part. `dx dy dz` is the push direction, `speed` its speed in meters a second plus a little lift, `spin` how fast in radians a second it tumbles end over end away from the push, with some random wobble on top and `lifetime` how many seconds the part stays. The oldest part is removed once 48 exist. Returns the part's id, or \#f when the bone is unknown or already cut.
+<pre><code class="language-scheme">(actor-sever-bone!
+  id, bone : string?
+  [dx dy dz] : real? = 0
+  [speed] : real? = 3
+  [spin] : real? = 6
+  [lifetime] : real? = 20)
+  ↵ (or string? \#f)
+</code></pre>
+
+### actor-hide-bone! {#actor-hide-bone}
+Hides a bone and everything below it on a rigged actor, the way `actor-sever-bone!` does, but drops nothing. The hidden bones collapse, take no hits and get no parts in a later `actor-ragdoll!`, and `actor-restore-bones!` brings them back. Useful for props built into a rig that should vanish when the actor dies. Returns \#f when the bone is unknown or already hidden.
+<pre><code class="language-scheme">(actor-hide-bone!
+  id, bone : string?) ↵ boolean?
+</code></pre>
+
+### actor-ragdoll! {#actor-ragdoll}
+Hands a rigged actor over to physics. Its animation stops, its collider is removed, it becomes a corpse, and each bone with vertices becomes a box from its hitbox, jointed to its parent with swing and twist limits picked from the bone's name, such as elbows, knees, shoulders and the neck. Bones without vertices follow their nearest jointed parent, and cut bones stay hidden. The whole body moves along `dx dy dz` at a third of `speed`, and `hit-bone`'s part, or its nearest jointed parent's, takes the full `speed`, so a shot knee kicks the leg out. The parts collide only with world geometry. At most 16 ragdolls simulate at once, the oldest freezing in place first, and each freezes after `lifetime` seconds. Returns \#f when the actor has no rig or is already a ragdoll.
+<pre><code class="language-scheme">(actor-ragdoll!
+  id : string?
+  [dx dy dz] : real? = 0
+  [speed] : real? = 3
+  [hit-bone] : (or string? \#f) = \#f
+  [lifetime] : real? = 30)
+  ↵ boolean?
+</code></pre>
+
+### actor-bone-severed? {#actor-bone-severed}
+Checks whether a bone of an actor has been cut off by `actor-sever-bone!`.
+<pre><code class="language-scheme">(actor-bone-severed?
+  id, bone : string?) ↵ boolean?
+</code></pre>
+
+### actor-restore-bones! {#actor-restore-bones}
+Shows every bone `actor-sever-bone!` hid on an actor again. Parts already cut off stay where they are.
+<pre><code class="language-scheme">(actor-restore-bones!
+  id : string?) ↵ boolean?
+</code></pre>
+
+### actor-bone-pos {#actor-bone-pos}
+Returns the world position of a bone's joint on a rigged actor as `(x y z)`, or \#f.
+<pre><code class="language-scheme">(actor-bone-pos
+  id, bone : string?)
+  ↵ (or (list real? real? real?) \#f)
 </code></pre>
 
 ### actor-set-wish {#actor-set-wish}
@@ -1373,6 +1584,14 @@ Hides a named part of an actor's multi-part sprite.
 Checks whether an actor is currently grounded.
 <pre><code class="language-scheme">(actor-grounded?
   id : string?) ↵ boolean?
+</code></pre>
+
+### actor-jump! {#actor-jump}
+Launches a grounded actor upward at `speed` meters per second, keeping its horizontal velocity. Gravity and the actor's wish carry it from there. Returns \#f when the actor does not exist or is not standing on anything.
+<pre><code class="language-scheme">(actor-jump!
+  id : string?
+  speed : real?)
+  ↵ boolean?
 </code></pre>
 
 ### actor-submerged? {#actor-submerged}
@@ -1517,7 +1736,7 @@ Floods a gameplay sound outward through the map's navigation graph; returns `(id
 </code></pre>
 
 ### hitscan-actors {#hitscan-actors}
-Linescans for the nearest actor hit along a ray; returns `(id part distance x y z)` or \#f.
+Linescans for the nearest actor hit along a ray; returns `(id part distance x y z)` or \#f. Sprite actors are hit on their billboard and `part` names the sprite part. Rigged geo actors are hit on per-bone boxes built from the vertices each bone carries most weight for, posed with the actor, and `part` names the bone. Bones cut off with `actor-sever-bone!` and corpses are skipped.
 <pre><code class="language-scheme">(hitscan-actors
   ox, oy, oz : real?
   dx, dy, dz : real?
@@ -1689,9 +1908,9 @@ Checks whether an actor currently has a planned path.
 </code></pre>
 
 ### nav-path-direction {#nav-path-direction}
-Returns the normalized direction from an actor toward its current waypoint (or, once past the last waypoint, straight at the goal), or \#f if the actor has no path or its goal is known-unreachable.
+Returns the normalized horizontal direction from an actor toward its current waypoint (or, once past the last waypoint, straight at the goal) as `(dx dz)`, or \#f if the actor has no path or its goal is known-unreachable.
 <pre><code class="language-scheme">(nav-path-direction
-  id : string?) ↵ (or (list real? real? real?) \#f)
+  id : string?) ↵ (or (list real? real?) \#f)
 </code></pre>
 
 ### nav-path-altitude {#nav-path-altitude}

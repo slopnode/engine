@@ -84,4 +84,16 @@ struct Actor {};
  */
 struct ActorCorpse {};
 
+/** Entity posed each frame from a PhysicsWorld debris box, removed after @p lifetime seconds.
+ *  @ingroup physics_components
+ */
+struct DebrisBody {
+    float lifetime = 20.0f;
+    float age = 0.0f;
+};
+
+struct PropCollision {
+    unsigned int boxes = 0;
+};
+
 }

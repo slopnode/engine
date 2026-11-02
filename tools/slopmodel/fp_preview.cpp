@@ -62,7 +62,7 @@ void FpPreview::draw(
     BeginMode3D(eyeCam);
     rlScalef(-1.0f, 1.0f, 1.0f);
     rlDisableBackfaceCulling();
-    const Matrix placement = viewPlacementMatrix(editor.doc.geo.view);
+    const Matrix placement = MatrixMultiply(MatrixScale(-1.0f, 1.0f, 1.0f), viewPlacementMatrix(editor.doc.geo.view));
     drawEditorScene(editor, placement, &shaded, scene);
     rlEnableBackfaceCulling();
     EndMode3D();

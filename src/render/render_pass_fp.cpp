@@ -316,7 +316,8 @@ void drawFirstPersonPass(
                     modelEntity,
                     model.model,
                     MatrixMultiply(global.matrix, worldFromView),
-                    modelLighting)) {
+                    modelLighting,
+                    &lens.camera.position)) {
                 modelLighting.viewSpace = true;
                 modelLighting.worldFromView = worldFromView;
                 renderWorldModel(modelEntity, model, global, lens, unlit, nullptr, nullptr, &modelLighting);

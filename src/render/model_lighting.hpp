@@ -39,6 +39,10 @@ struct ModelLightTrack {
 struct ModelLightEntityTrack {
     std::vector<ModelLightTrack> lights;
     double lastTime = 0.0;
+    std::vector<std::pair<flecs::entity_t, float>> visibility;
+    Vector3 visibilityCenter{};
+    double visibilityTime = 0.0;
+    bool visibilityValid = false;
 };
 
 struct ModelLightingState {
@@ -71,7 +75,8 @@ bool computeModelLighting(
     flecs::entity entity,
     const Model& model,
     const Matrix& globalMatrix,
-    ModelLightingUniforms& out);
+    ModelLightingUniforms& out,
+    const Vector3* samplePoint = nullptr);
 
 Matrix firstPersonWorldFromView(const Camera3D& camera);
 

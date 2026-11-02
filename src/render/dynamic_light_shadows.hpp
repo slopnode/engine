@@ -64,6 +64,7 @@ struct DynamicLightFrameState {
     DynamicLightShaderBindings bindings{};
     /** True when shadow maps were rendered this frame and may be sampled. */
     bool shadowMapsActive = false;
+    unsigned int uploadedShaderId = 0;
 };
 
 /** Creates shadow render targets and the depth shader at @p resolution (clamped to

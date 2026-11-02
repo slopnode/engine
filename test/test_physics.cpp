@@ -12,6 +12,8 @@
 #include <limits>
 #include <vector>
 
+#include <raymath.h>
+
 namespace slopengine {
 namespace {
 
@@ -855,6 +857,60 @@ void runResizeCharacterTests() {
 
 } // namespace
 
+void runPropCollisionTests() {
+    constexpr std::uint64_t kPropId = 21;
+    constexpr std::uint64_t kOnSeat = 22;
+    constexpr std::uint64_t kOnFloor = 23;
+    constexpr std::uint64_t kCharId = 24;
+    const Brush floor = makeBrushBox("floor", {-4.0f, -0.25f, -4.0f}, {4.0f, 0.0f, 4.0f}, "mat/a", {});
+    const std::vector<PropBox> chair = {
+        {{-0.34f, 0.0f, -0.56f}, {0.34f, 0.37f, -0.12f}},
+        {{-0.34f, 0.37f, -0.56f}, {0.34f, 0.96f, -0.505f}},
+    };
+    const Quaternion yaw = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, PI * 0.5f);
+
+    PhysicsWorld world;
+    world.addStaticBrushes({floor});
+    world.createPropBoxes(kPropId, {0.0f, 0.0f, 0.0f}, yaw, {1.0f, 1.0f, 1.0f}, chair);
+    CHECK(world.hasProp(kPropId));
+    CHECK(world.propBoxCount(kPropId) == 2);
+
+    const Vector3 half{0.05f, 0.05f, 0.05f};
+    world.createDebrisBox(kOnSeat, {-0.34f, 1.0f, 0.0f}, half, QuaternionIdentity(), {}, {});
+    world.createDebrisBox(kOnFloor, {0.8f, 1.0f, 0.0f}, half, QuaternionIdentity(), {}, {});
+    constexpr std::uint64_t kControlId = 25;
+    CharacterMotor motor{};
+    CharacterMotor control{};
+    world.createCharacter(kCharId, -0.34f, 0.05f, 0.0f, motor);
+    world.createCharacter(kControlId, 2.5f, 0.05f, 2.5f, control);
+    for (int i = 0; i < 180; ++i) {
+        CharacterStep seated{};
+        seated.id = kCharId;
+        seated.motor = &motor;
+        CharacterStep away{};
+        away.id = kControlId;
+        away.motor = &control;
+        world.update(kFixedDt, {seated, away});
+    }
+
+    Vector3 center{};
+    Quaternion rotation{};
+    CHECK(world.debrisPose(kOnSeat, center, rotation));
+    CHECK(std::fabs(center.y - 0.42f) < 0.03f);
+    CHECK(world.debrisPose(kOnFloor, center, rotation));
+    CHECK(std::fabs(center.y - 0.05f) < 0.03f);
+    const float onChair = static_cast<float>(world.characterPosition(kCharId).GetY());
+    const float onFloor = static_cast<float>(world.characterPosition(kControlId).GetY());
+    CHECK(std::fabs(onChair - onFloor) < 0.01f);
+    CHECK(std::fabs(static_cast<float>(world.characterPosition(kCharId).GetX()) + 0.34f) < 0.01f);
+
+    world.destroyProp(kPropId);
+    CHECK(!world.hasProp(kPropId));
+    world.createPropBoxes(kPropId, {0.0f, 0.0f, 0.0f}, yaw, {1.0f, 1.0f, 1.0f}, chair);
+    world.clearProps();
+    CHECK(!world.hasProp(kPropId));
+}
+
 void runPhysicsTests() {
     runAutoCloseTests();
     runKinematicTests();
@@ -865,6 +921,7 @@ void runPhysicsTests() {
     runFlightTests();
     runSwimClimbTests();
     runResizeCharacterTests();
+    runPropCollisionTests();
 }
 
 }

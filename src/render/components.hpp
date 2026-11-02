@@ -3,8 +3,13 @@
 #include <raylib.h>
 #include <raymath.h>
 
+#include "assets/bone_scale.hpp"
+
+#include <algorithm>
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace slopengine {
 
@@ -33,6 +38,8 @@ struct WorldSpace {};
  *  @ingroup render_components
  */
 struct ViewSpace {};
+
+struct ViewGeoRoot {};
 
 /** Package view canvas in virtual pixels (from data/view.s7 *view-canvas*).
  *  @ingroup render_components
@@ -114,7 +121,47 @@ struct Model3D {
     Model model = {};
     Color color = WHITE;
     bool ownsGpu = false;
+    BoundingBox meshBounds = {};
+    const Mesh* meshBoundsSource = nullptr;
+    int meshBoundsCount = 0;
+    float boundsSpread = 1.0f;
+    float boundsLift = 0.0f;
 };
+
+struct BoneScales {
+    NamedBoneScales named;
+    std::vector<BoneScale> resolved;
+    const BoneInfo* resolvedFor = nullptr;
+    bool dirty = true;
+};
+
+struct ShaderParams {
+    std::vector<std::pair<std::string, Vector4>> values;
+};
+
+inline BoundingBox modelLocalBounds(Model3D& model3d) {
+    const Model& model = model3d.model;
+    if (model3d.meshBoundsSource != model.meshes || model3d.meshBoundsCount != model.meshCount) {
+        Model untransformed = model;
+        untransformed.transform = MatrixIdentity();
+        model3d.meshBounds = GetModelBoundingBox(untransformed);
+        model3d.meshBoundsSource = model.meshes;
+        model3d.meshBoundsCount = model.meshCount;
+    }
+    BoundingBox bounds = model3d.meshBounds;
+    if (model3d.boundsSpread != 1.0f || model3d.boundsLift != 0.0f) {
+        const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
+        const Vector3 half = Vector3Scale(Vector3Subtract(bounds.max, bounds.min), 0.5f * model3d.boundsSpread);
+        bounds.min = Vector3Subtract(center, half);
+        bounds.max = Vector3Add(center, half);
+        bounds.min.y += std::min(model3d.boundsLift, 0.0f);
+        bounds.max.y += std::max(model3d.boundsLift, 0.0f);
+    }
+    return {
+        Vector3Transform(bounds.min, model.transform),
+        Vector3Transform(bounds.max, model.transform),
+    };
+}
 
 /** The geometry asset a Model3D was built from, so attachments and view defaults can be
  *  looked up by name later.

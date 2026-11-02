@@ -272,7 +272,34 @@ s7_pointer g_hud_text(s7_scheme* sc, s7_pointer args) {
     cmd.color = color;
     cmd.text = text;
     cmd.fontPath = list->fontPath;
+    cmd.align = list->textAlign;
     list->commands.push_back(std::move(cmd));
+    return s7_t(sc);
+}
+
+s7_pointer g_hud_text_align(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::HudDraw)) {
+        return s7_f(sc);
+    }
+    HudDrawList* list = hudList();
+    if (list == nullptr) {
+        return s7_f(sc);
+    }
+    const char* name = nullptr;
+    if (s7_is_pair(args) && s7_is_symbol(s7_car(args))) {
+        name = s7_symbol_name(s7_car(args));
+    } else if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+        name = s7_string(s7_car(args));
+    }
+    if (name != nullptr && std::strcmp(name, "left") == 0) {
+        list->textAlign = HudTextAlign::Left;
+    } else if (name != nullptr && std::strcmp(name, "center") == 0) {
+        list->textAlign = HudTextAlign::Center;
+    } else if (name != nullptr && std::strcmp(name, "right") == 0) {
+        list->textAlign = HudTextAlign::Right;
+    } else {
+        return s7_wrong_type_arg_error(sc, "hud-text-align", 1, args, "'left, 'center or 'right");
+    }
     return s7_t(sc);
 }
 
@@ -354,6 +381,8 @@ void bindHudApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "hud-image", g_hud_image, 3, 6, false,
                        "(hud-image tex-path x y [w h] [r g b a])");
     s7_define_function(scheme, "hud-text", g_hud_text, 4, 4, false, "(hud-text str x y size [r g b a])");
+    s7_define_function(scheme, "hud-text-align", g_hud_text_align, 1, 0, false,
+                       "(hud-text-align symbol)");
     s7_define_function(scheme, "hud-draw-eye", g_hud_draw_eye, 4, 1, false,
                        "(hud-draw-eye x y w h [mask-path])");
 }

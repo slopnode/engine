@@ -8,6 +8,7 @@
 #include "map/light_sample.hpp"
 #include "map/pvs.hpp"
 #include "particles/particle_sim.hpp"
+#include "render/gpu_skinning.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
@@ -23,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -41,8 +43,23 @@ constexpr float kDetailMeshPolygonOffsetUnits = 2.0f;
 constexpr float kTransparentMeshPolygonOffsetFactor = -1.0f;
 constexpr float kTransparentMeshPolygonOffsetUnits = -2.0f;
 
-const MapLightmapState* mapLightmapState(flecs::world& world) {
+flecs::entity mapStaticEntity(flecs::world& world) {
+    static const ecs_world_t* cachedWorld = nullptr;
+    static flecs::entity_t cachedId = 0;
+    if (cachedWorld == world.c_ptr() && cachedId != 0 && world.is_alive(cachedId)) {
+        const char* name = ecs_get_name(world.c_ptr(), cachedId);
+        if (name != nullptr && std::strcmp(name, "MapStatic") == 0) {
+            return world.entity(cachedId);
+        }
+    }
     flecs::entity mapEntity = world.lookup("MapStatic");
+    cachedWorld = world.c_ptr();
+    cachedId = mapEntity.is_valid() ? mapEntity.id() : 0;
+    return mapEntity;
+}
+
+const MapLightmapState* mapLightmapState(flecs::world& world) {
+    flecs::entity mapEntity = mapStaticEntity(world);
     if (!mapEntity.is_valid() || !mapEntity.has<MapLightmapState>()) {
         return nullptr;
     }
@@ -57,10 +74,11 @@ void uploadLightmapDynamicLights(flecs::world& world, Shader shader) {
     if (shader.id == 0 || !world.has<DynamicLightFrameState>()) {
         return;
     }
-    const DynamicLightFrameState& frame = world.get<DynamicLightFrameState>();
-    if (!frame.bindings.resolved) {
+    DynamicLightFrameState& frame = world.get_mut<DynamicLightFrameState>();
+    if (!frame.bindings.resolved || frame.uploadedShaderId == shader.id) {
         return;
     }
+    frame.uploadedShaderId = shader.id;
     const DynamicLightShadowState* shadows = nullptr;
     if (frame.shadowMapsActive && world.has<DynamicLightShadowState>()) {
         const DynamicLightShadowState& shadowState = world.get<DynamicLightShadowState>();
@@ -125,7 +143,8 @@ void drawModelMeshes(
     const std::unordered_set<int>* polygonOffsetBackMeshIndices,
     const std::unordered_set<int>* twoSidedMeshIndices = nullptr,
     int emissionPowerLoc = -1,
-    Color tint = WHITE) {
+    Color tint = WHITE,
+    Shader skinFallback = {}) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -154,7 +173,7 @@ void drawModelMeshes(
                 SHADER_UNIFORM_FLOAT);
         }
         const Color originalDiffuse = tintMeshDiffuse(material, tint);
-        DrawMesh(model.meshes[meshIndex], material, MatrixIdentity());
+        drawModelMesh(model, meshIndex, material, skinFallback);
         material.maps[MATERIAL_MAP_ALBEDO].color = originalDiffuse;
         if (twoSided) {
             rlEnableBackfaceCulling();
@@ -300,6 +319,7 @@ void renderWorldModel(
     const ModelLightingUniforms* modelLighting) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
+    setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
 
     flecs::world world = entity.world();
     std::vector<Shader> previousShaders;
@@ -307,6 +327,11 @@ void renderWorldModel(
     const MapLightmapState* mapLightmaps = nullptr;
     const int mapUseLightmap = unlit ? 0 : 1;
     int emissionPowerLoc = -1;
+    Shader skinFallback{};
+    if (modelUsesGpuSkinning(model.model) && world.has<AssetServices>() &&
+        world.get<AssetServices>().store != nullptr) {
+        skinFallback = world.get_mut<AssetServices>().store->getSkinningShader();
+    }
 
     if (entity.has<MapLightmapState>()) {
         const MapLightmapState& lightmaps = entity.get<MapLightmapState>();
@@ -380,7 +405,14 @@ void renderWorldModel(
             }
         }
         drawModelMeshes(
-            model.model, skipMeshIndices, onlyMeshIndices, polygonOffsetBack, twoSided, emissionPowerLoc);
+            model.model,
+            skipMeshIndices,
+            onlyMeshIndices,
+            polygonOffsetBack,
+            twoSided,
+            emissionPowerLoc,
+            WHITE,
+            skinFallback);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -403,10 +435,10 @@ void renderWorldModel(
         }
         if (polygonOffsetBack != nullptr || twoSided != nullptr) {
             drawModelMeshes(
-                model.model, nullptr, nullptr, polygonOffsetBack, twoSided, emissionPowerLoc);
+                model.model, nullptr, nullptr, polygonOffsetBack, twoSided, emissionPowerLoc, WHITE, skinFallback);
         } else {
             const Color tint = (swappedPropShader && modelLighting != nullptr) ? WHITE : model.color;
-            drawModelMeshes(model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, tint);
+            drawModelMeshes(model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, tint, skinFallback);
         }
     }
 
@@ -426,6 +458,7 @@ void renderWorldModel(
         }
     }
 
+    setActiveShaderParams(nullptr);
     rlPopMatrix();
 }
 
@@ -777,7 +810,9 @@ void storeDynamicLightFrameState(
     flecs::world& world,
     const std::vector<RankedDynamicLight>& rankedLights) {
     if (world.has<DynamicLightFrameState>()) {
-        world.get_mut<DynamicLightFrameState>().lights = rankedLights;
+        DynamicLightFrameState& frame = world.get_mut<DynamicLightFrameState>();
+        frame.lights = rankedLights;
+        frame.uploadedShaderId = 0;
     }
 }
 
@@ -813,6 +848,7 @@ void uploadMapDynamicLights(
                 activeShadows);
             uploadDynamicLightsToShader(
                 mapShader, frameState.bindings, rankedLights, activeShadows);
+            frameState.uploadedShaderId = mapShader.id;
         }
     }
     if (lightmaps.useLightmapLoc >= 0) {
@@ -843,7 +879,7 @@ void drawWorldModels(
         ModelLightingUniforms modelLighting{};
         bool useModelLighting = false;
         if (!modelEntity.has<MapLightmapState>()) {
-            const BoundingBox localBounds = GetModelBoundingBox(model.model);
+            const BoundingBox localBounds = modelLocalBounds(model);
             const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
             if (!aabbInFrustum(frustum, worldBounds)) {
                 return;
@@ -869,10 +905,13 @@ void drawWorldModels(
                 }
                 if (!useModelLighting && mapLightmapState(world) != nullptr) {
                     model.color = sampleBakeTintColorForModel(
-                        world, model.model, global.matrix, unlit, closedMatrix);
+                        world, model.model, global.matrix, unlit, closedMatrix, &localBounds);
                 } else if (!useModelLighting) {
                     model.color = sampleReceiverTintColorForModel(
-                        world, model.model, global.matrix, unlit, closedMatrix);
+                        world, model.model, global.matrix, unlit, closedMatrix, &localBounds);
+                } else if (mapLightmapState(world) == nullptr) {
+                    model.color = sampleBakeTintColorForModel(
+                        world, model.model, global.matrix, false, nullptr, &localBounds);
                 }
             }
         }
@@ -915,7 +954,7 @@ void drawWorldModels(
     context.animOverlayQuery.each(
         [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
             if (!modelEntity.has<MapLightmapState>()) {
-                const BoundingBox localBounds = GetModelBoundingBox(model.model);
+                const BoundingBox localBounds = modelLocalBounds(model);
                 const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
                 if (!aabbInFrustum(frustum, worldBounds)) {
                     return;

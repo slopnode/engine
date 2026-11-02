@@ -12,10 +12,12 @@
 #include "render/bone_attachment.hpp"
 #include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
+#include "camera/view_recoil.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
 #include "render/dynamic_light.hpp"
+#include "render/model_lighting.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/transform.hpp"
 #include "script/hook_registry.hpp"
@@ -213,6 +215,7 @@ s7_pointer g_fp_attach_geo(s7_scheme* sc, s7_pointer args) {
     flecs::entity attached = g_fpWorld->entity()
         .child_of(socket)
         .add<ViewSpace>()
+        .add<ViewGeoRoot>()
         .set<LocalTransformation>(local)
         .set<GlobalTransformation>(global)
         .set<Model3D>({model, WHITE})
@@ -364,6 +367,46 @@ s7_pointer g_fp_detach_held(s7_scheme* sc, s7_pointer args) {
     }
     destroyAttachmentTree(child);
     return s7_t(sc);
+}
+
+s7_pointer g_fp_point(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr || !s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-point", 1, args, "path string");
+    }
+    const std::string path = s7_string(s7_car(args));
+    float local[3] = {0.0f, 0.0f, 0.0f};
+    s7_pointer rest = s7_cdr(args);
+    for (float& value : local) {
+        if (!s7_is_pair(rest)) {
+            break;
+        }
+        if (!s7_is_number(s7_car(rest))) {
+            return s7_wrong_type_arg_error(sc, "fp-point", 2, rest, "x y z numbers");
+        }
+        value = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        rest = s7_cdr(rest);
+    }
+    flecs::entity player;
+    FirstPersonScene scene{};
+    if (!tryGetPlayerScene(*g_fpWorld, player, scene) || !player.has<Lens>()) {
+        return s7_f(sc);
+    }
+    flecs::entity host = resolveSocketPath(*g_fpWorld, scene, path);
+    if (!host.is_valid() || !host.has<GlobalTransformation>()) {
+        return s7_f(sc);
+    }
+    const Vector3 view =
+        Vector3Transform({local[0], local[1], local[2]}, host.get<GlobalTransformation>().matrix);
+    const Vector3 world = Vector3Transform(view, firstPersonWorldFromView(player.get<Lens>().camera));
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, static_cast<double>(world.x)),
+        s7_make_real(sc, static_cast<double>(world.y)),
+        s7_make_real(sc, static_cast<double>(world.z)));
 }
 
 s7_pointer g_fp_attach_sprite(s7_scheme* sc, s7_pointer args) {
@@ -1115,6 +1158,234 @@ s7_pointer g_fp_set_eye_offset(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_fp_set_view_roll(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "fp-set-view-roll", 1, args, "roll number");
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid()) {
+        return s7_f(sc);
+    }
+    if (!player.has<ViewEyeOffset>()) {
+        player.set<ViewEyeOffset>({});
+    }
+    player.get_mut<ViewEyeOffset>().roll = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_set_view_offset(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    float values[3] = {0.0f, 0.0f, 0.0f};
+    s7_pointer rest = args;
+    for (int i = 0; i < 3; ++i) {
+        if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
+            return s7_wrong_type_arg_error(sc, "fp-set-view-offset", i + 1, rest, "x y z numbers");
+        }
+        values[i] = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
+        rest = s7_cdr(rest);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid()) {
+        return s7_f(sc);
+    }
+    player.set<ViewModelOffset>({values[0], values[1], values[2]});
+    return s7_t(sc);
+}
+
+ViewRecoil* playerViewRecoil() {
+    if (g_fpWorld == nullptr) {
+        return nullptr;
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid()) {
+        return nullptr;
+    }
+    if (!player.has<ViewRecoil>()) {
+        player.set<ViewRecoil>({});
+    }
+    return &player.get_mut<ViewRecoil>();
+}
+
+bool readAlistReal(s7_scheme* sc, s7_pointer value, float& out) {
+    if (s7_is_pair(value) && s7_is_null(sc, s7_cdr(value))) {
+        value = s7_car(value);
+    }
+    if (!s7_is_number(value)) {
+        return false;
+    }
+    out = static_cast<float>(s7_number_to_real(sc, value));
+    return true;
+}
+
+bool readAlistVector3(s7_scheme* sc, s7_pointer value, Vector3& out) {
+    float values[3]{};
+    for (float& v : values) {
+        if (!s7_is_pair(value) || !s7_is_number(s7_car(value))) {
+            return false;
+        }
+        v = static_cast<float>(s7_number_to_real(sc, s7_car(value)));
+        value = s7_cdr(value);
+    }
+    out = {values[0], values[1], values[2]};
+    return true;
+}
+
+bool applyRecoilTuneEntry(
+    s7_scheme* sc,
+    const char* key,
+    s7_pointer value,
+    ViewRecoilTuning& tuning) {
+    struct RealKey {
+        const char* name;
+        float* target;
+        float scale;
+    };
+    const RealKey reals[] = {
+        {"aim-frequency", &tuning.aim.frequency, 1.0f},
+        {"aim-damping", &tuning.aim.damping, 1.0f},
+        {"kick-frequency", &tuning.kick.frequency, 1.0f},
+        {"kick-damping", &tuning.kick.damping, 1.0f},
+        {"twist-frequency", &tuning.twist.frequency, 1.0f},
+        {"twist-damping", &tuning.twist.damping, 1.0f},
+        {"climb-time", &tuning.climbTime, 1.0f},
+        {"recovery", &tuning.recovery, 1.0f},
+        {"recovery-delay", &tuning.recoveryDelay, 1.0f},
+        {"recovery-time", &tuning.recoveryTime, 1.0f},
+        {"shake-decay", &tuning.shakeDecay, 1.0f},
+        {"shake-frequency", &tuning.shakeFrequency, 1.0f},
+        {"shake-angle", &tuning.shakeAngle, DEG2RAD},
+    };
+    if (std::strcmp(key, "pivot") == 0) {
+        return readAlistVector3(sc, value, tuning.pivot);
+    }
+    for (const RealKey& entry : reals) {
+        if (std::strcmp(key, entry.name) == 0) {
+            float v = 0.0f;
+            if (!readAlistReal(sc, value, v)) {
+                return false;
+            }
+            *entry.target = v * entry.scale;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool applyRecoilKickEntry(s7_scheme* sc, const char* key, s7_pointer value, ViewRecoilKick& kick) {
+    struct RealKey {
+        const char* name;
+        float* target;
+        float scale;
+    };
+    const RealKey reals[] = {
+        {"punch-up", &kick.punchUp, DEG2RAD},
+        {"punch-right", &kick.punchRight, DEG2RAD},
+        {"climb-up", &kick.climbUp, DEG2RAD},
+        {"climb-right", &kick.climbRight, DEG2RAD},
+        {"rise", &kick.rise, DEG2RAD},
+        {"turn", &kick.turn, DEG2RAD},
+        {"roll", &kick.roll, DEG2RAD},
+        {"back", &kick.back, 1.0f},
+        {"lift", &kick.lift, 1.0f},
+        {"side", &kick.side, 1.0f},
+        {"shake", &kick.shake, 1.0f},
+    };
+    for (const RealKey& entry : reals) {
+        if (std::strcmp(key, entry.name) == 0) {
+            float v = 0.0f;
+            if (!readAlistReal(sc, value, v)) {
+                return false;
+            }
+            *entry.target = v * entry.scale;
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename Apply>
+s7_pointer forEachRecoilEntry(
+    s7_scheme* sc,
+    s7_pointer args,
+    const char* caller,
+    const char* expected,
+    Apply apply) {
+    if (!s7_is_pair(args)) {
+        return s7_wrong_type_arg_error(sc, caller, 1, args, expected);
+    }
+    s7_pointer alist = s7_car(args);
+    if (!s7_is_pair(alist) && !s7_is_null(sc, alist)) {
+        return s7_wrong_type_arg_error(sc, caller, 1, alist, expected);
+    }
+    for (s7_pointer cursor = alist; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry)) ||
+            !apply(s7_symbol_name(s7_car(entry)), s7_cdr(entry))) {
+            return s7_wrong_type_arg_error(sc, caller, 1, entry, expected);
+        }
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_fp_recoil_tune(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    ViewRecoil* recoil = playerViewRecoil();
+    if (recoil == nullptr) {
+        return s7_f(sc);
+    }
+    ViewRecoilTuning tuning{};
+    s7_pointer result = forEachRecoilEntry(
+        sc, args, "fp-recoil-tune!", "alist of recoil tuning keys",
+        [&](const char* key, s7_pointer value) { return applyRecoilTuneEntry(sc, key, value, tuning); });
+    if (result == s7_t(sc)) {
+        recoil->tuning = tuning;
+    }
+    return result;
+}
+
+s7_pointer g_fp_recoil_kick(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    ViewRecoil* recoil = playerViewRecoil();
+    if (recoil == nullptr) {
+        return s7_f(sc);
+    }
+    ViewRecoilKick kick{};
+    s7_pointer result = forEachRecoilEntry(
+        sc, args, "fp-recoil-kick!", "alist of recoil kick keys",
+        [&](const char* key, s7_pointer value) { return applyRecoilKickEntry(sc, key, value, kick); });
+    if (result == s7_t(sc)) {
+        applyViewRecoilKick(*recoil, kick);
+    }
+    return result;
+}
+
+s7_pointer g_fp_recoil_reset(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    ViewRecoil* recoil = playerViewRecoil();
+    if (recoil == nullptr) {
+        return s7_f(sc);
+    }
+    resetViewRecoil(*recoil);
+    return s7_t(sc);
+}
+
 s7_pointer g_fp_set_weapon_hidden(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::FpPresent)) {
         return s7_f(sc);
@@ -1202,6 +1473,26 @@ s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
     return s7_make_real(sc, static_cast<double>(speed));
 }
 
+s7_pointer g_player_velocity(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
+        return s7_list(sc, 3, s7_make_real(sc, 0.0), s7_make_real(sc, 0.0), s7_make_real(sc, 0.0));
+    }
+    PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
+    if (physics == nullptr || !physics->hasPlayer()) {
+        return s7_list(sc, 3, s7_make_real(sc, 0.0), s7_make_real(sc, 0.0), s7_make_real(sc, 0.0));
+    }
+    const JPH::Vec3 vel = physics->playerVelocity();
+    return s7_list(
+        sc,
+        3,
+        s7_make_real(sc, vel.GetX()),
+        s7_make_real(sc, vel.GetY()),
+        s7_make_real(sc, vel.GetZ()));
+}
+
 s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1214,6 +1505,42 @@ s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer) {
         return s7_f(sc);
     }
     return physics->playerSupported() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_player_jump(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "player-jump!", 1, args, "speed number");
+    }
+    if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
+        return s7_f(sc);
+    }
+    PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
+    if (physics == nullptr || !physics->hasPlayer()) {
+        return s7_f(sc);
+    }
+    const float speed = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    return physics->launchCharacter(physics->playerId(), speed) ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_player_set_gravity(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "player-set-gravity!", 1, args, "gravity number");
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    player.get_mut<CharacterMotor>().gravity = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    return s7_t(sc);
 }
 
 s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
@@ -1292,6 +1619,8 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(fp-attach-held path name point geo [x y z] [pitch yaw roll] [scale])");
     s7_define_function(scheme, "fp-detach-held", g_fp_detach_held, 2, 0, false,
                        "(fp-detach-held path name)");
+    s7_define_function(scheme, "fp-point", g_fp_point, 1, 3, false,
+                       "(fp-point path [x y z])");
     s7_define_function(scheme, "fp-attach-sprite", g_fp_attach_sprite, 2, 3, false,
                        "(fp-attach-sprite socket sprite [clip] [canvas-x canvas-y]) -> (x y)");
     s7_define_function(scheme, "fp-set-sprite-frame", g_fp_set_sprite_frame, 2, 0, false,
@@ -1324,6 +1653,16 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(fp-set-shading enabled)");
     s7_define_function(scheme, "fp-set-eye-offset", g_fp_set_eye_offset, 3, 0, false,
                        "(fp-set-eye-offset x y z)");
+    s7_define_function(scheme, "fp-set-view-roll", g_fp_set_view_roll, 1, 0, false,
+                       "(fp-set-view-roll radians)");
+    s7_define_function(scheme, "fp-set-view-offset", g_fp_set_view_offset, 3, 0, false,
+                       "(fp-set-view-offset x y z)");
+    s7_define_function(scheme, "fp-recoil-tune!", g_fp_recoil_tune, 1, 0, false,
+                       "(fp-recoil-tune! alist)");
+    s7_define_function(scheme, "fp-recoil-kick!", g_fp_recoil_kick, 1, 0, false,
+                       "(fp-recoil-kick! alist)");
+    s7_define_function(scheme, "fp-recoil-reset!", g_fp_recoil_reset, 0, 0, false,
+                       "(fp-recoil-reset!)");
     s7_define_function(scheme, "fp-set-weapon-hidden!", g_fp_set_weapon_hidden, 1, 0, false,
                        "(fp-set-weapon-hidden! hidden)");
     s7_define_function(scheme, "extra-eye-configure!", g_extra_eye_configure, 3, 0, false,
@@ -1331,8 +1670,12 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "extra-eye-set-active!", g_extra_eye_set_active, 1, 0, false,
                        "(extra-eye-set-active! active)");
     s7_define_function(scheme, "player-speed", g_player_speed, 0, 0, false, "(player-speed)");
+    s7_define_function(scheme, "player-velocity", g_player_velocity, 0, 0, false, "(player-velocity)");
     s7_define_function(scheme, "player-grounded?", g_player_grounded, 0, 0, false,
                        "(player-grounded?)");
+    s7_define_function(scheme, "player-jump!", g_player_jump, 1, 0, false, "(player-jump! speed)");
+    s7_define_function(scheme, "player-set-gravity!", g_player_set_gravity, 1, 0, false,
+                       "(player-set-gravity! gravity)");
     s7_define_function(scheme, "player-wish-speed", g_player_wish_speed, 0, 0, false,
                        "(player-wish-speed)");
     s7_define_function(scheme, "player-eye", g_player_eye, 0, 0, false, "(player-eye)");
@@ -1506,11 +1849,13 @@ Camera3D presentationCamera(
     const Lens& lens,
     const FirstPersonController& controller,
     const ViewEyeOffset& offset) {
-    const float cosPitch = std::cos(controller.pitch);
+    const float pitch = controller.pitch + offset.shakeUp;
+    const float yaw = controller.yaw - offset.shakeRight;
+    const float cosPitch = std::cos(pitch);
     const Vector3 forward = Vector3Normalize({
-        std::sin(controller.yaw) * cosPitch,
-        std::sin(controller.pitch),
-        std::cos(controller.yaw) * cosPitch,
+        std::sin(yaw) * cosPitch,
+        std::sin(pitch),
+        std::cos(yaw) * cosPitch,
     });
     Vector3 right = Vector3CrossProduct(forward, {0.0f, 1.0f, 0.0f});
     if (Vector3LengthSqr(right) < 1e-6f) {
@@ -1526,6 +1871,12 @@ Camera3D presentationCamera(
     camera.position = Vector3Add(lens.camera.position, worldOffset);
     camera.target = Vector3Add(camera.position, forward);
     camera.up = {0.0f, 1.0f, 0.0f};
+    const float roll = offset.roll + offset.shakeRoll;
+    if (roll != 0.0f) {
+        camera.up = Vector3Normalize(Vector3Add(
+            Vector3Scale(up, std::cos(roll)),
+            Vector3Scale(right, std::sin(roll))));
+    }
     return camera;
 }
 
@@ -1543,7 +1894,16 @@ void updateFirstPersonSceneTransforms(flecs::world world) {
 
     LocalTransformation& local = root.get_mut<LocalTransformation>();
     local.position = {0.0f, 0.0f, 0.0f};
+    if (player.has<ViewModelOffset>()) {
+        const ViewModelOffset& offset = player.get<ViewModelOffset>();
+        local.position = {offset.x, offset.y, offset.z};
+    }
     local.rotation = QuaternionIdentity();
+    if (player.has<ViewRecoil>()) {
+        const ViewRecoil& recoil = player.get<ViewRecoil>();
+        local.position = Vector3Add(local.position, viewRecoilKickPosition(recoil));
+        local.rotation = viewRecoilKickRotation(recoil);
+    }
     local.scale = {1.0f, 1.0f, 1.0f};
     updateTransform(root, local, root.get_mut<GlobalTransformation>());
 }

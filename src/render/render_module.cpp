@@ -13,6 +13,7 @@
 #include "map/light_components.hpp"
 #include "render/animation_player.hpp"
 #include "render/bone_attachment.hpp"
+#include "render/model_hitboxes.hpp"
 #include "render/animation_systems.hpp"
 #include "render/components.hpp"
 #include "render/material_anim_types.hpp"
@@ -33,6 +34,7 @@
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
 #include "fx/trail.hpp"
+#include "fx/tracer.hpp"
 #include "script/first_person_script.hpp"
 #include "script/script_context.hpp"
 #include "ui/ui_module.hpp"
@@ -58,6 +60,7 @@ void registerComponents(flecs::world& world) {
     world.component<GlobalTransformation>();
     world.component<WorldSpace>();
     world.component<ViewSpace>();
+    world.component<ViewGeoRoot>();
     world.component<ViewCanvas>();
     world.component<HudCanvas>();
     world.component<TitleCanvas>();
@@ -75,6 +78,9 @@ void registerComponents(flecs::world& world) {
     world.component<FpViewOverride>();
     world.component<Spin>();
     world.component<Model3D>();
+    world.component<BoneScales>();
+    world.component<ModelHitboxes>();
+    world.component<HiddenBones>();
     world.component<GeoSource>();
     world.component<SpriteInstance>();
     world.component<SpriteOverlay>();
@@ -266,6 +272,7 @@ void registerRenderSystems(flecs::world& world) {
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);
                 drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam, unlit);
             }
+            drawTracers(world, presentCam);
             drawWorldDebugOverlays(world);
             EndMode3D();
 

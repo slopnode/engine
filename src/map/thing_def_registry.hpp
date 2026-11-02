@@ -57,6 +57,8 @@ struct ThingDef {
     bool animLoop = true;
     bool haveAnim = false;
     std::string animBank;
+    NamedBoneScales boneScales;
+    std::vector<PropBox> collisionBoxes;
 
     float motorRadius = 0.3f;
     float motorHeight = 1.1f;

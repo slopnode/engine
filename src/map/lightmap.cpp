@@ -847,7 +847,7 @@ std::optional<RadFile> readRadFile(const std::filesystem::path& path) {
 Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc, int& emissionPowerLoc) {
     useLightmapLoc = -1;
     emissionPowerLoc = -1;
-    const std::string vert = assets.getShaderSource("default/lightmap_vert");
+    const std::string vert = assets.getModelShaderSource("default/lightmap_vert");
     const std::string frag = assets.getShaderSource("default/lightmap_frag");
     if (vert.empty() || frag.empty()) {
         TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
@@ -861,6 +861,7 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc, int& emission
     shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
     shader.locs[SHADER_LOC_MAP_METALNESS] = GetShaderLocation(shader, "texture1");
     shader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(shader, "texture5");
+    shader.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(shader, "deformMask");
     shader.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader, "colDiffuse");
     shader.locs[SHADER_LOC_COLOR_SPECULAR] = GetShaderLocation(shader, "colSpecular");
     emissionPowerLoc = GetShaderLocation(shader, "emissionPower");

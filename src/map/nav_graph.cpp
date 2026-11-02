@@ -227,7 +227,7 @@ std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
     for (int i = 1; i < n; ++i) {
         const Vector3 pLeft = corridor[static_cast<std::size_t>(i)].left;
         const Vector3 pRight = corridor[static_cast<std::size_t>(i)].right;
-        TraceLog(LOG_INFO, "FUNNEL: i=%d apex=(%.2f,%.2f) left=(%.2f,%.2f)[%d] right=(%.2f,%.2f)[%d] "
+        TraceLog(LOG_DEBUG, "FUNNEL: i=%d apex=(%.2f,%.2f) left=(%.2f,%.2f)[%d] right=(%.2f,%.2f)[%d] "
             "pLeft=(%.2f,%.2f) pRight=(%.2f,%.2f)",
             i, apex.x, apex.z, left.x, left.z, leftIndex, right.x, right.z, rightIndex,
             pLeft.x, pLeft.z, pRight.x, pRight.z);
@@ -236,10 +236,10 @@ std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
             if (sameXZ(apex, right) || triarea2(apex, left, pRight) > 0.0f) {
                 right = pRight;
                 rightIndex = i;
-                TraceLog(LOG_INFO, "FUNNEL:   narrow right -> (%.2f,%.2f)[%d]", right.x, right.z, rightIndex);
+                TraceLog(LOG_DEBUG, "FUNNEL:   narrow right -> (%.2f,%.2f)[%d]", right.x, right.z, rightIndex);
             } else {
                 corners.push_back({left, leftIndex});
-                TraceLog(LOG_INFO, "FUNNEL:   LOCK CORNER (left branch) point=(%.2f,%.2f) corridorIdx=%d",
+                TraceLog(LOG_DEBUG, "FUNNEL:   LOCK CORNER (left branch) point=(%.2f,%.2f) corridorIdx=%d",
                     left.x, left.z, leftIndex);
                 apex = left;
                 apexIndex = leftIndex;
@@ -256,10 +256,10 @@ std::vector<FunnelCorner> runFunnel(const std::vector<FunnelPortal>& corridor) {
             if (sameXZ(apex, left) || triarea2(apex, right, pLeft) < 0.0f) {
                 left = pLeft;
                 leftIndex = i;
-                TraceLog(LOG_INFO, "FUNNEL:   narrow left -> (%.2f,%.2f)[%d]", left.x, left.z, leftIndex);
+                TraceLog(LOG_DEBUG, "FUNNEL:   narrow left -> (%.2f,%.2f)[%d]", left.x, left.z, leftIndex);
             } else {
                 corners.push_back({right, rightIndex});
-                TraceLog(LOG_INFO, "FUNNEL:   LOCK CORNER (right branch) point=(%.2f,%.2f) corridorIdx=%d",
+                TraceLog(LOG_DEBUG, "FUNNEL:   LOCK CORNER (right branch) point=(%.2f,%.2f) corridorIdx=%d",
                     right.x, right.z, rightIndex);
                 apex = right;
                 apexIndex = rightIndex;
@@ -283,11 +283,11 @@ FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int to
         const Vector3& a = nav.leafCentroids[static_cast<std::size_t>(fromLeaf)];
         const Vector3& b = nav.leafCentroids[static_cast<std::size_t>(toLeaf)];
         const Vector3 mid{0.5f * (a.x + b.x), 0.5f * (a.y + b.y), 0.5f * (a.z + b.z)};
-        TraceLog(LOG_INFO, "PORTALCORNERS: %d->%d NO LINK mid=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf, mid.x, mid.y, mid.z);
+        TraceLog(LOG_DEBUG, "PORTALCORNERS: %d->%d NO LINK mid=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf, mid.x, mid.y, mid.z);
         return {mid, mid};
     }
     if (link->portalHalfWidth <= 0.0f) {
-        TraceLog(LOG_INFO, "PORTALCORNERS: %d->%d halfWidth<=0 center=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf,
+        TraceLog(LOG_DEBUG, "PORTALCORNERS: %d->%d halfWidth<=0 center=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf,
             link->portalCenter.x, link->portalCenter.y, link->portalCenter.z);
         return {link->portalCenter, link->portalCenter};
     }
@@ -301,7 +301,7 @@ FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int to
         dir = link->portalTangent;
         dirLen = std::sqrt(dir.x * dir.x + dir.z * dir.z);
         if (dirLen < 1.0e-4f) {
-            TraceLog(LOG_INFO, "PORTALCORNERS: %d->%d degenerate dir, center=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf,
+            TraceLog(LOG_DEBUG, "PORTALCORNERS: %d->%d degenerate dir, center=(%.2f,%.2f,%.2f)", fromLeaf, toLeaf,
                 link->portalCenter.x, link->portalCenter.y, link->portalCenter.z);
             return {link->portalCenter, link->portalCenter};
         }
@@ -314,7 +314,7 @@ FunnelPortal computePortalCorners(const MapNavigation& nav, int fromLeaf, int to
     const FunnelPortal result{
         Vector3Subtract(link->portalCenter, offset), Vector3Add(link->portalCenter, offset)};
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "PORTALCORNERS: %d->%d center=(%.2f,%.2f,%.2f) tangent=(%.2f,%.2f,%.2f) halfWidth=%.2f dir=(%.2f,%.2f) "
         "perp=(%.2f,%.2f) sign=%.0f left=(%.2f,%.2f,%.2f) right=(%.2f,%.2f,%.2f)",
         fromLeaf, toLeaf, link->portalCenter.x, link->portalCenter.y, link->portalCenter.z,
@@ -806,7 +806,7 @@ std::vector<Vector3> leafPathToWaypoints(
             pointXZ = {a.point.x + t * dx, 0.0f, a.point.z + t * dz};
         }
         TraceLog(
-            LOG_INFO,
+            LOG_DEBUG,
             "PROJECT: i=%zu from=%d to=%d corridorIdx=%d portalPoint=(%.2f,%.2f) cursor=%zu "
             "a=(%.2f,%.2f)[%d] b=(%.2f,%.2f)[%d] result=(%.2f,%.2f)",
             i, fromLeaf, toLeaf, corridorIndex, portalPoint.x, portalPoint.z, cornerCursor, a.point.x,

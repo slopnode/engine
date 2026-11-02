@@ -25,6 +25,7 @@
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "render/material_anim.hpp"
+#include "render/model_hitboxes.hpp"
 #include "render/sprite_animator.hpp"
 #include "particles/particle_module.hpp"
 #include "particles/components.hpp"
@@ -422,6 +423,12 @@ bool applyPresentation(flecs::entity entity, const Thing& placement, SpawnContex
             placement.animBank,
             placement.haveAnim ? std::string_view{placement.animClip} : std::string_view{},
             placement.animLoop);
+        if (!placement.boneScales.empty()) {
+            entity.set<BoneScales>({placement.boneScales});
+        }
+        entity.set<HiddenBones>(
+            {std::vector<std::uint8_t>(static_cast<std::size_t>(model.skeleton.boneCount), 0), false});
+        entity.set<ModelHitboxes>({});
     } else if (placement.haveAnim) {
         TraceLog(
             LOG_WARNING,
@@ -633,6 +640,16 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
         if (!applyPresentation(entity, placement, ctx)) {
             entity.destruct();
             return;
+        }
+        if (!placement.collisionBoxes.empty() && entity.has<LocalTransformation>() &&
+            ctx.world->has<PhysicsContext>()) {
+            PhysicsWorld* physics = ctx.world->get_mut<PhysicsContext>().world;
+            if (physics != nullptr) {
+                const LocalTransformation& local = entity.get<LocalTransformation>();
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                physics->createPropBoxes(id, local.position, local.rotation, local.scale, placement.collisionBoxes);
+                entity.set<PropCollision>({static_cast<unsigned int>(physics->propBoxCount(id))});
+            }
         }
         if (placement.kind == ThingKind::Usable) {
             entity.set<Interactable>({

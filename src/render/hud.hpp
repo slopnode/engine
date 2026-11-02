@@ -34,6 +34,12 @@ enum class HudAnchor {
 
 void hudAnchorPoint(HudAnchor anchor, float canvasW, float canvasH, float& outX, float& outY);
 
+enum class HudTextAlign {
+    Left,
+    Center,
+    Right,
+};
+
 enum class HudCmdKind {
     Rect,
     Image,
@@ -53,6 +59,7 @@ struct HudCmd {
     std::string path;
     std::string text;
     std::string fontPath;
+    HudTextAlign align = HudTextAlign::Left;
     Texture2D rawTexture{};
     std::string maskPath;
 };
@@ -62,6 +69,7 @@ struct HudCmd {
  */
 struct HudDrawList {
     HudAnchor anchor = HudAnchor::TopLeft;
+    HudTextAlign textAlign = HudTextAlign::Left;
     std::string fontPath;
     std::vector<HudCmd> commands;
 

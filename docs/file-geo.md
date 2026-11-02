@@ -38,7 +38,7 @@ The text description of a mesh. Vertex data lives in the sibling .vert (and .wei
 | Field | Notes |
 |-------|-------|
 | skeleton | Skeleton id the weights refer to, absent for static geo |
-| view | Where `fp-attach-geo` places the geo under a view socket when the script passes no placement: position in metres, rotation as pitch yaw roll in degrees, scale per axis |
+| view | Where `fp-attach-geo` places the geo under a view socket when the script passes no placement: position in metres with +X to the right of the screen, rotation as pitch yaw roll in degrees, scale per axis. View space has +X right, +Y up and +Z forward, which is mirrored, so the engine flips a socket geo on X in its own space and an exported model keeps its handedness at scale 1 1 1 |
 | attachments | Named points on bones, Half-Life style. `actor-attach-geo` and `fp-attach-held` accept the name in place of a bone, with the position in bone space, rotation as pitch yaw roll in degrees and a uniform scale |
 | primitives | One draw range per material: vertex and index offsets and counts into the .vert buffers |
 

@@ -41,7 +41,11 @@ add_executable(sloptests
     test_attachment_path.cpp
     test_seam_stitch.cpp
     test_sight.cpp
+    test_view_recoil.cpp
+    test_model_hitboxes.cpp
+    test_ragdoll.cpp
     test_slopui_theme.cpp
+    test_tracer.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
@@ -49,6 +53,9 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/map/brush_door.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
+    ${CMAKE_SOURCE_DIR}/src/camera/view_recoil.cpp
+    ${CMAKE_SOURCE_DIR}/src/fx/tracer_motion.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/ragdoll_pose.cpp
     ${CMAKE_SOURCE_DIR}/src/render/attachment_path.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
@@ -106,7 +113,11 @@ add_test(NAME sloptests.lightmap_pack COMMAND sloptests lightmap_pack)
 add_test(NAME sloptests.radiosity_emitters COMMAND sloptests radiosity_emitters)
 add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softness)
 add_test(NAME sloptests.sight COMMAND sloptests sight)
+add_test(NAME sloptests.view_recoil COMMAND sloptests view_recoil)
+add_test(NAME sloptests.model_hitboxes COMMAND sloptests model_hitboxes)
+add_test(NAME sloptests.ragdoll COMMAND sloptests ragdoll)
 add_test(NAME sloptests.slopui_theme COMMAND sloptests slopui_theme)
+add_test(NAME sloptests.tracer COMMAND sloptests tracer)
 
 add_test(NAME slopdocs.fixture
     COMMAND slopdocs "${CMAKE_SOURCE_DIR}/test/fixtures/slopdocs-package" --out "${CMAKE_BINARY_DIR}/test/slopdocs-fixture"

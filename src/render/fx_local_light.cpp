@@ -288,7 +288,7 @@ Color sampleReceiverTintColor(
 namespace {
 
 void appendModelTintSamplePoints(
-    const Model& model,
+    const BoundingBox& localBounds,
     const Matrix& globalMatrix,
     Vector3* outSamples,
     int maxSamples,
@@ -296,7 +296,6 @@ void appendModelTintSamplePoints(
     if (outSamples == nullptr || inoutCount >= maxSamples) {
         return;
     }
-    const BoundingBox localBounds = GetModelBoundingBox(model);
     const BoundingBox worldBounds = transformAabb(localBounds, globalMatrix);
     const Vector3 center{
         (worldBounds.min.x + worldBounds.max.x) * 0.5f,
@@ -322,12 +321,14 @@ void collectModelTintSamplePoints(
     const Model& model,
     const Matrix& globalMatrix,
     const Matrix* secondaryMatrix,
+    const BoundingBox* localBounds,
     Vector3 outSamples[6],
     int& outCount) {
     outCount = 0;
-    appendModelTintSamplePoints(model, globalMatrix, outSamples, 6, outCount);
+    const BoundingBox bounds = localBounds != nullptr ? *localBounds : GetModelBoundingBox(model);
+    appendModelTintSamplePoints(bounds, globalMatrix, outSamples, 6, outCount);
     if (secondaryMatrix != nullptr) {
-        appendModelTintSamplePoints(model, *secondaryMatrix, outSamples, 6, outCount);
+        appendModelTintSamplePoints(bounds, *secondaryMatrix, outSamples, 6, outCount);
     }
 }
 
@@ -357,14 +358,15 @@ Color sampleReceiverTintColorForModel(
     const Model& model,
     const Matrix& globalMatrix,
     bool unlit,
-    const Matrix* secondaryMatrix) {
+    const Matrix* secondaryMatrix,
+    const BoundingBox* localBounds) {
     if (unlit) {
         return WHITE;
     }
 
     Vector3 samples[6]{};
     int sampleCount = 0;
-    collectModelTintSamplePoints(model, globalMatrix, secondaryMatrix, samples, sampleCount);
+    collectModelTintSamplePoints(model, globalMatrix, secondaryMatrix, localBounds, samples, sampleCount);
     if (sampleCount <= 0) {
         return WHITE;
     }
@@ -411,14 +413,15 @@ Color sampleBakeTintColorForModel(
     const Model& model,
     const Matrix& globalMatrix,
     bool unlit,
-    const Matrix* secondaryMatrix) {
+    const Matrix* secondaryMatrix,
+    const BoundingBox* localBounds) {
     if (unlit) {
         return WHITE;
     }
 
     Vector3 samples[6]{};
     int sampleCount = 0;
-    collectModelTintSamplePoints(model, globalMatrix, secondaryMatrix, samples, sampleCount);
+    collectModelTintSamplePoints(model, globalMatrix, secondaryMatrix, localBounds, samples, sampleCount);
     if (sampleCount <= 0) {
         return WHITE;
     }

@@ -22,6 +22,8 @@ constexpr float kModelLightFadeRate = 6.0f;
 constexpr double kModelTrackStaleSeconds = 1.0;
 constexpr double kModelTrackPruneInterval = 2.0;
 constexpr int kModelLightVisibilityCandidates = kMaxModelStaticLights + 2;
+constexpr double kModelLightVisibilityRefreshSeconds = 0.1;
+constexpr float kModelLightVisibilityRefreshDistance = 0.5f;
 
 float smoothstepRange(float edge0, float edge1, float x) {
     const float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
@@ -198,22 +200,26 @@ bool computeModelLighting(
     flecs::entity entity,
     const Model& model,
     const Matrix& globalMatrix,
-    ModelLightingUniforms& out) {
+    ModelLightingUniforms& out,
+    const Vector3* samplePoint) {
     if (!world.has<MapLighting>()) {
         return false;
     }
     const MapLighting& lighting = world.get<MapLighting>();
     out = {};
 
-    const BoundingBox localBounds = GetModelBoundingBox(model);
+    const bool cached = entity.is_valid() && entity.has<Model3D>() && &entity.get<Model3D>().model == &model;
+    const BoundingBox localBounds =
+        cached ? modelLocalBounds(entity.get_mut<Model3D>()) : GetModelBoundingBox(model);
     const BoundingBox bounds = transformAabb(localBounds, globalMatrix);
-    const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
     const Vector3 extent = Vector3Subtract(bounds.max, bounds.min);
     const float radius = Vector3Length(extent) * 0.5f;
-    const Vector3 top{center.x, center.y + extent.y * 0.4f, center.z};
+    const Vector3 center = samplePoint != nullptr ? *samplePoint : Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
+    const Vector3 top = samplePoint != nullptr ? Vector3{center.x, center.y + 0.1f, center.z}
+                                               : Vector3{center.x, center.y + extent.y * 0.4f, center.z};
 
     std::optional<ProbeCube> cube = sampleLightProbeCube(lighting, center);
-    if (!cube) {
+    if (!cube && samplePoint == nullptr) {
         cube = sampleLightProbeCube(lighting, {center.x, bounds.min.y + 0.25f, center.z});
     }
     if (cube) {
@@ -221,7 +227,8 @@ bool computeModelLighting(
             out.probeCube[i] = cube->face[i];
         }
     } else {
-        const Vector3 flat = inverseTonemap(sampleBakeTintColorForModel(world, model, globalMatrix, false));
+        const Vector3 flat =
+            inverseTonemap(sampleBakeTintColorForModel(world, model, globalMatrix, false, nullptr, &localBounds));
         for (Vector3& face : out.probeCube) {
             face = flat;
         }
@@ -250,9 +257,38 @@ bool computeModelLighting(
         candidates.end(),
         [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
     candidates.resize(probeCount);
+
+    const double now = GetTime();
+    auto [trackIt, inserted] = state.tracks.try_emplace(entity.id());
+    ModelLightEntityTrack& track = trackIt->second;
+    const float dt = inserted
+        ? 0.0f
+        : static_cast<float>(std::clamp(now - track.lastTime, 0.0, 0.25));
+    track.lastTime = now;
+
+    const float refreshDistanceSq = kModelLightVisibilityRefreshDistance * kModelLightVisibilityRefreshDistance;
+    if (!track.visibilityValid || now - track.visibilityTime >= kModelLightVisibilityRefreshSeconds ||
+        Vector3DistanceSqr(center, track.visibilityCenter) > refreshDistanceSq) {
+        const double stagger = track.visibilityValid
+            ? 0.0
+            : kModelLightVisibilityRefreshSeconds * static_cast<double>(entity.id() % 97) / 97.0;
+        track.visibility.clear();
+        track.visibilityCenter = center;
+        track.visibilityTime = now - stagger;
+        track.visibilityValid = true;
+    }
     for (Candidate& candidate : candidates) {
+        const auto cached = std::find_if(
+            track.visibility.begin(), track.visibility.end(), [&](const auto& entry) {
+                return entry.first == candidate.id;
+            });
+        if (cached != track.visibility.end()) {
+            candidate.visibility = cached->second;
+            continue;
+        }
         const StaticModelLight& light = state.lights[state.lightIndexById.at(candidate.id)];
         candidate.visibility = staticLightVisibility(lighting, light, center, top);
+        track.visibility.emplace_back(candidate.id, candidate.visibility);
     }
     std::sort(candidates.begin(), candidates.end(), byScore);
 
@@ -265,13 +301,6 @@ bool computeModelLighting(
         targets.emplace_back(candidate.id, candidate.visibility);
     }
 
-    const double now = GetTime();
-    auto [trackIt, inserted] = state.tracks.try_emplace(entity.id());
-    ModelLightEntityTrack& track = trackIt->second;
-    const float dt = inserted
-        ? 0.0f
-        : static_cast<float>(std::clamp(now - track.lastTime, 0.0, 0.25));
-    track.lastTime = now;
     updateTracks(track, targets, state, inserted, dt);
     pruneStaleTracks(state, now);
 

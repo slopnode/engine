@@ -122,7 +122,8 @@ Color sampleReceiverTintColorForModel(
     const Model& model,
     const Matrix& globalMatrix,
     bool unlit,
-    const Matrix* secondaryMatrix = nullptr);
+    const Matrix* secondaryMatrix = nullptr,
+    const BoundingBox* localBounds = nullptr);
 
 /** Bake/ambient probe only for GPU-lit world models (no dyn/FX overlay). */
 Color sampleBakeTintColorForModel(
@@ -130,6 +131,7 @@ Color sampleBakeTintColorForModel(
     const Model& model,
     const Matrix& globalMatrix,
     bool unlit,
-    const Matrix* secondaryMatrix = nullptr);
+    const Matrix* secondaryMatrix = nullptr,
+    const BoundingBox* localBounds = nullptr);
 
 }

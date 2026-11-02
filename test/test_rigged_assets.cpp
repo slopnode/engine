@@ -423,13 +423,13 @@ void runRiggedAssetTests() {
         allocateModelSkinningBuffers(model);
         CHECK(model.meshes[0].animVertices != nullptr);
 
-        updateRiggedModelAnimation(model, clip, 0.0f, &bindMatrices, &matrices.keyframes);
+        updateRiggedModelAnimation(model, clip, 0.0f, &bindMatrices, &matrices);
         const float* skinned = model.meshes[0].animVertices;
         CHECK(near(skinned[0], 0.0f));
         CHECK(near(skinned[1], 2.0f));
         CHECK(near(skinned[2], 0.0f));
 
-        updateRiggedModelAnimation(model, clip, 1.0f, &bindMatrices, &matrices.keyframes);
+        updateRiggedModelAnimation(model, clip, 1.0f, &bindMatrices, &matrices);
         CHECK(near(skinned[0], -1.0f));
         CHECK(near(skinned[1], 1.0f));
         CHECK(near(skinned[2], 0.0f));
@@ -441,7 +441,7 @@ void runRiggedAssetTests() {
         CHECK(near(normals[2], 1.0f));
         CHECK(near(model.currentPose[1].translation.y, 1.0f));
 
-        updateRiggedModelAnimation(model, clip, 0.5f, &bindMatrices, &matrices.keyframes);
+        updateRiggedModelAnimation(model, clip, 0.5f, &bindMatrices, &matrices);
         CHECK(skinned[0] < 0.0f);
         CHECK(skinned[0] > -1.0f);
         CHECK(skinned[1] > 1.0f);
@@ -452,8 +452,11 @@ void runRiggedAssetTests() {
             AnimClipMatrices swingMatrices{};
             const ByteWriter swingTracks = buildSwingTracksFile(version);
             CHECK(loadTracksToModelAnimation(swingTracks.view(), skeleton, swing, &swingMatrices));
-            const std::vector<std::vector<Matrix>>* swingKeyframes =
-                version == 2 ? &swingMatrices.keyframes : nullptr;
+            if (version == 2) {
+                swingMatrices.localKeyframes = buildLocalPoseKeyframes(skeleton, swingMatrices.keyframes);
+                CHECK_EQ(swingMatrices.localKeyframes.size(), swingMatrices.keyframes.size());
+            }
+            const AnimClipMatrices* swingKeyframes = version == 2 ? &swingMatrices : nullptr;
             updateRiggedModelAnimation(model, swing, 0.5f, &bindMatrices, swingKeyframes);
             const Vector3 child = model.currentPose[1].translation;
             CHECK(near(Vector3Length(child), 1.0f, 1e-3f));
@@ -468,7 +471,38 @@ void runRiggedAssetTests() {
             unloadModelAnimation(swing);
         }
 
-        updateRiggedModelAnimation(model, clip, 1.0f, &bindMatrices, &matrices.keyframes);
+        {
+            updateRiggedModelAnimation(model, clip, 0.0f, &bindMatrices, &matrices);
+            const Vector3 rootJoint = model.currentPose[0].translation;
+            const Vector3 childJoint = model.currentPose[1].translation;
+            const float reach = Vector3Distance(rootJoint, childJoint);
+            const Vector3 nearChild = Vector3Add(
+                {bindMatrices[1].m12, bindMatrices[1].m13, bindMatrices[1].m14}, {0.1f, 0.0f, 0.0f});
+            const float spread = Vector3Distance(Vector3Transform(nearChild, model.boneMatrices[1]), childJoint);
+            CHECK(near(spread, 0.1f, 1e-3f));
+
+            BoneScale longRoot[2] = {{1.0f, 2.0f}, {}};
+            const PoseScaleResult stretched =
+                updateRiggedModelAnimation(model, clip, 0.0f, &bindMatrices, &matrices, true, longRoot);
+            CHECK(near(
+                Vector3Distance(model.currentPose[0].translation, model.currentPose[1].translation), reach * 2.0f, 1e-3f));
+            CHECK(stretched.spread >= 2.0f);
+
+            BoneScale bigChild[2] = {{}, {2.0f, 1.0f}};
+            updateRiggedModelAnimation(model, clip, 0.0f, &bindMatrices, &matrices, true, bigChild);
+            const Vector3 grownJoint = model.currentPose[1].translation;
+            CHECK(near(Vector3Distance(model.currentPose[0].translation, grownJoint), reach, 1e-3f));
+            CHECK(near(Vector3Distance(Vector3Transform(nearChild, model.boneMatrices[1]), grownJoint), 0.2f, 1e-3f));
+
+            BoneScale identity[2] = {{}, {}};
+            const PoseScaleResult plain =
+                updateRiggedModelAnimation(model, clip, 0.0f, &bindMatrices, &matrices, true, identity);
+            CHECK(near(plain.lift, 0.0f));
+            CHECK(near(plain.spread, 1.0f));
+            CHECK(near(Vector3Distance(model.currentPose[1].translation, childJoint), 0.0f, 1e-4f));
+        }
+
+        updateRiggedModelAnimation(model, clip, 1.0f, &bindMatrices, &matrices);
         BoneAttachment attachment{};
         attachment.bone = "child";
         attachment.offset = {0.0f, 1.0f, 0.0f};

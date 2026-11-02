@@ -9,8 +9,10 @@
 #include "map/bsp.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
+#include "physics/ragdoll_rig.hpp"
 #include "physics/rigid_mover.hpp"
 #include "physics/trigger_components.hpp"
+#include "render/attachment_path.hpp"
 #include "render/components.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
@@ -206,10 +208,22 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CharacterMotor>();
     world.component<Actor>();
     world.component<ActorCorpse>();
+    world.component<DebrisBody>();
+    world.component<PropCollision>();
     world.component<CollisionTags>();
     world.component<TriggerVolume>();
     world.set<PhysicsContext>(PhysicsContext{physics});
     registerRigidMoverSystem(world);
+
+    world.observer<PropCollision>("PropCollisionOnRemove")
+        .event(flecs::OnRemove)
+        .each([](flecs::entity entity, PropCollision&) {
+            flecs::world world = entity.world();
+            if (!world.has<PhysicsContext>() || world.get<PhysicsContext>().world == nullptr) {
+                return;
+            }
+            world.get_mut<PhysicsContext>().world->destroyProp(static_cast<std::uint64_t>(entity.id()));
+        });
 
     world.system("CharacterMotorInput")
         .kind(flecs::PreUpdate)
@@ -359,6 +373,42 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 }
             });
         });
+
+    world.system("DebrisSync")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (isSimulationPaused(world) || !world.has<PhysicsContext>()) {
+                return;
+            }
+            PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;
+            if (physics == nullptr) {
+                return;
+            }
+            const float dt = GetFrameTime();
+            std::vector<flecs::entity> expired;
+            world.each([&](flecs::entity entity, DebrisBody& debris, LocalTransformation& local) {
+                debris.age += dt;
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                const bool ragdoll = entity.has<RagdollRig>();
+                const bool alive = ragdoll ? (physics->hasRagdoll(id) || entity.get<RagdollRig>().frozen)
+                                           : physics->hasDebris(id);
+                if (debris.age >= debris.lifetime || !alive) {
+                    expired.push_back(entity);
+                    return;
+                }
+                if (!ragdoll) {
+                    physics->debrisPose(id, local.position, local.rotation);
+                }
+            });
+            for (flecs::entity entity : expired) {
+                physics->destroyDebris(static_cast<std::uint64_t>(entity.id()));
+                physics->destroyRagdoll(static_cast<std::uint64_t>(entity.id()));
+                destroyAttachmentTree(entity);
+            }
+        });
+
+    registerRagdollSystems(world);
 
     world.system("TriggerOverlap")
         .kind(flecs::OnUpdate)

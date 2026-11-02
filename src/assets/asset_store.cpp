@@ -859,13 +859,14 @@ Shader AssetStore::getSkinningShader() {
         return {};
     }
 
-    const std::string vertexSource = getShaderSource("default/skinning_vert");
+    const std::string vertexSource = getModelShaderSource("default/skinning_vert");
     const std::string fragmentSource = getShaderSource("default/skinning_frag");
     skinningShader_ = LoadShaderFromMemory(vertexSource.c_str(), fragmentSource.c_str());
     if (skinningShader_.id == 0) {
         TraceLog(LOG_WARNING, "Failed to compile skinning shader");
         return {};
     }
+    skinningShader_.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(skinningShader_, "deformMask");
 
     return skinningShader_;
 }
@@ -887,6 +888,27 @@ void AssetStore::unloadTexture(std::string_view path) {
 
 std::string AssetStore::getShaderSource(std::string_view path) {
     return vfs_.readText(AssetKind::Shader, path);
+}
+
+std::string spliceModelDeform(std::string source, std::string deform) {
+    const std::string token = "#include \"MODEL_DEFORM\"";
+    const std::size_t at = source.find(token);
+    if (at == std::string::npos) {
+        return source;
+    }
+    if (deform.rfind("#version", 0) == 0) {
+        const std::size_t end = deform.find('\n');
+        deform.erase(0, end == std::string::npos ? deform.size() : end + 1);
+    }
+    if (deform.find("modelDeform") == std::string::npos) {
+        deform = "void modelDeform(inout vec3 position, inout vec3 normal, vec2 texCoord, vec4 boneIndices, vec4 boneWeights) {}\n";
+    }
+    source.replace(at, token.size(), deform);
+    return source;
+}
+
+std::string AssetStore::getModelShaderSource(std::string_view path) {
+    return spliceModelDeform(getShaderSource(path), getShaderSource("default/model_deform"));
 }
 
 std::string AssetStore::getMaterialSource(std::string_view path) {

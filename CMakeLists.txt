@@ -142,6 +142,7 @@ set(SLOPLIB_SOURCES
     src/assets/texture_anim_loader.cpp
     src/assets/texture_graph.cpp
     src/assets/skeleton_loader.cpp
+    src/render/model_hitboxes.cpp
     src/assets/anim_loader.cpp
     src/render/bone_attachment.cpp
     src/particles/particle_sim.cpp
@@ -230,6 +231,7 @@ add_executable(slopengine
     src/input/bind_code.cpp
     src/input/input_module.cpp
     src/camera/camera_module.cpp
+    src/camera/view_recoil.cpp
     src/camera/camera_path_player.cpp
     src/script/camera_path_script.cpp
     src/interact/interact_module.cpp
@@ -242,6 +244,8 @@ add_executable(slopengine
     src/ui/slopui_editor.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/ragdoll_pose.cpp
+    src/physics/ragdoll_rig.cpp
     src/physics/sight_module.cpp
     src/navigation/nav_module.cpp
     src/navigation/nav_script.cpp
@@ -253,6 +257,8 @@ add_executable(slopengine
     src/physics/map_collision.cpp
     src/particles/particle_module.cpp
     src/fx/trail.cpp
+    src/fx/tracer.cpp
+    src/fx/tracer_motion.cpp
     src/render/view_sprite_attachment.cpp
     src/render/world_sprite_attachment.cpp
     src/audio/audio_world.cpp
@@ -278,6 +284,7 @@ add_executable(slopengine
     src/render/dynamic_light_compositing.cpp
     src/render/dynamic_light_shadow_math.cpp
     src/render/dynamic_light_shadows.cpp
+    src/render/gpu_skinning.cpp
     src/render/fx_local_light.cpp
     src/render/model_lighting.cpp
     src/render/render_debug.cpp
