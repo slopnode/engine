@@ -87,7 +87,8 @@ void ModelBrowser::draw(Editor& editor, slopengine::AssetStore& assets) {
     }
     ImGui::Separator();
 
-    if (slopengine::slopuiBeginChild("##geolist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders)) {
+    const float listHeight = editor.doc.open ? ImGui::GetContentRegionAvail().y * 0.35f : 0.0f;
+    if (slopengine::slopuiBeginChild("##geolist", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders)) {
         for (const GeoEntry& entry : entries) {
             if (!containsIgnoreCase(entry.virtualPath, filter) &&
                 !containsIgnoreCase(entry.packageId, filter)) {

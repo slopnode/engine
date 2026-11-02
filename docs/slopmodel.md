@@ -1,25 +1,26 @@
 @page slopmodel slopmodel
 
-slopmodel is the 3D model studio, the counterpart of slopsprite for skinned and static geometry. It opens a `.geo`, plays the clips of the skeleton's animation bank, and edits the two things the Blender exporter does not author: where a geo sits when it is a first-person view model, and the named attachment points held items hang from. It also edits the frame events of each clip. The model is previewed both as a world model, orbiting it on a grid, and as a view model, drawn through the same mirrored eye camera the engine uses for the first-person pass.
+slopmodel is the 3D model studio, the counterpart of slopsprite for skinned and static geometry. It opens a `.geo`, plays the clips of the skeleton's animation bank, and edits the two things the Blender exporter does not author: where a geo sits when it is a first-person view model, and the named attachment points held items hang from. It also edits the frame events of each clip. The model is previewed both as a world model, orbiting it on a grid, and as a view model, drawn through the same eye camera the engine uses for the first-person pass.
 
 # Running
 
 ```
 slopmodel --game <path> [--mod <path>]... [--target <path>] [--geo <path>] [--mode world|fp]
-          [--clip <name>] [--frame <n>] [--preview <attachment>=<geo>]... [--two-sided] [--verbose]
+          [--clip <name>] [--frame <n>] [--preview <attachment>=<geo>]... [--two-sided]
+          [--skeleton] [--bone <name>] [--hide-mesh] [--verbose]
 ```
 
-`--game` mounts the base package, `--mod` adds mods in order, and `--target` names the mounted package that receives saves. `--target` defaults to `--game` and is required once a `--mod` is given, same as the other editors (see @ref cli). `--geo` opens a geometry asset by virtual path at start and `--mode` picks the preview to start in. With `--geo`, `--clip` plays a clip, `--frame` pauses it on a frame, `--preview attachment=geo` hangs a geo on an attachment and `--two-sided` turns off backface culling, which makes a scripted capture of a given pose possible. sloplauncher's Development tab launches it against the selected target.
+`--game` mounts the base package, `--mod` adds mods in order, and `--target` names the mounted package that receives saves. `--target` defaults to `--game` and is required once a `--mod` is given, same as the other editors (see @ref cli). `--geo` opens a geometry asset by virtual path at start and `--mode` picks the preview to start in. With `--geo`, `--clip` plays a clip, `--frame` pauses it on a frame, `--preview attachment=geo` hangs a geo on an attachment, `--two-sided` turns off backface culling, `--skeleton` shows the skeleton overlay, `--bone` selects a bone and `--hide-mesh` hides the model's own mesh, which makes a scripted capture of a given pose possible. sloplauncher's Development tab launches it against the selected target.
 
 # Layout
 
-The left panel lists every `.geo` under the mounted packages' `geometry/` folders, with a filter on path or package id. Clicking one opens it. The center panel is the preview, switched between World and FP by the tabs above it. The right panel is the inspector. The bar along the bottom drives animation.
+The left panel lists every `.geo` under the mounted packages' `geometry/` folders, with a filter on path or package id. Clicking one opens it. Below the list, the Asset tree shows what the open model is made of. Skin lists its primitives by material, Armature its bone hierarchy, Animations the clips of its bank and Attachments its named points. The checkboxes beside Skin, Armature and Attachments show or hide the mesh, the skeleton overlay and the attachment markers, so the armature can be looked at on its own. Clicking a bone highlights and labels it in the preview, clicking a clip plays it and clicking an attachment selects it in the inspector. The center panel is the preview, switched between World and FP by the tabs above it. The right panel is the inspector. The bar along the bottom drives animation.
 
 The world preview orbits with the right mouse button and zooms with the wheel. Spin rotates the model by itself, Frame fits the camera to it. Clicking near an attachment marker selects that attachment.
 
-The FP preview puts the eye at the origin looking down the socket's axis, with the engine's 75 degree field of view and the horizontal mirror the first-person pass applies, so what it shows is what `fp-attach-geo` produces. A faint floor and far wall at eye height give the placement something to read against. The fov field in the corner only changes the preview.
+The FP preview puts the eye at the origin looking down the socket's axis, with the engine's 75 degree field of view and the same view space the first-person pass uses, so what it shows is what `fp-attach-geo` produces. A faint floor and far wall at eye height give the placement something to read against. The fov field in the corner only changes the preview.
 
-The View menu toggles the skeleton overlay, the attachment markers, shading and two-sided drawing. Shaded draws through the engine's view-model shader with a fixed key light so the form reads; off, the preview draws the materials flat. Two-sided draws back faces as well, for checking whether a hole in a model is missing geometry or a face wound the wrong way.
+The View menu toggles the skeleton overlay, the attachment markers, shading and two-sided drawing. The skeleton and the markers draw over the mesh, with joints sized to the rig's bone lengths. Shaded draws through the engine's view-model shader with a fixed key light so the form reads; off, the preview draws the materials flat. Two-sided draws back faces as well, for checking whether a hole in a model is missing geometry or a face wound the wrong way.
 
 # Inspector
 

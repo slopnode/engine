@@ -510,6 +510,7 @@ add_executable(slopmodel
     tools/slopmodel/camera.cpp
     tools/slopmodel/editor.cpp
     tools/slopmodel/browser.cpp
+    tools/slopmodel/outliner.cpp
     tools/slopmodel/model_draw.cpp
     tools/slopmodel/world_preview.cpp
     tools/slopmodel/fp_preview.cpp

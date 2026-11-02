@@ -89,7 +89,22 @@ void drawSkeleton(const Model& model, int highlightBone) {
     if (poses == nullptr) {
         return;
     }
-    const float jointRadius = 0.012f;
+    std::vector<float> lengths;
+    for (int bone = 0; bone < model.skeleton.boneCount; ++bone) {
+        const int parent = model.skeleton.bones[bone].parent;
+        if (parent >= 0 && parent < model.skeleton.boneCount) {
+            const float length = Vector3Distance(poses[parent].translation, poses[bone].translation);
+            if (length > 1e-5f) {
+                lengths.push_back(length);
+            }
+        }
+    }
+    float jointRadius = 0.012f;
+    if (!lengths.empty()) {
+        std::nth_element(lengths.begin(), lengths.begin() + lengths.size() / 2, lengths.end());
+        jointRadius = std::clamp(lengths[lengths.size() / 2] * 0.15f, 0.002f, 0.02f);
+    }
+    rlDrawRenderBatchActive();
     rlDisableDepthTest();
     for (int bone = 0; bone < model.skeleton.boneCount; ++bone) {
         const Vector3 joint = poses[bone].translation;
@@ -105,6 +120,7 @@ void drawSkeleton(const Model& model, int highlightBone) {
             DrawLine3D(poses[parent].translation, joint, Color{240, 180, 40, 220});
         }
     }
+    rlDrawRenderBatchActive();
     rlEnableDepthTest();
 }
 
@@ -113,7 +129,9 @@ void drawEditorScene(Editor& editor, const Matrix& modelMatrix, const ShadedDraw
     if (!editor.doc.open) {
         return;
     }
-    drawGeoModel(editor.doc.model, modelMatrix, editor.shaded ? shaded : nullptr, WHITE, editor.twoSided);
+    if (editor.showMesh) {
+        drawGeoModel(editor.doc.model, modelMatrix, editor.shaded ? shaded : nullptr, WHITE, editor.twoSided);
+    }
 
     const int count = static_cast<int>(editor.doc.geo.attachments.size());
     for (int i = 0; i < count; ++i) {
@@ -132,12 +150,14 @@ void drawEditorScene(Editor& editor, const Matrix& modelMatrix, const ShadedDraw
         const Vector3 ex = Vector3Transform({axis, 0.0f, 0.0f}, world);
         const Vector3 ey = Vector3Transform({0.0f, axis, 0.0f}, world);
         const Vector3 ez = Vector3Transform({0.0f, 0.0f, axis}, world);
+        rlDrawRenderBatchActive();
         rlDisableDepthTest();
         DrawLine3D(origin, ex, RED);
         DrawLine3D(origin, ey, GREEN);
         DrawLine3D(origin, ez, BLUE);
         const bool selected = i == editor.doc.selectedAttachment;
         DrawSphereEx(origin, selected ? 0.02f : 0.012f, 4, 6, selected ? Color{255, 255, 120, 255} : Color{200, 200, 255, 255});
+        rlDrawRenderBatchActive();
         rlEnableDepthTest();
         if (out.camera != nullptr) {
             SceneDraw::Marker marker{};
@@ -153,8 +173,8 @@ void drawEditorScene(Editor& editor, const Matrix& modelMatrix, const ShadedDraw
     }
 
     if (editor.showSkeleton && editor.skinned()) {
-        int highlight = -1;
-        if (editor.doc.selectedAttachment >= 0 && editor.doc.selectedAttachment < count) {
+        int highlight = editor.doc.selectedBone;
+        if (highlight < 0 && editor.doc.selectedAttachment >= 0 && editor.doc.selectedAttachment < count) {
             highlight = slopengine::findModelBoneIndex(
                 editor.doc.model,
                 editor.doc.geo.attachments[static_cast<std::size_t>(editor.doc.selectedAttachment)].bone);
@@ -163,6 +183,20 @@ void drawEditorScene(Editor& editor, const Matrix& modelMatrix, const ShadedDraw
         rlMultMatrixf(MatrixToFloatV(modelMatrix).v);
         drawSkeleton(editor.doc.model, highlight);
         rlPopMatrix();
+        const Model& model = editor.doc.model;
+        const Transform* poses = model.currentPose != nullptr ? model.currentPose : model.skeleton.bindPose;
+        if (out.camera != nullptr && poses != nullptr && editor.doc.selectedBone >= 0 &&
+            editor.doc.selectedBone < model.skeleton.boneCount) {
+            SceneDraw::Marker marker{};
+            marker.screen = GetWorldToScreenEx(
+                Vector3Transform(poses[editor.doc.selectedBone].translation, modelMatrix),
+                *out.camera,
+                static_cast<int>(out.screenSize.x),
+                static_cast<int>(out.screenSize.y));
+            marker.name = model.skeleton.bones[editor.doc.selectedBone].name;
+            marker.selected = true;
+            out.markers.push_back(std::move(marker));
+        }
     }
 }
 

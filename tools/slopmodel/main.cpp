@@ -1,4 +1,5 @@
 #include "browser.hpp"
+#include "outliner.hpp"
 #include "editor.hpp"
 #include "fp_preview.hpp"
 #include "layout.hpp"
@@ -11,6 +12,7 @@
 #include "core/package_search.hpp"
 #include "core/user_paths.hpp"
 #include "game/app_config.hpp"
+#include "render/bone_attachment.hpp"
 #include "ui/icon_ui.hpp"
 #include "ui/slopui_tool.hpp"
 #include "ui/slopui_widgets.hpp"
@@ -50,6 +52,9 @@ struct ToolConfig {
     std::string openClip;
     float openFrame = -1.0f;
     bool twoSided = false;
+    bool skeleton = false;
+    bool hideMesh = false;
+    std::string bone;
     std::vector<std::pair<std::string, std::string>> previews;
     slopmodel::PreviewMode mode = slopmodel::PreviewMode::World;
 };
@@ -68,6 +73,9 @@ void printUsage() {
         << "  --frame       Pause the clip at this frame instead of playing it\n"
         << "  --preview     attachment=geo, show a geo on an attachment (repeatable)\n"
         << "  --two-sided   Draw both faces of every triangle\n"
+        << "  --skeleton    Show the skeleton overlay\n"
+        << "  --bone        Select this bone in the armature tree, with --geo\n"
+        << "  --hide-mesh   Hide the model's own mesh\n"
         << "  --verbose     Raise the trace log level to show DEBUG messages\n";
 }
 
@@ -146,6 +154,22 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         }
         if (arg == "--two-sided") {
             config.twoSided = true;
+            continue;
+        }
+        if (arg == "--skeleton") {
+            config.skeleton = true;
+            continue;
+        }
+        if (arg == "--hide-mesh") {
+            config.hideMesh = true;
+            continue;
+        }
+        if (arg == "--bone") {
+            const char* value = needValue();
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.bone = value;
             continue;
         }
         if (arg == "--mode") {
@@ -616,6 +640,8 @@ int main(int argc, char* argv[]) {
     editor.targetRoot = config->target;
     editor.mode = config->mode;
     editor.twoSided = config->twoSided;
+    editor.showSkeleton = config->skeleton;
+    editor.showMesh = !config->hideMesh;
     if (auto meta = slopengine::loadPackageMetaFile(config->target / "package.meta")) {
         editor.targetPackageId = meta->id;
     }
@@ -638,6 +664,10 @@ int main(int argc, char* argv[]) {
                 const slopmodel::ClipInfo info = editor.clipInfo(assets);
                 editor.scrub(assets, info.valid ? config->openFrame / info.fps : 0.0f);
             }
+        }
+        if (!config->bone.empty()) {
+            editor.doc.selectedBone = slopengine::findModelBoneIndex(editor.doc.model, config->bone);
+            editor.showSkeleton = editor.showSkeleton || editor.doc.selectedBone >= 0;
         }
         for (const auto& [attachmentName, geoPath] : config->previews) {
             for (int i = 0; i < static_cast<int>(editor.doc.geo.attachments.size()); ++i) {
@@ -760,6 +790,7 @@ int main(int argc, char* argv[]) {
         ImGui::SetNextWindowSize(ImVec2(layout.leftPanel.width, layout.leftPanel.height));
         slopengine::slopuiBegin("Browser", nullptr, panelFlags);
         browser.draw(editor, assets);
+        slopmodel::drawAssetOutliner(editor, assets);
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(layout.rightPanel.x, layout.rightPanel.y));

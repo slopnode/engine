@@ -45,6 +45,7 @@ struct Document {
     float lastEventTimer = 0.0f;
 
     int selectedAttachment = -1;
+    int selectedBone = -1;
     std::vector<AttachmentPreview> previews;
     float worldScale = 1.0f;
 };
@@ -65,6 +66,7 @@ struct Editor {
     float statusTimer = 0.0f;
     bool requestWorldCameraFrame = false;
     bool showSkeleton = false;
+    bool showMesh = true;
     bool showAttachments = true;
     bool shaded = true;
     bool twoSided = false;
