@@ -187,10 +187,10 @@ PhysicsWorld::PhysicsWorld() {
 
     system_ = std::make_unique<JPH::PhysicsSystem>();
     system_->Init(
-        4096,
+        65536,
         0,
-        4096,
-        4096,
+        65536,
+        16384,
         *broadPhaseLayerInterface_,
         *objectVsBroadPhaseLayerFilter_,
         *objectLayerPairFilter_);
@@ -311,6 +311,10 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
         settings.mFriction = 0.8f;
 
         const JPH::BodyID id = bodies.CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+        if (id.IsInvalid()) {
+            TraceLog(LOG_WARNING, "PHYSICS: out of bodies, brush '%s' has no collision", brush.id.c_str());
+            continue;
+        }
         staticBodies_.push_back(id);
         staticBodyBlocks_[id.GetIndex()] = brush.blocks;
     }

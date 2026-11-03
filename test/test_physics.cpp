@@ -911,7 +911,33 @@ void runPropCollisionTests() {
     CHECK(!world.hasProp(kPropId));
 }
 
+void runLargeMapCapacityTests() {
+    PhysicsWorld world;
+    std::vector<Brush> brushes;
+    constexpr int kBrushCount = 6000;
+    for (int i = 0; i < kBrushCount; ++i) {
+        const float x = static_cast<float>(i % 80) * 2.0f;
+        const float z = static_cast<float>(i / 80) * 2.0f;
+        brushes.push_back(makeBrushBox("b" + std::to_string(i), {x, 0.0f, z}, {x + 1.0f, 1.0f, z + 1.0f}, "mat/a", {}));
+    }
+    world.addStaticBrushes(brushes);
+
+    const Vector3 down{0.0f, -1.0f, 0.0f};
+    const Brush& last = brushes.back();
+    const Vector3 above{0.5f * (last.mins.x + last.maxs.x), 3.0f, 0.5f * (last.mins.z + last.maxs.z)};
+    CHECK(world.castRay(above, down, 5.0f).has_value());
+
+    const Quaternion identity{0.0f, 0.0f, 0.0f, 1.0f};
+    int created = 0;
+    for (std::uint64_t id = 1; id <= 64; ++id) {
+        world.createDebrisBox(id, {1.0f, 5.0f + static_cast<float>(id), 1.0f}, {0.2f, 0.2f, 0.2f}, identity, {}, {});
+        created += world.hasDebris(id) ? 1 : 0;
+    }
+    CHECK(created == 64);
+}
+
 void runPhysicsTests() {
+    runLargeMapCapacityTests();
     runAutoCloseTests();
     runKinematicTests();
     runCastScanTests();
