@@ -33,7 +33,7 @@ window.SLOPENGINE_SCHEME_FNS = [
   "particle-despawn", "particle-play", "particle-spawn", "particle-spawn-attach", "particle-spawn-bone",
   "particle-spawn-fp", "particle-stop", "pause-menu?", "play-audio", "play-audio-3d",
   "play-music", "play-sound", "player-collider", "player-eye", "player-eye-height",
-  "player-grounded?", "player-jump!", "player-set-gravity!", "player-look-dir", "player-pose", "player-set-collider",
+  "player-grounded?", "player-jump!", "player-move-speed", "player-set-gravity!", "player-set-move-speed!", "player-look-dir", "player-pose", "player-set-collider",
   "player-set-control", "player-set-eye-height", "player-set-pitch-locked",
   "player-set-pose", "player-speed", "player-velocity", "player-wish-speed", "playing?",
   "post-clear-shaders", "post-push-shader", "post-remove-shader", "post-set-enabled",

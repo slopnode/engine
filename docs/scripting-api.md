@@ -243,6 +243,17 @@ Sets the downward acceleration of the player's character motor in meters per sec
   gravity : real?) ↵ boolean?
 </code></pre>
 
+### player-move-speed {#player-move-speed}
+Returns the top horizontal speed of the player's character motor in meters per second, or \#f when there is no player.
+<pre><code class="language-scheme">(player-move-speed) ↵ real?
+</code></pre>
+
+### player-set-move-speed! {#player-set-move-speed}
+Sets the top horizontal speed of the player's character motor in meters per second. A map load resets it to the package or player-start value. Sprinting is this call with a larger speed while a key is held. Returns \#f when there is no player.
+<pre><code class="language-scheme">(player-set-move-speed!
+  speed : real?) ↵ boolean?
+</code></pre>
+
 ### player-wish-speed {#player-wish-speed}
 Returns the current wish-vector speed, before physics resolves collisions.
 <pre><code class="language-scheme">(player-wish-speed) ↵ real?
@@ -772,7 +783,7 @@ Sets a socket sprite's normalized origin point.
 </code></pre>
 
 ### fp-spawn-light {#fp-spawn-light}
-Spawns a dynamic light as a child of a first-person socket.
+Spawns a dynamic light as a child of a first-person socket, replacing anything already under it. The light starts off and casts shadows. View space has x right, y up and z forward, and a spot points along +z. The `"light"` socket sits on the eye and does not follow the weapon's bob or drop, which suits a flashlight.
 <pre><code class="language-scheme">(fp-spawn-light
   socket : string?
   kind : symbol?

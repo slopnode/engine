@@ -24,6 +24,7 @@
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <string>
@@ -40,6 +41,8 @@ namespace {
 constexpr const char* kFpRootName = "PlayerFp";
 constexpr const char* kWeaponSocketName = "weapon";
 constexpr const char* kEmissionSocketName = "emission";
+constexpr const char* kLightSocketName = "light";
+constexpr const char* kFpLightRootName = "PlayerFpLight";
 
 flecs::world* g_fpWorld = nullptr;
 
@@ -56,6 +59,9 @@ flecs::entity socketByName(flecs::world& world, const FirstPersonScene& scene, c
     }
     if (std::strcmp(name, kEmissionSocketName) == 0 && scene.emissionSocket != 0) {
         return world.entity(scene.emissionSocket);
+    }
+    if (std::strcmp(name, kLightSocketName) == 0) {
+        return world.lookup(kFpLightRootName);
     }
     flecs::entity root = scene.root != 0 ? world.entity(scene.root) : world.lookup(kFpRootName);
     if (!root.is_valid()) {
@@ -1543,6 +1549,42 @@ s7_pointer g_player_set_gravity(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_player_move_speed(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, static_cast<double>(player.get<CharacterMotor>().moveSpeed));
+}
+
+s7_pointer g_player_set_move_speed(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "player-set-move-speed!", 1, args, "speed number");
+    }
+    if (g_fpWorld == nullptr) {
+        return s7_f(sc);
+    }
+    flecs::entity player = g_fpWorld->lookup("Player");
+    if (!player.is_valid() || !player.has<CharacterMotor>()) {
+        return s7_f(sc);
+    }
+    const float speed = std::max(0.0f, static_cast<float>(s7_number_to_real(sc, s7_car(args))));
+    player.get_mut<CharacterMotor>().moveSpeed = speed;
+    if (player.has<FirstPersonController>()) {
+        player.get_mut<FirstPersonController>().moveSpeed = speed;
+    }
+    return s7_t(sc);
+}
+
 s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -1676,6 +1718,10 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
     s7_define_function(scheme, "player-jump!", g_player_jump, 1, 0, false, "(player-jump! speed)");
     s7_define_function(scheme, "player-set-gravity!", g_player_set_gravity, 1, 0, false,
                        "(player-set-gravity! gravity)");
+    s7_define_function(scheme, "player-move-speed", g_player_move_speed, 0, 0, false,
+                       "(player-move-speed)");
+    s7_define_function(scheme, "player-set-move-speed!", g_player_set_move_speed, 1, 0, false,
+                       "(player-set-move-speed! speed)");
     s7_define_function(scheme, "player-wish-speed", g_player_wish_speed, 0, 0, false,
                        "(player-wish-speed)");
     s7_define_function(scheme, "player-eye", g_player_eye, 0, 0, false, "(player-eye)");
@@ -1727,6 +1773,18 @@ void ensureFirstPersonScene(flecs::world& world, flecs::entity player) {
                        .add<ViewSpace>()
                        .set<LocalTransformation>(local)
                        .set<GlobalTransformation>(global);
+    }
+
+    if (!world.lookup(kFpLightRootName).is_valid()) {
+        LocalTransformation local{};
+        local.scale = {1.0f, 1.0f, 1.0f};
+        local.rotation = QuaternionIdentity();
+        GlobalTransformation global{};
+        global.matrix = MatrixIdentity();
+        world.entity(kFpLightRootName)
+            .add<ViewSpace>()
+            .set<LocalTransformation>(local)
+            .set<GlobalTransformation>(global);
     }
 
     bool useRadTint = false;

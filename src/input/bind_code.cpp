@@ -67,6 +67,24 @@ int parseBindToken(std::string_view token) {
     if (token == "escape" || token == "esc") {
         return KEY_ESCAPE;
     }
+    if (token == "shift" || token == "lshift") {
+        return KEY_LEFT_SHIFT;
+    }
+    if (token == "rshift") {
+        return KEY_RIGHT_SHIFT;
+    }
+    if (token == "ctrl" || token == "lctrl") {
+        return KEY_LEFT_CONTROL;
+    }
+    if (token == "rctrl") {
+        return KEY_RIGHT_CONTROL;
+    }
+    if (token == "alt" || token == "lalt") {
+        return KEY_LEFT_ALT;
+    }
+    if (token == "ralt") {
+        return KEY_RIGHT_ALT;
+    }
     if (token.size() >= 2 && (token[0] == 'f' || token[0] == 'F')) {
         bool digits = true;
         for (std::size_t i = 1; i < token.size(); ++i) {
