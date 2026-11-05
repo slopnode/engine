@@ -14,6 +14,7 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
@@ -146,22 +147,43 @@ public:
     }
 };
 
-} // namespace
+class BrushBlockBodyFilter final : public JPH::BodyFilter {
+public:
+    BrushBlockBodyFilter(const std::unordered_map<JPH::uint32, std::uint8_t>& staticBodyBlocks, std::uint8_t blockMask)
+        : staticBodyBlocks_(staticBodyBlocks), blockMask_(blockMask) {}
 
-void populateBrushBlockIgnoreFilter(
-    JPH::IgnoreMultipleBodiesFilter& filter,
-    const std::vector<JPH::BodyID>& staticBodies,
-    const std::unordered_map<JPH::uint32, std::uint8_t>& staticBodyBlocks,
-    std::uint8_t blockMask) {
-    filter.Clear();
-    filter.Reserve(static_cast<JPH::uint>(staticBodies.size()));
-    for (JPH::BodyID id : staticBodies) {
-        const auto it = staticBodyBlocks.find(id.GetIndex());
-        if (it != staticBodyBlocks.end() && (it->second & blockMask) == 0) {
-            filter.IgnoreBody(id);
-        }
+    bool ShouldCollide(const JPH::BodyID& id) const override {
+        const auto it = staticBodyBlocks_.find(id.GetIndex());
+        return it == staticBodyBlocks_.end() || (it->second & blockMask_) != 0;
     }
-}
+
+private:
+    const std::unordered_map<JPH::uint32, std::uint8_t>& staticBodyBlocks_;
+    std::uint8_t blockMask_;
+};
+
+constexpr float kStaticChunkSize = 64.0f;
+
+struct StaticChunkKey {
+    std::uint8_t blocks;
+    int cx;
+    int cz;
+
+    bool operator==(const StaticChunkKey& other) const {
+        return blocks == other.blocks && cx == other.cx && cz == other.cz;
+    }
+};
+
+struct StaticChunkKeyHash {
+    std::size_t operator()(const StaticChunkKey& key) const {
+        const std::uint64_t packed = (static_cast<std::uint64_t>(key.blocks) << 48)
+            ^ (static_cast<std::uint64_t>(static_cast<std::uint32_t>(key.cx)) << 24)
+            ^ static_cast<std::uint64_t>(static_cast<std::uint32_t>(key.cz));
+        return std::hash<std::uint64_t>{}(packed);
+    }
+};
+
+} // namespace
 
 PhysicsWorld::PhysicsWorld() {
     JPH::RegisterDefaultAllocator();
@@ -241,6 +263,7 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
     int boxCount = 0;
     int hullShapeCount = 0;
     int skippedNoBlocks = 0;
+    std::unordered_map<StaticChunkKey, JPH::Ref<JPH::StaticCompoundShapeSettings>, StaticChunkKeyHash> chunks;
 
     for (const Brush& brush : brushes) {
         if (!brushBlocksAny(brush.blocks)) {
@@ -248,8 +271,20 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
             continue;
         }
 
+        const float centerX = 0.5f * (brush.mins.x + brush.maxs.x);
+        const float centerZ = 0.5f * (brush.mins.z + brush.maxs.z);
+        const StaticChunkKey key{
+            brush.blocks,
+            static_cast<int>(std::floor(centerX / kStaticChunkSize)),
+            static_cast<int>(std::floor(centerZ / kStaticChunkSize)),
+        };
+        const JPH::Vec3 origin(
+            static_cast<float>(key.cx) * kStaticChunkSize,
+            0.0f,
+            static_cast<float>(key.cz) * kStaticChunkSize);
+
         JPH::RefConst<JPH::Shape> shape;
-        JPH::RVec3 position = JPH::RVec3::sZero();
+        JPH::Vec3 position = JPH::Vec3::sZero();
 
         if (brush.box) {
             const float hx = 0.5f * (brush.maxs.x - brush.mins.x);
@@ -271,16 +306,17 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
                 continue;
             }
             shape = result.Get();
-            position = JPH::RVec3(
-                0.5 * (static_cast<double>(brush.mins.x) + static_cast<double>(brush.maxs.x)),
-                0.5 * (static_cast<double>(brush.mins.y) + static_cast<double>(brush.maxs.y)),
-                0.5 * (static_cast<double>(brush.mins.z) + static_cast<double>(brush.maxs.z)));
+            position = JPH::Vec3(
+                       centerX,
+                       0.5f * (brush.mins.y + brush.maxs.y),
+                       centerZ)
+                - origin;
             ++boxCount;
         } else {
             JPH::Array<JPH::Vec3> points;
             for (const BrushFace& face : brush.faces) {
                 for (const Vector3& v : face.vertices) {
-                    points.push_back(JPH::Vec3(v.x, v.y, v.z));
+                    points.push_back(JPH::Vec3(v.x, v.y, v.z) - origin);
                 }
             }
             if (points.size() < 4) {
@@ -302,9 +338,32 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
             ++hullShapeCount;
         }
 
+        JPH::Ref<JPH::StaticCompoundShapeSettings>& compound = chunks[key];
+        if (compound == nullptr) {
+            compound = new JPH::StaticCompoundShapeSettings();
+        }
+        compound->AddShape(position, JPH::Quat::sIdentity(), shape);
+    }
+
+    for (const auto& [key, compound] : chunks) {
+        auto result = compound->Create();
+        if (result.HasError()) {
+            TraceLog(
+                LOG_WARNING,
+                "PHYSICS: static chunk (%d, %d) blocks %u failed: %s",
+                key.cx,
+                key.cz,
+                static_cast<unsigned>(key.blocks),
+                result.GetError().c_str());
+            continue;
+        }
+
         JPH::BodyCreationSettings settings(
-            shape,
-            position,
+            result.Get(),
+            JPH::RVec3(
+                static_cast<double>(key.cx) * kStaticChunkSize,
+                0.0,
+                static_cast<double>(key.cz) * kStaticChunkSize),
             JPH::Quat::sIdentity(),
             JPH::EMotionType::Static,
             Layers::NON_MOVING);
@@ -312,18 +371,23 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
 
         const JPH::BodyID id = bodies.CreateAndAddBody(settings, JPH::EActivation::DontActivate);
         if (id.IsInvalid()) {
-            TraceLog(LOG_WARNING, "PHYSICS: out of bodies, brush '%s' has no collision", brush.id.c_str());
+            TraceLog(
+                LOG_WARNING,
+                "PHYSICS: out of bodies, static chunk (%d, %d) has no collision",
+                key.cx,
+                key.cz);
             continue;
         }
         staticBodies_.push_back(id);
-        staticBodyBlocks_[id.GetIndex()] = brush.blocks;
+        staticBodyBlocks_[id.GetIndex()] = key.blocks;
     }
 
     system_->OptimizeBroadPhase();
     TraceLog(
         LOG_INFO,
-        "PHYSICS: added %d static brush bodies (box=%d hull=%d skipped %d no-blocks)",
+        "PHYSICS: added %d static chunk bodies from %d brushes (box=%d hull=%d skipped %d no-blocks)",
         static_cast<int>(staticBodies_.size()),
+        boxCount + hullShapeCount,
         boxCount,
         hullShapeCount,
         skippedNoBlocks);
@@ -972,8 +1036,7 @@ bool PhysicsWorld::resizeCharacter(std::uint64_t id, const CharacterMotor& motor
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask = id == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
 
     JPH::CharacterVirtual& character = *it->second.character;
@@ -1073,8 +1136,7 @@ void PhysicsWorld::stepCharacterTryMove(
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
         characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
     const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
     const JPH::Vec3 up = character.GetUp();
@@ -1200,8 +1262,7 @@ void PhysicsWorld::stepCharacter(
     updateSettings.mWalkStairsStepUp = character.GetUp() * stepHeight;
     const std::uint8_t blockMask =
         characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
 
     character.ExtendedUpdate(
         kFixedDt,
@@ -1245,8 +1306,7 @@ void PhysicsWorld::stepCharacterFlight(
     updateSettings.mWalkStairsStepUp = JPH::Vec3::sZero();
     const std::uint8_t blockMask =
         characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     character.ExtendedUpdate(
         kFixedDt,
         -character.GetUp() * system_->GetGravity().Length(),
@@ -1301,8 +1361,7 @@ std::optional<JPH::RVec3> PhysicsWorld::probeWaterExitLedge(
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
         characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::Vec3 up = character.GetUp();
     const float reach = motor.waterExitReach > 0.0f ? motor.waterExitReach : 0.5f;
 
@@ -1443,8 +1502,7 @@ void PhysicsWorld::stepCharacterSwim(
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
         characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
     const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
 
@@ -1908,8 +1966,7 @@ std::optional<SphereCastHit> PhysicsWorld::castSphere(
     settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
 
     JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     system_->GetNarrowPhaseQuery().CastShape(
         shapeCast,
         settings,
@@ -1968,8 +2025,7 @@ std::optional<RayCastHit> PhysicsWorld::castRay(
     settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
 
     JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
-    JPH::IgnoreMultipleBodiesFilter bodyFilter;
-    populateBrushBlockIgnoreFilter(bodyFilter, staticBodies_, staticBodyBlocks_, blockMask);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     system_->GetNarrowPhaseQuery().CastRay(
         ray,
         settings,

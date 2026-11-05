@@ -920,12 +920,33 @@ void runLargeMapCapacityTests() {
         const float z = static_cast<float>(i / 80) * 2.0f;
         brushes.push_back(makeBrushBox("b" + std::to_string(i), {x, 0.0f, z}, {x + 1.0f, 1.0f, z + 1.0f}, "mat/a", {}));
     }
+    Brush clip = makeBrushBox("clip", {0.2f, 1.5f, 0.2f}, {0.8f, 1.7f, 0.8f}, "mat/a", {});
+    clip.blocks = BrushBlock::Player;
+    syncBrushNocollide(clip);
+    brushes.push_back(clip);
+    brushes.push_back(makeBrushBox("far", {1000.0f, 0.0f, -2000.0f}, {1001.0f, 2.0f, -1999.0f}, "mat/a", {}));
+    Brush hull = makeBrushBox("hull", {-500.0f, 0.0f, 700.0f}, {-498.0f, 1.5f, 702.0f}, "mat/a", {});
+    hull.box = false;
+    brushes.push_back(hull);
     world.addStaticBrushes(brushes);
 
     const Vector3 down{0.0f, -1.0f, 0.0f};
-    const Brush& last = brushes.back();
+    const Brush& last = brushes[kBrushCount - 1];
     const Vector3 above{0.5f * (last.mins.x + last.maxs.x), 3.0f, 0.5f * (last.mins.z + last.maxs.z)};
-    CHECK(world.castRay(above, down, 5.0f).has_value());
+    const auto lastHit = world.castRay(above, down, 5.0f);
+    CHECK(lastHit.has_value());
+    CHECK(lastHit.has_value() && std::fabs(lastHit->fraction - 0.4f) < 0.01f);
+    CHECK_FALSE(world.castRay({above.x + 1.0f, 3.0f, above.z}, down, 5.0f).has_value());
+
+    const auto losHit = world.castRay({0.5f, 3.0f, 0.5f}, down, 5.0f, BrushBlock::Los);
+    CHECK(losHit.has_value() && std::fabs(losHit->fraction - 0.4f) < 0.01f);
+    const auto playerHit = world.castRay({0.5f, 3.0f, 0.5f}, down, 5.0f, BrushBlock::Player);
+    CHECK(playerHit.has_value() && std::fabs(playerHit->fraction - 0.26f) < 0.01f);
+
+    const auto farHit = world.castRay({1000.5f, 3.0f, -1999.5f}, down, 5.0f);
+    CHECK(farHit.has_value() && std::fabs(farHit->fraction - 0.2f) < 0.01f);
+    const auto hullHit = world.castRay({-499.0f, 3.0f, 701.0f}, down, 5.0f);
+    CHECK(hullHit.has_value() && std::fabs(hullHit->fraction - 0.3f) < 0.01f);
 
     const Quaternion identity{0.0f, 0.0f, 0.0f, 1.0f};
     int created = 0;
