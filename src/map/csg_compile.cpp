@@ -259,6 +259,10 @@ void mergeGeoPrimitivesByKey(GeoAsset& asset, VertBuffer& buffer, const Primitiv
     mergedBuffer.normals.reserve(buffer.normals.size());
     mergedBuffer.texcoords.reserve(buffer.texcoords.size());
     mergedBuffer.texcoords2.reserve(buffer.texcoords2.size());
+    const bool hasColors = !buffer.colors.empty() && buffer.colors.size() == buffer.positions.size();
+    if (hasColors) {
+        mergedBuffer.colors.reserve(buffer.colors.size());
+    }
     mergedBuffer.indices.reserve(buffer.indices.size());
 
     for (const std::string& key : groupOrder) {
@@ -306,6 +310,12 @@ void mergeGeoPrimitivesByKey(GeoAsset& asset, VertBuffer& buffer, const Primitiv
                 mergedBuffer.texcoords2.end(),
                 buffer.texcoords2.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset),
                 buffer.texcoords2.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset + src.vertexCount));
+            if (hasColors) {
+                mergedBuffer.colors.insert(
+                    mergedBuffer.colors.end(),
+                    buffer.colors.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset),
+                    buffer.colors.begin() + static_cast<std::ptrdiff_t>(src.vertexOffset + src.vertexCount));
+            }
 
             for (std::size_t i = 0; i < src.indexCount; ++i) {
                 const std::uint32_t srcIndex = buffer.indices[src.indexOffset + i];

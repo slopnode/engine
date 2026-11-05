@@ -138,6 +138,31 @@ void runCsgCompileTests() {
         }
         CHECK(indicesStayWithinOwnPrimitive(asset, buffer));
     }
+
+    {
+        GeoAsset asset;
+        VertBuffer buffer;
+        pushTrianglePrimitive(asset, buffer, "face-a", "tech/wall01", false);
+        pushTrianglePrimitive(asset, buffer, "face-b", "tech/wall02", false);
+        pushTrianglePrimitive(asset, buffer, "face-c", "tech/wall01", false);
+        const Color colors[3] = {RED, GREEN, BLUE};
+        for (const Color& color : colors) {
+            for (int i = 0; i < 3; ++i) {
+                buffer.colors.push_back(color);
+            }
+        }
+
+        mergeGeoPrimitivesByKey(asset, buffer, [](const GeoPrimitive& primitive) { return primitive.material; });
+
+        CHECK_EQ(asset.primitives.size(), static_cast<std::size_t>(2));
+        CHECK_EQ(buffer.colors.size(), buffer.positions.size());
+        const Color expected[9] = {RED, RED, RED, BLUE, BLUE, BLUE, GREEN, GREEN, GREEN};
+        for (std::size_t i = 0; i < 9; ++i) {
+            CHECK_EQ(buffer.colors[i].r, expected[i].r);
+            CHECK_EQ(buffer.colors[i].g, expected[i].g);
+            CHECK_EQ(buffer.colors[i].b, expected[i].b);
+        }
+    }
 }
 
 }

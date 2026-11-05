@@ -106,9 +106,8 @@ Color applyFauxShade(Color base, Vector3 normal, bool preserveAlpha = false, std
     };
 }
 
-void drawMeshFaux(const Model& model, int meshIndex, bool fauxShade, int emissionPowerLoc = -1) {
-    const Mesh& mesh = model.meshes[meshIndex];
-    Material& material = model.materials[meshIndex];
+void drawPreviewMesh(const Model& model, int meshIndex, int emissionPowerLoc = -1) {
+    const Material& material = model.materials[meshIndex];
     if (emissionPowerLoc >= 0) {
         SetShaderValue(
             material.shader,
@@ -116,16 +115,17 @@ void drawMeshFaux(const Model& model, int meshIndex, bool fauxShade, int emissio
             &material.maps[MATERIAL_MAP_SPECULAR].value,
             SHADER_UNIFORM_FLOAT);
     }
-    if (!fauxShade || mesh.normals == nullptr || mesh.vertexCount <= 0) {
-        DrawMesh(mesh, material, MatrixIdentity());
+    DrawMesh(model.meshes[meshIndex], material, MatrixIdentity());
+}
+
+void setEditShaderMode(const MapPreview& preview, bool fauxShade, bool useVertexColor) {
+    if (preview.editShader.id == 0) {
         return;
     }
-    MaterialMap& albedoMap = material.maps[MATERIAL_MAP_ALBEDO];
-    const Color original = albedoMap.color;
-    const Vector3 normal{mesh.normals[0], mesh.normals[1], mesh.normals[2]};
-    albedoMap.color = applyFauxShade(original, normal, true);
-    DrawMesh(mesh, material, MatrixIdentity());
-    albedoMap.color = original;
+    const int faux = fauxShade ? 1 : 0;
+    const int vertexColor = useVertexColor ? 1 : 0;
+    SetShaderValue(preview.editShader, preview.editFauxShadeLoc, &faux, SHADER_UNIFORM_INT);
+    SetShaderValue(preview.editShader, preview.editVertexColorLoc, &vertexColor, SHADER_UNIFORM_INT);
 }
 
 slopengine::MaterialUvInfo resolveMaterialUv(slopengine::AssetStore& assets, std::string_view materialPath) {
@@ -243,7 +243,6 @@ void drawModelMeshesSplit(
     const std::vector<int>& transparentMeshIndices,
     const std::vector<int>& skyMeshIndices,
     bool transparentPass,
-    bool fauxShade = false,
     int emissionPowerLoc = -1) {
     if (model.meshCount <= 0) {
         return;
@@ -260,7 +259,7 @@ void drawModelMeshesSplit(
         if (!transparentPass && skySet.count(meshIndex) > 0) {
             continue;
         }
-        drawMeshFaux(model, meshIndex, fauxShade, emissionPowerLoc);
+        drawPreviewMesh(model, meshIndex, emissionPowerLoc);
     }
 }
 
@@ -270,9 +269,8 @@ void drawPreviewModelTextured(
     const std::vector<int>& skyMeshIndices,
     Vector3 cameraPos,
     Vector3 cameraForward,
-    bool fauxShade = false,
     int emissionPowerLoc = -1) {
-    drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false, fauxShade, emissionPowerLoc);
+    drawModelMeshesSplit(model, transparentMeshIndices, skyMeshIndices, false, emissionPowerLoc);
     if (transparentMeshIndices.empty()) {
         return;
     }
@@ -298,7 +296,7 @@ void drawPreviewModelTextured(
     rlDisableDepthMask();
     BeginBlendMode(BLEND_ALPHA);
     for (const SortItem& item : sorted) {
-        drawMeshFaux(model, item.meshIndex, fauxShade, emissionPowerLoc);
+        drawPreviewMesh(model, item.meshIndex, emissionPowerLoc);
     }
     EndBlendMode();
     rlEnableDepthMask();
@@ -343,51 +341,18 @@ Color solidBaseColor(const FaceSolidInfo& info) {
     };
 }
 
-void drawEditModelSolid(
-    const Model& model,
-    const std::vector<std::string>& faceIds,
-    const std::vector<slopengine::Brush>& brushes,
-    const std::vector<slopengine::Brush>& instanceBrushes) {
+void drawEditModelSolid(const Model& model, Shader editShader) {
     if (model.meshCount <= 0) {
         return;
     }
-
-    std::unordered_map<std::string, FaceSolidInfo> faceInfo;
-    auto indexBrush = [&](const slopengine::Brush& brush) {
-        for (const slopengine::BrushFace& face : brush.faces) {
-            faceInfo[face.id] = FaceSolidInfo{brush.role, brush.id};
-        }
-    };
-    for (const slopengine::Brush& brush : brushes) {
-        indexBrush(brush);
-    }
-    for (const slopengine::Brush& brush : instanceBrushes) {
-        indexBrush(brush);
-    }
-
     Material flat = LoadMaterialDefault();
-    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
-        FaceSolidInfo info{};
-        if (meshIndex < static_cast<int>(faceIds.size())) {
-            const auto it = faceInfo.find(faceIds[static_cast<std::size_t>(meshIndex)]);
-            if (it != faceInfo.end()) {
-                info = it->second;
-            }
-        }
-        Color tint = solidBaseColor(info);
-        const Mesh& mesh = model.meshes[meshIndex];
-        if (mesh.normals != nullptr && mesh.vertexCount > 0) {
-            const Vector3 normal{
-                mesh.normals[0],
-                mesh.normals[1],
-                mesh.normals[2],
-            };
-            tint = applyFauxShade(tint, normal);
-        }
-        flat.maps[MATERIAL_MAP_ALBEDO].color = tint;
-        DrawMesh(mesh, flat, MatrixIdentity());
+    if (editShader.id != 0) {
+        flat.shader = editShader;
     }
-    UnloadMaterial(flat);
+    for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        DrawMesh(model.meshes[meshIndex], flat, MatrixIdentity());
+    }
+    RL_FREE(flat.maps);
 }
 
 void drawNodrawFace(const slopengine::BrushFace& face, Color color) {
@@ -484,8 +449,13 @@ void MapPreview::clear() {
     }
     model = {};
     valid = false;
-    editFaceIds.clear();
     modelTransparentMeshIndices.clear();
+    if (editShader.id != 0) {
+        UnloadShader(editShader);
+        editShader = {};
+    }
+    editFauxShadeLoc = -1;
+    editVertexColorLoc = -1;
     clearVis();
     clearCsg();
     clearLit();
@@ -498,25 +468,73 @@ void MapPreview::rebuild(slopengine::AssetStore& assets, const std::vector<slope
     }
     model = {};
     valid = false;
-    editFaceIds.clear();
     modelTransparentMeshIndices.clear();
     if (brushes.empty()) {
         return;
     }
 
-    const slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
+    if (editShader.id == 0) {
+        const std::string vert = assets.getShaderSource("tools/edit_preview_vert");
+        const std::string frag = assets.getShaderSource("tools/edit_preview_frag");
+        if (vert.empty() || frag.empty()) {
+            TraceLog(LOG_WARNING, "slopmap: missing tools/edit_preview shaders");
+        } else {
+            editShader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+            if (editShader.id == 0) {
+                TraceLog(LOG_WARNING, "slopmap: failed to compile tools/edit_preview shaders");
+            } else {
+                editFauxShadeLoc = GetShaderLocation(editShader, "fauxShade");
+                editVertexColorLoc = GetShaderLocation(editShader, "useVertexColor");
+            }
+        }
+    }
+
+    slopengine::CsgCompileResult compiled = slopengine::compileBrushesToGeo(
         brushes,
         [&assets](std::string_view materialPath) { return resolveMaterialUv(assets, materialPath); });
 
-    editFaceIds.reserve(compiled.asset.primitives.size());
-    for (const auto& primitive : compiled.asset.primitives) {
-        editFaceIds.push_back(primitive.name);
+    std::unordered_map<std::string, Color> faceColors;
+    for (const slopengine::Brush& brush : brushes) {
+        Color color = solidBaseColor(FaceSolidInfo{brush.role, brush.id});
+        color.a = 255;
+        for (const slopengine::BrushFace& face : brush.faces) {
+            faceColors[face.id] = color;
+        }
     }
+    Color fallbackColor = solidBaseColor(FaceSolidInfo{});
+    fallbackColor.a = 255;
+    compiled.buffer.colors.assign(compiled.buffer.positions.size(), fallbackColor);
+    for (const slopengine::GeoPrimitive& primitive : compiled.asset.primitives) {
+        const auto it = faceColors.find(primitive.name);
+        if (it == faceColors.end()) {
+            continue;
+        }
+        std::fill_n(
+            compiled.buffer.colors.begin() + static_cast<std::ptrdiff_t>(primitive.vertexOffset),
+            primitive.vertexCount,
+            it->second);
+    }
+
+    slopengine::mergeGeoPrimitivesByKey(
+        compiled.asset,
+        compiled.buffer,
+        [](const slopengine::GeoPrimitive& primitive) {
+            if (primitive.transparent) {
+                return "t:" + primitive.name;
+            }
+            return primitive.material + '|' + (primitive.twoSided ? "1" : "0");
+        });
 
     model = slopengine::buildModelFromGeo(
         compiled.asset,
         compiled.buffer,
         [&assets](std::string_view path) { return assets.resolveMaterial(path); });
+
+    if (editShader.id != 0) {
+        for (int materialIndex = 0; materialIndex < model.materialCount; ++materialIndex) {
+            model.materials[materialIndex].shader = editShader;
+        }
+    }
 
     collectTransparentMeshIndices(compiled.asset, modelTransparentMeshIndices);
     valid = model.meshCount > 0;
@@ -961,14 +979,13 @@ void MapPreview::draw(
             }
             slopengine::bindLightmapDummyShadowMaps(lightmapShader);
             drawModelMeshesSplit(
-                litModel, litTransparentMeshIndices, litSkyMeshIndices, false, false, emissionPowerLoc);
+                litModel, litTransparentMeshIndices, litSkyMeshIndices, false, emissionPowerLoc);
             drawPreviewModelTextured(
                 litModel,
                 litTransparentMeshIndices,
                 litSkyMeshIndices,
                 eye,
                 cameraForward,
-                false,
                 emissionPowerLoc);
             if (camera != nullptr && assets != nullptr && things != nullptr && skyShader.id != 0) {
                 const slopengine::SkyboxSettings* skySettings = nullptr;
@@ -1027,6 +1044,7 @@ void MapPreview::draw(
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
         } else if (valid) {
+            setEditShaderMode(*this, false, false);
             drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false);
             drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
         }
@@ -1039,20 +1057,22 @@ void MapPreview::draw(
                 DrawModel(moverOverlayModel, {0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
             }
         } else if (valid) {
+            setEditShaderMode(*this, false, false);
             drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false);
             drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
         }
         break;
     case PreviewFill::Textures:
         if (valid) {
-            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false, true);
-            drawPreviewModelTextured(
-                model, modelTransparentMeshIndices, {}, eye, cameraForward, true);
+            setEditShaderMode(*this, true, false);
+            drawModelMeshesSplit(model, modelTransparentMeshIndices, {}, false);
+            drawPreviewModelTextured(model, modelTransparentMeshIndices, {}, eye, cameraForward);
         }
         break;
     case PreviewFill::Solid:
         if (valid) {
-            drawEditModelSolid(model, editFaceIds, brushes, instanceBrushes);
+            setEditShaderMode(*this, true, true);
+            drawEditModelSolid(model, editShader);
         }
         break;
     }

@@ -468,6 +468,14 @@ Mesh buildPrimitiveMesh(
             mesh.vertexCount * 2 * sizeof(float));
     }
 
+    if (buffer.colors.size() >= primitive.vertexOffset + primitive.vertexCount) {
+        mesh.colors = static_cast<unsigned char*>(RL_MALLOC(mesh.vertexCount * 4 * sizeof(unsigned char)));
+        std::memcpy(
+            mesh.colors,
+            buffer.colors.data() + primitive.vertexOffset,
+            mesh.vertexCount * 4 * sizeof(unsigned char));
+    }
+
     mesh.indices = static_cast<unsigned short*>(RL_MALLOC(primitive.indexCount * sizeof(unsigned short)));
     for (std::size_t index = 0; index < primitive.indexCount; ++index) {
         const std::uint32_t sourceIndex = buffer.indices[primitive.indexOffset + index];

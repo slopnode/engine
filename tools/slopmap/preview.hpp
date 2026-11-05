@@ -40,8 +40,10 @@ enum class GridPlane {
 struct MapPreview {
     Model model{};
     bool valid = false;
-    std::vector<std::string> editFaceIds;
     std::vector<int> modelTransparentMeshIndices;
+    Shader editShader{};
+    int editFauxShadeLoc = -1;
+    int editVertexColorLoc = -1;
 
     Model visModel{};
     bool visValid = false;
