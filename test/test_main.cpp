@@ -51,6 +51,7 @@ void runSeamStitchTests();
 void runSightTests();
 void runViewRecoilTests();
 void runModelHitboxTests();
+void runSkinCutTests();
 void runRagdollTests();
 void runSlopUiThemeTests();
 void runTracerTests();
@@ -108,6 +109,7 @@ const Suite kSuites[] = {
     {"sight", slopengine::runSightTests},
     {"view_recoil", slopengine::runViewRecoilTests},
     {"model_hitboxes", slopengine::runModelHitboxTests},
+    {"skin_cut", slopengine::runSkinCutTests},
     {"ragdoll", slopengine::runRagdollTests},
     {"slopui_theme", slopengine::runSlopUiThemeTests},
     {"tracer", slopengine::runTracerTests},

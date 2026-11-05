@@ -31,6 +31,7 @@
 #include "render/fx_local_light.hpp"
 #include "render/gpu_skinning.hpp"
 #include "render/model_hitboxes.hpp"
+#include "render/skin_cut.hpp"
 #include "physics/ragdoll_rig.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -1941,6 +1942,16 @@ void trimSeveredPieces(PhysicsWorld* physics) {
     }
 }
 
+const Material& stumpMaterial(AssetStore& assets) {
+    static AssetStore* owner = nullptr;
+    static Material material{};
+    if (owner != &assets) {
+        material = assets.resolveMaterial("fx/stump");
+        owner = &assets;
+    }
+    return material;
+}
+
 float randomSigned() {
     return static_cast<float>(GetRandomValue(-1000, 1000)) / 1000.0f;
 }
@@ -2008,7 +2019,7 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
 
     AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
     const std::string geoPath = entity.get<GeoSource>().path;
-    Model piece = cloneGeoModelInstance(assets.getGeoModel(geoPath));
+    Model piece = cloneGeoModelInstance(model);
     if (piece.meshCount <= 0 || piece.skeleton.boneCount != boneCount || piece.boneMatrices == nullptr) {
         unloadClonedGeoModelInstance(piece);
         return s7_f(sc);
@@ -2017,6 +2028,7 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
     for (int bone : subtree) {
         inside[static_cast<std::size_t>(bone)] = 1;
     }
+    cutSkinnedModel(piece, inside, true, boneIndex, stumpMaterial(assets));
     const Vector3 cutJoint = model.currentPose[boneIndex].translation;
     for (int other = 0; other < boneCount; ++other) {
         if (inside[static_cast<std::size_t>(other)] != 0) {
@@ -2079,6 +2091,12 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
         hidden.mask[static_cast<std::size_t>(bone)] = 1;
     }
     hidden.dirty = true;
+    cutSkinnedModel(
+        entity.get_mut<Model3D>().model,
+        inside,
+        false,
+        std::max(model.skeleton.bones[boneIndex].parent, 0),
+        stumpMaterial(assets));
 
     const bool ragdolled = physics != nullptr &&
         startEntityRagdoll(
@@ -2268,6 +2286,14 @@ s7_pointer g_actor_restore_bones(s7_scheme* sc, s7_pointer args) {
         HiddenBones& hidden = entity.get_mut<HiddenBones>();
         std::fill(hidden.mask.begin(), hidden.mask.end(), 0);
         hidden.dirty = true;
+    }
+    if (entity.has<Model3D>() && entity.has<GeoSource>() && g_thingWorld->has<AssetServices>() &&
+        g_thingWorld->get<AssetServices>().store != nullptr) {
+        AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+        restoreSkinnedModel(entity.get_mut<Model3D>().model, assets.getGeoModel(entity.get<GeoSource>().path));
+        if (entity.has<ModelHitboxes>()) {
+            entity.set<ModelHitboxes>({});
+        }
     }
     return s7_t(sc);
 }

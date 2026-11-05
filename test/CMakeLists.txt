@@ -43,6 +43,7 @@ add_executable(sloptests
     test_sight.cpp
     test_view_recoil.cpp
     test_model_hitboxes.cpp
+    test_skin_cut.cpp
     test_ragdoll.cpp
     test_slopui_theme.cpp
     test_tracer.cpp
@@ -115,6 +116,7 @@ add_test(NAME sloptests.sun_shadow_softness COMMAND sloptests sun_shadow_softnes
 add_test(NAME sloptests.sight COMMAND sloptests sight)
 add_test(NAME sloptests.view_recoil COMMAND sloptests view_recoil)
 add_test(NAME sloptests.model_hitboxes COMMAND sloptests model_hitboxes)
+add_test(NAME sloptests.skin_cut COMMAND sloptests skin_cut)
 add_test(NAME sloptests.ragdoll COMMAND sloptests ragdoll)
 add_test(NAME sloptests.slopui_theme COMMAND sloptests slopui_theme)
 add_test(NAME sloptests.tracer COMMAND sloptests tracer)

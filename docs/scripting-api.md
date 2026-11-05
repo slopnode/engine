@@ -1496,7 +1496,7 @@ Removes every shader param from an actor.
 </code></pre>
 
 ### actor-sever-bone! {#actor-sever-bone}
-Cuts a bone and everything below it off a rigged actor. The actor's copy of those bones collapses to the cut joint, and a new entity carrying just that part takes over from the same pose and flies off as a small ragdoll, so a cut arm still bends at the elbow. It collides only with world geometry, not with characters, other severed parts, linescans or sight. A part whose bones have no vertices falls back to a single tumbling box. Geo hung on the cut bones, such as a held weapon, goes with the part. `dx dy dz` is the push direction, `speed` its speed in meters a second plus a little lift, `spin` how fast in radians a second it tumbles end over end away from the push, with some random wobble on top and `lifetime` how many seconds the part stays. The oldest part is removed once 48 exist. Returns the part's id, or \#f when the bone is unknown or already cut.
+Cuts a bone and everything below it off a rigged actor. The skin is split where the cut bones and the rest carry equal weight, and both open ends are closed with a stump using the `fx/stump` material, which a game can override. A new entity carrying just that part takes over from the same pose and flies off as a small ragdoll, so a cut arm still bends at the elbow. It collides only with world geometry, not with characters, other severed parts, linescans or sight. A part whose bones have no vertices falls back to a single tumbling box. Geo hung on the cut bones, such as a held weapon, goes with the part. `dx dy dz` is the push direction, `speed` its speed in meters a second plus a little lift, `spin` how fast in radians a second it tumbles end over end away from the push, with some random wobble on top and `lifetime` how many seconds the part stays. The oldest part is removed once 48 exist. Returns the part's id, or \#f when the bone is unknown or already cut.
 <pre><code class="language-scheme">(actor-sever-bone!
   id, bone : string?
   [dx dy dz] : real? = 0
@@ -1530,7 +1530,7 @@ Checks whether a bone of an actor has been cut off by `actor-sever-bone!`.
 </code></pre>
 
 ### actor-restore-bones! {#actor-restore-bones}
-Shows every bone `actor-sever-bone!` hid on an actor again. Parts already cut off stay where they are.
+Shows every bone `actor-sever-bone!` hid on an actor again and puts back its uncut skin. Parts already cut off stay where they are.
 <pre><code class="language-scheme">(actor-restore-bones!
   id : string?) ↵ boolean?
 </code></pre>

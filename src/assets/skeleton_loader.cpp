@@ -518,6 +518,10 @@ Mesh cloneSkinnedMesh(const Mesh& source) {
 
 } // namespace
 
+Mesh cloneSkinnedMeshInstance(const Mesh& source) {
+    return cloneSkinnedMesh(source);
+}
+
 Model cloneGeoModelInstance(const Model& source) {
     Model instance = source;
 

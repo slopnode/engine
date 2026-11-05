@@ -28,6 +28,8 @@ void applySkeletonToModel(const SkeletonAsset& asset, Model& model);
 /** Creates a deep copy of @p source suitable for independent animation. */
 Model cloneGeoModelInstance(const Model& source);
 
+Mesh cloneSkinnedMeshInstance(const Mesh& source);
+
 /** Frees clone-owned buffers from @p model without unloading shared meshes. */
 void unloadClonedGeoModelInstance(Model& model);
 
