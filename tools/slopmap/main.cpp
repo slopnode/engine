@@ -348,7 +348,8 @@ void printUsage() {
         << "  --target      Package directory that receives map/prefab saves\n"
         << "                (defaults to --game; required when --mod is given)\n"
         << "  --map         Optional map under maps/ to open (default: new untitled map)\n"
-        << "  --verbose     Raise the trace log level to show DEBUG messages\n";
+        << "  --verbose     Raise the trace log level to show DEBUG messages\n"
+        << "  --profile     Settings profile whose UI theme to use (default: \"default\")\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -399,6 +400,14 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         }
         if (arg == "--verbose") {
             config.mount.verbose = true;
+            continue;
+        }
+        if (arg == "--profile") {
+            const char* value = needValue("--profile");
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.mount.profile = value;
             continue;
         }
         return std::nullopt;
@@ -1300,7 +1309,7 @@ int main(int argc, char* argv[]) {
         CloseWindow();
         return 1;
     }
-    ImFont* monoFont = installToolTheme(assets, "slopmap");
+    ImFont* monoFont = installToolTheme(assets, "slopmap", config->mount.profile);
 
     s7_scheme* scheme = s7_init();
     if (scheme == nullptr) {

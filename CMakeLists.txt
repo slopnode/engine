@@ -148,6 +148,7 @@ set(SLOPLIB_SOURCES
     src/render/bone_attachment.cpp
     src/particles/particle_sim.cpp
     src/game/app_config.cpp
+    src/game/ui_settings.cpp
     src/map/brush.cpp
     src/map/brush_carve.cpp
     src/map/bsp_analyze.cpp

@@ -63,6 +63,7 @@ App::App(AppConfig config)
 
     actionRegistry().registerCoreActions();
     userSettings_.graphics = UserSettings::loadGraphicsOrDefault(settingsFilePath);
+    userSettings_.ui = loadUiSettings(settingsFilePath);
     init_window();
     if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
@@ -72,7 +73,7 @@ App::App(AppConfig config)
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true, "slopengine");
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     init_script();
-    installSlopUiTheme(world_, assetStore_, scheme_);
+    installSlopUiTheme(world_, assetStore_, scheme_, userSettings_.ui.theme);
     userSettings_.controls = ControlsSettings::defaults();
     UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);
     if (!hadProfileSettings) {

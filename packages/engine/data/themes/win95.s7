@@ -1,5 +1,6 @@
 (define *package-theme*
-  '((fonts
+  '((name "Win95")
+    (fonts
       (normal  "FiraSans/FiraSans-Regular" 15)
       (bold    "FiraSans/FiraSans-Bold" 15)
       (heading "FiraSans/FiraSans-Bold" 24)

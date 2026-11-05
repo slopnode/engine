@@ -436,7 +436,7 @@ void drawMainMenuBar(
     QuitRequest& quit,
     SettingsUiState& settingsUi,
     DebugUiState& debugUi,
-    const UserSettings& settings,
+    UserSettings& settings,
     const EngineSessionInfo& sessionInfo,
     const SlopUiTheme& theme,
     const SlopUiFonts& fonts,
@@ -481,6 +481,21 @@ void drawMainMenuBar(
         }
         if (item("keyboard", "Controls")) {
             openControlsSettings(settingsUi, settings);
+        }
+        if (world.has<SlopUiThemeCatalog>() && menu("palette", "Theme", false)) {
+            const std::vector<SlopUiThemeEntry>& themes = world.get<SlopUiThemeCatalog>().themes;
+            if (themes.empty()) {
+                ImGui::MenuItem("(no themes)", nullptr, false, false);
+            }
+            for (const SlopUiThemeEntry& entry : themes) {
+                const bool selected = entry.id == settings.ui.theme;
+                if (itemState("palette", entry.name.c_str(), selected, true) && !selected) {
+                    settings.ui.theme = entry.id;
+                    settings.save();
+                    themeReload.pending = true;
+                }
+            }
+            ImGui::EndMenu();
         }
         ImGui::EndMenu();
     }
@@ -1376,7 +1391,9 @@ void registerSystems(flecs::world& world) {
             if (!w.has<ScriptContext>() || w.get<ScriptContext>().scheme == nullptr) {
                 return;
             }
-            installSlopUiTheme(w, *w.get_mut<AssetServices>().store, w.get<ScriptContext>().scheme);
+            const std::string themeId =
+                w.has<UserSettings>() ? w.get<UserSettings>().ui.theme : std::string{kDefaultSlopUiThemeId};
+            installSlopUiTheme(w, *w.get_mut<AssetServices>().store, w.get<ScriptContext>().scheme, themeId);
             TraceLog(LOG_INFO, "THEME: reloaded");
         });
 

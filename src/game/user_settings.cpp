@@ -248,6 +248,8 @@ bool UserSettings::save() const {
            << "max_dynamic_lights=" << graphics.maxDynamicLights << '\n'
            << "max_shadowed_dynamic_lights=" << graphics.maxShadowedDynamicLights << '\n'
            << "shadow_map_resolution=" << graphics.shadowMapResolution << "\n\n"
+           << "[ui]\n"
+           << "theme=" << ui.theme << "\n\n"
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

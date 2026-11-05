@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/ui_settings.hpp"
 #include "input/actions.hpp"
 
 #include <filesystem>
@@ -41,6 +42,7 @@ struct ControlsSettings {
 struct UserSettings {
     GraphicsSettings graphics{};
     ControlsSettings controls{};
+    UiSettings ui{};
     /** Where save() writes; set by the caller from core::profileSettingsPath(). */
     std::filesystem::path settingsFilePath{};
 

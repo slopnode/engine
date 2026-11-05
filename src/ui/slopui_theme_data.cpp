@@ -617,6 +617,13 @@ void applyThemeSections(s7_scheme* scheme, s7_pointer catalog, SlopUiTheme& them
             parseSounds(scheme, rest, theme);
         } else if (std::strcmp(key, "chrome") == 0) {
             parseChrome(scheme, rest, theme);
+        } else if (std::strcmp(key, "name") == 0) {
+        } else if (std::strcmp(key, "imgui-style") == 0) {
+            if (s7_is_pair(rest) && s7_is_symbol(s7_car(rest))) {
+                theme.imguiStyle = s7_symbol_name(s7_car(rest));
+            } else {
+                TraceLog(LOG_WARNING, "THEME: imgui-style expects dark, light or classic");
+            }
         } else if (std::strcmp(key, "editor") == 0) {
             if (!allowEditor) {
                 TraceLog(LOG_WARNING, "THEME: editor section cannot be nested");
@@ -646,10 +653,82 @@ void overlayPackageThemeFromScheme(s7_scheme* scheme, SlopUiTheme& theme, bool e
     });
 }
 
-SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor) {
+namespace {
+
+std::string themeNameFromScheme(s7_scheme* scheme) {
+    const s7_pointer catalog = s7_name_to_value(scheme, "*package-theme*");
+    std::string name;
+    if (catalog == s7_undefined(scheme) || !s7_is_pair(catalog)) {
+        return name;
+    }
+    forEachEntry(catalog, [&](const char* key, s7_pointer rest) {
+        if (std::strcmp(key, "name") == 0 && s7_is_pair(rest) && s7_is_string(s7_car(rest))) {
+            name = s7_string(s7_car(rest));
+        }
+    });
+    return name;
+}
+
+bool loadNamedTheme(AssetStore& assets, s7_scheme* scheme, std::string_view themeId) {
+    const std::vector<Package>& packages = assets.packages();
+    const std::string path = "themes/" + std::string{themeId};
+    for (auto it = packages.rbegin(); it != packages.rend(); ++it) {
+        s7_define_variable(scheme, "*package-theme*", s7_f(scheme));
+        if (assets.loadDataFromPackage(scheme, it->meta().id, path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+std::vector<SlopUiThemeEntry> listSlopUiThemes(AssetStore& assets, s7_scheme* scheme) {
+    std::vector<std::string> ids;
+    for (const Package& package : assets.packages()) {
+        const std::filesystem::path dir = package.root() / "data" / "themes";
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(dir, ec), end; it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file() || it->path().extension() != ".s7") {
+                continue;
+            }
+            const std::string id = it->path().stem().string();
+            if (std::find(ids.begin(), ids.end(), id) == ids.end()) {
+                ids.push_back(id);
+            }
+        }
+    }
+    std::vector<SlopUiThemeEntry> entries;
+    for (const std::string& id : ids) {
+        SlopUiThemeEntry entry{id, id};
+        if (scheme != nullptr && loadNamedTheme(assets, scheme, id)) {
+            const std::string name = themeNameFromScheme(scheme);
+            if (!name.empty()) {
+                entry.name = name;
+            }
+        }
+        entries.push_back(std::move(entry));
+    }
+    std::sort(entries.begin(), entries.end(), [](const SlopUiThemeEntry& a, const SlopUiThemeEntry& b) {
+        return a.name < b.name;
+    });
+    return entries;
+}
+
+SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor, std::string_view themeId) {
     SlopUiTheme theme = defaultSlopUiTheme();
     if (scheme == nullptr) {
         return theme;
+    }
+    if (!themeId.empty()) {
+        if (loadNamedTheme(assets, scheme, themeId)) {
+            overlayPackageThemeFromScheme(scheme, theme, editor);
+            TraceLog(LOG_INFO, "THEME: applied data/themes/%.*s.s7", static_cast<int>(themeId.size()), themeId.data());
+        } else if (themeId != kDefaultSlopUiThemeId) {
+            TraceLog(LOG_WARNING, "THEME: theme '%.*s' not found, using '%s'",
+                static_cast<int>(themeId.size()), themeId.data(), kDefaultSlopUiThemeId);
+            return loadSlopUiTheme(assets, scheme, editor, kDefaultSlopUiThemeId);
+        }
     }
     for (const Package& package : assets.packages()) {
         const std::string& id = package.meta().id;
@@ -768,7 +847,11 @@ std::string serializeSlopUiTheme(const SlopUiTheme& theme) {
     out << "      (text " << colorLiteral(theme.text) << ")\n";
     out << "      (text-dim " << colorLiteral(theme.textDim) << ")\n";
     out << "      (danger " << colorLiteral(theme.danger) << ")\n";
-    out << "      )\n    (metrics\n";
+    out << "      )\n";
+    if (!theme.imguiStyle.empty()) {
+        out << "    (imgui-style " << theme.imguiStyle << ")\n";
+    }
+    out << "    (metrics\n";
     out << "      (rounding " << numberText(theme.rounding) << ")\n";
     out << "      (border " << numberText(theme.border) << ")\n";
     out << "      (frame-border " << numberText(theme.frameBorder) << ")\n";

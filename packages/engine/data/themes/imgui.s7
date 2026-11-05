@@ -1,0 +1,58 @@
+(define *package-theme*
+  '((name "Imgui")
+    (imgui-style dark)
+    (fonts
+      (normal  "imgui:default" 13)
+      (bold    "imgui:default" 13)
+      (heading "imgui:default" 20)
+      (mono    "imgui:default" 13))
+    (colors
+      (bg       15 15 15 240)
+      (surface  20 20 20)
+      (accent   66 150 250)
+      (text     255 255 255)
+      (text-dim 128 128 128)
+      (danger   230 77 77))
+    (metrics
+      (rounding 0)
+      (border 1)
+      (frame-border 0)
+      (bevel 0)
+      (padding 8 8)
+      (frame-padding 4 3)
+      (spacing 8 4)
+      (button-height 19))
+    (menu-bar
+      (height 19)
+      (font normal)
+      (bg 36 36 36)
+      (icons #f)
+      (version-label #t))
+    (window
+      (title-font normal)
+      (title-align left)
+      (bg bg)
+      (title-bg 10 10 10)
+      (title-bg-active 41 74 122)
+      (title-text text)
+      (draggable #t))
+    (button
+      (bg 66 150 250 102)
+      (bg-hover 66 150 250)
+      (bg-active 15 135 250)
+      (bg-disabled 66 150 250 51)
+      (primary-bg 66 150 250 102)
+      (primary-bg-hover 66 150 250)
+      (primary-bg-active 15 135 250)
+      (text text)
+      (text-hover text))
+    (panel
+      (bg 0 0 0 0)
+      (border 110 110 128 128))
+    (skin)
+    (sounds
+      (volume 1.0))
+    (chrome
+      (pause-title "Paused")
+      (pause-dim 0.35)
+      (pause-width 320))))

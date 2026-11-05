@@ -10,6 +10,7 @@ namespace slopengine {
 
 inline constexpr std::string_view kDefaultUiFontPath = "FiraSans/FiraSans-Regular";
 inline constexpr std::string_view kMonoUiFontPath = "JetBrainsMono/JetBrainsMono";
+inline constexpr std::string_view kImGuiDefaultFontPath = "imgui:default";
 
 float uiFontDpiScale();
 

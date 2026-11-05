@@ -1,0 +1,57 @@
+(define *package-theme*
+  '((name "Modern")
+    (fonts
+      (normal  "FiraSans/FiraSans-Regular" 16)
+      (bold    "FiraSans/FiraSans-Bold" 16)
+      (heading "FiraSans/FiraSans-Bold" 28)
+      (mono    "JetBrainsMono/JetBrainsMono" 14))
+    (colors
+      (bg       24 24 27)
+      (surface  39 39 42)
+      (accent   99 102 241)
+      (text     244 244 245)
+      (text-dim 161 161 170)
+      (danger   239 68 68))
+    (metrics
+      (rounding 6)
+      (border 0)
+      (frame-border 0)
+      (bevel 0)
+      (padding 14 12)
+      (frame-padding 10 6)
+      (spacing 10 8)
+      (button-height 34))
+    (menu-bar
+      (height 32)
+      (font normal)
+      (bg 24 24 27)
+      (icons #t)
+      (version-label #t))
+    (window
+      (title-font bold)
+      (title-align left)
+      (bg bg)
+      (title-bg 32 32 35)
+      (title-bg-active surface)
+      (title-text text)
+      (draggable #t))
+    (button
+      (bg 52 52 56)
+      (bg-hover 63 63 70)
+      (bg-active 44 44 48)
+      (bg-disabled 39 39 42)
+      (primary-bg accent)
+      (primary-bg-hover 129 140 248)
+      (primary-bg-active 79 70 229)
+      (text text)
+      (text-hover 255 255 255))
+    (panel
+      (bg 32 32 35)
+      (border 32 32 35))
+    (skin)
+    (sounds
+      (volume 1.0))
+    (chrome
+      (pause-title "Paused")
+      (pause-dim 0.6)
+      (pause-width 340))))

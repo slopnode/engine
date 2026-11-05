@@ -1,10 +1,17 @@
 #include "test_assert.hpp"
 
+#include "assets/asset_store.hpp"
+#include "game/app_config.hpp"
+#include "game/ui_settings.hpp"
 #include "ui/slopui_theme.hpp"
 
 #include <s7.h>
 
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <random>
 #include <string>
 
 namespace slopengine {
@@ -28,9 +35,87 @@ SlopUiTheme overlayFromText(const std::string& text) {
     return theme;
 }
 
+void writeFile(const std::filesystem::path& path, std::string_view contents) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << contents;
+}
+
+void runNamedThemeTests() {
+    std::random_device rd;
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() / ("sloptest-themes-" + std::to_string(rd()));
+    writeFile(
+        root / "package.meta",
+        "(package\n"
+        "  (id \"sloptest-themes\")\n"
+        "  (name \"Themes\")\n"
+        "  (version \"0.1.0\")\n"
+        "  (depends))\n");
+    writeFile(
+        root / "data" / "themes" / "neon.s7",
+        "(define *package-theme* '((name \"Neon\") (colors (accent 1 255 2))))\n");
+    writeFile(root / "data" / "theme.s7", "(define *package-theme* '((colors (danger 9 8 7))))\n");
+
+    AppConfig config{};
+    config.game = root;
+    AssetStore assets(config);
+    s7_scheme* sc = s7_init();
+
+    const std::vector<SlopUiThemeEntry> themes = listSlopUiThemes(assets, sc);
+    auto named = [&](const std::string& id) {
+        const auto it = std::find_if(themes.begin(), themes.end(), [&](const SlopUiThemeEntry& e) {
+            return e.id == id;
+        });
+        return it == themes.end() ? std::string{} : it->name;
+    };
+    CHECK_EQ(named("win95"), std::string{"Win95"});
+    CHECK_EQ(named("imgui"), std::string{"Imgui"});
+    CHECK_EQ(named("tango"), std::string{"Tango"});
+    CHECK_EQ(named("modern"), std::string{"Modern"});
+    CHECK_EQ(named("neon"), std::string{"Neon"});
+
+    const ThemeColor danger{9 / 255.0f, 8 / 255.0f, 7 / 255.0f, 1.0f};
+    const SlopUiTheme neon = loadSlopUiTheme(assets, sc, false, "neon");
+    CHECK(sameColor(neon.accent, ThemeColor{1 / 255.0f, 1.0f, 2 / 255.0f, 1.0f}));
+    CHECK(sameColor(neon.danger, danger));
+
+    const SlopUiTheme win95 = loadSlopUiTheme(assets, sc);
+    CHECK(sameColor(win95.accent, ThemeColor{0.0f, 0.0f, 128 / 255.0f, 1.0f}));
+    CHECK(sameColor(win95.danger, danger));
+    CHECK(win95.imguiStyle.empty());
+
+    const SlopUiTheme missing = loadSlopUiTheme(assets, sc, false, "no-such-theme");
+    CHECK(sameColor(missing.accent, win95.accent));
+
+    const SlopUiTheme imgui = loadSlopUiTheme(assets, sc, false, "imgui");
+    CHECK_EQ(imgui.imguiStyle, std::string{"dark"});
+    CHECK_EQ(imgui.font(ThemeFontSlot::Normal).path, std::string{"imgui:default"});
+
+    const SlopUiTheme tango = loadSlopUiTheme(assets, sc, false, "tango");
+    CHECK(tango.window.titleBgActive.gradient);
+    CHECK(near(tango.rounding, 3.0f));
+
+    const SlopUiTheme modern = loadSlopUiTheme(assets, sc, false, "modern");
+    CHECK(near(modern.rounding, 6.0f));
+    CHECK(near(modern.border, 0.0f));
+    CHECK(near(modern.bevel, 0.0f));
+
+    writeFile(
+        root / "settings.cfg",
+        "[graphics]\ntheme=modern\n\n[ui]\n  theme = tango  \n\n[controls]\ntheme=imgui\n");
+    CHECK_EQ(loadUiSettings(root / "settings.cfg").theme, std::string{"tango"});
+    CHECK_EQ(loadUiSettings(root / "missing.cfg").theme, std::string{kDefaultSlopUiThemeId});
+
+    s7_quit(sc);
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
 } // namespace
 
 void runSlopUiThemeTests() {
+    runNamedThemeTests();
     {
         const SlopUiTheme theme = overlayFromText(
             "(define *package-theme* '((colors (accent 10 20 30))"

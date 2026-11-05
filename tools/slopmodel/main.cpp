@@ -76,7 +76,8 @@ void printUsage() {
         << "  --skeleton    Show the skeleton overlay\n"
         << "  --bone        Select this bone in the armature tree, with --geo\n"
         << "  --hide-mesh   Hide the model's own mesh\n"
-        << "  --verbose     Raise the trace log level to show DEBUG messages\n";
+        << "  --verbose     Raise the trace log level to show DEBUG messages\n"
+        << "  --profile     Settings profile whose UI theme to use (default: \"default\")\n";
 }
 
 std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
@@ -188,6 +189,14 @@ std::optional<ToolConfig> parseArgs(int argc, char* argv[]) {
         }
         if (arg == "--verbose") {
             config.mount.verbose = true;
+            continue;
+        }
+        if (arg == "--profile") {
+            const char* value = needValue();
+            if (value == nullptr) {
+                return std::nullopt;
+            }
+            config.mount.profile = value;
             continue;
         }
         return std::nullopt;
@@ -634,7 +643,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    slopengine::installToolTheme(assets, "slopmodel");
+    slopengine::installToolTheme(assets, "slopmodel", config->mount.profile);
 
     slopmodel::Editor editor;
     editor.targetRoot = config->target;
