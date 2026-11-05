@@ -108,6 +108,8 @@ Object > Slopengine > Auto UV Unwrap lays out UVs for painting on any selected m
 
 When Face Group names a vertex group (`head` by default), the front of that group gets a chart of its own, projected straight from the front (-Y) rather than flattened, kept upright and given Face Detail times the texel density (2 by default). A front facing photograph therefore lines up with it directly. It can be dropped onto that chart's area of the texture in an image editor, or painted on in Blender's Texture Paint mode with the photo as a stencil brush texture while looking at the head in front orthographic view.
 
+Single Skin builds one closed quad mesh instead, for characters that bend at the joints and can be cut apart with `actor-sever-bone!` like any other smooth skinned body. The torso, neck and head are one tube. The arms grow out of holes in the sides of the chest, the legs out of the bottom of the pelvis, split at the crotch, and the hands, feet and crown close with quad caps, so the mesh has no triangles before export. Both halves mirror exactly across X. Each edge loop is weighted as a whole, fully to one bone or blended between the two bones of the joint it sits on, so a cut follows the loops and leaves a clean round stump. The hips blend over three loops, with the pelvis no wider than the thighs below it, so the legs swing without a fold at the top of the thigh. When Limb Thickness would push the thighs into each other, they move apart instead, so the joints stay where they are. Sides sets the facets around each limb and is rounded up to an even number, and the torso and head get twice that minus four. The single skin keeps the same bones and hitboxes as the segmented one. Its UVs come from the edge loops rather than Auto UV Unwrap: each tube is unrolled into one strip, seamed down the back of the torso and head, under the arms and along the inside of the legs, with the caps folded in at the ends, and the strips are packed at an even texel density. The UVs are laid out from the body at standard girth, so builds that differ only in chest, belly, torso depth and limb thickness share one UV layout and can share textures, which stretch with the body.
+
 Tight Packing packs by the exact outline of each chart, which uses about a tenth more of the texture but takes from a few seconds to tens of seconds. The mannequin generator packs by bounding box so its redo panel stays responsive, so run Auto UV Unwrap once more on the finished body, or pass `--tight-pack` to the headless script, before painting.
 
 ## Using your own mesh {#blender-rigidify}
@@ -124,7 +126,15 @@ blender -b --python tools/blender/make_mannequin.py -- \
   --output grunt.blend --root path/to/package
 ```
 
-`--set FIELD=VALUE` overrides one proportion field and can be given more than once. `--sides`, `--no-hitboxes` and `--no-uv` match the operator options, and `--tight-pack` packs the UV charts by exact shape.
+`--set FIELD=VALUE` overrides one proportion field and can be given more than once. `--sides`, `--no-hitboxes` and `--no-uv` match the operator options, and `--tight-pack` packs the UV charts by exact shape. `--fused` builds the single skin. `--material` sets the body's material path in place of `<name>/skin`. `--face-material` gives the single skin's neck and head their own material, with their strip stretched to fill its own texture, the way the photo-textured heads of the slopdemo mannequins work.
+
+`--skeleton` exports only the geometry, into the folder of an existing skeleton and against it, so a new body can play that skeleton's clips. The bone names always match, and the bone lengths match when the build values do. `--geo-name` names the `.geo` file and defaults to `--name`:
+
+```
+blender -b --python tools/blender/make_mannequin.py -- \
+  --name smooth_mannequin --fused --skeleton rigid_mannequin \
+  --material mannequin/skin --root path/to/package
+```
 
 # Conventions {#conventions}
 

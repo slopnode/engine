@@ -3,11 +3,13 @@
     blender -b --python tools/blender/make_mannequin.py -- \
         --name grunt --preset HEAVY [--set limb_thickness=1.6 ...] \
         [--sides 8] [--no-hitboxes] [--no-uv] [--tight-pack] \
+        [--fused] \
+        [--skeleton id] [--geo-name name] [--material path] [--face-material path] \
         [--output grunt.blend] [--root path/to/package]
 
-Builds the same segmented, rigidly weighted mannequin as Add > Slopengine
-Mannequin, saves it to --output, and with --root also exports the skeleton
-and geometry into that package.
+Builds the same mannequin as Add > Slopengine Mannequin, segmented and
+rigidly weighted or with --fused as one closed skin, saves it to --output,
+and with --root also exports the skeleton and geometry into that package.
 """
 
 import argparse
@@ -40,6 +42,11 @@ def parse_args():
     parser.add_argument("--no-hitboxes", action="store_true")
     parser.add_argument("--no-uv", action="store_true")
     parser.add_argument("--tight-pack", action="store_true", help="Pack UV charts by exact shape; slower")
+    parser.add_argument("--fused", action="store_true", help="One closed quad skin with blended joint weights")
+    parser.add_argument("--skeleton", default="", help="Existing skeleton id and folder to export the geometry into; skips the skeleton export")
+    parser.add_argument("--geo-name", default="", help="Name of the exported .geo, defaults to --name")
+    parser.add_argument("--material", default="", help="Material path of the body, defaults to <name>/skin")
+    parser.add_argument("--face-material", default="", help="Give the fused skin's neck and head their own material and UV space")
     parser.add_argument("--output", default="", help="Save the generated scene as this .blend")
     parser.add_argument("--root", default="", help="Package root to export skeletons/ and geometry/ into")
     return parser.parse_args(argv)
@@ -63,6 +70,9 @@ def main():
         hitboxes=not args.no_hitboxes,
         uv_unwrap=not args.no_uv,
         tight_uv=args.tight_pack,
+        fused=args.fused,
+        material_name=args.material,
+        face_material_name=args.face_material,
     )
     print(
         f"INFO: built {armature_obj.name}: {len(armature_obj.data.bones)} bones, "
@@ -82,10 +92,11 @@ def main():
         result = export_multiple_asset(
             bpy.context,
             os.path.abspath(args.root),
-            args.name,
-            args.name,
+            args.skeleton or args.name,
+            args.skeleton or args.name,
             use_selection=True,
-            only=["skeleton", "geometry"],
+            only=["geometry"] if args.skeleton else ["skeleton", "geometry"],
+            geo_name=args.geo_name or args.name,
         )
         for warning in result["warnings"]:
             print(f"WARNING: {warning}")

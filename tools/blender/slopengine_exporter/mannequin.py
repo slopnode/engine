@@ -3,6 +3,7 @@ import math
 import bmesh
 import bpy
 from mathutils import Matrix, Vector
+from mathutils.kdtree import KDTree
 
 from .autouv import OBJECT_OT_slopengine_auto_uv, auto_unwrap
 
@@ -614,7 +615,19 @@ def ensure_material(name):
     return material
 
 
-def build_mesh(context, name, armature_obj, specs, scale, collection, material_name, uv_unwrap=True, tight_uv=False):
+def build_mesh(
+    context,
+    name,
+    armature_obj,
+    specs,
+    scale,
+    collection,
+    material_name,
+    uv_unwrap=True,
+    tight_uv=False,
+    skin=None,
+    face_material_name="",
+):
     mesh = bpy.data.meshes.new(f"{name}_body")
     obj = bpy.data.objects.new(f"{name}_body", mesh)
     collection.objects.link(obj)
@@ -623,17 +636,450 @@ def build_mesh(context, name, armature_obj, specs, scale, collection, material_n
         obj.vertex_groups.new(name=group_name)
     bm = bmesh.new()
     deform_layer = bm.verts.layers.deform.verify()
-    for spec in specs:
-        build_segment(bm, spec, scale, deform_layer, group_names.index(spec["bone"]))
+    if skin is None:
+        for spec in specs:
+            build_segment(bm, spec, scale, deform_layer, group_names.index(spec["bone"]))
+    else:
+        skin.emit(bm, scale, deform_layer, group_names)
     bm.to_mesh(mesh)
     bm.free()
     mesh.materials.append(ensure_material(material_name))
+    if skin is not None and face_material_name:
+        mesh.materials.append(ensure_material(face_material_name))
     obj.parent = armature_obj
     modifier = obj.modifiers.new("Armature", "ARMATURE")
     modifier.object = armature_obj
-    if uv_unwrap:
+    if uv_unwrap and skin is None:
         auto_unwrap(context, obj, face_group="head", tight=tight_uv)
     return obj
+
+
+class Skin:
+    def __init__(self):
+        self.points = []
+        self.weights = []
+        self.faces = []
+        self.places = []
+        self.charts = []
+        self.uvs = []
+        self.materials = []
+
+    def vertex(self, point, weights):
+        self.points.append(Vector(point))
+        self.weights.append(weights)
+        return len(self.points) - 1
+
+    def ring(self, center, u, v, ru, rv, angles, weights, box=False):
+        stretch = 1.0 / math.cos(math.pi / len(angles))
+        ring = []
+        for angle in angles:
+            pu, pv = ring_point(angle, ru, rv, box, stretch)
+            ring.append(self.vertex(center + u * pu + v * pv, weights))
+        return ring
+
+    def chart(self, rings, seam, head=False):
+        self.charts.append({"rings": rings, "seam": seam, "head": head})
+        return len(self.charts) - 1
+
+    def quad(self, chart, row, k):
+        rings = self.charts[chart]["rings"]
+        lower, upper = rings[row], rings[row + 1]
+        n = len(lower)
+        self.faces.append((lower[k], lower[(k + 1) % n], upper[(k + 1) % n], upper[k]))
+        self.places.append((chart, row, k))
+
+    def bridge(self, chart, row):
+        for k in range(len(self.charts[chart]["rings"][row])):
+            self.quad(chart, row, k)
+
+    def cap(self, chart, tip, weights):
+        ring = self.charts[chart]["rings"][-1]
+        center = self.vertex(tip, weights)
+        n = len(ring)
+        for k in range(0, n, 2):
+            self.faces.append((center, ring[k], ring[(k + 1) % n], ring[(k + 2) % n]))
+            self.places.append((chart, None, k))
+
+    def unwrap(self, points, split_head):
+        layouts = [chart_layout(chart, points) for chart in self.charts]
+        corners = []
+        for face, (chart, row, k) in zip(self.faces, self.places):
+            us, vs, seam, cap = layouts[chart]
+            m = len(us[0]) - 2
+            j = (k - seam) % m
+            if row is None:
+                last = len(vs) - 1
+                corners.append(
+                    [
+                        (us[last][j + 1], vs[last] + cap),
+                        (us[last][j], vs[last]),
+                        (us[last][j + 1], vs[last]),
+                        (us[last][j + 2], vs[last]),
+                    ]
+                )
+            else:
+                corners.append(
+                    [
+                        (us[row][j], vs[row]),
+                        (us[row][j + 1], vs[row]),
+                        (us[row + 1][j + 1], vs[row + 1]),
+                        (us[row + 1][j], vs[row + 1]),
+                    ]
+                )
+        groups = {}
+        for index, chart in enumerate(self.charts):
+            groups.setdefault(1 if split_head and chart["head"] else 0, []).append(index)
+        placement = {}
+        for charts in groups.values():
+            bounds = []
+            for chart in charts:
+                points = [uv for corner, (owner, _, _) in zip(corners, self.places) if owner == chart for uv in corner]
+                lo = (min(p[0] for p in points), min(p[1] for p in points))
+                hi = (max(p[0] for p in points), max(p[1] for p in points))
+                bounds.append((lo, hi))
+            sizes = [(hi[0] - lo[0], hi[1] - lo[1]) for lo, hi in bounds]
+            if len(charts) == 1:
+                fill = 1.0 - 2.0 * UV_MARGIN
+                scale = (fill / sizes[0][0], fill / sizes[0][1])
+                placement[charts[0]] = (bounds[0][0], scale, (UV_MARGIN, UV_MARGIN))
+                continue
+            scale, offsets = pack_charts(sizes)
+            for chart, (lo, _), offset in zip(charts, bounds, offsets):
+                placement[chart] = (lo, (scale, scale), offset)
+        self.uvs = []
+        self.materials = []
+        for corner, (chart, _, _) in zip(corners, self.places):
+            lo, scale, offset = placement[chart]
+            self.uvs.append([((u - lo[0]) * scale[0] + offset[0], (v - lo[1]) * scale[1] + offset[1]) for u, v in corner])
+            self.materials.append(1 if split_head and self.charts[chart]["head"] else 0)
+
+    def emit(self, bm, scale, deform_layer, group_names):
+        verts = [bm.verts.new(point * scale) for point in self.points]
+        for vert, weights in zip(verts, self.weights):
+            for bone, weight in weights.items():
+                vert[deform_layer][group_names.index(bone)] = weight
+        uv_layer = bm.loops.layers.uv.verify()
+        faces = []
+        for index, face in enumerate(self.faces):
+            bm_face = bm.faces.new([verts[i] for i in face])
+            bm_face.smooth = True
+            if self.uvs:
+                bm_face.material_index = self.materials[index]
+                for loop, uv in zip(bm_face.loops, self.uvs[index]):
+                    loop[uv_layer].uv = uv
+            faces.append(bm_face)
+        loose = [vert for vert in verts if not vert.link_faces]
+        bmesh.ops.delete(bm, geom=loose, context="VERTS")
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+
+
+def chart_layout(chart, points):
+    rings = chart["rings"]
+    seam = chart["seam"]
+    m = len(rings[0])
+    us = []
+    for ring in rings:
+        order = [points[ring[(seam + j) % m]] for j in range(m + 2)]
+        steps = [(order[j + 1] - order[j]).length for j in range(m + 1)]
+        around = sum(steps[:m])
+        u = [-0.5 * around]
+        for step in steps:
+            u.append(u[-1] + step)
+        us.append(u)
+    vs = [0.0]
+    for lower, upper in zip(rings, rings[1:]):
+        vs.append(vs[-1] + sum((points[b] - points[a]).length for a, b in zip(lower, upper)) / m)
+    cap = sum(us[-1][j + 1] - us[-1][j] for j in range(m)) / (2.0 * math.pi)
+    return us, vs, seam, cap
+
+
+UV_MARGIN = 0.012
+
+
+def shelf_pack(sizes, scale):
+    order = sorted(range(len(sizes)), key=lambda i: -sizes[i][1])
+    offsets = [None] * len(sizes)
+    x = y = shelf = UV_MARGIN
+    for i in order:
+        w, h = sizes[i][0] * scale, sizes[i][1] * scale
+        if x + w + UV_MARGIN > 1.0:
+            x = UV_MARGIN
+            y += shelf + UV_MARGIN
+            shelf = 0.0
+        if x + w + UV_MARGIN > 1.0 or y + h + UV_MARGIN > 1.0:
+            return None
+        offsets[i] = (x, y)
+        x += w + UV_MARGIN
+        shelf = max(shelf, h)
+    return offsets
+
+
+def pack_charts(sizes):
+    low, high = 0.0, 1.0 / max(max(w, h) for w, h in sizes)
+    best = shelf_pack(sizes, low)
+    for _ in range(40):
+        mid = 0.5 * (low + high)
+        offsets = shelf_pack(sizes, mid)
+        if offsets is None:
+            high = mid
+        else:
+            low, best = mid, offsets
+    return low, best
+
+
+def loop_angles(points, center, u, v):
+    angles = []
+    for point in points:
+        d = point - center
+        angle = math.atan2(d.dot(v), d.dot(u))
+        if angles:
+            while angle - angles[-1] > math.pi:
+                angle -= 2 * math.pi
+            while angle - angles[-1] < -math.pi:
+                angle += 2 * math.pi
+        angles.append(angle)
+    direction = 1.0 if angles[-1] > angles[0] else -1.0
+    n = len(angles)
+    even = [angles[0] + direction * 2 * math.pi * j / n for j in range(n)]
+    offset = sum(a - e for a, e in zip(angles, even)) / n
+    return angles, [e + offset for e in even]
+
+
+def blended(start, end, f):
+    return [a + (b - a) * f for a, b in zip(start, end)]
+
+
+def mix(*pairs):
+    total = sum(weight for _, weight in pairs)
+    return {bone: weight / total for bone, weight in pairs}
+
+
+def skin_layout(values, joints, top_z, heel_y, toe_y, sides):
+    v = values
+    n = max(6, sides + (sides % 2))
+    nt = 2 * n - 4
+    t = v["limb_thickness"]
+    depth = v["torso_depth"]
+    x_axis = Vector((1, 0, 0))
+    y_axis = Vector((0, 1, 0))
+    z_axis = Vector((0, 0, 1))
+    skin = Skin()
+
+    hip_z = joints["pelvis"][0].z
+    pelvis_top = joints["spine"][0].z
+    chest_z = joints["chest"][0].z
+    neck_z = joints["neck"][0].z
+    head_z = joints["head"][0].z
+    lh = top_z - head_z
+    hs = v["head_size"]
+    shoulder = joints["upperarm.L"][0]
+    shoulder_x, shoulder_z = shoulder.x, shoulder.z
+    hip_x = joints["thigh.L"][0].x
+    thigh_len = hip_z - joints["calf.L"][0].z
+    hip_out = hip_x + thigh_shift(hip_x, 0.048 * t, n)
+    belly = 0.082 * v["belly_width"]
+    chest_w = 0.10 * v["chest_width"]
+    nr = 0.03 * (0.5 + 0.5 * t)
+    arm_r = 0.037 * t
+
+    head_rings = [
+        (-0.04, 0.034, 0.036, -0.006, mix(("neck", 0.45), ("head", 0.55))),
+        (0.12, 0.052, 0.06, -0.012, {"head": 1.0}),
+        (0.45, 0.066, 0.076, -0.004, {"head": 1.0}),
+        (0.78, 0.064, 0.074, 0.002, {"head": 1.0}),
+        (0.95, 0.044, 0.052, 0.004, {"head": 1.0}),
+    ]
+    head_start = head_z + head_rings[0][0] * lh
+    half = min(arm_r, 0.5 * (head_start - shoulder_z))
+    gap = head_start - (shoulder_z + half)
+    a = 2 * max(1, round(n / 8))
+    b = n // 2 - a
+
+    torso = [
+        (hip_z - 0.15 * thigh_len, hip_out + 0.047 * t, 0.5 * (0.066 * depth + 0.056 * t), 0.0, {"pelvis": 1.0}),
+        (hip_z, hip_out + 0.049 * t, 0.066 * depth, 0.0, {"pelvis": 1.0}),
+        (pelvis_top, 0.5 * (belly * 1.02 + hip_out + 0.049 * t), 0.064 * depth, 0.0, mix(("pelvis", 0.55), ("spine", 0.45))),
+        (0.5 * (pelvis_top + chest_z), belly * 0.98, 0.06 * depth, -0.002, {"spine": 1.0}),
+        (chest_z, max(belly, chest_w * 0.9), 0.064 * depth, 0.0, mix(("spine", 0.45), ("chest", 0.55))),
+    ]
+    mid_chest = chest_z + 0.5 * (neck_z - chest_z)
+    if mid_chest < shoulder_z - half - 0.015:
+        torso.append((mid_chest, chest_w * 1.05, 0.075 * depth, -0.006 * depth, {"chest": 1.0}))
+    armpit = len(torso)
+    for row in range(b + 1):
+        f = row / b
+        z = shoulder_z - half + 2 * half * f
+        torso.append((z, shoulder_x * (1.02 - 0.12 * f), (0.068 - 0.016 * f) * depth, 0.0, {"chest": 1.0}))
+    torso.append((shoulder_z + half + 0.4 * gap, nr * 2.0, nr * 1.6, 0.002, mix(("chest", 0.6), ("neck", 0.4))))
+    torso.append((shoulder_z + half + 0.75 * gap, nr, nr, 0.003, {"neck": 1.0}))
+    for d, ru, rv, dv, weights in head_rings:
+        torso.append((head_z + d * lh, ru * hs, rv * hs, dv * hs, weights))
+
+    angles = [2 * math.pi * k / nt for k in range(nt)]
+    rings = [
+        skin.ring(Vector((0, dy, z)), x_axis, y_axis, ru, rv, angles, weights)
+        for z, ru, rv, dy, weights in torso
+    ]
+    collar = armpit + b + 1
+    trunk = skin.chart(rings[: collar + 1], nt // 4)
+    head = skin.chart(rings[collar:], nt // 4, head=True)
+
+    def column(side, k):
+        return k % nt if side > 0 else (nt // 2 - k) % nt
+
+    holes = set()
+    for side in (1, -1):
+        for row in range(armpit, armpit + b):
+            for k in range(-a // 2, a // 2):
+                holes.add((row, column(side, k if side > 0 else k + 1)))
+    for row in range(len(rings) - 1):
+        for k in range(nt):
+            if (row, k) not in holes:
+                if row < collar:
+                    skin.quad(trunk, row, k)
+                else:
+                    skin.quad(head, row - collar, k)
+    skin.cap(head, Vector((0, head_rings[-1][3] * hs, top_z)), {"head": 1.0})
+
+    crotch = skin.vertex((0, 0, hip_z - 0.25 * thigh_len), {"pelvis": 1.0})
+    for index in rings[0]:
+        x = skin.points[index].x
+        if abs(x) > 1e-6:
+            skin.weights[index] = mix(("pelvis", 0.55), ("thigh.L" if x > 0 else "thigh.R", 0.45))
+    for side in (1, -1):
+        sx = float(side)
+        hole = [rings[armpit][column(side, k)] for k in range(-a // 2, a // 2 + 1)]
+        hole += [rings[armpit + row][column(side, a // 2)] for row in range(1, b + 1)]
+        hole += [rings[armpit + b][column(side, k)] for k in range(a // 2 - 1, -a // 2 - 1, -1)]
+        hole += [rings[armpit + row][column(side, -a // 2)] for row in range(b - 1, 0, -1)]
+        build_arm(skin, values, joints, side, hole, shoulder_z, arm_r)
+        front, back = 3 * nt // 4, nt // 4
+        loop = [rings[0][column(side, k)] for k in range(front - nt, back + 1)] + [crotch]
+        build_leg(skin, values, joints, side, loop, hip_x * sx, heel_y, toe_y)
+    symmetrize(skin)
+    return skin
+
+
+def build_arm(skin, values, joints, side, hole, shoulder_z, arm_r):
+    t = values["limb_thickness"]
+    hz = values["hand_size"]
+    sx = float(side)
+    tag = "L" if side > 0 else "R"
+    y_axis = Vector((0, 1, 0))
+    z_axis = Vector((0, 0, 1))
+    shoulder = joints[f"upperarm.{tag}"][0]
+    elbow = joints[f"forearm.{tag}"][0]
+    wrist = joints[f"hand.{tag}"][0]
+    tip = joints[f"hand.{tag}"][1]
+    points = [skin.points[i] for i in hole]
+    start, even = loop_angles(points, Vector((0, 0, shoulder_z)), y_axis, z_axis)
+
+    def along(p, q, f):
+        return p + (q - p) * f
+
+    upper = f"upperarm.{tag}"
+    fore = f"forearm.{tag}"
+    hand = f"hand.{tag}"
+    outer = max(abs(p.x) for p in points)
+    spec = [
+        (Vector((sx * (outer + 0.012), 0, shoulder_z)), arm_r, arm_r * 1.03, 0.5, mix(("chest", 0.3), (upper, 0.7)), False),
+        (along(shoulder, elbow, 0.35), 0.033 * t, 0.034 * t, 1.0, {upper: 1.0}, False),
+        (along(shoulder, elbow, 0.8), 0.027 * t, 0.027 * t, 1.0, {upper: 1.0}, False),
+        (elbow, 0.025 * t, 0.025 * t, 1.0, mix((upper, 0.55), (fore, 0.45)), False),
+        (along(elbow, wrist, 0.2), 0.028 * t, 0.027 * t, 1.0, {fore: 1.0}, False),
+        (along(elbow, wrist, 0.85), 0.02 * t, 0.018 * t, 1.0, {fore: 1.0}, False),
+        (wrist, 0.019 * t, 0.016 * t, 1.0, mix((fore, 0.55), (hand, 0.45)), False),
+        (along(wrist, tip, 0.15), 0.02 * hz, 0.013 * hz, 1.0, {hand: 1.0}, True),
+        (along(wrist, tip, 0.55), 0.026 * hz, 0.012 * hz, 1.0, {hand: 1.0}, True),
+        (along(wrist, tip, 0.92), 0.021 * hz, 0.007 * hz, 1.0, {hand: 1.0}, True),
+    ]
+    seam = min(range(len(hole)), key=lambda j: (round(points[j].z, 6), round(points[j].y, 6)))
+    chart = skin.chart([hole], seam)
+    for row, (center, ru, rv, f, weights, box) in enumerate(spec):
+        skin.charts[chart]["rings"].append(skin.ring(center, y_axis, z_axis, ru, rv, blended(start, even, f), weights, box))
+        skin.bridge(chart, row)
+    skin.cap(chart, tip, {hand: 1.0})
+
+
+THIGH_GAP = 0.004
+
+
+def thigh_shift(hip_x, ru, sides):
+    return max(0.0, ru / math.cos(math.pi / sides) + THIGH_GAP - hip_x)
+
+
+def build_leg(skin, values, joints, side, loop, cx, heel_y, toe_y):
+    t = values["limb_thickness"]
+    fs = values["foot_size"]
+    tag = "L" if side > 0 else "R"
+    x_axis = Vector((1, 0, 0))
+    y_axis = Vector((0, 1, 0))
+    hip = joints[f"thigh.{tag}"][0]
+    knee = joints[f"calf.{tag}"][0]
+    ankle = joints[f"foot.{tag}"][0]
+    points = [skin.points[i] for i in loop]
+    start, even = loop_angles(points, Vector((cx, 0, 0)), x_axis, y_axis)
+
+    def along(p, q, f):
+        return p + (q - p) * f
+
+    def tilt(degrees):
+        rotation = Matrix.Rotation(math.radians(degrees), 3, "X")
+        return rotation @ y_axis
+
+    thigh = f"thigh.{tag}"
+    calf = f"calf.{tag}"
+    foot = f"foot.{tag}"
+    fz = ankle.z + 0.01
+    sole = fz * 0.5
+    spec = [
+        (along(hip, knee, 0.33), 0.048 * t, 0.056 * t, 0.0, 0.5, mix(("pelvis", 0.2), (thigh, 0.8))),
+        (along(hip, knee, 0.55), 0.046 * t, 0.053 * t, 0.0, 1.0, {thigh: 1.0}),
+        (along(hip, knee, 0.85), 0.038 * t, 0.04 * t, 0.0, 1.0, {thigh: 1.0}),
+        (knee, 0.037 * t, 0.038 * t, 0.0, 1.0, mix((thigh, 0.55), (calf, 0.45))),
+        (along(knee, ankle, 0.3) + Vector((0, 0.008 * t, 0)), 0.04 * t, 0.043 * t, 0.0, 1.0, {calf: 1.0}),
+        (along(knee, ankle, 0.75), 0.03 * t, 0.031 * t, 0.0, 1.0, {calf: 1.0}),
+        (Vector((cx, 0.0, ankle.z + 0.035)), 0.026 * t, 0.028 * t, 0.0, 1.0, mix((calf, 0.55), (foot, 0.45))),
+        (Vector((cx, 0.006, fz * 0.62)), 0.029 * fs, 0.036 * fs, -45.0, 1.0, {foot: 1.0}),
+        (Vector((cx, toe_y * 0.15, sole)), 0.031 * fs, sole, -90.0, 1.0, {foot: 1.0}),
+        (Vector((cx, toe_y * 0.55, sole * 0.8)), 0.035 * fs, sole * 0.8, -90.0, 1.0, {foot: 1.0}),
+        (Vector((cx, toe_y * 0.88, sole * 0.55)), 0.03 * fs, sole * 0.55, -90.0, 1.0, {foot: 1.0}),
+    ]
+    chart = skin.chart([loop], len(loop) - 1)
+    for row, (center, ru, rv, degrees, f, weights) in enumerate(spec):
+        center = center + x_axis * (side * thigh_shift(abs(cx), ru, len(loop)))
+        skin.charts[chart]["rings"].append(skin.ring(center, x_axis, tilt(degrees), ru, rv, blended(start, even, f), weights))
+        skin.bridge(chart, row)
+    skin.cap(chart, Vector((cx, toe_y, sole * 0.5)), {foot: 1.0})
+
+
+GIRTH_FIELDS = ("chest_width", "belly_width", "torso_depth", "limb_thickness")
+
+
+def fused_skin(values, joints, top_z, heel_y, toe_y, sides, split_head):
+    skin = skin_layout(values, joints, top_z, heel_y, toe_y, sides)
+    reference = dict(values)
+    for key in GIRTH_FIELDS:
+        reference[key] = build_values()[key]
+    plain = skin_layout(reference, joints, top_z, heel_y, toe_y, sides)
+    skin.unwrap(plain.points, split_head)
+    return skin
+
+
+def symmetrize(skin):
+    tree = KDTree(len(skin.points))
+    for index, point in enumerate(skin.points):
+        tree.insert(point, index)
+    tree.balance()
+    for index, point in enumerate(skin.points):
+        if abs(point.x) < 1e-6:
+            point.x = 0.0
+        elif point.x > 0.0:
+            mirror = Vector((-point.x, point.y, point.z))
+            _, other, distance = tree.find(mirror)
+            if distance > 1e-4:
+                raise RuntimeError(f"skin vertex {index} has no mirror")
+            skin.points[other] = mirror
 
 
 def bone_vertex_bounds(mesh_obj, armature_obj):
@@ -776,7 +1222,18 @@ def rigidify_weights(mesh_obj, armature_obj, mode="PARTS"):
     return len(targets)
 
 
-def create_mannequin(context, name, values, sides=8, hitboxes=True, uv_unwrap=True, tight_uv=False):
+def create_mannequin(
+    context,
+    name,
+    values,
+    sides=8,
+    hitboxes=True,
+    uv_unwrap=True,
+    tight_uv=False,
+    fused=False,
+    material_name="",
+    face_material_name="",
+):
     joints, top_z, heel_y, toe_y = layout(values)
     scale = values["height"] / top_z
     specs = segment_specs(values, joints, heel_y, toe_y)
@@ -784,7 +1241,19 @@ def create_mannequin(context, name, values, sides=8, hitboxes=True, uv_unwrap=Tr
         spec["sides"] = sides
     collection = ensure_collection(context, name)
     armature_obj = build_armature(context, name, joints, scale, collection)
-    mesh_obj = build_mesh(context, name, armature_obj, specs, scale, collection, f"{name}/skin", uv_unwrap, tight_uv)
+    mesh_obj = build_mesh(
+        context,
+        name,
+        armature_obj,
+        specs,
+        scale,
+        collection,
+        material_name or f"{name}/skin",
+        uv_unwrap,
+        tight_uv,
+        skin=fused_skin(values, joints, top_z, heel_y, toe_y, sides, bool(face_material_name)) if fused else None,
+        face_material_name=face_material_name,
+    )
     fitted = []
     if hitboxes:
         fitted = fit_hitboxes(context, armature_obj, mesh_obj, ensure_collection(context, f"{name}_hitboxes", collection))
@@ -817,6 +1286,11 @@ def build_properties():
             min=4,
             max=24,
         ),
+        "fused": bpy.props.BoolProperty(
+            name="Single Skin",
+            description="One closed quad mesh with the limbs grown out of the torso and weights blended across the joints, so it bends and can be cut apart",
+            default=False,
+        ),
         "hitboxes": bpy.props.BoolProperty(name="Hitboxes", default=True),
         "uv_unwrap": bpy.props.BoolProperty(name="UV Unwrap", default=True),
     }
@@ -835,7 +1309,7 @@ def build_properties():
 class OBJECT_OT_slopengine_add_mannequin(bpy.types.Operator):
     bl_idname = "object.slopengine_add_mannequin"
     bl_label = "Slopengine Mannequin"
-    bl_description = "Add a segmented, rigidly weighted mannequin with an armature and per-limb hitboxes"
+    bl_description = "Add a segmented or single-skin mannequin with an armature and per-limb hitboxes"
     bl_options = {"REGISTER", "UNDO"}
 
     __annotations__ = build_properties()
@@ -848,6 +1322,7 @@ class OBJECT_OT_slopengine_add_mannequin(bpy.types.Operator):
         for key, *_ in BUILD_FIELDS:
             column.prop(self, key)
         layout.prop(self, "sides")
+        layout.prop(self, "fused")
         layout.prop(self, "hitboxes")
         layout.prop(self, "uv_unwrap")
 
@@ -862,6 +1337,7 @@ class OBJECT_OT_slopengine_add_mannequin(bpy.types.Operator):
             sides=self.sides,
             hitboxes=self.hitboxes,
             uv_unwrap=self.uv_unwrap,
+            fused=self.fused,
         )
         armature_obj.location = context.scene.cursor.location
         for obj in context.selected_objects:
