@@ -260,6 +260,10 @@ void collectInteriorPlacementWarnings(
             0.5f * (brush.mins.z + brush.maxs.z),
         };
         const std::int32_t leafIndex = pointLeaf(tree, center);
+        if (leafIndex >= 0 && leafIndex < static_cast<std::int32_t>(tree.leaves.size())
+            && leafBlocksFlood(tree.leaves[static_cast<std::size_t>(leafIndex)].contents)) {
+            continue;
+        }
         if (!isInteriorEmpty(tree, exteriorEmpty, leafIndex)) {
             warnings.push_back(
                 std::string(brushRoleName(brush.role)) + " '" + brush.id + "' is outside sealed hull");
