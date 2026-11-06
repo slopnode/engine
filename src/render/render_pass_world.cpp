@@ -2,6 +2,7 @@
 
 #include "assets/asset_services.hpp"
 #include "assets/asset_store.hpp"
+#include "core/frame_counters.hpp"
 #include "map/bsp.hpp"
 #include "map/graph.hpp"
 #include "map/light_components.hpp"
@@ -145,7 +146,8 @@ void drawModelMeshes(
     const std::unordered_set<int>* twoSidedMeshIndices = nullptr,
     int emissionPowerLoc = -1,
     Color tint = WHITE,
-    Shader skinFallback = {}) {
+    Shader skinFallback = {},
+    int* drawCounter = nullptr) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
@@ -175,6 +177,9 @@ void drawModelMeshes(
         }
         const Color originalDiffuse = tintMeshDiffuse(material, tint);
         drawModelMesh(model, meshIndex, material, skinFallback);
+        if (drawCounter != nullptr) {
+            ++*drawCounter;
+        }
         material.maps[MATERIAL_MAP_ALBEDO].color = originalDiffuse;
         if (twoSided) {
             rlEnableBackfaceCulling();
@@ -323,6 +328,8 @@ void renderWorldModel(
     setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
 
     flecs::world world = entity.world();
+    int* drawCounter = entity.has<MapLightmapState>() ? &frameCounters().mapMeshDraws
+                                                      : &frameCounters().modelMeshDraws;
     std::vector<Shader> previousShaders;
     bool swappedPropShader = false;
     const MapLightmapState* mapLightmaps = nullptr;
@@ -413,7 +420,8 @@ void renderWorldModel(
             twoSided,
             emissionPowerLoc,
             WHITE,
-            skinFallback);
+            skinFallback,
+            drawCounter);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -436,10 +444,27 @@ void renderWorldModel(
         }
         if (polygonOffsetBack != nullptr || twoSided != nullptr) {
             drawModelMeshes(
-                model.model, nullptr, nullptr, polygonOffsetBack, twoSided, emissionPowerLoc, WHITE, skinFallback);
+                model.model,
+                nullptr,
+                nullptr,
+                polygonOffsetBack,
+                twoSided,
+                emissionPowerLoc,
+                WHITE,
+                skinFallback,
+                drawCounter);
         } else {
             const Color tint = (swappedPropShader && modelLighting != nullptr) ? WHITE : model.color;
-            drawModelMeshes(model.model, nullptr, nullptr, nullptr, nullptr, emissionPowerLoc, tint, skinFallback);
+            drawModelMeshes(
+                model.model,
+                nullptr,
+                nullptr,
+                nullptr,
+                nullptr,
+                emissionPowerLoc,
+                tint,
+                skinFallback,
+                drawCounter);
         }
     }
 
@@ -484,6 +509,7 @@ bool pvsVisibleFromCamera(
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
         return true;
     }
+    ++frameCounters().pvsTests;
     const AreaGate gate = areaGateFromPoint(world, cameraPos);
     return pvsVisiblePoints(
         world.get<MapBsp>().tree,
@@ -500,6 +526,7 @@ bool pvsBoxVisibleFromCamera(
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
         return true;
     }
+    ++frameCounters().pvsTests;
     const AreaGate gate = areaGateFromPoint(world, cameraPos);
     return pvsVisibleBox(
         world.get<MapBsp>().tree,
@@ -794,10 +821,12 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
             ranked.direction = localDir;
         }
         if (!sphereInFrustum(frustum, ranked.position, std::max(light.range, 0.0f))) {
+            ++frameCounters().lightsCulled;
             return;
         }
         if (!viewSpace &&
             !pvsVisibleFromCamera(world, lens.camera.position, ranked.position)) {
+            ++frameCounters().lightsCulled;
             return;
         }
         ranked.linearRgb = dynamicLightLinearRgb(light);
@@ -808,6 +837,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         lens.camera.position,
         maxLights,
         maxShadowed);
+    frameCounters().lightsActive = static_cast<int>(rankedLights.size());
     return rankedLights;
 }
 
@@ -887,9 +917,11 @@ void drawWorldModels(
             const BoundingBox localBounds = modelLocalBounds(model);
             const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
             if (!aabbInFrustum(frustum, worldBounds)) {
+                ++frameCounters().modelsFrustumCulled;
                 return;
             }
             if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
+                ++frameCounters().modelsPvsCulled;
                 return;
             }
             if (!modelEntity.has<BakedLightmapModel>()) {
@@ -998,9 +1030,11 @@ void collectWorldSpriteDrawItems(
                 position.z,
             };
             if (!sphereInFrustum(frustum, cullCenter, radius)) {
+                ++frameCounters().spritesFrustumCulled;
                 return;
             }
             if (!pvsVisibleFromCamera(world, lens.camera.position, position)) {
+                ++frameCounters().spritesPvsCulled;
                 return;
             }
             const Vector3 camForward = cameraForwardDir(lens.camera);
@@ -1271,6 +1305,7 @@ std::string drawWorldTransparentPass(
                 mapDrawModel->model.meshes[item.mapMeshIndex],
                 transparentMaterial,
                 MatrixIdentity());
+            ++frameCounters().transparentMeshDraws;
             glDisable(GL_POLYGON_OFFSET_FILL);
             rlPopMatrix();
         } else if (item.kind == TransparentDrawKind::Sprite) {
@@ -1295,6 +1330,7 @@ std::string drawWorldTransparentPass(
                 unlit,
                 item.sprite.animator,
                 item.sprite.hiddenParts);
+            ++frameCounters().spritesDrawn;
         } else if (item.kind == TransparentDrawKind::Particle) {
             const ParticleDrawItem& particle = item.particle;
             if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {
@@ -1338,6 +1374,7 @@ std::string drawWorldTransparentPass(
                 origin,
                 0.0f,
                 tint);
+            ++frameCounters().particlesDrawn;
         }
     }
 

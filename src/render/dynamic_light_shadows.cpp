@@ -1,5 +1,7 @@
 #include "render/dynamic_light_shadows.hpp"
 
+#include "core/frame_counters.hpp"
+
 #include "render/dynamic_light_shadow_math.hpp"
 #include "render/gpu_skinning.hpp"
 #include "map/bsp.hpp"
@@ -71,6 +73,7 @@ void drawShadowCasters(
             if (skipMeshes != nullptr) {
                 if (skipMeshes->count(meshIndex) == 0) {
                     drawModelMesh(model.model, meshIndex, model.model.materials[meshIndex]);
+                    ++frameCounters().shadowMeshDraws;
                 }
                 continue;
             }
@@ -80,6 +83,7 @@ void drawShadowCasters(
                 model.model.materials[model.model.meshMaterial[meshIndex]],
                 {},
                 model.model.transform);
+            ++frameCounters().shadowMeshDraws;
         }
         setActiveShaderParams(nullptr);
         rlPopMatrix();
@@ -101,6 +105,7 @@ void renderShadowFace(
     Vector3 lightPosition) {
     const int layer = slotIndex * kDynamicShadowFacesPerSlot + faceIndex;
     DynamicLightShadowSlot& slot = shadowState.slots[slotIndex];
+    ++frameCounters().shadowFaces;
 
     BeginTextureMode(shadowState.scratch);
     rlEnableFramebuffer(shadowState.fboId);

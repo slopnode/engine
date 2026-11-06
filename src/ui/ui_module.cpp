@@ -1040,6 +1040,9 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
     static float displayRenderMs = 0.0f;
     static float displayUiMs = 0.0f;
     static float displayRssMb = 0.0f;
+    static float displayGpuFrameMs = 0.0f;
+    static float displayGpuPassMs[kGpuPassCount]{};
+    static FrameCounters displayCounters{};
     const double now = GetTime();
     if (displayLastUpdate == 0.0 || (now - displayLastUpdate) >= 0.2) {
         displayLastUpdate = now;
@@ -1049,12 +1052,18 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
         displayRenderMs = perf.renderMs;
         displayUiMs = perf.uiMs;
         displayRssMb = processRssMb();
+        displayGpuFrameMs = perf.gpuFrameMs;
+        for (int i = 0; i < kGpuPassCount; ++i) {
+            displayGpuPassMs[i] = perf.gpuPassMs[i];
+        }
+        displayCounters = perf.counters;
     }
 
     const ImVec4 frameColor = debugUiColor({0.45f, 0.85f, 1.0f, 1.0f}, {0.0f, 0.36f, 0.62f, 1.0f});
     const ImVec4 physicsColor = debugUiColor({1.0f, 0.70f, 0.30f, 1.0f}, {0.66f, 0.32f, 0.0f, 1.0f});
     const ImVec4 renderColor = debugUiColor({0.45f, 0.90f, 0.50f, 1.0f}, {0.05f, 0.45f, 0.12f, 1.0f});
     const ImVec4 uiColor = debugUiColor({0.90f, 0.50f, 0.95f, 1.0f}, {0.52f, 0.12f, 0.60f, 1.0f});
+    const ImVec4 gpuColor = debugUiColor({0.95f, 0.85f, 0.35f, 1.0f}, {0.60f, 0.48f, 0.0f, 1.0f});
 
     if (ImGui::CollapsingHeader("Timings", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextColored(
@@ -1074,6 +1083,41 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
 
         ImGui::TextColored(uiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
         plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, uiColor);
+    }
+
+    if (ImGui::CollapsingHeader("GPU", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!perf.gpuTimingAvailable) {
+            ImGui::TextUnformatted("(no GPU timer queries)");
+        } else {
+            ImGui::TextColored(
+                gpuColor, "GPU frame  %.2f ms", static_cast<double>(displayGpuFrameMs));
+            plotMsHistory("##gpuMs", perf, perf.gpuHistory, 16.7f, gpuColor);
+            for (int i = 0; i < kGpuPassCount; ++i) {
+                ImGui::Text(
+                    "%-12s %6.2f ms",
+                    gpuPassName(static_cast<GpuPass>(i)),
+                    static_cast<double>(displayGpuPassMs[i]));
+            }
+        }
+    }
+
+    if (ImGui::CollapsingHeader("Counts", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const FrameCounters& c = displayCounters;
+        ImGui::Text(
+            "Mesh draws  map %d  models %d  transparent %d",
+            c.mapMeshDraws,
+            c.modelMeshDraws,
+            c.transparentMeshDraws);
+        ImGui::Text("Sprites %d  Particles %d", c.spritesDrawn, c.particlesDrawn);
+        ImGui::Text("Shadow faces %d  shadow mesh draws %d", c.shadowFaces, c.shadowMeshDraws);
+        ImGui::Text(
+            "Models culled  frustum %d  pvs %d", c.modelsFrustumCulled, c.modelsPvsCulled);
+        ImGui::Text(
+            "Sprites culled  frustum %d  pvs %d", c.spritesFrustumCulled, c.spritesPvsCulled);
+        ImGui::Text("Lights  active %d  culled %d", c.lightsActive, c.lightsCulled);
+        ImGui::Text("PVS tests %d", c.pvsTests);
+        ImGui::Text("Rays  bvh %d  physics %d", c.bvhRays, c.physicsRays);
+        ImGui::Text("Probe samples %d", c.probeSamples);
     }
 
     if (ImGui::CollapsingHeader("Memory", ImGuiTreeNodeFlags_DefaultOpen)) {

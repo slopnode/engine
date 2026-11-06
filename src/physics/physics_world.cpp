@@ -1,5 +1,6 @@
 #include "physics/physics_world.hpp"
 
+#include "core/frame_counters.hpp"
 #include "map/brush.hpp"
 #include "map/nav_bake_config.hpp"
 #include "physics/components.hpp"
@@ -2006,6 +2007,7 @@ std::optional<RayCastHit> PhysicsWorld::castRay(
     Vector3 direction,
     float distance,
     std::uint8_t blockMask) const {
+    ++frameCounters().physicsRays;
     if (system_ == nullptr || distance <= 1.0e-8f) {
         return std::nullopt;
     }

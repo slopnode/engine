@@ -1,5 +1,7 @@
 #include "particles/particle_sim.hpp"
 
+#include "core/frame_counters.hpp"
+
 #include <rlgl.h>
 #include <raymath.h>
 
@@ -529,6 +531,7 @@ void drawParticleDrawItems(
             origin,
             0.0f,
             tint);
+        ++frameCounters().particlesDrawn;
     }
     EndBlendMode();
     if (filterTex != nullptr) {

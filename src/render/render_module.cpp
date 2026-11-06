@@ -20,6 +20,7 @@
 #include "render/dynamic_light.hpp"
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/gpu_timer.hpp"
 #include "render/model_lighting.hpp"
 #include "render/hud.hpp"
 #include "render/loading_overlay.hpp"
@@ -118,10 +119,14 @@ void registerRenderSystems(flecs::world& world) {
     world.system("StartDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
-            if (it.world().has<FramePerfStats>()) {
-                it.world().get_mut<FramePerfStats>().renderMs = 0.0f;
+            FramePerfStats* perf =
+                it.world().has<FramePerfStats>() ? &it.world().get_mut<FramePerfStats>() : nullptr;
+            if (perf != nullptr) {
+                perf->renderMs = 0.0f;
             }
+            resetFrameCounters();
             BeginDrawing();
+            gpuTimerFrameBegin(perf);
             ClearBackground(BLACK);
         });
 
@@ -231,6 +236,7 @@ void registerRenderSystems(flecs::world& world) {
             }
 
             uploadMapDynamicLights(world, rankedLights, unlit, shadowState);
+            gpuTimerMark(GpuPass::Shadow);
 
             FxLightFrameState fxLights{};
             buildFxLightFrameState(world, &frustum, unlit, fxLights);
@@ -265,8 +271,10 @@ void registerRenderSystems(flecs::world& world) {
             if (skySettings != nullptr && assetStore != nullptr && skyShaderState != nullptr) {
                 drawSkyMaterialFaces(world, presentCam, *assetStore, *skyShaderState, *skySettings);
             }
+            gpuTimerMark(GpuPass::World);
             const std::string spriteAimStatus =
                 drawWorldTransparentPass(world, context, worldLens, frustum, unlit);
+            gpuTimerMark(GpuPass::Transparent);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
                     world, *world.get_mut<AssetServices>().store, presentCam, unlit);
@@ -275,6 +283,7 @@ void registerRenderSystems(flecs::world& world) {
             drawTracers(world, presentCam);
             drawWorldDebugOverlays(world);
             EndMode3D();
+            gpuTimerMark(GpuPass::Effects);
 
             if (playing) {
                 const bool hideFp =
@@ -294,6 +303,7 @@ void registerRenderSystems(flecs::world& world) {
                     drawFirstPersonPass(world, context, lens, unlit);
                     drawViewSprites(world, unlit);
                 }
+                gpuTimerMark(GpuPass::FirstPerson);
                 if (sceneToTexture) {
                     EndTextureMode();
                     if (crossfading && assetStore != nullptr) {
@@ -319,6 +329,7 @@ void registerRenderSystems(flecs::world& world) {
                         }
                     }
                 }
+                gpuTimerMark(GpuPass::Post);
             }
 
             if (world.has<FramePerfStats>()) {
@@ -350,6 +361,9 @@ void registerRenderSystems(flecs::world& world) {
                 perf->frameMs = GetFrameTime() * 1000.0f;
             }
 
+            if (perf != nullptr) {
+                perf->counters = frameCounters();
+            }
             prepareUiInput(it.world());
             rlImGuiBegin();
             const double uiStart = perfNow();
@@ -361,6 +375,7 @@ void registerRenderSystems(flecs::world& world) {
                 perf->pushSample();
             }
             rlImGuiEnd();
+            gpuTimerMark(GpuPass::Ui);
         });
 
     world.system("EndDrawing")

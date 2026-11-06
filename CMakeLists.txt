@@ -293,6 +293,7 @@ add_executable(slopengine
     src/render/model_lighting.cpp
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp
+    src/render/gpu_timer.cpp
     src/render/render_pass_fp.cpp
     src/render/render_pass_extra_eye.cpp
     src/render/post_process.cpp

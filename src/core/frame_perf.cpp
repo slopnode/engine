@@ -11,11 +11,26 @@
 
 namespace slopengine {
 
+const char* gpuPassName(GpuPass pass) {
+    switch (pass) {
+        case GpuPass::Shadow: return "Shadows";
+        case GpuPass::World: return "World";
+        case GpuPass::Transparent: return "Transparent";
+        case GpuPass::Effects: return "Effects";
+        case GpuPass::FirstPerson: return "First person";
+        case GpuPass::Post: return "Post + HUD";
+        case GpuPass::ExtraEye: return "Extra eye";
+        case GpuPass::Ui: return "UI";
+        default: return "?";
+    }
+}
+
 void FramePerfStats::pushSample() {
     frameHistory[historyOffset] = frameMs;
     physicsHistory[historyOffset] = physicsMs;
     renderHistory[historyOffset] = renderMs;
     uiHistory[historyOffset] = uiMs;
+    gpuHistory[historyOffset] = gpuFrameMs;
     historyOffset = (historyOffset + 1) % kFramePerfHistorySize;
     if (historyCount < kFramePerfHistorySize) {
         ++historyCount;

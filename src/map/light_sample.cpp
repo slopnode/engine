@@ -1,5 +1,6 @@
 #include "map/light_sample.hpp"
 
+#include "core/frame_counters.hpp"
 #include "map/bsp_ray.hpp"
 #include "map/uv_math.hpp"
 
@@ -116,6 +117,7 @@ std::optional<ProbeCube> interpolateProbeGrid(const ProbeGrid& grid, Vector3 poi
     if (grid.probesByCell.empty() || grid.cellSize <= 0.0f) {
         return std::nullopt;
     }
+    ++frameCounters().probeSamples;
 
     const float gx = point.x / grid.cellSize;
     const float gy = point.y / grid.cellSize;

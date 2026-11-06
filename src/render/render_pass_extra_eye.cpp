@@ -4,6 +4,7 @@
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
 #include "render/components.hpp"
+#include "render/gpu_timer.hpp"
 #include "render/render_context.hpp"
 #include "render/render_frustum.hpp"
 #include "render/render_pass_world.hpp"
@@ -76,6 +77,7 @@ void registerExtraEyeSystems(flecs::world& world) {
             drawWorldTransparentPass(world, context, eyeLens, frustum, unlit);
             EndMode3D();
             EndTextureMode();
+            gpuTimerMark(GpuPass::ExtraEye);
         });
 }
 
