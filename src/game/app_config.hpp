@@ -29,6 +29,7 @@ struct AppConfig {
     /** Enables developer-only UI (e.g. the Debug menu) when set via `--debug`. */
     bool debug = false;
     bool verbose = false;
+    bool perfLog = false;
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */
     std::optional<std::string> map;
     std::vector<std::string> pendingArgs;

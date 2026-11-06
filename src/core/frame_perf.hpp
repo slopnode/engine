@@ -27,6 +27,7 @@ struct FramePerfStats {
     float physicsMs = 0.0f;
     float renderMs = 0.0f;
     float uiMs = 0.0f;
+    float swapMs = 0.0f;
     float gpuFrameMs = 0.0f;
     float gpuPassMs[kGpuPassCount]{};
     bool gpuTimingAvailable = false;
@@ -42,6 +43,23 @@ struct FramePerfStats {
 
     void pushSample();
 };
+
+struct PerfLogState {
+    bool enabled = false;
+    double intervalSeconds = 2.0;
+    double lastLogTime = 0.0;
+    int frames = 0;
+    double sumFrameMs = 0.0;
+    double sumPhysicsMs = 0.0;
+    double sumRenderMs = 0.0;
+    double sumUiMs = 0.0;
+    double sumSwapMs = 0.0;
+    double sumGpuFrameMs = 0.0;
+    double sumGpuPassMs[kGpuPassCount]{};
+    long long sumCounters[sizeof(FrameCounters) / sizeof(int)]{};
+};
+
+void perfLogSample(PerfLogState& log, const FramePerfStats& stats);
 
 double perfNow();
 float perfElapsedMs(double start);

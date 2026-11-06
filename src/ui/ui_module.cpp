@@ -4,6 +4,7 @@
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "render/system_perf.hpp"
 #include "core/log.hpp"
 #include "game/game_state.hpp"
 #include "game/user_settings.hpp"
@@ -1039,6 +1040,7 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
     static float displayPhysicsMs = 0.0f;
     static float displayRenderMs = 0.0f;
     static float displayUiMs = 0.0f;
+    static float displaySwapMs = 0.0f;
     static float displayRssMb = 0.0f;
     static float displayGpuFrameMs = 0.0f;
     static float displayGpuPassMs[kGpuPassCount]{};
@@ -1051,6 +1053,7 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
         displayPhysicsMs = perf.physicsMs;
         displayRenderMs = perf.renderMs;
         displayUiMs = perf.uiMs;
+        displaySwapMs = perf.swapMs;
         displayRssMb = processRssMb();
         displayGpuFrameMs = perf.gpuFrameMs;
         for (int i = 0; i < kGpuPassCount; ++i) {
@@ -1083,6 +1086,21 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
 
         ImGui::TextColored(uiColor, "UI  %.2f ms", static_cast<double>(displayUiMs));
         plotMsHistory("##uiMs", perf, perf.uiHistory, 2.0f, uiColor);
+        ImGui::Text("Swap  %.2f ms", static_cast<double>(displaySwapMs));
+        ImGui::Text(
+            "Other  %.2f ms",
+            static_cast<double>(
+                displayFrameMs - displayPhysicsMs - displayRenderMs - displayUiMs - displaySwapMs));
+    }
+
+    if (ImGui::CollapsingHeader("Systems", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!world.has<SystemPerfState>() || !world.get<SystemPerfState>().enabled) {
+            ImGui::TextUnformatted("(system timing off, run with --debug)");
+        } else {
+            for (const SystemTime& time : world.get<SystemPerfState>().top) {
+                ImGui::Text("%-28s %6.2f ms", time.name.c_str(), static_cast<double>(time.msPerFrame));
+            }
+        }
     }
 
     if (ImGui::CollapsingHeader("GPU", ImGuiTreeNodeFlags_DefaultOpen)) {

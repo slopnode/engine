@@ -32,6 +32,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --profile     Settings/saves/screenshots profile to use (default: \"default\")\n"
               << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n"
               << "  --verbose     Raise the trace log level to show DEBUG messages\n"
+              << "  --perf-log    Log averaged frame timings and counters every two seconds\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -87,6 +88,11 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
 
         if (arg == "--verbose") {
             config.verbose = true;
+            continue;
+        }
+
+        if (arg == "--perf-log") {
+            config.perfLog = true;
             continue;
         }
 

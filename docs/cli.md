@@ -12,6 +12,7 @@ slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [--debug
 - `--mod` -- an additional package mounted on top of the game, same lookup rules as `--game`. Repeatable; mods apply in the order given, later mods overriding earlier ones for the same asset path.
 - `--profile` -- selects which settings/saves/screenshots directory tree to use. Defaults to `"default"`. See @ref profiles for what this scopes.
 - `--debug` -- enables the developer-only UI (the Debug menu, entity inspector, and related overlays). Off by default so a normal player never sees it.
+- `--perf-log` -- logs the Performance window's numbers to the trace log every two seconds, averaged over the interval: CPU and GPU pass timings on one line, draw, cull, ray and probe counters on the next.
 
 Where a `--game`/`--mod` value resolves to on disk is covered in @ref packages, since it's the same search path logic package dependency resolution uses.
 
@@ -26,6 +27,8 @@ Usage: slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [
                 --game (repeatable)
   --profile     Settings/saves/screenshots profile to use (default: "default")
   --debug       Enable developer-only UI (e.g. the Debug menu)
+  --verbose     Raise the trace log level to show DEBUG messages
+  --perf-log    Log averaged frame timings and counters every two seconds
 ```
 
 # Package flags {#package-flags}

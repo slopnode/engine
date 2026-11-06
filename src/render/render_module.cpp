@@ -21,6 +21,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "render/fx_local_light.hpp"
 #include "render/gpu_timer.hpp"
+#include "render/system_perf.hpp"
 #include "render/model_lighting.hpp"
 #include "render/hud.hpp"
 #include "render/loading_overlay.hpp"
@@ -364,6 +365,16 @@ void registerRenderSystems(flecs::world& world) {
             if (perf != nullptr) {
                 perf->counters = frameCounters();
             }
+            if (it.world().has<SystemPerfState>()) {
+                flecs::world world = it.world();
+                SystemPerfState& systemPerf = world.get_mut<SystemPerfState>();
+                ++systemPerf.framesSinceSample;
+                const double now = perfNow();
+                if (now - systemPerf.lastSampleTime >= 0.5) {
+                    systemPerf.lastSampleTime = now;
+                    sampleSystemPerf(world, systemPerf, 12);
+                }
+            }
             prepareUiInput(it.world());
             rlImGuiBegin();
             const double uiStart = perfNow();
@@ -373,6 +384,18 @@ void registerRenderSystems(flecs::world& world) {
             if (perf != nullptr) {
                 perf->uiMs = perfElapsedMs(uiStart);
                 perf->pushSample();
+                if (it.world().has<PerfLogState>()) {
+                    PerfLogState& log = it.world().get_mut<PerfLogState>();
+                    const int framesBefore = log.frames;
+                    perfLogSample(log, *perf);
+                    if (log.frames < framesBefore && it.world().has<SystemPerfState>()) {
+                        std::string line = "PERF: systems";
+                        for (const SystemTime& time : it.world().get<SystemPerfState>().top) {
+                            line += ' ' + time.name + ' ' + TextFormat("%.2f", time.msPerFrame);
+                        }
+                        TraceLog(LOG_INFO, "%s", line.c_str());
+                    }
+                }
             }
             rlImGuiEnd();
             gpuTimerMark(GpuPass::Ui);
@@ -381,7 +404,11 @@ void registerRenderSystems(flecs::world& world) {
     world.system("EndDrawing")
         .kind(flecs::PostUpdate)
         .run([](flecs::iter& it) {
+            const double swapStart = perfNow();
             EndDrawing();
+            if (it.world().has<FramePerfStats>()) {
+                it.world().get_mut<FramePerfStats>().swapMs = perfElapsedMs(swapStart);
+            }
             ScreenshotRequest& request = it.world().get_mut<ScreenshotRequest>();
             if (!request.pending) {
                 return;
@@ -430,6 +457,14 @@ void registerRenderModule(
     world.set<PostProcessState>({});
     world.set<ModelLightingState>({});
     world.set<FpViewOverride>({});
+    world.set<PerfLogState>(PerfLogState{.enabled = config.perfLog});
+    {
+        SystemPerfState systemPerf{};
+        if (config.perfLog || config.debug) {
+            enableSystemPerf(world, systemPerf);
+        }
+        world.set<SystemPerfState>(std::move(systemPerf));
+    }
 
     registerSpinSystem(world);
     registerSchemeTickSystem(world);
@@ -439,8 +474,6 @@ void registerRenderModule(
     registerSpriteAnimatorSystem(world);
     registerMaterialAnimSystem(world);
     registerRenderSystems(world);
-
-    (void)config;
 }
 
 }
