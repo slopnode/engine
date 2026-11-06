@@ -159,6 +159,10 @@ std::vector<std::string> CompileController::buildArgs(CompileStage stage) const 
     }
     args.emplace_back("--map");
     args.push_back(mounts_.mapName);
+    if (stage == CompileStage::Vis) {
+        args.emplace_back("--mode");
+        args.emplace_back(visOptions.mode == VisMode::Fast ? "fast" : "full");
+    }
     if (stage == CompileStage::Rad) {
         args.emplace_back("--luxels-per-meter");
         args.push_back(std::to_string(radOptions.luxelsPerMeter));

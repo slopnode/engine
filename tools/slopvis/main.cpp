@@ -18,17 +18,28 @@ int main(int argc, char* argv[]) {
     using namespace slopengine;
 
     bool fast = false;
+    bool badMode = false;
     std::vector<char*> args;
     for (int i = 0; i < argc; ++i) {
-        if (std::string_view(argv[i]) == "--fast") {
+        const std::string_view arg(argv[i]);
+        if (arg == "--fast") {
             fast = true;
+        } else if (arg == "--mode" && i + 1 < argc) {
+            const std::string_view mode(argv[++i]);
+            if (mode == "fast") {
+                fast = true;
+            } else if (mode == "full") {
+                fast = false;
+            } else {
+                badMode = true;
+            }
         } else {
             args.push_back(argv[i]);
         }
     }
     auto config = AppConfig::parse(static_cast<int>(args.size()), args.data());
-    if (!config || !config->map) {
-        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name> [--fast]\n";
+    if (badMode || !config || !config->map) {
+        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name> [--mode full|fast]\n";
         return 1;
     }
 

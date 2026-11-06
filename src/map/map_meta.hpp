@@ -40,6 +40,11 @@ struct MapRadOptions {
     int gpuMaxLuxelBatch = 0;
 };
 
+/** Saved VIS options, mirroring slopmap::VisCompileOptions. */
+struct MapVisOptions {
+    bool fast = false;
+};
+
 /** Fields from `maps/<name>/map.meta`. */
 struct MapMeta {
     std::string id;
@@ -52,6 +57,8 @@ struct MapMeta {
     MapSun sun; /**< Legacy; bake sun comes from sun things. */
     MapRadOptions rad; /**< Saved RAD bake options, editor-only. */
     bool hasRad = false; /**< Whether the file had a (rad ...) form (vs. rad being unset defaults). */
+    MapVisOptions vis; /**< Saved VIS options, editor-only. */
+    bool hasVis = false; /**< Whether the file had a (vis ...) form. */
 };
 
 /** Parses map.meta text into @p out. */

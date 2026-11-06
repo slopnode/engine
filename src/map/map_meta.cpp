@@ -239,6 +239,29 @@ bool applyRadForm(const Sexpr& form, MapMeta& out) {
     return true;
 }
 
+bool applyVisForm(const Sexpr& form, MapMeta& out) {
+    if (!form.isList() || form.list.empty() || !form.list[0].isAtom("vis")) {
+        return false;
+    }
+    out.vis = {};
+    out.hasVis = true;
+    for (std::size_t i = 1; i < form.list.size(); ++i) {
+        const Sexpr& field = form.list[i];
+        if (!field.isList() || field.list.size() != 2 || !field.list[0].isAtom("mode")
+            || field.list[1].kind != SexprKind::Atom) {
+            return false;
+        }
+        if (field.list[1].text == "fast") {
+            out.vis.fast = true;
+        } else if (field.list[1].text == "full") {
+            out.vis.fast = false;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool applyMapField(const Sexpr& form, MapMeta& out) {
     if (!form.isList() || form.list.empty() || form.list[0].kind != SexprKind::Atom) {
         return false;
@@ -284,6 +307,9 @@ bool applyMapField(const Sexpr& form, MapMeta& out) {
     }
     if (tag == "rad") {
         return applyRadForm(form, out);
+    }
+    if (tag == "vis") {
+        return applyVisForm(form, out);
     }
     return false;
 }
@@ -333,6 +359,9 @@ std::string formatMapMeta(const MapMeta& meta) {
         out << "    (angles " << meta.sun.angles.x << " " << meta.sun.angles.y << " " << meta.sun.angles.z
             << ")\n";
         out << "  )\n";
+    }
+    if (meta.hasVis) {
+        out << "  (vis (mode " << (meta.vis.fast ? "fast" : "full") << "))\n";
     }
     if (meta.hasRad) {
         const MapRadOptions& rad = meta.rad;

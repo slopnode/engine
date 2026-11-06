@@ -565,6 +565,41 @@ bool saveRadOptionsForMap(
     return slopengine::writeMapMeta(metaPath, meta);
 }
 
+void loadVisOptionsForMap(
+    const std::filesystem::path& packageRoot,
+    const std::string& mapName,
+    slopmap::VisCompileOptions& visOptions) {
+    visOptions = slopmap::VisCompileOptions{};
+    if (mapName.empty() || mapName == "untitled") {
+        return;
+    }
+    slopengine::MapMeta meta;
+    if (loadMapMetaRaw(mapMetaPathFor(packageRoot, mapName), meta) && meta.hasVis) {
+        visOptions.mode = meta.vis.fast ? slopmap::VisMode::Fast : slopmap::VisMode::Full;
+    }
+}
+
+bool saveVisOptionsForMap(
+    const std::filesystem::path& packageRoot,
+    const std::string& mapName,
+    const slopmap::VisCompileOptions& visOptions) {
+    if (mapName.empty() || mapName == "untitled") {
+        return false;
+    }
+    const std::filesystem::path metaPath = mapMetaPathFor(packageRoot, mapName);
+    slopengine::MapMeta meta;
+    loadMapMetaRaw(metaPath, meta);
+    if (meta.id.empty()) {
+        meta.id = mapName;
+    }
+    if (meta.name.empty()) {
+        meta.name = mapName;
+    }
+    meta.hasVis = true;
+    meta.vis.fast = visOptions.mode == slopmap::VisMode::Fast;
+    return slopengine::writeMapMeta(metaPath, meta);
+}
+
 struct MapStats {
     int brushes = 0;
     int hullBrushes = 0;
@@ -1364,6 +1399,7 @@ int main(int argc, char* argv[]) {
     slopmap::PrefabBrowser prefabBrowser;
     slopmap::CompileController compile;
     loadRadOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.radOptions);
+    loadVisOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.visOptions);
     slopmap::EditorSettings editorSettings = slopmap::EditorSettings::loadOrDefault();
     materialBrowser.rescan(assets);
     prefabBrowser.rescan(assets);
@@ -1530,6 +1566,7 @@ int main(int argc, char* argv[]) {
                         cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                         editor.newMap("untitled");
                         compile.radOptions = slopmap::RadCompileOptions{};
+                compile.visOptions = slopmap::VisCompileOptions{};
                         previewNeedsRebuild = true;
                     }
                 }
@@ -2354,6 +2391,38 @@ int main(int argc, char* argv[]) {
                     playMap();
                 }
                 ImGui::Separator();
+                if (beginMenuWithIcon(assets, kIcons, "chart_organisation", "VIS Mode")) {
+                    const slopmap::VisMode before = compile.visOptions.mode;
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "chart_organisation",
+                            "Full",
+                            nullptr,
+                            compile.visOptions.mode == slopmap::VisMode::Full)) {
+                        compile.visOptions.mode = slopmap::VisMode::Full;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Clipped portal chains. Tight result, minutes on large open maps.");
+                    }
+                    if (menuItemWithIcon(
+                            assets,
+                            kIcons,
+                            "lightning",
+                            "Fast",
+                            nullptr,
+                            compile.visOptions.mode == slopmap::VisMode::Fast)) {
+                        compile.visOptions.mode = slopmap::VisMode::Fast;
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Plane-test base pass only. Looser result, seconds on any map.");
+                    }
+                    if (compile.visOptions.mode != before) {
+                        editor.markVisDirty();
+                        saveVisOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.visOptions);
+                    }
+                    ImGui::EndMenu();
+                }
                 if (menuItemWithIcon(
                         assets, kIcons, "wrench", "RAD Options…", nullptr, false, true)) {
                     compile.showOptionsModal = true;
@@ -2447,6 +2516,7 @@ int main(int argc, char* argv[]) {
                     cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                     editor.newMap("untitled");
                     compile.radOptions = slopmap::RadCompileOptions{};
+                compile.visOptions = slopmap::VisCompileOptions{};
                     previewNeedsRebuild = true;
                 }
             }
@@ -4500,6 +4570,7 @@ int main(int argc, char* argv[]) {
                     return false;
                 }
                 loadRadOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.radOptions);
+                loadVisOptionsForMap(editor.writePackageRoot, editor.levelDoc.assetPath, compile.visOptions);
                 previewNeedsRebuild = false;
                 return true;
             };
@@ -4734,6 +4805,7 @@ int main(int argc, char* argv[]) {
                 cancelTools(createTool, selectTool, punchTool, clipTool, extrudeTool, editor);
                 editor.newMap("untitled");
                 compile.radOptions = slopmap::RadCompileOptions{};
+                compile.visOptions = slopmap::VisCompileOptions{};
                 previewNeedsRebuild = true;
                 ImGui::CloseCurrentPopup();
             }

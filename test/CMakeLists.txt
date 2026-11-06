@@ -15,6 +15,7 @@ add_executable(sloptests
     test_csg_compile.cpp
     test_pvs_build.cpp
     test_map_areas.cpp
+    test_map_meta.cpp
     test_nav_graph.cpp
     test_nav_macro_links.cpp
     test_nav_bake.cpp
