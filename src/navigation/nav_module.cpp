@@ -282,7 +282,7 @@ bool goalMovedEnough(const NavigationAgent& agent, Vector3 goalPos) {
     if (!agent.haveLastGoalPos) {
         return true;
     }
-    return navHorizontalDist(agent.lastGoalPos, goalPos) >= agent.goalMoveThreshold;
+    return Vector3Distance(agent.lastGoalPos, goalPos) >= agent.goalMoveThreshold;
 }
 
 void clearNavPath(NavigationAgent& agent) {

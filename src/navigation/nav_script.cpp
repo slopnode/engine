@@ -11,6 +11,7 @@
 #include "script/script_scope.hpp"
 #include "script/thing_script.hpp"
 
+#include <raymath.h>
 #include <s7.h>
 
 #include <cmath>
@@ -82,11 +83,14 @@ s7_pointer g_nav_set_goal_pos(s7_scheme* sc, s7_pointer args) {
     agent.hasGoal = true;
     agent.goalEntityId.clear();
     agent.goalPos = {x, 0.0f, z};
-    if (entity.has<LocalTransformation>()) {
+    float y = 0.0f;
+    if (readNumberArg(sc, rest, y)) {
+        agent.goalPos.y = y;
+    } else if (entity.has<LocalTransformation>()) {
         agent.goalPos.y = entity.get<LocalTransformation>().position.y;
     }
     if (!agent.haveLastGoalPos ||
-        navHorizontalDist(agent.lastGoalPos, agent.goalPos) >= agent.goalMoveThreshold) {
+        Vector3Distance(agent.lastGoalPos, agent.goalPos) >= agent.goalMoveThreshold) {
         agent.forceReplan = true;
     }
     replanNavigationAgent(*g_navWorld, entity);
@@ -416,9 +420,9 @@ void bindNavApi(flecs::world& world, s7_scheme* scheme) {
         "nav-set-goal-pos",
         g_nav_set_goal_pos,
         3,
-        0,
+        1,
         false,
-        "(nav-set-goal-pos id x z)");
+        "(nav-set-goal-pos id x z [y])");
     s7_define_function(
         scheme,
         "nav-set-goal-entity",

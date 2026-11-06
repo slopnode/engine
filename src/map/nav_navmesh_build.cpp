@@ -46,31 +46,6 @@ bool pointInsideConvexPolygonXZ(const std::vector<Vector3>& poly, float x, float
     return true;
 }
 
-// Distance from (x, z) to segment ab in XZ.
-float distanceToSegmentXZ(Vector3 a, Vector3 b, float x, float z) {
-    const float abx = b.x - a.x, abz = b.z - a.z;
-    const float apx = x - a.x, apz = z - a.z;
-    const float abLenSq = abx * abx + abz * abz;
-    float t = abLenSq > 1.0e-8f ? (apx * abx + apz * abz) / abLenSq : 0.0f;
-    t = std::clamp(t, 0.0f, 1.0f);
-    const float dx = x - (a.x + t * abx);
-    const float dz = z - (a.z + t * abz);
-    return std::sqrt(dx * dx + dz * dz);
-}
-
-// Convex polygons only (see pointInsideConvexPolygonXZ above) -- the closest point in
-// the closed polygon region to an exterior (x, z) always lies on its boundary, so the
-// minimum distance to any edge equals the distance to the polygon itself.
-float distanceToConvexPolygonXZ(const std::vector<Vector3>& poly, float x, float z) {
-    float best = std::numeric_limits<float>::infinity();
-    for (std::size_t i = 0; i < poly.size(); ++i) {
-        const Vector3& a = poly[i];
-        const Vector3& b = poly[(i + 1) % poly.size()];
-        best = std::min(best, distanceToSegmentXZ(a, b, x, z));
-    }
-    return best;
-}
-
 bool waterBrushContains(const std::vector<Brush>& brushes, Vector3 point) {
     for (const Brush& brush : brushes) {
         if (brush.role == BrushRole::Water && pointInsideBrushInclusive(point, brush)) {
@@ -100,6 +75,48 @@ bool baryXZ(Vector3 a, Vector3 b, Vector3 c, float x, float z, float& u, float& 
     u = 1.0f - v - w;
     constexpr float kEps = -1.0e-3f;
     return u >= kEps && v >= kEps && w >= kEps;
+}
+
+float polySurfaceYAt(const std::vector<Vector3>& poly, float x, float z, float fallbackY) {
+    for (std::size_t i = 1; i + 1 < poly.size(); ++i) {
+        float u, v, w;
+        if (baryXZ(poly[0], poly[i], poly[i + 1], x, z, u, v, w)) {
+            return u * poly[0].y + v * poly[i].y + w * poly[i + 1].y;
+        }
+    }
+    return fallbackY;
+}
+
+struct PolyEdgeSnap {
+    float dist = std::numeric_limits<float>::infinity();
+    float y = 0.0f;
+};
+
+PolyEdgeSnap closestEdgePointXZ(const std::vector<Vector3>& poly, float x, float z) {
+    PolyEdgeSnap best;
+    for (std::size_t i = 0; i < poly.size(); ++i) {
+        const Vector3& a = poly[i];
+        const Vector3& b = poly[(i + 1) % poly.size()];
+        const float abx = b.x - a.x, abz = b.z - a.z;
+        const float abLenSq = abx * abx + abz * abz;
+        float t = abLenSq > 1.0e-8f ? ((x - a.x) * abx + (z - a.z) * abz) / abLenSq : 0.0f;
+        t = std::clamp(t, 0.0f, 1.0f);
+        const float dx = x - (a.x + t * abx);
+        const float dz = z - (a.z + t * abz);
+        const float dist = std::sqrt(dx * dx + dz * dz);
+        if (dist < best.dist) {
+            best.dist = dist;
+            best.y = a.y + t * (b.y - a.y);
+        }
+    }
+    return best;
+}
+
+constexpr float kSampleMaxBelow = 2.5f;
+constexpr float kSampleMaxAbove = 1.0f;
+
+bool withinSampleWindow(float surfaceY, float pointY, float maxBelow) {
+    return surfaceY <= pointY + kSampleMaxAbove && surfaceY >= pointY - maxBelow;
 }
 
 }
@@ -308,9 +325,8 @@ void forEachPolyNear(const MapNavigation& nav, float x0, float z0, float x1, flo
     }
 }
 
-}
 
-int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf) {
+int samplePolyInWindow(const MapNavigation& nav, Vector3 point, int preferLeaf, float maxBelow) {
     if (nav.leafBoundary.size() != static_cast<std::size_t>(nav.leafCount)) {
         return -1; // BSP-leaf-built graph: no boundary data, caller should fall back
     }
@@ -338,7 +354,12 @@ int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf) {
         if (boundary.empty() || !pointInsideConvexPolygonXZ(boundary, point.x, point.z)) {
             return;
         }
-        const float floorDist = std::fabs(nav.leafFloorY[static_cast<std::size_t>(i)] - point.y);
+        const float surfaceY =
+            polySurfaceYAt(boundary, point.x, point.z, nav.leafFloorY[static_cast<std::size_t>(i)]);
+        if (!withinSampleWindow(surfaceY, point.y, maxBelow)) {
+            return;
+        }
+        const float floorDist = std::fabs(surfaceY - point.y);
         if (i == preferLeaf) {
             preferIsCandidate = true;
             preferFloorDist = floorDist;
@@ -352,6 +373,12 @@ int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf) {
         return preferLeaf;
     }
     return best;
+}
+
+}
+
+int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf) {
+    return samplePolyInWindow(nav, point, preferLeaf, kSampleMaxBelow);
 }
 
 int nearestWalkableNavPoly(const MapNavigation& nav, Vector3 point, float maxSnapDistance) {
@@ -374,10 +401,10 @@ int nearestWalkableNavPoly(const MapNavigation& nav, Vector3 point, float maxSna
             if (boundary.size() < 3) {
                 return;
             }
-            const float dist = distanceToConvexPolygonXZ(boundary, point.x, point.z);
-            if (dist < bestDist) {
+            const PolyEdgeSnap snap = closestEdgePointXZ(boundary, point.x, point.z);
+            if (snap.dist < bestDist && withinSampleWindow(snap.y, point.y, kSampleMaxBelow)) {
                 best = i;
-                bestDist = dist;
+                bestDist = snap.dist;
             }
         });
     return best;
@@ -399,7 +426,11 @@ int sampleNavLeaf(const MapNavigation& nav, const BspTree& tree, Vector3 point, 
     // falling back to pvsSampleLeaf: a raw BSP leaf id would silently be fed into this
     // nav's poly-indexed tables (leafFloorY, adjacency, ...) as a wrong-space index.
     constexpr float kMaxSnapDistance = 1.0f;
-    return nearestWalkableNavPoly(nav, point, kMaxSnapDistance);
+    const int snapped = nearestWalkableNavPoly(nav, point, kMaxSnapDistance);
+    if (snapped >= 0) {
+        return snapped;
+    }
+    return samplePolyInWindow(nav, point, preferLeaf, std::numeric_limits<float>::infinity());
 }
 
 }

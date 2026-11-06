@@ -1904,10 +1904,11 @@ Sets a mover's open/closed target, progress, and optionally its locked state.
 ## Navigation {#navigation}
 
 ### nav-set-goal-pos {#nav-set-goal-pos}
-Sets an actor's pathfinding goal to a fixed ground position.
+Sets an actor's pathfinding goal to a fixed ground position. Pass the target's feet height as `y` when it can be on another floor; without it the goal height is the actor's own.
 <pre><code class="language-scheme">(nav-set-goal-pos
   id : string?
-  x, z : real?)
+  x, z : real?
+  [y] : real?)
   ↵ boolean?
 </code></pre>
 
