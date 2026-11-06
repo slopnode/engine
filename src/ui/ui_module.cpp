@@ -1131,7 +1131,11 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
             c.modelMeshDraws,
             c.transparentMeshDraws);
         ImGui::Text("Sprites %d  Particles %d", c.spritesDrawn, c.particlesDrawn);
-        ImGui::Text("Shadow faces %d  shadow mesh draws %d", c.shadowFaces, c.shadowMeshDraws);
+        ImGui::Text(
+            "Shadow faces %d  draws %d  culled %d",
+            c.shadowFaces,
+            c.shadowMeshDraws,
+            c.shadowCastersCulled);
         ImGui::Text("Map culled  frustum %d  pvs %d", c.mapFrustumCulled, c.mapPvsCulled);
         ImGui::Text(
             "Models culled  frustum %d  pvs %d", c.modelsFrustumCulled, c.modelsPvsCulled);

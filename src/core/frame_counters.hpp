@@ -10,6 +10,7 @@ struct FrameCounters {
     int particlesDrawn = 0;
     int shadowFaces = 0;
     int shadowMeshDraws = 0;
+    int shadowCastersCulled = 0;
     int mapFrustumCulled = 0;
     int mapPvsCulled = 0;
     int modelsFrustumCulled = 0;

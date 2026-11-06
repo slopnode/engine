@@ -106,7 +106,7 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
     }
     TraceLog(
         LOG_INFO,
-        "PERF: draws map %d models %d transparent %d sprites %d particles %d, shadow faces %d draws %d, "
+        "PERF: draws map %d models %d transparent %d sprites %d particles %d, shadow faces %d draws %d culled %d, "
         "culled map frustum %d pvs %d models frustum %d pvs %d sprites frustum %d pvs %d transparent frustum %d pvs %d, "
         "lights active %d culled %d, "
         "pvs tests %d, rays bvh %d physics %d, probe samples %d, rss %.0f MB",
@@ -117,6 +117,7 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
         avg.particlesDrawn,
         avg.shadowFaces,
         avg.shadowMeshDraws,
+        avg.shadowCastersCulled,
         avg.mapFrustumCulled,
         avg.mapPvsCulled,
         avg.modelsFrustumCulled,
