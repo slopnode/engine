@@ -3,6 +3,7 @@
 #include "camera/components.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
+#include "particles/particle_module.hpp"
 #include "render/components.hpp"
 #include "render/gpu_timer.hpp"
 #include "render/render_context.hpp"
@@ -73,6 +74,7 @@ void registerExtraEyeSystems(flecs::world& world) {
             BeginTextureMode(eye.target);
             ClearBackground(BLACK);
             BeginMode3D(eye.camera);
+            lightParticleSystems(world, frustum, unlit);
             drawWorldModels(world, context, eyeLens, frustum, unlit);
             drawWorldTransparentPass(world, context, eyeLens, frustum, unlit);
             EndMode3D();

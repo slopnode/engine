@@ -297,6 +297,7 @@ void registerRenderSystems(flecs::world& world) {
                 skyShaderState = &ensureSkyboxShaders(*assetStore);
                 drawSkyboxBackground(presentCam, *assetStore, *skyShaderState, *skySettings);
             }
+            lightParticleSystems(world, frustum, unlit);
             drawWorldModels(world, context, worldLens, frustum, unlit);
             if (skySettings != nullptr && assetStore != nullptr && skyShaderState != nullptr) {
                 drawSkyMaterialFaces(world, presentCam, *assetStore, *skyShaderState, *skySettings);
@@ -309,7 +310,7 @@ void registerRenderSystems(flecs::world& world) {
             cpuMark(GpuPass::Transparent);
             if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
                 drawParticleSystems(
-                    world, *world.get_mut<AssetServices>().store, presentCam, unlit);
+                    world, *world.get_mut<AssetServices>().store, presentCam, &frustum, unlit);
                 drawTrailEffects(world, *world.get_mut<AssetServices>().store, presentCam, unlit);
             }
             drawTracers(world, presentCam);

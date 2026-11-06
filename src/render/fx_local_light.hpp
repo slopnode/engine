@@ -106,7 +106,9 @@ Color composeBakeTintWithOverlay(Color bakeTint, Vector3 overlay);
 void storeFxLightFrameState(flecs::world& world, FxLightFrameState state);
 
 /** Bake/ambient probe at a world point (no dyn/FX overlay). */
-Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit);
+Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit, float bakeMaxDistance = 2.0f);
+
+Vector3 sampleOverlayLightsAtOrigin(flecs::world& world, Vector3 origin, bool includeFxLights);
 
 /** Baked probe (when available) plus ranked dyn + FX overlay at @p origin.
  *  @p bakeMaxDistance is the downward bake ray length (sprites use ~2m; airborne FX need more). */

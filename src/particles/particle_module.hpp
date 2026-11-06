@@ -72,10 +72,13 @@ void updateParticleSystems(
     PhysicsWorld* physics,
     float dt);
 
+void lightParticleSystems(flecs::world& world, const Frustum& frustum, bool unlit);
+
 void drawParticleSystems(
     flecs::world& world,
     AssetStore& assets,
     const Camera3D& camera,
+    const Frustum* frustum = nullptr,
     bool unlit = false);
 
 void drawMuzzleParticleSystems(

@@ -95,6 +95,8 @@ Static (BSP) surfaces read their own baked lightmap directly: the renderer looks
 
 Dynamic objects (actors, pickups, viewmodel) have no lightmap UVs, so they instead sample the probe grid at their world position: the nearest surrounding probes (fine grid first, falling back to coarse where fine data is missing) are blended together. Sprites evaluate that blend toward one direction per sample point. 3D models, including first-person geo, evaluate it per pixel against the surface normal, blending the cube faces the normal points toward, then add direct light from up to four nearby static point and spot lights. Those lights use the same falloff and wrap as the bake, are checked for line of sight from the model, and fade in and out as the model moves so they don't pop. First-person geo takes its probe sample and line of sight from the player's eye rather than its own bounds, since a view model held against a wall or into a corner can reach through it into solid space where there are no probes, while the eye always stays in open space. This is the same probe data a package can query directly for faux-shading sprites or viewmodels.
 
+CPU particles take one probe sample plus the dynamic light overlay at their position, but not every frame. A particle is lit on the first frame it is in view and then every fourth frame, staggered so the work spreads evenly. Once a particle has stuck to the map its probe sample is kept and only the dynamic overlay is refreshed. Particles outside the view frustum are neither lit nor drawn.
+
 <table>
 <tr>
 <td width="50%"><img src="spriteprobes.png" alt="Sprite sample points used for faux-shading, marked at the top and bottom of each sprite" style="width:100%"/></td>

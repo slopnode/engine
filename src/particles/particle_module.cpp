@@ -16,23 +16,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <raymath.h>
 
 namespace slopengine {
 
 namespace {
 
-Color multiplyParticleTint(Color particle, Color scene) {
-    return {
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.r) * static_cast<int>(scene.r) / 255, 0, 255)),
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.g) * static_cast<int>(scene.g) / 255, 0, 255)),
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
-        particle.a,
-    };
-}
+constexpr std::uint32_t kParticleRelightInterval = 4;
 
 void writeWorldPose(
     LocalTransformation& local,
@@ -381,10 +372,45 @@ void updateParticleSystems(
     });
 }
 
+void lightParticleSystems(flecs::world& world, const Frustum& frustum, bool unlit) {
+    if (unlit) {
+        return;
+    }
+    static std::uint32_t frame = 0;
+    ++frame;
+    world.each([&](ParticleSystemInstance& instance) {
+        for (ParticleEmitterRuntime& emitter : instance.emitters) {
+            if (emitter.aliveCount <= 0 || emitter.def.unlit) {
+                continue;
+            }
+            for (std::size_t index = 0; index < emitter.particles.size(); ++index) {
+                Particle& p = emitter.particles[index];
+                if (!p.alive) {
+                    continue;
+                }
+                if (p.lit && (frame + static_cast<std::uint32_t>(index)) % kParticleRelightInterval != 0) {
+                    continue;
+                }
+                if (!sphereInFrustum(frustum, p.position, p.size0)) {
+                    continue;
+                }
+                if (!p.bakeCached) {
+                    p.bakeTint = sampleBakeTintAtOrigin(world, p.position, false, 64.0f);
+                    p.bakeCached = p.stuck;
+                }
+                p.tint = composeBakeTintWithOverlay(
+                    p.bakeTint, sampleOverlayLightsAtOrigin(world, p.position, true));
+                p.lit = true;
+            }
+        }
+    });
+}
+
 void drawParticleSystems(
     flecs::world& world,
     AssetStore& assets,
     const Camera3D& camera,
+    const Frustum* frustum,
     bool unlit) {
     std::vector<ParticleDrawItem> items;
     items.reserve(256);
@@ -393,29 +419,13 @@ void drawParticleSystems(
         if (entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
-        appendParticleDrawItems(instance, assets, camera, items);
+        appendParticleDrawItems(instance, assets, camera, items, frustum, unlit);
     });
-    if (!unlit) {
-        for (ParticleDrawItem& item : items) {
-            if (item.unlit) {
-                continue;
-            }
-            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
-            item.color = multiplyParticleTint(item.color, scene);
-        }
-    }
-    std::vector<ParticleDrawItem> depthItems;
-    std::vector<ParticleDrawItem> overlayItems;
-    depthItems.reserve(items.size());
-    overlayItems.reserve(items.size());
-    for (ParticleDrawItem& item : items) {
-        if (item.depthTest) {
-            depthItems.push_back(std::move(item));
-        } else {
-            overlayItems.push_back(std::move(item));
-        }
-    }
-    drawParticleDrawItems(overlayItems, camera, false);
+    items.erase(
+        std::remove_if(
+            items.begin(), items.end(), [](const ParticleDrawItem& item) { return item.depthTest; }),
+        items.end());
+    drawParticleDrawItems(items, camera, false);
 }
 
 void drawMuzzleParticleSystems(
@@ -430,17 +440,8 @@ void drawMuzzleParticleSystems(
         if (!entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
-        appendParticleDrawItems(instance, assets, camera, items);
+        appendParticleDrawItems(instance, assets, camera, items, nullptr, unlit);
     });
-    if (!unlit) {
-        for (ParticleDrawItem& item : items) {
-            if (item.unlit) {
-                continue;
-            }
-            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
-            item.color = multiplyParticleTint(item.color, scene);
-        }
-    }
     drawParticleDrawItems(items, camera, false);
 }
 

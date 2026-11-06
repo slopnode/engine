@@ -235,6 +235,24 @@ void storeFxLightFrameState(flecs::world& world, FxLightFrameState state) {
     }
 }
 
+Vector3 sampleOverlayLightsAtOrigin(flecs::world& world, Vector3 origin, bool includeFxLights) {
+    const std::vector<RankedDynamicLight>* dynLights =
+        world.has<DynamicLightFrameState>() ? &world.get<DynamicLightFrameState>().lights
+                                            : nullptr;
+    const FxLightFrameState* fxLights = includeFxLights && world.has<FxLightFrameState>()
+        ? &world.get<FxLightFrameState>()
+        : nullptr;
+    const MapLighting* lighting =
+        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
+    return evaluateOverlayLightsAtPoint(
+        dynLights,
+        fxLights,
+        origin,
+        {0.0f, 1.0f, 0.0f},
+        occlusionBvhFromLighting(lighting),
+        occlusionSkipFromLighting(lighting));
+}
+
 Color sampleReceiverTintAtOrigin(
     flecs::world& world,
     Vector3 origin,
@@ -244,37 +262,9 @@ Color sampleReceiverTintAtOrigin(
     if (unlit) {
         return WHITE;
     }
-
-    Color tint = WHITE;
-    if (world.has<MapLighting>()) {
-        const MapLighting& lighting = world.get<MapLighting>();
-        tint = lighting.ambient;
-        if (lighting.available) {
-            if (auto sample = sampleLightProbe(lighting, origin, {0.0f, -1.0f, 0.0f})) {
-                tint = *sample;
-            } else if (auto ray = sampleMapLight(
-                           lighting, origin, {0.0f, -1.0f, 0.0f}, bakeMaxDistance)) {
-                tint = *ray;
-            }
-        }
-    }
-
-    const std::vector<RankedDynamicLight>* dynLights =
-        world.has<DynamicLightFrameState>() ? &world.get<DynamicLightFrameState>().lights
-                                            : nullptr;
-    const FxLightFrameState* fxLights = includeFxLights && world.has<FxLightFrameState>()
-        ? &world.get<FxLightFrameState>()
-        : nullptr;
-    const MapLighting* lighting =
-        world.has<MapLighting>() ? &world.get<MapLighting>() : nullptr;
-    const Vector3 overlay = evaluateOverlayLightsAtPoint(
-        dynLights,
-        fxLights,
-        origin,
-        {0.0f, 1.0f, 0.0f},
-        occlusionBvhFromLighting(lighting),
-        occlusionSkipFromLighting(lighting));
-    return composeBakeTintWithOverlay(tint, overlay);
+    return composeBakeTintWithOverlay(
+        sampleBakeTintAtOrigin(world, origin, false, bakeMaxDistance),
+        sampleOverlayLightsAtOrigin(world, origin, includeFxLights));
 }
 
 Color sampleReceiverTintColor(
@@ -334,7 +324,7 @@ void collectModelTintSamplePoints(
 
 } // namespace
 
-Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
+Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit, float bakeMaxDistance) {
     if (unlit) {
         return WHITE;
     }
@@ -345,7 +335,7 @@ Color sampleBakeTintAtOrigin(flecs::world& world, Vector3 origin, bool unlit) {
         if (lighting.available) {
             if (auto sample = sampleLightProbe(lighting, origin, {0.0f, -1.0f, 0.0f})) {
                 tint = *sample;
-            } else if (auto ray = sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, 2.0f)) {
+            } else if (auto ray = sampleMapLight(lighting, origin, {0.0f, -1.0f, 0.0f}, bakeMaxDistance)) {
                 tint = *ray;
             }
         }

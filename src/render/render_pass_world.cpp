@@ -25,6 +25,7 @@
 #include "ui/ui_state.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -236,6 +237,19 @@ float boundsNearestPointViewDepth(
         std::clamp(referencePos.z, worldBounds.min.z, worldBounds.max.z),
     };
     return viewDepthAlongAxis(closest, cameraPos, cameraForward);
+}
+
+float boundsMinViewDepth(const BoundingBox& worldBounds, Vector3 cameraPos, Vector3 cameraForward) {
+    float minDepth = std::numeric_limits<float>::max();
+    for (int corner = 0; corner < 8; ++corner) {
+        const Vector3 point{
+            (corner & 1) != 0 ? worldBounds.max.x : worldBounds.min.x,
+            (corner & 2) != 0 ? worldBounds.max.y : worldBounds.min.y,
+            (corner & 4) != 0 ? worldBounds.max.z : worldBounds.min.z,
+        };
+        minDepth = std::min(minDepth, viewDepthAlongAxis(point, cameraPos, cameraForward));
+    }
+    return minDepth;
 }
 
 // Plane of a (near-)flat face, derived from its actual vertices rather than assumed from
@@ -1105,22 +1119,11 @@ void collectWorldSpriteDrawItems(
         });
 }
 
-Color multiplyParticleTintLocal(Color particle, Color scene) {
-    return {
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.r) * static_cast<int>(scene.r) / 255, 0, 255)),
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.g) * static_cast<int>(scene.g) / 255, 0, 255)),
-        static_cast<unsigned char>(
-            std::clamp(static_cast<int>(particle.b) * static_cast<int>(scene.b) / 255, 0, 255)),
-        particle.a,
-    };
-}
-
 void collectWorldDepthParticleDrawItems(
     flecs::world& world,
     AssetStore& assets,
     const Camera3D& camera,
+    const Frustum& frustum,
     bool unlit,
     std::vector<ParticleDrawItem>& out) {
     out.clear();
@@ -1129,17 +1132,8 @@ void collectWorldDepthParticleDrawItems(
         if (entity.has<ParticleFollowAttachPoint>()) {
             return;
         }
-        appendParticleDrawItems(instance, assets, camera, out);
+        appendParticleDrawItems(instance, assets, camera, out, &frustum, unlit);
     });
-    if (!unlit) {
-        for (ParticleDrawItem& item : out) {
-            if (item.unlit || !item.depthTest) {
-                continue;
-            }
-            const Color scene = sampleReceiverTintColor(world, item.position, false, 64.0f);
-            item.color = multiplyParticleTintLocal(item.color, scene);
-        }
-    }
     out.erase(
         std::remove_if(
             out.begin(),
@@ -1227,7 +1221,7 @@ std::string drawWorldTransparentPass(
     }
 
     std::vector<ParticleDrawItem> particleDrawList;
-    collectWorldDepthParticleDrawItems(world, assets, lens.camera, unlit, particleDrawList);
+    collectWorldDepthParticleDrawItems(world, assets, lens.camera, frustum, unlit, particleDrawList);
     for (const ParticleDrawItem& particle : particleDrawList) {
         TransparentDrawItem item{};
         item.kind = TransparentDrawKind::Particle;
@@ -1278,25 +1272,40 @@ std::string drawWorldTransparentPass(
     // ordering; a cyclic one just makes the result depend on the pivot/partition choices, so the
     // draw order flips based on camera angle and whatever else happens to be in the list — the
     // intermittent misordering seen when a few sprites stand near the same transparent surface.
+    struct OccludedCandidate {
+        float viewDepth = 0.0f;
+        Vector3 position{};
+    };
+    std::vector<OccludedCandidate> candidates;
+    candidates.reserve(drawList.size());
+    for (const TransparentDrawItem& item : drawList) {
+        if (item.kind != TransparentDrawKind::MapMesh) {
+            candidates.push_back({item.viewDepth, itemPosition(item)});
+        }
+    }
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const OccludedCandidate& a, const OccludedCandidate& b) { return a.viewDepth < b.viewDepth; });
     for (TransparentDrawItem& mesh : drawList) {
-        if (mesh.kind != TransparentDrawKind::MapMesh) {
+        if (mesh.kind != TransparentDrawKind::MapMesh || candidates.empty()) {
             continue;
         }
+        const float minDepth = boundsMinViewDepth(mesh.worldBounds, lens.camera.position, camForward);
         float nearest = mesh.viewDepth;
-        bool haveNearest = false;
-        for (const TransparentDrawItem& other : drawList) {
-            if (other.kind == TransparentDrawKind::MapMesh) {
-                continue;
-            }
-            const Vector3 otherPos = itemPosition(other);
-            if (!meshCanOcclude(mesh, lens.camera.position, otherPos)) {
+        auto first = std::lower_bound(
+            candidates.begin(),
+            candidates.end(),
+            minDepth,
+            [](const OccludedCandidate& candidate, float depth) { return candidate.viewDepth < depth; });
+        for (auto it = first; it != candidates.end() && nearest > minDepth; ++it) {
+            if (!meshCanOcclude(mesh, lens.camera.position, it->position)) {
                 continue;
             }
             const float candidate = boundsNearestPointViewDepth(
-                mesh.worldBounds, otherPos, lens.camera.position, camForward);
-            if (!haveNearest || candidate < nearest) {
+                mesh.worldBounds, it->position, lens.camera.position, camForward);
+            if (candidate < nearest) {
                 nearest = candidate;
-                haveNearest = true;
             }
         }
         mesh.viewDepth = nearest;
@@ -1320,9 +1329,7 @@ std::string drawWorldTransparentPass(
     BlendMode activeBlend = BLEND_ALPHA;
     BeginBlendMode(activeBlend);
 
-    const Matrix matView = MatrixLookAt(lens.camera.position, lens.camera.target, lens.camera.up);
-    const Vector3 screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
-    const Vector3 worldUp{0.0f, 1.0f, 0.0f};
+    const ParticleBillboardBasis particleBasis = makeParticleBillboardBasis(lens.camera);
     const Texture2D* particleFilterTex = nullptr;
     bool polygonOffsetActive = false;
     Model3D* mapDrawModel = nullptr;
@@ -1434,34 +1441,11 @@ std::string drawWorldTransparentPass(
                 activeBlend = want;
                 BeginBlendMode(activeBlend);
             }
-            const float alpha = static_cast<float>(particle.color.a) / 255.0f;
-            const Color tint{
-                static_cast<unsigned char>(
-                    std::clamp(static_cast<float>(particle.color.r) * alpha, 0.0f, 255.0f)),
-                static_cast<unsigned char>(
-                    std::clamp(static_cast<float>(particle.color.g) * alpha, 0.0f, 255.0f)),
-                static_cast<unsigned char>(
-                    std::clamp(static_cast<float>(particle.color.b) * alpha, 0.0f, 255.0f)),
-                particle.color.a,
-            };
-            const Vector2 size{particle.size, particle.size};
-            const Vector2 origin = Vector2Scale(size, 0.5f);
-            const Vector3 up =
-                particle.billboard == SpriteBillboardMode::Screen ? screenUp : worldUp;
-            DrawBillboardPro(
-                lens.camera,
-                *particle.texture,
-                particle.source,
-                particle.position,
-                up,
-                size,
-                origin,
-                0.0f,
-                tint);
-            ++frameCounters().particlesDrawn;
+            drawParticleBillboard(particle, particleBasis, particlePremultipliedTint(particle.color));
         }
     }
 
+    rlSetTexture(0);
     if (particleFilterTex != nullptr) {
         SetTextureFilter(*particleFilterTex, TEXTURE_FILTER_POINT);
     }

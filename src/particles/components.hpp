@@ -17,9 +17,13 @@ struct Particle {
     float lifetime = 1.0f;
     float size0 = 0.25f;
     Color color0 = WHITE;
+    Color tint = WHITE;
+    Color bakeTint = WHITE;
     std::uint16_t bounceCount = 0;
     bool alive = false;
     bool stuck = false;
+    bool lit = false;
+    bool bakeCached = false;
 };
 
 struct ParticleEmitterRuntime {
