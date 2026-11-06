@@ -26,6 +26,7 @@
 #include "render/animation_player.hpp"
 #include "render/attachment_path.hpp"
 #include "render/bone_attachment.hpp"
+#include "render/bone_springs.hpp"
 #include "render/components.hpp"
 #include "render/debug_line_pool.hpp"
 #include "render/dynamic_light.hpp"
@@ -2249,6 +2250,84 @@ s7_pointer g_actor_bone_severed(s7_scheme* sc, s7_pointer args) {
     return s7_make_boolean(sc, boneHidden(&mask, boneIndex));
 }
 
+std::unordered_map<flecs::entity_t, BoneSprings> g_pendingBoneSprings;
+
+s7_pointer g_actor_bone_springs(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-bone-springs!", 1, args, "id string");
+    }
+    s7_pointer specs = s7_is_pair(s7_cdr(args)) ? s7_cadr(args) : s7_nil(sc);
+    if (!s7_is_list(sc, specs)) {
+        return s7_wrong_type_arg_error(
+            sc, "actor-bone-springs!", 2, s7_cdr(args), "list of (bone param stiffness damping gain limit)");
+    }
+    BoneSprings springs;
+    for (s7_pointer entries = specs; s7_is_pair(entries); entries = s7_cdr(entries)) {
+        s7_pointer entry = s7_car(entries);
+        if (!s7_is_pair(entry) || !s7_is_string(s7_car(entry)) || !s7_is_pair(s7_cdr(entry)) ||
+            !s7_is_string(s7_cadr(entry))) {
+            return s7_wrong_type_arg_error(
+                sc, "actor-bone-springs!", 2, entry, "(bone param stiffness damping gain limit)");
+        }
+        BoneSpringSpec spec;
+        spec.bone = s7_string(s7_car(entry));
+        spec.param = s7_string(s7_cadr(entry));
+        s7_pointer rest = s7_cddr(entry);
+        float* fields[4] = {&spec.stiffness, &spec.damping, &spec.gain, &spec.limit};
+        for (int i = 0; i < 4; ++i) {
+            if (!readNumberArg(sc, rest, *fields[i], "actor-bone-springs!", 3 + i)) {
+                return s7_wrong_type_arg_error(sc, "actor-bone-springs!", 2, entry, "four spring numbers");
+            }
+        }
+        springs.specs.push_back(std::move(spec));
+    }
+    if (s7_is_pair(s7_cdr(args)) && s7_is_pair(s7_cddr(args)) && s7_is_pair(s7_caddr(args))) {
+        s7_pointer rest = s7_caddr(args);
+        float* fields[3] = {&springs.tuning.step, &springs.tuning.maxDt, &springs.tuning.accelSmoothing};
+        for (int i = 0; i < 3 && s7_is_pair(rest); ++i) {
+            if (!readNumberArg(sc, rest, *fields[i], "actor-bone-springs!", 3)) {
+                return s7_wrong_type_arg_error(sc, "actor-bone-springs!", 3, rest, "(step max-dt accel-smoothing)");
+            }
+        }
+    }
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid() || !entity.has<Model3D>()) {
+        return s7_f(sc);
+    }
+    entity.set<BoneSprings>(springs);
+    g_pendingBoneSprings[entity.id()] = std::move(springs);
+    return s7_t(sc);
+}
+
+s7_pointer g_actor_bone_springs_active(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+        return s7_wrong_type_arg_error(sc, "actor-bone-springs-active!", 1, args, "id string");
+    }
+    const bool active = s7_is_pair(s7_cdr(args)) && s7_cadr(args) != s7_f(sc);
+    flecs::entity entity = lookupActor(s7_string(s7_car(args)));
+    if (!entity.is_valid()) {
+        return s7_f(sc);
+    }
+    if (entity.has<BoneSprings>()) {
+        g_pendingBoneSprings.erase(entity.id());
+        entity.get_mut<BoneSprings>().active = active;
+        return s7_t(sc);
+    }
+    const auto pending = g_pendingBoneSprings.find(entity.id());
+    if (pending == g_pendingBoneSprings.end()) {
+        return s7_f(sc);
+    }
+    pending->second.active = active;
+    entity.set<BoneSprings>(pending->second);
+    return s7_t(sc);
+}
+
 s7_pointer g_actor_bone_pos(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
@@ -4173,6 +4252,22 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         false,
         "(actor-ragdoll! id [dx dy dz] [speed] [hit-bone] [lifetime])");
     s7_define_function(scheme, "actor-bone-pos", g_actor_bone_pos, 2, 0, false, "(actor-bone-pos id bone)");
+    s7_define_function(
+        scheme,
+        "actor-bone-springs!",
+        g_actor_bone_springs,
+        2,
+        1,
+        false,
+        "(actor-bone-springs! id ((bone param stiffness damping gain limit) ...) [(step max-dt accel-smoothing)])");
+    s7_define_function(
+        scheme,
+        "actor-bone-springs-active!",
+        g_actor_bone_springs_active,
+        2,
+        0,
+        false,
+        "(actor-bone-springs-active! id active?)");
     s7_define_function(
         scheme, "actor-restore-bones!", g_actor_restore_bones, 1, 0, false, "(actor-restore-bones! id)");
     s7_define_function(

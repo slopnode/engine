@@ -201,6 +201,10 @@
  * Phase: `OnUpdate`. Recomputes @ref slopengine::GlobalTransformation from the hierarchy.
  * Defined in `render/animation_systems.cpp`.
  *
+ * @section sys_BoneSpringStep BoneSpringStep
+ * Phase: `OnUpdate`. Samples bone joints of actors with active @ref slopengine::BoneSprings, steps their damped springs off the smoothed joint acceleration and writes the offsets into @ref slopengine::ShaderParams.
+ * Defined in `render/bone_springs.cpp`.
+ *
  * @section sys_StartDrawing StartDrawing
  * Phase: `PostUpdate`. Begins the raylib frame (`BeginDrawing`).
  * Defined in `render/render_module.cpp`.

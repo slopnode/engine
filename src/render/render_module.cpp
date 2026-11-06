@@ -15,6 +15,7 @@
 #include "render/bone_attachment.hpp"
 #include "render/model_hitboxes.hpp"
 #include "render/animation_systems.hpp"
+#include "render/bone_springs.hpp"
 #include "render/components.hpp"
 #include "render/material_anim_types.hpp"
 #include "render/dynamic_light.hpp"
@@ -519,6 +520,7 @@ void registerRenderModule(
     registerAnimationSystems(world);
     registerAnimationClipFlipTestSystem(world);
     registerTransformSystems(world);
+    registerBoneSpringSystem(world);
     registerSpriteAnimatorSystem(world);
     registerMaterialAnimSystem(world);
     registerRenderSystems(world);

@@ -1553,6 +1553,23 @@ Returns the world position of a bone's joint on a rigged actor as `(x y z)`, or 
   ↵ (or (list real? real? real?) \#f)
 </code></pre>
 
+### actor-bone-springs! {#actor-bone-springs}
+Gives a rigged actor a set of bone springs the engine steps every frame while they are active. Each spec names a bone, the `vec4` shader param to drive (an array element such as `"jiggle[2]"` works, as with `actor-set-shader-param!`), and the spring's stiffness, damping, gain and limit. Each frame the engine samples the bone's world position, smooths its acceleration, drives a damped spring with it and clamps the offset to `limit` meters. The param receives the offset rotated into the actor's yaw frame as `xyz` and the spring's speed as `w`. The optional tuning list sets the integration substep, the longest frame time stepped, and the acceleration smoothing rate, defaulting to `1/120`, `0.1` and `20`. The springs start inactive. Calling this again replaces the set. Returns \#f when the actor has no geo.
+<pre><code class="language-scheme">(actor-bone-springs!
+  id : string?
+  specs : (list (list bone param : string? stiffness damping gain limit : real?) ...)
+  [tuning : (list step max-dt accel-smoothing : real?)])
+  ↵ boolean?
+</code></pre>
+
+### actor-bone-springs-active! {#actor-bone-springs-active}
+Starts or stops an actor's bone springs. Stopping writes zero to every spring's param once and resets the springs, so a restarted set settles in from rest. Returns \#f when the actor has no bone springs.
+<pre><code class="language-scheme">(actor-bone-springs-active!
+  id : string?
+  active? : boolean?)
+  ↵ boolean?
+</code></pre>
+
 ### actor-set-wish {#actor-set-wish}
 Sets an actor's horizontal movement wish vector.
 <pre><code class="language-scheme">(actor-set-wish
