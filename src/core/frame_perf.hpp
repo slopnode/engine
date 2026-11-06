@@ -47,6 +47,8 @@ struct FramePerfStats {
 
 struct PerfLogState {
     bool enabled = false;
+    bool viewLock = false;
+    float viewPose[5]{};
     double intervalSeconds = 2.0;
     double lastLogTime = 0.0;
     int frames = 0;

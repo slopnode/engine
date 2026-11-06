@@ -13,6 +13,7 @@ slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [--debug
 - `--profile` -- selects which settings/saves/screenshots directory tree to use. Defaults to `"default"`. See @ref profiles for what this scopes.
 - `--debug` -- enables the developer-only UI (the Debug menu, entity inspector, and related overlays). Off by default so a normal player never sees it.
 - `--perf-log` -- logs the Performance window's numbers to the trace log every two seconds, averaged over the interval: CPU and GPU pass timings on one line, draw, cull, ray and probe counters on the next.
+- `--perf-view x,y,z,yaw,pitch` -- locks the view to the debug free camera at that pose every frame, so two runs measure the same picture whatever happens at the keyboard. Yaw and pitch are radians.
 
 Where a `--game`/`--mod` value resolves to on disk is covered in @ref packages, since it's the same search path logic package dependency resolution uses.
 
@@ -29,6 +30,7 @@ Usage: slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [
   --debug       Enable developer-only UI (e.g. the Debug menu)
   --verbose     Raise the trace log level to show DEBUG messages
   --perf-log    Log averaged frame timings and counters every two seconds
+  --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements
 ```
 
 # Package flags {#package-flags}

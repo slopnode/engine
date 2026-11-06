@@ -30,6 +30,8 @@ struct AppConfig {
     bool debug = false;
     bool verbose = false;
     bool perfLog = false;
+    bool perfViewLock = false;
+    float perfView[5]{};
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */
     std::optional<std::string> map;
     std::vector<std::string> pendingArgs;

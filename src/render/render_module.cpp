@@ -153,6 +153,19 @@ void registerRenderSystems(flecs::world& world) {
             }
             flecs::entity eyeEntity = it.entity(index);
             RenderContext& context = world.get_mut<RenderContext>();
+            if (world.has<PerfLogState>() && world.get<PerfLogState>().viewLock &&
+                world.has<DebugUiState>()) {
+                const PerfLogState& perfLog = world.get<PerfLogState>();
+                world.get_mut<DebugUiState>().freeCamera = true;
+                if (!world.has<FreeFlyCamera>()) {
+                    world.set<FreeFlyCamera>(FreeFlyCamera{});
+                }
+                FreeFlyCamera& fly = world.get_mut<FreeFlyCamera>();
+                fly.active = true;
+                fly.position = {perfLog.viewPose[0], perfLog.viewPose[1], perfLog.viewPose[2]};
+                fly.yaw = perfLog.viewPose[3];
+                fly.pitch = perfLog.viewPose[4];
+            }
             const DebugUiState* debugUiState =
                 world.has<DebugUiState>() ? &world.get<DebugUiState>() : nullptr;
             const bool unlit = debugUiState != nullptr && debugUiState->unlit;
@@ -477,7 +490,15 @@ void registerRenderModule(
     world.set<PostProcessState>({});
     world.set<ModelLightingState>({});
     world.set<FpViewOverride>({});
-    world.set<PerfLogState>(PerfLogState{.enabled = config.perfLog});
+    {
+        PerfLogState perfLog{};
+        perfLog.enabled = config.perfLog;
+        perfLog.viewLock = config.perfViewLock;
+        for (int i = 0; i < 5; ++i) {
+            perfLog.viewPose[i] = config.perfView[i];
+        }
+        world.set<PerfLogState>(std::move(perfLog));
+    }
     {
         SystemPerfState systemPerf{};
         if (config.perfLog || config.debug) {

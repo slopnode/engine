@@ -2,6 +2,7 @@
 
 #include "core/engine_version.hpp"
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -33,6 +34,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --debug       Enable developer-only UI (e.g. the Debug menu)\n"
               << "  --verbose     Raise the trace log level to show DEBUG messages\n"
               << "  --perf-log    Log averaged frame timings and counters every two seconds\n"
+              << "  --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -93,6 +95,24 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
 
         if (arg == "--perf-log") {
             config.perfLog = true;
+            continue;
+        }
+
+        if (arg == "--perf-view") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            if (std::sscanf(
+                    argv[++i],
+                    "%f,%f,%f,%f,%f",
+                    &config.perfView[0],
+                    &config.perfView[1],
+                    &config.perfView[2],
+                    &config.perfView[3],
+                    &config.perfView[4]) != 5) {
+                return std::nullopt;
+            }
+            config.perfViewLock = true;
             continue;
         }
 
