@@ -618,6 +618,16 @@ void runRiggedAssetTests() {
         CHECK_EQ(again.primitives[0].indexCount, std::size_t{3});
         CHECK_EQ(serializeGeoAsset(again), text);
 
+        GeoAsset shared{};
+        CHECK(parseGeoAsset(
+            "(geo\n  (vertices \"weapons/full\")\n  (primitives\n   (\n    (name \"a\"\n     vertex-count 3\n     index-count 3\n    )\n   ))\n)\n",
+            shared));
+        CHECK_EQ(shared.verticesFrom, std::string("weapons/full"));
+        GeoAsset sharedAgain{};
+        CHECK(parseGeoAsset(serializeGeoAsset(shared), sharedAgain));
+        CHECK_EQ(sharedAgain.verticesFrom, std::string("weapons/full"));
+        CHECK(geo.verticesFrom.empty());
+
         const std::string plain = serializeGeoAsset(geo);
         CHECK(plain.find("(view") == std::string::npos);
         CHECK(plain.find("(attachments") == std::string::npos);

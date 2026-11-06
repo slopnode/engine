@@ -734,7 +734,7 @@ Model AssetStore::getGeoModel(std::string_view path) {
         return existing->second;
     }
 
-    if (!hasGeo(path) || !hasGeoVert(path)) {
+    if (!hasGeo(path)) {
         return {};
     }
 
@@ -743,8 +743,12 @@ Model AssetStore::getGeoModel(std::string_view path) {
         return {};
     }
     const GeoAsset& asset = *parsed;
+    const std::string_view vertPath = asset.verticesFrom.empty() ? path : std::string_view(asset.verticesFrom);
+    if (!hasGeoVert(vertPath)) {
+        return {};
+    }
 
-    const auto vertBytes = readGeoVert(path);
+    const auto vertBytes = readGeoVert(vertPath);
     VertBuffer buffer{};
     if (!loadVertBuffer(vertBytes, buffer)) {
         return {};

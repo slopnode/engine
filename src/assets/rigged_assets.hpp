@@ -56,6 +56,7 @@ struct GeoView {
 struct GeoAsset {
     std::string skeletonId; /**< Empty for static props. */
     bool verticesImplicit = true;
+    std::string verticesFrom;
     bool weightsImplicit = false;
     GeoView view;
     std::vector<GeoAttachment> attachments;

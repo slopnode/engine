@@ -153,6 +153,8 @@ bool parseGeoAsset(std::string_view source, GeoAsset& asset) {
 
         if (startsWith(line, "(vertices implicit)")) {
             asset.verticesImplicit = true;
+        } else if (auto from = readQuotedField(line, "(vertices ")) {
+            asset.verticesFrom = *from;
         } else if (startsWith(line, "(weights implicit)")) {
             asset.weightsImplicit = true;
         } else if (auto skeletonId = readQuotedField(line, "(skeleton ")) {
@@ -231,7 +233,11 @@ bool parseGeoAsset(std::string_view source, GeoAsset& asset) {
 std::string serializeGeoAsset(const GeoAsset& asset) {
     std::ostringstream out;
     out << "(geo\n";
-    out << "  (vertices implicit)\n";
+    if (asset.verticesFrom.empty()) {
+        out << "  (vertices implicit)\n";
+    } else {
+        out << "  (vertices \"" << asset.verticesFrom << "\")\n";
+    }
     if (asset.weightsImplicit) {
         out << "  (weights implicit)\n";
     }

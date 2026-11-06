@@ -166,11 +166,13 @@ bool Editor::save(slopengine::AssetStore& assets) {
         setStatus(error);
         return false;
     }
-    copySiblingIntoTarget(
-        assets,
-        slopengine::AssetKind::GeoVert,
-        doc.virtualPath,
-        targetRoot / "geometry" / (doc.virtualPath + ".vert"));
+    if (doc.geo.verticesFrom.empty()) {
+        copySiblingIntoTarget(
+            assets,
+            slopengine::AssetKind::GeoVert,
+            doc.virtualPath,
+            targetRoot / "geometry" / (doc.virtualPath + ".vert"));
+    }
     if (doc.geo.weightsImplicit) {
         copySiblingIntoTarget(
             assets,
