@@ -54,6 +54,8 @@ float navHeightAt(const NavMeshHeightField& heightField, int poly, float x, floa
  *  the agent visibly thrashes in place instead of ever committing to either route. */
 int navSamplePoly(const MapNavigation& nav, Vector3 point, int preferLeaf = -1);
 
+void buildNavPolyIndex(MapNavigation& nav);
+
 /** Nearest walkable polygon to @p point when no polygon actually contains it (e.g. a
  *  point in the eroded margin Recast leaves along walls/doorways -- see
  *  buildNavPolyMesh's walkableRadius erosion -- or just outside a simplified boundary

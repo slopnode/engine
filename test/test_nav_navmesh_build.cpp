@@ -54,6 +54,27 @@ void runNavNavmeshBuildTests() {
         CHECK(startLeaf >= 0);
         CHECK(endLeaf >= 0);
 
+        CHECK(nav.polyIndex.matches(nav.leafCount));
+        MapNavigation unindexed = nav;
+        unindexed.polyIndex = NavPolyIndex{};
+        CHECK_FALSE(unindexed.polyIndex.matches(unindexed.leafCount));
+        int indexedHits = 0;
+        for (int iz = -30; iz <= 150; ++iz) {
+            for (int ix = -20; ix <= 20; ++ix) {
+                const Vector3 point{static_cast<float>(ix) * 0.13f, 0.4f, static_cast<float>(iz) * 0.11f};
+                const int prefer = (ix + iz) % 3 == 0 ? startLeaf : -1;
+                const int indexed = navSamplePoly(nav, point, prefer);
+                CHECK_EQ(indexed, navSamplePoly(unindexed, point, prefer));
+                CHECK_EQ(
+                    nearestWalkableNavPoly(nav, point, 1.0f),
+                    nearestWalkableNavPoly(unindexed, point, 1.0f));
+                if (indexed >= 0) {
+                    ++indexedHits;
+                }
+            }
+        }
+        CHECK(indexedHits > 0);
+
         // Pass a real, finite maxClimb here (CharacterMotor::stepHeight's own default --
         // see physics/components.hpp -- matching what nav_module.cpp's replanAgent always
         // passes in-game for a ground agent). Recast's own walkableClimb config already
