@@ -30,12 +30,17 @@ inline bool leafIsOpen(std::uint32_t contents) {
     return !leafBlocksFlood(contents);
 }
 
-/** True for open leaves and Door-brush leaves: leaves that should form
- *  BspPortal links in the portal graph used by nav pathing, sound
- *  propagation, and PVS. A closed door still blocks light/leak flood and
- *  physics (via the brush's own block mask), but a door leaf must not sever
- *  the portal graph the way a permanent wall does, since the door can open. */
+/** True for open leaves, Door-brush leaves and Glass leaves: leaves that should
+ *  form BspPortal links in the portal graph used by sound propagation, areas
+ *  and PVS. A closed door still blocks light/leak flood and physics (via the
+ *  brush's own block mask), but a door leaf must not sever the portal graph
+ *  the way a permanent wall does, since the door can open. Glass seals the
+ *  hull for the leak flood but is seen through, so VIS flows through it. */
 inline bool leafParticipatesInPortalGraph(std::uint32_t contents) {
+    return leafIsOpen(contents) || (contents & (BspContents::Door | BspContents::Glass)) != 0;
+}
+
+inline bool leafPassableForNav(std::uint32_t contents) {
     return leafIsOpen(contents) || (contents & BspContents::Door) != 0;
 }
 

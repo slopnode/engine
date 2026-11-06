@@ -51,6 +51,29 @@ SegmentClass classifySegment(const BspTree& tree, Vector3 a, Vector3 b, bool& cr
     return glass ? SegmentClass::Glass : SegmentClass::Open;
 }
 
+struct LeafStep {
+    std::int32_t leaf = -1;
+    Vector3 at{};
+};
+
+std::vector<LeafStep> leafChain(const BspTree& tree, Vector3 a, Vector3 b) {
+    std::vector<LeafStep> chain;
+    const float dx = b.x - a.x;
+    const float dy = b.y - a.y;
+    const float dz = b.z - a.z;
+    const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const int steps = std::max(2, static_cast<int>(length / 0.02f) + 1);
+    for (int i = 0; i <= steps; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(steps);
+        const Vector3 p{a.x + dx * t, a.y + dy * t, a.z + dz * t};
+        const std::int32_t leaf = pointLeaf(tree, p);
+        if (chain.empty() || chain.back().leaf != leaf) {
+            chain.push_back({leaf, p});
+        }
+    }
+    return chain;
+}
+
 bool randomPointInLeaf(const BspTree& tree, std::int32_t leaf, std::mt19937& rng, Vector3& out) {
     const BspLeaf& l = tree.leaves[static_cast<std::size_t>(leaf)];
     std::uniform_real_distribution<float> ux(l.mins.x, l.maxs.x);
@@ -218,6 +241,22 @@ PvsAuditResult auditPvs(
         }
     }
 
+    std::vector<std::vector<std::int32_t>> portalLinks(tree.leaves.size());
+    for (const BspPortal& portal : tree.portals) {
+        if (portal.leafA >= 0 && portal.leafB >= 0) {
+            portalLinks[static_cast<std::size_t>(portal.leafA)].push_back(portal.leafB);
+            portalLinks[static_cast<std::size_t>(portal.leafB)].push_back(portal.leafA);
+        }
+    }
+    const auto portalBetween = [&](std::int32_t x, std::int32_t y) {
+        for (std::int32_t n : portalLinks[static_cast<std::size_t>(x)]) {
+            if (n == y) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     std::mt19937 rng(seed);
     std::uniform_int_distribution<std::size_t> pick(0, open.size() - 1);
     for (int n = 0; n < samplePairs; ++n) {
@@ -259,6 +298,28 @@ PvsAuditResult auditPvs(
             ++result.openPairs;
             if (!sees) {
                 ++result.falseInvisible;
+                const std::vector<LeafStep> chain = leafChain(tree, pa, pb);
+                for (std::size_t i = 1; i < chain.size(); ++i) {
+                    const std::int32_t x = chain[i - 1].leaf;
+                    const std::int32_t y = chain[i].leaf;
+                    if (x < 0 || y < 0 || portalBetween(x, y)) {
+                        continue;
+                    }
+                    ++result.missingPortals;
+                    if (result.missingPortalExamples.size() < 12) {
+                        const BspLeaf& lx = tree.leaves[static_cast<std::size_t>(x)];
+                        const BspLeaf& ly = tree.leaves[static_cast<std::size_t>(y)];
+                        std::snprintf(
+                            buffer,
+                            sizeof(buffer),
+                            "no portal between leaf %d (%.1f %.1f %.1f)-(%.1f %.1f %.1f) c=%u and leaf %d (%.1f %.1f %.1f)-(%.1f %.1f %.1f) c=%u crossing at (%.2f %.2f %.2f)",
+                            x, lx.mins.x, lx.mins.y, lx.mins.z, lx.maxs.x, lx.maxs.y, lx.maxs.z, lx.contents,
+                            y, ly.mins.x, ly.mins.y, ly.mins.z, ly.maxs.x, ly.maxs.y, ly.maxs.z, ly.contents,
+                            chain[i].at.x, chain[i].at.y, chain[i].at.z);
+                        result.missingPortalExamples.emplace_back(buffer);
+                    }
+                    break;
+                }
                 if (result.examples.size() < 12) {
                     std::snprintf(
                         buffer,

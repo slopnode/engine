@@ -12,6 +12,7 @@
 #include <raylib.h>
 #include <s7.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -148,6 +149,47 @@ int main(int argc, char* argv[]) {
             audit.exteriorAbovePlayable);
         for (const std::string& example : audit.blindExamples) {
             TraceLog(LOG_WARNING, "slopvis: audit %s", example.c_str());
+        }
+        TraceLog(LOG_INFO, "slopvis: audit falseInvisibleWithMissingPortal=%d", audit.missingPortals);
+        for (const std::string& example : audit.missingPortalExamples) {
+            TraceLog(LOG_WARNING, "slopvis: audit %s", example.c_str());
+        }
+        {
+            std::vector<int> areaLeaves(static_cast<std::size_t>(areas.areaCount), 0);
+            std::vector<Vector3> areaMins(static_cast<std::size_t>(areas.areaCount), Vector3{1e9f, 1e9f, 1e9f});
+            std::vector<Vector3> areaMaxs(static_cast<std::size_t>(areas.areaCount), Vector3{-1e9f, -1e9f, -1e9f});
+            for (std::size_t i = 0; i < areas.leafArea.size(); ++i) {
+                const std::int32_t area = areas.leafArea[i];
+                if (area < 0) {
+                    continue;
+                }
+                ++areaLeaves[static_cast<std::size_t>(area)];
+                const BspLeaf& leaf = tree->leaves[i];
+                Vector3& mn = areaMins[static_cast<std::size_t>(area)];
+                Vector3& mx = areaMaxs[static_cast<std::size_t>(area)];
+                mn = {std::min(mn.x, leaf.mins.x), std::min(mn.y, leaf.mins.y), std::min(mn.z, leaf.mins.z)};
+                mx = {std::max(mx.x, leaf.maxs.x), std::max(mx.y, leaf.maxs.y), std::max(mx.z, leaf.maxs.z)};
+            }
+            for (int area = 0; area < areas.areaCount; ++area) {
+                if (areaLeaves[static_cast<std::size_t>(area)] < 20) {
+                    continue;
+                }
+                TraceLog(
+                    LOG_INFO,
+                    "slopvis: area %d leaves=%d bounds (%.0f %.0f %.0f)-(%.0f %.0f %.0f)",
+                    area,
+                    areaLeaves[static_cast<std::size_t>(area)],
+                    areaMins[static_cast<std::size_t>(area)].x, areaMins[static_cast<std::size_t>(area)].y, areaMins[static_cast<std::size_t>(area)].z,
+                    areaMaxs[static_cast<std::size_t>(area)].x, areaMaxs[static_cast<std::size_t>(area)].y, areaMaxs[static_cast<std::size_t>(area)].z);
+            }
+            for (const MapAreaPortal& portal : areas.portals) {
+                TraceLog(
+                    LOG_INFO,
+                    "slopvis: door portal '%s' joins area %d and area %d",
+                    portal.doorBrushId.c_str(),
+                    portal.areaA,
+                    portal.areaB);
+            }
         }
         for (const std::string& example : audit.examples) {
             TraceLog(LOG_WARNING, "slopvis: audit %s", example.c_str());

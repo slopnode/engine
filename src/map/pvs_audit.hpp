@@ -24,6 +24,8 @@ struct PvsAuditResult {
     int interiorBlindLeaves = 0;
     int exteriorAbovePlayable = 0;
     std::vector<std::string> blindExamples;
+    int missingPortals = 0;
+    std::vector<std::string> missingPortalExamples;
     std::vector<std::string> examples;
     std::vector<std::string> areaExamples;
 };

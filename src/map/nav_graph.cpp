@@ -26,7 +26,7 @@ bool isNavWalkableLeaf(
     if (leaf < 0 || leaf >= static_cast<int>(tree.leaves.size())) {
         return false;
     }
-    if (!leafParticipatesInPortalGraph(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
+    if (!leafPassableForNav(tree.leaves[static_cast<std::size_t>(leaf)].contents)) {
         return false;
     }
     if (exteriorEmpty != nullptr &&

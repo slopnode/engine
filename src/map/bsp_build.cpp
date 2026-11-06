@@ -372,7 +372,7 @@ bool centroidInsideSealing(
             continue;
         }
         inside = true;
-        if (brush.role == BrushRole::Window) {
+        if (brush.role == BrushRole::Window || brush.role == BrushRole::Transparent) {
             preferGlass = true;
             preferDoor = false;
         } else if (brush.role == BrushRole::Door) {
@@ -412,7 +412,7 @@ CellClassification classifyAgainstSealing(
                 continue;
             }
             inside = true;
-            if (brush.role == BrushRole::Window) {
+            if (brush.role == BrushRole::Window || brush.role == BrushRole::Transparent) {
                 glassInside = true;
             } else if (brush.role == BrushRole::Door) {
                 doorInside = true;
@@ -1628,7 +1628,7 @@ BspTree buildBspFromHullBrushes(
                         continue;
                     }
                     const std::uint32_t contents = tree.leaves[static_cast<std::size_t>(leaf)].contents;
-                    if ((contents & BspContents::Solid) == 0) {
+                    if (!leafBlocksFlood(contents)) {
                         if (holes < 20) {
                             TraceLog(
                                 LOG_WARNING,
