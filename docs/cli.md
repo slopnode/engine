@@ -72,6 +72,8 @@ slopnav --game path/to/game --map my-room
 sloprad --game path/to/game --map my-room
 ```
 
+`slopvis --audit <pairs>` checks an existing vis file instead of building one: it samples pairs of interior leaves, marches a segment between them through the tree and reports pairs that are open yet marked invisible, plus portal pairs blind to each other and area gate mismatches. `slopvis --audit-view x,y,z` does the same for one camera point against every surface face. In the engine, Debug → "Cull map meshes by PVS" switches the world cull off live, and running with `SLOPENGINE_CULL_AUDIT=1` logs any culled map mesh that a march from the camera still reaches.
+
 That's the required run order, CSG → BSP → VIS → NAV → RAD (see @ref tut_csg): `slopcsg` carves overlapping brush faces (see @ref carving-resolving-overlapping-brushes) and writes the result `slopbsp` reads for surface geometry, so `slopbsp` fails with "run slopcsg first" if that carved output is missing or stale; `slopnav` and `sloprad` both only need `slopbsp`'s output, but are conventionally run in that order after `slopvis`.
 
 `slopmap`, `slopsprite`, `slopthing`, `slopaudio`, `slopmat`, and `slopmodel` parse their own arguments (`--target`, an optional `--map`, and so on) rather than going through the package-flag schema, since they're editors rather than something a base package configures. Each takes `--game` plus an optional `--target` naming the package that receives saves; `--target` defaults to `--game` and is only required once `--mod` is also given. See their individual pages under @ref tools for the flags each one takes.

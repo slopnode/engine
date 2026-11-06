@@ -44,6 +44,7 @@
 #include "rlImGui.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -498,6 +499,10 @@ void registerRenderModule(
             perfLog.viewPose[i] = config.perfView[i];
         }
         world.set<PerfLogState>(std::move(perfLog));
+    }
+    if (const char* mapCull = std::getenv("SLOPENGINE_MAP_CULL");
+        mapCull != nullptr && mapCull[0] == '0' && world.has<DebugUiState>()) {
+        world.get_mut<DebugUiState>().mapMeshCull = false;
     }
     {
         SystemPerfState systemPerf{};

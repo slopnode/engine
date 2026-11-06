@@ -82,6 +82,7 @@ struct DebugUiState {
     bool showPerformance = false;
     bool themeEditorOpen = false;
     bool unlit = false;
+    bool mapMeshCull = true;
     bool noclip = false;
     bool freeCamera = false;
     bool hideHud = false;

@@ -589,6 +589,7 @@ void drawMainMenuBar(
         item("box", "Actor Colliders", &debugUi.showActorColliders);
         item("chart_curve", "Performance", &debugUi.showPerformance);
         item("lightbulb", "Unlit (disable lightmaps)", &debugUi.unlit);
+        item("world", "Cull map meshes by PVS", &debugUi.mapMeshCull);
         item("user_go", "Noclip", &debugUi.noclip);
         item("camera_go", "Free Camera", &debugUi.freeCamera);
         item("picture_empty", "Hide HUD", &debugUi.hideHud);

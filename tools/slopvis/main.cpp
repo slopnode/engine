@@ -6,10 +6,14 @@
 #include "map/map_script.hpp"
 #include "map/pvs.hpp"
 #include "map/pvs_io.hpp"
+#include "map/pvs_audit.hpp"
+#include "map/map_areas.hpp"
 
 #include <raylib.h>
 #include <s7.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <string_view>
 #include <vector>
@@ -19,11 +23,24 @@ int main(int argc, char* argv[]) {
 
     bool fast = false;
     bool badMode = false;
+    int auditPairs = 0;
+    bool auditViewSet = false;
+    Vector3 auditViewPos{};
     std::vector<char*> args;
     for (int i = 0; i < argc; ++i) {
         const std::string_view arg(argv[i]);
         if (arg == "--fast") {
             fast = true;
+        } else if (arg == "--audit-view" && i + 1 < argc) {
+            if (std::sscanf(argv[++i], "%f,%f,%f", &auditViewPos.x, &auditViewPos.y, &auditViewPos.z) != 3) {
+                badMode = true;
+            }
+            auditViewSet = true;
+        } else if (arg == "--audit" && i + 1 < argc) {
+            auditPairs = std::atoi(argv[++i]);
+            if (auditPairs <= 0) {
+                badMode = true;
+            }
         } else if (arg == "--mode" && i + 1 < argc) {
             const std::string_view mode(argv[++i]);
             if (mode == "fast") {
@@ -39,7 +56,7 @@ int main(int argc, char* argv[]) {
     }
     auto config = AppConfig::parse(static_cast<int>(args.size()), args.data());
     if (badMode || !config || !config->map) {
-        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name> [--mode full|fast]\n";
+        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name> [--mode full|fast] [--audit <pairs>]\n";
         return 1;
     }
 
@@ -66,6 +83,80 @@ int main(int argc, char* argv[]) {
         std::cerr << "slopvis: failed to read " << *bspPath << "\n";
         s7_quit(scheme);
         return 1;
+    }
+
+    if (auditViewSet) {
+        const auto existingVisPath = bspPath->parent_path() / "vis";
+        auto existing = readPvsFile(existingVisPath);
+        if (!existing) {
+            std::cerr << "slopvis: missing " << existingVisPath << " (run slopvis first)\n";
+            s7_quit(scheme);
+            return 1;
+        }
+        const ViewAuditResult view = auditView(*tree, *existing, auditViewPos);
+        TraceLog(
+            LOG_INFO,
+            "slopvis: view audit at (%.1f %.1f %.1f) leaf=%d faces=%d visibleByMarch=%d culledWrongly=%d noLeaves=%d",
+            auditViewPos.x, auditViewPos.y, auditViewPos.z,
+            view.cameraLeaf,
+            view.facesTested,
+            view.facesVisibleByMarch,
+            view.facesCulledWrongly,
+            view.facesWithoutLeaves);
+        for (const std::string& example : view.examples) {
+            TraceLog(LOG_WARNING, "slopvis: view audit %s", example.c_str());
+        }
+        s7_quit(scheme);
+        return 0;
+    }
+
+    if (auditPairs > 0) {
+        const auto existingVisPath = bspPath->parent_path() / "vis";
+        auto existing = readPvsFile(existingVisPath);
+        if (!existing) {
+            std::cerr << "slopvis: missing " << existingVisPath << " (run slopvis first)\n";
+            s7_quit(scheme);
+            return 1;
+        }
+        auto auditBrushes = loadMapBrushes(scheme, assets, *config->map);
+        const MapHullAnalysis auditAnalysis = auditBrushes ? analyzeMapHull(*tree, *auditBrushes) : MapHullAnalysis{};
+        const MapAreas areas = buildMapAreas(*tree);
+        const PvsAuditResult audit = auditPvs(
+            *tree, *existing, auditPairs, 12345u, auditBrushes ? &auditAnalysis.exteriorEmpty : nullptr, &areas);
+        TraceLog(
+            LOG_INFO,
+            "slopvis: audit leaves=%d areas=%d doorPortals=%d portalPairs=%d blindPortalPairs=%d",
+            static_cast<int>(tree->leaves.size()),
+            areas.areaCount,
+            static_cast<int>(areas.portals.size()),
+            audit.portalPairs,
+            audit.portalPairsBlind);
+        TraceLog(
+            LOG_INFO,
+            "slopvis: audit pairs=%d openPairs=%d falseInvisible=%d glassPairs=%d glassInvisible=%d",
+            audit.pairsTested,
+            audit.openPairs,
+            audit.falseInvisible,
+            audit.openThroughGlass,
+            audit.falseInvisibleThroughGlass);
+        TraceLog(
+            LOG_INFO,
+            "slopvis: audit areaPairs=%d areaMismatch=%d interiorBlindLeaves=%d exteriorAbovePlayable=%d",
+            audit.areaPairs,
+            audit.areaMismatch,
+            audit.interiorBlindLeaves,
+            audit.exteriorAbovePlayable);
+        for (const std::string& example : audit.blindExamples) {
+            TraceLog(LOG_WARNING, "slopvis: audit %s", example.c_str());
+        }
+        for (const std::string& example : audit.examples) {
+            TraceLog(LOG_WARNING, "slopvis: audit %s", example.c_str());
+        }
+        for (const std::string& example : audit.areaExamples) {
+            TraceLog(LOG_WARNING, "slopvis: audit %s", example.c_str());
+        }
+        s7_quit(scheme);
+        return 0;
     }
 
     auto brushes = loadMapBrushes(scheme, assets, *config->map);

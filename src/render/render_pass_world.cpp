@@ -9,6 +9,7 @@
 #include "map/light_sample.hpp"
 #include "map/pvs.hpp"
 #include "map/area_gate_runtime.hpp"
+#include "map/pvs_audit.hpp"
 #include "particles/particle_sim.hpp"
 #include "render/gpu_skinning.hpp"
 #include "render/animation_player.hpp"
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <unordered_set>
@@ -450,6 +452,20 @@ void renderWorldModel(
 }
 
 namespace {
+
+const char* primitiveNameForMesh(flecs::entity entity, int meshIndex) {
+    static std::string buffer;
+    if (!entity.has<Model3D>()) {
+        return "?";
+    }
+    const Model3D& model = entity.get<Model3D>();
+    if (meshIndex < 0 || meshIndex >= model.model.materialCount) {
+        return "?";
+    }
+    const Texture2D& albedo = model.model.materials[meshIndex].maps[MATERIAL_MAP_ALBEDO].texture;
+    buffer = "material texture " + std::to_string(albedo.id);
+    return buffer.c_str();
+}
 
 Vector3 translationFromMatrix(const Matrix& matrix) {
     return {matrix.m12, matrix.m13, matrix.m14};
@@ -927,24 +943,70 @@ void drawWorldModels(
         std::unordered_set<int> transparentSkip;
         std::unordered_set<int> opaqueSkip;
         std::vector<unsigned char> meshMask;
+        const bool cullMapMeshes =
+            !world.has<DebugUiState>() || world.get<DebugUiState>().mapMeshCull;
+        static const bool cullAudit = std::getenv("SLOPENGINE_CULL_AUDIT") != nullptr;
+        static double lastCullAudit = 0.0;
+        const bool auditNow = cullAudit && GetTime() - lastCullAudit > 1.0;
         if (modelEntity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
-            if (!lightmaps.opaqueMeshes.empty()) {
+            if (!lightmaps.opaqueMeshes.empty() && cullMapMeshes) {
                 meshMask.assign(static_cast<std::size_t>(std::max(0, model.model.meshCount)), 1);
                 for (const MapMeshCull& meshCull : lightmaps.opaqueMeshes) {
                     if (meshCull.meshIndex < 0 || meshCull.meshIndex >= model.model.meshCount) {
                         continue;
                     }
                     const BoundingBox worldBounds = transformAabb(meshCull.bounds, global.matrix);
+                    const char* culledBy = nullptr;
                     if (!aabbInFrustum(frustum, worldBounds)) {
                         meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
                         ++frameCounters().mapFrustumCulled;
-                        continue;
-                    }
-                    if (!meshCull.leaves.empty() && !pvsCullLeaves(cull, meshCull.leaves)) {
+                        culledBy = "frustum";
+                    } else if (!meshCull.leaves.empty() && !pvsCullLeaves(cull, meshCull.leaves)) {
                         meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
                         ++frameCounters().mapPvsCulled;
+                        culledBy = "pvs";
                     }
+                    if (auditNow && culledBy != nullptr && cull.tree != nullptr) {
+                        const Mesh& mesh = model.model.meshes[meshCull.meshIndex];
+                        const int triangles = mesh.triangleCount;
+                        const int step = std::max(1, triangles / 24);
+                        for (int t = 0; t < triangles; t += step) {
+                            Vector3 centroid{};
+                            for (int k = 0; k < 3; ++k) {
+                                const int vi = mesh.indices != nullptr ? mesh.indices[t * 3 + k] : t * 3 + k;
+                                centroid.x += mesh.vertices[vi * 3 + 0];
+                                centroid.y += mesh.vertices[vi * 3 + 1];
+                                centroid.z += mesh.vertices[vi * 3 + 2];
+                            }
+                            centroid = Vector3Scale(centroid, 1.0f / 3.0f);
+                            const Vector3 worldPoint = Vector3Transform(centroid, global.matrix);
+                            const Vector3 toCam = Vector3Subtract(lens.camera.position, worldPoint);
+                            const float dist = Vector3Length(toCam);
+                            if (dist < 1e-3f) {
+                                continue;
+                            }
+                            const Vector3 probe = Vector3Add(worldPoint, Vector3Scale(toCam, 0.03f / dist));
+                            if (segmentOpenThroughTree(*cull.tree, lens.camera.position, probe)) {
+                                TraceLog(
+                                    LOG_WARNING,
+                                    "CULL: mesh %d (%s) culled by %s but visible at (%.1f %.1f %.1f) from camera (%.1f %.1f %.1f) leaf %d bounds (%.1f %.1f %.1f)-(%.1f %.1f %.1f) leaves %d",
+                                    meshCull.meshIndex,
+                                    primitiveNameForMesh(modelEntity, meshCull.meshIndex),
+                                    culledBy,
+                                    worldPoint.x, worldPoint.y, worldPoint.z,
+                                    lens.camera.position.x, lens.camera.position.y, lens.camera.position.z,
+                                    cull.fromLeaf,
+                                    worldBounds.min.x, worldBounds.min.y, worldBounds.min.z,
+                                    worldBounds.max.x, worldBounds.max.y, worldBounds.max.z,
+                                    static_cast<int>(meshCull.leaves.size()));
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (auditNow) {
+                    lastCullAudit = GetTime();
                 }
             }
             if (!lightmaps.transparentMeshIndices.empty()) {
