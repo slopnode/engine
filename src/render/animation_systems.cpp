@@ -3,6 +3,7 @@
 #include "assets/anim_loader.hpp"
 #include "assets/asset_services.hpp"
 #include "assets/skeleton_loader.hpp"
+#include "core/frame_counters.hpp"
 #include "game/game_state.hpp"
 #include "render/animation_player.hpp"
 #include "render/attachment_path.hpp"
@@ -17,6 +18,7 @@
 #include "script/script_scope.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -59,6 +61,21 @@ void registerSchemeTickSystem(flecs::world& world) {
 }
 
 namespace {
+
+constexpr std::uint32_t kUnseenPoseInterval = 8;
+constexpr std::uint32_t kFarPoseInterval = 2;
+constexpr float kFarPoseDistance = 24.0f;
+
+std::uint32_t poseUpdateInterval(flecs::entity entity, const Model3D& model3d) {
+    if (!entity.has<WorldSpace>() || entity.has<ViewSpace>()) {
+        return 1;
+    }
+    const std::uint32_t serial = renderFrameSerial();
+    if (model3d.drawnFrame + 1 < serial) {
+        return kUnseenPoseInterval;
+    }
+    return model3d.viewDistance > kFarPoseDistance ? kFarPoseInterval : 1;
+}
 
 void fireAnimEvents(
     flecs::world world,
@@ -208,22 +225,27 @@ void registerAnimationSystems(flecs::world& world) {
             }
 
             const float frame = player.time * clipMeta.fps;
-            const PoseScaleResult scaleResult = updateRiggedModelAnimation(
-                model3d.model,
-                clip,
-                frame,
-                bindMatrices,
-                matrixClip,
-                !modelUsesGpuSkinning(model3d.model),
-                scales,
-                hidden);
-            model3d.boundsSpread = scaleResult.spread;
-            model3d.boundsLift = scaleResult.lift;
-            if (boneScales != nullptr) {
-                boneScales->dirty = false;
-            }
-            if (hiddenBones != nullptr) {
-                hiddenBones->dirty = false;
+            const std::uint32_t interval = poseUpdateInterval(entity, model3d);
+            const bool poseDue = startedThisFrame || rescaled || interval <= 1 ||
+                (renderFrameSerial() + static_cast<std::uint32_t>(entity.id())) % interval == 0;
+            if (poseDue) {
+                const PoseScaleResult scaleResult = updateRiggedModelAnimation(
+                    model3d.model,
+                    clip,
+                    frame,
+                    bindMatrices,
+                    matrixClip,
+                    !modelUsesGpuSkinning(model3d.model),
+                    scales,
+                    hidden);
+                model3d.boundsSpread = scaleResult.spread;
+                model3d.boundsLift = scaleResult.lift;
+                if (boneScales != nullptr) {
+                    boneScales->dirty = false;
+                }
+                if (hiddenBones != nullptr) {
+                    hiddenBones->dirty = false;
+                }
             }
             if (!advancing) {
                 return;

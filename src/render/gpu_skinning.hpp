@@ -12,6 +12,12 @@ bool modelUsesGpuSkinning(const Model& model);
 
 void setActiveShaderParams(const ShaderParams* params);
 
+void beginModelDraw(const Model& model);
+
+void endModelDraw();
+
+void setEmissionPower(Shader shader, int loc, float value);
+
 void drawModelMesh(
     const Model& model,
     int meshIndex,

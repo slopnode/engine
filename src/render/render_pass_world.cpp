@@ -18,6 +18,7 @@
 #include "render/dynamic_light_shadows.hpp"
 #include "physics/rigid_mover.hpp"
 #include "render/fx_local_light.hpp"
+#include "render/model_cull.hpp"
 #include "render/render_debug.hpp"
 #include "render/sprite_animator.hpp"
 #include "render/sprite_billboard.hpp"
@@ -176,13 +177,7 @@ void drawModelMeshes(
             rlDisableBackfaceCulling();
         }
         Material& material = model.materials[meshIndex];
-        if (emissionPowerLoc >= 0) {
-            SetShaderValue(
-                material.shader,
-                emissionPowerLoc,
-                &material.maps[MATERIAL_MAP_SPECULAR].value,
-                SHADER_UNIFORM_FLOAT);
-        }
+        setEmissionPower(material.shader, emissionPowerLoc, material.maps[MATERIAL_MAP_SPECULAR].value);
         const Color originalDiffuse = tintMeshDiffuse(material, tint);
         drawModelMesh(model, meshIndex, material, skinFallback);
         if (drawCounter != nullptr) {
@@ -366,6 +361,7 @@ void renderWorldModel(
                 100.0f));
     }
 
+    beginModelDraw(model.model);
     if (skipMeshIndices != nullptr || onlyMeshIndices != nullptr) {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -445,6 +441,7 @@ void renderWorldModel(
         }
     }
 
+    endModelDraw();
     if (swappedPropShader) {
         for (int i = 0; i < model.model.materialCount; ++i) {
             model.model.materials[i].shader = previousShaders[static_cast<std::size_t>(i)];
@@ -915,16 +912,20 @@ void drawWorldModels(
         ModelLightingUniforms modelLighting{};
         bool useModelLighting = false;
         if (!modelEntity.has<MapLightmapState>()) {
-            const BoundingBox localBounds = modelLocalBounds(model);
-            const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+            const BoundingBox& worldBounds = refreshModelCull(model, global.matrix, cull.tree);
+            const BoundingBox& localBounds = model.cullLocalBounds;
             if (!aabbInFrustum(frustum, worldBounds)) {
                 ++frameCounters().modelsFrustumCulled;
                 return;
             }
-            if (!pvsCullBox(cull, worldBounds)) {
+            if (!pvsCullLeaves(cull, model.cullLeaves)) {
                 ++frameCounters().modelsPvsCulled;
                 return;
             }
+            model.drawnFrame = renderFrameSerial();
+            model.viewDistance = Vector3Distance(
+                lens.camera.position,
+                Vector3Scale(Vector3Add(worldBounds.min, worldBounds.max), 0.5f));
             if (!modelEntity.has<BakedLightmapModel>()) {
                 const Matrix* closedMatrix = nullptr;
                 Matrix closedMatrixStorage{};
@@ -1058,12 +1059,11 @@ void drawWorldModels(
     context.animOverlayQuery.each(
         [&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global, AnimationPlayer& animationPlayer) {
             if (!modelEntity.has<MapLightmapState>()) {
-                const BoundingBox localBounds = modelLocalBounds(model);
-                const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+                const BoundingBox& worldBounds = refreshModelCull(model, global.matrix, cull.tree);
                 if (!aabbInFrustum(frustum, worldBounds)) {
                     return;
                 }
-                if (!pvsCullBox(cull, worldBounds)) {
+                if (!pvsCullLeaves(cull, model.cullLeaves)) {
                     return;
                 }
             }
@@ -1376,12 +1376,11 @@ std::string drawWorldTransparentPass(
                 polygonOffsetActive = true;
             }
             Material& transparentMaterial = mapDrawModel->model.materials[item.mapMeshIndex];
-            if (mapDrawLightmaps != nullptr && mapDrawLightmaps->emissionPowerLoc >= 0) {
-                SetShaderValue(
+            if (mapDrawLightmaps != nullptr) {
+                setEmissionPower(
                     transparentMaterial.shader,
                     mapDrawLightmaps->emissionPowerLoc,
-                    &transparentMaterial.maps[MATERIAL_MAP_SPECULAR].value,
-                    SHADER_UNIFORM_FLOAT);
+                    transparentMaterial.maps[MATERIAL_MAP_SPECULAR].value);
             }
             DrawMesh(
                 mapDrawModel->model.meshes[item.mapMeshIndex],

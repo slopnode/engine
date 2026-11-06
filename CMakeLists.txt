@@ -292,6 +292,7 @@ add_executable(slopengine
     src/render/dynamic_light_shadows.cpp
     src/render/gpu_skinning.cpp
     src/render/fx_local_light.cpp
+    src/render/model_cull.cpp
     src/render/model_lighting.cpp
     src/render/render_debug.cpp
     src/render/render_pass_world.cpp

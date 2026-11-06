@@ -126,6 +126,13 @@ struct Model3D {
     int meshBoundsCount = 0;
     float boundsSpread = 1.0f;
     float boundsLift = 0.0f;
+    Matrix cullMatrix = {};
+    BoundingBox cullLocalBounds = {};
+    BoundingBox cullWorldBounds = {};
+    std::vector<std::int32_t> cullLeaves;
+    bool cullValid = false;
+    std::uint32_t drawnFrame = 0;
+    float viewDistance = 0.0f;
 };
 
 struct BoneScales {

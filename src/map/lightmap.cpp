@@ -1,5 +1,6 @@
 #include "map/lightmap.hpp"
 
+#include "core/frame_counters.hpp"
 #include "map/uv_math.hpp"
 
 #include <rlgl.h>
@@ -947,10 +948,22 @@ void bindLightmapDummyShadowMaps(Shader shader) {
     if (shader.id == 0) {
         return;
     }
-    const int loc = GetShaderLocation(shader, "dynShadowMaps");
+    static std::unordered_map<unsigned int, int> locs;
+    auto [locIt, inserted] = locs.try_emplace(shader.id, -1);
+    if (inserted) {
+        locIt->second = GetShaderLocation(shader, "dynShadowMaps");
+    }
+    const int loc = locIt->second;
     if (loc < 0) {
         return;
     }
+    static std::uint32_t boundSerial = 0;
+    static unsigned int boundShader = 0;
+    if (boundSerial == renderFrameSerial() && boundShader == shader.id) {
+        return;
+    }
+    boundSerial = renderFrameSerial();
+    boundShader = shader.id;
 
     static unsigned int dummyArrayId = 0;
     if (dummyArrayId == 0) {

@@ -4,6 +4,7 @@
 
 #include "render/dynamic_light_shadow_math.hpp"
 #include "render/gpu_skinning.hpp"
+#include "render/model_cull.hpp"
 #include "map/bsp.hpp"
 #include "map/lightmap.hpp"
 #include "map/pvs.hpp"
@@ -65,8 +66,9 @@ void drawShadowCasters(
             return;
         }
         const bool isMap = entity.has<MapLightmapState>();
-        const BoundingBox localBounds = modelLocalBounds(model);
-        const BoundingBox worldBounds = transformAabb(localBounds, global.matrix);
+        const BoundingBox worldBounds = isMap
+            ? transformAabb(modelLocalBounds(model), global.matrix)
+            : refreshModelCull(model, global.matrix, cull.tree);
         if (shouldSkipShadowCaster(isMap, worldBounds, lightPosition)) {
             return;
         }
@@ -75,9 +77,12 @@ void drawShadowCasters(
             return;
         }
         if (!isMap && havePvs &&
-            !pvsVisibleBoxFromLeaf(*cull.tree, *cull.pvs, cull.lightLeaf, worldBounds)) {
+            !pvsVisibleLeavesFromLeaf(*cull.tree, *cull.pvs, cull.lightLeaf, model.cullLeaves)) {
             ++frameCounters().shadowCastersCulled;
             return;
+        }
+        if (!isMap) {
+            model.drawnFrame = renderFrameSerial();
         }
         std::vector<unsigned char> meshMask;
         const std::unordered_set<int>* skipMeshes = nullptr;
@@ -125,6 +130,7 @@ void drawShadowCasters(
         rlPushMatrix();
         rlMultMatrixf(MatrixToFloatV(global.matrix).v);
         setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
+        beginModelDraw(model.model);
         for (int meshIndex = 0; meshIndex < model.model.meshCount; ++meshIndex) {
             if (!meshMask.empty() && meshMask[static_cast<std::size_t>(meshIndex)] == 0) {
                 continue;
@@ -144,6 +150,7 @@ void drawShadowCasters(
                 model.model.transform);
             ++frameCounters().shadowMeshDraws;
         }
+        endModelDraw();
         setActiveShaderParams(nullptr);
         rlPopMatrix();
         for (int i = 0; i < model.model.materialCount; ++i) {
@@ -523,6 +530,16 @@ void bindDynamicLightShadowMaps(
         shadowState.depthArrayId == 0) {
         return;
     }
+    static std::uint32_t boundSerial = 0;
+    static unsigned int boundShader = 0;
+    static unsigned int boundArray = 0;
+    if (boundSerial == renderFrameSerial() && boundShader == shader.id &&
+        boundArray == shadowState.depthArrayId) {
+        return;
+    }
+    boundSerial = renderFrameSerial();
+    boundShader = shader.id;
+    boundArray = shadowState.depthArrayId;
 
     rlDrawRenderBatchActive();
     const int unit = kDynamicShadowTextureUnit;

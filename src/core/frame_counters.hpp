@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace slopengine {
 
 struct FrameCounters {
@@ -34,6 +36,11 @@ inline FrameCounters& frameCounters() {
 
 inline void resetFrameCounters() {
     frameCounters() = FrameCounters{};
+}
+
+inline std::uint32_t& renderFrameSerial() {
+    static std::uint32_t serial = 0;
+    return serial;
 }
 
 }

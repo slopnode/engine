@@ -24,6 +24,8 @@ constexpr double kModelTrackPruneInterval = 2.0;
 constexpr int kModelLightVisibilityCandidates = kMaxModelStaticLights + 2;
 constexpr double kModelLightVisibilityRefreshSeconds = 0.1;
 constexpr float kModelLightVisibilityRefreshDistance = 0.5f;
+constexpr double kModelLightingRefreshSeconds = 0.05;
+constexpr float kModelLightingRefreshDistance = 0.25f;
 
 float smoothstepRange(float edge0, float edge1, float x) {
     const float t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
@@ -218,6 +220,16 @@ bool computeModelLighting(
     const Vector3 top = samplePoint != nullptr ? Vector3{center.x, center.y + 0.1f, center.z}
                                                : Vector3{center.x, center.y + extent.y * 0.4f, center.z};
 
+    const double now = GetTime();
+    auto [trackIt, inserted] = state.tracks.try_emplace(entity.id());
+    ModelLightEntityTrack& track = trackIt->second;
+    if (track.uniformsValid && now - track.uniformsTime < kModelLightingRefreshSeconds &&
+        Vector3DistanceSqr(center, track.uniformsCenter) <
+            kModelLightingRefreshDistance * kModelLightingRefreshDistance) {
+        out = track.uniforms;
+        return true;
+    }
+
     std::optional<ProbeCube> cube = sampleLightProbeCube(lighting, center);
     if (!cube && samplePoint == nullptr) {
         cube = sampleLightProbeCube(lighting, {center.x, bounds.min.y + 0.25f, center.z});
@@ -258,9 +270,6 @@ bool computeModelLighting(
         [](const Candidate& a, const Candidate& b) { return a.score > b.score; });
     candidates.resize(probeCount);
 
-    const double now = GetTime();
-    auto [trackIt, inserted] = state.tracks.try_emplace(entity.id());
-    ModelLightEntityTrack& track = trackIt->second;
     const float dt = inserted
         ? 0.0f
         : static_cast<float>(std::clamp(now - track.lastTime, 0.0, 0.25));
@@ -329,6 +338,12 @@ bool computeModelLighting(
             light->direction.z,
             light->spot ? light->coneAngle : 0.0f};
     }
+    track.uniforms = out;
+    track.uniformsCenter = center;
+    track.uniformsTime = now -
+        (track.uniformsValid ? 0.0
+                             : kModelLightingRefreshSeconds * static_cast<double>(entity.id() % 89) / 89.0);
+    track.uniformsValid = true;
     return true;
 }
 

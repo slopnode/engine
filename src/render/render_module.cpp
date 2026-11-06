@@ -130,6 +130,7 @@ void registerRenderSystems(flecs::world& world) {
                 }
             }
             resetFrameCounters();
+            ++renderFrameSerial();
             BeginDrawing();
             gpuTimerFrameBegin(perf);
             ClearBackground(BLACK);

@@ -43,6 +43,10 @@ struct ModelLightEntityTrack {
     Vector3 visibilityCenter{};
     double visibilityTime = 0.0;
     bool visibilityValid = false;
+    ModelLightingUniforms uniforms{};
+    Vector3 uniformsCenter{};
+    double uniformsTime = 0.0;
+    bool uniformsValid = false;
 };
 
 struct ModelLightingState {
