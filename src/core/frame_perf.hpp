@@ -30,6 +30,7 @@ struct FramePerfStats {
     float swapMs = 0.0f;
     float gpuFrameMs = 0.0f;
     float gpuPassMs[kGpuPassCount]{};
+    float cpuPassMs[kGpuPassCount]{};
     bool gpuTimingAvailable = false;
     FrameCounters counters{};
 
@@ -56,6 +57,7 @@ struct PerfLogState {
     double sumSwapMs = 0.0;
     double sumGpuFrameMs = 0.0;
     double sumGpuPassMs[kGpuPassCount]{};
+    double sumCpuPassMs[kGpuPassCount]{};
     long long sumCounters[sizeof(FrameCounters) / sizeof(int)]{};
 };
 

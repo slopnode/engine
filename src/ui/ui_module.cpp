@@ -1044,6 +1044,7 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
     static float displayRssMb = 0.0f;
     static float displayGpuFrameMs = 0.0f;
     static float displayGpuPassMs[kGpuPassCount]{};
+    static float displayCpuPassMs[kGpuPassCount]{};
     static FrameCounters displayCounters{};
     const double now = GetTime();
     if (displayLastUpdate == 0.0 || (now - displayLastUpdate) >= 0.2) {
@@ -1058,6 +1059,7 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
         displayGpuFrameMs = perf.gpuFrameMs;
         for (int i = 0; i < kGpuPassCount; ++i) {
             displayGpuPassMs[i] = perf.gpuPassMs[i];
+            displayCpuPassMs[i] = perf.cpuPassMs[i];
         }
         displayCounters = perf.counters;
     }
@@ -1110,11 +1112,13 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
             ImGui::TextColored(
                 gpuColor, "GPU frame  %.2f ms", static_cast<double>(displayGpuFrameMs));
             plotMsHistory("##gpuMs", perf, perf.gpuHistory, 16.7f, gpuColor);
+            ImGui::TextUnformatted("                gpu      cpu");
             for (int i = 0; i < kGpuPassCount; ++i) {
                 ImGui::Text(
-                    "%-12s %6.2f ms",
+                    "%-12s %6.2f   %6.2f ms",
                     gpuPassName(static_cast<GpuPass>(i)),
-                    static_cast<double>(displayGpuPassMs[i]));
+                    static_cast<double>(displayGpuPassMs[i]),
+                    static_cast<double>(displayCpuPassMs[i]));
             }
         }
     }
@@ -1132,6 +1136,10 @@ void drawPerformanceWindow(flecs::world world, DebugUiState& debugUi) {
             "Models culled  frustum %d  pvs %d", c.modelsFrustumCulled, c.modelsPvsCulled);
         ImGui::Text(
             "Sprites culled  frustum %d  pvs %d", c.spritesFrustumCulled, c.spritesPvsCulled);
+        ImGui::Text(
+            "Transparent culled  frustum %d  pvs %d",
+            c.transparentFrustumCulled,
+            c.transparentPvsCulled);
         ImGui::Text("Lights  active %d  culled %d", c.lightsActive, c.lightsCulled);
         ImGui::Text("PVS tests %d", c.pvsTests);
         ImGui::Text("Rays  bvh %d  physics %d", c.bvhRays, c.physicsRays);

@@ -54,6 +54,7 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
     log.sumGpuFrameMs += stats.gpuFrameMs;
     for (int i = 0; i < kGpuPassCount; ++i) {
         log.sumGpuPassMs[i] += stats.gpuPassMs[i];
+        log.sumCpuPassMs[i] += stats.cpuPassMs[i];
     }
     constexpr int kCounterCount = static_cast<int>(sizeof(FrameCounters) / sizeof(int));
     const int* counters = reinterpret_cast<const int*>(&stats.counters);
@@ -87,6 +88,17 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
         log.sumGpuPassMs[static_cast<int>(GpuPass::ExtraEye)] / n,
         log.sumGpuPassMs[static_cast<int>(GpuPass::Ui)] / n,
         stats.gpuTimingAvailable ? "" : " (no gpu timers)");
+    TraceLog(
+        LOG_INFO,
+        "PERF: cpu passes: shadows %.2f world %.2f transparent %.2f effects %.2f fp %.2f post %.2f extra %.2f ui %.2f",
+        log.sumCpuPassMs[static_cast<int>(GpuPass::Shadow)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::World)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::Transparent)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::Effects)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::FirstPerson)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::Post)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::ExtraEye)] / n,
+        log.sumCpuPassMs[static_cast<int>(GpuPass::Ui)] / n);
     FrameCounters avg{};
     int* avgCounters = reinterpret_cast<int*>(&avg);
     for (int i = 0; i < kCounterCount; ++i) {
@@ -95,7 +107,8 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
     TraceLog(
         LOG_INFO,
         "PERF: draws map %d models %d transparent %d sprites %d particles %d, shadow faces %d draws %d, "
-        "culled models frustum %d pvs %d sprites frustum %d pvs %d, lights active %d culled %d, "
+        "culled models frustum %d pvs %d sprites frustum %d pvs %d transparent frustum %d pvs %d, "
+        "lights active %d culled %d, "
         "pvs tests %d, rays bvh %d physics %d, probe samples %d, rss %.0f MB",
         avg.mapMeshDraws,
         avg.modelMeshDraws,
@@ -108,6 +121,8 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
         avg.modelsPvsCulled,
         avg.spritesFrustumCulled,
         avg.spritesPvsCulled,
+        avg.transparentFrustumCulled,
+        avg.transparentPvsCulled,
         avg.lightsActive,
         avg.lightsCulled,
         avg.pvsTests,
@@ -124,6 +139,9 @@ void perfLogSample(PerfLogState& log, const FramePerfStats& stats) {
     log.sumSwapMs = 0.0;
     log.sumGpuFrameMs = 0.0;
     for (double& ms : log.sumGpuPassMs) {
+        ms = 0.0;
+    }
+    for (double& ms : log.sumCpuPassMs) {
         ms = 0.0;
     }
     for (long long& sum : log.sumCounters) {
