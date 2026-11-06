@@ -361,6 +361,7 @@ bool initParticleSystemInstance(
 
 void resetParticleSystemInstance(ParticleSystemInstance& instance) {
     instance.age = 0.0f;
+    instance.emitting = true;
     for (ParticleEmitterRuntime& emitter : instance.emitters) {
         emitter.emitAccum = 0.0f;
         emitter.burstFired = false;
@@ -386,8 +387,8 @@ void tickParticleSystemInstance(
     }
 
     instance.age += dt;
-    bool allowEmit = true;
-    if (asset->duration > 0.0f && instance.age > asset->duration) {
+    bool allowEmit = instance.emitting;
+    if (allowEmit && asset->duration > 0.0f && instance.age > asset->duration) {
         if (asset->loop) {
             const float wrapped = std::fmod(instance.age, asset->duration);
             resetParticleSystemInstance(instance);
@@ -395,17 +396,19 @@ void tickParticleSystemInstance(
             instance.age = wrapped;
         } else {
             allowEmit = false;
-            bool anyAlive = false;
-            for (const ParticleEmitterRuntime& emitter : instance.emitters) {
-                if (emitter.aliveCount > 0) {
-                    anyAlive = true;
-                    break;
-                }
+        }
+    }
+    if (!allowEmit) {
+        bool anyAlive = false;
+        for (const ParticleEmitterRuntime& emitter : instance.emitters) {
+            if (emitter.aliveCount > 0) {
+                anyAlive = true;
+                break;
             }
-            if (!anyAlive) {
-                instance.playing = false;
-                return;
-            }
+        }
+        if (!anyAlive) {
+            instance.playing = false;
+            return;
         }
     }
 

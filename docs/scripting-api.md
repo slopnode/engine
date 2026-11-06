@@ -1247,7 +1247,7 @@ Returns a thing's yaw, in radians.
 ## Effects {#script-effects}
 
 ### motored-spawn {#motored-spawn}
-Spawns a motor-driven projectile (rocket, fireball, etc.) that integrates against static geometry and actors.
+Spawns a motor-driven projectile (rocket, fireball, etc.) that integrates against static geometry and actors. A `'geo` projectile turns its +Z along its velocity every step, upright with no roll.
 <pre><code class="language-scheme">(motored-spawn
   id : string?
   x, y, z : real?
@@ -1309,6 +1309,14 @@ Spawns a particle system on a bone joint of a rigged thing, an actor or a severe
 <pre><code class="language-scheme">(particle-spawn-bone
   id, target, bone, path : string?
   [mode] : symbol? = 'limb)
+  ↵ boolean?
+</code></pre>
+
+### particle-spawn-follow {#particle-spawn-follow}
+Spawns a particle system `back` metres behind any thing, such as a projectile, and keeps it there, aimed out of the thing's -Z. Emitters need `(orient #t)` to spray that way. When the host is removed the system stops emitting, its live particles finish their lifetimes, and then it despawns, so a smoke trail outlives the rocket that left it.
+<pre><code class="language-scheme">(particle-spawn-follow
+  id, target, path : string?
+  [back] : real? = 0)
   ↵ boolean?
 </code></pre>
 
@@ -1539,6 +1547,14 @@ Hands a rigged actor over to physics. Its animation stops, its collider is remov
   [hit-bone] : (or string? \#f) = \#f
   [lifetime] : real? = 30)
   ↵ boolean?
+</code></pre>
+
+### physics-blast! {#physics-blast}
+Pushes every simulating ragdoll part and cut-off piece within `radius` of a point that a straight line from the point reaches past world geometry. Each body gains `speed` away from the point and `lift` upward, both fading linearly to zero at `radius`, and cut pieces also tumble. Frozen ragdolls and live actors are not moved, so kill or ragdoll actors first. Returns how many bodies moved.
+<pre><code class="language-scheme">(physics-blast!
+  x, y, z, radius, speed : real?
+  [lift] : real? = 0)
+  ↵ integer?
 </code></pre>
 
 ### actor-bone-severed? {#actor-bone-severed}

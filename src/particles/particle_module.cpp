@@ -175,7 +175,83 @@ void syncFollowBones(flecs::world& world) {
     });
 }
 
+bool followEntityPose(flecs::entity host, float back, Vector3& position, Vector3& direction) {
+    if (!host.is_valid() || !host.has<GlobalTransformation>()) {
+        return false;
+    }
+    const Matrix& world = host.get<GlobalTransformation>().matrix;
+    Vector3 forward{world.m8, world.m9, world.m10};
+    if (Vector3LengthSqr(forward) <= 1.0e-12f) {
+        forward = {0.0f, 0.0f, 1.0f};
+    }
+    forward = Vector3Normalize(forward);
+    position = Vector3Subtract(Vector3{world.m12, world.m13, world.m14}, Vector3Scale(forward, back));
+    direction = Vector3Negate(forward);
+    return true;
+}
+
+void syncFollowEntities(flecs::world& world) {
+    world.each([&](flecs::entity entity,
+                   ParticleFollowEntity& follow,
+                   ParticleSystemInstance& instance,
+                   LocalTransformation& local,
+                   GlobalTransformation& global) {
+        const flecs::entity host = world.entity(static_cast<flecs::entity_t>(follow.host));
+        Vector3 position{};
+        Vector3 direction{};
+        if (!follow.placed) {
+            if (!host.is_alive()) {
+                entity.destruct();
+                return;
+            }
+            if (!followEntityPose(host, follow.back, position, direction)) {
+                return;
+            }
+            writeWorldPoseAimed(local, global, position, direction);
+            follow.placed = true;
+            instance.playing = true;
+            return;
+        }
+        if (!instance.playing) {
+            entity.destruct();
+            return;
+        }
+        if (!instance.emitting) {
+            return;
+        }
+        if (!host.is_alive() || !followEntityPose(host, follow.back, position, direction)) {
+            instance.emitting = false;
+            return;
+        }
+        writeWorldPoseAimed(local, global, position, direction);
+    });
+}
+
 } // namespace
+
+flecs::entity spawnParticleSystemFollow(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity host,
+    float back,
+    std::string_view path,
+    bool mapOwned) {
+    Vector3 position{};
+    Vector3 direction{0.0f, 1.0f, 0.0f};
+    const bool placed = followEntityPose(host, back, position, direction);
+    flecs::entity entity =
+        spawnParticleSystemAimed(world, assets, id, position, direction, path, placed, mapOwned);
+    if (!entity.is_valid()) {
+        return {};
+    }
+    entity.set<ParticleFollowEntity>({
+        .host = static_cast<std::uint64_t>(host.id()),
+        .back = back,
+        .placed = placed,
+    });
+    return entity;
+}
 
 flecs::entity spawnParticleSystemBone(
     flecs::world& world,
@@ -354,6 +430,7 @@ void updateParticleSystems(
     syncFollowAttachPoints(world);
     syncFollowWorldAttachPoints(world);
     syncFollowBones(world);
+    syncFollowEntities(world);
 
     ParticleRaycastFn raycast;
     if (physics != nullptr) {
@@ -450,6 +527,7 @@ void registerParticleModule(flecs::world& world, AssetStore& assets) {
     world.component<ParticleFollowAttachPoint>();
     world.component<ParticleFollowWorldAttachPoint>();
     world.component<ParticleFollowBone>();
+    world.component<ParticleFollowEntity>();
 
     world.system("ParticleSystemUpdate")
         .kind(flecs::OnUpdate)

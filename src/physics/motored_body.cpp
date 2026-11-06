@@ -195,6 +195,9 @@ void registerMotoredBodySystem(flecs::world& world) {
             }
 
             local.position = Vector3Add(local.position, Vector3Scale(dir, distance));
+            if (entity.has<Model3D>()) {
+                local.rotation = motoredFacing(body.velocity);
+            }
             if (entity.has<SpriteInstance>()) {
                 const float horiz = std::sqrt(dir.x * dir.x + dir.z * dir.z);
                 if (horiz > 1.0e-4f) {

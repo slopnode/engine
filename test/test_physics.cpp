@@ -980,7 +980,58 @@ void runLargeMapCapacityTests() {
     CHECK(created == 64);
 }
 
+void runBlastTests() {
+    const Brush floor = makeBrushBox("floor", {-8.0f, -0.25f, -8.0f}, {8.0f, 0.0f, 8.0f}, "mat/a", {});
+    const Brush wall = makeBrushBox("wall", {-3.0f, 0.0f, -4.0f}, {-2.5f, 3.0f, 4.0f}, "mat/a", {});
+    PhysicsWorld world;
+    world.addStaticBrushes({floor, wall});
+    const Vector3 half{0.1f, 0.1f, 0.1f};
+    constexpr std::uint64_t kNear = 1;
+    constexpr std::uint64_t kHidden = 2;
+    constexpr std::uint64_t kFar = 3;
+    world.createDebrisBox(kNear, {1.0f, 0.1f, 0.0f}, half, QuaternionIdentity(), {}, {});
+    world.createDebrisBox(kHidden, {-4.0f, 0.1f, 0.0f}, half, QuaternionIdentity(), {}, {});
+    world.createDebrisBox(kFar, {7.0f, 0.1f, 0.0f}, half, QuaternionIdentity(), {}, {});
+
+    constexpr std::uint64_t kParked = 4;
+    CharacterMotor motor{};
+    world.createCharacter(kParked, 5.0f, 0.05f, 6.0f, motor);
+    CharacterStep parked{};
+    parked.id = kParked;
+    parked.motor = &motor;
+
+    CHECK_EQ(world.blast({0.0f, 0.5f, 0.0f}, 6.0f, 10.0f, 4.0f), 1);
+    for (int i = 0; i < 6; ++i) {
+        world.update(kFixedDt, {parked});
+    }
+    Vector3 center{};
+    Quaternion rotation{};
+    CHECK(world.debrisPose(kNear, center, rotation));
+    CHECK(center.x > 1.05f);
+    CHECK(center.y > 0.1f);
+    CHECK(world.debrisPose(kHidden, center, rotation));
+    CHECK(std::fabs(center.x + 4.0f) < 0.01f);
+    CHECK(world.debrisPose(kFar, center, rotation));
+    CHECK(std::fabs(center.x - 7.0f) < 0.01f);
+    CHECK_EQ(world.blast({0.0f, 0.5f, 0.0f}, 0.0f, 10.0f, 4.0f), 0);
+}
+
+void runMotoredFacingTests() {
+    const Vector3 forward{0.0f, 0.0f, 1.0f};
+    const Vector3 right = Vector3RotateByQuaternion(forward, motoredFacing({5.0f, 0.0f, 0.0f}));
+    CHECK(std::fabs(right.x - 1.0f) < 1e-4f && std::fabs(right.z) < 1e-4f);
+    const Vector3 diagonal = Vector3Normalize({1.0f, 1.0f, -1.0f});
+    const Vector3 aimed = Vector3RotateByQuaternion(forward, motoredFacing(Vector3Scale(diagonal, 30.0f)));
+    CHECK(Vector3Distance(aimed, diagonal) < 1e-4f);
+    const Vector3 up = Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, motoredFacing({0.0f, 0.0f, -3.0f}));
+    CHECK(std::fabs(up.y - 1.0f) < 1e-4f);
+    const Vector3 still = Vector3RotateByQuaternion(forward, motoredFacing({0.0f, 0.0f, 0.0f}));
+    CHECK(Vector3Distance(still, forward) < 1e-4f);
+}
+
 void runPhysicsTests() {
+    runBlastTests();
+    runMotoredFacingTests();
     runLargeMapCapacityTests();
     runAutoCloseTests();
     runKinematicTests();

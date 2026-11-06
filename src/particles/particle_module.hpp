@@ -54,6 +54,15 @@ flecs::entity spawnParticleSystemWorldAttach(
     std::string_view path,
     bool mapOwned = true);
 
+flecs::entity spawnParticleSystemFollow(
+    flecs::world& world,
+    AssetStore& assets,
+    const char* id,
+    flecs::entity host,
+    float back,
+    std::string_view path,
+    bool mapOwned = true);
+
 /** Spawns @p path on @p bone of the rigged @p host and keeps it there, aimed out of the limb,
  *  or out of the stump when @p fromParent is set. */
 flecs::entity spawnParticleSystemBone(

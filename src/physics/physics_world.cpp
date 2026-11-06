@@ -820,6 +820,52 @@ void PhysicsWorld::clearRagdolls() {
     ragdolls_.clear();
 }
 
+int PhysicsWorld::blast(Vector3 center, float radius, float speed, float lift) {
+    if (!system_ || radius <= 0.0f || !finiteVec3(center)) {
+        return 0;
+    }
+    JPH::BodyInterface& bodies = system_->GetBodyInterface();
+    int moved = 0;
+    auto kick = [&](JPH::BodyID bodyId, bool tumble) {
+        const JPH::RVec3 at = bodies.GetCenterOfMassPosition(bodyId);
+        const Vector3 position{
+            static_cast<float>(at.GetX()),
+            static_cast<float>(at.GetY()),
+            static_cast<float>(at.GetZ()),
+        };
+        const Vector3 offset = Vector3Subtract(position, center);
+        const float distance = Vector3Length(offset);
+        if (distance >= radius) {
+            return;
+        }
+        Vector3 dir = distance > 1.0e-4f ? Vector3Scale(offset, 1.0f / distance) : Vector3{0.0f, 1.0f, 0.0f};
+        if (distance > 0.05f && castRay(center, dir, distance - 0.05f, BrushBlock::Los)) {
+            return;
+        }
+        const float falloff = 1.0f - distance / radius;
+        const Vector3 push = Vector3Add(Vector3Scale(dir, speed * falloff), Vector3{0.0f, lift * falloff, 0.0f});
+        bodies.AddLinearVelocity(bodyId, JPH::Vec3(push.x, push.y, push.z));
+        if (tumble) {
+            const Vector3 spin = Vector3Scale(Vector3CrossProduct({0.0f, 1.0f, 0.0f}, dir), speed * falloff * 0.6f);
+            bodies.SetAngularVelocity(
+                bodyId, bodies.GetAngularVelocity(bodyId) + JPH::Vec3(spin.x, spin.y, spin.z));
+        }
+        bodies.ActivateBody(bodyId);
+        ++moved;
+    };
+    for (const auto& [id, bodyId] : debrisBodies_) {
+        (void)id;
+        kick(bodyId, true);
+    }
+    for (const auto& [id, ragdoll] : ragdolls_) {
+        (void)id;
+        for (std::size_t index = 0; index < ragdoll->GetBodyCount(); ++index) {
+            kick(ragdoll->GetBodyID(static_cast<int>(index)), false);
+        }
+    }
+    return moved;
+}
+
 void PhysicsWorld::setKinematicPose(
     std::uint64_t id,
     Vector3 center,

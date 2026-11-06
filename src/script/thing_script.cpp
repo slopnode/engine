@@ -85,6 +85,36 @@ std::string entityIdString(flecs::entity entity) {
     return std::to_string(static_cast<std::uint64_t>(entity.id()));
 }
 
+std::unordered_map<std::string, flecs::entity_t> g_spawnedThings;
+
+void rememberSpawnedThing(const std::string& id, flecs::entity entity) {
+    for (auto it = g_spawnedThings.begin(); it != g_spawnedThings.end();) {
+        const flecs::entity known = g_thingWorld->entity(it->second);
+        if (!known.is_alive() || g_thingWorld->lookup(it->first.c_str()).is_valid()) {
+            it = g_spawnedThings.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    g_spawnedThings[id] = entity.id();
+}
+
+flecs::entity lookupThing(const std::string& id) {
+    if (g_thingWorld == nullptr || id.empty()) {
+        return {};
+    }
+    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    if (entity.is_valid()) {
+        return entity;
+    }
+    const auto pending = g_spawnedThings.find(id);
+    if (pending == g_spawnedThings.end()) {
+        return {};
+    }
+    flecs::entity spawned = g_thingWorld->entity(pending->second);
+    return spawned.is_alive() ? spawned : flecs::entity{};
+}
+
 flecs::entity lookupActor(std::string_view id) {
     if (g_thingWorld == nullptr || id.empty()) {
         return {};
@@ -303,7 +333,7 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     LocalTransformation local{};
     local.position = {x, y, z};
     local.scale = {1.0f, 1.0f, 1.0f};
-    local.rotation = QuaternionIdentity();
+    local.rotation = isGeo ? motoredFacing({vx, vy, vz}) : QuaternionIdentity();
 
     const float horiz = std::sqrt(vx * vx + vz * vz);
     const float facingYaw = horiz > 1.0e-4f ? std::atan2(vx, vz) : 0.0f;
@@ -339,6 +369,8 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
         }
         entity.set<Model3D>({model, WHITE});
     }
+
+    rememberSpawnedThing(id, entity);
 
     MotoredBody body{};
     body.velocity = {vx, vy, vz};
@@ -410,7 +442,7 @@ s7_pointer g_fx_light_attach(s7_scheme* sc, s7_pointer args) {
             "r g b intensity range numbers");
     }
 
-    flecs::entity entity = g_thingWorld->lookup(id.c_str());
+    flecs::entity entity = lookupThing(id);
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -960,6 +992,46 @@ s7_pointer g_particle_spawn_attach(s7_scheme* sc, s7_pointer args) {
         attach,
         path,
         true);
+    return entity.is_valid() ? s7_t(sc) : s7_f(sc);
+}
+
+s7_pointer g_particle_spawn_follow(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    if (g_thingWorld == nullptr) {
+        return s7_f(sc);
+    }
+    std::string fields[3];
+    const char* expected[3] = {"id string", "target string", "path string"};
+    for (int index = 0; index < 3; ++index) {
+        if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "particle-spawn-follow", index + 1, args, expected[index]);
+        }
+        fields[index] = s7_string(s7_car(args));
+        args = s7_cdr(args);
+    }
+    float back = 0.0f;
+    if (s7_is_pair(args) && !readNumberArg(sc, args, back, "particle-spawn-follow", 4)) {
+        return s7_wrong_type_arg_error(sc, "particle-spawn-follow", 4, args, "back number");
+    }
+    if (fields[0].empty() || isProtectedThingId(fields[0]) || g_thingWorld->lookup(fields[0].c_str()).is_valid()) {
+        return s7_f(sc);
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    if (!assets.hasParticle(fields[2])) {
+        TraceLog(LOG_WARNING, "particle-spawn-follow: missing system '%s'", fields[2].c_str());
+        return s7_f(sc);
+    }
+    flecs::entity host = lookupThing(fields[1]);
+    if (!host.is_valid()) {
+        return s7_f(sc);
+    }
+    flecs::entity entity =
+        spawnParticleSystemFollow(*g_thingWorld, assets, fields[0].c_str(), host, back, fields[2], true);
     return entity.is_valid() ? s7_t(sc) : s7_f(sc);
 }
 
@@ -2230,6 +2302,31 @@ s7_pointer g_actor_ragdoll(s7_scheme* sc, s7_pointer args) {
         entity.add<ActorCorpse>();
     }
     return s7_t(sc);
+}
+
+s7_pointer g_physics_blast(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
+    Vector3 center{0.0f, 0.0f, 0.0f};
+    float radius = 0.0f;
+    float speed = 0.0f;
+    float lift = 0.0f;
+    if (!readNumberArg(sc, args, center.x, "physics-blast!", 1) ||
+        !readNumberArg(sc, args, center.y, "physics-blast!", 2) ||
+        !readNumberArg(sc, args, center.z, "physics-blast!", 3) ||
+        !readNumberArg(sc, args, radius, "physics-blast!", 4) ||
+        !readNumberArg(sc, args, speed, "physics-blast!", 5)) {
+        return s7_wrong_type_arg_error(sc, "physics-blast!", 1, args, "x y z radius speed numbers");
+    }
+    if (s7_is_pair(args) && !readNumberArg(sc, args, lift, "physics-blast!", 6)) {
+        return s7_wrong_type_arg_error(sc, "physics-blast!", 6, args, "lift number");
+    }
+    PhysicsWorld* physics = physicsWorld();
+    if (physics == nullptr) {
+        return s7_make_integer(sc, 0);
+    }
+    return s7_make_integer(sc, physics->blast(center, radius, speed, lift));
 }
 
 s7_pointer g_actor_bone_severed(s7_scheme* sc, s7_pointer args) {
@@ -4108,6 +4205,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         "(particle-spawn-attach id target path attach)");
     s7_define_function(
         scheme,
+        "particle-spawn-follow",
+        g_particle_spawn_follow,
+        3,
+        1,
+        false,
+        "(particle-spawn-follow id target path [back])");
+    s7_define_function(
+        scheme,
         "particle-spawn-bone",
         g_particle_spawn_bone,
         4,
@@ -4251,6 +4356,14 @@ void bindThingRuntimeApi(flecs::world& world, s7_scheme* scheme) {
         6,
         false,
         "(actor-ragdoll! id [dx dy dz] [speed] [hit-bone] [lifetime])");
+    s7_define_function(
+        scheme,
+        "physics-blast!",
+        g_physics_blast,
+        5,
+        1,
+        false,
+        "(physics-blast! x y z radius speed [lift])");
     s7_define_function(scheme, "actor-bone-pos", g_actor_bone_pos, 2, 0, false, "(actor-bone-pos id bone)");
     s7_define_function(
         scheme,

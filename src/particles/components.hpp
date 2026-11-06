@@ -40,6 +40,7 @@ struct ParticleEmitterRuntime {
 struct ParticleSystemInstance {
     std::string path;
     bool playing = true;
+    bool emitting = true;
     float age = 0.0f;
     std::vector<ParticleEmitterRuntime> emitters;
 };
@@ -68,6 +69,12 @@ struct ParticleFollowWorldAttachPoint {
  *  its nearest parent with a box when @p fromParent is set, which aims out of a stump.
  *  @ingroup particles_components
  */
+struct ParticleFollowEntity {
+    std::uint64_t host = 0;
+    float back = 0.0f;
+    bool placed = false;
+};
+
 struct ParticleFollowBone {
     std::uint64_t host = 0;
     int bone = -1;

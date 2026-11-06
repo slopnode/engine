@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raylib.h>
+#include <raymath.h>
 
 #include <cmath>
 #include <string>
@@ -25,6 +26,19 @@ struct SphereCastHit {
     Vector3 normal = {0.0f, 1.0f, 0.0f};
     float fraction = 1.0f;
 };
+
+inline Quaternion motoredFacing(Vector3 velocity) {
+    const float speed = Vector3Length(velocity);
+    if (speed < 1.0e-6f) {
+        return QuaternionIdentity();
+    }
+    const Vector3 dir = Vector3Scale(velocity, 1.0f / speed);
+    const float pitch = -asinf(Clamp(dir.y, -1.0f, 1.0f));
+    const float yaw = atan2f(dir.x, dir.z);
+    return QuaternionMultiply(
+        QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, yaw),
+        QuaternionFromAxisAngle({1.0f, 0.0f, 0.0f}, pitch));
+}
 
 constexpr float kMotoredImpactClearance = 0.08f;
 

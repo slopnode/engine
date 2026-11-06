@@ -117,6 +117,7 @@ struct PhysicsWorld {
     bool hasRagdoll(std::uint64_t id) const;
     void destroyRagdoll(std::uint64_t id);
     void clearRagdolls();
+    int blast(Vector3 center, float radius, float speed, float lift);
     bool tryGetKinematicAabb(std::uint64_t id, Vector3& outMin, Vector3& outMax) const;
     bool kinematicAllowsSlide(JPH::BodyID bodyId) const;
 
