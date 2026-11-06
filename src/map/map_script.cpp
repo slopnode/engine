@@ -37,6 +37,25 @@ namespace slopengine {
 
 namespace {
 
+std::int32_t primitiveSampleLeaf(const BspTree& bsp, const VertBuffer& buffer, const GeoPrimitive& primitive) {
+    if (primitive.vertexCount == 0 || primitive.vertexOffset + primitive.vertexCount > buffer.positions.size()) {
+        return -1;
+    }
+    Vector3 centroid{};
+    Vector3 normal{};
+    for (std::size_t i = primitive.vertexOffset; i < primitive.vertexOffset + primitive.vertexCount; ++i) {
+        centroid = Vector3Add(centroid, buffer.positions[i]);
+        if (i < buffer.normals.size()) {
+            normal = Vector3Add(normal, buffer.normals[i]);
+        }
+    }
+    centroid = Vector3Scale(centroid, 1.0f / static_cast<float>(primitive.vertexCount));
+    if (Vector3LengthSqr(normal) > 1e-12f) {
+        centroid = Vector3Add(centroid, Vector3Scale(Vector3Normalize(normal), 0.05f));
+    }
+    return pvsSampleLeaf(bsp, centroid);
+}
+
 MapTransparentMesh describeTransparentMesh(const Mesh& mesh, int meshIndex) {
     MapTransparentMesh out{};
     out.meshIndex = meshIndex;
@@ -1793,7 +1812,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     // Transparent faces stay unmerged (per-mesh back-to-front sort in the
     // transparent pass); atlas index and detail status are part of the key
     // since a merged mesh can only carry one lightmap page / offset mode.
-    mergeGeoPrimitivesByKey(compiled.asset, compiled.buffer, [&](const GeoPrimitive& primitive) {
+    const auto primitiveKey = [&](const GeoPrimitive& primitive) {
         if (primitive.transparent) {
             return "t:" + primitive.name;
         }
@@ -1804,7 +1823,29 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
         const bool detail = faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds);
         return primitive.material + '|' + std::to_string(atlasIndex) + '|' + (detail ? "1" : "0") +
                '|' + (primitive.twoSided ? "1" : "0");
-    });
+    };
+    std::unordered_map<std::string, std::vector<std::int32_t>> keyLeaves;
+    std::unordered_set<std::string> keyLeafUnknown;
+    for (const GeoPrimitive& primitive : compiled.asset.primitives) {
+        if (primitive.transparent) {
+            continue;
+        }
+        const std::string key = primitiveKey(primitive);
+        if (keyLeafUnknown.count(key) > 0) {
+            continue;
+        }
+        const std::int32_t leaf = primitiveSampleLeaf(bsp, compiled.buffer, primitive);
+        if (leaf < 0) {
+            keyLeafUnknown.insert(key);
+            keyLeaves.erase(key);
+            continue;
+        }
+        std::vector<std::int32_t>& leaves = keyLeaves[key];
+        if (std::find(leaves.begin(), leaves.end(), leaf) == leaves.end()) {
+            leaves.push_back(leaf);
+        }
+    }
+    mergeGeoPrimitivesByKey(compiled.asset, compiled.buffer, primitiveKey);
 
     result.pvs = std::move(work.pvs);
 
@@ -1848,6 +1889,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     result.transparentMeshIndices.clear();
     result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
     result.transparentMeshes.clear();
+    result.opaqueMeshes.clear();
     result.skyMeshIndices.clear();
     result.skyMeshIndices.reserve(compiled.asset.primitives.size());
     result.detailMeshIndices.clear();
@@ -1870,6 +1912,15 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
             result.twoSidedMeshIndices.push_back(meshIndex);
         }
         const MaterialAsset* materialAsset = assets.getMaterialAsset(primitive.material);
+        if (!primitive.transparent && (materialAsset == nullptr || !materialAsset->sky)) {
+            MapMeshCull cull{};
+            cull.meshIndex = meshIndex;
+            cull.bounds = GetMeshBoundingBox(model.meshes[meshIndex]);
+            if (const auto it = keyLeaves.find(primitiveKey(primitive)); it != keyLeaves.end()) {
+                cull.leaves = it->second;
+            }
+            result.opaqueMeshes.push_back(std::move(cull));
+        }
         if (materialAsset != nullptr && materialAsset->sky) {
             result.skyMeshIndices.push_back(meshIndex);
             if (result.skyShader.id != 0) {

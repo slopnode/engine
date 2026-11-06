@@ -24,7 +24,8 @@ void renderWorldModel(
     bool unlit = false,
     const std::unordered_set<int>* skipMeshIndices = nullptr,
     const std::unordered_set<int>* onlyMeshIndices = nullptr,
-    const ModelLightingUniforms* modelLighting = nullptr);
+    const ModelLightingUniforms* modelLighting = nullptr,
+    const std::vector<unsigned char>* meshMask = nullptr);
 
 std::vector<RankedDynamicLight> gatherDynamicLights(
     flecs::world& world,

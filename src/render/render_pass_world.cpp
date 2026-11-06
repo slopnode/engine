@@ -147,8 +147,13 @@ void drawModelMeshes(
     int emissionPowerLoc = -1,
     Color tint = WHITE,
     Shader skinFallback = {},
-    int* drawCounter = nullptr) {
+    int* drawCounter = nullptr,
+    const std::vector<unsigned char>* meshMask = nullptr) {
     for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+        if (meshMask != nullptr && meshIndex < static_cast<int>(meshMask->size()) &&
+            (*meshMask)[static_cast<std::size_t>(meshIndex)] == 0) {
+            continue;
+        }
         if (skipMeshIndices != nullptr && skipMeshIndices->count(meshIndex) > 0) {
             continue;
         }
@@ -274,7 +279,8 @@ void renderWorldModel(
     bool unlit,
     const std::unordered_set<int>* skipMeshIndices,
     const std::unordered_set<int>* onlyMeshIndices,
-    const ModelLightingUniforms* modelLighting) {
+    const ModelLightingUniforms* modelLighting,
+    const std::vector<unsigned char>* meshMask) {
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(globalTransform.matrix).v);
     setActiveShaderParams(entity.has<ShaderParams>() ? &entity.get<ShaderParams>() : nullptr);
@@ -373,7 +379,8 @@ void renderWorldModel(
             emissionPowerLoc,
             WHITE,
             skinFallback,
-            drawCounter);
+            drawCounter,
+            meshMask);
     } else {
         const std::unordered_set<int>* polygonOffsetBack = nullptr;
         std::unordered_set<int> detailOffset;
@@ -404,7 +411,8 @@ void renderWorldModel(
                 emissionPowerLoc,
                 WHITE,
                 skinFallback,
-                drawCounter);
+                drawCounter,
+                meshMask);
         } else {
             const Color tint = (swappedPropShader && modelLighting != nullptr) ? WHITE : model.color;
             drawModelMeshes(
@@ -416,7 +424,8 @@ void renderWorldModel(
                 emissionPowerLoc,
                 tint,
                 skinFallback,
-                drawCounter);
+                drawCounter,
+                meshMask);
         }
     }
 
@@ -917,8 +926,27 @@ void drawWorldModels(
         const std::unordered_set<int>* skipMeshes = nullptr;
         std::unordered_set<int> transparentSkip;
         std::unordered_set<int> opaqueSkip;
+        std::vector<unsigned char> meshMask;
         if (modelEntity.has<MapLightmapState>()) {
             const MapLightmapState& lightmaps = modelEntity.get<MapLightmapState>();
+            if (!lightmaps.opaqueMeshes.empty()) {
+                meshMask.assign(static_cast<std::size_t>(std::max(0, model.model.meshCount)), 1);
+                for (const MapMeshCull& meshCull : lightmaps.opaqueMeshes) {
+                    if (meshCull.meshIndex < 0 || meshCull.meshIndex >= model.model.meshCount) {
+                        continue;
+                    }
+                    const BoundingBox worldBounds = transformAabb(meshCull.bounds, global.matrix);
+                    if (!aabbInFrustum(frustum, worldBounds)) {
+                        meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
+                        ++frameCounters().mapFrustumCulled;
+                        continue;
+                    }
+                    if (!meshCull.leaves.empty() && !pvsCullLeaves(cull, meshCull.leaves)) {
+                        meshMask[static_cast<std::size_t>(meshCull.meshIndex)] = 0;
+                        ++frameCounters().mapPvsCulled;
+                    }
+                }
+            }
             if (!lightmaps.transparentMeshIndices.empty()) {
                 transparentSkip = std::unordered_set<int>(
                     lightmaps.transparentMeshIndices.begin(),
@@ -944,7 +972,8 @@ void drawWorldModels(
             unlit,
             skipMeshes,
             nullptr,
-            useModelLighting ? &modelLighting : nullptr);
+            useModelLighting ? &modelLighting : nullptr,
+            meshMask.empty() ? nullptr : &meshMask);
     });
     rlDisableShader();
     if (!world.has<DebugUiState>() || !world.get<DebugUiState>().showSkeletons) {

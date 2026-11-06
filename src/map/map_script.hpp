@@ -44,6 +44,7 @@ struct LoadedMap {
     int emissionPowerLoc = -1;
     std::vector<int> transparentMeshIndices;
     std::vector<MapTransparentMesh> transparentMeshes;
+    std::vector<MapMeshCull> opaqueMeshes;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
     std::vector<int> twoSidedMeshIndices;
