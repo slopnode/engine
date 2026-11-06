@@ -871,6 +871,13 @@ Settles every recoil spring, pending climb and shake at once, keeping the tuning
 <pre><code class="language-scheme">(fp-recoil-reset!) ↵ boolean?
 </code></pre>
 
+### fp-view-punch! {#fp-view-punch}
+Snaps the presented camera by `up`, `right` and `roll` degrees, like Half-Life's `punchangle`, replacing any punch still in progress. The aim and the viewmodel stay put. The punch shrinks back to nothing along its own direction by 10 degrees a second plus half its size a second, times `recover`, so a big punch snaps back fast and the last few degrees settle more slowly. A `recover` of 1 is Half-Life's rate.
+<pre><code class="language-scheme">(fp-view-punch!
+  up, right, roll : real?
+  [recover] : real? = 1) ↵ boolean?
+</code></pre>
+
 ### fp-set-weapon-hidden! {#fp-set-weapon-hidden}
 Hides or shows the viewmodel weapon.
 <pre><code class="language-scheme">(fp-set-weapon-hidden!

@@ -142,7 +142,22 @@ ViewRecoilLookDelta stepViewRecoil(ViewRecoil& recoil, float dt) {
 
     recoil.trauma = std::max(0.0f, recoil.trauma - tuning.shakeDecay * dt);
     recoil.shakeTime += dt;
+    stepViewPunch(recoil.punch, recoil.punchRecover, dt);
     return delta;
+}
+
+void setViewPunch(ViewRecoil& recoil, Vector3 punch, float recover) {
+    recoil.punch = punch;
+    recoil.punchRecover = std::max(recover, 0.01f);
+}
+
+void stepViewPunch(Vector3& punch, float recover, float dt) {
+    const float length = Vector3Length(punch) * RAD2DEG;
+    if (length <= 0.0f) {
+        return;
+    }
+    const float left = std::max(0.0f, length - (10.0f + length * 0.5f) * recover * dt);
+    punch = Vector3Scale(punch, left / length);
 }
 
 void resetViewRecoil(ViewRecoil& recoil) {
@@ -153,14 +168,14 @@ void resetViewRecoil(ViewRecoil& recoil) {
 
 Vector3 viewRecoilShake(const ViewRecoil& recoil) {
     if (recoil.trauma <= 0.0f) {
-        return {0.0f, 0.0f, 0.0f};
+        return recoil.punch;
     }
     const float amount = recoil.trauma * recoil.trauma * recoil.tuning.shakeAngle;
     const float t = recoil.shakeTime * recoil.tuning.shakeFrequency;
     return {
-        amount * smoothNoise(1, t),
-        amount * smoothNoise(2, t),
-        amount * 0.5f * smoothNoise(3, t),
+        recoil.punch.x + amount * smoothNoise(1, t),
+        recoil.punch.y + amount * smoothNoise(2, t),
+        recoil.punch.z + amount * 0.5f * smoothNoise(3, t),
     };
 }
 

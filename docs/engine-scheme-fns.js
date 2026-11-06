@@ -14,7 +14,7 @@ window.SLOPENGINE_SCHEME_FNS = [
   "dyn-light-set-pos!", "dyn-light-spawn", "dynamic", "dynamic-text",
   "extra-eye-configure!", "extra-eye-set-active!", "fp-anim-busy?", "fp-attach-geo", "fp-attach-held",
   "fp-attach-sprite", "fp-clear-socket", "fp-detach-held", "fp-point", "fp-play-anim", "fp-play-sprite-anim", "fp-set-eye-offset", "fp-set-view-offset", "fp-set-view-roll",
-  "fp-recoil-tune!", "fp-recoil-kick!", "fp-recoil-reset!",
+  "fp-recoil-tune!", "fp-recoil-kick!", "fp-recoil-reset!", "fp-view-punch!",
   "fp-set-light-enabled", "fp-set-rad-tint", "fp-set-shading", "fp-set-sprite-frame",
   "fp-set-sprite-offset", "fp-set-sprite-origin", "fp-set-sprite-pos",
   "fp-set-sprite-rotation", "fp-set-sprite-scale", "fp-set-weapon-hidden!",

@@ -1392,6 +1392,33 @@ s7_pointer g_fp_recoil_reset(s7_scheme* sc, s7_pointer) {
     return s7_t(sc);
 }
 
+s7_pointer g_fp_view_punch(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::FpPresent)) {
+        return s7_f(sc);
+    }
+    float angles[3] = {0.0f, 0.0f, 0.0f};
+    for (int index = 0; index < 3; ++index) {
+        if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "fp-view-punch!", index + 1, args, "up right roll degrees");
+        }
+        angles[index] = static_cast<float>(s7_number_to_real(sc, s7_car(args))) * DEG2RAD;
+        args = s7_cdr(args);
+    }
+    float recover = 1.0f;
+    if (s7_is_pair(args)) {
+        if (!s7_is_number(s7_car(args))) {
+            return s7_wrong_type_arg_error(sc, "fp-view-punch!", 4, args, "recover number");
+        }
+        recover = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+    }
+    ViewRecoil* recoil = playerViewRecoil();
+    if (recoil == nullptr) {
+        return s7_f(sc);
+    }
+    setViewPunch(*recoil, {angles[0], angles[1], angles[2]}, recover);
+    return s7_t(sc);
+}
+
 s7_pointer g_fp_set_weapon_hidden(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::FpPresent)) {
         return s7_f(sc);
@@ -1705,6 +1732,8 @@ void bindFirstPersonApi(flecs::world& world, s7_scheme* scheme) {
                        "(fp-recoil-kick! alist)");
     s7_define_function(scheme, "fp-recoil-reset!", g_fp_recoil_reset, 0, 0, false,
                        "(fp-recoil-reset!)");
+    s7_define_function(scheme, "fp-view-punch!", g_fp_view_punch, 3, 1, false,
+                       "(fp-view-punch! up right roll [recover])");
     s7_define_function(scheme, "fp-set-weapon-hidden!", g_fp_set_weapon_hidden, 1, 0, false,
                        "(fp-set-weapon-hidden! hidden)");
     s7_define_function(scheme, "extra-eye-configure!", g_extra_eye_configure, 3, 0, false,

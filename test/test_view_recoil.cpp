@@ -105,6 +105,26 @@ void runViewRecoilTests() {
         CHECK(recoil.kickBack.velocity == 0.0f);
         CHECK(recoil.trauma == 0.0f);
     }
+
+    {
+        ViewRecoil recoil{};
+        setViewPunch(recoil, {-5.0f * DEG2RAD, 0.0f, 18.0f * DEG2RAD});
+        const Vector3 first = viewRecoilShake(recoil);
+        CHECK(std::fabs(first.z - 18.0f * DEG2RAD) < 1e-5f);
+        stepViewRecoil(recoil, 0.1f);
+        const float length = Vector3Length(recoil.punch) * RAD2DEG;
+        const float start = std::sqrt(5.0f * 5.0f + 18.0f * 18.0f);
+        CHECK(std::fabs(length - (start - (10.0f + start * 0.5f) * 0.1f)) < 1e-3f);
+        CHECK(recoil.punch.x < 0.0f && recoil.punch.z > 0.0f);
+        for (int i = 0; i < 120; ++i) {
+            stepViewRecoil(recoil, 1.0f / 60.0f);
+        }
+        CHECK(Vector3Length(recoil.punch) == 0.0f);
+
+        setViewPunch(recoil, {0.0f, 0.0f, 18.0f * DEG2RAD}, 3.0f);
+        stepViewRecoil(recoil, 0.05f);
+        CHECK(std::fabs(recoil.punch.z * RAD2DEG - (18.0f - (10.0f + 9.0f) * 3.0f * 0.05f)) < 1e-3f);
+    }
 }
 
 }

@@ -76,6 +76,8 @@ struct ViewRecoil {
     float sinceKick = 1000.0f;
     float trauma = 0.0f;
     float shakeTime = 0.0f;
+    Vector3 punch{0.0f, 0.0f, 0.0f};
+    float punchRecover = 1.0f;
 };
 
 /** Look-angle change one step produced, in radians: up raises pitch, right turns right. */
@@ -98,6 +100,10 @@ void resetViewRecoil(ViewRecoil& recoil);
 
 /** Camera shake as (up, right, roll) radians. */
 Vector3 viewRecoilShake(const ViewRecoil& recoil);
+
+void setViewPunch(ViewRecoil& recoil, Vector3 punch, float recover = 1.0f);
+
+void stepViewPunch(Vector3& punch, float recover, float dt);
 
 /** View-space offset of the first-person scene, including the swing about the pivot. */
 Vector3 viewRecoilKickPosition(const ViewRecoil& recoil);
