@@ -674,9 +674,10 @@ std::uint8_t brushRoleDefaultBlocks(BrushRole role) {
     case BrushRole::Hull:
     case BrushRole::Detail:
     case BrushRole::Door:
+        return BrushBlock::All;
     case BrushRole::Window:
     case BrushRole::Transparent:
-        return BrushBlock::All;
+        return static_cast<std::uint8_t>(BrushBlock::All & ~BrushBlock::Los);
     }
     return 0;
 }

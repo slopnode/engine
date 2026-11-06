@@ -491,6 +491,29 @@ void runBrushBlockFilterTests() {
         }
         CHECK(static_cast<float>(world.characterPosition(kCharId).GetZ()) < 1.85f);
     }
+
+    {
+        PhysicsWorld world;
+        const Brush pane = makeBrushBox(
+            "pane",
+            {-0.5f, 0.0f, 2.0f},
+            {0.5f, 2.0f, 2.1f},
+            "mat/glass",
+            {},
+            BrushRole::Transparent);
+        const Brush floor = makeBrushBox(
+            "floor",
+            {-4.0f, -0.25f, -6.0f},
+            {4.0f, 0.0f, 6.0f},
+            "mat/a",
+            {});
+        world.addStaticBrushes({floor, pane});
+
+        CHECK_FALSE(
+            world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, BrushBlock::Los).has_value());
+        CHECK(world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, BrushBlock::Linescan).has_value());
+        CHECK(world.castRay({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, BrushBlock::Player).has_value());
+    }
 }
 
 void runFlightTests() {

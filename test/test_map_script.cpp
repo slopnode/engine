@@ -59,6 +59,13 @@ void runMapScriptTests() {
         "  (mins -4 -0.25 -4)\n"
         "  (maxs 4 0 4)\n"
         "  (material \"surfaces/floor\")\n"
+        ")\n"
+        "(brush-box\n"
+        "  (id \"pane\")\n"
+        "  (mins -1 0 2)\n"
+        "  (maxs 1 2 2.1)\n"
+        "  (material \"surfaces/glass\")\n"
+        "  (role \"transparent\")\n"
         ")\n");
 
     AppConfig config{};
@@ -73,17 +80,22 @@ void runMapScriptTests() {
 
     auto doc = loadMapSourceDocument(scheme, assets, "testmap");
     CHECK_TRUE(doc.has_value());
-    CHECK_EQ(doc->brushes.size(), 1u);
+    CHECK_EQ(doc->brushes.size(), 2u);
     CHECK_TRUE(doc->instances.empty());
     if (!doc->brushes.empty()) {
         CHECK_EQ(doc->brushes[0].id, std::string("a-floor"));
     }
 
+    constexpr std::uint8_t kGlassBlocks = static_cast<std::uint8_t>(BrushBlock::All & ~BrushBlock::Los);
     auto brushes = loadMapBrushes(scheme, assets, "testmap");
     CHECK_TRUE(brushes.has_value());
-    CHECK_EQ(brushes->size(), 1u);
-    if (!brushes->empty()) {
+    CHECK_EQ(brushes->size(), 2u);
+    if (brushes->size() == 2) {
         CHECK_EQ((*brushes)[0].id, std::string("a-floor"));
+        CHECK_EQ((*brushes)[0].blocks, BrushBlock::All);
+        CHECK_EQ((*brushes)[1].id, std::string("pane"));
+        CHECK_TRUE((*brushes)[1].role == BrushRole::Transparent);
+        CHECK_EQ((*brushes)[1].blocks, kGlassBlocks);
     }
 
     CHECK_FALSE(assets.hasMapSource("does-not-exist/brushes"));
@@ -110,6 +122,10 @@ void runMapScriptTests() {
         CHECK_EQ(roundTripped.maxs.x, original.maxs.x);
         CHECK_EQ(roundTripped.maxs.y, original.maxs.y);
         CHECK_EQ(roundTripped.maxs.z, original.maxs.z);
+    }
+    if (carved->size() == 2) {
+        CHECK_EQ((*carved)[1].id, std::string("pane"));
+        CHECK_EQ((*carved)[1].blocks, kGlassBlocks);
     }
 
     CHECK_FALSE(assets.hasMapCarved("does-not-exist/compiled/csg"));
