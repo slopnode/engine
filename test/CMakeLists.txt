@@ -14,6 +14,7 @@ add_executable(sloptests
     test_camera_path.cpp
     test_csg_compile.cpp
     test_pvs_build.cpp
+    test_map_areas.cpp
     test_nav_graph.cpp
     test_nav_macro_links.cpp
     test_nav_bake.cpp
@@ -52,6 +53,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/map/nav_macro_links.cpp
     ${CMAKE_SOURCE_DIR}/src/map/brush_door.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/area_gate_runtime.cpp
     ${CMAKE_SOURCE_DIR}/src/script/scheme_harden.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/camera/view_recoil.cpp
@@ -93,6 +95,7 @@ add_test(NAME sloptests.map_script COMMAND sloptests map_script)
 add_test(NAME sloptests.camera_path COMMAND sloptests camera_path)
 add_test(NAME sloptests.csg_compile COMMAND sloptests csg_compile)
 add_test(NAME sloptests.pvs_build COMMAND sloptests pvs_build)
+add_test(NAME sloptests.map_areas COMMAND sloptests map_areas)
 add_test(NAME sloptests.nav_graph COMMAND sloptests nav_graph)
 add_test(NAME sloptests.nav_bake COMMAND sloptests nav_bake)
 add_test(NAME sloptests.nav_navmesh_build COMMAND sloptests nav_navmesh_build)

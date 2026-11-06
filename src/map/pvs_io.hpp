@@ -10,7 +10,8 @@
 namespace slopengine {
 
 constexpr std::uint32_t kPvsMagic = 0x31535650u; // "PVS1" LE
-constexpr std::uint32_t kPvsVersion = 1;
+constexpr std::uint32_t kPvsDenseVersion = 1;
+constexpr std::uint32_t kPvsVersion = 2;
 
 bool writePvsFile(const std::filesystem::path& path, const PvsFile& pvs);
 std::optional<PvsFile> readPvsFile(const std::filesystem::path& path);

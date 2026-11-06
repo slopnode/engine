@@ -23,6 +23,8 @@
 #include "map/face_triggers.hpp"
 #include "map/things_spawn.hpp"
 #include "map/pvs.hpp"
+#include "map/map_areas.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "map/water_volumes.hpp"
 #include "render/material_anim.hpp"
 #include "physics/components.hpp"
@@ -168,6 +170,12 @@ void unloadMapScene(flecs::world& world) {
     if (world.has<MapPvs>()) {
         world.remove<MapPvs>();
     }
+    if (world.has<MapAreas>()) {
+        world.remove<MapAreas>();
+    }
+    if (world.has<MapAreaGateCache>()) {
+        world.remove<MapAreaGateCache>();
+    }
     if (world.has<MapNavigation>()) {
         world.remove<MapNavigation>();
     }
@@ -290,6 +298,16 @@ bool assembleMapScene(
 
     world.set<MapBsp>(std::move(mapBsp));
     world.set<MapPvs>(MapPvs{std::move(loaded.pvs)});
+    {
+        MapAreas areas = buildMapAreas(world.get<MapBsp>().tree);
+        TraceLog(
+            LOG_INFO,
+            "MAP: areas=%d areaPortals=%d",
+            areas.areaCount,
+            static_cast<int>(areas.portals.size()));
+        world.set<MapAreas>(std::move(areas));
+        world.set<MapAreaGateCache>(MapAreaGateCache{});
+    }
     world.set<MapBakedNav>(MapBakedNav{loaded.nav});
     world.set<MapNavProfiles>(MapNavProfiles{std::move(loaded.navProfiles)});
     {

@@ -183,6 +183,7 @@ set(SLOPLIB_SOURCES
     src/map/radiosity_lights.cpp
     src/map/uv_math.cpp
     src/map/pvs_build.cpp
+    src/map/map_areas.cpp
     src/map/pvs_io.cpp
     src/map/nav_graph.cpp
     src/map/nav_bake.cpp
@@ -272,6 +273,7 @@ add_executable(slopengine
     src/map/face_triggers.cpp
     src/map/water_volumes.cpp
     src/map/map_scene.cpp
+    src/map/area_gate_runtime.cpp
     src/game/script_boot.cpp
     src/game/menu_background.cpp
     src/game/loading_session.cpp

@@ -11,13 +11,24 @@
 #include <s7.h>
 
 #include <iostream>
+#include <string_view>
+#include <vector>
 
 int main(int argc, char* argv[]) {
     using namespace slopengine;
 
-    auto config = AppConfig::parse(argc, argv);
+    bool fast = false;
+    std::vector<char*> args;
+    for (int i = 0; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--fast") {
+            fast = true;
+        } else {
+            args.push_back(argv[i]);
+        }
+    }
+    auto config = AppConfig::parse(static_cast<int>(args.size()), args.data());
     if (!config || !config->map) {
-        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name>\n";
+        std::cerr << "Usage: slopvis --game <path> [--mod <path>]... --map <name> [--fast]\n";
         return 1;
     }
 
@@ -89,7 +100,7 @@ int main(int argc, char* argv[]) {
         exteriorForPvs = nullptr;
     }
 
-    const PvsFile pvs = buildPvs(*tree, exteriorForPvs);
+    const PvsFile pvs = buildPvs(*tree, exteriorForPvs, fast);
     const auto visPath = bspPath->parent_path() / "vis";
     if (!writePvsFile(visPath, pvs)) {
         std::cerr << "slopvis: failed to write " << visPath << "\n";
@@ -98,25 +109,23 @@ int main(int argc, char* argv[]) {
     }
 
     int openLeaves = 0;
-    int visiblePairs = 0;
+    long long visiblePairs = 0;
     for (int a = 0; a < pvs.leafCount; ++a) {
         if (!leafIsOpen(tree->leaves[static_cast<std::size_t>(a)].contents)) {
             continue;
         }
         ++openLeaves;
-        for (int b = 0; b < pvs.leafCount; ++b) {
-            if (pvsCanSee(pvs, a, b)) {
-                ++visiblePairs;
-            }
-        }
+        visiblePairs += pvsVisibleCount(pvs, a);
     }
 
     TraceLog(
         LOG_INFO,
-        "slopvis: wrote %s (leaves=%d openLeaves=%d visiblePairs=%d)",
+        "slopvis: wrote %s (leaves=%d openLeaves=%d columns=%d uniqueRows=%d visiblePairs=%lld)",
         visPath.string().c_str(),
         pvs.leafCount,
         openLeaves,
+        pvs.columnCount,
+        pvs.rowCount(),
         visiblePairs);
 
     s7_quit(scheme);

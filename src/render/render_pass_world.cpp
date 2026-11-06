@@ -7,6 +7,7 @@
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
 #include "map/pvs.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "particles/particle_sim.hpp"
 #include "render/gpu_skinning.hpp"
 #include "render/animation_player.hpp"
@@ -483,11 +484,13 @@ bool pvsVisibleFromCamera(
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
         return true;
     }
+    const AreaGate gate = areaGateFromPoint(world, cameraPos);
     return pvsVisiblePoints(
         world.get<MapBsp>().tree,
         world.get<MapPvs>().pvs,
         cameraPos,
-        objectPos);
+        objectPos,
+        &gate);
 }
 
 bool pvsBoxVisibleFromCamera(
@@ -497,11 +500,13 @@ bool pvsBoxVisibleFromCamera(
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
         return true;
     }
+    const AreaGate gate = areaGateFromPoint(world, cameraPos);
     return pvsVisibleBox(
         world.get<MapBsp>().tree,
         world.get<MapPvs>().pvs,
         cameraPos,
-        worldBounds);
+        worldBounds,
+        &gate);
 }
 
 struct SpriteBillboardShader {

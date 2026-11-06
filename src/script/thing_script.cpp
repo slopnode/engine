@@ -10,6 +10,7 @@
 #include "map/nav_graph.hpp"
 #include "map/nav_navmesh_build.hpp"
 #include "map/pvs.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "map/sound_propagation.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
@@ -3133,11 +3134,13 @@ s7_pointer g_pvs_can_see(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr || !g_thingWorld->has<MapPvs>() || !g_thingWorld->has<MapBsp>()) {
         return s7_t(sc);
     }
+    const AreaGate gate = areaGateFromPoint(*g_thingWorld, {x0, y0, z0});
     return pvsVisiblePoints(
                g_thingWorld->get<MapBsp>().tree,
                g_thingWorld->get<MapPvs>().pvs,
                {x0, y0, z0},
-               {x1, y1, z1})
+               {x1, y1, z1},
+               &gate)
         ? s7_t(sc)
         : s7_f(sc);
 }

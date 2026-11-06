@@ -4,6 +4,7 @@
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/sight_components.hpp"
@@ -98,7 +99,8 @@ bool pvsClear(flecs::world& world, Vector3 from, Vector3 to) {
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
         return true;
     }
-    return pvsVisiblePoints(world.get<MapBsp>().tree, world.get<MapPvs>().pvs, from, to);
+    const AreaGate gate = areaGateFromPoint(world, from);
+    return pvsVisiblePoints(world.get<MapBsp>().tree, world.get<MapPvs>().pvs, from, to, &gate);
 }
 
 bool packageAllowsSight(

@@ -22,6 +22,7 @@ void runMapScriptTests();
 void runCameraPathTests();
 void runCsgCompileTests();
 void runPvsBuildTests();
+void runMapAreasTests();
 void runNavGraphTests();
 void runNavMacroLinksTests();
 void runNavBakeTests();
@@ -80,6 +81,7 @@ const Suite kSuites[] = {
     {"camera_path", slopengine::runCameraPathTests},
     {"csg_compile", slopengine::runCsgCompileTests},
     {"pvs_build", slopengine::runPvsBuildTests},
+    {"map_areas", slopengine::runMapAreasTests},
     {"nav_graph", slopengine::runNavGraphTests},
     {"nav_macro_links", slopengine::runNavMacroLinksTests},
     {"nav_bake", slopengine::runNavBakeTests},

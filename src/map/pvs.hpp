@@ -1,17 +1,32 @@
 #pragma once
 
 #include "map/bsp.hpp"
+#include "map/map_areas.hpp"
 
 #include <cstdint>
 #include <vector>
 
 namespace slopengine {
 
-/** In-memory / on-disk leaf↔leaf PVS (PVS1). */
-struct PvsFile {
+/** Dense leaf↔leaf bit matrix, the build-time and PVS1 on-disk layout. */
+struct DensePvs {
     int leafCount = 0;
     int wordsPerRow = 0;
     std::vector<std::uint32_t> bits;
+};
+
+/** Compact leaf↔leaf PVS (PVS2): deduplicated rows over visible-leaf columns only. */
+struct PvsFile {
+    int leafCount = 0;
+    int columnCount = 0;
+    int wordsPerRow = 0;
+    std::vector<std::int32_t> leafRow;
+    std::vector<std::int32_t> leafColumn;
+    std::vector<std::uint32_t> rows;
+
+    int rowCount() const {
+        return wordsPerRow > 0 ? static_cast<int>(rows.size()) / wordsPerRow : 0;
+    }
 };
 
 /** Runtime map PVS blob. */
@@ -23,12 +38,18 @@ inline bool pvsCanSee(const PvsFile& pvs, std::int32_t fromLeaf, std::int32_t to
     if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= pvs.leafCount || toLeaf >= pvs.leafCount) {
         return true;
     }
-    if (pvs.wordsPerRow <= 0 || pvs.bits.empty()) {
+    if (pvs.leafRow.empty() || pvs.leafColumn.empty()) {
         return true;
     }
-    const std::uint32_t word =
-        pvs.bits[static_cast<std::size_t>(fromLeaf * pvs.wordsPerRow + (toLeaf >> 5))];
-    return (word & (1u << (toLeaf & 31))) != 0u;
+    const std::int32_t row = pvs.leafRow[static_cast<std::size_t>(fromLeaf)];
+    const std::int32_t column = pvs.leafColumn[static_cast<std::size_t>(toLeaf)];
+    if (row < 0 || column < 0) {
+        return false;
+    }
+    const std::uint32_t word = pvs.rows[static_cast<std::size_t>(row) *
+                                            static_cast<std::size_t>(pvs.wordsPerRow) +
+                                        static_cast<std::size_t>(column >> 5)];
+    return (word & (1u << (column & 31))) != 0u;
 }
 
 /** Portal-graph-participating-leaf sample for entity PVS. Feet often sit in
@@ -54,11 +75,15 @@ inline bool pvsVisiblePoints(
     const BspTree& tree,
     const PvsFile& pvs,
     Vector3 from,
-    Vector3 to) {
+    Vector3 to,
+    const AreaGate* gate = nullptr) {
     const std::int32_t a = pvsSampleLeaf(tree, from);
     const std::int32_t b = pvsSampleLeaf(tree, to);
     if (a < 0 || b < 0) {
         return true;
+    }
+    if (gate != nullptr && !areaGateAllows(*gate, tree, b)) {
+        return false;
     }
     return pvsCanSee(pvs, a, b);
 }
@@ -67,7 +92,8 @@ inline bool pvsVisibleBox(
     const BspTree& tree,
     const PvsFile& pvs,
     Vector3 from,
-    const BoundingBox& box) {
+    const BoundingBox& box,
+    const AreaGate* gate = nullptr) {
     const std::int32_t a = pvsSampleLeaf(tree, from);
     if (a < 0) {
         return true;
@@ -86,33 +112,34 @@ inline bool pvsVisibleBox(
     };
     for (const Vector3& point : samples) {
         const std::int32_t b = pvsSampleLeaf(tree, point);
-        if (b < 0 || pvsCanSee(pvs, a, b)) {
+        if (b < 0) {
+            return true;
+        }
+        if (gate != nullptr && !areaGateAllows(*gate, tree, b)) {
+            continue;
+        }
+        if (pvsCanSee(pvs, a, b)) {
             return true;
         }
     }
     return false;
 }
 
-inline void pvsSetBit(PvsFile& pvs, int fromLeaf, int toLeaf) {
-    if (fromLeaf < 0 || toLeaf < 0 || fromLeaf >= pvs.leafCount || toLeaf >= pvs.leafCount) {
-        return;
-    }
-    pvs.bits[static_cast<std::size_t>(fromLeaf * pvs.wordsPerRow + (toLeaf >> 5))] |=
-        (1u << (toLeaf & 31));
-}
+/** Number of leaves visible from @p fromLeaf. */
+int pvsVisibleCount(const PvsFile& pvs, std::int32_t fromLeaf);
 
-inline void pvsSetBitSymmetric(PvsFile& pvs, int a, int b) {
-    pvsSetBit(pvs, a, b);
-    pvsSetBit(pvs, b, a);
-}
+/** Compacts a dense matrix: drops all-zero rows and columns, shares identical rows. */
+PvsFile compactPvs(const DensePvs& dense);
 
 /**
  * Builds leaf↔leaf PVS from sealed BSP portals (one cluster per open leaf).
  * When @p exteriorEmpty is non-null (analyzeMapHull), only sealed-interior open
- * leaves are used as PVS sources.
+ * leaves are used as PVS sources. @p fast stops after the plane-test base pass,
+ * which is looser but finishes in seconds on maps the full clip cannot.
  */
 PvsFile buildPvs(
     const BspTree& tree,
-    const std::vector<std::uint8_t>* exteriorEmpty = nullptr);
+    const std::vector<std::uint8_t>* exteriorEmpty = nullptr,
+    bool fast = false);
 
 }

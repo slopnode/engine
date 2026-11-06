@@ -1730,7 +1730,7 @@ Clears all queued debug lines.
 </code></pre>
 
 ### pvs-can-see {#pvs-can-see}
-Checks whether two points' BSP leaves are mutually visible in the map's precomputed PVS.
+Checks whether two points' BSP leaves are mutually visible in the map's precomputed PVS. Also false when a closed door separates the first point's area from the second's.
 <pre><code class="language-scheme">(pvs-can-see
   x0, y0, z0 : real?
   x1, y1, z1 : real?)

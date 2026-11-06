@@ -57,7 +57,7 @@ Note that this schema is only known once the base package's own scripts have loa
 
 # Tool binaries {#tool-binaries}
 
-`slopcsg`, `slopbsp`, `slopvis`, `slopnav`, and `sloprad` accept the same `--game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process (`slopnav` also takes an optional `--compare` diagnostic flag):
+`slopcsg`, `slopbsp`, `slopvis`, `slopnav`, and `sloprad` accept the same `--game [--mod]...` mount flags plus a required `--map <name>` identifying which map to process (`slopnav` also takes an optional `--compare` diagnostic flag, and `slopvis` an optional `--fast` that stops after the plane-test base pass, looser but seconds instead of minutes on large open maps):
 
 ```
 slopcsg --game path/to/game --map my-room
