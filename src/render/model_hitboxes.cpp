@@ -95,7 +95,7 @@ std::vector<BoneHitbox> buildBoneHitboxes(const Model& model, float minHalfExten
 
 const std::vector<BoneHitbox>& ensureModelHitboxes(const Model& model, ModelHitboxes& hitboxes) {
     if (hitboxes.source != model.meshes ||
-        hitboxes.boxes.size() != static_cast<std::size_t>(std::max(model.skeleton.boneCount, 0))) {
+        hitboxes.boxes.size() != model.skeleton.boneCount) {
         hitboxes.boxes = buildBoneHitboxes(model);
         hitboxes.source = model.meshes;
     }
@@ -117,7 +117,7 @@ std::optional<ModelBoneHit> raycastModelBones(
     if (model.boneMatrices == nullptr) {
         return std::nullopt;
     }
-    const int boneCount = std::min(model.skeleton.boneCount, static_cast<int>(boxes.size()));
+    const int boneCount = std::min(static_cast<int>(model.skeleton.boneCount), static_cast<int>(boxes.size()));
     std::optional<ModelBoneHit> best;
     float bestDistance = maxDistance;
     for (int bone = 0; bone < boneCount; ++bone) {

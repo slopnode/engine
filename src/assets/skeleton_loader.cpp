@@ -609,7 +609,7 @@ void updateSkinnedMeshVertexBuffers(Model& model) {
         return;
     }
 
-    std::vector<Matrix> normalMatrices(static_cast<std::size_t>(std::max(model.skeleton.boneCount, 0)));
+    std::vector<Matrix> normalMatrices(model.skeleton.boneCount);
     for (std::size_t boneIndex = 0; boneIndex < normalMatrices.size(); ++boneIndex) {
         normalMatrices[boneIndex] = MatrixTranspose(MatrixInvert(model.boneMatrices[boneIndex]));
     }

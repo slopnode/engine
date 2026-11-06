@@ -136,7 +136,8 @@ bool boneEmitterPose(
         return false;
     }
     const Model& model = host.get<Model3D>().model;
-    if (follow.bone < 0 || follow.bone >= model.skeleton.boneCount || model.currentPose == nullptr ||
+    const int boneCount = static_cast<int>(model.skeleton.boneCount);
+    if (follow.bone < 0 || follow.bone >= boneCount || model.currentPose == nullptr ||
         model.boneMatrices == nullptr) {
         return false;
     }
@@ -144,7 +145,7 @@ bool boneEmitterPose(
     const Matrix joint = MatrixMultiply(bonePoseMatrix(model.currentPose[follow.bone]), world);
     position = {joint.m12, joint.m13, joint.m14};
     direction = {0.0f, 1.0f, 0.0f};
-    if (follow.reference >= 0 && follow.reference < model.skeleton.boneCount) {
+    if (follow.reference >= 0 && follow.reference < boneCount) {
         const Matrix skin = MatrixMultiply(model.boneMatrices[follow.reference], world);
         const Vector3 center = Vector3Transform(follow.referenceCenter, skin);
         const Vector3 out = Vector3Subtract(position, center);

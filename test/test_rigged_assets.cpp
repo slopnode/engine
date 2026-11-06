@@ -394,7 +394,7 @@ void runRiggedAssetTests() {
     {
         const ByteWriter file = buildTracksFile();
         CHECK(loadTracksToModelAnimation(file.view(), skeleton, clip, &matrices));
-        CHECK_EQ(clip.boneCount, 2);
+        CHECK_EQ(clip.boneCount, 2u);
         CHECK_EQ(clip.keyframeCount, 2);
         CHECK_EQ(matrices.keyframes.size(), std::size_t{2});
         CHECK(near(matrices.keyframes[1][1].m13, 1.0f));
@@ -411,7 +411,7 @@ void runRiggedAssetTests() {
     {
         Model model = buildTestModel(buffer, weights);
         applySkeletonToModel(skeleton, model);
-        CHECK_EQ(model.skeleton.boneCount, 2);
+        CHECK_EQ(model.skeleton.boneCount, 2u);
         CHECK(model.skeleton.bones != nullptr);
         CHECK_EQ(model.skeleton.bones[1].parent, 0);
         CHECK_EQ(findModelBoneIndex(model, "child"), 1);

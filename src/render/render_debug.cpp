@@ -45,12 +45,13 @@ void drawSkeletonOverlay(const Model& model, const AnimationPlayer* animationPla
     rlDisableDepthTest();
     rlDisableDepthMask();
 
-    for (int boneIndex = 0; boneIndex < model.skeleton.boneCount; ++boneIndex) {
+    const int boneCount = static_cast<int>(model.skeleton.boneCount);
+    for (int boneIndex = 0; boneIndex < boneCount; ++boneIndex) {
         const Vector3 jointPosition = jointPoses[boneIndex].translation;
         DrawSphereWires(jointPosition, jointRadius, 6, 8, jointColor);
 
         const int parentIndex = model.skeleton.bones[boneIndex].parent;
-        if (parentIndex >= 0 && parentIndex < model.skeleton.boneCount) {
+        if (parentIndex >= 0 && parentIndex < boneCount) {
             const Vector3 parentPosition = jointPoses[parentIndex].translation;
             DrawLine3D(parentPosition, jointPosition, boneColor);
         }

@@ -146,7 +146,7 @@ void registerBoneSpringSystem(flecs::world& world) {
             for (std::size_t i = 0; i < springs.specs.size(); ++i) {
                 const BoneSpringSpec& spec = springs.specs[i];
                 BoneSpringState& state = springs.states[i];
-                if (state.boneIndex < 0 || state.boneIndex >= model.skeleton.boneCount) {
+                if (state.boneIndex < 0 || state.boneIndex >= static_cast<int>(model.skeleton.boneCount)) {
                     continue;
                 }
                 const Matrix joint = MatrixMultiply(poseMatrix(model.currentPose[state.boneIndex]), global);

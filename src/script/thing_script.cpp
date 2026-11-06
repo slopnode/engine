@@ -2094,7 +2094,7 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
     AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
     const std::string geoPath = entity.get<GeoSource>().path;
     Model piece = cloneGeoModelInstance(model);
-    if (piece.meshCount <= 0 || piece.skeleton.boneCount != boneCount || piece.boneMatrices == nullptr) {
+    if (piece.meshCount <= 0 || static_cast<int>(piece.skeleton.boneCount) != boneCount || piece.boneMatrices == nullptr) {
         unloadClonedGeoModelInstance(piece);
         return s7_f(sc);
     }

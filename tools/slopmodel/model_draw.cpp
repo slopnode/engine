@@ -89,10 +89,11 @@ void drawSkeleton(const Model& model, int highlightBone) {
     if (poses == nullptr) {
         return;
     }
+    const int boneCount = static_cast<int>(model.skeleton.boneCount);
     std::vector<float> lengths;
-    for (int bone = 0; bone < model.skeleton.boneCount; ++bone) {
+    for (int bone = 0; bone < boneCount; ++bone) {
         const int parent = model.skeleton.bones[bone].parent;
-        if (parent >= 0 && parent < model.skeleton.boneCount) {
+        if (parent >= 0 && parent < boneCount) {
             const float length = Vector3Distance(poses[parent].translation, poses[bone].translation);
             if (length > 1e-5f) {
                 lengths.push_back(length);
@@ -106,7 +107,7 @@ void drawSkeleton(const Model& model, int highlightBone) {
     }
     rlDrawRenderBatchActive();
     rlDisableDepthTest();
-    for (int bone = 0; bone < model.skeleton.boneCount; ++bone) {
+    for (int bone = 0; bone < boneCount; ++bone) {
         const Vector3 joint = poses[bone].translation;
         const bool highlighted = bone == highlightBone;
         DrawSphereEx(
@@ -116,7 +117,7 @@ void drawSkeleton(const Model& model, int highlightBone) {
             6,
             highlighted ? Color{255, 90, 60, 255} : Color{255, 200, 40, 255});
         const int parent = model.skeleton.bones[bone].parent;
-        if (parent >= 0 && parent < model.skeleton.boneCount) {
+        if (parent >= 0 && parent < boneCount) {
             DrawLine3D(poses[parent].translation, joint, Color{240, 180, 40, 220});
         }
     }
@@ -186,7 +187,7 @@ void drawEditorScene(Editor& editor, const Matrix& modelMatrix, const ShadedDraw
         const Model& model = editor.doc.model;
         const Transform* poses = model.currentPose != nullptr ? model.currentPose : model.skeleton.bindPose;
         if (out.camera != nullptr && poses != nullptr && editor.doc.selectedBone >= 0 &&
-            editor.doc.selectedBone < model.skeleton.boneCount) {
+            editor.doc.selectedBone < static_cast<int>(model.skeleton.boneCount)) {
             SceneDraw::Marker marker{};
             marker.screen = GetWorldToScreenEx(
                 Vector3Transform(poses[editor.doc.selectedBone].translation, modelMatrix),

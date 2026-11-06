@@ -272,7 +272,7 @@ void registerAnimationSystems(flecs::world& world) {
             if (model.currentPose == nullptr || model.skeleton.boneCount <= 0) {
                 return;
             }
-            if (attachment.boneIndex < 0 || attachment.boneIndex >= model.skeleton.boneCount) {
+            if (attachment.boneIndex < 0 || attachment.boneIndex >= static_cast<int>(model.skeleton.boneCount)) {
                 attachment.boneIndex = findModelBoneIndex(model, attachment.bone);
                 if (attachment.boneIndex < 0) {
                     return;

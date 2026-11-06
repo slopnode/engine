@@ -89,11 +89,12 @@ void drawArmature(Editor& editor, slopengine::AssetStore& assets) {
     if (!sectionNode(assets, "chart_organisation", label, "##armature")) {
         return;
     }
-    std::vector<std::vector<int>> children(static_cast<std::size_t>(model.skeleton.boneCount));
+    const int boneCount = static_cast<int>(model.skeleton.boneCount);
+    std::vector<std::vector<int>> children(static_cast<std::size_t>(boneCount));
     std::vector<int> roots;
-    for (int bone = 0; bone < model.skeleton.boneCount; ++bone) {
+    for (int bone = 0; bone < boneCount; ++bone) {
         const int parent = model.skeleton.bones[bone].parent;
-        if (parent >= 0 && parent < model.skeleton.boneCount) {
+        if (parent >= 0 && parent < boneCount) {
             children[static_cast<std::size_t>(parent)].push_back(bone);
         } else {
             roots.push_back(bone);

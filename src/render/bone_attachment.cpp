@@ -12,7 +12,8 @@ int findModelBoneIndex(const Model& model, std::string_view name) {
     if (model.skeleton.bones == nullptr || name.empty()) {
         return -1;
     }
-    for (int index = 0; index < model.skeleton.boneCount; ++index) {
+    const int boneCount = static_cast<int>(model.skeleton.boneCount);
+    for (int index = 0; index < boneCount; ++index) {
         const char* boneName = model.skeleton.bones[index].name;
         if (std::strncmp(boneName, name.data(), name.size()) == 0 && boneName[name.size()] == '\0') {
             return index;
