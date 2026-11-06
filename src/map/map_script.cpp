@@ -6,6 +6,7 @@
 #include "map/map_handler_registry.hpp"
 #include "map/thing_def_registry.hpp"
 #include "map/bsp.hpp"
+#include "map/bsp_polygon.hpp"
 #include "map/pvs.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
@@ -37,23 +38,30 @@ namespace slopengine {
 
 namespace {
 
-std::int32_t primitiveSampleLeaf(const BspTree& bsp, const VertBuffer& buffer, const GeoPrimitive& primitive) {
-    if (primitive.vertexCount == 0 || primitive.vertexOffset + primitive.vertexCount > buffer.positions.size()) {
-        return -1;
+std::vector<std::int32_t> primitiveLeaves(const BspTree& bsp, const VertBuffer& buffer, const GeoPrimitive& primitive) {
+    std::vector<std::int32_t> leaves;
+    if (primitive.indexCount < 3 || primitive.indexOffset + primitive.indexCount > buffer.indices.size()) {
+        return leaves;
     }
-    Vector3 centroid{};
-    Vector3 normal{};
-    for (std::size_t i = primitive.vertexOffset; i < primitive.vertexOffset + primitive.vertexCount; ++i) {
-        centroid = Vector3Add(centroid, buffer.positions[i]);
-        if (i < buffer.normals.size()) {
-            normal = Vector3Add(normal, buffer.normals[i]);
+    std::vector<Vector3> triangle;
+    for (std::size_t i = primitive.indexOffset; i + 2 < primitive.indexOffset + primitive.indexCount; i += 3) {
+        triangle.clear();
+        for (std::size_t k = 0; k < 3; ++k) {
+            const std::size_t index = buffer.indices[i + k];
+            if (index >= buffer.positions.size()) {
+                break;
+            }
+            Vector3 p = buffer.positions[index];
+            if (index < buffer.normals.size()) {
+                p = Vector3Add(p, Vector3Scale(buffer.normals[index], 0.01f));
+            }
+            triangle.push_back(p);
+        }
+        if (triangle.size() == 3) {
+            collectPolygonLeaves(bsp, triangle, leaves);
         }
     }
-    centroid = Vector3Scale(centroid, 1.0f / static_cast<float>(primitive.vertexCount));
-    if (Vector3LengthSqr(normal) > 1e-12f) {
-        centroid = Vector3Add(centroid, Vector3Scale(Vector3Normalize(normal), 0.05f));
-    }
-    return pvsSampleLeaf(bsp, centroid);
+    return leaves;
 }
 
 MapTransparentMesh describeTransparentMesh(const Mesh& mesh, int meshIndex) {
@@ -1824,27 +1832,6 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
         return primitive.material + '|' + std::to_string(atlasIndex) + '|' + (detail ? "1" : "0") +
                '|' + (primitive.twoSided ? "1" : "0");
     };
-    std::unordered_map<std::string, std::vector<std::int32_t>> keyLeaves;
-    std::unordered_set<std::string> keyLeafUnknown;
-    for (const GeoPrimitive& primitive : compiled.asset.primitives) {
-        if (primitive.transparent) {
-            continue;
-        }
-        const std::string key = primitiveKey(primitive);
-        if (keyLeafUnknown.count(key) > 0) {
-            continue;
-        }
-        const std::int32_t leaf = primitiveSampleLeaf(bsp, compiled.buffer, primitive);
-        if (leaf < 0) {
-            keyLeafUnknown.insert(key);
-            keyLeaves.erase(key);
-            continue;
-        }
-        std::vector<std::int32_t>& leaves = keyLeaves[key];
-        if (std::find(leaves.begin(), leaves.end(), leaf) == leaves.end()) {
-            leaves.push_back(leaf);
-        }
-    }
     mergeGeoPrimitivesByKey(compiled.asset, compiled.buffer, primitiveKey);
 
     result.pvs = std::move(work.pvs);
@@ -1885,7 +1872,31 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
         TraceLog(LOG_WARNING, "MAP: compile produced empty model for '%s'", virtualPath.c_str());
         return std::nullopt;
     }
+    {
+        int degenerateBounds = 0;
+        int noVertices = 0;
+        for (int meshIndex = 0; meshIndex < model.meshCount; ++meshIndex) {
+            const Mesh& mesh = model.meshes[meshIndex];
+            if (mesh.vertices == nullptr) {
+                ++noVertices;
+            }
+            const BoundingBox box = GetMeshBoundingBox(mesh);
+            if (box.max.x - box.min.x <= 0.0f && box.max.y - box.min.y <= 0.0f && box.max.z - box.min.z <= 0.0f) {
+                ++degenerateBounds;
+            }
+        }
+        TraceLog(
+            LOG_INFO,
+            "MAP: model meshes=%d noVertices=%d degenerateBounds=%d bufferNormals=%d positions=%d",
+            model.meshCount,
+            noVertices,
+            degenerateBounds,
+            static_cast<int>(compiled.buffer.normals.size()),
+            static_cast<int>(compiled.buffer.positions.size()));
+    }
 
+    int meshesWithoutLeaves = 0;
+    std::size_t totalLeaves = 0;
     result.transparentMeshIndices.clear();
     result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
     result.transparentMeshes.clear();
@@ -1902,8 +1913,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
         if (primitive.transparent) {
             result.transparentMeshIndices.push_back(meshIndex);
             result.transparentMeshes.push_back(describeTransparentMesh(model.meshes[meshIndex], meshIndex));
-            result.transparentMeshes.back().leaves =
-                pvsBoxSampleLeaves(bsp, result.transparentMeshes.back().bounds);
+            result.transparentMeshes.back().leaves = primitiveLeaves(bsp, compiled.buffer, primitive);
         }
         if (faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds)) {
             result.detailMeshIndices.push_back(meshIndex);
@@ -1916,9 +1926,11 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
             MapMeshCull cull{};
             cull.meshIndex = meshIndex;
             cull.bounds = GetMeshBoundingBox(model.meshes[meshIndex]);
-            if (const auto it = keyLeaves.find(primitiveKey(primitive)); it != keyLeaves.end()) {
-                cull.leaves = it->second;
+            cull.leaves = primitiveLeaves(bsp, compiled.buffer, primitive);
+            if (cull.leaves.empty()) {
+                ++meshesWithoutLeaves;
             }
+            totalLeaves += cull.leaves.size();
             result.opaqueMeshes.push_back(std::move(cull));
         }
         if (materialAsset != nullptr && materialAsset->sky) {
@@ -1942,6 +1954,13 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     result.model = model;
     result.brushes = std::move(work.brushes);
     result.moverBrushIds = std::move(work.moverBrushIds);
+    TraceLog(
+        LOG_INFO,
+        "MAP: opaque cull lists meshes=%d withoutLeaves=%d leavesTotal=%d transparent=%d",
+        static_cast<int>(result.opaqueMeshes.size()),
+        meshesWithoutLeaves,
+        static_cast<int>(totalLeaves),
+        static_cast<int>(result.transparentMeshes.size()));
     result.bsp = std::move(work.bsp);
     result.rad = std::move(work.rad);
     result.nav = std::move(work.nav);

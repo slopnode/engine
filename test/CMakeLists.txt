@@ -10,6 +10,7 @@ add_executable(sloptests
     test_scheme_harden.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
+    test_bsp_polygon.cpp
     test_map_script.cpp
     test_camera_path.cpp
     test_csg_compile.cpp

@@ -155,6 +155,7 @@ set(SLOPLIB_SOURCES
     src/map/bsp_build.cpp
     src/map/bsp_io.cpp
     src/map/bsp_ray.cpp
+    src/map/bsp_polygon.cpp
     src/map/csg_compile.cpp
     src/map/map_script.cpp
     src/map/csg_write.cpp
