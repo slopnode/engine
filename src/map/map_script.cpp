@@ -6,6 +6,7 @@
 #include "map/map_handler_registry.hpp"
 #include "map/thing_def_registry.hpp"
 #include "map/bsp.hpp"
+#include "map/pvs.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/bsp_io.hpp"
 #include "map/csg_compile.hpp"
@@ -21,6 +22,7 @@
 
 #include <algorithm>
 #include <raylib.h>
+#include <raymath.h>
 #include <s7.h>
 
 #include <cstring>
@@ -32,6 +34,52 @@
 #include <vector>
 
 namespace slopengine {
+
+namespace {
+
+MapTransparentMesh describeTransparentMesh(const Mesh& mesh, int meshIndex) {
+    MapTransparentMesh out{};
+    out.meshIndex = meshIndex;
+    out.bounds = GetMeshBoundingBox(mesh);
+    const Vector3 center{
+        (out.bounds.min.x + out.bounds.max.x) * 0.5f,
+        (out.bounds.min.y + out.bounds.max.y) * 0.5f,
+        (out.bounds.min.z + out.bounds.max.z) * 0.5f,
+    };
+    out.planePoint = center;
+    if (mesh.vertexCount >= 3 && mesh.vertices != nullptr) {
+        const Vector3 v0{mesh.vertices[0], mesh.vertices[1], mesh.vertices[2]};
+        for (int i = 1; i + 1 < mesh.vertexCount; ++i) {
+            const Vector3 v1{mesh.vertices[i * 3 + 0], mesh.vertices[i * 3 + 1], mesh.vertices[i * 3 + 2]};
+            const Vector3 v2{
+                mesh.vertices[(i + 1) * 3 + 0],
+                mesh.vertices[(i + 1) * 3 + 1],
+                mesh.vertices[(i + 1) * 3 + 2]};
+            const Vector3 candidate =
+                Vector3CrossProduct(Vector3Subtract(v1, v0), Vector3Subtract(v2, v0));
+            if (Vector3LengthSqr(candidate) > 1e-8f) {
+                out.planeNormal = Vector3Normalize(candidate);
+                out.planePoint = v0;
+                return out;
+            }
+        }
+    }
+    const Vector3 extent{
+        out.bounds.max.x - out.bounds.min.x,
+        out.bounds.max.y - out.bounds.min.y,
+        out.bounds.max.z - out.bounds.min.z,
+    };
+    if (extent.x <= extent.y && extent.x <= extent.z) {
+        out.planeNormal = {1.0f, 0.0f, 0.0f};
+    } else if (extent.y <= extent.x && extent.y <= extent.z) {
+        out.planeNormal = {0.0f, 1.0f, 0.0f};
+    } else {
+        out.planeNormal = {0.0f, 0.0f, 1.0f};
+    }
+    return out;
+}
+
+}
 
 namespace {
 
@@ -1799,6 +1847,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
 
     result.transparentMeshIndices.clear();
     result.transparentMeshIndices.reserve(compiled.asset.primitives.size());
+    result.transparentMeshes.clear();
     result.skyMeshIndices.clear();
     result.skyMeshIndices.reserve(compiled.asset.primitives.size());
     result.detailMeshIndices.clear();
@@ -1810,6 +1859,9 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
             compiled.asset.primitives[static_cast<std::size_t>(meshIndex)];
         if (primitive.transparent) {
             result.transparentMeshIndices.push_back(meshIndex);
+            result.transparentMeshes.push_back(describeTransparentMesh(model.meshes[meshIndex], meshIndex));
+            result.transparentMeshes.back().leaves =
+                pvsBoxSampleLeaves(bsp, result.transparentMeshes.back().bounds);
         }
         if (faceIdBelongsToAnyMoverBrush(primitive.name, detailBrushIds)) {
             result.detailMeshIndices.push_back(meshIndex);

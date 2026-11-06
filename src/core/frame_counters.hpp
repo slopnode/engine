@@ -14,6 +14,8 @@ struct FrameCounters {
     int modelsPvsCulled = 0;
     int spritesFrustumCulled = 0;
     int spritesPvsCulled = 0;
+    int transparentFrustumCulled = 0;
+    int transparentPvsCulled = 0;
     int lightsCulled = 0;
     int lightsActive = 0;
     int pvsTests = 0;

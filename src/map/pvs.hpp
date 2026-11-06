@@ -71,30 +71,37 @@ inline std::int32_t pvsSampleLeaf(const BspTree& tree, Vector3 point) {
     return -1;
 }
 
+inline bool pvsVisiblePointFromLeaf(
+    const BspTree& tree,
+    const PvsFile& pvs,
+    std::int32_t fromLeaf,
+    Vector3 to,
+    const AreaGate* gate = nullptr) {
+    const std::int32_t b = pvsSampleLeaf(tree, to);
+    if (fromLeaf < 0 || b < 0) {
+        return true;
+    }
+    if (gate != nullptr && !areaGateAllows(*gate, tree, b)) {
+        return false;
+    }
+    return pvsCanSee(pvs, fromLeaf, b);
+}
+
 inline bool pvsVisiblePoints(
     const BspTree& tree,
     const PvsFile& pvs,
     Vector3 from,
     Vector3 to,
     const AreaGate* gate = nullptr) {
-    const std::int32_t a = pvsSampleLeaf(tree, from);
-    const std::int32_t b = pvsSampleLeaf(tree, to);
-    if (a < 0 || b < 0) {
-        return true;
-    }
-    if (gate != nullptr && !areaGateAllows(*gate, tree, b)) {
-        return false;
-    }
-    return pvsCanSee(pvs, a, b);
+    return pvsVisiblePointFromLeaf(tree, pvs, pvsSampleLeaf(tree, from), to, gate);
 }
 
-inline bool pvsVisibleBox(
+inline bool pvsVisibleBoxFromLeaf(
     const BspTree& tree,
     const PvsFile& pvs,
-    Vector3 from,
+    std::int32_t a,
     const BoundingBox& box,
     const AreaGate* gate = nullptr) {
-    const std::int32_t a = pvsSampleLeaf(tree, from);
     if (a < 0) {
         return true;
     }
@@ -115,6 +122,68 @@ inline bool pvsVisibleBox(
         if (b < 0) {
             return true;
         }
+        if (gate != nullptr && !areaGateAllows(*gate, tree, b)) {
+            continue;
+        }
+        if (pvsCanSee(pvs, a, b)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool pvsVisibleBox(
+    const BspTree& tree,
+    const PvsFile& pvs,
+    Vector3 from,
+    const BoundingBox& box,
+    const AreaGate* gate = nullptr) {
+    return pvsVisibleBoxFromLeaf(tree, pvs, pvsSampleLeaf(tree, from), box, gate);
+}
+
+inline std::vector<std::int32_t> pvsBoxSampleLeaves(const BspTree& tree, const BoundingBox& box) {
+    const Vector3 samples[] = {
+        {(box.min.x + box.max.x) * 0.5f, (box.min.y + box.max.y) * 0.5f,
+         (box.min.z + box.max.z) * 0.5f},
+        {box.min.x, box.min.y, box.min.z},
+        {box.min.x, box.min.y, box.max.z},
+        {box.min.x, box.max.y, box.min.z},
+        {box.min.x, box.max.y, box.max.z},
+        {box.max.x, box.min.y, box.min.z},
+        {box.max.x, box.min.y, box.max.z},
+        {box.max.x, box.max.y, box.min.z},
+        {box.max.x, box.max.y, box.max.z},
+    };
+    std::vector<std::int32_t> leaves;
+    for (const Vector3& point : samples) {
+        const std::int32_t leaf = pvsSampleLeaf(tree, point);
+        if (leaf < 0) {
+            return {};
+        }
+        bool seen = false;
+        for (std::int32_t known : leaves) {
+            if (known == leaf) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            leaves.push_back(leaf);
+        }
+    }
+    return leaves;
+}
+
+inline bool pvsVisibleLeavesFromLeaf(
+    const BspTree& tree,
+    const PvsFile& pvs,
+    std::int32_t a,
+    const std::vector<std::int32_t>& leaves,
+    const AreaGate* gate = nullptr) {
+    if (a < 0 || leaves.empty()) {
+        return true;
+    }
+    for (std::int32_t b : leaves) {
         if (gate != nullptr && !areaGateAllows(*gate, tree, b)) {
             continue;
         }

@@ -239,6 +239,7 @@ bool assembleMapScene(
     lightmapState.emissionPowerLoc = loaded.emissionPowerLoc;
     lightmapState.lightmapShader = loaded.lightmapShader;
     lightmapState.transparentMeshIndices = std::move(loaded.transparentMeshIndices);
+    lightmapState.transparentMeshes = std::move(loaded.transparentMeshes);
     lightmapState.skyMeshIndices = std::move(loaded.skyMeshIndices);
     lightmapState.detailMeshIndices = std::move(loaded.detailMeshIndices);
     lightmapState.twoSidedMeshIndices = std::move(loaded.twoSidedMeshIndices);

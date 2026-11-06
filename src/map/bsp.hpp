@@ -136,6 +136,14 @@ struct MapBsp {
 };
 
 /** Runtime lightmap shader toggle state on the map entity. */
+struct MapTransparentMesh {
+    int meshIndex = -1;
+    BoundingBox bounds{};
+    Vector3 planeNormal{0.0f, 1.0f, 0.0f};
+    Vector3 planePoint{};
+    std::vector<std::int32_t> leaves;
+};
+
 struct MapLightmapState {
     bool available = false;
     int useLightmapLoc = -1;
@@ -143,6 +151,7 @@ struct MapLightmapState {
     Shader lightmapShader{};
     Shader skyShader{};
     std::vector<int> transparentMeshIndices;
+    std::vector<MapTransparentMesh> transparentMeshes;
     std::vector<int> skyMeshIndices;
     std::vector<int> detailMeshIndices;
     std::vector<int> twoSidedMeshIndices;

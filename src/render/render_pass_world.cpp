@@ -238,54 +238,6 @@ struct FacePlane {
     float d = 0.0f;
 };
 
-FacePlane computeFacePlane(const Mesh& mesh, const Matrix& worldMatrix, const BoundingBox& worldBounds) {
-    FacePlane plane{};
-    if (mesh.vertexCount >= 3 && mesh.vertices != nullptr) {
-        const Vector3 v0 = Vector3Transform(
-            Vector3{mesh.vertices[0], mesh.vertices[1], mesh.vertices[2]}, worldMatrix);
-        for (int i = 1; i + 1 < mesh.vertexCount; ++i) {
-            const Vector3 v1 = Vector3Transform(
-                Vector3{
-                    mesh.vertices[i * 3 + 0], mesh.vertices[i * 3 + 1], mesh.vertices[i * 3 + 2]},
-                worldMatrix);
-            const Vector3 v2 = Vector3Transform(
-                Vector3{
-                    mesh.vertices[(i + 1) * 3 + 0],
-                    mesh.vertices[(i + 1) * 3 + 1],
-                    mesh.vertices[(i + 1) * 3 + 2]},
-                worldMatrix);
-            const Vector3 candidate =
-                Vector3CrossProduct(Vector3Subtract(v1, v0), Vector3Subtract(v2, v0));
-            if (Vector3LengthSqr(candidate) > 1e-8f) {
-                plane.normal = Vector3Normalize(candidate);
-                plane.d = Vector3DotProduct(plane.normal, v0);
-                return plane;
-            }
-        }
-    }
-    // Degenerate/unavailable geometry: fall back to the bounding box's thinnest axis, which
-    // for an axis-aligned brush face is the true face normal anyway.
-    const Vector3 extent{
-        worldBounds.max.x - worldBounds.min.x,
-        worldBounds.max.y - worldBounds.min.y,
-        worldBounds.max.z - worldBounds.min.z,
-    };
-    if (extent.x <= extent.y && extent.x <= extent.z) {
-        plane.normal = {1.0f, 0.0f, 0.0f};
-    } else if (extent.y <= extent.x && extent.y <= extent.z) {
-        plane.normal = {0.0f, 1.0f, 0.0f};
-    } else {
-        plane.normal = {0.0f, 0.0f, 1.0f};
-    }
-    const Vector3 center{
-        (worldBounds.min.x + worldBounds.max.x) * 0.5f,
-        (worldBounds.min.y + worldBounds.max.y) * 0.5f,
-        (worldBounds.min.z + worldBounds.max.z) * 0.5f,
-    };
-    plane.d = Vector3DotProduct(plane.normal, center);
-    return plane;
-}
-
 struct SpriteDrawItem {
     const SpriteInstance* sprite = nullptr;
     const GlobalTransformation* global = nullptr;
@@ -502,38 +454,47 @@ Vector3 directionFromMatrix(const Matrix& matrix) {
     return Vector3Normalize(dir);
 }
 
-bool pvsVisibleFromCamera(
-    flecs::world& world,
-    Vector3 cameraPos,
-    Vector3 objectPos) {
+struct PvsCull {
+    const BspTree* tree = nullptr;
+    const PvsFile* pvs = nullptr;
+    std::int32_t fromLeaf = -1;
+    AreaGate gate{};
+};
+
+PvsCull makePvsCull(flecs::world& world, Vector3 cameraPos) {
+    PvsCull cull{};
     if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
-        return true;
+        return cull;
     }
-    ++frameCounters().pvsTests;
-    const AreaGate gate = areaGateFromPoint(world, cameraPos);
-    return pvsVisiblePoints(
-        world.get<MapBsp>().tree,
-        world.get<MapPvs>().pvs,
-        cameraPos,
-        objectPos,
-        &gate);
+    cull.tree = &world.get<MapBsp>().tree;
+    cull.pvs = &world.get<MapPvs>().pvs;
+    cull.fromLeaf = pvsSampleLeaf(*cull.tree, cameraPos);
+    cull.gate = areaGateFromPoint(world, cameraPos);
+    return cull;
 }
 
-bool pvsBoxVisibleFromCamera(
-    flecs::world& world,
-    Vector3 cameraPos,
-    const BoundingBox& worldBounds) {
-    if (!world.has<MapPvs>() || !world.has<MapBsp>()) {
+bool pvsCullPoint(const PvsCull& cull, Vector3 point) {
+    if (cull.tree == nullptr || cull.pvs == nullptr) {
         return true;
     }
     ++frameCounters().pvsTests;
-    const AreaGate gate = areaGateFromPoint(world, cameraPos);
-    return pvsVisibleBox(
-        world.get<MapBsp>().tree,
-        world.get<MapPvs>().pvs,
-        cameraPos,
-        worldBounds,
-        &gate);
+    return pvsVisiblePointFromLeaf(*cull.tree, *cull.pvs, cull.fromLeaf, point, &cull.gate);
+}
+
+bool pvsCullBox(const PvsCull& cull, const BoundingBox& box) {
+    if (cull.tree == nullptr || cull.pvs == nullptr) {
+        return true;
+    }
+    ++frameCounters().pvsTests;
+    return pvsVisibleBoxFromLeaf(*cull.tree, *cull.pvs, cull.fromLeaf, box, &cull.gate);
+}
+
+bool pvsCullLeaves(const PvsCull& cull, const std::vector<std::int32_t>& leaves) {
+    if (cull.tree == nullptr || cull.pvs == nullptr) {
+        return true;
+    }
+    ++frameCounters().pvsTests;
+    return pvsVisibleLeavesFromLeaf(*cull.tree, *cull.pvs, cull.fromLeaf, leaves, &cull.gate);
 }
 
 struct SpriteBillboardShader {
@@ -802,6 +763,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
         return rankedLights;
     }
     std::vector<RankedDynamicLight> candidates;
+    const PvsCull cull = makePvsCull(world, lens.camera.position);
     world.each([&](flecs::entity entity,
                    const DynamicLight& light,
                    const GlobalTransformation& global) {
@@ -824,8 +786,7 @@ std::vector<RankedDynamicLight> gatherDynamicLights(
             ++frameCounters().lightsCulled;
             return;
         }
-        if (!viewSpace &&
-            !pvsVisibleFromCamera(world, lens.camera.position, ranked.position)) {
+        if (!viewSpace && !pvsCullPoint(cull, ranked.position)) {
             ++frameCounters().lightsCulled;
             return;
         }
@@ -910,6 +871,7 @@ void drawWorldModels(
         modelLightingState = &world.get_mut<ModelLightingState>();
         gatherStaticModelLights(world, *modelLightingState);
     }
+    const PvsCull cull = makePvsCull(world, lens.camera.position);
     context.worldModelQuery.each([&](flecs::entity modelEntity, Model3D& model, GlobalTransformation& global) {
         ModelLightingUniforms modelLighting{};
         bool useModelLighting = false;
@@ -920,7 +882,7 @@ void drawWorldModels(
                 ++frameCounters().modelsFrustumCulled;
                 return;
             }
-            if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
+            if (!pvsCullBox(cull, worldBounds)) {
                 ++frameCounters().modelsPvsCulled;
                 return;
             }
@@ -996,7 +958,7 @@ void drawWorldModels(
                 if (!aabbInFrustum(frustum, worldBounds)) {
                     return;
                 }
-                if (!pvsBoxVisibleFromCamera(world, lens.camera.position, worldBounds)) {
+                if (!pvsCullBox(cull, worldBounds)) {
                     return;
                 }
             }
@@ -1017,6 +979,7 @@ void collectWorldSpriteDrawItems(
     std::vector<SpriteDrawItem>& spriteDrawList) {
     spriteDrawList.clear();
     spriteDrawList.reserve(32);
+    const PvsCull cull = makePvsCull(world, lens.camera.position);
     context.worldSpriteQuery.each(
         [&](flecs::entity spriteEntity, SpriteInstance& sprite, GlobalTransformation& global) {
             const Vector3 position = translationFromMatrix(global.matrix);
@@ -1033,7 +996,7 @@ void collectWorldSpriteDrawItems(
                 ++frameCounters().spritesFrustumCulled;
                 return;
             }
-            if (!pvsVisibleFromCamera(world, lens.camera.position, position)) {
+            if (!pvsCullPoint(cull, position)) {
                 ++frameCounters().spritesPvsCulled;
                 return;
             }
@@ -1125,18 +1088,35 @@ std::string drawWorldTransparentPass(
         const MapLightmapState& lightmaps = mapEntity.get<MapLightmapState>();
         Model3D& mapModel = mapEntity.get_mut<Model3D>();
         const GlobalTransformation& mapGlobal = mapEntity.get<GlobalTransformation>();
-        if (!lightmaps.transparentMeshIndices.empty()) {
-            for (int meshIndex : lightmaps.transparentMeshIndices) {
-                if (meshIndex < 0 || meshIndex >= mapModel.model.meshCount) {
+        if (!lightmaps.transparentMeshes.empty()) {
+            const PvsCull cull = makePvsCull(world, lens.camera.position);
+            const Vector3 origin = Vector3Transform(Vector3Zero(), mapGlobal.matrix);
+            for (const MapTransparentMesh& mesh : lightmaps.transparentMeshes) {
+                if (mesh.meshIndex < 0 || mesh.meshIndex >= mapModel.model.meshCount) {
                     continue;
                 }
                 TransparentDrawItem item{};
                 item.kind = TransparentDrawKind::MapMesh;
-                item.mapMeshIndex = meshIndex;
-                item.worldBounds = transformAabb(
-                    GetMeshBoundingBox(mapModel.model.meshes[meshIndex]), mapGlobal.matrix);
-                item.facePlane = computeFacePlane(
-                    mapModel.model.meshes[meshIndex], mapGlobal.matrix, item.worldBounds);
+                item.mapMeshIndex = mesh.meshIndex;
+                item.worldBounds = transformAabb(mesh.bounds, mapGlobal.matrix);
+                if (!aabbInFrustum(frustum, item.worldBounds)) {
+                    ++frameCounters().transparentFrustumCulled;
+                    continue;
+                }
+                const bool pvsVisible = mesh.leaves.empty()
+                    ? pvsCullBox(cull, item.worldBounds)
+                    : pvsCullLeaves(cull, mesh.leaves);
+                if (!pvsVisible) {
+                    ++frameCounters().transparentPvsCulled;
+                    continue;
+                }
+                const Vector3 normal = Vector3Subtract(
+                    Vector3Transform(mesh.planeNormal, mapGlobal.matrix), origin);
+                const float normalLenSq = Vector3LengthSqr(normal);
+                item.facePlane.normal =
+                    normalLenSq > 1e-12f ? Vector3Scale(normal, 1.0f / std::sqrt(normalLenSq)) : mesh.planeNormal;
+                item.facePlane.d = Vector3DotProduct(
+                    item.facePlane.normal, Vector3Transform(mesh.planePoint, mapGlobal.matrix));
                 item.viewDepth =
                     boundsCenterViewDepth(item.worldBounds, lens.camera.position, camForward);
                 drawList.push_back(item);
@@ -1253,6 +1233,7 @@ std::string drawWorldTransparentPass(
     const Vector3 screenUp = Vector3Normalize(Vector3{matView.m1, matView.m5, matView.m9});
     const Vector3 worldUp{0.0f, 1.0f, 0.0f};
     const Texture2D* particleFilterTex = nullptr;
+    bool polygonOffsetActive = false;
     Model3D* mapDrawModel = nullptr;
     GlobalTransformation* mapDrawGlobal = nullptr;
     const MapLightmapState* mapDrawLightmaps = nullptr;
@@ -1289,10 +1270,13 @@ std::string drawWorldTransparentPass(
             }
             rlPushMatrix();
             rlMultMatrixf(MatrixToFloatV(mapDrawGlobal->matrix).v);
-            glEnable(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(
-                kTransparentMeshPolygonOffsetFactor,
-                kTransparentMeshPolygonOffsetUnits);
+            if (!polygonOffsetActive) {
+                glEnable(GL_POLYGON_OFFSET_FILL);
+                glPolygonOffset(
+                    kTransparentMeshPolygonOffsetFactor,
+                    kTransparentMeshPolygonOffsetUnits);
+                polygonOffsetActive = true;
+            }
             Material& transparentMaterial = mapDrawModel->model.materials[item.mapMeshIndex];
             if (mapDrawLightmaps != nullptr && mapDrawLightmaps->emissionPowerLoc >= 0) {
                 SetShaderValue(
@@ -1306,9 +1290,13 @@ std::string drawWorldTransparentPass(
                 transparentMaterial,
                 MatrixIdentity());
             ++frameCounters().transparentMeshDraws;
-            glDisable(GL_POLYGON_OFFSET_FILL);
             rlPopMatrix();
         } else if (item.kind == TransparentDrawKind::Sprite) {
+            if (polygonOffsetActive) {
+                rlDrawRenderBatchActive();
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                polygonOffsetActive = false;
+            }
             BlendMode want = BLEND_ALPHA;
             if (const SpriteAsset* asset = assets.getSpriteAsset(item.sprite.sprite->sprite);
                 asset != nullptr && asset->blend == SpriteBlendMode::Additive) {
@@ -1335,6 +1323,11 @@ std::string drawWorldTransparentPass(
             const ParticleDrawItem& particle = item.particle;
             if (particle.texture == nullptr || particle.texture->id == 0 || particle.size <= 0.0f) {
                 continue;
+            }
+            if (polygonOffsetActive) {
+                rlDrawRenderBatchActive();
+                glDisable(GL_POLYGON_OFFSET_FILL);
+                polygonOffsetActive = false;
             }
             if (particleFilterTex != particle.texture) {
                 if (particleFilterTex != nullptr) {
@@ -1382,6 +1375,9 @@ std::string drawWorldTransparentPass(
         SetTextureFilter(*particleFilterTex, TEXTURE_FILTER_POINT);
     }
     rlDrawRenderBatchActive();
+    if (polygonOffsetActive) {
+        glDisable(GL_POLYGON_OFFSET_FILL);
+    }
     EndBlendMode();
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     rlEnableDepthMask();
