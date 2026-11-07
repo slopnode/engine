@@ -136,6 +136,8 @@ set(SLOPLIB_SOURCES
     src/net/net_schema.cpp
     src/net/memory_transport.cpp
     src/net/enet_transport.cpp
+    src/net/secure_random.cpp
+    src/net/secure_transport.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
@@ -221,7 +223,10 @@ target_include_directories(sloplib PUBLIC
     src
     "${CMAKE_BINARY_DIR}/generated"
 )
-target_link_libraries(sloplib PUBLIC raylib s7 Recast enet)
+target_link_libraries(sloplib PUBLIC raylib s7 Recast enet monocypher)
+if(WIN32)
+    target_link_libraries(sloplib PUBLIC bcrypt)
+endif()
 
 if(MSVC)
     target_compile_options(sloplib PRIVATE /W4 /permissive-)

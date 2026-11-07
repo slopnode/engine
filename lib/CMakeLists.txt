@@ -180,3 +180,6 @@ target_include_directories(enet PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/enet/include)
 if(WIN32 AND NOT MINGW)
     target_link_libraries(enet PUBLIC winmm ws2_32)
 endif()
+
+add_library(monocypher STATIC monocypher/src/monocypher.c)
+target_include_directories(monocypher PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/monocypher/src)

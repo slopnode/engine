@@ -1,6 +1,7 @@
 #include "test_assert.hpp"
 
 #include "net/enet_transport.hpp"
+#include "net/secure_transport.hpp"
 
 #include <chrono>
 #include <cstring>
@@ -157,6 +158,32 @@ void runEnetTransportTests() {
         }));
         const NetEvent* lost = first(clientEvents, NetEventKind::Disconnected);
         CHECK(lost != nullptr && lost->connection == toServer);
+    }
+
+    {
+        auto server = createSecureTransport(createEnetTransport());
+        auto client = createSecureTransport(createEnetTransport());
+        const int port = listenSomewhere(*server);
+        CHECK(port != 0);
+        const NetConnectionId toServer = client->connect("127.0.0.1:" + std::to_string(port));
+        std::vector<NetEvent> serverEvents;
+        std::vector<NetEvent> clientEvents;
+        CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+            if (const NetEvent* incoming = first(serverEvents, NetEventKind::Incoming)) {
+                server->accept(incoming->connection);
+                serverEvents.clear();
+            }
+            return first(serverEvents, NetEventKind::Connected) && first(clientEvents, NetEventKind::Connected);
+        }));
+        const std::optional<SecureKey> seen = client->peerKey(toServer);
+        CHECK(seen.has_value() && *seen == server->publicKey());
+        serverEvents.clear();
+        CHECK(client->send(toServer, bytes("over the wire"), NetSendMode::Reliable));
+        CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+            return first(serverEvents, NetEventKind::Message) != nullptr;
+        }));
+        const NetEvent* message = first(serverEvents, NetEventKind::Message);
+        CHECK(message != nullptr && text(message->data) == "over the wire");
     }
 
     {

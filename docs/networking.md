@@ -1,6 +1,6 @@
 @page networking_design Networking design (draft)
 
-@note This is a design draft. The transport interface with its in-memory test backend and its ENet socket backend, and declared state, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option is stored but nothing is sent yet. Events, sessions, transfers and the coordinator are not implemented.
+@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, and declared state, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option is stored but nothing is sent yet. Events, sessions, transfers and the coordinator are not implemented.
 
 Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
 
@@ -11,6 +11,24 @@ The engine provides the mechanics: typed state storage, replication, events, ses
 The engine talks to the network only through `NetTransport` (`src/net/transport.hpp`), which follows the message model of Valve's GameNetworkingSockets so a backend maps onto it one to one. A server calls `listen`, gets an `Incoming` event per connection attempt and calls `accept` or `close`. A client calls `connect`. Both sides then get `Connected`. Messages are whole byte buffers of at most 512 KiB, sent `Reliable`, which arrive once and in order, or `Unreliable`, which can be lost or arrive out of order. `poll` drains every event that has arrived, and `close` sends a reason the peer receives with its `Disconnected` event.
 
 `MemoryNetwork` (`src/net/memory_transport.hpp`) is an in-process backend for tests. Every endpoint it hands out shares one simulated network with a manual clock, `advance`, and a seeded random source, so a test is repeatable. `setConditions` adds latency, jitter and loss. Unreliable messages are dropped at the loss rate and jitter can reorder them. Reliable messages are never dropped, a loss adds a resend delay instead, and they stay in order. `createEnetTransport` (`src/net/enet_transport.hpp`) is the socket backend, built on ENet, which every build includes. Addresses are `host:port` for `connect` and `port` or `host:port` for `listen`. ENet accepts connections on its own, so the backend keeps the accept step on top of it: the server sees `Incoming` and holds the peer, and the client only sees `Connected` once `accept` has sent it a reliable confirmation. An ENet disconnect carries no text, so `close` sends its reason as a last reliable message. A connection attempt that gets no answer fails with the reason `no response` after `EnetTransportOptions::connectTimeoutMs`. ENet sends plain UDP over IPv4, without encryption, which suits LAN play, self-hosted servers and development. Several transports can share one process, which is how its test runs a client and a server together.
+
+# Encryption
+
+`SecureTransport` (`src/net/secure_transport.hpp`) wraps any transport, such as `createSecureTransport(createEnetTransport())`, and offers the same interface with every message encrypted and authenticated. It uses Monocypher, and the handshake follows the shape of the Noise protocol patterns where the client knows or learns the server's key.
+
+A server has a long-term X25519 key pair. `SecureTransportOptions::staticSecret` sets it, otherwise `listen` generates one. A dedicated server that wants a stable identity across restarts keeps its secret and passes it in. Its public key is `publicKey()`, and `secureKeyFingerprint` turns a key into a short hex string for people to compare.
+
+The handshake runs inside the wrapped transport's connection, before `Connected` is reported.
+
+1. The client sends a fresh ephemeral public key.
+2. The server sends its long-term public key, a fresh ephemeral public key, and a MAC made with the new keys.
+3. The client checks the server's key against `SecureTransportOptions::pinnedServerKey` when one is set, checks the MAC, and answers with a MAC of its own.
+
+Both sides derive the session keys from two X25519 exchanges, ephemeral with ephemeral and the client's ephemeral with the server's long-term key, mixed by BLAKE2b with a hash of the keys exchanged. Only the holder of the server's long-term secret can finish the handshake, and the ephemeral exchange means a stolen long-term key doesn't reveal earlier sessions. A client without a pinned key learns the server's key from `peerKey` and can remember it, the way SSH remembers hosts.
+
+Each direction has its own key. Messages are sealed with XChaCha20-Poly1305 and carry a counter that forms the nonce, which adds 26 bytes to each message. A reliable message has to carry exactly the next counter, so a replayed, dropped or altered one closes the connection with `bad message`. An unreliable message passes through a 64-message replay window, the way WireGuard does it, so a late one is accepted once and a copy or a forgery is dropped.
+
+This protects message contents from being read or changed on the way, and stops a server being impersonated once its key is known. It does not identify clients, which is left to whatever accounts or tokens a game adds on top. Close reasons travel in plain text through the wrapped transport. The protocol is the engine's own composition of standard primitives and has not been independently reviewed.
 
 # Principles
 

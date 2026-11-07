@@ -32,6 +32,12 @@ UDP networking with connections, reliable ordered and unreliable messages. Used 
 
 http://enet.bespin.org/
 
+# Monocypher {#monocypher}
+
+Small cryptography library: X25519 key exchange, BLAKE2b hashing and XChaCha20-Poly1305 authenticated encryption. Used by the encrypted layer of the network transport.
+
+https://monocypher.org/
+
 # Imgui {#imgui}
 
 User interface framework. 
