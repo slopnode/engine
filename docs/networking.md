@@ -27,7 +27,7 @@ Symbol|Defines
 `*net-state*`|Replicated fields per scope
 `*net-events*`|One-shot events with typed arguments
 `*net-extension*`|How many fields and events mods may add, per scope
-`*net-sessions*`|Session kinds and their join, role and listing rules
+`*net-sessions*`|Session kinds with their join rules, role names and listing fields
 
 A mod's file may define `*net-state*` and `*net-events*` only. Its names are prefixed with the mod's package id, so a field `stamina` from package `staminamod` is `staminamod/stamina` everywhere.
 
@@ -72,6 +72,8 @@ Option|Values|Meaning
 
 `send` is also the anti-cheat line. A field a client never receives cannot be read off that client, so where enemies are, what a hidden door's state is or a monster's health stay `none` unless the game wants them shown.
 
+The engine has no notion of teams or parties. If a game later needs to send a field to some players but not others, the plan is plain named groups that server scripts fill, such as `(net-group-add! 'red player-id)`, and a `(send (group red))` audience. The engine would only know which players are in a set. What a group means stays in the game's scripts.
+
 # Events
 
 Events are one-shot messages that don't belong in state, such as a sound, a hit marker or a pickup flash. Scripts on the server raise them, the engine sends them, and clients run a handler for them. They replace scripts calling sound and effect functions directly in the tick, which on a dedicated server reach no one.
@@ -110,7 +112,7 @@ Option|Meaning
 `players`|Minimum and maximum members
 `join`|How new members get in, see below
 `late-join`|Whether members can join after the session started its map
-`roles`|Named member roles and what each may keep, see below
+`roles`|Names of the roles a member can be given. Scripts assign them, see below
 `announce`|`listed` appears in server and lobby lists, `hidden` can be found by matchmaking queries only, `private` by invite only
 `listing`|Fields a listing or a matchmaking query can see, such as the map, the mission or a level range
 
@@ -123,31 +125,28 @@ Way in|Meaning
 `(summon n)`|The session owner accepts a request from a player who offered to help, up to `n`
 `(invasion n)`|Matchmaking may place an uninvited player, up to `n`, if the owner allows it
 
-A role names what a member is and what of their state survives the visit.
-
-Role option|Meaning
--|-
-`keep`|`all` keeps every changed `travel` field when the member leaves. `none` restores what they arrived with. A list keeps only those fields
-`hostile`|Whether the role counts as an enemy of the owner's party. Games read this when they pick targets
+A role is a label. A script gives a member one with `session-set-role!`, usually in `on-player-join` based on how they got in, and the engine passes it to hooks and shows counts per role in listings. What a role allows, such as whether it counts as an enemy, is game code.
 
 ## Hooks
 
 Hook|Called when
 -|-
-`(on-player-join player-id role how)`|A member enters. `how` is the way in, such as `invite` or `invasion`. The game spawns them, announces them and decides what they may do
+`(on-player-join player-id how)`|A member enters. `how` is the way in, such as `invite` or `invasion`. The game gives them a role, spawns them, announces them and decides what they may do
 `(on-player-leave player-id reason)`|A member leaves, disconnects or is moved away. The game decides whether their body stays, turns into an AI or vanishes
 `(on-session-start kind)`|The session's first map is ready
-`(on-transfer-in player-id from-kind reason)`|A member arrives through a transfer and their travel record has been applied
+`(on-transfer-in player-id record from-kind reason)`|A member arrives from another session. `record` is their travel record, already checked against the schema. Nothing in it is applied until the script applies it
 
 Late join and sudden departure are normal events, not special cases. A joiner receives the full current state of every replicated entity and every field it is allowed to see before its first tick. Scripts therefore can't assume the party is fixed at map start, and must handle a member vanishing mid-fight. Join and leave hooks are where that is handled.
 
 ## Travel {#net-travel}
 
-Moving a player to another map in the same session, or to another session anywhere, carries a travel record: the values of their `travel` fields, encoded with the schema. Only servers build and read travel records. A client never sends one, so a client can't arrive somewhere with an inventory it invented. The receiving session applies the record before `on-transfer-in` runs. slopdoom's `carry` map loads, which keep health, ammo and inventory between maps today, are the same thing within one session.
+Moving a player to another map in the same session, or to another session anywhere, carries a travel record: the values of their `travel` fields, encoded with the schema. Only servers build and read travel records. A client never sends one, so a client can't arrive somewhere with an inventory it invented. A map change inside one session keeps every `travel` field as it is, since the same server stays in charge. slopdoom's `carry` map loads, which keep health, ammo and inventory between maps today, are this case.
+
+A transfer between sessions doesn't apply anything by itself. The engine checks the record against the schema and hands it to `on-transfer-in` in the receiving session, and that script decides what to take. It can apply the whole record with `net-apply-travel!`, apply a list of fields, or read values out of it and do something else. The engine guarantees only that the record is well formed and came from a server. Coming back from a visit is a transfer like any other. A player's home session gets the record the visited session built, and its own script decides which of those values to accept.
 
 ## Script functions
 
-These need a new capability, `session-control`, held by the engine and base roles only. Mods can read session fields and listings, and can register join and leave hooks with `hook-add`.
+These need a new capability, `session-control`, held by engine and base package code only. Mods can read session fields and listings, and can register join and leave hooks with `hook-add`.
 
 Function|Does
 -|-
@@ -156,6 +155,8 @@ Function|Does
 `(net-event! name position-or-player args ...)`|Raises an event
 `(session-create kind options)`|Asks the coordinator for a new session. Returns its id once it exists
 `(session-transfer player-id session-id reason)`|Moves a member, with their travel record
+`(session-set-role! player-id role)`|Gives a member one of the kind's roles
+`(net-apply-travel! player-id record [fields])`|Applies a travel record, or only the named fields of it
 `(session-change-map map-id reason)`|Changes the current session's map for every member
 `(session-set-listing field value)`|Updates what listings and matchmaking see
 `(session-close reason)`|Ends the session and returns members to wherever the game sends them
@@ -170,7 +171,7 @@ A co-op campaign is a `private` kind with `(invite 3)`. When a mission ends, the
 
 A hub with rooms is a `listed` hub kind with `(open 64)` and a `listed` room kind. Players walk into a room's portal, and the hub script transfers them into the room's session. The room's `listing` fields are what the hub shows on its board.
 
-A drop-in world in the style of Dark Souls is a `hidden` kind per player, owned by that player, with `(summon 2)` and `(invasion 1)` and `late-join \#t`. Its `listing` holds the area and a level range, which is what matchmaking uses to place summoned helpers and invaders. A `phantom` role with `(keep (souls))` keeps only what the helper earned, and an `invader` role is `hostile`. `on-player-join` puts the visitor somewhere sensible and announces them, `on-player-leave` handles them dying or the owner beating them.
+A drop-in world in the style of Dark Souls is a `hidden` kind per player, owned by that player, with `(summon 2)` and `(invasion 1)` and `late-join \#t`. Its `listing` holds the area and a level range, which is what matchmaking uses to place summoned helpers and invaders. `on-player-join` gives a summoned helper the `phantom` role and an uninvited one the `invader` role, puts them somewhere sensible and announces them. The game's targeting code treats invaders as enemies. `on-player-leave` handles a visitor dying or the owner beating them. When a phantom returns home, the home world's `on-transfer-in` takes the souls out of the record and ignores the rest, so nothing else that happened in someone else's world changes the helper's own game.
 
 On Steam these map onto lobbies. `listed` and `hidden` are lobby visibility, listing fields are lobby metadata that lobby searches filter on, `invite` is a Steam invite, and the coordinator's placement uses Steam's dedicated server and relay support. Another backend maps the same declarations onto its own services.
 
@@ -211,14 +212,14 @@ This is what slopdoom's `data/net.s7` could look like. The player fields are the
      (join (invite 3))
      (late-join \#t)
      (announce private)
-     (roles (host (keep all)) (guest (keep all)))
+     (roles host guest)
      (listing (mission (string 32)) (difficulty (symbol easy normal hard nightmare))))
     (deathmatch
      (players 2 16)
      (join (open 16))
      (late-join \#t)
      (announce listed)
-     (roles (player (keep none)))
+     (roles player)
      (listing (map (string 32)) (players (int 0 16))))))
 </code></pre>
 
@@ -231,11 +232,7 @@ A mod adding stamina declares only its own field, which the loader names `stamin
 
 # Open questions
 
-Whether `send` needs a `team` audience, or whether teams are better expressed as a field the engine filters on.
-
 How a thing's network id is assigned when a map places it and the server later respawns it, so a late joiner and an early one agree.
-
-Whether `keep` should allow a script to decide per departure, for a reward that depends on how a visit ended, instead of a fixed list per role.
 
 How the coordinator is run for small games: inside the first server process, as its own process, or entirely through a platform service such as Steam lobbies.
 
