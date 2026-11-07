@@ -141,6 +141,7 @@ void App::init_window() {
 void App::init_script() {
     scheme_ = s7_init();
     hardenSchemeRuntime(scheme_);
+    bindRoleApi(scheme_);
     bindPackageApi(assetStore_, scheme_);
     ScriptScopeGuard bootScope(ScriptScope::Boot);
     const std::string baseId{assetStore_.basePackageId()};

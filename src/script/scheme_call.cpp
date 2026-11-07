@@ -45,13 +45,13 @@ bool tryCallSchemeProc(s7_scheme* scheme, std::string_view name, ScriptScope sco
         return false;
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
 
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(scheme, func, s7_nil(scheme));
     return true;
 }
@@ -65,13 +65,13 @@ bool tryCallSchemeProc1String(
         return false;
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
 
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(scheme, func, s7_list(scheme, 1, s7_make_string(scheme, arg.c_str())));
     return true;
 }
@@ -86,13 +86,13 @@ bool tryCallSchemeProc2String(
         return false;
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
 
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(
         scheme,
         func,
@@ -114,13 +114,13 @@ bool tryCallSchemeProc1String1Alist(
         return false;
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
 
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(
         scheme,
         func,
@@ -143,13 +143,13 @@ bool tryCallSchemeProc2String1Alist(
         return false;
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
 
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     s7_call(
         scheme,
         func,
@@ -175,13 +175,13 @@ bool tryCallSchemeProc1String3Reals1OptString(
         return false;
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
 
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     const s7_pointer hitArg =
         hitTarget.empty() ? s7_f(scheme) : s7_make_string(scheme, std::string(hitTarget).c_str());
     s7_call(
@@ -235,12 +235,12 @@ bool tryCallSchemeProc2StringTruthy(
     if (scheme == nullptr || name.empty()) {
         return true;
     }
+    ScriptCallGuard callGuard(scheme, roleForProc(name));
     const s7_pointer func = s7_name_to_value(scheme, std::string(name).c_str());
     if (!s7_is_procedure(func)) {
         return true;
     }
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(name));
     const s7_pointer result = s7_call(
         scheme,
         func,
@@ -268,12 +268,12 @@ bool tryCallMapHandlerCanUse(
         if (!mapHandlerRegistry().mergeDefaults(binding)) {
             return false;
         }
+        ScriptCallGuard callGuard(scheme, roleForProc(binding.id));
         const s7_pointer func = s7_name_to_value(scheme, binding.id.c_str());
         if (!s7_is_procedure(func)) {
             return false;
         }
         ScriptScopeGuard guard(scope);
-        ScriptRoleGuard roleGuard(roleForProc(binding.id));
         const s7_pointer result = s7_call(
             scheme,
             func,
@@ -285,12 +285,12 @@ bool tryCallMapHandlerCanUse(
         return schemeResultIsTruthy(scheme, result);
     }
 
+    ScriptCallGuard callGuard(scheme, roleForProc(binding.id));
     const s7_pointer func = s7_name_to_value(scheme, binding.id.c_str());
     if (!s7_is_procedure(func)) {
         return false;
     }
     ScriptScopeGuard guard(scope);
-    ScriptRoleGuard roleGuard(roleForProc(binding.id));
     const s7_pointer result = s7_call(
         scheme,
         func,

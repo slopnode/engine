@@ -30,6 +30,14 @@ Engine|Internal engine components
 Base|Has full access to most capabilities
 Mod|Limited to read-only and presentation capabilities
 
+A procedure's role comes from the package whose script or data file defined it. Mod code can't take over a procedure that the engine, the base package, or s7 itself defined. If a mod redefines or `set!`s one, the engine restores the original as soon as that mod call returns, and before any non-mod code runs, then logs a warning naming the procedure. Mods extend hooks with `hook-add`. A procedure registered through `hook-add` while mod code is running gets the Mod role, whichever file registered it.
+
+A base registry that stores procedures and calls them later passes each one through `as-caller-role` when it is registered. A procedure registered by mod code then runs with the Mod role whoever calls it. Base code calling a stored mod procedure that skipped `as-caller-role` runs it with Base rights.
+
+The disabled file, eval, environment, and process primitives stay disabled when reached through `#_name` or `(unlet)`. `openlet`, `symbol-access`, and `procedure-setter` are disabled, so a value or variable can't carry code that runs when base code reads, sets, or does arithmetic on it. A mod's changes to s7's own hooks, such as `*error-hook*` and `*unbound-variable-hook*`, are undone the same way as rebound procedures.
+
+Two s7 features can still carry mod code inside plain data, a hash table made with custom equality procedures and a closure used as an iterator. Base code that walks or looks up data a mod built can run that code with Base rights.
+
 ## Capabilities {#capabilities}
 
 Capability|Description
@@ -129,6 +137,13 @@ Appends a contributor procedure for an engine-owned hook (see the Hooks section 
   hook-symbol : symbol?
   proc : procedure?)
   ↵ boolean?
+</code></pre>
+
+### as-caller-role {#as-caller-role}
+Wraps a procedure so it runs with the Mod role when mod code is the caller of `as-caller-role`. Returns the procedure unchanged when called from engine or base code, or when given something that isn't a procedure.
+<pre><code class="language-scheme">(as-caller-role
+  proc : procedure?)
+  ↵ procedure?
 </code></pre>
 
 ### startup-arg {#startup-arg}

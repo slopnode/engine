@@ -1512,8 +1512,11 @@ bool AssetStore::loadScript(s7_scheme* scheme, std::string_view path) {
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }
@@ -1530,8 +1533,11 @@ bool AssetStore::loadScriptFromPackage(
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }
@@ -1603,8 +1609,11 @@ bool AssetStore::loadData(s7_scheme* scheme, std::string_view path) {
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }
@@ -1621,8 +1630,11 @@ bool AssetStore::loadDataFromPackage(
     const PackageRole role =
         owned->package != nullptr ? owned->package->role() : PackageRole::Base;
     const ProcRoleSnapshot before = snapshotProcRoles(scheme);
-    PackageLoadContextGuard loadGuard(packageId, role);
-    s7_load(scheme, owned->path.string().c_str());
+    {
+        PackageLoadContextGuard loadGuard(packageId, role);
+        ScriptCallGuard callGuard(scheme, role);
+        s7_load(scheme, owned->path.string().c_str());
+    }
     stampProcRoles(scheme, before, role);
     return true;
 }

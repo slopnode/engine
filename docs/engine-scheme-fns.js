@@ -5,7 +5,7 @@ window.SLOPENGINE_SCHEME_FNS = [
   "actor-set-move-speed!", "actor-set-wish", "actor-set-wish-3d", "actor-sight-get",
   "actor-sight-set!", "actor-spawn", "actor-submerged?", "actor-tags",
   "actor-water-exit-dir", "actor-yaw", "actor-set-yaw!", "actor-set-bone-scale!", "actor-bone-scale", "actor-clear-bone-scales!", "actor-set-shader-param!", "actor-clear-shader-params!", "actor-sever-bone!", "actor-ragdoll!", "physics-blast!", "actor-hide-bone!", "actor-bone-severed?", "actor-restore-bones!", "actor-bone-pos", "actors-in-radius", "actors-with-tag",
-  "audio-attach", "audio-filter-attach", "button",
+  "as-caller-role", "audio-attach", "audio-filter-attach", "button",
   "camera-path-duration", "camera-path-play", "camera-path-playing?",
   "camera-path-progress", "camera-path-sample", "camera-path-stop", "camera-paths", "combo", "combo-item",
   "current-map", "current-package-id", "debug-line-add!", "debug-lines-clear!",

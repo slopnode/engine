@@ -1,6 +1,7 @@
 #include "script/hook_registry.hpp"
 
 #include "script/package_load_context.hpp"
+#include "script/proc_role.hpp"
 #include "script/script_scope.hpp"
 
 #include <s7.h>
@@ -55,18 +56,20 @@ void callOwnerThenContribs(s7_scheme* scheme, std::string_view name, s7_pointer 
         return;
     }
     HookEntry& entry = it->second;
-    s7_pointer owner = entry.owner;
-    const s7_pointer live = s7_name_to_value(scheme, nameStr.c_str());
-    if (s7_is_procedure(live)) {
-        owner = live;
-    }
-    if (owner != nullptr && s7_is_procedure(owner)) {
-        ScriptRoleGuard roleGuard(PackageRole::Base);
-        s7_call(scheme, owner, args);
+    {
+        ScriptCallGuard callGuard(scheme, PackageRole::Base);
+        s7_pointer owner = entry.owner;
+        const s7_pointer live = s7_name_to_value(scheme, nameStr.c_str());
+        if (s7_is_procedure(live)) {
+            owner = live;
+        }
+        if (owner != nullptr && s7_is_procedure(owner)) {
+            s7_call(scheme, owner, args);
+        }
     }
     for (const HookContrib& contrib : entry.contribs) {
         if (contrib.proc != nullptr && s7_is_procedure(contrib.proc)) {
-            ScriptRoleGuard roleGuard(contrib.role);
+            ScriptCallGuard callGuard(scheme, contrib.role);
             s7_call(scheme, contrib.proc, args);
         }
     }
@@ -113,7 +116,7 @@ bool hookAdd(s7_scheme* scheme, std::string_view name, s7_pointer proc) {
     contrib.proc = proc;
     contrib.gcLoc = s7_gc_protect(scheme, proc);
     contrib.protected_ = true;
-    contrib.role = currentPackageRole();
+    contrib.role = callerRole();
     g_hooks[std::string(name)].contribs.push_back(contrib);
     return true;
 }
@@ -261,14 +264,14 @@ bool callHook2StringAllTruthy(
         return !s7_is_null(scheme, result) && result != s7_f(scheme);
     };
     if (entry.owner != nullptr && s7_is_procedure(entry.owner)) {
-        ScriptRoleGuard roleGuard(PackageRole::Base);
+        ScriptCallGuard callGuard(scheme, PackageRole::Base);
         if (!truthy(s7_call(scheme, entry.owner, args))) {
             return false;
         }
     }
     for (const HookContrib& contrib : entry.contribs) {
         if (contrib.proc != nullptr && s7_is_procedure(contrib.proc)) {
-            ScriptRoleGuard roleGuard(contrib.role);
+            ScriptCallGuard callGuard(scheme, contrib.role);
             if (!truthy(s7_call(scheme, contrib.proc, args))) {
                 return false;
             }
