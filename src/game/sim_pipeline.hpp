@@ -2,6 +2,8 @@
 
 #include <flecs.h>
 
+#include <functional>
+
 namespace slopengine {
 
 struct FramePipelines {
@@ -13,6 +15,7 @@ struct FramePipelines {
 void registerSimPipelines(flecs::world& world);
 void runFramePipelines(flecs::world& world, float frameDt);
 void runSimulationTicks(flecs::world& world, float frameDt);
+void runFrameWithoutTicks(flecs::world& world, float frameDt, const std::function<void(float)>& between);
 void resetSimClock(flecs::world& world);
 
 }

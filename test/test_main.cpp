@@ -22,6 +22,8 @@ void runNetTests();
 void runTransportTests();
 void runEnetTransportTests();
 void runSecureTransportTests();
+void runNetProtocolTests();
+void runNetSessionTests();
 void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
@@ -90,6 +92,8 @@ const Suite kSuites[] = {
     {"transport", slopengine::runTransportTests},
     {"enet_transport", slopengine::runEnetTransportTests},
     {"secure_transport", slopengine::runSecureTransportTests},
+    {"net_protocol", slopengine::runNetProtocolTests},
+    {"net_session", slopengine::runNetSessionTests},
     {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},

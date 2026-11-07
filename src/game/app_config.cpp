@@ -37,6 +37,9 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements\n"
               << "  --dedicated   Run the simulation only, in a hidden window with no audio,\n"
               << "                drawing or local input\n"
+              << "  --listen      Host a game on port or host:port\n"
+              << "  --connect     Join a game at host:port, or with --dedicated join without a window\n"
+              << "  --server-key  With --connect, refuse servers whose key isn't this 64-digit hex key\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -102,6 +105,17 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
 
         if (arg == "--dedicated") {
             config.dedicated = true;
+            continue;
+        }
+
+        if (arg == "--listen" || arg == "--connect" || arg == "--server-key") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            std::string& target = arg == "--listen" ? config.listenAddress
+                : arg == "--connect"                ? config.connectAddress
+                                                    : config.serverKey;
+            target = argv[++i];
             continue;
         }
 

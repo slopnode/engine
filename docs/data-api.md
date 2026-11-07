@@ -194,7 +194,7 @@ Title screen configuration defines the background shown behind the title screen.
 
 # Net state {#net-state}
 
-Symbols `*net-state*` and `*net-extension*`
+Symbols `*net-state*`, `*net-events*` and `*net-extension*`
 
 Net state declares the game state the engine stores for each player, for the session and for things with a given tag. Each field has a type, a default and options for who receives it, whether it travels with a player and whether saves keep it. Scripts read and write the fields with `net-get` and `net-set!` (see @ref scriptingapi). Only the base package's `*net-extension*` is read. It sets how many fields mods may add per scope, and mod fields are named after their package, such as `staminamod/stamina`. The format, the types and the reasoning are described in @ref networking_design.
 
@@ -211,3 +211,13 @@ Net state declares the game state the engine stores for each player, for the ses
 </code></pre>
 
 Player fields not marked `travel` go back to their defaults on every map load. Session fields and travel fields keep their values until a script changes them or calls `net-reset!`.
+
+`*net-events*` declares one-shot events such as sounds and effects. Each has typed arguments, an audience and a reliable flag. Scripts raise them with `net-event!` and handle them in `on-event-NAME` procedures. `*net-extension*` can give mods an `(events (count n) (bytes n))` budget.
+
+<pre><code class="language-scheme">(define *net-events*
+  '((sound-3d (args (path (string 64))) (to (near 80)))
+    (blast (args (radius float)) (to (near 150)) (reliable \#t))))
+
+(define (on-event-blast where radius)
+  (particle-spawn "blast" (car where) (cadr where) (caddr where) "fx/explosion"))
+</code></pre>

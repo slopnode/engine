@@ -1,6 +1,6 @@
 @page networking_design Networking design (draft)
 
-@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, and declared state, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option is stored but nothing is sent yet. Events, sessions, transfers and the coordinator are not implemented.
+@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, declared state and events, and a first pass of playing over the network with one client, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option decides which player fields reach the client. Several players, sessions, transfers and the coordinator are not implemented.
 
 Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
 
@@ -29,6 +29,23 @@ Both sides derive the session keys from two X25519 exchanges, ephemeral with eph
 Each direction has its own key. Messages are sealed with XChaCha20-Poly1305 and carry a counter that forms the nonce, which adds 26 bytes to each message. A reliable message has to carry exactly the next counter, so a replayed, dropped or altered one closes the connection with `bad message`. An unreliable message passes through a 64-message replay window, the way WireGuard does it, so a late one is accepted once and a copy or a forgery is dropped.
 
 This protects message contents from being read or changed on the way, and stops a server being impersonated once its key is known. It does not identify clients, which is left to whatever accounts or tokens a game adds on top. Close reasons travel in plain text through the wrapped transport. The protocol is the engine's own composition of standard primitives and has not been independently reviewed.
+
+# Playing over the network
+
+`NetSession` (`src/net/net_session.hpp`) runs a game over the encrypted ENet transport. Start a server and a client with the base package's own map flag.
+
+```
+slopengine --game slopdemo --dedicated --listen 27960 --map demoroom
+slopengine --game slopdemo --connect 127.0.0.1:27960
+```
+
+The client sends a hello with the protocol, the engine version, every mounted package with its version, and the schema hash of the declared state. The server refuses a client whose hello doesn't match and sends the reason, such as `declared state differs`. A server takes one client at a time and answers a second with `server full`.
+
+The server gives every replicated entity a number: actors, things, movers, motored bodies and debris that sit at the root of the hierarchy and have a name. It introduces each number to the client with the entity's name, and the client binds it to its own entity of that name. Names match because both sides load the same map and run the same `on-map-ready`. An entity only the server creates, such as a rocket, has no match on the client and isn't shown yet.
+
+The server tells the client which map to load and sends it again after every map change. Each tick it sends a snapshot: the position and rotation of every replicated entity, its animation clip and time, the player's eye position, and the declared player fields whose `send` is `all` or `owner`. The client runs no simulation. It feeds each snapshot into the same blending that smooths ticks, so it draws one snapshot behind. It builds a `PlayerCommand` sixty times a second from local input and sends it with the three before it, so a lost packet doesn't lose a press. The server applies the commands to the map's player in order, merges presses that arrive together, and turns the player to the client's view angles.
+
+This is a first pass. The client's own movement waits a round trip because nothing predicts it. Sounds and effects reach the client as far as the game raises them as events. Anything else scripts do in `tick` doesn't, since the client runs no ticks, so a client in slopdemo hears its gun and sees tracers and blood but sees no first-person weapon. With `--listen` and no `--dedicated`, the connected client drives the host's player and the host's own input is ignored.
 
 # Principles
 
@@ -82,6 +99,7 @@ Type|Meaning
 `entity`|Reference to a replicated entity, sent as its network id
 `(list type n)`|Up to `n` values of `type`
 `(table key-type value-type n)`|Up to `n` key and value pairs
+`float`|Any finite number, sent as 32 bits
 
 Nothing else is allowed, in particular no procedures and no arbitrary nested Scheme data. Every field has a maximum encoded size the loader can compute, which is how budgets are checked.
 
@@ -110,6 +128,8 @@ Option|Values|Meaning
 `args`|name and type pairs|Typed arguments, using the same types as fields
 `to`|`all`, `owner`, `(near metres)`, `pvs`|Who receives it. `near` and `pvs` measure from the event's position
 `reliable`|`\#t`, `\#f`|Whether a lost packet is resent. Cosmetic events usually are not
+
+A script raises an event with `(net-event! name where arg ...)`. `where` is a point `(x y z)`, a player id or `\#f`, and the arguments follow the declared order and types. Every process that receives the event, the raising one included, runs `(on-event-NAME where arg ...)` when the base package or a mod defines it, the way package actions run `on-action-NAME`. So a game moves an effect onto an event by raising the event where the effect used to happen and doing the effect in the handler, and single-player keeps working unchanged. On a server the event also goes to the client when the audience allows it. `owner` needs `where` to be the client's player, `near` needs the client's player within the radius of `where`, and `pvs` currently reaches everyone.
 
 A single-player game raises events the same way, and they are delivered locally in the same tick, so game scripts don't branch on whether they are networked.
 

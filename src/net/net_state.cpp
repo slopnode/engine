@@ -79,6 +79,8 @@ flecs::entity lookupThingEntity(const flecs::world& world, std::string_view id) 
 void registerNetState(flecs::world& world) {
     world.component<NetStore>();
     world.component<NetThingFields>();
+    world.component<NetEventQueue>();
+    world.set<NetEventQueue>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});

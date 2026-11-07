@@ -4,6 +4,7 @@
 #include "audio/audio_world.hpp"
 #include "game/app_config.hpp"
 #include "game/user_settings.hpp"
+#include "net/net_session.hpp"
 #include "physics/physics_world.hpp"
 
 #include <flecs.h>
@@ -39,6 +40,7 @@ private:
     void init_script();
     void shutdown();
     void takePendingMapLoad();
+    void startNetwork(const std::filesystem::path& settingsFilePath);
     int runDedicated();
 
     AppConfig config_;
@@ -48,6 +50,7 @@ private:
     std::unique_ptr<PhysicsWorld> physicsWorld_;
     std::unique_ptr<AudioWorld> audioWorld_;
     s7_scheme* scheme_ = nullptr;
+    std::unique_ptr<NetSession> net_;
     bool running_ = false;
 };
 

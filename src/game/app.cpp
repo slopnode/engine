@@ -4,6 +4,7 @@
 #include "camera/camera_module.hpp"
 #include "core/log.hpp"
 #include "core/package.hpp"
+#include "core/engine_version.hpp"
 #include "core/sim_clock.hpp"
 #include "core/user_paths.hpp"
 #include "game/game_state.hpp"
@@ -26,6 +27,7 @@
 #include "physics/sight_module.hpp"
 #include "navigation/nav_module.hpp"
 #include "net/net_schema.hpp"
+#include "net/enet_transport.hpp"
 #include "net/net_state.hpp"
 #include "particles/particle_module.hpp"
 #include "fx/trail.hpp"
@@ -109,6 +111,7 @@ App::App(AppConfig config)
     registerSimPipelines(world_);
     registerSimInterpolation(world_);
     registerInputModule(world_);
+    startNetwork(settingsFilePath);
     registerUiModule(world_, config_.debug, config_.profile);
     registerPhysicsModule(world_, physicsWorld_.get());
     registerSightModule(world_);
@@ -140,10 +143,20 @@ int App::run() {
         if (hasActiveLoadingSession(world_)) {
             advanceLoadingSession(world_, assetStore_, scheme_);
             resetSimClock(world_);
+            if (!hasActiveLoadingSession(world_) && net_ && net_->role() == NetRole::Server) {
+                net_->serverMapLoaded();
+            }
         } else {
             takePendingMapLoad();
         }
-        runFramePipelines(world_, GetFrameTime());
+        if (net_ && net_->role() == NetRole::Client) {
+            runFrameWithoutTicks(world_, GetFrameTime(), [this](float frameDt) { net_->clientFrame(frameDt); });
+        } else {
+            if (net_ && net_->role() == NetRole::Server) {
+                net_->serverPoll();
+            }
+            runFramePipelines(world_, GetFrameTime());
+        }
         if (world_.get<QuitRequest>().requested) {
             break;
         }
@@ -161,6 +174,9 @@ void App::takePendingMapLoad() {
         beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
     } else {
         changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+        if (net_ && net_->role() == NetRole::Server) {
+            net_->serverMapLoaded();
+        }
         if (config_.dedicated && world_.has<CurrentMap>() &&
             world_.get<CurrentMap>().id == pendingMap->mapName) {
             TraceLog(
@@ -173,6 +189,38 @@ void App::takePendingMapLoad() {
     resetSimClock(world_);
 }
 
+void App::startNetwork(const std::filesystem::path& settingsFilePath) {
+    if (config_.listenAddress.empty() && config_.connectAddress.empty()) {
+        return;
+    }
+    if (!config_.listenAddress.empty() && !config_.connectAddress.empty()) {
+        throw std::invalid_argument("--listen and --connect can't be used together");
+    }
+    NetSessionConfig net;
+    net.listenAddress = config_.listenAddress;
+    net.connectAddress = config_.connectAddress;
+    net.serverKeyPath = settingsFilePath.parent_path() / "server.key";
+    if (!config_.serverKey.empty()) {
+        SecureKey pinned{};
+        if (!parseSecureKeyHex(config_.serverKey, pinned)) {
+            throw std::invalid_argument("--server-key needs a 64-digit hex key");
+        }
+        net.pinnedServerKey = pinned;
+    }
+    net.hello.engineVersion = kSlopengineVersion;
+    net.hello.schemaHash = netSchema().hash();
+    for (const Package& package : assetStore_.packages()) {
+        net.hello.packages.push_back({package.meta().id, package.meta().version});
+    }
+    net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
+    net.disconnected = [this](const std::string&) { enterMenu(world_); };
+    net_ = std::make_unique<NetSession>(world_, std::move(net), createEnetTransport());
+    net_->registerSystems();
+    if (!net_->start()) {
+        throw std::runtime_error("network could not start");
+    }
+}
+
 int App::runDedicated() {
     std::signal(SIGINT, requestDedicatedStop);
     std::signal(SIGTERM, requestDedicatedStop);
@@ -180,8 +228,16 @@ int App::runDedicated() {
     while (running_ && g_dedicatedStop == 0) {
         takePendingMapLoad();
         const double now = GetTime();
-        runSimulationTicks(world_, static_cast<float>(now - last));
+        const float frameDt = static_cast<float>(now - last);
         last = now;
+        if (net_ && net_->role() == NetRole::Client) {
+            net_->clientFrame(frameDt);
+        } else {
+            if (net_ && net_->role() == NetRole::Server) {
+                net_->serverPoll();
+            }
+            runSimulationTicks(world_, frameDt);
+        }
         if (world_.get<QuitRequest>().requested) {
             break;
         }

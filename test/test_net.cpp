@@ -117,8 +117,44 @@ void runNetTests() {
     }
 
     {
+        NetSchema schema;
+        std::vector<std::string> messages;
+        schema.setExtension(sc, evalForm(sc, "'((events (count 1) (bytes 8)))"));
+        CHECK(schema.addPackageEvents(
+            sc,
+            evalForm(sc,
+                "'((blast (args (radius float) (kind (symbol small big))) (to (near 40)))"
+                " (pickup (args (item (string 24))) (to owner) (reliable #t))"
+                " (secret (to all))"
+                " (bad (to nowhere))"
+                " (worse (args (x (frob)))))"),
+            "game",
+            PackageRole::Base,
+            messages));
+        CHECK_EQ(static_cast<int>(messages.size()), 2);
+        CHECK(schema.addPackageEvents(sc, evalForm(sc, "'((ping (args (n (int 0 9)))))"), "moda", PackageRole::Mod, messages));
+        CHECK_FALSE(schema.addPackageEvents(sc, evalForm(sc, "'((pong))"), "modb", PackageRole::Mod, messages));
+        schema.finalize();
+        const NetEventDef* blast = schema.findEvent("blast");
+        CHECK(blast != nullptr && blast->to == NetEventAudience::Near && blast->nearRadius == 40.0f && !blast->reliable);
+        CHECK(blast != nullptr && blast->args.size() == 2 && blast->args[0].type.kind == NetTypeKind::Float);
+        const NetEventDef* pickup = schema.findEvent("pickup");
+        CHECK(pickup != nullptr && pickup->to == NetEventAudience::Owner && pickup->reliable);
+        CHECK(schema.findEvent("moda/ping") != nullptr && schema.findEvent("modb/pong") == nullptr);
+        CHECK(schema.events()[0].id == 0 && schema.events()[0].packageId == "game");
+        const std::uint64_t withEvents = schema.hash();
+        NetSchema without;
+        without.finalize();
+        CHECK(withEvents != without.hash());
+    }
+
+    {
         NetType type;
         std::string error;
+        CHECK(parseNetType(sc, evalForm(sc, "'float"), type, error) && type.kind == NetTypeKind::Float);
+        NetValue number;
+        CHECK(netValueFromScheme(sc, s7_make_real(sc, -2.25), type, number, error) && number.real == -2.25);
+        CHECK_FALSE(netValueFromScheme(sc, evalForm(sc, "'x"), type, number, error));
         CHECK(parseNetType(sc, evalForm(sc, "'(int 0 10)"), type, error));
         NetValue value;
         CHECK(netValueFromScheme(sc, s7_make_real(sc, 7.6), type, value, error) && value.integer == 8);
@@ -139,6 +175,14 @@ void runNetTests() {
         imp.id = "imp";
         imp.tags = {"monster"};
         thingDefRegistry().registerDef(imp);
+
+        netSchema().addPackageEvents(
+            sc,
+            evalForm(sc, "'((boom (args (power (int 0 9)) (scale float))) (quiet))"),
+            "game",
+            PackageRole::Base,
+            messages);
+        netSchema().finalize();
 
         flecs::world world;
         registerNetState(world);
@@ -179,6 +223,22 @@ void runNetTests() {
             CHECK(evalTrue(sc, "(catch #t (lambda () (net-set! \"Player\" 'health 1) #f) (lambda args #t))"));
         }
         CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'health)"), 150);
+
+        evalForm(sc, "(define boom-seen #f)");
+        evalForm(sc, "(define (on-event-boom where power scale) (set! boom-seen (list where power scale)))");
+        CHECK(evalTrue(sc, "(net-event! 'boom '(1 2 3) 5 0.5)"));
+        CHECK(evalTrue(sc, "(equal? boom-seen '((1.0 2.0 3.0) 5 0.5))"));
+        CHECK(evalTrue(sc, "(net-event! 'boom \"Player\" 1 2)"));
+        CHECK(evalTrue(sc, "(equal? (car boom-seen) \"Player\")"));
+        CHECK(evalTrue(sc, "(net-event! 'quiet #f)"));
+        CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'boom #f 99 1) #f) (lambda args #t))"));
+        CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'boom #f 1) #f) (lambda args #t))"));
+        CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'nothing #f) #f) (lambda args #t))"));
+        CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'boom '(1 2) 1 1) #f) (lambda args #t))"));
+        CHECK(world.get<NetEventQueue>().pending.empty());
+        world.get_mut<NetEventQueue>().forward = true;
+        CHECK(evalTrue(sc, "(net-event! 'boom #f 3 1)"));
+        CHECK(world.get<NetEventQueue>().pending.size() == 1);
 
         thingDefRegistry().clear();
         netSchema().clear();

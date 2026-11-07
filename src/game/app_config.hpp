@@ -31,6 +31,9 @@ struct AppConfig {
     bool verbose = false;
     bool perfLog = false;
     bool dedicated = false;
+    std::string listenAddress;
+    std::string connectAddress;
+    std::string serverKey;
     bool perfViewLock = false;
     float perfView[5]{};
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */

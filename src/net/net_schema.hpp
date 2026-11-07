@@ -17,6 +17,7 @@ enum class NetTypeKind {
     Bool,
     Int,
     Real,
+    Float,
     Symbol,
     String,
     Entity,
@@ -80,6 +81,29 @@ struct NetField {
     int slot = -1;
 };
 
+enum class NetEventAudience {
+    All,
+    Owner,
+    Near,
+    Pvs,
+};
+
+struct NetEventArg {
+    std::string name;
+    NetType type;
+};
+
+struct NetEventDef {
+    std::string name;
+    std::string packageId;
+    PackageRole role = PackageRole::Base;
+    std::vector<NetEventArg> args;
+    NetEventAudience to = NetEventAudience::All;
+    float nearRadius = 0.0f;
+    bool reliable = false;
+    int id = -1;
+};
+
 struct NetBudget {
     int fields = 0;
     int bytes = 0;
@@ -95,11 +119,19 @@ public:
         std::string_view packageId,
         PackageRole role,
         std::vector<std::string>& messages);
+    bool addPackageEvents(
+        s7_scheme* sc,
+        s7_pointer events,
+        std::string_view packageId,
+        PackageRole role,
+        std::vector<std::string>& messages);
     void finalize();
 
     const std::vector<NetField>& fields() const { return fields_; }
     const NetField* find(const NetScope& scope, std::string_view name) const;
     std::vector<const NetField*> fieldsIn(const NetScope& scope) const;
+    const std::vector<NetEventDef>& events() const { return events_; }
+    const NetEventDef* findEvent(std::string_view name) const;
     std::uint64_t hash() const { return hash_; }
 
 private:
@@ -107,6 +139,9 @@ private:
     NetBudget* usedFor(NetScopeKind kind);
 
     std::vector<NetField> fields_;
+    std::vector<NetEventDef> events_;
+    NetBudget eventBudget_{};
+    NetBudget eventUsed_{};
     NetBudget playerBudget_{};
     NetBudget sessionBudget_{};
     NetBudget thingBudget_{};
@@ -117,6 +152,18 @@ private:
 };
 
 NetSchema& netSchema();
+
+class NetGcPause {
+public:
+    explicit NetGcPause(s7_scheme* sc);
+    ~NetGcPause();
+
+    NetGcPause(const NetGcPause&) = delete;
+    NetGcPause& operator=(const NetGcPause&) = delete;
+
+private:
+    s7_scheme* sc_;
+};
 
 bool parseNetType(s7_scheme* sc, s7_pointer spec, NetType& out, std::string& error);
 int netTypeBits(const NetType& type);

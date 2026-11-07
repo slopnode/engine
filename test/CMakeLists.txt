@@ -14,6 +14,8 @@ add_executable(sloptests
     test_transport.cpp
     test_enet_transport.cpp
     test_secure_transport.cpp
+    test_net_protocol.cpp
+    test_net_session.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -68,6 +70,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/game/sim_pipeline.cpp
     ${CMAKE_SOURCE_DIR}/src/game/sim_interpolation.cpp
     ${CMAKE_SOURCE_DIR}/src/net/net_state.cpp
+    ${CMAKE_SOURCE_DIR}/src/net/net_session.cpp
     ${CMAKE_SOURCE_DIR}/src/script/net_script.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/render/animation_player.cpp
@@ -107,6 +110,8 @@ add_test(NAME sloptests.net COMMAND sloptests net)
 add_test(NAME sloptests.transport COMMAND sloptests transport)
 add_test(NAME sloptests.enet_transport COMMAND sloptests enet_transport)
 add_test(NAME sloptests.secure_transport COMMAND sloptests secure_transport)
+add_test(NAME sloptests.net_protocol COMMAND sloptests net_protocol)
+add_test(NAME sloptests.net_session COMMAND sloptests net_session)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

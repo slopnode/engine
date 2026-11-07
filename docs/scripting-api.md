@@ -319,6 +319,14 @@ Applies a list from `net-save-state`. Unknown fields and values that no longer f
   state : list?) ↵ integer?
 </code></pre>
 
+### net-event! {#net-event}
+Raises a declared event. Runs `(on-event-NAME where arg ...)` here, and on a server also sends the event to the client its audience allows. Raises a `net` error for an undeclared event, a wrong `where`, or arguments that don't match the declaration.
+<pre><code class="language-scheme">(net-event!
+  event : symbol?
+  where : (or (list real? real? real?) string? \#f)
+  arg : any? ...) ↵ boolean?
+</code></pre>
+
 ### net-schema-hash {#net-schema-hash}
 Returns the declared schema's hash as a hex string. Two installs with the same packages return the same hash.
 <pre><code class="language-scheme">(net-schema-hash) ↵ string?

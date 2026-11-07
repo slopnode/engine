@@ -15,6 +15,7 @@ namespace {
 constexpr int kMaxNetCount = 65535;
 
 NetSchema g_netSchema;
+int g_gcPauseDepth = 0;
 
 bool isSymbolNamed(s7_pointer value, const char* name) {
     return s7_is_symbol(value) && std::string_view(s7_symbol_name(value)) == name;
@@ -79,6 +80,11 @@ bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& er
     if (isSymbolNamed(expr, "entity")) {
         out = NetType{};
         out.kind = NetTypeKind::Entity;
+        return true;
+    }
+    if (isSymbolNamed(expr, "float")) {
+        out = NetType{};
+        out.kind = NetTypeKind::Float;
         return true;
     }
     if (!s7_is_pair(expr) || !s7_is_symbol(s7_car(expr))) {
@@ -287,7 +293,7 @@ NetBudget parseBudget(s7_pointer options) {
             continue;
         }
         const int amount = static_cast<int>(std::max<s7_int>(0, s7_integer(s7_cadr(option))));
-        if (isSymbolNamed(s7_car(option), "fields")) {
+        if (isSymbolNamed(s7_car(option), "fields") || isSymbolNamed(s7_car(option), "count")) {
             budget.fields = amount;
         } else if (isSymbolNamed(s7_car(option), "bytes")) {
             budget.bytes = amount;
@@ -303,6 +309,7 @@ std::string canonicalValue(const NetValue& value) {
     case NetTypeKind::Int:
         return std::to_string(value.integer);
     case NetTypeKind::Real:
+    case NetTypeKind::Float:
         return formatReal(value.real);
     case NetTypeKind::Symbol:
     case NetTypeKind::String:
@@ -341,6 +348,7 @@ s7_pointer buildScheme(s7_scheme* sc, const NetValue& value) {
     case NetTypeKind::Int:
         return s7_make_integer(sc, value.integer);
     case NetTypeKind::Real:
+    case NetTypeKind::Float:
         return s7_make_real(sc, value.real);
     case NetTypeKind::Symbol:
         return s7_make_symbol(sc, value.text.c_str());
@@ -386,6 +394,8 @@ void NetSchema::setExtension(s7_scheme*, s7_pointer extension) {
             sessionBudget_ = budget;
         } else if (isSymbolNamed(s7_car(entry), "thing")) {
             thingBudget_ = budget;
+        } else if (isSymbolNamed(s7_car(entry), "events")) {
+            eventBudget_ = budget;
         }
     }
 }
@@ -504,6 +514,132 @@ bool NetSchema::addPackageFields(
     return true;
 }
 
+bool NetSchema::addPackageEvents(
+    s7_scheme* sc,
+    s7_pointer events,
+    std::string_view packageId,
+    PackageRole role,
+    std::vector<std::string>& messages) {
+    if (events == nullptr || s7_is_null(sc, events) || events == s7_undefined(sc)) {
+        return true;
+    }
+    bool proper = false;
+    const std::vector<s7_pointer> entries = listItems(sc, events, proper);
+    const std::string package(packageId);
+    if (!proper) {
+        messages.push_back(package + ": *net-events* must be a list of events");
+        return false;
+    }
+    std::vector<NetEventDef> pending;
+    for (s7_pointer entry : entries) {
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            messages.push_back(package + ": events look like (name (args ...) (to all) (reliable #t))");
+            continue;
+        }
+        NetEventDef def;
+        def.name = s7_symbol_name(s7_car(entry));
+        if (role == PackageRole::Mod) {
+            def.name = package + "/" + def.name;
+        }
+        def.packageId = package;
+        def.role = role;
+        std::string error;
+        for (s7_pointer cursor = s7_cdr(entry); error.empty() && s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+            const s7_pointer option = s7_car(cursor);
+            if (!s7_is_pair(option) || !s7_is_symbol(s7_car(option))) {
+                error = "options look like (args ...), (to all), (reliable #t)";
+                break;
+            }
+            const std::string key = s7_symbol_name(s7_car(option));
+            const s7_pointer rest = s7_cdr(option);
+            if (key == "args") {
+                for (s7_pointer arg = rest; s7_is_pair(arg); arg = s7_cdr(arg)) {
+                    const s7_pointer spec = s7_car(arg);
+                    if (!s7_is_pair(spec) || !s7_is_symbol(s7_car(spec)) || !s7_is_pair(s7_cdr(spec))) {
+                        error = "arguments look like (name type)";
+                        break;
+                    }
+                    NetEventArg parsed;
+                    parsed.name = s7_symbol_name(s7_car(spec));
+                    const s7_pointer typeRest = s7_cdr(spec);
+                    const s7_pointer expr = s7_is_null(sc, s7_cdr(typeRest)) ? s7_car(typeRest) : typeRest;
+                    if (!parseTypeExpr(sc, expr, parsed.type, error)) {
+                        error = parsed.name + ": " + error;
+                        break;
+                    }
+                    def.args.push_back(std::move(parsed));
+                }
+            } else if (key == "to") {
+                const s7_pointer value = s7_is_pair(rest) ? s7_car(rest) : s7_nil(sc);
+                if (isSymbolNamed(value, "all")) {
+                    def.to = NetEventAudience::All;
+                } else if (isSymbolNamed(value, "owner")) {
+                    def.to = NetEventAudience::Owner;
+                } else if (isSymbolNamed(value, "pvs")) {
+                    def.to = NetEventAudience::Pvs;
+                } else if (double radius = 0.0; s7_is_pair(value) && isSymbolNamed(s7_car(value), "near") &&
+                           s7_is_pair(s7_cdr(value)) && readNumber(sc, s7_cadr(value), radius) && radius > 0.0) {
+                    def.to = NetEventAudience::Near;
+                    def.nearRadius = static_cast<float>(radius);
+                } else {
+                    error = "to is all, owner, pvs or (near metres)";
+                }
+            } else if (key == "reliable") {
+                if (!s7_is_pair(rest) || !s7_is_boolean(s7_car(rest))) {
+                    error = "reliable is #t or #f";
+                } else {
+                    def.reliable = s7_boolean(sc, s7_car(rest));
+                }
+            } else {
+                error = "unknown option " + key;
+            }
+        }
+        if (!error.empty()) {
+            messages.push_back(package + ": " + def.name + ": " + error);
+            continue;
+        }
+        const auto sameName = [&](const NetEventDef& other) { return other.name == def.name; };
+        if (std::any_of(events_.begin(), events_.end(), sameName) || std::any_of(pending.begin(), pending.end(), sameName)) {
+            messages.push_back(package + ": event " + def.name + " is declared twice");
+            continue;
+        }
+        pending.push_back(std::move(def));
+    }
+    if (role == PackageRole::Mod && !pending.empty()) {
+        NetBudget wanted{};
+        for (const NetEventDef& def : pending) {
+            int bits = 8;
+            for (const NetEventArg& arg : def.args) {
+                bits += netTypeBits(arg.type);
+            }
+            wanted.fields += 1;
+            wanted.bytes += (bits + 7) / 8;
+        }
+        if (eventUsed_.fields + wanted.fields > eventBudget_.fields || eventUsed_.bytes + wanted.bytes > eventBudget_.bytes) {
+            messages.push_back(package + ": refused, its events need " + std::to_string(wanted.fields) + " events and " +
+                               std::to_string(wanted.bytes) + " bytes but the base package leaves " +
+                               std::to_string(std::max(0, eventBudget_.fields - eventUsed_.fields)) + " and " +
+                               std::to_string(std::max(0, eventBudget_.bytes - eventUsed_.bytes)));
+            return false;
+        }
+        eventUsed_.fields += wanted.fields;
+        eventUsed_.bytes += wanted.bytes;
+    }
+    for (NetEventDef& def : pending) {
+        events_.push_back(std::move(def));
+    }
+    return true;
+}
+
+const NetEventDef* NetSchema::findEvent(std::string_view name) const {
+    for (const NetEventDef& def : events_) {
+        if (def.name == name) {
+            return &def;
+        }
+    }
+    return nullptr;
+}
+
 void NetSchema::finalize() {
     std::sort(fields_.begin(), fields_.end(), [](const NetField& a, const NetField& b) {
         if (a.packageId != b.packageId) {
@@ -526,6 +662,19 @@ void NetSchema::finalize() {
                      netTypeText(field.type) + "|" + canonicalValue(field.defaultValue) + "|" +
                      std::to_string(static_cast<int>(field.send)) + "|" + (field.travel ? "t" : "f") +
                      (field.save ? "t" : "f") + "\n";
+    }
+    std::sort(events_.begin(), events_.end(), [](const NetEventDef& a, const NetEventDef& b) {
+        return a.packageId != b.packageId ? a.packageId < b.packageId : a.name < b.name;
+    });
+    for (std::size_t i = 0; i < events_.size(); ++i) {
+        NetEventDef& def = events_[i];
+        def.id = static_cast<int>(i);
+        canonical += "event|" + def.packageId + "|" + def.name + "|" + std::to_string(static_cast<int>(def.to)) + "|" +
+                     formatReal(def.nearRadius) + "|" + (def.reliable ? "r" : "u");
+        for (const NetEventArg& arg : def.args) {
+            canonical += "|" + arg.name + ":" + netTypeText(arg.type);
+        }
+        canonical += "\n";
     }
     hash_ = fnv1a(canonical);
 }
@@ -570,6 +719,7 @@ int netTypeBits(const NetType& type) {
     case NetTypeKind::String:
         return bitsFor(static_cast<std::uint64_t>(type.maxCount) + 1) + 8 * type.maxCount;
     case NetTypeKind::Entity:
+    case NetTypeKind::Float:
         return 32;
     case NetTypeKind::List:
         return bitsFor(static_cast<std::uint64_t>(type.maxCount) + 1) + type.maxCount * netTypeBits(type.items[0]);
@@ -599,6 +749,8 @@ std::string netTypeText(const NetType& type) {
         return "(string " + std::to_string(type.maxCount) + ")";
     case NetTypeKind::Entity:
         return "entity";
+    case NetTypeKind::Float:
+        return "float";
     case NetTypeKind::List:
         return "(list " + netTypeText(type.items[0]) + " " + std::to_string(type.maxCount) + ")";
     case NetTypeKind::Table:
@@ -699,6 +851,15 @@ bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, Ne
         }
         return true;
     }
+    case NetTypeKind::Float: {
+        double number = 0.0;
+        if (!readNumber(sc, value, number) || !std::isfinite(number) || std::fabs(number) > 3.0e38) {
+            error = "expects a finite number";
+            return false;
+        }
+        out.real = static_cast<float>(number);
+        return true;
+    }
     case NetTypeKind::Entity:
         if (value == s7_f(sc)) {
             return true;
@@ -751,11 +912,21 @@ bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, Ne
     return false;
 }
 
+NetGcPause::NetGcPause(s7_scheme* sc) : sc_(sc) {
+    if (g_gcPauseDepth++ == 0) {
+        s7_gc_on(sc_, false);
+    }
+}
+
+NetGcPause::~NetGcPause() {
+    if (--g_gcPauseDepth == 0) {
+        s7_gc_on(sc_, true);
+    }
+}
+
 s7_pointer netValueToScheme(s7_scheme* sc, const NetValue& value) {
-    s7_gc_on(sc, false);
-    const s7_pointer result = buildScheme(sc, value);
-    s7_gc_on(sc, true);
-    return result;
+    NetGcPause pause(sc);
+    return buildScheme(sc, value);
 }
 
 void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets) {
@@ -767,6 +938,7 @@ void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets) {
     const auto loadOne = [&](const Package& package) {
         s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-state*"), s7_nil(sc));
         s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-extension*"), s7_nil(sc));
+        s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-events*"), s7_nil(sc));
         if (!assets.loadDataFromPackage(sc, package.meta().id, "net")) {
             return;
         }
@@ -775,6 +947,7 @@ void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets) {
         }
         std::vector<std::string> messages;
         schema.addPackageFields(sc, s7_name_to_value(sc, "*net-state*"), package.meta().id, package.role(), messages);
+        schema.addPackageEvents(sc, s7_name_to_value(sc, "*net-events*"), package.meta().id, package.role(), messages);
         for (const std::string& message : messages) {
             Log::warning(LogCategory::Script, "NET: %s", message.c_str());
         }
@@ -787,11 +960,12 @@ void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets) {
         }
     }
     schema.finalize();
-    if (!schema.fields().empty()) {
+    if (!schema.fields().empty() || !schema.events().empty()) {
         Log::info(
             LogCategory::Script,
-            "NET: %zu declared fields, schema %016llx",
+            "NET: %zu declared fields, %zu events, schema %016llx",
             schema.fields().size(),
+            schema.events().size(),
             static_cast<unsigned long long>(schema.hash()));
     }
 }

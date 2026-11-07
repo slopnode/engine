@@ -1,5 +1,6 @@
 #pragma once
 
+#include "net/net_protocol.hpp"
 #include "net/net_schema.hpp"
 
 #include <flecs.h>
@@ -26,6 +27,11 @@ struct NetStore {
 struct NetThingFields {
     std::vector<int> fieldIds;
     std::vector<NetValue> values;
+};
+
+struct NetEventQueue {
+    bool forward = false;
+    std::vector<NetEventMessage> pending;
 };
 
 struct NetTarget {

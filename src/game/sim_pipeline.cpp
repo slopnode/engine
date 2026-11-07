@@ -102,6 +102,12 @@ void runSimulationTicks(flecs::world& world, float frameDt) {
     }
 }
 
+void runFrameWithoutTicks(flecs::world& world, float frameDt, const std::function<void(float)>& between) {
+    world.run_pipeline(world.get<FramePipelines>().input, frameDt);
+    between(frameDt);
+    world.progress(frameDt);
+}
+
 void resetSimClock(flecs::world& world) {
     resetSimAccumulator(world.get_mut<SimClock>());
     if (world.has<InputState>()) {

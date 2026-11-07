@@ -5,6 +5,7 @@
 #include <enet/enet.h>
 
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -18,6 +19,7 @@ constexpr enet_uint8 kReliableChannel = 0;
 constexpr enet_uint8 kUnreliableChannel = 1;
 constexpr std::size_t kChannelCount = 2;
 constexpr enet_uint32 kTimeoutLimit = 32;
+constexpr std::chrono::milliseconds kShutdownGrace{250};
 
 enum class Frame : std::uint8_t {
     Data = 0,
@@ -73,10 +75,28 @@ public:
     explicit EnetTransport(const EnetTransportOptions& options) : options_(options), ready_(acquireLibrary()) {}
 
     ~EnetTransport() override {
-        for (auto& entry : peers_) {
-            enet_peer_disconnect_now(entry.second.peer, 0);
-        }
         if (host_ != nullptr) {
+            for (auto& entry : peers_) {
+                if (!entry.second.closing) {
+                    enet_peer_disconnect_later(entry.second.peer, 0);
+                }
+            }
+            const auto deadline = std::chrono::steady_clock::now() + kShutdownGrace;
+            ENetEvent event{};
+            while (!peers_.empty() && std::chrono::steady_clock::now() < deadline) {
+                if (enet_host_service(host_, &event, 10) <= 0) {
+                    continue;
+                }
+                if (event.type == ENET_EVENT_TYPE_RECEIVE) {
+                    enet_packet_destroy(event.packet);
+                } else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+                    event.peer->data = nullptr;
+                    peers_.erase(peerId(event.peer));
+                }
+            }
+            for (auto& entry : peers_) {
+                enet_peer_disconnect_now(entry.second.peer, 0);
+            }
             enet_host_destroy(host_);
         }
         if (ready_) {
@@ -271,6 +291,7 @@ private:
             return;
         }
         const Peer& peer = found->second;
+        peer.peer->data = nullptr;
         if (!peer.closing) {
             std::string reason = peer.reason;
             if (reason.empty()) {

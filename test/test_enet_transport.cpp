@@ -187,6 +187,29 @@ void runEnetTransportTests() {
     }
 
     {
+        auto server = createEnetTransport();
+        const int port = listenSomewhere(*server);
+        CHECK(port != 0);
+        for (int round = 0; round < 3; ++round) {
+            auto client = createEnetTransport();
+            const NetConnectionId toServer = client->connect("127.0.0.1:" + std::to_string(port));
+            std::vector<NetEvent> serverEvents;
+            std::vector<NetEvent> clientEvents;
+            CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+                if (const NetEvent* incoming = first(serverEvents, NetEventKind::Incoming)) {
+                    server->accept(incoming->connection);
+                    serverEvents.clear();
+                }
+                return first(clientEvents, NetEventKind::Connected) != nullptr;
+            }));
+            client->close(toServer, "round over");
+            CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+                return first(serverEvents, NetEventKind::Disconnected) != nullptr;
+            }));
+        }
+    }
+
+    {
         auto client = createEnetTransport(EnetTransportOptions{1500, 4});
         auto idle = createEnetTransport();
         CHECK(client->connect("not an address") == kNoNetConnection);
