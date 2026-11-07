@@ -9,6 +9,7 @@
 #include <s7.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -112,6 +113,9 @@ s7_pointer g_net_set(s7_scheme* sc, s7_pointer args) {
     if (slot == nullptr) {
         return netError(sc, std::string("net-set!: ") + targetText(sc, id) + " has no declared field " + name);
     }
+    if (callerRole() == PackageRole::Mod && field->role != PackageRole::Mod) {
+        return netError(sc, "net-set!: a mod can only set fields mods declare, not " + field->name);
+    }
     NetValue value;
     std::string error;
     if (!netValueFromScheme(sc, raw, field->type, value, error)) {
@@ -122,6 +126,9 @@ s7_pointer g_net_set(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_net_reset(s7_scheme* sc, s7_pointer) {
+    if (callerRole() == PackageRole::Mod) {
+        return netError(sc, "net-reset!: mods can't reset declared state");
+    }
     if (g_netWorld != nullptr) {
         resetNetState(*g_netWorld);
     }
@@ -159,6 +166,9 @@ s7_pointer g_net_restore_state(s7_scheme* sc, s7_pointer args) {
     const s7_pointer form = in.list("state list from net-save-state");
     if (!in.ok()) {
         return in.error();
+    }
+    if (callerRole() == PackageRole::Mod) {
+        return netError(sc, "net-restore-state!: mods can't restore declared state");
     }
     if (g_netWorld == nullptr) {
         return s7_f(sc);
@@ -220,6 +230,9 @@ bool readWhere(s7_scheme* sc, s7_pointer value, NetEventMessage& out) {
             return false;
         }
         out.point[i] = static_cast<float>(s7_number_to_real(sc, s7_car(cursor)));
+        if (!std::isfinite(out.point[i])) {
+            return false;
+        }
         cursor = s7_cdr(cursor);
     }
     return s7_is_null(sc, cursor);
@@ -235,6 +248,9 @@ s7_pointer g_net_event(s7_scheme* sc, s7_pointer args) {
     const NetEventDef* def = netSchema().findEvent(name);
     if (def == nullptr) {
         return netError(sc, std::string("net-event!: no declared event ") + name);
+    }
+    if (callerRole() == PackageRole::Mod && def->role != PackageRole::Mod) {
+        return netError(sc, "net-event!: a mod can only send events mods declare, not " + def->name);
     }
     NetEventMessage event;
     event.eventId = static_cast<std::uint32_t>(def->id);

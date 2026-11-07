@@ -3,8 +3,10 @@
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
 #include "net/net_schema.hpp"
+#include "net/transport.hpp"
 #include "net/net_state.hpp"
 #include "script/net_script.hpp"
+#include "script/proc_role.hpp"
 #include "script/script_scope.hpp"
 
 #include <flecs.h>
@@ -41,6 +43,11 @@ bool evalTrue(s7_scheme* sc, const std::string& form) {
 std::int64_t evalInt(s7_scheme* sc, const std::string& form) {
     const s7_pointer result = evalForm(sc, form);
     return s7_is_integer(result) ? s7_integer(result) : -12345;
+}
+
+bool succeeds(s7_scheme* sc, const std::string& form) {
+    const s7_pointer result = evalForm(sc, "(catch #t (lambda () " + form + " 'ok) (lambda args 'err))");
+    return s7_is_symbol(result) && std::string_view(s7_symbol_name(result)) == "ok";
 }
 
 void loadSchema(s7_scheme* sc, NetSchema& schema, const char* state, std::vector<std::string>& messages) {
@@ -108,11 +115,13 @@ void runNetTests() {
         CHECK_FALSE(schema.addPackageFields(
             sc, evalForm(sc, "'((session (z (type bool))))"), "modc", PackageRole::Mod, messages));
         CHECK(schema.addPackageFields(sc, evalForm(sc, "'((player (w (type bool))))"), "modd", PackageRole::Mod, messages));
+        CHECK_FALSE(schema.addPackageFields(
+            sc, evalForm(sc, "'((player (v (type (list (list (string 65535) 65535) 65535)))))"), "mode", PackageRole::Mod, messages));
         schema.finalize();
         CHECK(schema.find(NetScope{NetScopeKind::Player, {}}, "moda/x") != nullptr);
         CHECK(schema.find(NetScope{NetScopeKind::Player, {}}, "modd/w") != nullptr);
         CHECK(schema.find(NetScope{NetScopeKind::Player, {}}, "modb/y") == nullptr);
-        CHECK_EQ(static_cast<int>(messages.size()), 2);
+        CHECK_EQ(static_cast<int>(messages.size()), 3);
         CHECK(schema.fields()[0].name == "moda/x" && schema.fields()[0].id == 0);
     }
 
@@ -181,6 +190,15 @@ void runNetTests() {
         NetValue value;
         CHECK(netValueFromScheme(sc, s7_make_real(sc, 7.6), type, value, error) && value.integer == 8);
         CHECK_FALSE(netValueFromScheme(sc, s7_make_integer(sc, 11), type, value, error));
+        CHECK_FALSE(netValueFromScheme(sc, s7_make_real(sc, std::nan("")), type, value, error));
+        CHECK_FALSE(netValueFromScheme(sc, evalForm(sc, "1e300"), type, value, error));
+        CHECK_FALSE(parseNetType(sc, evalForm(sc, "'(real 0 1e300 1e-300)"), type, error));
+        CHECK_FALSE(parseNetType(sc, evalForm(sc, "'(int -9223372036854775807 9223372036854775807)"), type, error));
+        CHECK_FALSE(parseNetType(sc, evalForm(sc, "'(list (list (list (list (list (list bool 2) 2) 2) 2) 2) 2)"), type, error));
+        CHECK(parseNetType(sc, evalForm(sc, "'(list (list (string 65535) 65535) 65535)"), type, error));
+        CHECK_EQ(netTypeBits(type), static_cast<int>(kMaxNetMessageBytes * 8));
+        CHECK(parseNetType(sc, evalForm(sc, "'(real 0 1 1/4)"), type, error));
+        CHECK_FALSE(netValueFromScheme(sc, s7_make_real(sc, std::nan("")), type, value, error));
         CHECK(parseNetType(sc, evalForm(sc, "'(table (string 4) (int 0 9) 2)"), type, error));
         CHECK(netValueFromScheme(sc, evalForm(sc, "'((\"key\" . 3))"), type, value, error));
         const s7_pointer back = netValueToScheme(sc, value);
@@ -204,6 +222,10 @@ void runNetTests() {
             "game",
             PackageRole::Base,
             messages);
+        netSchema().setExtension(sc, evalForm(sc, "'((player (fields 2) (bytes 4)) (events (count 1) (bytes 8)))"));
+        netSchema().addPackageFields(
+            sc, evalForm(sc, "'((player (stamina (type int 0 9))))"), "staminamod", PackageRole::Mod, messages);
+        netSchema().addPackageEvents(sc, evalForm(sc, "'((puff))"), "staminamod", PackageRole::Mod, messages);
         netSchema().finalize();
 
         flecs::world world;
@@ -261,6 +283,39 @@ void runNetTests() {
         world.get_mut<NetEventQueue>().forward = true;
         CHECK(evalTrue(sc, "(net-event! 'boom #f 3 1)"));
         CHECK(world.get<NetEventQueue>().pending.size() == 1);
+
+        s7_define_variable(sc, "test-nan", s7_make_real(sc, std::nan("")));
+        s7_define_variable(sc, "test-inf", s7_make_real(sc, HUGE_VAL));
+        CHECK(succeeds(sc, "(net-set! \"Player\" 'health 150)"));
+        CHECK_FALSE(succeeds(sc, "(net-set! \"Player\" 'health test-nan)"));
+        CHECK_FALSE(succeeds(sc, "(net-set! \"Player\" 'health 1e300)"));
+        CHECK_FALSE(succeeds(sc, "(net-event! 'boom (list test-nan 0 0) 1 1)"));
+        CHECK_FALSE(succeeds(sc, "(net-set! 'session 'fraction test-nan)"));
+        CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'health)"), 150);
+        {
+            NetType entityType{};
+            entityType.kind = NetTypeKind::Entity;
+            NetValue value;
+            std::string error;
+            CHECK(netValueFromScheme(sc, evalForm(sc, "(make-string 256 #\\a)"), entityType, value, error));
+            CHECK_FALSE(netValueFromScheme(sc, evalForm(sc, "(make-string 257 #\\a)"), entityType, value, error));
+            NetType parsed;
+            CHECK_FALSE(parseNetType(sc, evalForm(sc, "`(real ,test-nan 1 0.1)"), parsed, error));
+            CHECK_FALSE(parseNetType(sc, evalForm(sc, "`(real 0 ,test-inf 1)"), parsed, error));
+        }
+        const std::size_t queued = world.get<NetEventQueue>().pending.size();
+        {
+            ScriptCallGuard mod(sc, PackageRole::Mod);
+            CHECK(succeeds(sc, "(net-set! \"Player\" 'staminamod/stamina 3)"));
+            CHECK(succeeds(sc, "(net-event! 'staminamod/puff #f)"));
+            CHECK_FALSE(succeeds(sc, "(net-set! \"Player\" 'health 1)"));
+            CHECK_FALSE(succeeds(sc, "(net-event! 'boom #f 3 1)"));
+            CHECK_FALSE(succeeds(sc, "(net-reset!)"));
+            CHECK_FALSE(succeeds(sc, "(net-restore-state! saved)"));
+        }
+        CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'health)"), 150);
+        CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'staminamod/stamina)"), 3);
+        CHECK_EQ(world.get<NetEventQueue>().pending.size(), queued + 1);
 
         thingDefRegistry().clear();
         netSchema().clear();

@@ -40,6 +40,7 @@ constexpr std::size_t kCommandBacklog = 4;
 constexpr std::size_t kMaxPredictedMoves = 128;
 constexpr std::uint64_t kRelevanceLinger = 60;
 constexpr float kPlaceLift = 0.9f;
+constexpr std::size_t kEventsPerMessage = 256;
 
 constexpr const char* kAvatarPrefix = "player:";
 
@@ -674,12 +675,33 @@ void NetSession::serverSendEvents(ServerClient& client, const std::vector<NetEve
             (def.reliable ? reliable : unreliable).push_back(event);
         }
     }
-    if (!reliable.empty()) {
-        transport_->send(client.connection, encodeNetEvents(reliable, defs), NetSendMode::Reliable);
+    serverSendEventBatch(client.connection, reliable, defs, NetSendMode::Reliable);
+    serverSendEventBatch(client.connection, unreliable, defs, NetSendMode::Unreliable);
+}
+
+void NetSession::serverSendEventBatch(NetConnectionId connection, std::span<const NetEventMessage> events,
+                                      const std::vector<NetEventDef>& defs, NetSendMode mode) {
+    if (events.empty()) {
+        return;
     }
-    if (!unreliable.empty()) {
-        transport_->send(client.connection, encodeNetEvents(unreliable, defs), NetSendMode::Unreliable);
+    if (events.size() > kEventsPerMessage) {
+        serverSendEventBatch(connection, events.first(kEventsPerMessage), defs, mode);
+        serverSendEventBatch(connection, events.subspan(kEventsPerMessage), defs, mode);
+        return;
     }
+    const std::vector<NetEventMessage> batch(events.begin(), events.end());
+    const std::vector<std::byte> data = encodeNetEvents(batch, defs);
+    if (data.size() <= kMaxNetMessageBytes - kSecureOverheadBytes) {
+        transport_->send(connection, data, mode);
+        return;
+    }
+    if (events.size() == 1) {
+        Log::warning(LogCategory::General, "NET: event %s is too large to send", defs[events.front().eventId].name.c_str());
+        return;
+    }
+    const std::size_t half = events.size() / 2;
+    serverSendEventBatch(connection, events.first(half), defs, mode);
+    serverSendEventBatch(connection, events.subspan(half), defs, mode);
 }
 
 void NetSession::serverSendSnapshot(ServerClient& client) {

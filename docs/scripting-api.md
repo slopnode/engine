@@ -194,7 +194,7 @@ Returns the id of the player that `player-*` functions and `action-down?` act on
 </code></pre>
 
 ### with-script-player {#with-script-player}
-Calls `thunk` with `script-player` set to `id`, then restores it, also on error. Returns `#f` without calling `thunk` when `id` names no player body.
+Calls `thunk` with `script-player` set to `id`, then restores it, also on error and when a continuation leaves or reenters `thunk`. Returns `#f` without calling `thunk` when `id` isn't a string naming a player body. Every hook the engine calls starts from the player it was given and gets it back afterwards, so a switch can't outlive the hook that made it.
 <pre><code class="language-scheme">(with-script-player
   id : string?
   thunk : procedure?) ↵ any?
@@ -322,7 +322,7 @@ Returns a declared field's value. Raises a `net` error for a field the target do
 </code></pre>
 
 ### net-set! {#net-set}
-Stores a value in a declared field. Raises a `net` error when the value doesn't fit the field's type. Integer fields round real values, and real fields snap to their step.
+Stores a value in a declared field. Raises a `net` error when the value doesn't fit the field's type, including NaN and infinity, or when a mod sets a field the base package declared. Integer fields round real values, and real fields snap to their step.
 <pre><code class="language-scheme">(net-set!
   id : (or string? 'session)
   field : symbol?
@@ -330,7 +330,7 @@ Stores a value in a declared field. Raises a `net` error when the value doesn't 
 </code></pre>
 
 ### net-reset! {#net-reset}
-Resets every player and session field to its default, for a new game.
+Resets every player and session field to its default, for a new game. Raises a `net` error when a mod calls it.
 <pre><code class="language-scheme">(net-reset!) ↵ boolean?
 </code></pre>
 
@@ -340,13 +340,13 @@ Returns every field marked `save` as `((session (field . value) ...) (player "Pl
 </code></pre>
 
 ### net-restore-state! {#net-restore-state}
-Applies a list from `net-save-state`. Unknown fields and values that no longer fit are skipped. Returns how many fields were applied.
+Applies a list from `net-save-state`. Unknown fields and values that no longer fit are skipped. Returns how many fields were applied. Raises a `net` error when a mod calls it.
 <pre><code class="language-scheme">(net-restore-state!
   state : list?) ↵ integer?
 </code></pre>
 
 ### net-event! {#net-event}
-Raises a declared event. Runs `(on-event-NAME where arg ...)` here, and on a server also sends the event to the client its audience allows. Raises a `net` error for an undeclared event, a wrong `where`, or arguments that don't match the declaration.
+Raises a declared event. Runs `(on-event-NAME where arg ...)` here, and on a server also sends the event to the client its audience allows. Raises a `net` error for an undeclared event, a wrong or non-finite `where`, arguments that don't match the declaration, or a mod raising an event the base package declared.
 <pre><code class="language-scheme">(net-event!
   event : symbol?
   where : (or (list real? real? real?) string? \#f)

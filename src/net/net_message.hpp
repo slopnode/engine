@@ -11,6 +11,8 @@
 
 namespace slopengine {
 
+inline constexpr std::size_t kMaxNetEntityIdBytes = 256;
+
 class NetWriter {
 public:
     void u8(std::uint8_t value);

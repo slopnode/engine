@@ -17,6 +17,7 @@
 #include "render/components.hpp"
 #include "script/net_script.hpp"
 #include "script/player_target.hpp"
+#include "script/proc_role.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
 
@@ -264,6 +265,32 @@ void runNetSessionTests() {
         s7_call(sc, s7_name_to_value(sc, "boom-as"), s7_nil(sc));
         CHECK(std::string(s7_string(s7_eval_c_string(sc, "(script-player)"))) == "Player");
         CHECK(s7_t(sc) == s7_eval_c_string(sc, "(let ((r (with-script-player \"nobody\" (lambda () 1)))) (not r))"));
+        CHECK(s7_t(sc) == s7_eval_c_string(sc, "(not (with-script-player 'player-2 (lambda () 1)))"));
+        s7_eval_c_string(sc, "(define raw-enter ((funclet with-script-player) 'enter))");
+        s7_eval_c_string(sc, "(define raw-leave ((funclet with-script-player) 'leave))");
+        CHECK(s7_is_procedure(s7_name_to_value(sc, "raw-enter")));
+        {
+            ScriptCallGuard mod(sc, PackageRole::Mod);
+            s7_eval_c_string(sc, "(raw-enter \"player-2\")");
+            CHECK(currentScriptPlayer() == "player-2");
+        }
+        CHECK(currentScriptPlayer() == "Player");
+        {
+            ScriptPlayerGuard outer("player-2");
+            ScriptCallGuard mod(sc, PackageRole::Mod);
+            s7_eval_c_string(sc, "(raw-leave)");
+            s7_eval_c_string(sc, "(raw-leave)");
+            CHECK(currentScriptPlayer() == "player-2");
+        }
+        CHECK(currentScriptPlayer() == "Player");
+        s7_eval_c_string(sc,
+            "(define (inner-leave) (with-script-player \"player-2\" (lambda () (raw-leave) (raw-leave) (script-player))))");
+        {
+            ScriptCallGuard base(sc, PackageRole::Base);
+            const s7_pointer seen = s7_call(sc, s7_name_to_value(sc, "inner-leave"), s7_nil(sc));
+            CHECK(s7_is_string(seen) && std::string(s7_string(seen)) == "Player");
+        }
+        CHECK(currentScriptPlayer() == "Player");
         {
             ScriptPlayerGuard guard("player-2");
             CHECK(scriptPlayer(server.world) == secondBody);

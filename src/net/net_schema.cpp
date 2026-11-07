@@ -2,6 +2,8 @@
 
 #include "assets/asset_store.hpp"
 #include "core/log.hpp"
+#include "net/net_message.hpp"
+#include "net/transport.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +15,10 @@ namespace slopengine {
 namespace {
 
 constexpr int kMaxNetCount = 65535;
+constexpr int kMaxTypeDepth = 4;
+constexpr std::int64_t kMaxIntMagnitude = std::int64_t{1} << 61;
+constexpr double kMaxRealSteps = 4294967296.0;
+constexpr std::int64_t kMaxTypeBits = static_cast<std::int64_t>(kMaxNetMessageBytes) * 8;
 
 NetSchema g_netSchema;
 int g_gcPauseDepth = 0;
@@ -71,7 +77,11 @@ std::string formatReal(double value) {
     return buffer;
 }
 
-bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& error) {
+bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& error, int depth = 0) {
+    if (depth > kMaxTypeDepth) {
+        error = "types nest at most " + std::to_string(kMaxTypeDepth) + " deep";
+        return false;
+    }
     if (isSymbolNamed(expr, "bool")) {
         out = NetType{};
         out.kind = NetTypeKind::Bool;
@@ -105,8 +115,9 @@ bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& er
     }
     if (head == "int") {
         out.kind = NetTypeKind::Int;
-        if (args.size() != 2 || !readInt(args[0], out.lo) || !readInt(args[1], out.hi) || out.lo > out.hi) {
-            error = "int needs two integers, lo then hi, with lo <= hi";
+        if (args.size() != 2 || !readInt(args[0], out.lo) || !readInt(args[1], out.hi) || out.lo > out.hi ||
+            out.lo < -kMaxIntMagnitude || out.hi > kMaxIntMagnitude) {
+            error = "int needs two integers, lo then hi, with lo <= hi, both within 2^61";
             return false;
         }
         return true;
@@ -114,8 +125,10 @@ bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& er
     if (head == "real") {
         out.kind = NetTypeKind::Real;
         if (args.size() != 3 || !readNumber(sc, args[0], out.realLo) || !readNumber(sc, args[1], out.realHi) ||
-            !readNumber(sc, args[2], out.step) || out.realLo >= out.realHi || out.step <= 0.0) {
-            error = "real needs lo, hi and step, with lo < hi and step > 0";
+            !readNumber(sc, args[2], out.step) || !std::isfinite(out.realLo) || !std::isfinite(out.realHi) ||
+            !std::isfinite(out.step) || out.realLo >= out.realHi || out.step <= 0.0 ||
+            !((out.realHi - out.realLo) / out.step <= kMaxRealSteps)) {
+            error = "real needs finite lo, hi and step, with lo < hi, step > 0 and at most 2^32 steps";
             return false;
         }
         return true;
@@ -151,7 +164,7 @@ bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& er
     if (head == "list") {
         out.kind = NetTypeKind::List;
         NetType item;
-        if (args.size() != 2 || !parseTypeExpr(sc, args[0], item, error)) {
+        if (args.size() != 2 || !parseTypeExpr(sc, args[0], item, error, depth + 1)) {
             if (error.empty()) {
                 error = "list needs an element type and a maximum count";
             }
@@ -168,7 +181,8 @@ bool parseTypeExpr(s7_scheme* sc, s7_pointer expr, NetType& out, std::string& er
         out.kind = NetTypeKind::Table;
         NetType key;
         NetType value;
-        if (args.size() != 3 || !parseTypeExpr(sc, args[0], key, error) || !parseTypeExpr(sc, args[1], value, error)) {
+        if (args.size() != 3 || !parseTypeExpr(sc, args[0], key, error, depth + 1) ||
+            !parseTypeExpr(sc, args[1], value, error, depth + 1)) {
             if (error.empty()) {
                 error = "table needs a key type, a value type and a maximum count";
             }
@@ -475,7 +489,7 @@ bool NetSchema::addPackageFields(
         for (const NetField& field : pending) {
             NetBudget& budget = wanted[static_cast<int>(field.scope.kind)];
             budget.fields += 1;
-            budget.bytes += (netTypeBits(field.type) + 7) / 8;
+            budget.bytes = std::min(budget.bytes + (netTypeBits(field.type) + 7) / 8, static_cast<int>(kMaxNetMessageBytes));
         }
         for (int kind = 0; kind < 3; ++kind) {
             if (wanted[kind].fields == 0) {
@@ -682,10 +696,10 @@ bool NetSchema::addPackageEvents(
         for (const NetEventDef& def : pending) {
             int bits = 8;
             for (const NetEventArg& arg : def.args) {
-                bits += netTypeBits(arg.type);
+                bits = std::min(bits + netTypeBits(arg.type), static_cast<int>(kMaxTypeBits));
             }
             wanted.fields += 1;
-            wanted.bytes += (bits + 7) / 8;
+            wanted.bytes = std::min(wanted.bytes + (bits + 7) / 8, static_cast<int>(kMaxNetMessageBytes));
         }
         if (eventUsed_.fields + wanted.fields > eventBudget_.fields || eventUsed_.bytes + wanted.bytes > eventBudget_.bytes) {
             messages.push_back(package + ": refused, its events need " + std::to_string(wanted.fields) + " events and " +
@@ -778,7 +792,14 @@ bool parseNetType(s7_scheme* sc, s7_pointer spec, NetType& out, std::string& err
     return parseTypeExpr(sc, spec, out, error);
 }
 
-int netTypeBits(const NetType& type) {
+namespace {
+
+std::int64_t cappedBits(std::int64_t value) {
+    return std::min(value, kMaxTypeBits);
+}
+
+std::int64_t typeBits(const NetType& type) {
+    const std::int64_t countBits = bitsFor(static_cast<std::uint64_t>(type.maxCount) + 1);
     switch (type.kind) {
     case NetTypeKind::Bool:
         return 1;
@@ -789,17 +810,22 @@ int netTypeBits(const NetType& type) {
     case NetTypeKind::Symbol:
         return bitsFor(type.symbols.size());
     case NetTypeKind::String:
-        return bitsFor(static_cast<std::uint64_t>(type.maxCount) + 1) + 8 * type.maxCount;
+        return cappedBits(countBits + 8 * std::int64_t{type.maxCount});
     case NetTypeKind::Entity:
     case NetTypeKind::Float:
         return 32;
     case NetTypeKind::List:
-        return bitsFor(static_cast<std::uint64_t>(type.maxCount) + 1) + type.maxCount * netTypeBits(type.items[0]);
+        return cappedBits(countBits + type.maxCount * typeBits(type.items[0]));
     case NetTypeKind::Table:
-        return bitsFor(static_cast<std::uint64_t>(type.maxCount) + 1) +
-            type.maxCount * (netTypeBits(type.items[0]) + netTypeBits(type.items[1]));
+        return cappedBits(countBits + type.maxCount * (typeBits(type.items[0]) + typeBits(type.items[1])));
     }
     return 0;
+}
+
+} // namespace
+
+int netTypeBits(const NetType& type) {
+    return static_cast<int>(typeBits(type));
 }
 
 std::string netTypeText(const NetType& type) {
@@ -878,7 +904,12 @@ bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, Ne
         if (s7_is_integer(value)) {
             out.integer = s7_integer(value);
         } else if (s7_is_number(value) && s7_is_real(value)) {
-            out.integer = std::llround(s7_number_to_real(sc, value));
+            const double number = s7_number_to_real(sc, value);
+            if (!(number >= static_cast<double>(type.lo) - 0.5 && number <= static_cast<double>(type.hi) + 0.5)) {
+                error = formatReal(number) + " is outside " + netTypeText(type);
+                return false;
+            }
+            out.integer = std::llround(number);
         } else {
             error = "expects an integer";
             return false;
@@ -895,7 +926,7 @@ bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, Ne
             error = "expects a number";
             return false;
         }
-        if (number < type.realLo || number > type.realHi) {
+        if (!(number >= type.realLo && number <= type.realHi)) {
             error = formatReal(number) + " is outside " + netTypeText(type);
             return false;
         }
@@ -941,6 +972,10 @@ bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, Ne
             return false;
         }
         out.text = s7_string(value);
+        if (out.text.size() > kMaxNetEntityIdBytes) {
+            error = "entity id is longer than " + std::to_string(kMaxNetEntityIdBytes) + " bytes";
+            return false;
+        }
         return true;
     case NetTypeKind::List:
     case NetTypeKind::Table: {

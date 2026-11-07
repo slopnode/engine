@@ -5,6 +5,7 @@
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
+#include "script/proc_role.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -15,26 +16,26 @@ namespace slopengine {
 
 namespace {
 
-std::string g_scriptPlayer = kLocalNetPlayerId;
+constexpr std::size_t kMaxScriptPlayerDepth = 64;
+
 flecs::world* g_playerWorld = nullptr;
-std::vector<std::string> g_restorePlayers;
 
 }
 
-ScriptPlayerGuard::ScriptPlayerGuard(std::string id) : previous_(std::move(g_scriptPlayer)) {
-    g_scriptPlayer = std::move(id);
+ScriptPlayerGuard::ScriptPlayerGuard(std::string id) : previous_(std::move(scriptPlayerStack().current)) {
+    scriptPlayerStack().current = std::move(id);
 }
 
 ScriptPlayerGuard::~ScriptPlayerGuard() {
-    g_scriptPlayer = std::move(previous_);
+    scriptPlayerStack().current = std::move(previous_);
 }
 
 const std::string& currentScriptPlayer() {
-    return g_scriptPlayer;
+    return scriptPlayerStack().current;
 }
 
 bool scriptPlayerIsLocal() {
-    return g_scriptPlayer == kLocalNetPlayerId;
+    return currentScriptPlayer() == kLocalNetPlayerId;
 }
 
 flecs::entity scriptPlayer(const flecs::world& world) {
@@ -42,7 +43,7 @@ flecs::entity scriptPlayer(const flecs::world& world) {
 }
 
 flecs::entity scriptPlayer(const flecs::world& world, s7_pointer args) {
-    const char* id = g_scriptPlayer.c_str();
+    const char* id = currentScriptPlayer().c_str();
     if (args != nullptr && s7_is_pair(args) && s7_is_string(s7_car(args))) {
         id = s7_string(s7_car(args));
     }
@@ -82,25 +83,36 @@ s7_pointer g_script_player(s7_scheme* sc, s7_pointer) {
     return s7_make_string(sc, currentScriptPlayer().c_str());
 }
 
+bool knownScriptPlayer(s7_pointer args) {
+    return g_playerWorld != nullptr && s7_is_pair(args) && s7_is_string(s7_car(args)) &&
+        scriptPlayer(*g_playerWorld, args).is_valid();
+}
+
 s7_pointer g_restore_script_player(s7_scheme* sc, s7_pointer) {
-    if (!g_restorePlayers.empty()) {
-        g_scriptPlayer = std::move(g_restorePlayers.back());
-        g_restorePlayers.pop_back();
+    ScriptPlayerStack& players = scriptPlayerStack();
+    if (players.saved.size() > players.floor) {
+        players.current = std::move(players.saved.back());
+        players.saved.pop_back();
     }
     return s7_unspecified(sc);
 }
 
-s7_pointer g_enter_script_player(s7_scheme* sc, s7_pointer args) {
+s7_pointer g_check_script_player(s7_scheme* sc, s7_pointer args) {
     if (!requireCap(sc, ScriptCap::ReadWorld)) {
         return s7_f(sc);
     }
-    ArgReader in(sc, "with-script-player", args);
-    const char* id = in.string("player id string");
-    if (g_playerWorld == nullptr || !scriptPlayer(*g_playerWorld, args).is_valid()) {
-        return s7_f(sc);
+    return s7_make_boolean(sc, knownScriptPlayer(args));
+}
+
+s7_pointer g_enter_script_player(s7_scheme* sc, s7_pointer args) {
+    ScriptPlayerStack& players = scriptPlayerStack();
+    if (!requireCap(sc, ScriptCap::ReadWorld) || !knownScriptPlayer(args) ||
+        players.saved.size() >= kMaxScriptPlayerDepth) {
+        return s7_error(sc, s7_make_symbol(sc, "with-script-player"),
+                        s7_list(sc, 1, s7_make_string(sc, "with-script-player: can't switch to that player")));
     }
-    g_restorePlayers.push_back(g_scriptPlayer);
-    g_scriptPlayer = id;
+    players.saved.push_back(players.current);
+    players.current = s7_string(s7_car(args));
     return s7_t(sc);
 }
 
@@ -120,7 +132,9 @@ void bindScriptPlayerApi(flecs::world& world, s7_scheme* scheme) {
         scheme,
         s7_list(
             scheme,
-            6,
+            8,
+            s7_make_symbol(scheme, "known"),
+            s7_make_function(scheme, "with-script-player", g_check_script_player, 1, 0, false, ""),
             s7_make_symbol(scheme, "enter"),
             s7_make_function(scheme, "with-script-player", g_enter_script_player, 1, 0, false, ""),
             s7_make_symbol(scheme, "leave"),
@@ -132,7 +146,7 @@ void bindScriptPlayerApi(flecs::world& world, s7_scheme* scheme) {
         "with-script-player",
         s7_eval_c_string_with_environment(
             scheme,
-            "(lambda (id thunk) (if (enter id) (wind (lambda () #f) thunk leave) #f))",
+            "(lambda (id thunk) (if (known id) (wind (lambda () (enter id)) thunk leave) #f))",
             env));
 }
 

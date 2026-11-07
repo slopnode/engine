@@ -6,6 +6,7 @@
 #include <s7.h>
 #include <s7_slopengine.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -342,10 +343,19 @@ void bindRoleApi(s7_scheme* scheme) {
         "(as-caller-role proc) proc, wrapped to run with the Mod role when mod code calls this");
 }
 
+ScriptPlayerStack& scriptPlayerStack() {
+    static ScriptPlayerStack stack;
+    return stack;
+}
+
 ScriptCallGuard::ScriptCallGuard(s7_scheme* scheme, PackageRole role)
     : scheme_(scheme)
     , role_(role)
-    , roleGuard_(role) {
+    , roleGuard_(role)
+    , player_(scriptPlayerStack().current)
+    , playerDepth_(scriptPlayerStack().saved.size())
+    , playerFloor_(scriptPlayerStack().floor) {
+    scriptPlayerStack().floor = playerDepth_;
     if (scheme_ == nullptr) {
         return;
     }
@@ -359,6 +369,10 @@ ScriptCallGuard::ScriptCallGuard(s7_scheme* scheme, PackageRole role)
 }
 
 ScriptCallGuard::~ScriptCallGuard() {
+    ScriptPlayerStack& players = scriptPlayerStack();
+    players.saved.resize(std::min(players.saved.size(), playerDepth_));
+    players.current = std::move(player_);
+    players.floor = playerFloor_;
     if (scheme_ == nullptr) {
         return;
     }

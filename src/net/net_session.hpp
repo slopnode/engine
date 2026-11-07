@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,8 @@ private:
     void serverAfterTick();
     void serverSendMap(ServerClient& client);
     void serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events);
+    void serverSendEventBatch(NetConnectionId connection, std::span<const NetEventMessage> events,
+                              const std::vector<NetEventDef>& defs, NetSendMode mode);
     void serverUpdateKnown(ServerClient& client);
     void serverSendSnapshot(ServerClient& client);
     void serverDrop(NetConnectionId connection, const std::string& reason);

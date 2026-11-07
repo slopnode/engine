@@ -7,7 +7,6 @@ namespace slopengine {
 
 namespace {
 
-constexpr std::size_t kMaxEntityIdBytes = 256;
 
 std::uint64_t realSteps(const NetType& type, double value) {
     return static_cast<std::uint64_t>(std::llround((value - type.realLo) / type.step));
@@ -243,7 +242,7 @@ bool NetReader::value(NetValue& out, const NetType& type) {
     case NetTypeKind::String:
         return string(out.text, static_cast<std::size_t>(type.maxCount));
     case NetTypeKind::Entity:
-        return string(out.text, kMaxEntityIdBytes);
+        return string(out.text, kMaxNetEntityIdBytes);
     case NetTypeKind::List:
     case NetTypeKind::Table: {
         std::size_t entries = 0;

@@ -118,7 +118,7 @@ Type|Meaning
 `(table key-type value-type n)`|Up to `n` key and value pairs
 `float`|Any finite number, sent as 32 bits
 
-Nothing else is allowed, in particular no procedures and no arbitrary nested Scheme data. Every field has a maximum encoded size the loader can compute, which is how budgets are checked.
+Nothing else is allowed, in particular no procedures and no arbitrary nested Scheme data. Every field has a maximum encoded size the loader can compute, which is how budgets are checked. Types nest at most 4 deep, `int` bounds stay within 2^61, and `real` needs finite bounds and at most 2^32 steps. Sizes past the 512 KiB message limit count as that limit, so a type with huge counts can't wrap around to look small. Values have to fit their type when a script sets them: a number outside the range, NaN or infinity is an error, an `entity` id is at most 256 bytes, and an event point has to be finite.
 
 ## Options
 
@@ -160,7 +160,7 @@ A single-player game raises events the same way, and they are delivered locally 
     (events (count 4) (bytes 64))))
 </code></pre>
 
-The loader adds every mod's fields up against the budget in mount order and refuses the mod whose fields overflow it, with the reason in the log. Field and event ids are assigned in a fixed order, sorted by package id and then by name, so a server and a client with the same packages always agree. The schema hash covers mod fields, so a client missing a mod the server runs is turned away at connect with the mod's id and version, not by a snapshot it can't read.
+The loader adds every mod's fields up against the budget in mount order and refuses the mod whose fields overflow it, with the reason in the log. At run time a mod's code can read every field but can only `net-set!` fields mods declared and only `net-event!` events mods declared. `net-reset!` and `net-restore-state!` are refused to mods, so only the base package decides when declared state is wiped or loaded. Field and event ids are assigned in a fixed order, sorted by package id and then by name, so a server and a client with the same packages always agree. The schema hash covers mod fields, so a client missing a mod the server runs is turned away at connect with the mod's id and version, not by a snapshot it can't read.
 
 # Sessions {#net-sessions}
 
