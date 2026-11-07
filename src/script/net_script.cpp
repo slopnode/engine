@@ -8,6 +8,7 @@
 
 #include <s7.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -275,6 +276,27 @@ s7_pointer g_net_schema_hash(s7_scheme* sc, s7_pointer) {
     return s7_make_string(sc, text);
 }
 
+s7_pointer g_session_max_players(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>()) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, g_netWorld->get<NetSessionLimits>().maxPlayers);
+}
+
+s7_pointer g_session_set_max_players(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "session-set-max-players!", args);
+    const s7_int wanted = in.exactInteger("player count");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>()) {
+        return s7_f(sc);
+    }
+    NetSessionLimits& limits = g_netWorld->get_mut<NetSessionLimits>();
+    limits.maxPlayers = static_cast<int>(std::clamp<s7_int>(wanted, 1, limits.playerCeiling));
+    return s7_make_integer(sc, limits.maxPlayers);
+}
+
 constexpr SchemeBinding kNetBindings[] = {
     {"net-get", g_net_get, 2, 0, false, "(net-get id field)", ScriptCap::ReadWorld},
     {"net-set!", g_net_set, 3, 0, false, "(net-set! id field value)", ScriptCap::WorldMutate},
@@ -283,6 +305,8 @@ constexpr SchemeBinding kNetBindings[] = {
     {"net-restore-state!", g_net_restore_state, 1, 0, false, "(net-restore-state! state)", ScriptCap::WorldMutate},
     {"net-schema-hash", g_net_schema_hash, 0, 0, false, "(net-schema-hash)", ScriptCap::ReadWorld},
     {"net-event!", g_net_event, 2, 0, true, "(net-event! event where arg ...)", ScriptCap::WorldMutate},
+    {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
+    {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
 };
 
 } // namespace

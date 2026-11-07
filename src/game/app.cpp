@@ -200,6 +200,7 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     net.listenAddress = config_.listenAddress;
     net.connectAddress = config_.connectAddress;
     net.serverKeyPath = settingsFilePath.parent_path() / "server.key";
+    net.knownServersPath = settingsFilePath.parent_path() / "known_servers";
     if (!config_.serverKey.empty()) {
         SecureKey pinned{};
         if (!parseSecureKeyHex(config_.serverKey, pinned)) {
@@ -212,11 +213,27 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     for (const Package& package : assetStore_.packages()) {
         net.hello.packages.push_back({package.meta().id, package.meta().version});
     }
+    const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
+    if (!config_.sessionKind.empty() || !kinds.empty()) {
+        const NetSessionKind* kind =
+            config_.sessionKind.empty() ? &kinds.front() : netSchema().findSessionKind(config_.sessionKind);
+        if (kind == nullptr) {
+            throw std::invalid_argument("--session " + config_.sessionKind + " isn't declared in *net-sessions*");
+        }
+        net.sessionKind = kind->name;
+        net.playerCeiling = config_.maxPlayers > 0 ? std::min(config_.maxPlayers, kind->maxPlayers) : kind->maxPlayers;
+        net.maxPlayers = net.playerCeiling;
+    } else {
+        net.playerCeiling = config_.maxPlayers > 0 ? std::min(config_.maxPlayers, kMaxNetPlayers) : kMaxNetPlayers;
+        net.maxPlayers = config_.maxPlayers > 0 ? net.playerCeiling : 8;
+    }
     net.hostPlayerVisible = !config_.dedicated;
     net.firstClientTakesMapPlayer = config_.dedicated;
     net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
     net.disconnected = [this](const std::string&) { enterMenu(world_); };
-    net_ = std::make_unique<NetSession>(world_, std::move(net), createEnetTransport());
+    EnetTransportOptions transport;
+    transport.maxPeers = static_cast<std::size_t>(net.playerCeiling) + net.maxPendingClients;
+    net_ = std::make_unique<NetSession>(world_, std::move(net), createEnetTransport(transport));
     net_->registerSystems();
     if (!net_->start()) {
         throw std::runtime_error("network could not start");

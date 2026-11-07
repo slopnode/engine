@@ -358,6 +358,17 @@ Returns the declared schema's hash as a hex string. Two installs with the same p
 <pre><code class="language-scheme">(net-schema-hash) ↵ string?
 </code></pre>
 
+### session-max-players {#session-max-players}
+Returns how many players the session takes at once, the host included, or `#f` when this process isn't hosting.
+<pre><code class="language-scheme">(session-max-players) ↵ (or integer? #f)
+</code></pre>
+
+### session-set-max-players! {#session-set-max-players}
+Sets how many players the session takes, clamped between 1 and the session kind's `players` maximum, or `--max-players` when that is lower, and returns the new value. Players already in stay. Returns `#f` when this process isn't hosting.
+<pre><code class="language-scheme">(session-set-max-players!
+  n : integer?) ↵ (or integer? #f)
+</code></pre>
+
 ## Input {#input}
 
 ### action-down? {#action-down}

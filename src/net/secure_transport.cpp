@@ -300,6 +300,10 @@ void SecureTransport::onMessage(NetConnectionId connection, const std::vector<st
         return;
     }
     Session& session = found->second;
+    if (data.size() > kMaxNetMessageBytes) {
+        fail(connection, "message too large", out);
+        return;
+    }
     const std::uint8_t* bytes = raw(data);
     const std::uint8_t type = bytes[0];
 

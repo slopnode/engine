@@ -119,6 +119,28 @@ void runNetTests() {
     {
         NetSchema schema;
         std::vector<std::string> messages;
+        CHECK_FALSE(schema.addSessionKinds(
+            sc,
+            evalForm(sc,
+                "'((hub (players 1 64) (join (open 64)) (announce listed))"
+                " (room (players 2 4))"
+                " (huge (players 1 9999))"
+                " (odd (players 4 2))"
+                " (typo (playres 1 2))"
+                " (room (players 1 2)))"),
+            "game",
+            messages));
+        CHECK_EQ(static_cast<int>(messages.size()), 4);
+        CHECK_EQ(static_cast<int>(schema.sessionKinds().size()), 2);
+        const NetSessionKind* hub = schema.findSessionKind("hub");
+        const NetSessionKind* room = schema.findSessionKind("room");
+        CHECK(hub != nullptr && hub->minPlayers == 1 && hub->maxPlayers == 64);
+        CHECK(room != nullptr && room->minPlayers == 2 && room->maxPlayers == 4);
+        CHECK(schema.findSessionKind("huge") == nullptr);
+    }
+    {
+        NetSchema schema;
+        std::vector<std::string> messages;
         schema.setExtension(sc, evalForm(sc, "'((events (count 1) (bytes 8)))"));
         CHECK(schema.addPackageEvents(
             sc,

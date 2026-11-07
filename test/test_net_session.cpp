@@ -131,7 +131,7 @@ void runNetSessionTests() {
             animation.time += kSimTickDt;
         }).add<SimSystem>();
     NetSessionConfig serverConfig = config(server, "server", "", hash);
-    serverConfig.maxClients = 2;
+    serverConfig.maxPlayers = 2;
     server.session = std::make_unique<NetSession>(server.world, std::move(serverConfig), network.endpoint());
     server.session->registerSystems();
     server.world.system("CountPresses")

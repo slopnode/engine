@@ -104,6 +104,14 @@ struct NetEventDef {
     int id = -1;
 };
 
+inline constexpr int kMaxNetPlayers = 256;
+
+struct NetSessionKind {
+    std::string name;
+    int minPlayers = 1;
+    int maxPlayers = 8;
+};
+
 struct NetBudget {
     int fields = 0;
     int bytes = 0;
@@ -125,6 +133,11 @@ public:
         std::string_view packageId,
         PackageRole role,
         std::vector<std::string>& messages);
+    bool addSessionKinds(
+        s7_scheme* sc,
+        s7_pointer kinds,
+        std::string_view packageId,
+        std::vector<std::string>& messages);
     void finalize();
 
     const std::vector<NetField>& fields() const { return fields_; }
@@ -132,6 +145,8 @@ public:
     std::vector<const NetField*> fieldsIn(const NetScope& scope) const;
     const std::vector<NetEventDef>& events() const { return events_; }
     const NetEventDef* findEvent(std::string_view name) const;
+    const std::vector<NetSessionKind>& sessionKinds() const { return sessionKinds_; }
+    const NetSessionKind* findSessionKind(std::string_view name) const;
     std::uint64_t hash() const { return hash_; }
 
 private:
@@ -140,6 +155,7 @@ private:
 
     std::vector<NetField> fields_;
     std::vector<NetEventDef> events_;
+    std::vector<NetSessionKind> sessionKinds_;
     NetBudget eventBudget_{};
     NetBudget eventUsed_{};
     NetBudget playerBudget_{};

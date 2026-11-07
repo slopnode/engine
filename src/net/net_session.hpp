@@ -5,7 +5,9 @@
 #include "net/secure_transport.hpp"
 
 #include <flecs.h>
+#include <raylib.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -31,8 +33,17 @@ struct NetSessionConfig {
     std::string connectAddress;
     std::optional<SecureKey> pinnedServerKey;
     std::filesystem::path serverKeyPath;
+    std::filesystem::path knownServersPath;
     NetHello hello;
-    std::size_t maxClients = 8;
+    std::string sessionKind;
+    int maxPlayers = 8;
+    int playerCeiling = 8;
+    std::size_t maxPendingClients = 8;
+    std::uint64_t helloTimeoutTicks = 300;
+    double messagesPerSecond = 120.0;
+    double messageBurst = 2400.0;
+    std::size_t maxKnownEntities = 512;
+    float nearRadius = 16.0f;
     bool hostPlayerVisible = false;
     bool firstClientTakesMapPlayer = true;
     std::function<void(const std::string& mapId, const std::string& reason)> loadMap;
@@ -56,6 +67,9 @@ public:
     bool clientConnected() const { return connected_; }
     const std::string& clientPlayer() const { return yourPlayer_; }
     std::size_t serverClientCount() const;
+    int serverPlayerCount() const;
+    std::size_t serverPendingCount() const;
+    int serverPlayerLimit() const;
     bool serverHasClient() const { return serverClientCount() > 0; }
     const SecureKey& publicKey() const { return transport_->publicKey(); }
 
@@ -68,12 +82,23 @@ private:
     struct ServerClient {
         NetConnectionId connection = kNoNetConnection;
         bool ready = false;
+        std::uint64_t arrivedTick = 0;
+        std::chrono::steady_clock::time_point refilled{};
+        double tokens = 0.0;
         std::string player;
         bool ownBody = false;
         std::uint64_t lastCommandTick = 0;
         std::deque<NetCommandFrame> pending;
         NetCommandFrame latest;
         std::set<std::uint32_t> known;
+        std::map<std::uint32_t, std::uint64_t> lastRelevant;
+        bool loggedKnown = false;
+    };
+
+    struct EntityPlace {
+        Vector3 at{};
+        std::int32_t leaf = -1;
+        bool always = false;
     };
 
     void serverReceive(const NetEvent& event);
@@ -86,8 +111,12 @@ private:
     void serverSendSnapshot(ServerClient& client);
     void serverDrop(NetConnectionId connection, const std::string& reason);
     void serverRemove(NetConnectionId connection, const std::string& reason);
+    bool serverWithinRate(ServerClient& client);
+    void serverDropLate();
     bool serverVisibleTo(const ServerClient& client, flecs::entity entity) const;
     void serverAssignIds();
+    void serverPlaceEntities();
+    std::int32_t serverEyeLeaf(const ServerClient& client, Vector3& eye, bool& haveEye) const;
 
     void clientReceive(const NetEvent& event);
     void clientSnapshot(const NetSnapshot& snapshot);
@@ -106,6 +135,11 @@ private:
     flecs::entity clientEntity(std::uint32_t netId);
     void applyStandInFields(const NetEntityState& state);
     void clearStandInRecords();
+    bool clientMayBind(flecs::entity entity, bool player) const;
+    void clientRefuse(const std::string& reason);
+    void clientHide(const std::string& name);
+    void clientShow(flecs::entity entity);
+    void clientHideUnintroduced();
 
     void callHook(const char* name, const std::string& argument);
 
@@ -118,6 +152,7 @@ private:
     std::uint32_t nextNetId_ = 1;
     int nextPlayerNumber_ = 2;
     std::map<std::uint32_t, flecs::entity_t> serverEntities_;
+    std::map<std::uint32_t, EntityPlace> places_;
     std::uint64_t serverTick_ = 0;
 
     NetConnectionId server_ = kNoNetConnection;
@@ -133,9 +168,20 @@ private:
     std::uint64_t commandTick_ = 0;
     std::deque<NetCommandFrame> recentCommands_;
     std::deque<PredictedMove> predicted_;
+    std::map<std::string, std::vector<flecs::entity_t>> hidden_;
+    bool hidOnLoad_ = false;
     bool predicting_ = false;
 };
 
+enum class KnownServer {
+    New,
+    Same,
+    Changed,
+    Unsaved,
+};
+
+KnownServer checkKnownServer(const std::filesystem::path& path, const std::string& address, const SecureKey& key);
+std::string secureKeyHex(const SecureKey& key);
 bool loadOrCreateServerKey(const std::filesystem::path& path, SecureKey& secret);
 bool parseSecureKeyHex(std::string_view text, SecureKey& out);
 std::string netAvatarName(std::string_view player);

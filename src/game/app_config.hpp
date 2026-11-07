@@ -34,6 +34,8 @@ struct AppConfig {
     std::string listenAddress;
     std::string connectAddress;
     std::string serverKey;
+    std::string sessionKind;
+    int maxPlayers = 0;
     bool perfViewLock = false;
     float perfView[5]{};
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */

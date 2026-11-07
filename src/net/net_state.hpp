@@ -16,6 +16,12 @@ inline constexpr const char* kLocalNetPlayerId = "Player";
 
 struct NetStandIn {};
 
+struct NetSessionLimits {
+    std::string kind;
+    int maxPlayers = 8;
+    int playerCeiling = 8;
+};
+
 struct NetPlayerRecord {
     std::string id;
     std::vector<NetValue> values;

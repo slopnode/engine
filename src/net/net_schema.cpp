@@ -514,6 +514,78 @@ bool NetSchema::addPackageFields(
     return true;
 }
 
+bool NetSchema::addSessionKinds(
+    s7_scheme* sc,
+    s7_pointer kinds,
+    std::string_view packageId,
+    std::vector<std::string>& messages) {
+    if (kinds == nullptr || s7_is_null(sc, kinds) || kinds == s7_undefined(sc)) {
+        return true;
+    }
+    bool proper = false;
+    const std::vector<s7_pointer> entries = listItems(sc, kinds, proper);
+    const std::string package(packageId);
+    if (!proper) {
+        messages.push_back(package + ": *net-sessions* must be a list of session kinds");
+        return false;
+    }
+    static constexpr const char* kLaterOptions[] = {"join", "late-join", "roles", "announce", "listing"};
+    bool ok = true;
+    for (s7_pointer entry : entries) {
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            messages.push_back(package + ": session kinds look like (name (players 1 8) ...)");
+            ok = false;
+            continue;
+        }
+        NetSessionKind kind;
+        kind.name = s7_symbol_name(s7_car(entry));
+        std::string error;
+        for (s7_pointer cursor = s7_cdr(entry); error.empty() && s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+            const s7_pointer option = s7_car(cursor);
+            if (!s7_is_pair(option) || !s7_is_symbol(s7_car(option))) {
+                error = "options look like (players 1 8)";
+                break;
+            }
+            const std::string key = s7_symbol_name(s7_car(option));
+            if (key == "players") {
+                std::int64_t low = 0;
+                std::int64_t high = 0;
+                const s7_pointer rest = s7_cdr(option);
+                if (!s7_is_pair(rest) || !s7_is_pair(s7_cdr(rest)) || !readInt(s7_car(rest), low) ||
+                    !readInt(s7_cadr(rest), high) || low < 1 || high < low || high > kMaxNetPlayers) {
+                    error = "players needs a minimum and a maximum between 1 and " + std::to_string(kMaxNetPlayers);
+                    break;
+                }
+                kind.minPlayers = static_cast<int>(low);
+                kind.maxPlayers = static_cast<int>(high);
+            } else if (std::find_if(std::begin(kLaterOptions), std::end(kLaterOptions), [&](const char* name) {
+                           return key == name;
+                       }) == std::end(kLaterOptions)) {
+                error = "unknown option " + key;
+            }
+        }
+        if (error.empty() && findSessionKind(kind.name) != nullptr) {
+            error = "is declared twice";
+        }
+        if (!error.empty()) {
+            messages.push_back(package + ": session kind " + kind.name + " " + error);
+            ok = false;
+            continue;
+        }
+        sessionKinds_.push_back(std::move(kind));
+    }
+    return ok;
+}
+
+const NetSessionKind* NetSchema::findSessionKind(std::string_view name) const {
+    for (const NetSessionKind& kind : sessionKinds_) {
+        if (kind.name == name) {
+            return &kind;
+        }
+    }
+    return nullptr;
+}
+
 bool NetSchema::addPackageEvents(
     s7_scheme* sc,
     s7_pointer events,
@@ -939,13 +1011,17 @@ void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets) {
         s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-state*"), s7_nil(sc));
         s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-extension*"), s7_nil(sc));
         s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-events*"), s7_nil(sc));
+        s7_define(sc, s7_rootlet(sc), s7_make_symbol(sc, "*net-sessions*"), s7_nil(sc));
         if (!assets.loadDataFromPackage(sc, package.meta().id, "net")) {
             return;
         }
+        std::vector<std::string> messages;
         if (package.role() != PackageRole::Mod) {
             schema.setExtension(sc, s7_name_to_value(sc, "*net-extension*"));
+            schema.addSessionKinds(sc, s7_name_to_value(sc, "*net-sessions*"), package.meta().id, messages);
+        } else if (!s7_is_null(sc, s7_name_to_value(sc, "*net-sessions*"))) {
+            messages.push_back(package.meta().id + ": mods can't declare *net-sessions*");
         }
-        std::vector<std::string> messages;
         schema.addPackageFields(sc, s7_name_to_value(sc, "*net-state*"), package.meta().id, package.role(), messages);
         schema.addPackageEvents(sc, s7_name_to_value(sc, "*net-events*"), package.meta().id, package.role(), messages);
         for (const std::string& message : messages) {

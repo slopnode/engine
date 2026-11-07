@@ -2,6 +2,7 @@
 
 #include "core/engine_version.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -40,6 +41,8 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --listen      Host a game on port or host:port\n"
               << "  --connect     Join a game at host:port, or with --dedicated join without a window\n"
               << "  --server-key  With --connect, refuse servers whose key isn't this 64-digit hex key\n"
+              << "  --session     With --listen, the session kind from data/net.s7 to host\n"
+              << "  --max-players With --listen, allow fewer players than the session kind does\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -108,12 +111,26 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             continue;
         }
 
-        if (arg == "--listen" || arg == "--connect" || arg == "--server-key") {
+        if (arg == "--max-players") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            char* end = nullptr;
+            const long value = std::strtol(argv[++i], &end, 10);
+            if (end == nullptr || *end != '\0' || value < 1) {
+                return std::nullopt;
+            }
+            config.maxPlayers = static_cast<int>(std::min<long>(value, 1 << 20));
+            continue;
+        }
+
+        if (arg == "--listen" || arg == "--connect" || arg == "--server-key" || arg == "--session") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
             std::string& target = arg == "--listen" ? config.listenAddress
                 : arg == "--connect"                ? config.connectAddress
+                : arg == "--session"                ? config.sessionKind
                                                     : config.serverKey;
             target = argv[++i];
             continue;

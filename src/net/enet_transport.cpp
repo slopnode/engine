@@ -4,6 +4,7 @@
 
 #include <enet/enet.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -20,6 +21,8 @@ constexpr enet_uint8 kUnreliableChannel = 1;
 constexpr std::size_t kChannelCount = 2;
 constexpr enet_uint32 kTimeoutLimit = 32;
 constexpr std::chrono::milliseconds kShutdownGrace{250};
+constexpr std::size_t kMaxReasonBytes = 256;
+constexpr std::size_t kMaxWaitingBytes = 4 * (kMaxNetMessageBytes + 1);
 
 enum class Frame : std::uint8_t {
     Data = 0,
@@ -110,7 +113,12 @@ public:
             return false;
         }
         host_ = enet_host_create(&local, options_.maxPeers, kChannelCount, 0, 0);
-        return host_ != nullptr;
+        if (host_ == nullptr) {
+            return false;
+        }
+        bound(*host_);
+        host_->duplicatePeers = options_.maxPeersPerAddress;
+        return true;
     }
 
     NetConnectionId connect(std::string_view address) override {
@@ -123,6 +131,7 @@ public:
             if (host_ == nullptr) {
                 return kNoNetConnection;
             }
+            bound(*host_);
         }
         ENetPeer* peer = enet_host_connect(host_, &remote, kChannelCount, 0);
         if (peer == nullptr) {
@@ -168,7 +177,7 @@ public:
             return;
         }
         const auto* text = reinterpret_cast<const std::byte*>(reason.data());
-        sendFrame(*peer, Frame::Reason, {text, reason.size()}, kReliableChannel, ENET_PACKET_FLAG_RELIABLE);
+        sendFrame(*peer, Frame::Reason, {text, std::min(reason.size(), kMaxReasonBytes)}, kReliableChannel, ENET_PACKET_FLAG_RELIABLE);
         enet_peer_disconnect_later(peer->peer, 0);
         peer->closing = true;
         if (host_ != nullptr) {
@@ -228,6 +237,11 @@ private:
         NetConnectionStats stats;
     };
 
+    static void bound(ENetHost& host) {
+        host.maximumPacketSize = kMaxNetMessageBytes + 1;
+        host.maximumWaitingData = kMaxWaitingBytes;
+    }
+
     NetConnectionId track(ENetPeer* peer, bool incoming) {
         const NetConnectionId id = nextId_++;
         peer->data = reinterpret_cast<void*>(static_cast<std::uintptr_t>(id));
@@ -280,7 +294,7 @@ private:
             }
             break;
         case Frame::Reason:
-            peer->reason.assign(reinterpret_cast<const char*>(payload), size);
+            peer->reason.assign(reinterpret_cast<const char*>(payload), std::min(size, kMaxReasonBytes));
             break;
         }
     }
