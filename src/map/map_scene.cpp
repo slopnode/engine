@@ -18,6 +18,7 @@
 #include "map/nav_graph.hpp"
 #include "map/graph.hpp"
 #include "navigation/nav_module.hpp"
+#include "net/net_state.hpp"
 #include "map/graph_script.hpp"
 #include "map/light_components.hpp"
 #include "map/light_sample.hpp"
@@ -431,6 +432,7 @@ bool assembleMapScene(
                 TraceLog(LOG_WARNING, "TITLE: camera path '%s' not found", pathId.c_str());
             }
         }
+        resetNetMapFields(world);
         callOnMapReady(world, mapName, reason);
         world.set<CurrentMap>(CurrentMap{std::string(mapName)});
         return true;
@@ -486,6 +488,7 @@ bool assembleMapScene(
     }
     updateFirstPersonSceneTransforms(world);
     callPrepareFirstPerson(world);
+    resetNetMapFields(world);
     callOnMapReady(world, mapName, reason);
 
     world.set<CurrentMap>(CurrentMap{std::string(mapName)});

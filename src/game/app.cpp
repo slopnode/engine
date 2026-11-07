@@ -25,6 +25,8 @@
 #include "physics/motored_body.hpp"
 #include "physics/sight_module.hpp"
 #include "navigation/nav_module.hpp"
+#include "net/net_schema.hpp"
+#include "net/net_state.hpp"
 #include "particles/particle_module.hpp"
 #include "fx/trail.hpp"
 #include "fx/tracer.hpp"
@@ -91,6 +93,7 @@ App::App(AppConfig config)
     setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true, "slopengine");
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     init_script();
+    registerNetState(world_);
     installSlopUiTheme(world_, assetStore_, scheme_, userSettings_.ui.theme);
     userSettings_.controls = ControlsSettings::defaults();
     UserSettings::mergeControlsFromDisk(userSettings_.controls, settingsFilePath);
@@ -263,6 +266,7 @@ void App::init_script() {
     }
     loadPackageThings(scheme_, assetStore_);
     loadPackageNavProfiles(scheme_, assetStore_);
+    loadPackageNetSchema(scheme_, assetStore_);
     if (!assetStore_.loadDataFromPackage(scheme_, baseId, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }

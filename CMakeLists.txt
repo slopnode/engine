@@ -133,6 +133,7 @@ set(SLOPLIB_SOURCES
     src/script/s7_read.cpp
     src/script/package_load_context.cpp
     src/script/proc_role.cpp
+    src/net/net_schema.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp
@@ -234,6 +235,8 @@ add_executable(slopengine
     src/game/app.cpp
     src/game/sim_pipeline.cpp
     src/game/sim_interpolation.cpp
+    src/net/net_state.cpp
+    src/script/net_script.cpp
     src/game/game_state.cpp
     src/game/package_cli.cpp
     src/input/action_registry.cpp

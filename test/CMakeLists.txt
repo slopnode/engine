@@ -10,6 +10,7 @@ add_executable(sloptests
     test_scheme_harden.cpp
     test_proc_role.cpp
     test_sim_clock.cpp
+    test_net.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -63,6 +64,8 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/script/hook_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/game/sim_pipeline.cpp
     ${CMAKE_SOURCE_DIR}/src/game/sim_interpolation.cpp
+    ${CMAKE_SOURCE_DIR}/src/net/net_state.cpp
+    ${CMAKE_SOURCE_DIR}/src/script/net_script.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/render/animation_player.cpp
     ${CMAKE_SOURCE_DIR}/src/camera/view_recoil.cpp
@@ -97,6 +100,7 @@ add_test(NAME sloptests.texture_graph COMMAND sloptests texture_graph)
 add_test(NAME sloptests.script_scope COMMAND sloptests script_scope)
 add_test(NAME sloptests.proc_role COMMAND sloptests proc_role)
 add_test(NAME sloptests.sim_clock COMMAND sloptests sim_clock)
+add_test(NAME sloptests.net COMMAND sloptests net)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

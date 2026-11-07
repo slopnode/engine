@@ -8,6 +8,7 @@
 #include "script/hook_registry.hpp"
 #include "script/hud_script.hpp"
 #include "script/input_script.hpp"
+#include "script/net_script.hpp"
 #include "script/post_script.hpp"
 #include "script/save_script.hpp"
 #include "script/script_scope.hpp"
@@ -31,6 +32,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
     bindThingRuntimeApi(world, scheme);
     bindNavApi(world, scheme);
     bindSaveApi(world, assets, scheme);
+    bindNetApi(world, scheme);
     bindHookApi(scheme);
     bindUiApi(world, scheme);
     bindThemeApi(world, scheme);

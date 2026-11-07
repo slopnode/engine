@@ -1,6 +1,6 @@
 @page networking_design Networking design (draft)
 
-@note This is a design draft. Nothing on this page is implemented yet. It describes what a base package would declare and what the engine would do with it, so the format can be argued about before code depends on it.
+@note This is a design draft. Declared state is implemented: `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option is stored but nothing is sent yet. Events, sessions, transfers and the coordinator are not implemented.
 
 Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
 

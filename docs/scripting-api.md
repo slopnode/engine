@@ -284,6 +284,46 @@ Returns the player's normalized look direction as `(x y z)`.
 <pre><code class="language-scheme">(player-look-dir) ↵ (list real? real? real?)
 </code></pre>
 
+## Net state {#net-state-api}
+
+Fields declared in `data/net.s7` (see @ref dataapi). An id is a player id, which is `"Player"` for the local player, a thing id, or the symbol `'session`.
+
+### net-get {#net-get}
+Returns a declared field's value. Raises a `net` error for a field the target doesn't declare, and returns `\#f` for an unknown target.
+<pre><code class="language-scheme">(net-get
+  id : (or string? 'session)
+  field : symbol?) ↵ any?
+</code></pre>
+
+### net-set! {#net-set}
+Stores a value in a declared field. Raises a `net` error when the value doesn't fit the field's type. Integer fields round real values, and real fields snap to their step.
+<pre><code class="language-scheme">(net-set!
+  id : (or string? 'session)
+  field : symbol?
+  value : any?) ↵ boolean?
+</code></pre>
+
+### net-reset! {#net-reset}
+Resets every player and session field to its default, for a new game.
+<pre><code class="language-scheme">(net-reset!) ↵ boolean?
+</code></pre>
+
+### net-save-state {#net-save-state}
+Returns every field marked `save` as `((session (field . value) ...) (player "Player" (field . value) ...))`.
+<pre><code class="language-scheme">(net-save-state) ↵ list?
+</code></pre>
+
+### net-restore-state! {#net-restore-state}
+Applies a list from `net-save-state`. Unknown fields and values that no longer fit are skipped. Returns how many fields were applied.
+<pre><code class="language-scheme">(net-restore-state!
+  state : list?) ↵ integer?
+</code></pre>
+
+### net-schema-hash {#net-schema-hash}
+Returns the declared schema's hash as a hex string. Two installs with the same packages return the same hash.
+<pre><code class="language-scheme">(net-schema-hash) ↵ string?
+</code></pre>
+
 ## Input {#input}
 
 ### action-down? {#action-down}

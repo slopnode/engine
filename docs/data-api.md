@@ -15,6 +15,7 @@ All package data files should be placed in the `data/` directory of your package
 - `view.s7` - View canvas configuration
 - `cli.s7` - CLI flags
 - `title.s7` - Title screen layers
+- `net.s7` - Declared player, session and thing state
 
 # Actions {#actions}
 
@@ -190,3 +191,23 @@ Title screen configuration defines the background shown behind the title screen.
   '((map "test")
     (canvas 320 240)))
 </code></pre>
+
+# Net state {#net-state}
+
+Symbols `*net-state*` and `*net-extension*`
+
+Net state declares the game state the engine stores for each player, for the session and for things with a given tag. Each field has a type, a default and options for who receives it, whether it travels with a player and whether saves keep it. Scripts read and write the fields with `net-get` and `net-set!` (see @ref scriptingapi). Only the base package's `*net-extension*` is read. It sets how many fields mods may add per scope, and mod fields are named after their package, such as `staminamod/stamina`. The format, the types and the reasoning are described in @ref networking_design.
+
+<pre><code class="language-scheme">(define *net-state*
+  '((player
+     (health (type int 0 999) (default 100) (send all) (travel \#t))
+     (weapon-owned (type (list bool 7)) (default (\#t \#t \#t \#t \#t \#t \#t)) (send owner) (travel \#t)))
+    (session
+     (picked-things (type (list (string 64) 4096)) (default ()) (send none) (save \#t)))))
+
+(define *net-extension*
+  '((player (fields 8) (bytes 32))
+    (session (fields 4) (bytes 16))))
+</code></pre>
+
+Player fields not marked `travel` go back to their defaults on every map load. Session fields and travel fields keep their values until a script changes them or calls `net-reset!`.
