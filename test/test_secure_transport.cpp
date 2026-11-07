@@ -34,7 +34,9 @@ public:
     bool listen(std::string_view address) override { return inner_->listen(address); }
     NetConnectionId connect(std::string_view address) override { return inner_->connect(address); }
     bool accept(NetConnectionId connection) override { return inner_->accept(connection); }
-    void close(NetConnectionId connection, std::string_view reason) override { inner_->close(connection, reason); }
+    void close(NetConnectionId connection, std::string_view reason) override {
+        inner_->close(connection, forgeReason.empty() ? reason : std::string_view(forgeReason));
+    }
     void poll(std::vector<NetEvent>& out) override { inner_->poll(out); }
     NetConnectionStats stats(NetConnectionId connection) const override { return inner_->stats(connection); }
 
@@ -56,6 +58,7 @@ public:
 
     bool corruptNext = false;
     bool hold = false;
+    std::string forgeReason;
     std::vector<Held> sent;
     std::vector<Held> held;
 
@@ -247,6 +250,28 @@ void runSecureTransportTests() {
         CHECK(has(link.clientEvents, NetEventKind::Disconnected, "handshake failed"));
         CHECK_FALSE(has(link.clientEvents, NetEventKind::Connected));
         CHECK_FALSE(has(link.serverEvents, NetEventKind::Connected));
+    }
+
+    {
+        MemoryNetwork network;
+        Link link = makeLink(network, {}, {});
+        CHECK(has(link.clientEvents, NetEventKind::Connected));
+        link.serverTap->forgeReason = "forged";
+        link.server->close(link.toClient, "kicked for spam");
+        link.pump();
+        CHECK(has(link.clientEvents, NetEventKind::Disconnected, "kicked for spam"));
+        CHECK_FALSE(has(link.clientEvents, NetEventKind::Disconnected, "forged"));
+    }
+
+    {
+        MemoryNetwork network;
+        Link link = makeLink(network, {}, {});
+        link.serverTap->forgeReason = "forged";
+        link.serverTap->hold = true;
+        link.server->close(link.toClient, "kicked for spam");
+        link.pump();
+        CHECK(has(link.clientEvents, NetEventKind::Disconnected, "connection lost"));
+        CHECK_FALSE(has(link.clientEvents, NetEventKind::Disconnected, "forged"));
     }
 }
 

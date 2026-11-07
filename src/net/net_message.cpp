@@ -141,9 +141,12 @@ bool NetReader::varint(std::uint64_t& out) {
         if (!u8(byte)) {
             return false;
         }
+        if (shift == 63 && byte > 1) {
+            return fail();
+        }
         out |= static_cast<std::uint64_t>(byte & 0x7f) << shift;
         if ((byte & 0x80) == 0) {
-            return true;
+            return shift == 0 || byte != 0 ? true : fail();
         }
     }
     return fail();

@@ -312,6 +312,19 @@ void runKnownServerTests() {
     CHECK(checkKnownServer(path, "b:1", other) == KnownServer::Same);
     std::filesystem::remove(path);
 
+    const std::filesystem::path keyPath = std::filesystem::temp_directory_path() / "slop-key-mode-test" / "server.key";
+    std::filesystem::remove_all(keyPath.parent_path());
+    SecureKey created{};
+    SecureKey loaded{};
+    CHECK(loadOrCreateServerKey(keyPath, created));
+    CHECK(loadOrCreateServerKey(keyPath, loaded) && loaded == created);
+#ifndef _WIN32
+    const std::filesystem::perms mode = std::filesystem::status(keyPath).permissions();
+    CHECK((mode & (std::filesystem::perms::group_all | std::filesystem::perms::others_all)) ==
+          std::filesystem::perms::none);
+#endif
+    std::filesystem::remove_all(keyPath.parent_path());
+
     const std::filesystem::path root = std::filesystem::temp_directory_path() / "slop-vfs-escape-test";
     std::filesystem::remove_all(root);
     std::filesystem::create_directories(root / "game" / "textures" / "walls");

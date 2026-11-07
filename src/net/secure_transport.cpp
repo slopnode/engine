@@ -4,6 +4,7 @@
 
 #include <monocypher.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -12,7 +13,7 @@ namespace slopengine {
 
 namespace {
 
-constexpr std::uint8_t kVersion = 1;
+constexpr std::uint8_t kVersion = 2;
 constexpr std::uint8_t kHello = 1;
 constexpr std::uint8_t kReply = 2;
 constexpr std::uint8_t kConfirm = 3;
@@ -21,6 +22,8 @@ constexpr std::uint8_t kData = 4;
 constexpr std::uint8_t kModeReliable = 0;
 constexpr std::uint8_t kModeUnreliable = 1;
 constexpr std::uint8_t kModeHandshake = 2;
+constexpr std::uint8_t kModeClose = 3;
+constexpr std::size_t kMaxCloseReason = 256;
 
 constexpr std::size_t kHelloSize = 2 + 32;
 constexpr std::size_t kReplyHeaderSize = 1 + 32 + 32;
@@ -28,7 +31,7 @@ constexpr std::size_t kReplySize = kReplyHeaderSize + 16;
 constexpr std::size_t kConfirmSize = 1 + 16;
 constexpr std::size_t kDataHeaderSize = 10;
 
-constexpr std::string_view kTranscriptLabel = "slopengine-secure-1";
+constexpr std::string_view kTranscriptLabel = "slopengine-secure-2";
 
 void makeNonce(std::uint8_t mode, std::uint64_t counter, std::uint8_t nonce[24]) {
     std::memset(nonce, 0, 24);
@@ -74,11 +77,13 @@ bool deriveKeys(
     if (allZero(ee) || allZero(es)) {
         return false;
     }
-    std::uint8_t transcriptInput[kTranscriptLabel.size() + 96];
+    constexpr std::size_t head = kTranscriptLabel.size() + 1;
+    std::uint8_t transcriptInput[head + 96];
     std::memcpy(transcriptInput, kTranscriptLabel.data(), kTranscriptLabel.size());
-    std::memcpy(transcriptInput + kTranscriptLabel.size(), clientEphemeral.data(), 32);
-    std::memcpy(transcriptInput + kTranscriptLabel.size() + 32, serverStatic.data(), 32);
-    std::memcpy(transcriptInput + kTranscriptLabel.size() + 64, serverEphemeral.data(), 32);
+    transcriptInput[kTranscriptLabel.size()] = kVersion;
+    std::memcpy(transcriptInput + head, clientEphemeral.data(), 32);
+    std::memcpy(transcriptInput + head + 32, serverStatic.data(), 32);
+    std::memcpy(transcriptInput + head + 64, serverEphemeral.data(), 32);
     std::uint8_t transcript[64];
     crypto_blake2b(transcript, sizeof(transcript), transcriptInput, sizeof(transcriptInput));
 
@@ -188,9 +193,13 @@ bool SecureTransport::send(NetConnectionId connection, std::span<const std::byte
         data.size() > kMaxNetMessageBytes - kSecureOverheadBytes) {
         return false;
     }
-    Session& session = found->second;
-    const std::uint8_t modeByte = mode == NetSendMode::Reliable ? kModeReliable : kModeUnreliable;
-    const std::uint64_t counter = session.sendCounter[modeByte]++;
+    return seal(connection, found->second, data, mode == NetSendMode::Reliable ? kModeReliable : kModeUnreliable);
+}
+
+bool SecureTransport::seal(NetConnectionId connection, Session& session, std::span<const std::byte> data,
+                           std::uint8_t modeByte) {
+    const NetSendMode mode = modeByte == kModeUnreliable ? NetSendMode::Unreliable : NetSendMode::Reliable;
+    const std::uint64_t counter = session.sendCounter[modeByte == kModeUnreliable ? 1 : 0]++;
     std::vector<std::uint8_t> frame(kSecureOverheadBytes + data.size());
     frame[0] = kData;
     frame[1] = modeByte;
@@ -220,7 +229,13 @@ void SecureTransport::close(NetConnectionId connection, std::string_view reason)
     if (found == sessions_.end()) {
         return;
     }
-    inner_->close(connection, reason);
+    if (found->second.phase == Phase::Established) {
+        const auto* text = reinterpret_cast<const std::byte*>(reason.data());
+        seal(connection, found->second, {text, std::min(reason.size(), kMaxCloseReason)}, kModeClose);
+        inner_->close(connection, {});
+    } else {
+        inner_->close(connection, reason);
+    }
     wipe(found->second);
     sessions_.erase(found);
 }
@@ -244,6 +259,9 @@ void SecureTransport::poll(std::vector<NetEvent>& out) {
             const auto found = sessions_.find(event.connection);
             if (found == sessions_.end()) {
                 break;
+            }
+            if (found->second.phase == Phase::Established) {
+                event.reason = "connection lost";
             }
             if (found->second.client || found->second.accepted) {
                 out.push_back(std::move(event));
@@ -399,7 +417,7 @@ void SecureTransport::onMessage(NetConnectionId connection, const std::vector<st
     }
 
     if (session.phase != Phase::Established || type != kData || data.size() < kSecureOverheadBytes ||
-        (bytes[1] != kModeReliable && bytes[1] != kModeUnreliable)) {
+        (bytes[1] != kModeReliable && bytes[1] != kModeUnreliable && bytes[1] != kModeClose)) {
         if (session.phase == Phase::Established && data.size() > 1 && type == kData && bytes[1] == kModeUnreliable) {
             return;
         }
@@ -407,8 +425,9 @@ void SecureTransport::onMessage(NetConnectionId connection, const std::vector<st
         return;
     }
     const std::uint8_t mode = bytes[1];
+    const bool ordered = mode != kModeUnreliable;
     const std::uint64_t counter = readCounter(bytes + 2);
-    if (mode == kModeReliable && counter != session.reliableReceive) {
+    if (ordered && counter != session.reliableReceive) {
         fail(connection, "bad message", out);
         return;
     }
@@ -425,12 +444,23 @@ void SecureTransport::onMessage(NetConnectionId connection, const std::vector<st
             kDataHeaderSize,
             bytes + kSecureOverheadBytes,
             size) != 0) {
-        if (mode == kModeReliable) {
+        if (ordered) {
             fail(connection, "bad message", out);
         }
         return;
     }
-    if (mode == kModeReliable) {
+    if (mode == kModeClose) {
+        std::string reason(reinterpret_cast<const char*>(plain.data()), std::min(size, kMaxCloseReason));
+        inner_->close(connection, {});
+        const bool report = session.client || session.accepted;
+        wipe(session);
+        sessions_.erase(found);
+        if (report) {
+            out.push_back(NetEvent{NetEventKind::Disconnected, connection, {}, std::move(reason)});
+        }
+        return;
+    }
+    if (ordered) {
         ++session.reliableReceive;
     } else if (!session.unreliableReceive.accept(counter)) {
         return;
@@ -444,7 +474,13 @@ void SecureTransport::fail(NetConnectionId connection, const char* reason, std::
     if (found == sessions_.end()) {
         return;
     }
-    inner_->close(connection, reason);
+    if (found->second.phase == Phase::Established) {
+        const std::string_view text(reason);
+        seal(connection, found->second, {reinterpret_cast<const std::byte*>(text.data()), text.size()}, kModeClose);
+        inner_->close(connection, {});
+    } else {
+        inner_->close(connection, reason);
+    }
     if (found->second.client || found->second.accepted) {
         out.push_back(NetEvent{NetEventKind::Disconnected, connection, {}, reason});
     }

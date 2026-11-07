@@ -68,6 +68,7 @@ private:
         NetConnectionStats stats;
     };
 
+    bool seal(NetConnectionId connection, Session& session, std::span<const std::byte> data, std::uint8_t modeByte);
     void onConnected(NetConnectionId connection, std::vector<NetEvent>& out);
     void onMessage(NetConnectionId connection, const std::vector<std::byte>& data, std::vector<NetEvent>& out);
     void fail(NetConnectionId connection, const char* reason, std::vector<NetEvent>& out);

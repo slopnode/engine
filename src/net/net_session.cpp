@@ -27,6 +27,11 @@
 
 #include <raymath.h>
 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -1405,6 +1410,7 @@ bool loadOrCreateServerKey(const std::filesystem::path& path, SecureKey& secret)
         return false;
     }
     std::filesystem::create_directories(path.parent_path(), error);
+#ifdef _WIN32
     {
         std::ofstream out(path, std::ios::binary | std::ios::trunc);
         out.write(reinterpret_cast<const char*>(secret.data()), static_cast<std::streamsize>(secret.size()));
@@ -1415,6 +1421,14 @@ bool loadOrCreateServerKey(const std::filesystem::path& path, SecureKey& secret)
     std::filesystem::permissions(path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
                                  std::filesystem::perm_options::replace, error);
     return true;
+#else
+    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (fd < 0) {
+        return false;
+    }
+    const bool written = ::write(fd, secret.data(), secret.size()) == static_cast<ssize_t>(secret.size());
+    return ::close(fd) == 0 && written;
+#endif
 }
 
 bool parseSecureKeyHex(std::string_view text, SecureKey& out) {

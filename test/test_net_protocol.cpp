@@ -4,6 +4,7 @@
 
 #include <s7.h>
 
+#include <cstring>
 #include <random>
 
 namespace slopengine {
@@ -209,6 +210,24 @@ void runNetProtocolTests() {
         }
         CHECK(accepted < 40);
     }
+
+    const auto decodes = [](std::vector<std::uint8_t> raw, std::uint64_t& out) {
+        std::vector<std::byte> data(raw.size());
+        std::memcpy(data.data(), raw.data(), raw.size());
+        NetReader reader(data);
+        return reader.varint(out);
+    };
+    std::uint64_t value = 0;
+    CHECK(decodes({0x00}, value) && value == 0);
+    CHECK(decodes({0x96, 0x01}, value) && value == 150);
+    CHECK_FALSE(decodes({0x80, 0x00}, value));
+    CHECK_FALSE(decodes({0x96, 0x80, 0x00}, value));
+    CHECK(decodes({0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01}, value) && value == ~std::uint64_t{0});
+    CHECK_FALSE(decodes({0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x03}, value));
+    NetWriter writer;
+    writer.varint(~std::uint64_t{0});
+    NetReader back(writer.data());
+    CHECK(back.varint(value) && value == ~std::uint64_t{0});
 
     s7_quit(sc);
 }
