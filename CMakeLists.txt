@@ -134,6 +134,7 @@ set(SLOPLIB_SOURCES
     src/script/package_load_context.cpp
     src/script/proc_role.cpp
     src/net/net_schema.cpp
+    src/net/memory_transport.cpp
     src/assets/asset_store.cpp
     src/assets/geo_loader.cpp
     src/assets/icon_atlas.cpp

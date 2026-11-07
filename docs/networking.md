@@ -1,10 +1,16 @@
 @page networking_design Networking design (draft)
 
-@note This is a design draft. Declared state is implemented: `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option is stored but nothing is sent yet. Events, sessions, transfers and the coordinator are not implemented.
+@note This is a design draft. The transport interface with its in-memory test backend and declared state are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option is stored but nothing is sent yet. Events, sessions, transfers and the coordinator are not implemented.
 
 Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
 
 The engine provides the mechanics: typed state storage, replication, events, sessions, transfers, joins and listings. The base package declares its state and its session kinds as data, and its scripts drive the flow. A map rotation is something a game script can do, not something the engine knows about.
+
+# Transport
+
+The engine talks to the network only through `NetTransport` (`src/net/transport.hpp`), which follows the message model of Valve's GameNetworkingSockets so a backend maps onto it one to one. A server calls `listen`, gets an `Incoming` event per connection attempt and calls `accept` or `close`. A client calls `connect`. Both sides then get `Connected`. Messages are whole byte buffers of at most 512 KiB, sent `Reliable`, which arrive once and in order, or `Unreliable`, which can be lost or arrive out of order. `poll` drains every event that has arrived, and `close` sends a reason the peer receives with its `Disconnected` event.
+
+`MemoryNetwork` (`src/net/memory_transport.hpp`) is an in-process backend for tests. Every endpoint it hands out shares one simulated network with a manual clock, `advance`, and a seeded random source, so a test is repeatable. `setConditions` adds latency, jitter and loss. Unreliable messages are dropped at the loss rate and jitter can reorder them. Reliable messages are never dropped, a loss adds a resend delay instead, and they stay in order. A real socket backend implements the same interface.
 
 # Principles
 
