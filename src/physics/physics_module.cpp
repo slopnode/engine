@@ -201,6 +201,8 @@ bool capsuleTouchesFace(
 void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
     world.component<CharacterMotor>();
     world.component<Actor>();
+    world.component<PlayerBody>();
+    world.component<MapPlayerStart>();
     world.component<ActorCorpse>();
     world.component<DebrisBody>();
     world.component<PropCollision>();
@@ -320,24 +322,27 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 perf->physicsMs = perfElapsedMs(physicsStart);
             }
 
-            const flecs::entity camera = it.world().lookup("Player");
-            if (camera.is_valid() && camera.has<CharacterMotor>() && camera.has<Lens>() &&
-                camera.has<FirstPersonController>() && physics.world->hasPlayer()) {
-                CharacterMotor& motor = camera.get_mut<CharacterMotor>();
-                FirstPersonController& controller = camera.get_mut<FirstPersonController>();
-                Lens& lens = camera.get_mut<Lens>();
-
-                const JPH::RVec3 feet = physics.world->playerPosition();
-                lens.camera.position = {
+            it.world().each([&](flecs::entity entity, PlayerBody, const CharacterMotor& motor,
+                                const FirstPersonController& controller, Lens& lens) {
+                const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+                if (!physics.world->hasCharacter(id)) {
+                    return;
+                }
+                const JPH::RVec3 feet = physics.world->characterPosition(id);
+                const Vector3 feetAt{
                     static_cast<float>(feet.GetX()),
-                    static_cast<float>(feet.GetY()) + motor.eyeHeight,
+                    static_cast<float>(feet.GetY()),
                     static_cast<float>(feet.GetZ()),
                 };
-
+                lens.camera.position = {feetAt.x, feetAt.y + motor.eyeHeight, feetAt.z};
                 const Vector3 forward = forwardFromYawPitch(controller.yaw, controller.pitch);
                 lens.camera.target = Vector3Add(lens.camera.position, forward);
                 lens.camera.up = {0.0f, 1.0f, 0.0f};
-            }
+                if (LocalTransformation* local = entity.try_get_mut<LocalTransformation>()) {
+                    local->position = feetAt;
+                    local->rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, controller.yaw);
+                }
+            });
 
             it.world().each([&](flecs::entity entity, Actor, CharacterMotor&, LocalTransformation& local) {
                 const std::uint64_t id = static_cast<std::uint64_t>(entity.id());

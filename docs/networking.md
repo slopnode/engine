@@ -1,6 +1,6 @@
 @page networking_design Networking design (draft)
 
-@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, declared state and events, and a first pass of playing over the network with one client, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option decides which player fields reach the client. Several players, sessions, transfers and the coordinator are not implemented.
+@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, declared state and events, and a first pass of playing over the network with several clients, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option decides which player fields reach the client. Sessions, transfers and the coordinator are not implemented.
 
 Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
 
@@ -39,13 +39,24 @@ slopengine --game slopdemo --dedicated --listen 27960 --map demoroom
 slopengine --game slopdemo --connect 127.0.0.1:27960
 ```
 
-The client sends a hello with the protocol, the engine version, every mounted package with its version, and the schema hash of the declared state. The server refuses a client whose hello doesn't match and sends the reason, such as `declared state differs`. A server takes one client at a time and answers a second with `server full`.
+The client sends a hello with the protocol, the engine version, every mounted package with its version, and the schema hash of the declared state. The server refuses a client whose hello doesn't match and sends the reason, such as `declared state differs`. A server takes up to eight clients and answers the next with `server full`.
 
-The server gives every replicated entity a number: actors, things, movers, motored bodies and debris that sit at the root of the hierarchy and have a name. It introduces each number to the client with the entity's name, and the client binds it to its own entity of that name. Names match because both sides load the same map and run the same `on-map-ready`. An entity only the server creates, such as a rocket, has no match on the client and isn't shown yet.
+Every client drives a player body of its own: an entity with a physics character, a `PlayerCommand`, view angles, an eye and a record of declared player fields. On a dedicated server the first client takes the map's `"Player"`, so a game written for one player keeps working for it, and later clients get bodies named `player-2`, `player-3` and so on, spawned around the map's player start with a copy of the map player's motor, so they share its size, eye height and gravity. `on-player-join` is the place to size a body differently, with `player-set-collider` and `player-set-eye-height` and the body's id. With `--listen` and no `--dedicated` the host keeps `"Player"` and every client gets a body of its own. A body and its record go away when its client leaves, and bodies come back after every map change. `(players)` lists every body, and `player-pose`, `player-velocity`, `player-grounded?`, `player-eye`, `player-look-dir`, `player-collider`, `player-set-collider` and `player-set-eye-height` take a body's id. Game logic such as weapons and damage still has to loop over `(players)` to treat every body as a player.
+
+Hook|Runs on|When
+-|-|-
+`(on-player-join id)`|server|A client is ready and has its body
+`(on-player-leave id)`|server|A client left or was dropped
+`(on-player-appear id)`|client|Another player's body is in view and needs a stand-in, which the hook spawns under `id`, such as with `actor-spawn`
+`(on-player-vanish id)`|client|That body left. The hook removes the stand-in
+
+A client's own body is never introduced to it. Another player's body arrives named `player:` and the server's name, so the stand-in can't collide with the client's own `"Player"`.
+
+The server gives every replicated entity a number: actors, things, movers, motored bodies, debris and player bodies that sit at the root of the hierarchy and have a name. Each client has its own set of entities it knows about, worked out every tick. The server introduces each number to a client with the entity's name when the entity becomes visible to it and forgets it when it stops, and the client binds the number to its own entity of that name. Names match because both sides load the same map and run the same `on-map-ready`. An entity only the server creates, such as a rocket, has no match on the client and isn't shown yet.
 
 The server tells the client which map to load and sends it again after every map change. Each tick it sends a snapshot: the position and rotation of every replicated entity, its animation clip and time, the player's eye position, and the declared player fields whose `send` is `all` or `owner`. The client runs no simulation. It feeds each snapshot into the same blending that smooths ticks, so it draws one snapshot behind. It builds a `PlayerCommand` sixty times a second from local input and sends it with the three before it, so a lost packet doesn't lose a press. The server applies the commands to the map's player in order, merges presses that arrive together, and turns the player to the client's view angles.
 
-This is a first pass. The client's own movement waits a round trip because nothing predicts it. Sounds and effects reach the client as far as the game raises them as events. Anything else scripts do in `tick` doesn't, since the client runs no ticks, so a client in slopdemo hears its gun and sees tracers and blood but sees no first-person weapon. With `--listen` and no `--dedicated`, the connected client drives the host's player and the host's own input is ignored.
+This is a first pass. The client's own movement waits a round trip because nothing predicts it. Sounds and effects reach the client as far as the game raises them as events. Anything else scripts do in `tick` doesn't, since the client runs no ticks, so a client in slopdemo hears its gun and sees tracers and blood but sees no first-person weapon. A server spawns no stand-ins, so a listen-server host doesn't see the clients' bodies yet.
 
 # Principles
 

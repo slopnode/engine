@@ -246,6 +246,8 @@ add_executable(slopengine
     src/game/sim_interpolation.cpp
     src/net/net_state.cpp
     src/net/net_session.cpp
+    src/map/player_bodies.cpp
+    src/script/player_target.cpp
     src/script/net_script.cpp
     src/game/game_state.cpp
     src/game/package_cli.cpp

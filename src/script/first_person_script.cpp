@@ -1,4 +1,6 @@
 #include "script/first_person_script.hpp"
+#include "map/player_bodies.hpp"
+#include "script/player_target.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -1257,27 +1259,36 @@ s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
     return s7_make_real(sc, static_cast<double>(speed));
 }
 
-s7_pointer g_player_velocity(s7_scheme* sc, s7_pointer) {
+s7_pointer g_player_velocity(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
         return makeVec3List(sc, 0.0, 0.0, 0.0);
     }
     PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
-    if (physics == nullptr || !physics->hasPlayer()) {
+    const flecs::entity player = scriptPlayer(*g_fpWorld, args);
+    if (physics == nullptr || !player.is_valid() || !physics->hasCharacter(static_cast<std::uint64_t>(player.id()))) {
         return makeVec3List(sc, 0.0, 0.0, 0.0);
     }
-    const JPH::Vec3 vel = physics->playerVelocity();
+    const JPH::Vec3 vel = physics->characterVelocity(static_cast<std::uint64_t>(player.id()));
     return makeVec3List(sc, vel.GetX(), vel.GetY(), vel.GetZ());
 }
 
-s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer) {
+s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
         return s7_f(sc);
     }
     PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
-    if (physics == nullptr || !physics->hasPlayer()) {
+    const flecs::entity player = scriptPlayer(*g_fpWorld, args);
+    if (physics == nullptr || !player.is_valid()) {
         return s7_f(sc);
     }
-    return s7_make_boolean(sc, physics->playerSupported());
+    return s7_make_boolean(sc, physics->characterSupported(static_cast<std::uint64_t>(player.id())));
+}
+
+s7_pointer g_players(s7_scheme* sc, s7_pointer) {
+    if (g_fpWorld == nullptr) {
+        return s7_nil(sc);
+    }
+    return makeStringList(sc, playerBodyIds(*g_fpWorld));
 }
 
 s7_pointer g_player_jump(s7_scheme* sc, s7_pointer args) {
@@ -1348,22 +1359,22 @@ s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
     return s7_make_real(sc, static_cast<double>(speed));
 }
 
-s7_pointer g_player_eye(s7_scheme* sc, s7_pointer) {
+s7_pointer g_player_eye(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_fpWorld, args);
     if (!player.is_valid() || !player.has<Lens>()) {
         return s7_f(sc);
     }
     return makeVec3List(sc, player.get<Lens>().camera.position);
 }
 
-s7_pointer g_player_look_dir(s7_scheme* sc, s7_pointer) {
+s7_pointer g_player_look_dir(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_fpWorld, args);
     if (!player.is_valid() || !player.has<Lens>()) {
         return s7_f(sc);
     }
@@ -1373,15 +1384,16 @@ s7_pointer g_player_look_dir(s7_scheme* sc, s7_pointer) {
 
 constexpr SchemeBinding kPlayerBindings[] = {
     {"player-speed", g_player_speed, 0, 0, false, "(player-speed)", ScriptCap::ReadWorld},
-    {"player-velocity", g_player_velocity, 0, 0, false, "(player-velocity)", ScriptCap::ReadWorld},
-    {"player-grounded?", g_player_grounded, 0, 0, false, "(player-grounded?)", ScriptCap::ReadWorld},
+    {"player-velocity", g_player_velocity, 0, 1, false, "(player-velocity [id])", ScriptCap::ReadWorld},
+    {"player-grounded?", g_player_grounded, 0, 1, false, "(player-grounded? [id])", ScriptCap::ReadWorld},
+    {"players", g_players, 0, 0, false, "(players)", ScriptCap::ReadWorld},
     {"player-jump!", g_player_jump, 1, 0, false, "(player-jump! speed)", ScriptCap::WorldMutate},
     {"player-set-gravity!", g_player_set_gravity, 1, 0, false, "(player-set-gravity! gravity)", ScriptCap::WorldMutate},
     {"player-move-speed", g_player_move_speed, 0, 0, false, "(player-move-speed)", ScriptCap::ReadWorld},
     {"player-set-move-speed!", g_player_set_move_speed, 1, 0, false, "(player-set-move-speed! speed)", ScriptCap::WorldMutate},
     {"player-wish-speed", g_player_wish_speed, 0, 0, false, "(player-wish-speed)", ScriptCap::ReadWorld},
-    {"player-eye", g_player_eye, 0, 0, false, "(player-eye)", ScriptCap::ReadWorld},
-    {"player-look-dir", g_player_look_dir, 0, 0, false, "(player-look-dir)", ScriptCap::ReadWorld},
+    {"player-eye", g_player_eye, 0, 1, false, "(player-eye [id])", ScriptCap::ReadWorld},
+    {"player-look-dir", g_player_look_dir, 0, 1, false, "(player-look-dir [id])", ScriptCap::ReadWorld},
 };
 
 } // namespace

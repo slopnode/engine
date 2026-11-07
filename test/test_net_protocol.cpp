@@ -55,18 +55,21 @@ void runNetProtocolTests() {
     }
 
     {
-        const std::vector<std::byte> data = encodeNetMapChange({"demoroom", "fresh"});
+        const std::vector<std::byte> data = encodeNetMapChange({"demoroom", "fresh", "player-2"});
         NetMapChange back;
         CHECK(decodeNetMapChange(data, back) && back.mapId == "demoroom" && back.reason == "fresh");
+        CHECK(back.yourPlayer == "player-2");
         CHECK(rejectsEveryTruncation(data, [](auto span) { NetMapChange m; return decodeNetMapChange(span, m); }));
         NetHello wrong;
         CHECK_FALSE(decodeNetHello(data, wrong));
     }
 
     {
-        const std::vector<std::byte> data = encodeNetIntroduce({{1, "door-1"}, {300, "zombie-a"}});
+        const std::vector<std::byte> data =
+            encodeNetIntroduce({{1, "door-1", NetEntityKind::Thing}, {300, "player-2", NetEntityKind::Player}});
         std::vector<NetIntroduction> back;
-        CHECK(decodeNetIntroduce(data, back) && back.size() == 2 && back[1].netId == 300 && back[1].name == "zombie-a");
+        CHECK(decodeNetIntroduce(data, back) && back.size() == 2 && back[1].netId == 300 && back[1].name == "player-2");
+        CHECK(back.size() == 2 && back[0].kind == NetEntityKind::Thing && back[1].kind == NetEntityKind::Player);
         CHECK(rejectsEveryTruncation(data, [](auto span) { std::vector<NetIntroduction> v; return decodeNetIntroduce(span, v); }));
         const std::vector<std::byte> forget = encodeNetForget({7, 9000});
         std::vector<std::uint32_t> ids;

@@ -49,6 +49,8 @@ void prepare(Side& side) {
     side.world.set<CurrentMap>({"testmap"});
     side.world.entity("Player")
         .add<LocalPlayer>()
+        .add<PlayerBody>()
+        .set<LocalTransformation>({})
         .set<FirstPersonController>({})
         .set<Lens>({})
         .set<CharacterMotor>({});
@@ -126,7 +128,9 @@ void runNetSessionTests() {
             animation.playing = true;
             animation.time += kSimTickDt;
         }).add<SimSystem>();
-    server.session = std::make_unique<NetSession>(server.world, config(server, "server", "", hash), network.endpoint());
+    NetSessionConfig serverConfig = config(server, "server", "", hash);
+    serverConfig.maxClients = 2;
+    server.session = std::make_unique<NetSession>(server.world, std::move(serverConfig), network.endpoint());
     server.session->registerSystems();
     server.world.system("CountPresses")
         .kind(flecs::PreUpdate)
@@ -148,6 +152,7 @@ void runNetSessionTests() {
     CHECK(client.session->clientConnected());
     CHECK(server.session->serverHasClient());
     CHECK(client.loadedMap == "testmap");
+    CHECK(client.session->clientPlayer() == "Player");
 
     const flecs::entity clientWalker = client.world.lookup("walker");
     const flecs::entity serverWalker = server.world.lookup("walker");
@@ -215,13 +220,64 @@ void runNetSessionTests() {
     frames(network, server, {&client}, 3);
     CHECK(clientWalker.get<SimPose>().cur.position.x == frozen);
 
+    s7_eval_c_string(sc, "(define appeared '())");
+    s7_eval_c_string(sc, "(define (on-player-appear id) (set! appeared (cons id appeared)))");
+    s7_eval_c_string(sc, "(define (on-player-vanish id) (set! appeared (cons (string-append \"gone \" id) appeared)))");
+
+    CharacterMotor tall{};
+    tall.eyeHeight = 1.65f;
+    tall.height = 1.2f;
+    server.world.lookup("Player").set<CharacterMotor>(tall);
+
     Side late;
     prepare(late);
     late.session = std::make_unique<NetSession>(late.world, config(late, "", "server", hash), network.endpoint());
     late.session->registerSystems();
     CHECK(late.session->start());
     frames(network, server, {&client, &late}, 10);
-    CHECK(late.droppedReason == "server full");
+    CHECK(late.session->clientConnected());
+    CHECK(late.session->clientPlayer() == "player-2");
+    CHECK_EQ(static_cast<int>(server.session->serverClientCount()), 2);
+    const flecs::entity secondBody = server.world.lookup("player-2");
+    CHECK(secondBody.is_valid() && secondBody.has<PlayerBody>());
+    CHECK(secondBody.has<CharacterMotor>() && secondBody.get<CharacterMotor>().eyeHeight == 1.65f);
+    CHECK(secondBody.get<FirstPersonController>().eyeHeight == 1.65f);
+    CHECK(findNetPlayer(server.world, "player-2") != nullptr);
+    CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (member \"player:player-2\" appeared) #t)")));
+
+    client.world.entity("player:player-2").set<LocalTransformation>({}).set<GlobalTransformation>({});
+    secondBody.get_mut<LocalTransformation>().position = {5.0f, 0.0f, 6.0f};
+    late.world.get_mut<InputCommand>().moveStrafe = 1.0f;
+    client.world.get_mut<InputCommand>().moveForward = 0.0f;
+    client.world.get_mut<InputState>().actionDown[static_cast<std::size_t>(Action::MoveForward)] = 0;
+    for (NetPlayerRecord& record : server.world.get_mut<NetStore>().players) {
+        if (record.id == "player-2") {
+            record.values[static_cast<std::size_t>(health->slot)].integer = 33;
+        }
+    }
+    frames(network, server, {&client, &late}, 10);
+    CHECK(secondBody.has<PlayerCommand>() && secondBody.get<PlayerCommand>().moveStrafe == 1.0f);
+    CHECK(server.world.lookup("Player").get<PlayerCommand>().moveStrafe == 0.0f);
+    const flecs::entity avatar = client.world.lookup("player:player-2");
+    CHECK(avatar.has<SimPose>() && avatar.get<SimPose>().cur.position.z == 6.0f);
+    CHECK(late.world.get<NetStore>().players.front().values[static_cast<std::size_t>(health->slot)].integer == 33);
+    CHECK(client.world.get<NetStore>().players.front().values[static_cast<std::size_t>(health->slot)].integer == 77);
+    CHECK_FALSE(late.world.lookup("player:Player").is_valid() && late.world.lookup("player:Player").has<SimPose>());
+
+    Side extra;
+    prepare(extra);
+    extra.session = std::make_unique<NetSession>(extra.world, config(extra, "", "server", hash), network.endpoint());
+    extra.session->registerSystems();
+    CHECK(extra.session->start());
+    frames(network, server, {&client, &late, &extra}, 10);
+    CHECK(extra.droppedReason == "server full");
+
+    late.session.reset();
+    frames(network, server, {&client}, 5);
+    CHECK_EQ(static_cast<int>(server.session->serverClientCount()), 1);
+    CHECK_FALSE(server.world.lookup("player-2").is_valid());
+    CHECK(findNetPlayer(server.world, "player-2") == nullptr);
+    CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (member \"gone player:player-2\" appeared) #t)")));
     CHECK(client.session->clientConnected());
 
     Side wrong;

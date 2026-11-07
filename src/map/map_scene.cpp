@@ -415,6 +415,7 @@ bool assembleMapScene(
     flecs::entity player = world.entity("Player")
         .add<MapOwned>()
         .add<LocalPlayer>()
+        .add<PlayerBody>()
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<FirstPersonController>(controller)
@@ -466,8 +467,10 @@ bool assembleMapScene(
     lens.camera.target = Vector3Add(lens.camera.position, forward);
     player.set<Lens>(lens)
         .set<CharacterMotor>(motor)
-        .set<CollisionTags>(CollisionTags{{"player"}});
+        .set<CollisionTags>(CollisionTags{{"player"}})
+        .set<LocalTransformation>(LocalTransformation{playerStart.position, {1.0f, 1.0f, 1.0f}, QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, controller.yaw)});
     world.set<PlayerEntity>(PlayerEntity{player});
+    world.set<MapPlayerStart>(MapPlayerStart{playerStart.position, controller.yaw, controller.pitch, motor});
 
     if (world.has<PhysicsContext>()) {
         PhysicsWorld* physics = world.get_mut<PhysicsContext>().world;

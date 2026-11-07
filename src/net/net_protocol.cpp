@@ -92,6 +92,7 @@ std::vector<std::byte> encodeNetMapChange(const NetMapChange& change) {
     NetWriter writer = begin(NetMessageKind::MapChange);
     writer.string(change.mapId);
     writer.string(change.reason);
+    writer.string(change.yourPlayer);
     return writer.data();
 }
 
@@ -99,7 +100,7 @@ bool decodeNetMapChange(std::span<const std::byte> data, NetMapChange& out) {
     NetReader reader(data);
     out = NetMapChange{};
     return expect(reader, NetMessageKind::MapChange) && reader.string(out.mapId, kMaxNameBytes) &&
-        reader.string(out.reason, kMaxNameBytes) && reader.atEnd();
+        reader.string(out.reason, kMaxNameBytes) && reader.string(out.yourPlayer, kMaxNameBytes) && reader.atEnd();
 }
 
 std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& entries) {
@@ -108,6 +109,7 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
     for (const NetIntroduction& entry : entries) {
         writer.varint(entry.netId);
         writer.string(entry.name);
+        writer.u8(static_cast<std::uint8_t>(entry.kind));
     }
     return writer.data();
 }
@@ -121,9 +123,11 @@ bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduc
     }
     for (std::size_t i = 0; i < entries; ++i) {
         NetIntroduction entry;
-        if (!readU32(reader, entry.netId) || !reader.string(entry.name, kMaxNameBytes)) {
+        std::uint8_t kind = 0;
+        if (!readU32(reader, entry.netId) || !reader.string(entry.name, kMaxNameBytes) || !reader.u8(kind) || kind > 1) {
             return false;
         }
+        entry.kind = static_cast<NetEntityKind>(kind);
         out.push_back(std::move(entry));
     }
     return reader.atEnd();

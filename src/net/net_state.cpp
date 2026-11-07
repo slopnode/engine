@@ -98,6 +98,36 @@ void resetNetState(flecs::world& world) {
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
 }
 
+void addNetPlayer(flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>() || findNetPlayer(world, id) != nullptr) {
+        return;
+    }
+    world.get_mut<NetStore>().players.push_back(
+        NetPlayerRecord{std::string(id), defaultsFor(NetScope{NetScopeKind::Player, {}})});
+}
+
+void removeNetPlayer(flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>() || id == kLocalNetPlayerId) {
+        return;
+    }
+    std::vector<NetPlayerRecord>& players = world.get_mut<NetStore>().players;
+    players.erase(
+        std::remove_if(players.begin(), players.end(), [&](const NetPlayerRecord& record) { return record.id == id; }),
+        players.end());
+}
+
+const NetPlayerRecord* findNetPlayer(const flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>()) {
+        return nullptr;
+    }
+    for (const NetPlayerRecord& record : world.get<NetStore>().players) {
+        if (record.id == id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
 void resetNetMapFields(flecs::world& world) {
     if (!world.has<NetStore>()) {
         return;

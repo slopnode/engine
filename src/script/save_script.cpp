@@ -1,4 +1,5 @@
 #include "script/save_script.hpp"
+#include "script/player_target.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -217,11 +218,11 @@ constexpr SchemeBinding kMapBindings[] = {
     {"current-map", g_current_map, 0, 0, false, "(current-map)", ScriptCap::ReadWorld},
 };
 
-s7_pointer g_player_pose(s7_scheme* sc, s7_pointer) {
+s7_pointer g_player_pose(s7_scheme* sc, s7_pointer args) {
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld, args);
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
@@ -229,31 +230,7 @@ s7_pointer g_player_pose(s7_scheme* sc, s7_pointer) {
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
-    if (g_saveWorld->has<PhysicsContext>()) {
-        PhysicsWorld* physics = g_saveWorld->get<PhysicsContext>().world;
-        if (physics != nullptr && physics->hasPlayer()) {
-            const JPH::RVec3 feet = physics->playerPosition();
-            x = static_cast<float>(feet.GetX());
-            y = static_cast<float>(feet.GetY());
-            z = static_cast<float>(feet.GetZ());
-        } else if (player.has<Lens>()) {
-            const Lens& lens = player.get<Lens>();
-            const float eye =
-                player.has<CharacterMotor>() ? player.get<CharacterMotor>().eyeHeight : 1.7f;
-            x = lens.camera.position.x;
-            y = lens.camera.position.y - eye;
-            z = lens.camera.position.z;
-        } else {
-            return s7_f(sc);
-        }
-    } else if (player.has<Lens>()) {
-        const Lens& lens = player.get<Lens>();
-        const float eye =
-            player.has<CharacterMotor>() ? player.get<CharacterMotor>().eyeHeight : 1.7f;
-        x = lens.camera.position.x;
-        y = lens.camera.position.y - eye;
-        z = lens.camera.position.z;
-    } else {
+    if (!scriptPlayerFeet(*g_saveWorld, player, x, y, z)) {
         return s7_f(sc);
     }
 
@@ -335,7 +312,7 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "player-set-eye-height", args);
     const float h = in.realf("number");
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld, in.rest());
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
@@ -355,17 +332,22 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
         Lens& lens = player.get_mut<Lens>();
         if (g_saveWorld->has<PhysicsContext>()) {
             PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
-            if (physics != nullptr && physics->hasPlayer()) {
-                const JPH::RVec3 feet = physics->playerPosition();
+            const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+            if (physics != nullptr && physics->hasCharacter(id)) {
+                const JPH::RVec3 feet = physics->characterPosition(id);
                 lens.camera.position.x = static_cast<float>(feet.GetX());
                 lens.camera.position.y = static_cast<float>(feet.GetY()) + h;
                 lens.camera.position.z = static_cast<float>(feet.GetZ());
                 if (motorResized && player.has<CharacterMotor>()) {
-                    physics->createPlayerCharacter(
-                        static_cast<float>(feet.GetX()),
-                        static_cast<float>(feet.GetY()),
-                        static_cast<float>(feet.GetZ()),
-                        player.get<CharacterMotor>());
+                    const float x = static_cast<float>(feet.GetX());
+                    const float y = static_cast<float>(feet.GetY());
+                    const float z = static_cast<float>(feet.GetZ());
+                    if (id == physics->playerId()) {
+                        physics->createPlayerCharacter(x, y, z, player.get<CharacterMotor>());
+                    } else {
+                        physics->destroyCharacter(id);
+                        physics->createCharacter(id, x, y, z, player.get<CharacterMotor>());
+                    }
                 }
             } else {
                 lens.camera.position.y = h;
@@ -384,11 +366,11 @@ s7_pointer g_player_set_eye_height(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
-s7_pointer g_player_collider(s7_scheme* sc, s7_pointer) {
+s7_pointer g_player_collider(s7_scheme* sc, s7_pointer args) {
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld, args);
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
@@ -407,7 +389,7 @@ s7_pointer g_player_set_collider(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "player-set-collider", args);
     const float radius = in.realf("number");
     const float height = in.realf("number");
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld, in.rest());
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
@@ -420,14 +402,15 @@ s7_pointer g_player_set_collider(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
     PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
-    if (physics == nullptr || !physics->hasPlayer()) {
+    const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+    if (physics == nullptr || !physics->hasCharacter(id)) {
         return s7_f(sc);
     }
 
     CharacterMotor resized = player.get<CharacterMotor>();
     resized.radius = radius;
     resized.height = height;
-    if (!physics->resizePlayerCharacter(resized)) {
+    if (!physics->resizeCharacter(id, resized)) {
         return s7_f(sc);
     }
 
@@ -478,12 +461,12 @@ s7_pointer g_player_set_pitch_locked(s7_scheme* sc, s7_pointer args) {
 }
 
 constexpr SchemeBinding kPlayerBindings[] = {
-    {"player-pose", g_player_pose, 0, 0, false, "(player-pose)", ScriptCap::ReadWorld},
+    {"player-pose", g_player_pose, 0, 1, false, "(player-pose [id])", ScriptCap::ReadWorld},
     {"player-set-pose", g_player_set_pose, 5, 0, false, "(player-set-pose x y z yaw pitch)", ScriptCap::MapControl},
     {"player-eye-height", g_player_eye_height, 0, 0, false, "(player-eye-height)", ScriptCap::MapControl},
-    {"player-set-eye-height", g_player_set_eye_height, 1, 0, false, "(player-set-eye-height h)", ScriptCap::MapControl},
-    {"player-collider", g_player_collider, 0, 0, false, "(player-collider) -> (radius height)", ScriptCap::ReadWorld},
-    {"player-set-collider", g_player_set_collider, 2, 0, false, "(player-set-collider radius height)", ScriptCap::MapControl},
+    {"player-set-eye-height", g_player_set_eye_height, 1, 1, false, "(player-set-eye-height h [id])", ScriptCap::MapControl},
+    {"player-collider", g_player_collider, 0, 1, false, "(player-collider [id]) -> (radius height)", ScriptCap::ReadWorld},
+    {"player-set-collider", g_player_set_collider, 2, 1, false, "(player-set-collider radius height [id])", ScriptCap::MapControl},
     {"player-set-control", g_player_set_control, 2, 0, false, "(player-set-control move? look?)", ScriptCap::MapControl},
     {"player-set-pitch-locked", g_player_set_pitch_locked, 1, 0, false, "(player-set-pitch-locked locked?)", ScriptCap::MapControl},
 };

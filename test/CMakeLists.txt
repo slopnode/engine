@@ -71,6 +71,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/game/sim_interpolation.cpp
     ${CMAKE_SOURCE_DIR}/src/net/net_state.cpp
     ${CMAKE_SOURCE_DIR}/src/net/net_session.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/player_bodies.cpp
     ${CMAKE_SOURCE_DIR}/src/script/net_script.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/render/animation_player.cpp

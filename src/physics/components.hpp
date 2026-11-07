@@ -1,5 +1,7 @@
 #pragma once
 
+#include <raylib.h>
+
 namespace slopengine {
 
 enum class CharacterHull : unsigned char {
@@ -78,6 +80,15 @@ inline float characterCenterOffset(const CharacterMotor& motor) {
  *  @ingroup physics_components
  */
 struct Actor {};
+
+struct PlayerBody {};
+
+struct MapPlayerStart {
+    Vector3 position{0.0f, 0.1f, 0.0f};
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    CharacterMotor motor{};
+};
 
 /** Tag: dead actor kept for visuals; no physics or combat collision.
  *  @ingroup physics_components

@@ -13,7 +13,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 1;
+inline constexpr std::uint32_t kNetProtocolVersion = 2;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
@@ -59,11 +59,18 @@ struct NetHello {
 struct NetMapChange {
     std::string mapId;
     std::string reason;
+    std::string yourPlayer;
+};
+
+enum class NetEntityKind : std::uint8_t {
+    Thing = 0,
+    Player = 1,
 };
 
 struct NetIntroduction {
     std::uint32_t netId = 0;
     std::string name;
+    NetEntityKind kind = NetEntityKind::Thing;
 };
 
 struct NetCommandFrame {

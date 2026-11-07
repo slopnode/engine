@@ -6,6 +6,7 @@
 
 #include <flecs.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -13,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -30,6 +32,9 @@ struct NetSessionConfig {
     std::optional<SecureKey> pinnedServerKey;
     std::filesystem::path serverKeyPath;
     NetHello hello;
+    std::size_t maxClients = 8;
+    bool hostPlayerVisible = false;
+    bool firstClientTakesMapPlayer = true;
     std::function<void(const std::string& mapId, const std::string& reason)> loadMap;
     std::function<void(const std::string& reason)> disconnected;
 };
@@ -49,7 +54,9 @@ public:
     bool start();
     NetRole role() const { return role_; }
     bool clientConnected() const { return connected_; }
-    bool serverHasClient() const { return client_.has_value() && client_->ready; }
+    const std::string& clientPlayer() const { return yourPlayer_; }
+    std::size_t serverClientCount() const;
+    bool serverHasClient() const { return serverClientCount() > 0; }
     const SecureKey& publicKey() const { return transport_->publicKey(); }
 
     void registerSystems();
@@ -61,9 +68,12 @@ private:
     struct ServerClient {
         NetConnectionId connection = kNoNetConnection;
         bool ready = false;
+        std::string player;
+        bool ownBody = false;
         std::uint64_t lastCommandTick = 0;
         std::deque<NetCommandFrame> pending;
         NetCommandFrame latest;
+        std::set<std::uint32_t> known;
     };
 
     void serverReceive(const NetEvent& event);
@@ -71,30 +81,39 @@ private:
     void serverApplyCommands();
     void serverAfterTick();
     void serverSendMap(ServerClient& client);
-    void serverSendEvents(const std::vector<NetEventMessage>& events);
-    void serverDrop(const std::string& reason);
-    std::vector<NetIntroduction> serverAssignIds();
-    std::vector<std::uint32_t> serverForgetDead();
+    void serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events);
+    void serverUpdateKnown(ServerClient& client);
+    void serverSendSnapshot(ServerClient& client);
+    void serverDrop(NetConnectionId connection, const std::string& reason);
+    void serverRemove(NetConnectionId connection, const std::string& reason);
+    bool serverVisibleTo(const ServerClient& client, flecs::entity entity) const;
+    void serverAssignIds();
 
     void clientReceive(const NetEvent& event);
     void clientSnapshot(const NetSnapshot& snapshot);
     void clientSendCommands();
     flecs::entity clientEntity(std::uint32_t netId);
 
+    void callHook(const char* name, const std::string& argument);
+
     flecs::world& world_;
     NetSessionConfig config_;
     std::unique_ptr<SecureTransport> transport_;
     NetRole role_ = NetRole::None;
 
-    std::optional<ServerClient> client_;
+    std::map<NetConnectionId, ServerClient> clients_;
     std::uint32_t nextNetId_ = 1;
+    int nextPlayerNumber_ = 2;
     std::map<std::uint32_t, flecs::entity_t> serverEntities_;
     std::uint64_t serverTick_ = 0;
 
     NetConnectionId server_ = kNoNetConnection;
     bool connected_ = false;
-    std::map<std::uint32_t, std::string> names_;
+    std::string yourPlayer_;
+    std::string expectedMap_;
+    std::map<std::uint32_t, NetIntroduction> names_;
     std::map<std::uint32_t, flecs::entity_t> bound_;
+    std::set<std::uint32_t> appeared_;
     std::uint64_t lastSnapshotTick_ = 0;
     bool loggedSnapshots_ = false;
     SimClock commandClock_{};
@@ -104,5 +123,6 @@ private:
 
 bool loadOrCreateServerKey(const std::filesystem::path& path, SecureKey& secret);
 bool parseSecureKeyHex(std::string_view text, SecureKey& out);
+std::string netAvatarName(std::string_view player);
 
 }

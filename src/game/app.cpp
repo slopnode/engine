@@ -212,6 +212,8 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     for (const Package& package : assetStore_.packages()) {
         net.hello.packages.push_back({package.meta().id, package.meta().version});
     }
+    net.hostPlayerVisible = !config_.dedicated;
+    net.firstClientTakesMapPlayer = config_.dedicated;
     net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
     net.disconnected = [this](const std::string&) { enterMenu(world_); };
     net_ = std::make_unique<NetSession>(world_, std::move(net), createEnetTransport());
