@@ -1,5 +1,6 @@
 #include "script/input_script.hpp"
 
+#include "script/player_target.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -30,15 +31,20 @@ s7_pointer queryAction(s7_scheme* sc, s7_pointer args, const char* proc, ActionQ
     if (!g_inputWorld->has<InputContextStack>() || !g_inputWorld->has<InputState>()) {
         return s7_f(sc);
     }
-    if (!g_inputWorld->get<InputContextStack>().allowsGameplay()) {
+    const bool local = scriptPlayerIsLocal();
+    if (local && !g_inputWorld->get<InputContextStack>().allowsGameplay()) {
         return s7_f(sc);
     }
     const int index = actionRegistry().indexOf(id);
     if (index < 0) {
         return s7_f(sc);
     }
-    if (currentScriptScope() == ScriptScope::World) {
-        const PlayerCommand* command = localPlayerCommand(*g_inputWorld);
+    if (currentScriptScope() == ScriptScope::World || !local) {
+        const flecs::entity player = scriptPlayer(*g_inputWorld);
+        const PlayerCommand* command = player.is_valid() ? player.try_get<PlayerCommand>() : nullptr;
+        if (command == nullptr && local) {
+            command = localPlayerCommand(*g_inputWorld);
+        }
         if (command == nullptr) {
             return s7_f(sc);
         }

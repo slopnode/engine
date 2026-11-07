@@ -10,6 +10,8 @@
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
 #include "input/player_command.hpp"
+#include "physics/components.hpp"
+#include "script/player_target.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 
@@ -132,7 +134,10 @@ void registerSystems(flecs::world& world) {
 
             s7_scheme* scheme = world.get<ScriptContext>().scheme;
             const ActionRegistry& registry = actionRegistry();
-            world.each([&](const PlayerCommand& command) {
+            world.each([&](flecs::entity entity, const PlayerCommand& command) {
+                const std::string player =
+                    entity.has<PlayerBody>() && entity.name().length() > 0 ? std::string(entity.name().c_str()) : std::string("Player");
+                ScriptPlayerGuard guard(player);
                 for (int i = registry.coreCount(); i < registry.size(); ++i) {
                     if (!command.pressed(i)) {
                         continue;

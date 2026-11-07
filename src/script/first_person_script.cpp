@@ -74,6 +74,9 @@ flecs::entity socketByName(flecs::world& world, const FirstPersonScene& scene, c
 }
 
 bool tryGetPlayerScene(flecs::world& world, flecs::entity& player, FirstPersonScene& scene) {
+    if (!scriptPlayerIsLocal()) {
+        return false;
+    }
     player = world.lookup("Player");
     if (!player.is_valid() || !player.has<FirstPersonScene>()) {
         return false;
@@ -938,7 +941,7 @@ s7_pointer g_fp_set_rad_tint(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "fp-set-rad-tint", args);
     const bool enabled = in.truthy("enabled");
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid() || !player.has<FirstPersonScene>()) {
         return s7_f(sc);
     }
@@ -952,7 +955,7 @@ s7_pointer g_fp_set_shading(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "fp-set-shading", args);
     const bool enabled = in.truthy("enabled");
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid() || !player.has<FirstPersonScene>()) {
         return s7_f(sc);
     }
@@ -969,7 +972,7 @@ s7_pointer g_fp_set_eye_offset(s7_scheme* sc, s7_pointer args) {
     const float y = in.realf("y number");
     const float z = in.realf("z number");
 
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid()) {
         return s7_f(sc);
     }
@@ -989,7 +992,7 @@ s7_pointer g_fp_set_view_roll(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "fp-set-view-roll", args);
     const float roll = in.realf("roll number");
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid()) {
         return s7_f(sc);
     }
@@ -1006,7 +1009,7 @@ s7_pointer g_fp_set_view_offset(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "fp-set-view-offset", args);
     const Vector3 offset = in.vec3("x y z numbers");
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid()) {
         return s7_f(sc);
     }
@@ -1119,6 +1122,9 @@ bool applyRecoilKickEntry(s7_scheme* sc, const char* key, s7_pointer value, View
 }
 
 s7_pointer g_fp_recoil_tune(s7_scheme* sc, s7_pointer args) {
+    if (!scriptPlayerIsLocal()) {
+        return s7_f(sc);
+    }
     ViewRecoil* recoil = playerViewRecoil();
     if (recoil == nullptr) {
         return s7_f(sc);
@@ -1137,6 +1143,9 @@ s7_pointer g_fp_recoil_tune(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_recoil_kick(s7_scheme* sc, s7_pointer args) {
+    if (!scriptPlayerIsLocal()) {
+        return s7_f(sc);
+    }
     ViewRecoil* recoil = playerViewRecoil();
     if (recoil == nullptr) {
         return s7_f(sc);
@@ -1155,6 +1164,9 @@ s7_pointer g_fp_recoil_kick(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_recoil_reset(s7_scheme* sc, s7_pointer) {
+    if (!scriptPlayerIsLocal()) {
+        return s7_f(sc);
+    }
     ViewRecoil* recoil = playerViewRecoil();
     if (recoil == nullptr) {
         return s7_f(sc);
@@ -1164,6 +1176,9 @@ s7_pointer g_fp_recoil_reset(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_fp_view_punch(s7_scheme* sc, s7_pointer args) {
+    if (!scriptPlayerIsLocal()) {
+        return s7_f(sc);
+    }
     ArgReader in(sc, "fp-view-punch!", args);
     float angles[3] = {0.0f, 0.0f, 0.0f};
     for (float& angle : angles) {
@@ -1182,6 +1197,9 @@ s7_pointer g_fp_view_punch(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_fp_set_weapon_hidden(s7_scheme* sc, s7_pointer args) {
+    if (!scriptPlayerIsLocal()) {
+        return s7_f(sc);
+    }
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
@@ -1203,7 +1221,7 @@ s7_pointer g_extra_eye_configure(s7_scheme* sc, s7_pointer args) {
     const int height = in.integer("height number");
     const float fovy = in.realf("fovy number");
 
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid()) {
         return s7_f(sc);
     }
@@ -1228,7 +1246,7 @@ s7_pointer g_extra_eye_set_active(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "extra-eye-set-active!", args);
     const bool active = in.truthy("active boolean");
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayerIsLocal() ? g_fpWorld->lookup("Player") : flecs::entity{};
     if (!player.is_valid() || !player.has<ExtraEye>()) {
         return s7_f(sc);
     }
@@ -1251,10 +1269,11 @@ s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
         return s7_make_real(sc, 0.0);
     }
     PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
-    if (physics == nullptr || !physics->hasPlayer()) {
+    const flecs::entity player = scriptPlayer(*g_fpWorld);
+    if (physics == nullptr || !player.is_valid() || !physics->hasCharacter(static_cast<std::uint64_t>(player.id()))) {
         return s7_make_real(sc, 0.0);
     }
-    const JPH::Vec3 vel = physics->playerVelocity();
+    const JPH::Vec3 vel = physics->characterVelocity(static_cast<std::uint64_t>(player.id()));
     const float speed = std::sqrt(vel.GetX() * vel.GetX() + vel.GetZ() * vel.GetZ());
     return s7_make_real(sc, static_cast<double>(speed));
 }
@@ -1298,10 +1317,11 @@ s7_pointer g_player_jump(s7_scheme* sc, s7_pointer args) {
         return s7_f(sc);
     }
     PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
-    if (physics == nullptr || !physics->hasPlayer()) {
+    const flecs::entity player = scriptPlayer(*g_fpWorld);
+    if (physics == nullptr || !player.is_valid() || !physics->hasCharacter(static_cast<std::uint64_t>(player.id()))) {
         return s7_f(sc);
     }
-    return s7_make_boolean(sc, physics->launchCharacter(physics->playerId(), speed));
+    return s7_make_boolean(sc, physics->launchCharacter(static_cast<std::uint64_t>(player.id()), speed));
 }
 
 s7_pointer g_player_set_gravity(s7_scheme* sc, s7_pointer args) {
@@ -1310,7 +1330,7 @@ s7_pointer g_player_set_gravity(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_fpWorld);
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
@@ -1322,7 +1342,7 @@ s7_pointer g_player_move_speed(s7_scheme* sc, s7_pointer) {
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_fpWorld);
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
@@ -1335,7 +1355,7 @@ s7_pointer g_player_set_move_speed(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_fpWorld);
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_f(sc);
     }
@@ -1350,7 +1370,7 @@ s7_pointer g_player_wish_speed(s7_scheme* sc, s7_pointer) {
     if (g_fpWorld == nullptr) {
         return s7_make_real(sc, 0.0);
     }
-    flecs::entity player = g_fpWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_fpWorld);
     if (!player.is_valid() || !player.has<CharacterMotor>()) {
         return s7_make_real(sc, 0.0);
     }

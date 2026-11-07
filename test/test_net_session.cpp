@@ -16,7 +16,9 @@
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
 #include "script/net_script.hpp"
+#include "script/player_target.hpp"
 #include "script/script_context.hpp"
+#include "script/script_scope.hpp"
 
 #include <s7.h>
 
@@ -244,6 +246,31 @@ void runNetSessionTests() {
     CHECK(secondBody.get<FirstPersonController>().eyeHeight == 1.65f);
     CHECK(findNetPlayer(server.world, "player-2") != nullptr);
     CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (member \"player:player-2\" appeared) #t)")));
+
+    bindScriptPlayerApi(server.world, sc);
+    {
+        ScriptScopeGuard worldScope(ScriptScope::World);
+        CHECK(s7_t(sc) == s7_eval_c_string(sc,
+            "(let ((r (list (script-player) (with-script-player \"player-2\" (lambda () (script-player))) (script-player))))"
+            " (equal? r '(\"Player\" \"player-2\" \"Player\")))"));
+        s7_eval_c_string(sc,
+            "(define (seen-as) (dynamic-wind (lambda () #f)"
+            " (lambda () (with-script-player \"player-2\" (lambda () (list (script-player) (with-script-player \"Player\" script-player) (script-player)))))"
+            " (lambda () #f)))");
+        const s7_pointer seen = s7_call(sc, s7_name_to_value(sc, "seen-as"), s7_nil(sc));
+        CHECK(s7_t(sc) == s7_call(sc, s7_name_to_value(sc, "equal?"),
+        s7_list(sc, 2, seen, s7_eval_c_string(sc, "'(\"player-2\" \"Player\" \"player-2\")"))));
+        s7_eval_c_string(sc, "(define (boom-as) (catch #t (lambda () (with-script-player \"player-2\" (lambda () (error 'boom)))) (lambda args 'caught)))");
+        s7_call(sc, s7_name_to_value(sc, "boom-as"), s7_nil(sc));
+        CHECK(std::string(s7_string(s7_eval_c_string(sc, "(script-player)"))) == "Player");
+        CHECK(s7_t(sc) == s7_eval_c_string(sc, "(let ((r (with-script-player \"nobody\" (lambda () 1)))) (not r))"));
+        {
+            ScriptPlayerGuard guard("player-2");
+            CHECK(scriptPlayer(server.world) == secondBody);
+            CHECK_FALSE(scriptPlayerIsLocal());
+        }
+    }
+    CHECK(scriptPlayer(server.world) == server.world.lookup("Player"));
 
     client.world.entity("player:player-2").set<LocalTransformation>({}).set<GlobalTransformation>({});
     secondBody.get_mut<LocalTransformation>().position = {5.0f, 0.0f, 6.0f};

@@ -9,6 +9,7 @@
 #include "script/hud_script.hpp"
 #include "script/input_script.hpp"
 #include "script/net_script.hpp"
+#include "script/player_target.hpp"
 #include "script/post_script.hpp"
 #include "script/save_script.hpp"
 #include "script/script_scope.hpp"
@@ -25,6 +26,7 @@ namespace slopengine {
 
 void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* scheme) {
     bindFirstPersonApi(world, scheme);
+    bindScriptPlayerApi(world, scheme);
     bindCameraPathApi(world, scheme);
     bindHudApi(world, scheme);
     bindPostProcessApi(world, scheme);

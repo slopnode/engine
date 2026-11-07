@@ -5,12 +5,45 @@
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
+#include "script/s7_read.hpp"
+#include "script/script_scope.hpp"
+
+#include <string>
+#include <vector>
 
 namespace slopengine {
 
+namespace {
+
+std::string g_scriptPlayer = kLocalNetPlayerId;
+flecs::world* g_playerWorld = nullptr;
+std::vector<std::string> g_restorePlayers;
+
+}
+
+ScriptPlayerGuard::ScriptPlayerGuard(std::string id) : previous_(std::move(g_scriptPlayer)) {
+    g_scriptPlayer = std::move(id);
+}
+
+ScriptPlayerGuard::~ScriptPlayerGuard() {
+    g_scriptPlayer = std::move(previous_);
+}
+
+const std::string& currentScriptPlayer() {
+    return g_scriptPlayer;
+}
+
+bool scriptPlayerIsLocal() {
+    return g_scriptPlayer == kLocalNetPlayerId;
+}
+
+flecs::entity scriptPlayer(const flecs::world& world) {
+    return scriptPlayer(world, nullptr);
+}
+
 flecs::entity scriptPlayer(const flecs::world& world, s7_pointer args) {
-    const char* id = kLocalNetPlayerId;
-    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
+    const char* id = g_scriptPlayer.c_str();
+    if (args != nullptr && s7_is_pair(args) && s7_is_string(s7_car(args))) {
         id = s7_string(s7_car(args));
     }
     const flecs::entity player = world.lookup(id);
@@ -41,6 +74,66 @@ bool scriptPlayerFeet(const flecs::world& world, flecs::entity player, float& x,
     y = lens.camera.position.y - eye;
     z = lens.camera.position.z;
     return true;
+}
+
+namespace {
+
+s7_pointer g_script_player(s7_scheme* sc, s7_pointer) {
+    return s7_make_string(sc, currentScriptPlayer().c_str());
+}
+
+s7_pointer g_restore_script_player(s7_scheme* sc, s7_pointer) {
+    if (!g_restorePlayers.empty()) {
+        g_scriptPlayer = std::move(g_restorePlayers.back());
+        g_restorePlayers.pop_back();
+    }
+    return s7_unspecified(sc);
+}
+
+s7_pointer g_enter_script_player(s7_scheme* sc, s7_pointer args) {
+    if (!requireCap(sc, ScriptCap::ReadWorld)) {
+        return s7_f(sc);
+    }
+    ArgReader in(sc, "with-script-player", args);
+    const char* id = in.string("player id string");
+    if (g_playerWorld == nullptr || !scriptPlayer(*g_playerWorld, args).is_valid()) {
+        return s7_f(sc);
+    }
+    g_restorePlayers.push_back(g_scriptPlayer);
+    g_scriptPlayer = id;
+    return s7_t(sc);
+}
+
+constexpr SchemeBinding kScriptPlayerBindings[] = {
+    {"script-player", g_script_player, 0, 0, false, "(script-player)", ScriptCap::ReadWorld},
+};
+
+}
+
+void bindScriptPlayerApi(flecs::world& world, s7_scheme* scheme) {
+    g_playerWorld = &world;
+    if (scheme == nullptr) {
+        return;
+    }
+    registerBindings(scheme, kScriptPlayerBindings);
+    const s7_pointer env = s7_inlet(
+        scheme,
+        s7_list(
+            scheme,
+            6,
+            s7_make_symbol(scheme, "enter"),
+            s7_make_function(scheme, "with-script-player", g_enter_script_player, 1, 0, false, ""),
+            s7_make_symbol(scheme, "leave"),
+            s7_make_function(scheme, "with-script-player", g_restore_script_player, 0, 0, false, ""),
+            s7_make_symbol(scheme, "wind"),
+            s7_name_to_value(scheme, "dynamic-wind")));
+    s7_define_variable(
+        scheme,
+        "with-script-player",
+        s7_eval_c_string_with_environment(
+            scheme,
+            "(lambda (id thunk) (if (enter id) (wind (lambda () #f) thunk leave) #f))",
+            env));
 }
 
 }

@@ -249,7 +249,7 @@ s7_pointer g_player_set_pose(s7_scheme* sc, s7_pointer args) {
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid() || !player.has<FirstPersonController>() || !player.has<Lens>()) {
         return s7_f(sc);
     }
@@ -271,8 +271,9 @@ s7_pointer g_player_set_pose(s7_scheme* sc, s7_pointer args) {
 
     if (g_saveWorld->has<PhysicsContext>()) {
         PhysicsWorld* physics = g_saveWorld->get_mut<PhysicsContext>().world;
-        if (physics != nullptr && physics->hasPlayer()) {
-            physics->setPlayerPosition(x, y, z);
+        const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+        if (physics != nullptr && physics->hasCharacter(id)) {
+            physics->setCharacterPosition(id, x, y, z);
         }
     }
 
@@ -293,7 +294,7 @@ s7_pointer g_player_eye_height(s7_scheme* sc, s7_pointer) {
     if (g_saveWorld == nullptr) {
         return s7_f(sc);
     }
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid()) {
         return s7_f(sc);
     }
@@ -427,7 +428,7 @@ s7_pointer g_player_set_control(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "player-set-control", args);
     const bool allowMove = in.truthy("boolean");
     const bool allowLook = in.truthy("boolean");
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }
@@ -448,7 +449,7 @@ s7_pointer g_player_set_pitch_locked(s7_scheme* sc, s7_pointer args) {
     }
     ArgReader in(sc, "player-set-pitch-locked", args);
     const bool locked = in.truthy("boolean");
-    flecs::entity player = g_saveWorld->lookup("Player");
+    flecs::entity player = scriptPlayer(*g_saveWorld);
     if (!player.is_valid() || !player.has<FirstPersonController>()) {
         return s7_f(sc);
     }

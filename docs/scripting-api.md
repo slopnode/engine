@@ -187,10 +187,22 @@ Returns the ids of every player body, the map's `"Player"` and any a server spaw
 <pre><code class="language-scheme">(players) ↵ (listof string?)
 </code></pre>
 
+### script-player {#script-player}
+Returns the id of the player that `player-*` functions and `action-down?` act on when no id is given. It is `"Player"` unless a `with-script-player` call or an `on-action-*` hook for another body is running. First-person `fp-*` calls do nothing for any other player.
+<pre><code class="language-scheme">(script-player) ↵ string?
+</code></pre>
+
+### with-script-player {#with-script-player}
+Calls `thunk` with `script-player` set to `id`, then restores it, also on error. Returns `#f` without calling `thunk` when `id` names no player body.
+<pre><code class="language-scheme">(with-script-player
+  id : string?
+  thunk : procedure?) ↵ any?
+</code></pre>
+
 ### player-pose {#player-pose}
 Returns the player's position and look as `(x y z yaw pitch)`.
 <pre><code class="language-scheme">(player-pose
-  [id : string? = "Player"]) ↵ (list real? real? real? real? real?)
+  [id : string? = (script-player)]) ↵ (list real? real? real? real? real?)
 </code></pre>
 
 ### player-set-pose {#player-set-pose}
@@ -210,20 +222,20 @@ Returns the player's current eye height above their feet.
 Sets the CharacterMotor eye height.
 <pre><code class="language-scheme">(player-set-eye-height
   h : real?
-  [id : string? = "Player"]) ↵ boolean?
+  [id : string? = (script-player)]) ↵ boolean?
 </code></pre>
 
 ### player-collider {#player-collider}
 Returns the player's current collider as `(radius height)`.
 <pre><code class="language-scheme">(player-collider
-  [id : string? = "Player"]) ↵ (list real? real?)
+  [id : string? = (script-player)]) ↵ (list real? real?)
 </code></pre>
 
 ### player-set-collider {#player-set-collider}
 Sets the player's collider radius and height.
 <pre><code class="language-scheme">(player-set-collider
   radius, height : real?
-  [id : string? = "Player"]) ↵ boolean?
+  [id : string? = (script-player)]) ↵ boolean?
 </code></pre>
 
 ### player-set-control {#player-set-control}
@@ -248,13 +260,13 @@ Returns the player's current horizontal speed, in world units per second.
 ### player-velocity {#player-velocity}
 Returns the player's physics velocity as `(vx vy vz)`, in world units per second. Physics runs on a fixed step, so this is steadier than differencing `player-pose` between frames.
 <pre><code class="language-scheme">(player-velocity
-  [id : string? = "Player"]) ↵ (list real? real? real?)
+  [id : string? = (script-player)]) ↵ (list real? real? real?)
 </code></pre>
 
 ### player-grounded? {#player-grounded}
 Checks whether the player's character motor is on the ground.
 <pre><code class="language-scheme">(player-grounded?
-  [id : string? = "Player"]) ↵ boolean?
+  [id : string? = (script-player)]) ↵ boolean?
 </code></pre>
 
 ### player-jump! {#player-jump}
@@ -288,13 +300,13 @@ Returns the current wish-vector speed, before physics resolves collisions.
 ### player-eye {#player-eye}
 Returns the player's eye-space world position as `(x y z)`.
 <pre><code class="language-scheme">(player-eye
-  [id : string? = "Player"]) ↵ (list real? real? real?)
+  [id : string? = (script-player)]) ↵ (list real? real? real?)
 </code></pre>
 
 ### player-look-dir {#player-look-dir}
 Returns the player's normalized look direction as `(x y z)`.
 <pre><code class="language-scheme">(player-look-dir
-  [id : string? = "Player"]) ↵ (list real? real? real?)
+  [id : string? = (script-player)]) ↵ (list real? real? real?)
 </code></pre>
 
 ## Net state {#net-state-api}
