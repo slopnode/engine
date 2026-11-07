@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace slopengine {
@@ -19,6 +20,7 @@ struct AnimationPlayer {
     bool justFinished = false;
     bool wrappedLastTick = false;
     bool poseStale = false;
+    std::uint64_t poseSampledTick = 0;
     float lastFrame = -1.0f;
 
     /** Starts playback of @p clip at @p playbackSpeed, optionally looping. */

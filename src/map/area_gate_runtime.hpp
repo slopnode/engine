@@ -14,6 +14,7 @@ namespace slopengine {
  *  frame and the area flood once per distinct viewer area. */
 struct MapAreaGateCache {
     std::int64_t frame = -1;
+    std::uint64_t tick = 0;
     std::vector<std::uint8_t> portalOpen;
     std::int32_t fromArea = -2;
     std::vector<std::uint8_t> open;

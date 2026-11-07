@@ -1,5 +1,6 @@
 #include "map/area_gate_runtime.hpp"
 
+#include "core/sim_clock.hpp"
 #include "map/pvs.hpp"
 #include "physics/rigid_mover.hpp"
 
@@ -44,8 +45,10 @@ AreaGate areaGateFromPoint(flecs::world& world, Vector3 from) {
     }
     MapAreaGateCache& cache = world.get_mut<MapAreaGateCache>();
     const std::int64_t frame = world.get_info()->frame_count_total;
-    if (cache.frame != frame) {
+    const std::uint64_t tick = world.has<SimClock>() ? world.get<SimClock>().tick : 0;
+    if (cache.frame != frame || cache.tick != tick) {
         cache.frame = frame;
+        cache.tick = tick;
         cache.fromArea = -2;
         cache.portalOpen.resize(areas.portals.size());
         for (std::size_t i = 0; i < areas.portals.size(); ++i) {

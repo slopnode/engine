@@ -9,5 +9,6 @@ void registerSchemeTickSystem(flecs::world& world);
 void registerAnimationSystems(flecs::world& world);
 void registerAnimationClipFlipTestSystem(flecs::world& world);
 void registerTransformSystems(flecs::world& world);
+void sampleTickPose(flecs::entity entity);
 
 }

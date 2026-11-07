@@ -26,6 +26,7 @@
 #include "physics/sight_module.hpp"
 #include "physics/trigger_components.hpp"
 #include "render/animation_player.hpp"
+#include "render/animation_systems.hpp"
 #include "render/attachment_path.hpp"
 #include "render/bone_attachment.hpp"
 #include "render/bone_springs.hpp"
@@ -1434,6 +1435,7 @@ flecs::entity riggedActor(ArgReader& in, std::string& bone) {
     if (model.skeleton.boneCount <= 0 || model.boneMatrices == nullptr || model.currentPose == nullptr) {
         return {};
     }
+    sampleTickPose(entity);
     return entity;
 }
 
@@ -1452,6 +1454,7 @@ const std::vector<BoneHitbox>& actorHitboxes(
     flecs::entity entity,
     const Model& model,
     std::vector<BoneHitbox>& scratch) {
+    sampleTickPose(entity);
     if (entity.has<ModelHitboxes>()) {
         return ensureModelHitboxes(model, entity.get_mut<ModelHitboxes>());
     }

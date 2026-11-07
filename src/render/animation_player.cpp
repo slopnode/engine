@@ -9,6 +9,7 @@ void AnimationPlayer::play(std::string_view clip, bool shouldLoop, float playbac
     time = 0.0f;
     prevTime = 0.0f;
     wrappedLastTick = false;
+    poseSampledTick = 0;
     playing = true;
     justStarted = true;
     justFinished = false;

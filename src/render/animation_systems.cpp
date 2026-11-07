@@ -182,6 +182,42 @@ ResolvedClip resolveClip(flecs::world world, const AnimationPlayer& player) {
 
 } // namespace
 
+void sampleTickPose(flecs::entity entity) {
+    AnimationPlayer* player = entity.try_get_mut<AnimationPlayer>();
+    Model3D* model3d = entity.try_get_mut<Model3D>();
+    if (player == nullptr || model3d == nullptr || model3d->model.boneMatrices == nullptr) {
+        return;
+    }
+    flecs::world world = entity.world();
+    const std::uint64_t tick = world.has<SimClock>() ? world.get<SimClock>().tick : 0;
+    if (tick != 0 && player->poseSampledTick == tick) {
+        return;
+    }
+    const ResolvedClip resolved = resolveClip(world, *player);
+    if (resolved.meta == nullptr) {
+        return;
+    }
+    BoneScales* boneScales = entity.try_get_mut<BoneScales>();
+    const HiddenBones* hiddenBones = entity.try_get<HiddenBones>();
+    const BoneScale* scales =
+        boneScales != nullptr ? resolveBoneScales(*boneScales, model3d->model) : nullptr;
+    const std::uint8_t* hidden = hiddenBones != nullptr &&
+            hiddenBones->mask.size() == static_cast<std::size_t>(model3d->model.skeleton.boneCount)
+        ? hiddenBones->mask.data()
+        : nullptr;
+    updateRiggedModelAnimation(
+        model3d->model,
+        *resolved.clip,
+        player->time * resolved.meta->fps,
+        resolved.bindMatrices,
+        resolved.matrixClip,
+        !modelUsesGpuSkinning(model3d->model),
+        scales,
+        hidden);
+    player->poseSampledTick = tick;
+    player->poseStale = true;
+}
+
 void registerAnimationSystems(flecs::world& world) {
     world.system<Model3D, AnimationPlayer>("AdvanceAnimationClock")
         .kind(flecs::OnUpdate)
