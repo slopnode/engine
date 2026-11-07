@@ -19,6 +19,7 @@ boot|Initial package loading and setup|`package-load`
 startup|After packages load and game starts|`startup-query`,`package-load`,`map-control`,`save-io`,`read-world`,`ui-draw`
 world|Main gameplay loop|`world-mutate`,`fp-present`,`audio`,`input-query`,`read-world`,`map-control`,`save-io`
 hud|HUD rendering|`hud-draw`,`input-query`,`read-world`
+present|First-person presentation every frame, on clients too|`fp-present`,`audio`,`input-query`,`read-world`
 ui|UI (non-hud) rendering|`ui-draw`,`save-io`,`map-control`,`package-load`,`read-world`,`startup-query`
 mapauthor|Loading map files|none
 
@@ -2182,6 +2183,12 @@ Called every UI frame, for package-owned popups.
 ### tick {#tick}
 Called every update frame, with the frame delta time in seconds.
 <pre><code class="language-scheme">(tick
+  dt : real?)
+</code></pre>
+
+### present {#present}
+Called every drawn frame in `present` scope, with the frame delta time in seconds. It runs on a network client, which runs no `tick`.
+<pre><code class="language-scheme">(present
   dt : real?)
 </code></pre>
 

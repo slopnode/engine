@@ -131,6 +131,7 @@ bool NetSession::start() {
             return false;
         }
         role_ = NetRole::Client;
+        world_.add<SimRemote>();
         Log::info(LogCategory::General, "NET: connecting to %s", config_.connectAddress.c_str());
         return true;
     }
@@ -589,6 +590,7 @@ void NetSession::clientReceive(const NetEvent& event) {
         Log::warning(LogCategory::General, "NET: disconnected: %s", event.reason.c_str());
         connected_ = false;
         server_ = kNoNetConnection;
+        world_.remove<SimRemote>();
         names_.clear();
         bound_.clear();
         appeared_.clear();

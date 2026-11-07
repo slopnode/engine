@@ -14,6 +14,7 @@ enum class ScriptScope {
     Startup,
     World,
     Hud,
+    Present,
     Ui,
     MapAuthor,
 };

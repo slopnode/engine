@@ -35,6 +35,7 @@ const char* kEngineHooks[] = {
     "on-startup",
     "on-map-ready",
     "tick",
+    "present",
     "draw-hud",
     "draw-title",
     "draw-file-menu",

@@ -34,6 +34,11 @@ uint32_t capsForScope(ScriptScope scope) {
         return static_cast<uint32_t>(ScriptCap::HudDraw) |
                static_cast<uint32_t>(ScriptCap::InputQuery) |
                static_cast<uint32_t>(ScriptCap::ReadWorld);
+    case ScriptScope::Present:
+        return static_cast<uint32_t>(ScriptCap::FpPresent) |
+               static_cast<uint32_t>(ScriptCap::Audio) |
+               static_cast<uint32_t>(ScriptCap::InputQuery) |
+               static_cast<uint32_t>(ScriptCap::ReadWorld);
     case ScriptScope::Ui:
         return static_cast<uint32_t>(ScriptCap::UiDraw) |
                static_cast<uint32_t>(ScriptCap::SaveIo) |

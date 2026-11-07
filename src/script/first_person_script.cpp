@@ -16,6 +16,8 @@
 #include "assets/sprite_loader.hpp"
 #include "camera/components.hpp"
 #include "camera/view_recoil.hpp"
+#include "core/sim_clock.hpp"
+#include "game/sim_interpolation.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
@@ -1264,12 +1266,24 @@ constexpr SchemeBinding kFpRecoilBindings[] = {
     {"extra-eye-set-active!", g_extra_eye_set_active, 1, 0, false, "(extra-eye-set-active! active)", ScriptCap::FpPresent},
 };
 
+Vector3 remoteVelocity(flecs::entity player) {
+    const SimEyePose* eye = player.try_get<SimEyePose>();
+    if (eye == nullptr) {
+        return {};
+    }
+    return Vector3Scale(Vector3Subtract(eye->cur, eye->prev), 1.0f / kSimTickDt);
+}
+
 s7_pointer g_player_speed(s7_scheme* sc, s7_pointer) {
     if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
         return s7_make_real(sc, 0.0);
     }
     PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
     const flecs::entity player = scriptPlayer(*g_fpWorld);
+    if (player.is_valid() && g_fpWorld->has<SimRemote>()) {
+        const Vector3 velocity = remoteVelocity(player);
+        return s7_make_real(sc, std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z));
+    }
     if (physics == nullptr || !player.is_valid() || !physics->hasCharacter(static_cast<std::uint64_t>(player.id()))) {
         return s7_make_real(sc, 0.0);
     }
@@ -1284,6 +1298,10 @@ s7_pointer g_player_velocity(s7_scheme* sc, s7_pointer args) {
     }
     PhysicsWorld* physics = g_fpWorld->get<PhysicsContext>().world;
     const flecs::entity player = scriptPlayer(*g_fpWorld, args);
+    if (player.is_valid() && g_fpWorld->has<SimRemote>()) {
+        const Vector3 velocity = remoteVelocity(player);
+        return makeVec3List(sc, velocity.x, velocity.y, velocity.z);
+    }
     if (physics == nullptr || !player.is_valid() || !physics->hasCharacter(static_cast<std::uint64_t>(player.id()))) {
         return makeVec3List(sc, 0.0, 0.0, 0.0);
     }

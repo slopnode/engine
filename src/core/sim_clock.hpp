@@ -10,6 +10,8 @@ inline constexpr float kMaxSimFrameDt = 0.25f;
 
 struct SimSystem {};
 
+struct SimRemote {};
+
 struct SimClock {
     std::uint64_t tick = 0;
     float accumulator = 0.0f;

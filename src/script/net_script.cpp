@@ -256,7 +256,10 @@ s7_pointer g_net_event(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_null(sc, cursor)) {
         return netError(sc, "net-event!: " + def->name + " takes " + std::to_string(def->args.size()) + " arguments");
     }
-    deliverNetEvent(sc, event);
+    if (def->to != NetEventAudience::Owner || event.where != NetEventWhere::Player ||
+        event.player == kLocalNetPlayerId) {
+        deliverNetEvent(sc, event);
+    }
     if (g_netWorld != nullptr && g_netWorld->has<NetEventQueue>()) {
         NetEventQueue& queue = g_netWorld->get_mut<NetEventQueue>();
         if (queue.forward) {

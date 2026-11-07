@@ -59,6 +59,23 @@ void registerSchemeTickSystem(flecs::world& world) {
                 static_cast<double>(kSimTickDt),
                 ScriptScope::World);
         }).add<SimSystem>();
+
+    world.system("CallSchemePresent")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!isPlaying(world) || isSimulationPaused(world)) {
+                return;
+            }
+            if (!world.has<ScriptContext>() || world.get<ScriptContext>().scheme == nullptr) {
+                return;
+            }
+            callHook1Real(
+                world.get<ScriptContext>().scheme,
+                "present",
+                static_cast<double>(it.delta_time()),
+                ScriptScope::Present);
+        });
 }
 
 namespace {
@@ -218,6 +235,46 @@ void sampleTickPose(flecs::entity entity) {
     player->poseStale = true;
 }
 
+namespace {
+
+void advanceAnimationClock(flecs::world world, flecs::entity entity, AnimationPlayer& player, float dt) {
+    player.justFinished = false;
+    if (!player.playing) {
+        return;
+    }
+    const ResolvedClip resolved = resolveClip(world, player);
+    if (resolved.meta == nullptr) {
+        return;
+    }
+
+    player.prevTime = player.time;
+    player.time += dt * player.speed;
+    player.wrappedLastTick = false;
+    if (resolved.duration > 0.0f && player.time >= resolved.duration) {
+        if (player.loop) {
+            player.time = std::fmod(player.time, resolved.duration);
+            player.wrappedLastTick = true;
+        } else {
+            player.time = resolved.duration;
+            player.playing = false;
+            player.justFinished = true;
+        }
+    }
+    player.poseStale = true;
+
+    const float frame = player.time * resolved.meta->fps;
+    if (!resolved.meta->events.empty()) {
+        std::vector<const AnimEvent*> fired;
+        collectAnimEvents(*resolved.meta, player.lastFrame, frame, player.wrappedLastTick, fired);
+        if (!fired.empty()) {
+            fireAnimEvents(world, entity, resolved.meta->name, fired);
+        }
+    }
+    player.lastFrame = frame;
+}
+
+}
+
 void registerAnimationSystems(flecs::world& world) {
     world.system<Model3D, AnimationPlayer>("AdvanceAnimationClock")
         .kind(flecs::OnUpdate)
@@ -225,40 +282,21 @@ void registerAnimationSystems(flecs::world& world) {
             if (isSimulationPaused(it.world())) {
                 return;
             }
-            player.justFinished = false;
-            if (!player.playing) {
-                return;
-            }
-            const ResolvedClip resolved = resolveClip(it.world(), player);
-            if (resolved.meta == nullptr) {
-                return;
-            }
-
-            player.prevTime = player.time;
-            player.time += kSimTickDt * player.speed;
-            player.wrappedLastTick = false;
-            if (resolved.duration > 0.0f && player.time >= resolved.duration) {
-                if (player.loop) {
-                    player.time = std::fmod(player.time, resolved.duration);
-                    player.wrappedLastTick = true;
-                } else {
-                    player.time = resolved.duration;
-                    player.playing = false;
-                    player.justFinished = true;
-                }
-            }
-            player.poseStale = true;
-
-            const float frame = player.time * resolved.meta->fps;
-            if (!resolved.meta->events.empty()) {
-                std::vector<const AnimEvent*> fired;
-                collectAnimEvents(*resolved.meta, player.lastFrame, frame, player.wrappedLastTick, fired);
-                if (!fired.empty()) {
-                    fireAnimEvents(it.world(), it.entity(index_), resolved.meta->name, fired);
-                }
-            }
-            player.lastFrame = frame;
+            advanceAnimationClock(it.world(), it.entity(index_), player, kSimTickDt);
         }).add<SimSystem>();
+
+    world.system<Model3D, AnimationPlayer>("AdvanceRemoteViewAnimationClock")
+        .with<ViewSpace>()
+        .kind(flecs::OnUpdate)
+        .each([](flecs::iter& it, size_t index_, Model3D&, AnimationPlayer& player) {
+            flecs::world world = it.world();
+            if (!world.has<SimRemote>() || isSimulationPaused(world)) {
+                return;
+            }
+            advanceAnimationClock(world, it.entity(index_), player, it.delta_time());
+            player.prevTime = player.time;
+            player.wrappedLastTick = false;
+        });
 
     world.system<Model3D, AnimationPlayer>("SampleAnimationPose")
         .kind(flecs::OnUpdate)
