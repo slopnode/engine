@@ -11,7 +11,8 @@ struct FramePipelines {
 };
 
 void registerSimPipelines(flecs::world& world);
-void runFramePipelines(flecs::world& world);
+void runFramePipelines(flecs::world& world, float frameDt);
+void runSimulationTicks(flecs::world& world, float frameDt);
 void resetSimClock(flecs::world& world);
 
 }

@@ -6,6 +6,7 @@
 #include "input/actions.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
+#include "input/player_command.hpp"
 #include "interact/components.hpp"
 #include "physics/rigid_mover.hpp"
 #include "render/components.hpp"
@@ -223,8 +224,9 @@ void registerSystems(flecs::world& world) {
             InteractionTarget& target = world.get_mut<InteractionTarget>();
             InputContextStack& contexts = world.get_mut<InputContextStack>();
 
-            if (!contexts.allowsGameplay() || !target.entity.is_valid() ||
-                !world.get<SimInput>().pressed(Action::Interact)) {
+            const PlayerCommand* command = localPlayerCommand(world);
+            if (!contexts.allowsGameplay() || !target.entity.is_valid() || command == nullptr ||
+                !command->pressed(Action::Interact)) {
                 return;
             }
 

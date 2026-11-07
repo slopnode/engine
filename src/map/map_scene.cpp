@@ -11,6 +11,7 @@
 #include "game/menu_background.hpp"
 #include "game/user_settings.hpp"
 #include "input/input_context.hpp"
+#include "input/player_command.hpp"
 #include "map/bsp.hpp"
 #include "map/bsp_analyze.hpp"
 #include "map/map_script.hpp"
@@ -412,6 +413,7 @@ bool assembleMapScene(
 
     flecs::entity player = world.entity("Player")
         .add<MapOwned>()
+        .add<LocalPlayer>()
         .add<PlayerCamera>()
         .add<WorldSpace>()
         .set<FirstPersonController>(controller)

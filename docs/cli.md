@@ -14,6 +14,7 @@ slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [--debug
 - `--debug` -- enables the developer-only UI (the Debug menu, entity inspector, and related overlays). Off by default so a normal player never sees it.
 - `--perf-log` -- logs the Performance window's numbers to the trace log every two seconds, averaged over the interval: CPU and GPU pass timings on one line, draw, cull, ray and probe counters on the next.
 - `--perf-view x,y,z,yaw,pitch` -- locks the view to the debug free camera at that pose every frame, so two runs measure the same picture whatever happens at the keyboard. Yaw and pitch are radians.
+- `--dedicated` -- runs only the simulation, at 60 ticks per second, until interrupted with Ctrl-C or SIGTERM. No audio device opens, nothing is drawn, the local input device is ignored, and maps load without a loading screen. Pick the map with the base package's own flag, for example `--map test` for the bundled games. The engine still opens a hidden window, because loading a map uploads meshes and textures and needs a graphics context, so a display is still required. The map's player entity is created as usual and stands idle.
 
 Where a `--game`/`--mod` value resolves to on disk is covered in @ref packages, since it's the same search path logic package dependency resolution uses.
 
@@ -31,6 +32,9 @@ Usage: slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [
   --verbose     Raise the trace log level to show DEBUG messages
   --perf-log    Log averaged frame timings and counters every two seconds
   --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements
+  --dedicated   Run the simulation only, in a hidden window with no audio,
+                drawing or local input
+  --version     Print the engine version and exit
 ```
 
 # Package flags {#package-flags}

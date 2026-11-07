@@ -6,6 +6,7 @@
 #include "input/action_registry.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
+#include "input/player_command.hpp"
 
 #include <s7.h>
 
@@ -36,15 +37,17 @@ s7_pointer queryAction(s7_scheme* sc, s7_pointer args, const char* proc, ActionQ
     if (index < 0) {
         return s7_f(sc);
     }
+    if (currentScriptScope() == ScriptScope::World) {
+        const PlayerCommand* command = localPlayerCommand(*g_inputWorld);
+        if (command == nullptr) {
+            return s7_f(sc);
+        }
+        return s7_make_boolean(
+            sc, query == ActionQuery::Pressed ? command->pressed(index) : command->down(index));
+    }
     const InputState& input = g_inputWorld->get<InputState>();
-    if (query == ActionQuery::Down) {
-        return s7_make_boolean(sc, input.down(index));
-    }
-    if (currentScriptScope() == ScriptScope::World && g_inputWorld->has<SimInput>()) {
-        return s7_make_boolean(sc, g_inputWorld->get<SimInput>().pressed(index));
-    }
-    const bool active = input.pressed(index);
-    return s7_make_boolean(sc, active);
+    return s7_make_boolean(
+        sc, query == ActionQuery::Pressed ? input.pressed(index) : input.down(index));
 }
 
 s7_pointer g_action_down(s7_scheme* sc, s7_pointer args) {

@@ -35,6 +35,8 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --verbose     Raise the trace log level to show DEBUG messages\n"
               << "  --perf-log    Log averaged frame timings and counters every two seconds\n"
               << "  --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements\n"
+              << "  --dedicated   Run the simulation only, in a hidden window with no audio,\n"
+              << "                drawing or local input\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -95,6 +97,11 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
 
         if (arg == "--perf-log") {
             config.perfLog = true;
+            continue;
+        }
+
+        if (arg == "--dedicated") {
+            config.dedicated = true;
             continue;
         }
 

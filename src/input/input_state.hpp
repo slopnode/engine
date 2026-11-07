@@ -63,24 +63,4 @@ struct InputState {
     }
 };
 
-struct SimInput {
-    std::vector<char> actionPressed;
-
-    bool pressed(int index) const {
-        if (index < 0 || index >= static_cast<int>(actionPressed.size())) {
-            return false;
-        }
-        return actionPressed[static_cast<std::size_t>(index)] != 0;
-    }
-
-    bool pressed(Action action) const {
-        return pressed(static_cast<int>(action));
-    }
-};
-
-inline void takeTickPresses(InputState& input, SimInput& sim) {
-    sim.actionPressed = input.actionPressedPending;
-    input.clearPendingPresses();
-}
-
 }

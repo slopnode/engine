@@ -6,8 +6,8 @@
  * Phase: `PreUpdate`. Samples device bindings into @ref slopengine::InputState and holds each press until the next simulation tick.
  * Defined in `input/input_module.cpp`.
  *
- * @section sys_BeginSimTick BeginSimTick
- * Phase: `PreUpdate`, once per simulation tick. Moves the presses held since the last tick into @ref slopengine::SimInput.
+ * @section sys_BuildLocalPlayerCommand BuildLocalPlayerCommand
+ * Phase: `PreUpdate`, once per simulation tick. Builds the @ref slopengine::PlayerCommand of the @ref slopengine::LocalPlayer from the device and the presses held since the last tick.
  * Defined in `input/input_module.cpp`.
  *
  * @section sys_DispatchPackageActions DispatchPackageActions

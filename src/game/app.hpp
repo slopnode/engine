@@ -38,6 +38,8 @@ private:
     void init_window();
     void init_script();
     void shutdown();
+    void takePendingMapLoad();
+    int runDedicated();
 
     AppConfig config_;
     UserSettings userSettings_;

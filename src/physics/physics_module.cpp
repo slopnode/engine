@@ -7,6 +7,7 @@
 #include "game/game_state.hpp"
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
+#include "input/player_command.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
 #include "physics/components.hpp"
@@ -222,48 +223,40 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            if (!world.has<PhysicsContext>() || !world.has<InputCommand>()) {
+            if (!world.has<PhysicsContext>()) {
                 return;
             }
-
             PhysicsContext& physics = world.get_mut<PhysicsContext>();
-            if (physics.world == nullptr || !physics.world->hasPlayer()) {
+            if (physics.world == nullptr) {
                 return;
             }
-
-            InputContextStack& contexts = world.get_mut<InputContextStack>();
-            if (!contexts.allowsGameplay()) {
-                return;
-            }
-
-            const flecs::entity camera = world.lookup("Player");
-            if (!camera.is_valid() || !camera.has<CharacterMotor>() || !camera.has<FirstPersonController>()) {
-                return;
-            }
-
-            CharacterMotor& motor = camera.get_mut<CharacterMotor>();
-            FirstPersonController& controller = camera.get_mut<FirstPersonController>();
             const bool freeCamera =
                 world.has<DebugUiState>() && world.get<DebugUiState>().freeCamera;
-            if (!controller.allowMove || freeCamera) {
-                motor.wishX = 0.0f;
-                motor.wishZ = 0.0f;
-                motor.wishY = 0.0f;
-                return;
-            }
 
-            const InputCommand& command = world.get<InputCommand>();
+            world.each([&](flecs::entity entity,
+                           const PlayerCommand& command,
+                           CharacterMotor& motor,
+                           const FirstPersonController& controller) {
+                if (!physics.world->hasCharacter(static_cast<std::uint64_t>(entity.id()))) {
+                    return;
+                }
+                if (!controller.allowMove || (freeCamera && entity.has<LocalPlayer>())) {
+                    motor.wishX = 0.0f;
+                    motor.wishZ = 0.0f;
+                    motor.wishY = 0.0f;
+                    return;
+                }
+                const Vector3 forwardFlat =
+                    Vector3Normalize({std::sin(command.yaw), 0.0f, std::cos(command.yaw)});
+                const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
+                const Vector3 wish = Vector3Add(
+                    Vector3Scale(forwardFlat, command.moveForward),
+                    Vector3Scale(right, command.moveStrafe));
 
-            const Vector3 forwardFlat =
-                Vector3Normalize({std::sin(controller.yaw), 0.0f, std::cos(controller.yaw)});
-            const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-            const Vector3 wish = Vector3Add(
-                Vector3Scale(forwardFlat, command.moveForward),
-                Vector3Scale(right, command.moveStrafe));
-
-            motor.wishX = wish.x;
-            motor.wishZ = wish.z;
-            motor.wishY = command.moveUp;
+                motor.wishX = wish.x;
+                motor.wishZ = wish.z;
+                motor.wishY = command.moveUp;
+            });
         }).add<SimSystem>();
 
     world.system("PhysicsStep")

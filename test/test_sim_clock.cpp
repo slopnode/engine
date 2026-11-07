@@ -4,6 +4,7 @@
 #include "game/sim_interpolation.hpp"
 #include "game/sim_pipeline.hpp"
 #include "input/input_state.hpp"
+#include "input/player_command.hpp"
 #include "physics/components.hpp"
 #include "render/animation_player.hpp"
 
@@ -51,24 +52,34 @@ void runSimClockTests() {
     {
         InputState input{};
         input.resize(3);
-        SimInput sim{};
+        InputCommand device{};
+        device.moveForward = 1.0f;
+        PlayerCommand command{};
 
         input.actionPressed[1] = 1;
+        input.actionDown[1] = 1;
         input.latchPresses();
         input.actionPressed[1] = 0;
         input.latchPresses();
-        takeTickPresses(input, sim);
-        CHECK(sim.pressed(1));
-        CHECK_FALSE(sim.pressed(0));
-        takeTickPresses(input, sim);
-        CHECK_FALSE(sim.pressed(1));
+        buildPlayerCommand(command, input, device, 0.5f, -0.25f, true, 7);
+        CHECK(command.pressed(1));
+        CHECK(command.down(1));
+        CHECK_FALSE(command.pressed(0));
+        CHECK(command.tick == 7);
+        CHECK(command.moveForward == 1.0f);
+        CHECK(command.yaw == 0.5f && command.pitch == -0.25f);
+        buildPlayerCommand(command, input, device, 0.5f, -0.25f, true, 8);
+        CHECK_FALSE(command.pressed(1));
 
         input.actionPressed[2] = 1;
         input.latchPresses();
-        input.clearPendingPresses();
-        takeTickPresses(input, sim);
-        CHECK_FALSE(sim.pressed(2));
-        CHECK_FALSE(sim.pressed(7));
+        buildPlayerCommand(command, input, device, 0.0f, 0.0f, false, 9);
+        CHECK_FALSE(command.pressed(2));
+        CHECK_FALSE(command.down(1));
+        CHECK(command.moveForward == 0.0f);
+        buildPlayerCommand(command, input, device, 0.0f, 0.0f, true, 10);
+        CHECK_FALSE(command.pressed(2));
+        CHECK_FALSE(command.pressed(7));
     }
 
     {

@@ -4,6 +4,7 @@
 #include "camera/camera_module.hpp"
 #include "core/log.hpp"
 #include "core/package.hpp"
+#include "core/sim_clock.hpp"
 #include "core/user_paths.hpp"
 #include "game/game_state.hpp"
 #include "game/loading_session.hpp"
@@ -44,10 +45,23 @@
 #include <raylib.h>
 #include <s7.h>
 
+#include <chrono>
+#include <csignal>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 namespace slopengine {
+
+namespace {
+
+volatile std::sig_atomic_t g_dedicatedStop = 0;
+
+void requestDedicatedStop(int) {
+    g_dedicatedStop = 1;
+}
+
+}
 
 App::App(AppConfig config)
     : config_{std::move(config)}
@@ -67,7 +81,9 @@ App::App(AppConfig config)
     userSettings_.graphics = UserSettings::loadGraphicsOrDefault(settingsFilePath);
     userSettings_.ui = loadUiSettings(settingsFilePath);
     init_window();
-    if (!audioWorld_->init()) {
+    if (config_.dedicated) {
+        TraceLog(LOG_INFO, "DEDICATED: audio, drawing and local input disabled");
+    } else if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");
     } else if (const BusConfig* busConfig = assetStore_.getBusConfig()) {
         audioWorld_->loadBusConfig(*busConfig);
@@ -114,19 +130,17 @@ App::~App() {
 }
 
 int App::run() {
+    if (config_.dedicated) {
+        return runDedicated();
+    }
     while (running_ && !WindowShouldClose()) {
         if (hasActiveLoadingSession(world_)) {
             advanceLoadingSession(world_, assetStore_, scheme_);
             resetSimClock(world_);
-        } else if (auto pendingMap = takeRequestedMapLoad()) {
-            if (shouldShowLoadingScreen(pendingMap->reason)) {
-                beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
-            } else {
-                changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
-            }
-            resetSimClock(world_);
+        } else {
+            takePendingMapLoad();
         }
-        runFramePipelines(world_);
+        runFramePipelines(world_, GetFrameTime());
         if (world_.get<QuitRequest>().requested) {
             break;
         }
@@ -135,9 +149,58 @@ int App::run() {
     return 0;
 }
 
+void App::takePendingMapLoad() {
+    auto pendingMap = takeRequestedMapLoad();
+    if (!pendingMap) {
+        return;
+    }
+    if (!config_.dedicated && shouldShowLoadingScreen(pendingMap->reason)) {
+        beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+    } else {
+        changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+        if (config_.dedicated && world_.has<CurrentMap>() &&
+            world_.get<CurrentMap>().id == pendingMap->mapName) {
+            TraceLog(
+                LOG_INFO,
+                "DEDICATED: map '%s' running at %d ticks per second",
+                pendingMap->mapName.c_str(),
+                static_cast<int>(1.0f / kSimTickDt + 0.5f));
+        }
+    }
+    resetSimClock(world_);
+}
+
+int App::runDedicated() {
+    std::signal(SIGINT, requestDedicatedStop);
+    std::signal(SIGTERM, requestDedicatedStop);
+    double last = GetTime();
+    while (running_ && g_dedicatedStop == 0) {
+        takePendingMapLoad();
+        const double now = GetTime();
+        runSimulationTicks(world_, static_cast<float>(now - last));
+        last = now;
+        if (world_.get<QuitRequest>().requested) {
+            break;
+        }
+        const double untilNextTick = kSimTickDt - world_.get<SimClock>().accumulator;
+        if (untilNextTick > 0.0) {
+            std::this_thread::sleep_for(std::chrono::duration<double>(untilNextTick));
+        }
+    }
+    TraceLog(LOG_INFO, "DEDICATED: stopping after %llu ticks",
+        static_cast<unsigned long long>(world_.get<SimClock>().tick));
+    return 0;
+}
+
 void App::init_window() {
     Log::init(config_.verbose ? LogLevel::Debug : LogLevel::Info);
     Log::addDefaultConsoleSink();
+    if (config_.dedicated) {
+        SetConfigFlags(FLAG_WINDOW_HIDDEN);
+        InitWindow(320, 240, "slopengine dedicated");
+        SetExitKey(KEY_NULL);
+        return;
+    }
     prepareGraphicsInit(userSettings_.graphics);
     InitWindow(userSettings_.graphics.width, userSettings_.graphics.height, "slopengine");
     SetExitKey(KEY_NULL);

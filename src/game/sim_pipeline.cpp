@@ -5,8 +5,6 @@
 #include "game/game_state.hpp"
 #include "input/input_state.hpp"
 
-#include <raylib.h>
-
 #include <string>
 
 namespace slopengine {
@@ -76,7 +74,7 @@ void registerSimPipelines(flecs::world& world) {
     world.set<FramePipelines>(pipelines);
 }
 
-void runFramePipelines(flecs::world& world) {
+void runFramePipelines(flecs::world& world, float frameDt) {
     const FramePipelines pipelines = world.get<FramePipelines>();
     static bool logged = false;
     if (!logged) {
@@ -86,20 +84,22 @@ void runFramePipelines(flecs::world& world) {
         logged = true;
     }
 
-    const float frameDt = GetFrameTime();
     world.run_pipeline(pipelines.input, frameDt);
+    runSimulationTicks(world, frameDt);
+    world.progress(frameDt);
+}
 
+void runSimulationTicks(flecs::world& world, float frameDt) {
+    const flecs::entity sim = world.get<FramePipelines>().sim;
     if (isSimulationPaused(world)) {
         world.get_mut<InputState>().clearPendingPresses();
-    } else {
-        const int ticks = advanceSimClock(world.get_mut<SimClock>(), frameDt);
-        for (int i = 0; i < ticks; ++i) {
-            world.get_mut<SimClock>().tick += 1;
-            world.run_pipeline(pipelines.sim, kSimTickDt);
-        }
+        return;
     }
-
-    world.progress(frameDt);
+    const int ticks = advanceSimClock(world.get_mut<SimClock>(), frameDt);
+    for (int i = 0; i < ticks; ++i) {
+        world.get_mut<SimClock>().tick += 1;
+        world.run_pipeline(sim, kSimTickDt);
+    }
 }
 
 void resetSimClock(flecs::world& world) {
