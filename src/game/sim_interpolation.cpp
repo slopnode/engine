@@ -228,7 +228,7 @@ void blendEye(flecs::world& world, float alpha) {
     SimEyePose& eye = player.get_mut<SimEyePose>();
     const FirstPersonController& controller = player.get<FirstPersonController>();
     Lens& lens = player.get_mut<Lens>();
-    lens.camera.position = Vector3Lerp(eye.prev, eye.cur, alpha);
+    lens.camera.position = Vector3Lerp(eye.prev, eye.cur, eye.ownAlpha >= 0.0f ? eye.ownAlpha : alpha);
     lens.camera.target = Vector3Add(
         lens.camera.position, forwardFromYawPitch(controller.yaw, controller.pitch));
     lens.camera.up = {0.0f, 1.0f, 0.0f};

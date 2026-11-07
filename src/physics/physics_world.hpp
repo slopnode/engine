@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -138,6 +139,10 @@ struct PhysicsWorld {
     }
 
     void setCharacterPosition(std::uint64_t id, float x, float y, float z);
+    void resetCharacterState(std::uint64_t id, const JPH::RVec3& position, const JPH::Vec3& velocity);
+    void stepCharacterAlone(const CharacterStep& step);
+    void markPlayerCharacter(std::uint64_t id);
+    std::uint8_t characterBlockMask(std::uint64_t id) const;
 
     void step(const std::vector<CharacterStep>& steps);
 
@@ -264,6 +269,7 @@ private:
     std::unordered_map<std::uint64_t, JPH::BodyID> debrisBodies_;
     std::unordered_map<std::uint64_t, JPH::Ref<JPH::Ragdoll>> ragdolls_;
     std::uint64_t playerId_ = 0;
+    std::unordered_set<std::uint64_t> playerCharacters_;
     std::vector<JPH::BodyID> staticBodies_;
     std::unordered_map<JPH::uint32, std::uint8_t> staticBodyBlocks_;
     bool factoryInitialized_ = false;

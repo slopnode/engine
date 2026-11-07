@@ -99,6 +99,12 @@ void runNetProtocolTests() {
         snapshot.ackedCommand = 1200;
         snapshot.hasEye = true;
         snapshot.eye[1] = 1.7f;
+        snapshot.hasSelf = true;
+        snapshot.self.feet[2] = -4.0f;
+        snapshot.self.velocity[1] = 7.7f;
+        snapshot.self.moveSpeed = 9.6f;
+        snapshot.self.height = 0.55f;
+        snapshot.self.allowMove = false;
         NetValue health;
         health.kind = NetTypeKind::Int;
         health.integer = 87;
@@ -130,6 +136,8 @@ void runNetProtocolTests() {
         NetSnapshot back;
         CHECK(decodeNetSnapshot(data, fields, back));
         CHECK(back.serverTick == 99 && back.ackedCommand == 1200 && back.hasEye && back.eye[1] == 1.7f);
+        CHECK(back.hasSelf && back.self.feet[2] == -4.0f && back.self.velocity[1] == 7.7f);
+        CHECK(back.self.moveSpeed == 9.6f && back.self.height == 0.55f && !back.self.allowMove);
         CHECK(back.playerFields.size() == 2 && back.entities.size() == 2);
         CHECK(!back.entities.empty() && back.entities[0].clip == "Walk" && back.entities[0].playing && back.entities[0].loop);
         bool sameFields = back.playerFields.size() == snapshot.playerFields.size();

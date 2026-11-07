@@ -10,6 +10,7 @@
 #include "input/player_command.hpp"
 #include "interact/components.hpp"
 #include "map/bsp.hpp"
+#include "physics/character_wish.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/ragdoll_rig.hpp"
@@ -248,16 +249,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                     motor.wishY = 0.0f;
                     return;
                 }
-                const Vector3 forwardFlat =
-                    Vector3Normalize({std::sin(command.yaw), 0.0f, std::cos(command.yaw)});
-                const Vector3 right = Vector3CrossProduct(forwardFlat, {0.0f, 1.0f, 0.0f});
-                const Vector3 wish = Vector3Add(
-                    Vector3Scale(forwardFlat, command.moveForward),
-                    Vector3Scale(right, command.moveStrafe));
-
-                motor.wishX = wish.x;
-                motor.wishZ = wish.z;
-                motor.wishY = command.moveUp;
+                applyMoveWish(motor, command.moveForward, command.moveStrafe, command.moveUp, command.yaw);
             });
         }).add<SimSystem>();
 

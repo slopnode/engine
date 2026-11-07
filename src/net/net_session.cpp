@@ -11,8 +11,11 @@
 #include "map/player_bodies.hpp"
 #include "map/thing.hpp"
 #include "net/net_state.hpp"
+#include "physics/character_wish.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_body.hpp"
+#include "physics/physics_module.hpp"
+#include "physics/physics_world.hpp"
 #include "physics/rigid_mover.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
@@ -32,6 +35,8 @@ namespace slopengine {
 namespace {
 
 constexpr std::size_t kRedundantCommands = 4;
+constexpr std::size_t kCommandBacklog = 4;
+constexpr std::size_t kMaxPredictedMoves = 128;
 
 constexpr const char* kAvatarPrefix = "player:";
 
@@ -342,7 +347,8 @@ void NetSession::serverApplyCommands() {
         }
         NetCommandFrame& latest = client.latest;
         std::vector<char> pressed;
-        while (!client.pending.empty()) {
+        bool moved = false;
+        while (!client.pending.empty() && (!moved || client.pending.size() > kCommandBacklog)) {
             NetCommandFrame frame = std::move(client.pending.front());
             client.pending.pop_front();
             if (pressed.size() < frame.pressed.size()) {
@@ -353,6 +359,12 @@ void NetSession::serverApplyCommands() {
             }
             client.lastCommandTick = frame.tick;
             latest = std::move(frame);
+            moved = true;
+        }
+        if (!moved) {
+            latest.moveForward = 0.0f;
+            latest.moveStrafe = 0.0f;
+            latest.moveUp = 0.0f;
         }
         PlayerCommand command{};
         command.tick = world_.get<SimClock>().tick;
@@ -495,6 +507,30 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
         snapshot.eye[1] = eye.y;
         snapshot.eye[2] = eye.z;
     }
+    if (body.is_valid() && world_.has<PhysicsContext>() && world_.get<PhysicsContext>().world != nullptr) {
+        const PhysicsWorld& physics = *world_.get<PhysicsContext>().world;
+        const std::uint64_t id = static_cast<std::uint64_t>(body.id());
+        const CharacterMotor* motor = body.try_get<CharacterMotor>();
+        if (physics.hasCharacter(id) && motor != nullptr) {
+            const JPH::RVec3 feet = physics.characterPosition(id);
+            const JPH::Vec3 velocity = physics.characterVelocity(id);
+            NetSelfState& self = snapshot.self;
+            snapshot.hasSelf = true;
+            self.feet[0] = static_cast<float>(feet.GetX());
+            self.feet[1] = static_cast<float>(feet.GetY());
+            self.feet[2] = static_cast<float>(feet.GetZ());
+            self.velocity[0] = velocity.GetX();
+            self.velocity[1] = velocity.GetY();
+            self.velocity[2] = velocity.GetZ();
+            self.moveSpeed = motor->moveSpeed;
+            self.gravity = motor->gravity;
+            self.eyeHeight = motor->eyeHeight;
+            self.radius = motor->radius;
+            self.height = motor->height;
+            const FirstPersonController* controller = body.try_get<FirstPersonController>();
+            self.allowMove = controller == nullptr || controller->allowMove;
+        }
+    }
     const std::vector<const NetField*> fields = netSchema().fieldsIn(NetScope{NetScopeKind::Player, {}});
     if (const NetPlayerRecord* record = findNetPlayer(world_, client.player)) {
         for (std::size_t i = 0; i < fields.size() && i < record->values.size(); ++i) {
@@ -578,6 +614,110 @@ void NetSession::clientFrame(float frameDt) {
     for (int i = 0; i < ticks; ++i) {
         clientSendCommands();
     }
+    const flecs::entity player = localPlayer(world_);
+    if (SimEyePose* eye = player.is_valid() ? player.try_get_mut<SimEyePose>() : nullptr) {
+        eye->ownAlpha = predicting_ ? simBlendAlpha(commandClock_) : -1.0f;
+    }
+}
+
+bool NetSession::clientPredictMove(const PredictedMove& move) {
+    const flecs::entity player = localPlayer(world_);
+    if (!player.is_valid() || !world_.has<PhysicsContext>() || world_.get<PhysicsContext>().world == nullptr) {
+        return false;
+    }
+    PhysicsWorld& physics = *world_.get_mut<PhysicsContext>().world;
+    const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+    CharacterMotor* motor = player.try_get_mut<CharacterMotor>();
+    if (motor == nullptr || !physics.hasCharacter(id)) {
+        return false;
+    }
+    const FirstPersonController* controller = player.try_get<FirstPersonController>();
+    if (controller == nullptr || controller->allowMove) {
+        applyMoveWish(*motor, move.moveForward, move.moveStrafe, move.moveUp, move.yaw);
+    } else {
+        motor->wishX = 0.0f;
+        motor->wishY = 0.0f;
+        motor->wishZ = 0.0f;
+    }
+    CharacterStep step{};
+    step.id = id;
+    step.motor = motor;
+    physics.stepCharacterAlone(step);
+    return true;
+}
+
+void NetSession::clientPresentPrediction(bool advance) {
+    const flecs::entity player = localPlayer(world_);
+    if (!player.is_valid() || !world_.has<PhysicsContext>() || world_.get<PhysicsContext>().world == nullptr) {
+        return;
+    }
+    const PhysicsWorld& physics = *world_.get<PhysicsContext>().world;
+    const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+    const CharacterMotor* motor = player.try_get<CharacterMotor>();
+    if (motor == nullptr || !physics.hasCharacter(id)) {
+        return;
+    }
+    const JPH::RVec3 feet = physics.characterPosition(id);
+    const Vector3 feetAt{static_cast<float>(feet.GetX()), static_cast<float>(feet.GetY()), static_cast<float>(feet.GetZ())};
+    const Vector3 eye{feetAt.x, feetAt.y + motor->eyeHeight, feetAt.z};
+    if (SimEyePose* pose = player.try_get_mut<SimEyePose>()) {
+        if (advance) {
+            pose->prev = pose->cur;
+        }
+        pose->cur = eye;
+        if (!predicting_ || Vector3DistanceSqr(pose->prev, pose->cur) > kSimPoseSnapDistance * kSimPoseSnapDistance) {
+            pose->prev = pose->cur;
+        }
+    } else {
+        player.set<SimEyePose>({eye, eye, eye});
+    }
+    if (LocalTransformation* local = player.try_get_mut<LocalTransformation>()) {
+        local->position = feetAt;
+    }
+}
+
+void NetSession::clientReconcile(const NetSnapshot& snapshot) {
+    const flecs::entity player = localPlayer(world_);
+    if (!player.is_valid() || !world_.has<PhysicsContext>() || world_.get<PhysicsContext>().world == nullptr) {
+        predicting_ = false;
+        return;
+    }
+    PhysicsWorld& physics = *world_.get_mut<PhysicsContext>().world;
+    const std::uint64_t id = static_cast<std::uint64_t>(player.id());
+    CharacterMotor* motor = player.try_get_mut<CharacterMotor>();
+    if (motor == nullptr || !physics.hasCharacter(id)) {
+        predicting_ = false;
+        return;
+    }
+    const NetSelfState& self = snapshot.self;
+    motor->moveSpeed = self.moveSpeed;
+    motor->gravity = self.gravity;
+    motor->eyeHeight = self.eyeHeight;
+    if (std::fabs(motor->radius - self.radius) > 1.0e-4f || std::fabs(motor->height - self.height) > 1.0e-4f) {
+        CharacterMotor resized = *motor;
+        resized.radius = self.radius;
+        resized.height = self.height;
+        if (physics.resizeCharacter(id, resized, 10.0f)) {
+            motor->radius = self.radius;
+            motor->height = self.height;
+        }
+    }
+    if (FirstPersonController* controller = player.try_get_mut<FirstPersonController>()) {
+        controller->allowMove = self.allowMove;
+        controller->eyeHeight = self.eyeHeight;
+    }
+    physics.resetCharacterState(
+        id,
+        JPH::RVec3(self.feet[0], self.feet[1], self.feet[2]),
+        JPH::Vec3(self.velocity[0], self.velocity[1], self.velocity[2]));
+    while (!predicted_.empty() && predicted_.front().tick <= snapshot.ackedCommand) {
+        predicted_.pop_front();
+    }
+    for (const PredictedMove& move : predicted_) {
+        clientPredictMove(move);
+    }
+    clientPresentPrediction(false);
+    predicting_ = true;
 }
 
 void NetSession::clientReceive(const NetEvent& event) {
@@ -601,6 +741,8 @@ void NetSession::clientReceive(const NetEvent& event) {
         server_ = kNoNetConnection;
         world_.remove<SimRemote>();
         clearStandInRecords();
+        predicted_.clear();
+        predicting_ = false;
         names_.clear();
         bound_.clear();
         appeared_.clear();
@@ -619,6 +761,8 @@ void NetSession::clientReceive(const NetEvent& event) {
             names_.clear();
             bound_.clear();
             appeared_.clear();
+            predicted_.clear();
+            predicting_ = false;
             yourPlayer_ = change.yourPlayer;
             expectedMap_ = change.mapId;
             lastSnapshotTick_ = 0;
@@ -775,7 +919,10 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
         }
     }
     const flecs::entity player = localPlayer(world_);
-    if (snapshot.hasEye && player.is_valid()) {
+    if (snapshot.hasSelf) {
+        clientReconcile(snapshot);
+    }
+    if (snapshot.hasEye && player.is_valid() && !predicting_) {
         const Vector3 eye{snapshot.eye[0], snapshot.eye[1], snapshot.eye[2]};
         if (SimEyePose* pose = player.try_get_mut<SimEyePose>()) {
             pose->prev = pose->cur;
@@ -839,6 +986,16 @@ void NetSession::clientSendCommands() {
     frame.pressed = command.actionPressed;
     frame.down.resize(std::min(frame.down.size(), kMaxNetActions));
     frame.pressed.resize(std::min(frame.pressed.size(), kMaxNetActions));
+    if (predicting_) {
+        const PredictedMove move{frame.tick, frame.moveForward, frame.moveStrafe, frame.moveUp, frame.yaw};
+        if (clientPredictMove(move)) {
+            predicted_.push_back(move);
+            while (predicted_.size() > kMaxPredictedMoves) {
+                predicted_.pop_front();
+            }
+            clientPresentPrediction(true);
+        }
+    }
     recentCommands_.push_back(std::move(frame));
     while (recentCommands_.size() > kRedundantCommands) {
         recentCommands_.pop_front();

@@ -17,6 +17,7 @@ struct SimEyePose {
     Vector3 prev{};
     Vector3 cur{};
     Vector3 presented{};
+    float ownAlpha = -1.0f;
 };
 
 struct SimViewOffsets {

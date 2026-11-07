@@ -63,6 +63,7 @@ flecs::entity spawnPlayerBody(flecs::world& world, std::string_view name, int in
     if (world.has<PhysicsContext>()) {
         if (PhysicsWorld* physics = world.get_mut<PhysicsContext>().world) {
             physics->createCharacter(static_cast<std::uint64_t>(body.id()), position.x, position.y, position.z, start.motor);
+            physics->markPlayerCharacter(static_cast<std::uint64_t>(body.id()));
         }
     }
     return body;

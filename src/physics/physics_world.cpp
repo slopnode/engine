@@ -1082,7 +1082,7 @@ bool PhysicsWorld::resizeCharacter(std::uint64_t id, const CharacterMotor& motor
 
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
-    const std::uint8_t blockMask = id == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+    const std::uint8_t blockMask = characterBlockMask(id);
     const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
 
@@ -1112,6 +1112,7 @@ void PhysicsWorld::destroyCharacter(std::uint64_t id) {
 
 void PhysicsWorld::destroyAllCharacters() {
     characters_.clear();
+    playerCharacters_.clear();
     playerId_ = 0;
 }
 
@@ -1182,7 +1183,7 @@ void PhysicsWorld::stepCharacterTryMove(
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
-        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+        characterBlockMask(characterId);
     const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
     const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
@@ -1308,7 +1309,7 @@ void PhysicsWorld::stepCharacter(
     const float stepHeight = motor.stepHeight > 0.0f ? motor.stepHeight : 0.4f;
     updateSettings.mWalkStairsStepUp = character.GetUp() * stepHeight;
     const std::uint8_t blockMask =
-        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+        characterBlockMask(characterId);
     const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
 
     character.ExtendedUpdate(
@@ -1352,7 +1353,7 @@ void PhysicsWorld::stepCharacterFlight(
     JPH::CharacterVirtual::ExtendedUpdateSettings updateSettings;
     updateSettings.mWalkStairsStepUp = JPH::Vec3::sZero();
     const std::uint8_t blockMask =
-        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+        characterBlockMask(characterId);
     const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     character.ExtendedUpdate(
         kFixedDt,
@@ -1407,7 +1408,7 @@ std::optional<JPH::RVec3> PhysicsWorld::probeWaterExitLedge(
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
-        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+        characterBlockMask(characterId);
     const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::Vec3 up = character.GetUp();
     const float reach = motor.waterExitReach > 0.0f ? motor.waterExitReach : 0.5f;
@@ -1548,7 +1549,7 @@ void PhysicsWorld::stepCharacterSwim(
     const auto& broadPhaseFilter = system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING);
     const auto& objectFilter = system_->GetDefaultLayerFilter(Layers::MOVING);
     const std::uint8_t blockMask =
-        characterId == playerId_ ? BrushBlock::Player : BrushBlock::Actor;
+        characterBlockMask(characterId);
     const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, blockMask);
     const JPH::ShapeFilter shapeFilter{};
     const JPH::Vec3 gravity = -character.GetUp() * system_->GetGravity().Length();
@@ -1903,6 +1904,42 @@ void PhysicsWorld::step(const std::vector<CharacterStep>& steps) {
     }
 
     system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
+}
+
+void PhysicsWorld::stepCharacterAlone(const CharacterStep& step) {
+    if (step.motor == nullptr) {
+        return;
+    }
+    auto it = characters_.find(step.id);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return;
+    }
+    stepCharacter(*it->second.character, *step.motor, step.noclip, step.id, step.submersion, step.nearWaterSurface);
+}
+
+void PhysicsWorld::resetCharacterState(std::uint64_t id, const JPH::RVec3& position, const JPH::Vec3& velocity) {
+    auto it = characters_.find(id);
+    if (it == characters_.end() || it->second.character == nullptr) {
+        return;
+    }
+    JPH::CharacterVirtual& character = *it->second.character;
+    character.SetPosition(position);
+    character.SetLinearVelocity(velocity);
+    const BrushBlockBodyFilter bodyFilter(staticBodyBlocks_, characterBlockMask(id));
+    character.RefreshContacts(
+        system_->GetDefaultBroadPhaseLayerFilter(Layers::MOVING),
+        system_->GetDefaultLayerFilter(Layers::MOVING),
+        bodyFilter,
+        {},
+        *tempAllocator_);
+}
+
+std::uint8_t PhysicsWorld::characterBlockMask(std::uint64_t id) const {
+    return id == playerId_ || playerCharacters_.count(id) != 0 ? BrushBlock::Player : BrushBlock::Actor;
+}
+
+void PhysicsWorld::markPlayerCharacter(std::uint64_t id) {
+    playerCharacters_.insert(id);
 }
 
 bool PhysicsWorld::hasCharacter(std::uint64_t id) const {

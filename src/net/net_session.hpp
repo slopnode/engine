@@ -91,7 +91,18 @@ private:
 
     void clientReceive(const NetEvent& event);
     void clientSnapshot(const NetSnapshot& snapshot);
+    struct PredictedMove {
+        std::uint64_t tick = 0;
+        float moveForward = 0.0f;
+        float moveStrafe = 0.0f;
+        float moveUp = 0.0f;
+        float yaw = 0.0f;
+    };
+
     void clientSendCommands();
+    bool clientPredictMove(const PredictedMove& move);
+    void clientReconcile(const NetSnapshot& snapshot);
+    void clientPresentPrediction(bool advance);
     flecs::entity clientEntity(std::uint32_t netId);
     void applyStandInFields(const NetEntityState& state);
     void clearStandInRecords();
@@ -121,6 +132,8 @@ private:
     SimClock commandClock_{};
     std::uint64_t commandTick_ = 0;
     std::deque<NetCommandFrame> recentCommands_;
+    std::deque<PredictedMove> predicted_;
+    bool predicting_ = false;
 };
 
 bool loadOrCreateServerKey(const std::filesystem::path& path, SecureKey& secret);
