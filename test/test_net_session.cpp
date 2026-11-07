@@ -195,12 +195,13 @@ void runNetSessionTests() {
     s7_eval_c_string(sc, "(define heard '())");
     s7_eval_c_string(sc, "(define (on-event-bang where n) (set! heard (cons n heard)))");
     s7_eval_c_string(sc, "(define (on-event-mine where) (set! heard (cons 'mine heard)))");
-    const auto queue = [&](const char* name, NetEventWhere where, float x, std::vector<NetValue> args) {
+    const auto queue = [&](const char* name, NetEventWhere where, float x, std::vector<NetValue> args,
+                           const char* player = kLocalNetPlayerId) {
         NetEventMessage event;
         event.eventId = static_cast<std::uint32_t>(netSchema().findEvent(name)->id);
         event.where = where;
         event.point[0] = x;
-        event.player = kLocalNetPlayerId;
+        event.player = player;
         event.args = std::move(args);
         server.world.get_mut<NetEventQueue>().pending.push_back(std::move(event));
     };
@@ -216,6 +217,22 @@ void runNetSessionTests() {
     const s7_pointer heard = s7_name_to_value(sc, "heard");
     CHECK(s7_list_length(sc, heard) == 2);
     CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (memv 7 heard) (memq 'mine heard) (not (memv 8 heard)) #t)")));
+
+    LocalTransformation farAway{};
+    farAway.position = {500.0f, 0.0f, 0.0f};
+    const flecs::entity farBody = server.world.entity("far-body").add<PlayerBody>().set<LocalTransformation>(farAway);
+    NetValue own = near;
+    own.integer = 9;
+    NetValue nowhere = near;
+    nowhere.integer = 10;
+    NetValue distant = near;
+    distant.integer = 11;
+    queue("bang", NetEventWhere::Player, 0.0f, {own});
+    queue("bang", NetEventWhere::None, 0.0f, {nowhere});
+    queue("bang", NetEventWhere::Player, 0.0f, {distant}, "far-body");
+    frames(network, server, {&client}, 3);
+    CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (memv 9 heard) (not (memv 10 heard)) (not (memv 11 heard)) #t)")));
+    farBody.destruct();
 
     serverWalker.destruct();
     frames(network, server, {&client}, 3);

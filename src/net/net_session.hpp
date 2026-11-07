@@ -93,6 +93,8 @@ private:
         NetCommandFrame latest;
         std::set<std::uint32_t> known;
         std::map<std::uint32_t, std::uint64_t> lastRelevant;
+        Vector3 lastEye{};
+        bool hadEye = false;
         bool loggedKnown = false;
     };
 
@@ -119,7 +121,8 @@ private:
     bool serverVisibleTo(const ServerClient& client, flecs::entity entity) const;
     void serverAssignIds();
     void serverPlaceEntities();
-    std::int32_t serverEyeLeaf(const ServerClient& client, Vector3& eye, bool& haveEye) const;
+    std::int32_t serverEyeLeaf(ServerClient& client, Vector3& eye, bool& haveEye) const;
+    bool serverEventPoint(const NetEventMessage& event, Vector3& at) const;
 
     void clientReceive(const NetEvent& event);
     void clientSnapshot(const NetSnapshot& snapshot);
@@ -140,6 +143,7 @@ private:
     void clearStandInRecords();
     bool clientMayBind(flecs::entity entity, bool player) const;
     void clientRefuse(const std::string& reason);
+    void clientResetView(bool reenable);
     void clientHide(const std::string& name);
     void clientShow(flecs::entity entity);
     void clientHideUnintroduced();

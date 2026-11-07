@@ -81,6 +81,44 @@ void despawnPlayerBody(flecs::world& world, flecs::entity body) {
     body.destruct();
 }
 
+void resetPlayerBody(flecs::world& world, flecs::entity body) {
+    if (!body.is_alive()) {
+        return;
+    }
+    const MapPlayerStart start = world.has<MapPlayerStart>() ? world.get<MapPlayerStart>() : MapPlayerStart{};
+    CharacterMotor motor = start.motor;
+    motor.wishX = 0.0f;
+    motor.wishY = 0.0f;
+    motor.wishZ = 0.0f;
+    if (world.has<PhysicsContext>()) {
+        if (PhysicsWorld* physics = world.get_mut<PhysicsContext>().world) {
+            const std::uint64_t id = static_cast<std::uint64_t>(body.id());
+            if (physics->hasCharacter(id)) {
+                physics->resizeCharacter(id, motor, 10.0f);
+                physics->resetCharacterState(
+                    id, JPH::RVec3(start.position.x, start.position.y, start.position.z), JPH::Vec3::sZero());
+            }
+        }
+    }
+    body.set<CharacterMotor>(motor);
+    body.set<PlayerCommand>({});
+    if (FirstPersonController* controller = body.try_get_mut<FirstPersonController>()) {
+        controller->yaw = start.yaw;
+        controller->pitch = start.pitch;
+        controller->eyeHeight = motor.eyeHeight;
+        controller->moveSpeed = motor.moveSpeed;
+        controller->allowMove = true;
+    }
+    if (Lens* lens = body.try_get_mut<Lens>()) {
+        lens->camera.position = {start.position.x, start.position.y + motor.eyeHeight, start.position.z};
+        lens->camera.target = Vector3Add(lens->camera.position, forwardFromYawPitch(start.yaw, start.pitch));
+    }
+    if (LocalTransformation* local = body.try_get_mut<LocalTransformation>()) {
+        local->position = start.position;
+        local->rotation = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, start.yaw);
+    }
+}
+
 std::vector<std::string> playerBodyIds(const flecs::world& world) {
     std::vector<std::string> ids;
     world.each([&](flecs::entity entity, PlayerBody) {

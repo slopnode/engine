@@ -218,7 +218,7 @@ void runNetTests() {
 
         netSchema().addPackageEvents(
             sc,
-            evalForm(sc, "'((boom (args (power (int 0 9)) (scale float))) (quiet))"),
+            evalForm(sc, "'((boom (args (power (int 0 9)) (scale float))) (quiet) (alone (to owner)))"),
             "game",
             PackageRole::Base,
             messages);
@@ -303,6 +303,14 @@ void runNetTests() {
             CHECK_FALSE(parseNetType(sc, evalForm(sc, "`(real ,test-nan 1 0.1)"), parsed, error));
             CHECK_FALSE(parseNetType(sc, evalForm(sc, "`(real 0 ,test-inf 1)"), parsed, error));
         }
+        evalForm(sc, "(define alone-seen 0)");
+        evalForm(sc, "(define (on-event-alone where) (set! alone-seen (+ alone-seen 1)))");
+        CHECK(succeeds(sc, "(net-event! 'alone \"Player\")"));
+        CHECK_EQ(evalInt(sc, "alone-seen"), 1);
+        world.get_mut<NetEventQueue>().localPlayerHere = false;
+        CHECK(succeeds(sc, "(net-event! 'alone \"Player\")"));
+        CHECK_EQ(evalInt(sc, "alone-seen"), 1);
+        world.get_mut<NetEventQueue>().localPlayerHere = true;
         const std::size_t queued = world.get<NetEventQueue>().pending.size();
         {
             ScriptCallGuard mod(sc, PackageRole::Mod);

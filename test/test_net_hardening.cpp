@@ -10,6 +10,7 @@
 #include "input/input_state.hpp"
 #include "input/player_command.hpp"
 #include "map/bsp.hpp"
+#include "map/pvs.hpp"
 #include "net/memory_transport.hpp"
 #include "net/net_session.hpp"
 #include "net/net_state.hpp"
@@ -211,6 +212,7 @@ void runEvilServerTests(std::uint64_t hash) {
     evil.transport->send(evil.client, encodeNetIntroduce({{3, "#1", NetEntityKind::Thing}}), NetSendMode::Reliable);
     frame(3);
     CHECK_FALSE(client.session->clientConnected());
+    CHECK_FALSE(client.world.lookup("crate").has(flecs::Disabled));
 
     MemoryNetwork second;
     FakeServer traversal = makeFakeServer(second);
@@ -235,6 +237,65 @@ void runEvilServerTests(std::uint64_t hash) {
     }
     CHECK_FALSE(traversed);
     CHECK_FALSE(victim.session->clientConnected());
+}
+
+void runLeftStateTests(std::uint64_t hash) {
+    MemoryNetwork network;
+    HardenSide server;
+    prepareHardenSide(server);
+    server.world.set<MapPvs>({});
+    server.world.lookup("Player").remove<Lens>();
+    server.session = std::make_unique<NetSession>(server.world, hardenConfig("server", "", hash), network.endpoint());
+    server.session->registerSystems();
+    CHECK(server.session->start());
+    server.session->serverMapLoaded();
+
+    auto client = std::make_unique<HardenSide>();
+    prepareHardenSide(*client);
+    client->session = std::make_unique<NetSession>(client->world, hardenConfig("", "server", hash), network.endpoint());
+    client->session->registerSystems();
+    CHECK(client->session->start());
+    auto frame = [&](int count) {
+        for (int i = 0; i < count; ++i) {
+            server.session->serverPoll();
+            server.world.get_mut<SimClock>().tick += 1;
+            server.world.run_pipeline(server.world.get<FramePipelines>().sim, kSimTickDt);
+            if (client) {
+                client->session->clientFrame(kSimTickDt);
+            }
+            network.advance(kSimTickDt);
+        }
+    };
+    frame(10);
+    CHECK(client->session->clientConnected());
+    CHECK(client->world.lookup("crate").has(flecs::Disabled));
+
+    server.world.lookup("Player").set<Lens>({});
+    frame(5);
+    CHECK_FALSE(client->world.lookup("crate").has(flecs::Disabled));
+    server.world.lookup("Player").remove<Lens>();
+    frame(90);
+    CHECK_FALSE(client->world.lookup("crate").has(flecs::Disabled));
+
+    const flecs::entity mapPlayer = server.world.lookup("Player");
+    mapPlayer.get_mut<LocalTransformation>().position = {9.0f, 0.0f, 9.0f};
+    mapPlayer.get_mut<PlayerCommand>().moveForward = 1.0f;
+    NetPlayerRecord* record = nullptr;
+    for (NetPlayerRecord& entry : server.world.get_mut<NetStore>().players) {
+        if (entry.id == kLocalNetPlayerId) {
+            record = &entry;
+        }
+    }
+    CHECK(record != nullptr && !record->values.empty());
+    if (record != nullptr && !record->values.empty()) {
+        record->values[0].integer = 42;
+    }
+    client.reset();
+    frame(5);
+    CHECK_EQ(server.session->serverClientCount(), std::size_t{0});
+    CHECK(mapPlayer.get<LocalTransformation>().position.x == 0.0f);
+    CHECK(mapPlayer.get<PlayerCommand>().moveForward == 0.0f);
+    CHECK(findNetPlayer(server.world, kLocalNetPlayerId)->values[0].integer == 0);
 }
 
 void runKnownServerTests() {
@@ -274,6 +335,16 @@ void runNetHardeningTests() {
     runSlotTests(hash);
     runEvilServerTests(hash);
     runKnownServerTests();
+
+    s7_scheme* sc = s7_init();
+    std::vector<std::string> messages;
+    netSchema().clear();
+    netSchema().addPackageFields(
+        sc, s7_eval_c_string(sc, "'((player (score (type int 0 99))))"), "game", PackageRole::Base, messages);
+    netSchema().finalize();
+    runLeftStateTests(netSchema().hash());
+    netSchema().clear();
+    s7_quit(sc);
 }
 
 }

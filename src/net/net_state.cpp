@@ -116,6 +116,17 @@ void removeNetPlayer(flecs::world& world, std::string_view id) {
         players.end());
 }
 
+void resetNetPlayer(flecs::world& world, std::string_view id) {
+    if (!world.has<NetStore>()) {
+        return;
+    }
+    for (NetPlayerRecord& record : world.get_mut<NetStore>().players) {
+        if (record.id == id) {
+            record.values = defaultsFor(NetScope{NetScopeKind::Player, {}});
+        }
+    }
+}
+
 const NetPlayerRecord* findNetPlayer(const flecs::world& world, std::string_view id) {
     if (!world.has<NetStore>()) {
         return nullptr;

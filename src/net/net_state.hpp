@@ -39,6 +39,7 @@ struct NetThingFields {
 
 struct NetEventQueue {
     bool forward = false;
+    bool localPlayerHere = true;
     std::vector<NetEventMessage> pending;
 };
 
@@ -52,6 +53,7 @@ void registerNetState(flecs::world& world);
 void resetNetState(flecs::world& world);
 void addNetPlayer(flecs::world& world, std::string_view id);
 void removeNetPlayer(flecs::world& world, std::string_view id);
+void resetNetPlayer(flecs::world& world, std::string_view id);
 const NetPlayerRecord* findNetPlayer(const flecs::world& world, std::string_view id);
 void resetNetMapFields(flecs::world& world);
 bool resolveNetTarget(const flecs::world& world, std::string_view id, NetTarget& out);

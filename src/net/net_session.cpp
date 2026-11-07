@@ -182,6 +182,7 @@ bool NetSession::start() {
         role_ = NetRole::Server;
         if (world_.has<NetEventQueue>()) {
             world_.get_mut<NetEventQueue>().forward = true;
+            world_.get_mut<NetEventQueue>().localPlayerHere = config_.hostPlayerVisible;
         }
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
@@ -370,6 +371,8 @@ void NetSession::serverHello(ServerClient& client, const std::vector<std::byte>&
 
 void NetSession::serverSendMap(ServerClient& client) {
     client.known.clear();
+    client.lastRelevant.clear();
+    client.hadEye = false;
     if (!world_.has<CurrentMap>()) {
         return;
     }
@@ -424,6 +427,9 @@ void NetSession::serverRemove(NetConnectionId connection, const std::string& rea
     if (client.ownBody) {
         despawnPlayerBody(world_, playerBody(world_, client.player));
         removeNetPlayer(world_, client.player);
+    } else if (!config_.hostPlayerVisible) {
+        resetPlayerBody(world_, playerBody(world_, client.player));
+        resetNetPlayer(world_, client.player);
     }
 }
 
@@ -563,14 +569,41 @@ void NetSession::serverPlaceEntities() {
     }
 }
 
-std::int32_t NetSession::serverEyeLeaf(const ServerClient& client, Vector3& eye, bool& haveEye) const {
+std::int32_t NetSession::serverEyeLeaf(ServerClient& client, Vector3& eye, bool& haveEye) const {
     const flecs::entity body = playerBody(world_, client.player);
-    haveEye = body.is_valid() && body.has<Lens>();
-    eye = haveEye ? body.get<Lens>().camera.position : Vector3{};
+    if (body.is_valid() && body.has<Lens>()) {
+        client.lastEye = body.get<Lens>().camera.position;
+        client.hadEye = true;
+    }
+    haveEye = client.hadEye;
+    eye = client.lastEye;
     if (!haveEye || !world_.has<MapBsp>() || !world_.has<MapPvs>()) {
         return -1;
     }
     return pvsSampleLeaf(world_.get<MapBsp>().tree, eye);
+}
+
+bool NetSession::serverEventPoint(const NetEventMessage& event, Vector3& at) const {
+    if (event.where == NetEventWhere::Point) {
+        at = {event.point[0], event.point[1], event.point[2]};
+        return true;
+    }
+    if (event.where != NetEventWhere::Player) {
+        return false;
+    }
+    const flecs::entity body = playerBody(world_, event.player);
+    if (!body.is_valid()) {
+        return false;
+    }
+    if (body.has<Lens>()) {
+        at = body.get<Lens>().camera.position;
+        return true;
+    }
+    if (body.has<LocalTransformation>()) {
+        at = body.get<LocalTransformation>().position;
+        return true;
+    }
+    return false;
 }
 
 void NetSession::serverUpdateKnown(ServerClient& client) {
@@ -589,8 +622,8 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
             continue;
         }
         const float distSq = haveEye ? Vector3DistanceSqr(place->second.at, eye) : 0.0f;
-        bool relevant = !haveEye || place->second.always || pvs == nullptr || distSq <= nearSq ||
-            pvsCanSee(*pvs, eyeLeaf, place->second.leaf);
+        bool relevant = place->second.always || pvs == nullptr ||
+            (haveEye && (distSq <= nearSq || pvsCanSee(*pvs, eyeLeaf, place->second.leaf)));
         if (relevant) {
             client.lastRelevant[netId] = serverTick_;
         } else {
@@ -664,12 +697,18 @@ void NetSession::serverSendEvents(ServerClient& client, const std::vector<NetEve
         bool send = true;
         if (def.to == NetEventAudience::Owner) {
             send = aimedAtClient;
-        } else if (def.to == NetEventAudience::Near && event.where == NetEventWhere::Point) {
-            const Vector3 at{event.point[0], event.point[1], event.point[2]};
-            send = haveEye && Vector3DistanceSqr(at, eye) <= def.nearRadius * def.nearRadius;
-        } else if (def.to == NetEventAudience::Pvs && event.where == NetEventWhere::Point && tree != nullptr) {
-            const Vector3 at{event.point[0], event.point[1] + 0.1f, event.point[2]};
-            send = !haveEye || pvsVisiblePointFromLeaf(*tree, world_.get<MapPvs>().pvs, eyeLeaf, at);
+        } else if (def.to == NetEventAudience::Near || def.to == NetEventAudience::Pvs) {
+            Vector3 at{};
+            const bool located = serverEventPoint(event, at);
+            if (aimedAtClient) {
+                send = true;
+            } else if (!located || !haveEye) {
+                send = false;
+            } else if (def.to == NetEventAudience::Near) {
+                send = Vector3DistanceSqr(at, eye) <= def.nearRadius * def.nearRadius;
+            } else if (tree != nullptr) {
+                send = pvsVisiblePointFromLeaf(*tree, world_.get<MapPvs>().pvs, eyeLeaf, {at.x, at.y + 0.1f, at.z});
+            }
         }
         if (send) {
             (def.reliable ? reliable : unreliable).push_back(event);
@@ -967,14 +1006,12 @@ void NetSession::clientReceive(const NetEvent& event) {
         connected_ = false;
         server_ = kNoNetConnection;
         world_.remove<SimRemote>();
-        clearStandInRecords();
-        predicted_.clear();
-        predicting_ = false;
-        hidden_.clear();
-        hidOnLoad_ = false;
-        names_.clear();
-        bound_.clear();
-        appeared_.clear();
+        clientResetView(true);
+        yourPlayer_.clear();
+        expectedMap_.clear();
+        commandTick_ = 0;
+        commandClock_ = SimClock{};
+        recentCommands_.clear();
         if (config_.disconnected) {
             config_.disconnected(event.reason);
         }
@@ -990,18 +1027,9 @@ void NetSession::clientReceive(const NetEvent& event) {
             clientRefuse("server sent a bad map change");
             return;
         }
-        clearStandInRecords();
-        names_.clear();
-        bound_.clear();
-        appeared_.clear();
-        predicted_.clear();
-        predicting_ = false;
-        hidden_.clear();
-        hidOnLoad_ = false;
+        clientResetView(false);
         yourPlayer_ = change.yourPlayer;
         expectedMap_ = change.mapId;
-        lastSnapshotTick_ = 0;
-        loggedSnapshots_ = false;
         if (config_.loadMap) {
             config_.loadMap(change.mapId, change.reason);
         }
@@ -1140,6 +1168,28 @@ void NetSession::clientRefuse(const std::string& reason) {
         transport_->close(server_, reason);
     }
     clientReceive(NetEvent{NetEventKind::Disconnected, server_, {}, reason});
+}
+
+void NetSession::clientResetView(bool reenable) {
+    if (reenable) {
+        for (const auto& entry : hidden_) {
+            for (flecs::entity_t id : entry.second) {
+                if (world_.is_alive(id)) {
+                    world_.entity(id).enable();
+                }
+            }
+        }
+    }
+    clearStandInRecords();
+    names_.clear();
+    bound_.clear();
+    appeared_.clear();
+    predicted_.clear();
+    predicting_ = false;
+    hidden_.clear();
+    hidOnLoad_ = false;
+    lastSnapshotTick_ = 0;
+    loggedSnapshots_ = false;
 }
 
 void NetSession::clientHide(const std::string& name) {
