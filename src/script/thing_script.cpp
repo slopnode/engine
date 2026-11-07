@@ -1,5 +1,7 @@
 #include "script/thing_script.hpp"
 #include "core/sim_clock.hpp"
+#include "game/sim_interpolation.hpp"
+#include "net/net_state.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -2174,6 +2176,58 @@ s7_pointer g_actors_in_radius(s7_scheme* sc, s7_pointer args) {
     return list;
 }
 
+bool isStandIn(flecs::entity entity) {
+    for (; entity.is_valid(); entity = entity.parent()) {
+        if (entity.has<NetStandIn>()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool standInArg(s7_pointer args) {
+    return s7_is_pair(args) && s7_is_string(s7_car(args)) && isStandIn(resolveActorPath(s7_string(s7_car(args))));
+}
+
+s7_pointer g_avatar_play_anim(s7_scheme* sc, s7_pointer args) {
+    return standInArg(args) ? g_actor_play_anim(sc, args) : s7_f(sc);
+}
+
+s7_pointer g_avatar_attach_geo(s7_scheme* sc, s7_pointer args) {
+    return standInArg(args) ? g_actor_attach_geo(sc, args) : s7_f(sc);
+}
+
+s7_pointer g_avatar_detach(s7_scheme* sc, s7_pointer args) {
+    return standInArg(args) ? g_actor_detach(sc, args) : s7_f(sc);
+}
+
+s7_pointer g_avatar_velocity(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "avatar-velocity", args);
+    const flecs::entity entity = resolveActorPath(in.string("id string"));
+    if (!isStandIn(entity) || !entity.has<SimPose>()) {
+        return s7_f(sc);
+    }
+    const SimPose& pose = entity.get<SimPose>();
+    const Vector3 velocity =
+        Vector3Scale(Vector3Subtract(pose.cur.position, pose.prev.position), 1.0f / kSimTickDt);
+    return s7_list(sc, 3, s7_make_real(sc, velocity.x), s7_make_real(sc, velocity.y), s7_make_real(sc, velocity.z));
+}
+
+s7_pointer g_avatars(s7_scheme* sc, s7_pointer) {
+    std::vector<std::string> ids;
+    g_thingWorld->each([&](flecs::entity entity, NetStandIn) {
+        if (entity.name().length() > 0) {
+            ids.emplace_back(entity.name().c_str());
+        }
+    });
+    std::sort(ids.begin(), ids.end());
+    s7_pointer list = s7_nil(sc);
+    for (auto it = ids.rbegin(); it != ids.rend(); ++it) {
+        list = s7_cons(sc, s7_make_string(sc, it->c_str()), list);
+    }
+    return list;
+}
+
 constexpr SchemeBinding kActorBindings[] = {
     {"actor-spawn", g_actor_spawn, 7, 5, false, "(actor-spawn id x y z yaw kind path [radius height speed gravity tags-list])", ScriptCap::WorldMutate},
     {"actor-pos", g_actor_pos, 1, 0, false, "(actor-pos id)", ScriptCap::ReadWorld},
@@ -2209,6 +2263,11 @@ constexpr SchemeBinding kActorBindings[] = {
     {"actor-anim-busy?", g_actor_anim_busy, 1, 0, false, "(actor-anim-busy? path)", ScriptCap::ReadWorld},
     {"actor-attach-geo", g_actor_attach_geo, 4, 7, false, "(actor-attach-geo path name point geo [x y z] [pitch yaw roll] [scale])", ScriptCap::WorldMutate},
     {"actor-detach", g_actor_detach, 2, 0, false, "(actor-detach path name)", ScriptCap::WorldMutate},
+    {"avatars", g_avatars, 0, 0, false, "(avatars)", ScriptCap::ReadWorld},
+    {"avatar-velocity", g_avatar_velocity, 1, 0, false, "(avatar-velocity id)", ScriptCap::ReadWorld},
+    {"avatar-play-anim", g_avatar_play_anim, 2, 1, false, "(avatar-play-anim path clip [loop])", ScriptCap::FpPresent},
+    {"avatar-attach-geo", g_avatar_attach_geo, 4, 7, false, "(avatar-attach-geo path name point geo [x y z] [pitch yaw roll] [scale])", ScriptCap::FpPresent},
+    {"avatar-detach", g_avatar_detach, 2, 0, false, "(avatar-detach path name)", ScriptCap::FpPresent},
     {"actor-tags", g_actor_tags, 1, 0, false, "(actor-tags id)", ScriptCap::ReadWorld},
     {"actors-with-tag", g_actors_with_tag, 1, 0, false, "(actors-with-tag tag)", ScriptCap::ReadWorld},
     {"actors-in-radius", g_actors_in_radius, 4, 1, false, "(actors-in-radius x y z r [tag])", ScriptCap::ReadWorld},

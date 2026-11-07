@@ -50,7 +50,7 @@ Hook|Runs on|When
 `(on-player-appear id)`|client|Another player's body is in view and needs a stand-in, which the hook spawns under `id`, such as with `actor-spawn`
 `(on-player-vanish id)`|client|That body left. The hook removes the stand-in
 
-A client's own body is never introduced to it. Another player's body arrives named `player:` and the server's name, so the stand-in can't collide with the client's own `"Player"`.
+A client's own body is never introduced to it. Another player's body arrives named `player:` and the server's name, so the stand-in can't collide with the client's own `"Player"`. Each snapshot carries that player's fields whose `send` is `all` along with the body, and `(net-get "player:NAME" field)` reads them on the client. A stand-in is the client's own presentation, so `present` animates it and hangs things on it with the `avatar-*` functions, which act on nothing else.
 
 The server gives every replicated entity a number: actors, things, movers, motored bodies, debris and player bodies that sit at the root of the hierarchy and have a name. Each client has its own set of entities it knows about, worked out every tick. The server introduces each number to a client with the entity's name when the entity becomes visible to it and forgets it when it stops, and the client binds the number to its own entity of that name. Names match because both sides load the same map and run the same `on-map-ready`. An entity only the server creates, such as a rocket, has no match on the client and isn't shown yet.
 

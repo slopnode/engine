@@ -14,6 +14,8 @@ namespace slopengine {
 
 inline constexpr const char* kLocalNetPlayerId = "Player";
 
+struct NetStandIn {};
+
 struct NetPlayerRecord {
     std::string id;
     std::vector<NetValue> values;

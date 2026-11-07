@@ -275,6 +275,11 @@ std::vector<std::byte> encodeNetSnapshot(const NetSnapshot& snapshot, const std:
             writer.f32(entity.speed);
             writer.u8(static_cast<std::uint8_t>((entity.playing ? 1 : 0) | (entity.loop ? 2 : 0)));
         }
+        writer.varint(entity.fields.size());
+        for (const auto& [slot, value] : entity.fields) {
+            writer.varint(static_cast<std::uint64_t>(slot));
+            writer.value(value, playerFields[static_cast<std::size_t>(slot)]->type);
+        }
     }
     return writer.data();
 }
@@ -327,6 +332,19 @@ bool decodeNetSnapshot(
             }
             entity.playing = (flags & 1) != 0;
             entity.loop = (flags & 2) != 0;
+        }
+        std::size_t entityFields = 0;
+        if (!reader.count(entityFields, playerFields.size())) {
+            return false;
+        }
+        for (std::size_t j = 0; j < entityFields; ++j) {
+            std::size_t slot = 0;
+            NetValue value;
+            if (playerFields.empty() || !reader.count(slot, playerFields.size() - 1) ||
+                !reader.value(value, playerFields[slot]->type)) {
+                return false;
+            }
+            entity.fields.emplace_back(static_cast<int>(slot), std::move(value));
         }
         out.entities.push_back(std::move(entity));
     }

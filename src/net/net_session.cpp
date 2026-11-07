@@ -532,6 +532,15 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
                 state.loop = animation->loop;
             }
         }
+        if (entity.has<PlayerBody>()) {
+            if (const NetPlayerRecord* other = findNetPlayer(world_, entity.name().c_str())) {
+                for (std::size_t i = 0; i < fields.size() && i < other->values.size(); ++i) {
+                    if (fields[i]->send == NetAudience::All) {
+                        state.fields.emplace_back(static_cast<int>(i), other->values[i]);
+                    }
+                }
+            }
+        }
         snapshot.entities.push_back(std::move(state));
     }
     transport_->send(client.connection, encodeNetSnapshot(snapshot, fields), NetSendMode::Unreliable);
@@ -591,6 +600,7 @@ void NetSession::clientReceive(const NetEvent& event) {
         connected_ = false;
         server_ = kNoNetConnection;
         world_.remove<SimRemote>();
+        clearStandInRecords();
         names_.clear();
         bound_.clear();
         appeared_.clear();
@@ -605,6 +615,7 @@ void NetSession::clientReceive(const NetEvent& event) {
     if (kind == NetMessageKind::MapChange) {
         NetMapChange change;
         if (decodeNetMapChange(event.data, change)) {
+            clearStandInRecords();
             names_.clear();
             bound_.clear();
             appeared_.clear();
@@ -633,6 +644,7 @@ void NetSession::clientReceive(const NetEvent& event) {
             for (std::uint32_t netId : ids) {
                 const auto name = names_.find(netId);
                 if (name != names_.end() && appeared_.erase(netId) != 0) {
+                    removeNetPlayer(world_, netAvatarName(name->second.name));
                     callHook("on-player-vanish", netAvatarName(name->second.name));
                 }
                 if (name != names_.end()) {
@@ -677,14 +689,49 @@ flecs::entity NetSession::clientEntity(std::uint32_t netId) {
     flecs::entity entity = world_.lookup(local.c_str());
     const bool mapReady = world_.has<CurrentMap>() && world_.get<CurrentMap>().id == expectedMap_;
     if (!entity.is_valid() && player && mapReady && appeared_.insert(netId).second) {
+        addNetPlayer(world_, local);
         callHook("on-player-appear", local);
         entity = world_.lookup(local.c_str());
+        if (entity.is_valid()) {
+            entity.add<NetStandIn>();
+        }
     }
     if (!entity.is_valid() || !entity.has<LocalTransformation>()) {
         return {};
     }
     bound_[netId] = entity.id();
     return entity;
+}
+
+void NetSession::applyStandInFields(const NetEntityState& state) {
+    const auto name = names_.find(state.netId);
+    if (name == names_.end() || name->second.kind != NetEntityKind::Player || !world_.has<NetStore>()) {
+        return;
+    }
+    const std::string local = netAvatarName(name->second.name);
+    for (NetPlayerRecord& record : world_.get_mut<NetStore>().players) {
+        if (record.id != local) {
+            continue;
+        }
+        for (const auto& [slot, value] : state.fields) {
+            if (static_cast<std::size_t>(slot) < record.values.size()) {
+                record.values[static_cast<std::size_t>(slot)] = value;
+            }
+        }
+        return;
+    }
+}
+
+void NetSession::clearStandInRecords() {
+    if (!world_.has<NetStore>()) {
+        return;
+    }
+    std::vector<NetPlayerRecord>& players = world_.get_mut<NetStore>().players;
+    players.erase(
+        std::remove_if(players.begin(), players.end(), [](const NetPlayerRecord& record) {
+            return record.id.rfind(kAvatarPrefix, 0) == 0;
+        }),
+        players.end());
 }
 
 void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
@@ -695,6 +742,9 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
             continue;
         }
         ++boundCount;
+        if (!state.fields.empty()) {
+            applyStandInFields(state);
+        }
         LocalTransformation target = entity.get<LocalTransformation>();
         target.position = {state.position[0], state.position[1], state.position[2]};
         target.rotation = QuaternionNormalize({state.rotation[0], state.rotation[1], state.rotation[2], state.rotation[3]});

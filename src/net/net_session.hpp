@@ -93,6 +93,8 @@ private:
     void clientSnapshot(const NetSnapshot& snapshot);
     void clientSendCommands();
     flecs::entity clientEntity(std::uint32_t netId);
+    void applyStandInFields(const NetEntityState& state);
+    void clearStandInRecords();
 
     void callHook(const char* name, const std::string& argument);
 

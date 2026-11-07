@@ -280,6 +280,7 @@ void runNetSessionTests() {
     for (NetPlayerRecord& record : server.world.get_mut<NetStore>().players) {
         if (record.id == "player-2") {
             record.values[static_cast<std::size_t>(health->slot)].integer = 33;
+            record.values[static_cast<std::size_t>(secret->slot)].integer = 5;
         }
     }
     frames(network, server, {&client, &late}, 10);
@@ -287,6 +288,9 @@ void runNetSessionTests() {
     CHECK(server.world.lookup("Player").get<PlayerCommand>().moveStrafe == 0.0f);
     const flecs::entity avatar = client.world.lookup("player:player-2");
     CHECK(avatar.has<SimPose>() && avatar.get<SimPose>().cur.position.z == 6.0f);
+    const NetPlayerRecord* standIn = findNetPlayer(client.world, "player:player-2");
+    CHECK(standIn != nullptr && standIn->values[static_cast<std::size_t>(health->slot)].integer == 33);
+    CHECK(standIn != nullptr && standIn->values[static_cast<std::size_t>(secret->slot)].integer == 0);
     CHECK(late.world.get<NetStore>().players.front().values[static_cast<std::size_t>(health->slot)].integer == 33);
     CHECK(client.world.get<NetStore>().players.front().values[static_cast<std::size_t>(health->slot)].integer == 77);
     CHECK_FALSE(late.world.lookup("player:Player").is_valid() && late.world.lookup("player:Player").has<SimPose>());
@@ -305,6 +309,7 @@ void runNetSessionTests() {
     CHECK_FALSE(server.world.lookup("player-2").is_valid());
     CHECK(findNetPlayer(server.world, "player-2") == nullptr);
     CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (member \"gone player:player-2\" appeared) #t)")));
+    CHECK(findNetPlayer(client.world, "player:player-2") == nullptr);
     CHECK(client.session->clientConnected());
 
     Side wrong;

@@ -1787,6 +1787,44 @@ Removes an attachment made by `actor-attach-geo`, along with anything attached t
   name : string?) ↵ boolean?
 </code></pre>
 
+### avatars {#avatars}
+Returns the ids of the stand-ins a network client spawned from `on-player-appear` for other players. Empty anywhere else.
+<pre><code class="language-scheme">(avatars) ↵ (listof string?)
+</code></pre>
+
+### avatar-velocity {#avatar-velocity}
+Returns a stand-in's velocity from its last two snapshots as `(x y z)`, or `#f` when `id` isn't a stand-in.
+<pre><code class="language-scheme">(avatar-velocity
+  id : string?) ↵ (or (list real? real? real?) #f)
+</code></pre>
+
+### avatar-play-anim {#avatar-play-anim}
+`actor-play-anim` for a stand-in, allowed in `present` scope. Returns `#f` for anything that isn't a stand-in or attached to one.
+<pre><code class="language-scheme">(avatar-play-anim
+  path : string?
+  clip : string?
+  [loop : boolean? = #t]) ↵ boolean?
+</code></pre>
+
+### avatar-attach-geo {#avatar-attach-geo}
+`actor-attach-geo` for a stand-in, allowed in `present` scope.
+<pre><code class="language-scheme">(avatar-attach-geo
+  path : string?
+  name : string?
+  point : string?
+  geo : string?
+  [x, y, z : real?]
+  [pitch, yaw, roll : real?]
+  [scale : real?]) ↵ boolean?
+</code></pre>
+
+### avatar-detach {#avatar-detach}
+`actor-detach` for a stand-in, allowed in `present` scope.
+<pre><code class="language-scheme">(avatar-detach
+  path : string?
+  name : string?) ↵ boolean?
+</code></pre>
+
 ### actor-tags {#actor-tags}
 Returns an actor's tags.
 <pre><code class="language-scheme">(actor-tags
