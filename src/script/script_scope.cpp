@@ -71,6 +71,8 @@ uint32_t capsForRole(PackageRole role) {
 
 const char* capName(ScriptCap cap) {
     switch (cap) {
+    case ScriptCap::None:
+        return "none";
     case ScriptCap::HudDraw:
         return "hud-draw";
     case ScriptCap::UiDraw:

@@ -8,6 +8,7 @@ add_executable(sloptests
     test_texture_graph.cpp
     test_script_scope.cpp
     test_scheme_harden.cpp
+    test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
     test_bsp_polygon.cpp

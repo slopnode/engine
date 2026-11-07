@@ -8,6 +8,7 @@
 #include "physics/components.hpp"
 #include "render/components.hpp"
 #include "script/proc_role.hpp"
+#include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 #include "script/thing_script.hpp"
 
@@ -52,29 +53,13 @@ Vector3 navActorFeet(flecs::entity entity) {
     return {};
 }
 
-bool readNumberArg(s7_scheme* sc, s7_pointer& args, float& out) {
-    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
-        return false;
-    }
-    out = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
-    args = s7_cdr(args);
-    return true;
-}
-
 s7_pointer g_nav_set_goal_pos(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::WorldMutate)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-set-goal-pos", 1, args, "id string");
-    }
-    const char* id = s7_string(s7_car(args));
-    s7_pointer rest = s7_cdr(args);
-    float x = 0.0f;
-    float z = 0.0f;
-    if (!readNumberArg(sc, rest, x) || !readNumberArg(sc, rest, z)) {
-        return s7_wrong_type_arg_error(sc, "nav-set-goal-pos", 2, rest, "x z numbers");
-    }
+    ArgReader in(sc, "nav-set-goal-pos", args);
+    const char* id = in.string("id string");
+    const float x = in.realf("x z numbers");
+    const float z = in.realf("x z numbers");
+    const bool haveY = in.nextIsNumber();
+    const float y = in.optRealf(0.0f);
     flecs::entity entity = lookupNavEntity(id);
     if (!entity.is_valid()) {
         return s7_f(sc);
@@ -83,8 +68,7 @@ s7_pointer g_nav_set_goal_pos(s7_scheme* sc, s7_pointer args) {
     agent.hasGoal = true;
     agent.goalEntityId.clear();
     agent.goalPos = {x, 0.0f, z};
-    float y = 0.0f;
-    if (readNumberArg(sc, rest, y)) {
+    if (haveY) {
         agent.goalPos.y = y;
     } else if (entity.has<LocalTransformation>()) {
         agent.goalPos.y = entity.get<LocalTransformation>().position.y;
@@ -98,18 +82,9 @@ s7_pointer g_nav_set_goal_pos(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_set_goal_entity(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::WorldMutate)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-set-goal-entity", 1, args, "id string");
-    }
-    const char* id = s7_string(s7_car(args));
-    s7_pointer rest = s7_cdr(args);
-    if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest))) {
-        return s7_wrong_type_arg_error(sc, "nav-set-goal-entity", 2, rest, "target-id string");
-    }
-    const char* targetId = s7_string(s7_car(rest));
+    ArgReader in(sc, "nav-set-goal-entity", args);
+    const char* id = in.string("id string");
+    const char* targetId = in.string("target-id string");
     flecs::entity entity = lookupNavEntity(id);
     if (!entity.is_valid()) {
         return s7_f(sc);
@@ -128,13 +103,8 @@ s7_pointer g_nav_set_goal_entity(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_clear_goal(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::WorldMutate)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-clear-goal", 1, args, "id string");
-    }
-    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    ArgReader in(sc, "nav-clear-goal", args);
+    flecs::entity entity = lookupNavEntity(in.string("id string"));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -154,13 +124,8 @@ s7_pointer g_nav_clear_goal(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_waypoint(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-waypoint", 1, args, "id string");
-    }
-    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    ArgReader in(sc, "nav-waypoint", args);
+    flecs::entity entity = lookupNavEntity(in.string("id string"));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -169,41 +134,25 @@ s7_pointer g_nav_waypoint(s7_scheme* sc, s7_pointer args) {
         agent.waypointIndex >= static_cast<int>(agent.waypoints.size())) {
         return s7_f(sc);
     }
-    const Vector3& wp = agent.waypoints[static_cast<std::size_t>(agent.waypointIndex)];
-    return s7_list(
-        sc,
-        3,
-        s7_make_real(sc, wp.x),
-        s7_make_real(sc, wp.y),
-        s7_make_real(sc, wp.z));
+    return makeVec3List(sc, agent.waypoints[static_cast<std::size_t>(agent.waypointIndex)]);
 }
 
 s7_pointer g_nav_has_path_p(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-has-path?", 1, args, "id string");
-    }
-    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    ArgReader in(sc, "nav-has-path?", args);
+    flecs::entity entity = lookupNavEntity(in.string("id string"));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
     const NavigationAgent& agent = entity.get<NavigationAgent>();
-    return (agent.hasGoal && agent.waypointIndex >= 0 &&
-            agent.waypointIndex < static_cast<int>(agent.waypoints.size()))
-               ? s7_t(sc)
-               : s7_f(sc);
+    return s7_make_boolean(
+        sc,
+        agent.hasGoal && agent.waypointIndex >= 0 &&
+            agent.waypointIndex < static_cast<int>(agent.waypoints.size()));
 }
 
 s7_pointer g_nav_path_direction(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-path-direction", 1, args, "id string");
-    }
-    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    ArgReader in(sc, "nav-path-direction", args);
+    flecs::entity entity = lookupNavEntity(in.string("id string"));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -252,13 +201,8 @@ s7_pointer g_nav_path_direction(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_at_goal_p(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-at-goal?", 1, args, "id string");
-    }
-    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    ArgReader in(sc, "nav-at-goal?", args);
+    flecs::entity entity = lookupNavEntity(in.string("id string"));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -274,21 +218,16 @@ s7_pointer g_nav_at_goal_p(s7_scheme* sc, s7_pointer args) {
     const float dx = pos.x - goal.x;
     const float dz = pos.z - goal.z;
     const float dist = std::sqrt(dx * dx + dz * dz);
-    return dist <= agent.arriveRadius ? s7_t(sc) : s7_f(sc);
+    return s7_make_boolean(sc, dist <= agent.arriveRadius);
 }
 
 s7_pointer g_nav_leaf_at(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
     if (g_navWorld == nullptr || !g_navWorld->has<MapBsp>()) {
         return s7_f(sc);
     }
-    float x = 0, y = 0, z = 0;
-    if (!readNumberArg(sc, args, x) || !readNumberArg(sc, args, y) || !readNumberArg(sc, args, z)) {
-        return s7_wrong_type_arg_error(sc, "nav-leaf-at", 1, args, "x y z numbers");
-    }
-    const int leaf = pvsSampleLeaf(g_navWorld->get<MapBsp>().tree, {x, y, z});
+    ArgReader in(sc, "nav-leaf-at", args);
+    const Vector3 point = in.vec3("x y z numbers");
+    const int leaf = pvsSampleLeaf(g_navWorld->get<MapBsp>().tree, point);
     if (leaf < 0) {
         return s7_f(sc);
     }
@@ -296,49 +235,25 @@ s7_pointer g_nav_leaf_at(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_leaf_bounds(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
     if (g_navWorld == nullptr || !g_navWorld->has<MapBsp>()) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-leaf-bounds", 1, args, "leaf integer");
-    }
-    const int leaf = static_cast<int>(s7_integer(s7_car(args)));
+    ArgReader in(sc, "nav-leaf-bounds", args);
+    const int leaf = static_cast<int>(in.exactInteger("leaf integer"));
     const BspTree& tree = g_navWorld->get<MapBsp>().tree;
     if (leaf < 0 || leaf >= static_cast<int>(tree.leaves.size())) {
         return s7_f(sc);
     }
     const BspLeaf& bspLeaf = tree.leaves[static_cast<std::size_t>(leaf)];
-    return s7_list(
-        sc,
-        2,
-        s7_list(
-            sc,
-            3,
-            s7_make_real(sc, bspLeaf.mins.x),
-            s7_make_real(sc, bspLeaf.mins.y),
-            s7_make_real(sc, bspLeaf.mins.z)),
-        s7_list(
-            sc,
-            3,
-            s7_make_real(sc, bspLeaf.maxs.x),
-            s7_make_real(sc, bspLeaf.maxs.y),
-            s7_make_real(sc, bspLeaf.maxs.z)));
+    return s7_list(sc, 2, makeVec3List(sc, bspLeaf.mins), makeVec3List(sc, bspLeaf.maxs));
 }
 
 s7_pointer g_nav_leaf_floor(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
     if (g_navWorld == nullptr || !g_navWorld->has<MapNavigation>()) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-leaf-floor", 1, args, "leaf integer");
-    }
-    const int leaf = static_cast<int>(s7_integer(s7_car(args)));
+    ArgReader in(sc, "nav-leaf-floor", args);
+    const int leaf = static_cast<int>(in.exactInteger("leaf integer"));
     const MapNavigation& nav = g_navWorld->get<MapNavigation>();
     if (leaf < 0 || leaf >= nav.leafCount) {
         return s7_f(sc);
@@ -348,16 +263,11 @@ s7_pointer g_nav_leaf_floor(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_leaf_ceiling(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
     if (g_navWorld == nullptr || !g_navWorld->has<MapNavigation>()) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_integer(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-leaf-ceiling", 1, args, "leaf integer");
-    }
-    const int leaf = static_cast<int>(s7_integer(s7_car(args)));
+    ArgReader in(sc, "nav-leaf-ceiling", args);
+    const int leaf = static_cast<int>(in.exactInteger("leaf integer"));
     const MapNavigation& nav = g_navWorld->get<MapNavigation>();
     if (leaf < 0 || leaf >= nav.leafCount) {
         return s7_f(sc);
@@ -367,13 +277,8 @@ s7_pointer g_nav_leaf_ceiling(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_nav_path_altitude(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "nav-path-altitude", 1, args, "id string");
-    }
-    flecs::entity entity = lookupNavEntity(s7_string(s7_car(args)));
+    ArgReader in(sc, "nav-path-altitude", args);
+    flecs::entity entity = lookupNavEntity(in.string("id string"));
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
@@ -411,106 +316,26 @@ s7_pointer g_nav_path_altitude(s7_scheme* sc, s7_pointer args) {
     return s7_make_real(sc, static_cast<double>(wp.y));
 }
 
+constexpr SchemeBinding kNavBindings[] = {
+    {"nav-set-goal-pos", g_nav_set_goal_pos, 3, 1, false, "(nav-set-goal-pos id x z [y])", ScriptCap::WorldMutate},
+    {"nav-set-goal-entity", g_nav_set_goal_entity, 2, 0, false, "(nav-set-goal-entity id target-id)", ScriptCap::WorldMutate},
+    {"nav-clear-goal", g_nav_clear_goal, 1, 0, false, "(nav-clear-goal id)", ScriptCap::WorldMutate},
+    {"nav-waypoint", g_nav_waypoint, 1, 0, false, "(nav-waypoint id)", ScriptCap::ReadWorld},
+    {"nav-has-path?", g_nav_has_path_p, 1, 0, false, "(nav-has-path? id)", ScriptCap::ReadWorld},
+    {"nav-path-direction", g_nav_path_direction, 1, 0, false, "(nav-path-direction id)", ScriptCap::ReadWorld},
+    {"nav-path-altitude", g_nav_path_altitude, 1, 0, false, "(nav-path-altitude id)", ScriptCap::ReadWorld},
+    {"nav-leaf-at", g_nav_leaf_at, 3, 0, false, "(nav-leaf-at x y z)", ScriptCap::ReadWorld},
+    {"nav-leaf-bounds", g_nav_leaf_bounds, 1, 0, false, "(nav-leaf-bounds leaf)", ScriptCap::ReadWorld},
+    {"nav-leaf-floor", g_nav_leaf_floor, 1, 0, false, "(nav-leaf-floor leaf)", ScriptCap::ReadWorld},
+    {"nav-leaf-ceiling", g_nav_leaf_ceiling, 1, 0, false, "(nav-leaf-ceiling leaf)", ScriptCap::ReadWorld},
+    {"nav-at-goal?", g_nav_at_goal_p, 1, 0, false, "(nav-at-goal? id)", ScriptCap::ReadWorld},
+};
+
 } // namespace
 
 void bindNavApi(flecs::world& world, s7_scheme* scheme) {
     g_navWorld = &world;
-    s7_define_function(
-        scheme,
-        "nav-set-goal-pos",
-        g_nav_set_goal_pos,
-        3,
-        1,
-        false,
-        "(nav-set-goal-pos id x z [y])");
-    s7_define_function(
-        scheme,
-        "nav-set-goal-entity",
-        g_nav_set_goal_entity,
-        2,
-        0,
-        false,
-        "(nav-set-goal-entity id target-id)");
-    s7_define_function(
-        scheme,
-        "nav-clear-goal",
-        g_nav_clear_goal,
-        1,
-        0,
-        false,
-        "(nav-clear-goal id)");
-    s7_define_function(
-        scheme,
-        "nav-waypoint",
-        g_nav_waypoint,
-        1,
-        0,
-        false,
-        "(nav-waypoint id)");
-    s7_define_function(
-        scheme,
-        "nav-has-path?",
-        g_nav_has_path_p,
-        1,
-        0,
-        false,
-        "(nav-has-path? id)");
-    s7_define_function(
-        scheme,
-        "nav-path-direction",
-        g_nav_path_direction,
-        1,
-        0,
-        false,
-        "(nav-path-direction id)");
-    s7_define_function(
-        scheme,
-        "nav-path-altitude",
-        g_nav_path_altitude,
-        1,
-        0,
-        false,
-        "(nav-path-altitude id)");
-    s7_define_function(
-        scheme,
-        "nav-leaf-at",
-        g_nav_leaf_at,
-        3,
-        0,
-        false,
-        "(nav-leaf-at x y z)");
-    s7_define_function(
-        scheme,
-        "nav-leaf-bounds",
-        g_nav_leaf_bounds,
-        1,
-        0,
-        false,
-        "(nav-leaf-bounds leaf)");
-    s7_define_function(
-        scheme,
-        "nav-leaf-floor",
-        g_nav_leaf_floor,
-        1,
-        0,
-        false,
-        "(nav-leaf-floor leaf)");
-    s7_define_function(
-        scheme,
-        "nav-leaf-ceiling",
-        g_nav_leaf_ceiling,
-        1,
-        0,
-        false,
-        "(nav-leaf-ceiling leaf)");
-    s7_define_function(
-        scheme,
-        "nav-at-goal?",
-        g_nav_at_goal_p,
-        1,
-        0,
-        false,
-        "(nav-at-goal? id)");
+    registerBindings(scheme, kNavBindings);
 }
 
 }

@@ -129,6 +129,7 @@ set(SLOPLIB_SOURCES
     src/core/user_paths.cpp
     src/core/vfs.cpp
     src/script/script_scope.cpp
+    src/script/s7_read.cpp
     src/script/package_load_context.cpp
     src/script/proc_role.cpp
     src/assets/asset_store.cpp

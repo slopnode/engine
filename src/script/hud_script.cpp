@@ -1,4 +1,5 @@
 #include "script/hud_script.hpp"
+#include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
 #include "render/components.hpp"
@@ -36,17 +37,7 @@ HudCanvas hudCanvas() {
     return canvas;
 }
 
-bool parseAnchorSymbol(s7_scheme*, s7_pointer value, HudAnchor& out) {
-    const char* name = nullptr;
-    if (s7_is_symbol(value)) {
-        name = s7_symbol_name(value);
-    } else if (s7_is_string(value)) {
-        name = s7_string(value);
-    }
-    if (name == nullptr) {
-        return false;
-    }
-
+bool parseAnchorName(const char* name, HudAnchor& out) {
     if (std::strcmp(name, "top-left") == 0) {
         out = HudAnchor::TopLeft;
         return true;
@@ -88,92 +79,57 @@ void resolveCmdOrigin(const HudDrawList& list, float offsetX, float offsetY, flo
     outY = anchorY + offsetY;
 }
 
-bool readNumber(s7_scheme* sc, s7_pointer& args, float& out) {
-    if (!s7_is_pair(args) || !s7_is_number(s7_car(args))) {
-        return false;
-    }
-    out = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
-    args = s7_cdr(args);
-    return true;
+unsigned char colorByte(float value) {
+    return static_cast<unsigned char>(std::clamp(static_cast<int>(value), 0, 255));
 }
 
-bool readColor(s7_scheme* sc, s7_pointer& args, Color& out) {
-    float r = 255.0f;
-    float g = 255.0f;
-    float b = 255.0f;
-    float a = 255.0f;
-    if (!readNumber(sc, args, r) || !readNumber(sc, args, g) || !readNumber(sc, args, b)) {
-        return false;
-    }
-    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
-        readNumber(sc, args, a);
-    }
-    out = Color{
-        static_cast<unsigned char>(std::clamp(static_cast<int>(r), 0, 255)),
-        static_cast<unsigned char>(std::clamp(static_cast<int>(g), 0, 255)),
-        static_cast<unsigned char>(std::clamp(static_cast<int>(b), 0, 255)),
-        static_cast<unsigned char>(std::clamp(static_cast<int>(a), 0, 255)),
-    };
-    return true;
+Color readColor(ArgReader& in) {
+    const float r = in.realf("r g b [a]");
+    const float g = in.realf("r g b [a]");
+    const float b = in.realf("r g b [a]");
+    const float a = in.optRealf(255.0f);
+    return Color{colorByte(r), colorByte(g), colorByte(b), colorByte(a)};
 }
 
 s7_pointer g_hud_anchor(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "hud-anchor", 1, args, "anchor symbol");
-    }
+    ArgReader in(sc, "hud-anchor", args);
+    const s7_pointer value = in.peek();
+    const char* name = in.name("known anchor symbol");
     HudAnchor anchor = HudAnchor::TopLeft;
-    if (!parseAnchorSymbol(sc, s7_car(args), anchor)) {
-        return s7_wrong_type_arg_error(sc, "hud-anchor", 1, s7_car(args), "known anchor symbol");
+    if (!parseAnchorName(name, anchor)) {
+        return in.wrongTypeAt(1, value, "known anchor symbol");
     }
     list->anchor = anchor;
     return s7_t(sc);
 }
 
 s7_pointer g_hud_font(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "hud-font", 1, args, "font-path string");
-    }
-    list->fontPath = s7_string(s7_car(args));
+    ArgReader in(sc, "hud-font", args);
+    list->fontPath = in.string("font-path string");
     return s7_t(sc);
 }
 
 s7_pointer g_hud_rect(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float w = 0.0f;
-    float h = 0.0f;
-    if (!readNumber(sc, args, x) || !readNumber(sc, args, y) || !readNumber(sc, args, w) ||
-        !readNumber(sc, args, h)) {
-        return s7_wrong_type_arg_error(sc, "hud-rect", 1, args, "x y w h numbers");
-    }
-
+    ArgReader in(sc, "hud-rect", args);
+    const float x = in.realf("x y w h numbers");
+    const float y = in.realf("x y w h numbers");
+    const float w = in.realf("x y w h numbers");
+    const float h = in.realf("x y w h numbers");
     Color color = WHITE;
-    if (s7_is_pair(args)) {
-        if (!readColor(sc, args, color)) {
-            return s7_wrong_type_arg_error(sc, "hud-rect", 5, args, "r g b [a]");
-        }
+    if (in.more()) {
+        color = readColor(in);
     }
 
     HudCmd cmd{};
@@ -187,42 +143,30 @@ s7_pointer g_hud_rect(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_image(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "hud-image", 1, args, "texture-path string");
-    }
-    const std::string path = s7_string(s7_car(args));
-    args = s7_cdr(args);
-
-    float x = 0.0f;
-    float y = 0.0f;
-    if (!readNumber(sc, args, x) || !readNumber(sc, args, y)) {
-        return s7_wrong_type_arg_error(sc, "hud-image", 2, args, "x y numbers");
-    }
+    ArgReader in(sc, "hud-image", args);
+    const std::string path = in.string("texture-path string");
+    const float x = in.realf("x y numbers");
+    const float y = in.realf("x y numbers");
 
     float w = 0.0f;
     float h = 0.0f;
     bool nativeSize = true;
-    if (s7_is_pair(args) && s7_is_number(s7_car(args))) {
-        s7_pointer peek = s7_cdr(args);
+    if (in.nextIsNumber()) {
+        const s7_pointer peek = s7_cdr(in.rest());
         if (s7_is_pair(peek) && s7_is_number(s7_car(peek))) {
-            readNumber(sc, args, w);
-            readNumber(sc, args, h);
+            w = in.realf("w h numbers");
+            h = in.realf("w h numbers");
             nativeSize = false;
         }
     }
 
     Color color = WHITE;
-    if (s7_is_pair(args)) {
-        if (!readColor(sc, args, color)) {
-            return s7_wrong_type_arg_error(sc, "hud-image", 4, args, "r g b [a]");
-        }
+    if (in.more()) {
+        color = readColor(in);
     }
 
     HudCmd cmd{};
@@ -238,31 +182,18 @@ s7_pointer g_hud_image(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_text(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "hud-text", 1, args, "text string");
-    }
-    const std::string text = s7_string(s7_car(args));
-    args = s7_cdr(args);
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float size = 8.0f;
-    if (!readNumber(sc, args, x) || !readNumber(sc, args, y) || !readNumber(sc, args, size)) {
-        return s7_wrong_type_arg_error(sc, "hud-text", 2, args, "x y size numbers");
-    }
-
+    ArgReader in(sc, "hud-text", args);
+    const std::string text = in.string("text string");
+    const float x = in.realf("x y size numbers");
+    const float y = in.realf("x y size numbers");
+    const float size = in.realf("x y size numbers");
     Color color = WHITE;
-    if (s7_is_pair(args)) {
-        if (!readColor(sc, args, color)) {
-            return s7_wrong_type_arg_error(sc, "hud-text", 5, args, "r g b [a]");
-        }
+    if (in.more()) {
+        color = readColor(in);
     }
 
     HudCmd cmd{};
@@ -278,54 +209,36 @@ s7_pointer g_hud_text(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_hud_text_align(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-    const char* name = nullptr;
-    if (s7_is_pair(args) && s7_is_symbol(s7_car(args))) {
-        name = s7_symbol_name(s7_car(args));
-    } else if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
-        name = s7_string(s7_car(args));
-    }
-    if (name != nullptr && std::strcmp(name, "left") == 0) {
+    ArgReader in(sc, "hud-text-align", args);
+    const s7_pointer value = in.peek();
+    const char* name = in.name("'left, 'center or 'right");
+    if (std::strcmp(name, "left") == 0) {
         list->textAlign = HudTextAlign::Left;
-    } else if (name != nullptr && std::strcmp(name, "center") == 0) {
+    } else if (std::strcmp(name, "center") == 0) {
         list->textAlign = HudTextAlign::Center;
-    } else if (name != nullptr && std::strcmp(name, "right") == 0) {
+    } else if (std::strcmp(name, "right") == 0) {
         list->textAlign = HudTextAlign::Right;
     } else {
-        return s7_wrong_type_arg_error(sc, "hud-text-align", 1, args, "'left, 'center or 'right");
+        return in.wrongTypeAt(1, value, "'left, 'center or 'right");
     }
     return s7_t(sc);
 }
 
 s7_pointer g_hud_draw_eye(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::HudDraw)) {
-        return s7_f(sc);
-    }
     HudDrawList* list = hudList();
     if (list == nullptr) {
         return s7_f(sc);
     }
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float w = 0.0f;
-    float h = 0.0f;
-    if (!readNumber(sc, args, x) || !readNumber(sc, args, y) || !readNumber(sc, args, w) ||
-        !readNumber(sc, args, h)) {
-        return s7_wrong_type_arg_error(sc, "hud-draw-eye", 1, args, "x y w h numbers");
-    }
-
-    std::string maskPath;
-    if (s7_is_pair(args) && s7_is_string(s7_car(args))) {
-        maskPath = s7_string(s7_car(args));
-        args = s7_cdr(args);
-    }
+    ArgReader in(sc, "hud-draw-eye", args);
+    const float x = in.realf("x y w h numbers");
+    const float y = in.realf("x y w h numbers");
+    const float w = in.realf("x y w h numbers");
+    const float h = in.realf("x y w h numbers");
+    const std::string maskPath = in.optString("");
 
     if (g_hudWorld == nullptr) {
         return s7_f(sc);
@@ -349,6 +262,16 @@ s7_pointer g_hud_draw_eye(s7_scheme* sc, s7_pointer args) {
     list->commands.push_back(std::move(cmd));
     return s7_t(sc);
 }
+
+constexpr SchemeBinding kHudBindings[] = {
+    {"hud-anchor", g_hud_anchor, 1, 0, false, "(hud-anchor symbol)", ScriptCap::HudDraw},
+    {"hud-font", g_hud_font, 1, 0, false, "(hud-font path)", ScriptCap::HudDraw},
+    {"hud-rect", g_hud_rect, 4, 4, false, "(hud-rect x y w h r g b [a])", ScriptCap::HudDraw},
+    {"hud-image", g_hud_image, 3, 6, false, "(hud-image tex-path x y [w h] [r g b a])", ScriptCap::HudDraw},
+    {"hud-text", g_hud_text, 4, 4, false, "(hud-text str x y size [r g b a])", ScriptCap::HudDraw},
+    {"hud-text-align", g_hud_text_align, 1, 0, false, "(hud-text-align symbol)", ScriptCap::HudDraw},
+    {"hud-draw-eye", g_hud_draw_eye, 4, 1, false, "(hud-draw-eye x y w h [mask-path])", ScriptCap::HudDraw},
+};
 
 } // namespace
 
@@ -374,17 +297,7 @@ void bindHudApi(flecs::world& world, s7_scheme* scheme) {
     if (scheme == nullptr) {
         return;
     }
-
-    s7_define_function(scheme, "hud-anchor", g_hud_anchor, 1, 0, false, "(hud-anchor symbol)");
-    s7_define_function(scheme, "hud-font", g_hud_font, 1, 0, false, "(hud-font path)");
-    s7_define_function(scheme, "hud-rect", g_hud_rect, 4, 4, false, "(hud-rect x y w h r g b [a])");
-    s7_define_function(scheme, "hud-image", g_hud_image, 3, 6, false,
-                       "(hud-image tex-path x y [w h] [r g b a])");
-    s7_define_function(scheme, "hud-text", g_hud_text, 4, 4, false, "(hud-text str x y size [r g b a])");
-    s7_define_function(scheme, "hud-text-align", g_hud_text_align, 1, 0, false,
-                       "(hud-text-align symbol)");
-    s7_define_function(scheme, "hud-draw-eye", g_hud_draw_eye, 4, 1, false,
-                       "(hud-draw-eye x y w h [mask-path])");
+    registerBindings(scheme, kHudBindings);
 }
 
 }

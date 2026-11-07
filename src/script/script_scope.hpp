@@ -19,6 +19,7 @@ enum class ScriptScope {
 };
 
 enum class ScriptCap : uint32_t {
+    None = 0,
     HudDraw = 1u << 0,
     UiDraw = 1u << 1,
     SaveIo = 1u << 2,

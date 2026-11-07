@@ -2,6 +2,7 @@
 
 #include "camera/camera_path_player.hpp"
 #include "map/graph.hpp"
+#include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
 #include <s7.h>
@@ -14,24 +15,6 @@ namespace {
 
 flecs::world* g_world = nullptr;
 
-bool readOptionalBool(s7_scheme* sc, s7_pointer& cursor, bool fallback) {
-    if (!s7_is_pair(cursor)) {
-        return fallback;
-    }
-    const s7_pointer value = s7_car(cursor);
-    cursor = s7_cdr(cursor);
-    return s7_is_boolean(value) ? s7_boolean(sc, value) : fallback;
-}
-
-float readOptionalReal(s7_scheme* sc, s7_pointer& cursor, float fallback) {
-    if (!s7_is_pair(cursor)) {
-        return fallback;
-    }
-    const s7_pointer value = s7_car(cursor);
-    cursor = s7_cdr(cursor);
-    return s7_is_number(value) ? static_cast<float>(s7_number_to_real(sc, value)) : fallback;
-}
-
 const CameraPath* findPath(const char* id) {
     if (g_world == nullptr || id == nullptr || !g_world->has<MapGraphs>()) {
         return nullptr;
@@ -40,40 +23,37 @@ const CameraPath* findPath(const char* id) {
 }
 
 s7_pointer g_camera_path_play(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl) || g_world == nullptr) {
+    if (g_world == nullptr) {
         return s7_f(sc);
     }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "camera-path-play", 1, args, "string");
-    }
-    const std::string id = s7_string(s7_car(args));
-    s7_pointer cursor = s7_cdr(args);
-    const bool loop = readOptionalBool(sc, cursor, false);
-    const float speed = readOptionalReal(sc, cursor, 1.0f);
-    const float blendOut = readOptionalReal(sc, cursor, 0.0f);
+    ArgReader in(sc, "camera-path-play", args);
+    const std::string id = in.string("string");
+    const bool loop = in.optBoolean(false);
+    const float speed = in.optRealf(1.0f);
+    const float blendOut = in.optRealf(0.0f);
     return s7_make_boolean(sc, startCameraPath(*g_world, id, loop, speed, blendOut));
 }
 
 s7_pointer g_camera_path_stop(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::MapControl) || g_world == nullptr) {
+    if (g_world == nullptr) {
         return s7_f(sc);
     }
-    s7_pointer cursor = args;
-    const float blendOut = readOptionalReal(sc, cursor, 0.0f);
+    ArgReader in(sc, "camera-path-stop", args);
+    const float blendOut = in.optRealf(0.0f);
     const bool wasActive = cameraPathActive(*g_world);
     stopCameraPath(*g_world, blendOut);
     return s7_make_boolean(sc, wasActive);
 }
 
 s7_pointer g_camera_path_playing(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld) || g_world == nullptr) {
+    if (g_world == nullptr) {
         return s7_f(sc);
     }
     return s7_make_boolean(sc, cameraPathActive(*g_world));
 }
 
 s7_pointer g_camera_path_progress(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld) || g_world == nullptr) {
+    if (g_world == nullptr) {
         return s7_f(sc);
     }
     const float progress = cameraPathProgress(*g_world);
@@ -84,13 +64,8 @@ s7_pointer g_camera_path_progress(s7_scheme* sc, s7_pointer) {
 }
 
 s7_pointer g_camera_path_duration(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "camera-path-duration", 1, args, "string");
-    }
-    const CameraPath* path = findPath(s7_string(s7_car(args)));
+    ArgReader in(sc, "camera-path-duration", args);
+    const CameraPath* path = findPath(in.string("string"));
     if (path == nullptr) {
         return s7_f(sc);
     }
@@ -98,22 +73,14 @@ s7_pointer g_camera_path_duration(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_camera_path_sample(s7_scheme* sc, s7_pointer args) {
-    if (!requireCap(sc, ScriptCap::ReadWorld)) {
-        return s7_f(sc);
-    }
-    if (!s7_is_pair(args) || !s7_is_string(s7_car(args))) {
-        return s7_wrong_type_arg_error(sc, "camera-path-sample", 1, args, "string");
-    }
-    s7_pointer rest = s7_cdr(args);
-    if (!s7_is_pair(rest) || !s7_is_number(s7_car(rest))) {
-        return s7_wrong_type_arg_error(sc, "camera-path-sample", 2, rest, "number");
-    }
-    const CameraPath* path = findPath(s7_string(s7_car(args)));
+    ArgReader in(sc, "camera-path-sample", args);
+    const char* id = in.string("string");
+    const float t = in.realf("number");
+    const CameraPath* path = findPath(id);
     if (path == nullptr) {
         return s7_f(sc);
     }
-    const CameraPose pose =
-        sampleCameraPath(*path, static_cast<float>(s7_number_to_real(sc, s7_car(rest))));
+    const CameraPose pose = sampleCameraPath(*path, t);
     return s7_list(
         sc,
         6,
@@ -126,7 +93,7 @@ s7_pointer g_camera_path_sample(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_camera_paths(s7_scheme* sc, s7_pointer) {
-    if (!requireCap(sc, ScriptCap::ReadWorld) || g_world == nullptr) {
+    if (g_world == nullptr) {
         return s7_f(sc);
     }
     s7_pointer result = s7_nil(sc);
@@ -140,6 +107,16 @@ s7_pointer g_camera_paths(s7_scheme* sc, s7_pointer) {
     return result;
 }
 
+constexpr SchemeBinding kCameraPathBindings[] = {
+    {"camera-path-play", g_camera_path_play, 1, 3, false, "(camera-path-play id [loop?] [speed] [blend-out])", ScriptCap::MapControl},
+    {"camera-path-stop", g_camera_path_stop, 0, 1, false, "(camera-path-stop [blend-out])", ScriptCap::MapControl},
+    {"camera-path-playing?", g_camera_path_playing, 0, 0, false, "(camera-path-playing?)", ScriptCap::ReadWorld},
+    {"camera-path-progress", g_camera_path_progress, 0, 0, false, "(camera-path-progress)", ScriptCap::ReadWorld},
+    {"camera-path-duration", g_camera_path_duration, 1, 0, false, "(camera-path-duration id)", ScriptCap::ReadWorld},
+    {"camera-path-sample", g_camera_path_sample, 2, 0, false, "(camera-path-sample id t)", ScriptCap::ReadWorld},
+    {"camera-paths", g_camera_paths, 0, 0, false, "(camera-paths)", ScriptCap::ReadWorld},
+};
+
 } // namespace
 
 void bindCameraPathApi(flecs::world& world, s7_scheme* scheme) {
@@ -147,25 +124,7 @@ void bindCameraPathApi(flecs::world& world, s7_scheme* scheme) {
     if (scheme == nullptr) {
         return;
     }
-    s7_define_function(
-        scheme,
-        "camera-path-play",
-        g_camera_path_play,
-        1,
-        3,
-        false,
-        "(camera-path-play id [loop?] [speed] [blend-out])");
-    s7_define_function(
-        scheme, "camera-path-stop", g_camera_path_stop, 0, 1, false, "(camera-path-stop [blend-out])");
-    s7_define_function(
-        scheme, "camera-path-playing?", g_camera_path_playing, 0, 0, false, "(camera-path-playing?)");
-    s7_define_function(
-        scheme, "camera-path-progress", g_camera_path_progress, 0, 0, false, "(camera-path-progress)");
-    s7_define_function(
-        scheme, "camera-path-duration", g_camera_path_duration, 1, 0, false, "(camera-path-duration id)");
-    s7_define_function(
-        scheme, "camera-path-sample", g_camera_path_sample, 2, 0, false, "(camera-path-sample id t)");
-    s7_define_function(scheme, "camera-paths", g_camera_paths, 0, 0, false, "(camera-paths)");
+    registerBindings(scheme, kCameraPathBindings);
 }
 
 }

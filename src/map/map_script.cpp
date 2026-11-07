@@ -1,5 +1,6 @@
 #include "map/map_script.hpp"
 
+#include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
 #include "map/brush.hpp"
@@ -131,42 +132,27 @@ bool expandPrefabIntoBrushes(
     const std::vector<std::string>& parentNest,
     std::vector<Brush>& outBrushes);
 
-s7_pointer makeTaggedList(s7_scheme* sc, const char* tag, s7_pointer rest) {
-    return s7_cons(sc, s7_make_symbol(sc, tag), rest);
-}
-
-bool readString(s7_scheme* sc, s7_pointer value, std::string& out) {
-    if (s7_is_string(value)) {
-        out = s7_string(value);
-        return true;
-    }
-    if (s7_is_symbol(value)) {
-        out = s7_symbol_name(value);
-        return true;
-    }
-    (void)sc;
-    return false;
-}
-
-bool readVec3(s7_scheme* sc, s7_pointer x, s7_pointer y, s7_pointer z, Vector3& out) {
-    if (!s7_is_number(x) || !s7_is_number(y) || !s7_is_number(z)) {
+bool readVec2List(s7_scheme* sc, const char* tag, s7_pointer list, Vector2& out) {
+    ArgReader in(sc, tag, list);
+    if (!in.nextIsNumber()) {
         return false;
     }
-    out.x = static_cast<float>(s7_number_to_real(sc, x));
-    out.y = static_cast<float>(s7_number_to_real(sc, y));
-    out.z = static_cast<float>(s7_number_to_real(sc, z));
+    const float x = in.realf();
+    if (!in.nextIsNumber()) {
+        return false;
+    }
+    out = {x, in.realf()};
     return true;
 }
 
 bool readUvAxes(s7_scheme* sc, s7_pointer rest, BrushFace& face) {
-    s7_pointer cursor = rest;
+    ArgReader in(sc, "uv-axes", rest);
     float values[6]{};
-    for (int i = 0; i < 6; ++i) {
-        if (!s7_is_pair(cursor) || !s7_is_number(s7_car(cursor))) {
+    for (float& value : values) {
+        if (!in.nextIsNumber()) {
             return false;
         }
-        values[i] = static_cast<float>(s7_number_to_real(sc, s7_car(cursor)));
-        cursor = s7_cdr(cursor);
+        value = in.realf();
     }
     face.uvUAxis = {values[0], values[1], values[2]};
     face.uvVAxis = {values[3], values[4], values[5]};
@@ -199,6 +185,35 @@ std::optional<BrushBoxSide> parseSide(s7_pointer value) {
     return std::nullopt;
 }
 
+bool applyFaceClause(s7_scheme* sc, const char* tag, s7_pointer rest, BrushFace& face) {
+    if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
+        readName(s7_car(rest), face.id);
+    } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
+        readName(s7_car(rest), face.material);
+    } else if (std::strcmp(tag, "uv-shift") == 0) {
+        readVec2List(sc, tag, rest, face.uvShiftPixels);
+    } else if (std::strcmp(tag, "uv-scale") == 0) {
+        readVec2List(sc, tag, rest, face.uvScale);
+    } else if (std::strcmp(tag, "nodraw") == 0) {
+        face.nodraw = true;
+    } else if (std::strcmp(tag, "uv-lock") == 0) {
+        face.uvLock = true;
+    } else if (std::strcmp(tag, "uv-axes") == 0) {
+        readUvAxes(sc, rest, face);
+    } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
+        if (parseHandlerBinding(sc, rest, face.onUse)) {
+            mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
+        }
+    } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
+        if (parseHandlerBinding(sc, rest, face.onTouch)) {
+            mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
+        }
+    } else {
+        return false;
+    }
+    return true;
+}
+
 bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, BrushFace& face) {
     if (!s7_is_pair(form)) {
         return false;
@@ -215,213 +230,10 @@ bool parseFaceOverride(s7_scheme* sc, s7_pointer form, BrushBoxSide& side, Brush
         if (!s7_is_pair(clause) || !s7_is_symbol(s7_car(clause))) {
             continue;
         }
-        const char* tag = s7_symbol_name(s7_car(clause));
-        s7_pointer rest = s7_cdr(clause);
-        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), face.id);
-        } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), face.material);
-        } else if (std::strcmp(tag, "uv-shift") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_number(s7_car(rest)) &&
-                   s7_is_number(s7_cadr(rest))) {
-            face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
-            face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
-        } else if (std::strcmp(tag, "uv-scale") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_number(s7_car(rest)) &&
-                   s7_is_number(s7_cadr(rest))) {
-            face.uvScale.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
-            face.uvScale.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
-        } else if (std::strcmp(tag, "nodraw") == 0) {
-            face.nodraw = true;
-        } else if (std::strcmp(tag, "uv-lock") == 0) {
-            face.uvLock = true;
-        } else if (std::strcmp(tag, "uv-axes") == 0) {
-            readUvAxes(sc, rest, face);
-        } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
-            if (parseHandlerBinding(sc, rest, face.onUse)) {
-                mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
-            }
-        } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
-            if (parseHandlerBinding(sc, rest, face.onTouch)) {
-                mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
-            }
-        }
+        applyFaceClause(sc, s7_symbol_name(s7_car(clause)), s7_cdr(clause), face);
     }
 
     return true;
-}
-
-s7_pointer g_id(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "id", 1, args, "value");
-    }
-    return makeTaggedList(sc, "id", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_mins(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
-        return s7_wrong_type_arg_error(sc, "mins", 0, args, "x y z");
-    }
-    return makeTaggedList(
-        sc,
-        "mins",
-        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
-}
-
-s7_pointer g_maxs(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
-        return s7_wrong_type_arg_error(sc, "maxs", 0, args, "x y z");
-    }
-    return makeTaggedList(
-        sc,
-        "maxs",
-        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
-}
-
-s7_pointer g_material(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "material", 1, args, "string");
-    }
-    return makeTaggedList(sc, "material", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_role(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "role", 1, args, "hull|detail|door|hint|trigger|water|window");
-    }
-    return makeTaggedList(sc, "role", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_uv_shift(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args))) {
-        return s7_wrong_type_arg_error(sc, "uv-shift", 0, args, "x y");
-    }
-    return makeTaggedList(sc, "uv-shift", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
-}
-
-s7_pointer g_uv_scale(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args))) {
-        return s7_wrong_type_arg_error(sc, "uv-scale", 0, args, "sx sy");
-    }
-    return makeTaggedList(sc, "uv-scale", s7_list(sc, 2, s7_car(args), s7_cadr(args)));
-}
-
-s7_pointer g_nodraw(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "nodraw", s7_nil(sc));
-}
-
-s7_pointer g_on_use(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "on-use", 1, args, "handler");
-    }
-    return makeTaggedList(sc, "on-use", args);
-}
-
-s7_pointer g_on_touch(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "on-touch", 1, args, "handler");
-    }
-    return makeTaggedList(sc, "on-touch", args);
-}
-
-s7_pointer g_can_use(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "can-use", 1, args, "handler");
-    }
-    return makeTaggedList(sc, "can-use", args);
-}
-
-s7_pointer g_motion(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "motion", 1, args, "raise|slide|swing");
-    }
-    return makeTaggedList(sc, "motion", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_travel(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "travel", 1, args, "distance");
-    }
-    return makeTaggedList(sc, "travel", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_angle(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "angle", 1, args, "radians");
-    }
-    return makeTaggedList(sc, "angle", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_axis(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "axis", 1, args, "pitch|yaw|roll");
-    }
-    return makeTaggedList(sc, "axis", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_hinge(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "hinge", 1, args, "thing-id");
-    }
-    return makeTaggedList(sc, "hinge", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_group(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "group", 1, args, "id");
-    }
-    return makeTaggedList(sc, "group", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_prompt(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "prompt", 1, args, "string");
-    }
-    return makeTaggedList(sc, "prompt", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_duration(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "duration", 1, args, "seconds");
-    }
-    return makeTaggedList(sc, "duration", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_auto_close(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "auto-close", 1, args, "seconds");
-    }
-    return makeTaggedList(sc, "auto-close", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_door(s7_scheme* sc, s7_pointer args) {
-    return makeTaggedList(sc, "door", args);
-}
-
-s7_pointer g_open_sound(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "open-sound", 1, args, "path");
-    }
-    return makeTaggedList(sc, "open-sound", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_close_sound(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "close-sound", 1, args, "path");
-    }
-    return makeTaggedList(sc, "close-sound", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_sound_volume(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "sound-volume", 1, args, "volume");
-    }
-    return makeTaggedList(sc, "sound-volume", s7_cons(sc, s7_car(args), s7_nil(sc)));
 }
 
 bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
@@ -433,82 +245,53 @@ bool parseBrushDoor(s7_scheme* sc, s7_pointer rest, BrushDoor& out) {
         }
         const char* tag = s7_symbol_name(s7_car(clause));
         s7_pointer args = s7_cdr(clause);
-        if (std::strcmp(tag, "motion") == 0 && s7_is_pair(args)) {
+        if (!s7_is_pair(args)) {
+            continue;
+        }
+        s7_pointer value = s7_car(args);
+        if (std::strcmp(tag, "motion") == 0) {
             std::string name;
-            if (readString(sc, s7_car(args), name)) {
+            if (readName(value, name)) {
                 DoorMotion motion = DoorMotion::Raise;
                 if (parseDoorMotionName(name, motion)) {
                     door.motion = motion;
                 }
             }
-        } else if (std::strcmp(tag, "duration") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            door.duration = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        } else if (std::strcmp(tag, "duration") == 0 && readReal(sc, value, door.duration)) {
             door.haveDuration = true;
-        } else if (std::strcmp(tag, "auto-close") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            door.autoClose = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        } else if (std::strcmp(tag, "auto-close") == 0 && readReal(sc, value, door.autoClose)) {
             door.haveAutoClose = true;
-        } else if (std::strcmp(tag, "angle") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            door.angle = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        } else if (std::strcmp(tag, "angle") == 0 && readReal(sc, value, door.angle)) {
             door.haveAngle = true;
-        } else if (std::strcmp(tag, "travel") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            door.travel = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        } else if (std::strcmp(tag, "travel") == 0 && readReal(sc, value, door.travel)) {
             door.haveTravel = true;
-        } else if (std::strcmp(tag, "axis") == 0 && s7_is_pair(args)) {
+        } else if (std::strcmp(tag, "axis") == 0) {
             std::string name;
-            if (readString(sc, s7_car(args), name)) {
+            if (readName(value, name)) {
                 DoorAxis axis = DoorAxis::Yaw;
                 if (parseDoorAxisName(name, axis)) {
                     door.axis = axis;
                     door.haveAxis = true;
                 }
             }
-        } else if (std::strcmp(tag, "hinge") == 0 && s7_is_pair(args)) {
-            readString(sc, s7_car(args), door.hingeThingId);
-        } else if (std::strcmp(tag, "group") == 0 && s7_is_pair(args)) {
-            readString(sc, s7_car(args), door.group);
-        } else if (std::strcmp(tag, "can-use") == 0 && s7_is_pair(args)) {
+        } else if (std::strcmp(tag, "hinge") == 0) {
+            readName(value, door.hingeThingId);
+        } else if (std::strcmp(tag, "group") == 0) {
+            readName(value, door.group);
+        } else if (std::strcmp(tag, "can-use") == 0) {
             if (parseHandlerBinding(sc, args, door.canUse)) {
                 mapHandlerRegistry().refineBinding(door.canUse, MapHandlerKind::CanUse);
             }
-        } else if (std::strcmp(tag, "open-sound") == 0 && s7_is_pair(args)) {
-            readString(sc, s7_car(args), door.openSound);
-        } else if (std::strcmp(tag, "close-sound") == 0 && s7_is_pair(args)) {
-            readString(sc, s7_car(args), door.closeSound);
-        } else if (std::strcmp(tag, "sound-volume") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            door.soundVolume = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        } else if (std::strcmp(tag, "open-sound") == 0) {
+            readName(value, door.openSound);
+        } else if (std::strcmp(tag, "close-sound") == 0) {
+            readName(value, door.closeSound);
+        } else if (std::strcmp(tag, "sound-volume") == 0 && readReal(sc, value, door.soundVolume)) {
             door.haveSoundVolume = true;
         }
     }
     out = std::move(door);
     return true;
-}
-
-s7_pointer g_tint(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
-        return s7_wrong_type_arg_error(sc, "tint", 0, args, "r g b");
-    }
-    return makeTaggedList(
-        sc,
-        "tint",
-        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
-}
-
-s7_pointer g_wobble(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "wobble", 1, args, "amount");
-    }
-    return makeTaggedList(sc, "wobble", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_vignette(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args)) {
-        return s7_wrong_type_arg_error(sc, "vignette", 1, args, "amount");
-    }
-    return makeTaggedList(sc, "vignette", s7_cons(sc, s7_car(args), s7_nil(sc)));
-}
-
-s7_pointer g_water(s7_scheme* sc, s7_pointer args) {
-    return makeTaggedList(sc, "water", args);
 }
 
 bool parseBrushWater(s7_scheme* sc, s7_pointer rest, BrushWater& out) {
@@ -520,92 +303,16 @@ bool parseBrushWater(s7_scheme* sc, s7_pointer rest, BrushWater& out) {
         }
         const char* tag = s7_symbol_name(s7_car(clause));
         s7_pointer args = s7_cdr(clause);
-        if (std::strcmp(tag, "tint") == 0 &&
-            s7_is_pair(args) &&
-            s7_is_pair(s7_cdr(args)) &&
-            s7_is_pair(s7_cddr(args))) {
-            water.haveTint = readVec3(sc, s7_car(args), s7_cadr(args), s7_caddr(args), water.tint);
-        } else if (std::strcmp(tag, "wobble") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            water.wobble = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        if (std::strcmp(tag, "tint") == 0) {
+            water.haveTint = readVec3List(sc, args, water.tint) || water.haveTint;
+        } else if (std::strcmp(tag, "wobble") == 0 && s7_is_pair(args) && readReal(sc, s7_car(args), water.wobble)) {
             water.haveWobble = true;
-        } else if (std::strcmp(tag, "vignette") == 0 && s7_is_pair(args) && s7_is_number(s7_car(args))) {
-            water.vignette = static_cast<float>(s7_number_to_real(sc, s7_car(args)));
+        } else if (std::strcmp(tag, "vignette") == 0 && s7_is_pair(args) && readReal(sc, s7_car(args), water.vignette)) {
             water.haveVignette = true;
         }
     }
     out = std::move(water);
     return true;
-}
-
-s7_pointer g_uv_lock(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "uv-lock", s7_nil(sc));
-}
-
-s7_pointer g_uv_axes(s7_scheme* sc, s7_pointer args) {
-    s7_pointer cursor = args;
-    for (int i = 0; i < 6; ++i) {
-        if (!s7_is_pair(cursor)) {
-            return s7_wrong_type_arg_error(sc, "uv-axes", 0, args, "ux uy uz vx vy vz");
-        }
-        cursor = s7_cdr(cursor);
-    }
-    return makeTaggedList(sc, "uv-axes", args);
-}
-
-s7_pointer g_nocollide(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "nocollide", s7_nil(sc));
-}
-
-s7_pointer g_no_block_los(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "no-block-los", s7_nil(sc));
-}
-
-s7_pointer g_no_block_linescan(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "no-block-linescan", s7_nil(sc));
-}
-
-s7_pointer g_no_block_projectile(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "no-block-projectile", s7_nil(sc));
-}
-
-s7_pointer g_no_block_player(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "no-block-player", s7_nil(sc));
-}
-
-s7_pointer g_no_block_actor(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "no-block-actor", s7_nil(sc));
-}
-
-s7_pointer g_block_los(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "block-los", s7_nil(sc));
-}
-
-s7_pointer g_block_linescan(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "block-linescan", s7_nil(sc));
-}
-
-s7_pointer g_block_projectile(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "block-projectile", s7_nil(sc));
-}
-
-s7_pointer g_block_player(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "block-player", s7_nil(sc));
-}
-
-s7_pointer g_block_actor(s7_scheme* sc, s7_pointer args) {
-    (void)args;
-    return makeTaggedList(sc, "block-actor", s7_nil(sc));
 }
 
 enum class BlockTagTriState {
@@ -691,72 +398,61 @@ struct BrushBlockParseState {
     }
 };
 
-s7_pointer g_faces(s7_scheme* sc, s7_pointer args) {
-    return makeTaggedList(sc, "faces", args);
-}
-
-s7_pointer g_face(s7_scheme* sc, s7_pointer args) {
-    return makeTaggedList(sc, "face", args);
-}
-
-s7_pointer g_verts(s7_scheme* sc, s7_pointer args) {
-    return makeTaggedList(sc, "verts", args);
-}
-
-s7_pointer g_v(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
-        return s7_wrong_type_arg_error(sc, "v", 0, args, "x y z");
-    }
-    return makeTaggedList(
-        sc,
-        "v",
-        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
-}
-
-s7_pointer makeSideForm(s7_scheme* sc, const char* side, s7_pointer args) {
-    return s7_cons(sc, s7_make_symbol(sc, side), args);
-}
-
-s7_pointer g_top(s7_scheme* sc, s7_pointer args) {
-    return makeSideForm(sc, "top", args);
-}
-
-s7_pointer g_bottom(s7_scheme* sc, s7_pointer args) {
-    return makeSideForm(sc, "bottom", args);
-}
-
-s7_pointer g_north(s7_scheme* sc, s7_pointer args) {
-    return makeSideForm(sc, "north", args);
-}
-
-s7_pointer g_south(s7_scheme* sc, s7_pointer args) {
-    return makeSideForm(sc, "south", args);
-}
-
-s7_pointer g_east(s7_scheme* sc, s7_pointer args) {
-    return makeSideForm(sc, "east", args);
-}
-
-s7_pointer g_west(s7_scheme* sc, s7_pointer args) {
-    return makeSideForm(sc, "west", args);
-}
-
-s7_pointer g_at(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
-        return s7_wrong_type_arg_error(sc, "at", 0, args, "x y z");
-    }
-    return makeTaggedList(sc, "at", s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
-}
-
-s7_pointer g_angles(s7_scheme* sc, s7_pointer args) {
-    if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args))) {
-        return s7_wrong_type_arg_error(sc, "angles", 0, args, "pitch yaw roll");
-    }
-    return makeTaggedList(
-        sc,
-        "angles",
-        s7_list(sc, 3, s7_car(args), s7_cadr(args), s7_caddr(args)));
-}
+constexpr ClauseSpec kCsgClauses[] = {
+    {"id", 1, 0, false, "(id value)"},
+    {"mins", 3, 0, false, "(mins x y z)"},
+    {"maxs", 3, 0, false, "(maxs x y z)"},
+    {"material", 1, 0, false, "(material name)"},
+    {"role", 1, 0, false, "(role hull|detail|door|hint|trigger|water|window)"},
+    {"uv-shift", 2, 0, false, "(uv-shift x y)"},
+    {"uv-scale", 2, 0, false, "(uv-scale sx sy)"},
+    {"nodraw", 0, 0, false, "(nodraw)"},
+    {"on-use", 1, 0, true, "(on-use handler arg-clause...)"},
+    {"on-touch", 1, 0, true, "(on-touch handler arg-clause...)"},
+    {"can-use", 1, 0, true, "(can-use handler arg-clause...)"},
+    {"motion", 1, 0, false, "(motion raise|slide|swing)"},
+    {"travel", 1, 0, false, "(travel distance)"},
+    {"angle", 1, 0, false, "(angle radians)"},
+    {"axis", 1, 0, false, "(axis pitch|yaw|roll)"},
+    {"hinge", 1, 0, false, "(hinge thing-id)"},
+    {"group", 1, 0, false, "(group id)"},
+    {"prompt", 1, 0, false, "(prompt string)"},
+    {"duration", 1, 0, false, "(duration seconds)"},
+    {"auto-close", 1, 0, false, "(auto-close seconds)"},
+    {"open-sound", 1, 0, false, "(open-sound path)"},
+    {"close-sound", 1, 0, false, "(close-sound path)"},
+    {"sound-volume", 1, 0, false, "(sound-volume volume)"},
+    {"door", 0, 0, true, "(door clauses...)"},
+    {"tint", 3, 0, false, "(tint r g b)"},
+    {"wobble", 1, 0, false, "(wobble amount)"},
+    {"vignette", 1, 0, false, "(vignette amount)"},
+    {"water", 0, 0, true, "(water clauses...)"},
+    {"uv-lock", 0, 0, false, "(uv-lock)"},
+    {"uv-axes", 6, 0, false, "(uv-axes ux uy uz vx vy vz)"},
+    {"nocollide", 0, 0, false, "(nocollide)"},
+    {"no-block-los", 0, 0, false, "(no-block-los)"},
+    {"no-block-linescan", 0, 0, false, "(no-block-linescan)"},
+    {"no-block-projectile", 0, 0, false, "(no-block-projectile)"},
+    {"no-block-player", 0, 0, false, "(no-block-player)"},
+    {"no-block-actor", 0, 0, false, "(no-block-actor)"},
+    {"block-los", 0, 0, false, "(block-los)"},
+    {"block-linescan", 0, 0, false, "(block-linescan)"},
+    {"block-projectile", 0, 0, false, "(block-projectile)"},
+    {"block-player", 0, 0, false, "(block-player)"},
+    {"block-actor", 0, 0, false, "(block-actor)"},
+    {"at", 3, 0, false, "(at x y z)"},
+    {"angles", 3, 0, false, "(angles pitch yaw roll)"},
+    {"faces", 0, 0, true, "(faces face...)"},
+    {"face", 0, 0, true, "(face props...)"},
+    {"verts", 0, 0, true, "(verts (v x y z)...)"},
+    {"v", 3, 0, false, "(v x y z)"},
+    {"top", 0, 0, true, "(top props...)"},
+    {"bottom", 0, 0, true, "(bottom props...)"},
+    {"north", 0, 0, true, "(north props...)"},
+    {"south", 0, 0, true, "(south props...)"},
+    {"east", 0, 0, true, "(east props...)"},
+    {"west", 0, 0, true, "(west props...)"},
+};
 
 bool expandPrefabIntoBrushes(
     s7_scheme* sc,
@@ -818,7 +514,7 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
     }
 
     std::string path;
-    if (!readString(sc, s7_car(args), path) || path.empty()) {
+    if (!readName(s7_car(args), path) || path.empty()) {
         return s7_error(
             sc,
             s7_make_symbol(sc, "csg-error"),
@@ -837,17 +533,11 @@ s7_pointer g_prefab(s7_scheme* sc, s7_pointer args) {
         const char* tag = s7_symbol_name(s7_car(clause));
         s7_pointer rest = s7_cdr(clause);
         if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), id);
-        } else if (std::strcmp(tag, "at") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_pair(s7_cddr(rest))) {
-            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), at);
-        } else if (std::strcmp(tag, "angles") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_pair(s7_cddr(rest))) {
-            readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), angles);
+            readName(s7_car(rest), id);
+        } else if (std::strcmp(tag, "at") == 0) {
+            readVec3List(sc, rest, at);
+        } else if (std::strcmp(tag, "angles") == 0) {
+            readVec3List(sc, rest, angles);
         }
     }
 
@@ -931,12 +621,12 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
         s7_pointer rest = s7_cdr(clause);
 
         if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), id);
+            readName(s7_car(rest), id);
         } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), material);
+            readName(s7_car(rest), material);
         } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
             std::string roleName;
-            if (readString(sc, s7_car(rest), roleName)) {
+            if (readName(s7_car(rest), roleName)) {
                 BrushRole parsed = BrushRole::Hull;
                 if (parseBrushRoleName(roleName, parsed)) {
                     role = parsed;
@@ -951,16 +641,10 @@ s7_pointer g_brush_box(s7_scheme* sc, s7_pointer args) {
             if (parseBrushWater(sc, rest, water)) {
                 haveWaterClause = true;
             }
-        } else if (std::strcmp(tag, "mins") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_pair(s7_cddr(rest))) {
-            haveMins = readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), mins);
-        } else if (std::strcmp(tag, "maxs") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_pair(s7_cddr(rest))) {
-            haveMaxs = readVec3(sc, s7_car(rest), s7_cadr(rest), s7_caddr(rest), maxs);
+        } else if (std::strcmp(tag, "mins") == 0) {
+            haveMins = readVec3List(sc, rest, mins) || haveMins;
+        } else if (std::strcmp(tag, "maxs") == 0) {
+            haveMaxs = readVec3List(sc, rest, maxs) || haveMaxs;
         } else if (std::strcmp(tag, "faces") == 0) {
             for (s7_pointer faceCursor = rest; s7_is_pair(faceCursor); faceCursor = s7_cdr(faceCursor)) {
                 BrushBoxSide side{};
@@ -1012,39 +696,10 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
         }
         const char* tag = s7_symbol_name(s7_car(clause));
         s7_pointer rest = s7_cdr(clause);
-        if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), face.id);
-        } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), face.material);
-        } else if (std::strcmp(tag, "uv-shift") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_number(s7_car(rest)) &&
-                   s7_is_number(s7_cadr(rest))) {
-            face.uvShiftPixels.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
-            face.uvShiftPixels.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
-        } else if (std::strcmp(tag, "uv-scale") == 0 &&
-                   s7_is_pair(rest) &&
-                   s7_is_pair(s7_cdr(rest)) &&
-                   s7_is_number(s7_car(rest)) &&
-                   s7_is_number(s7_cadr(rest))) {
-            face.uvScale.x = static_cast<float>(s7_number_to_real(sc, s7_car(rest)));
-            face.uvScale.y = static_cast<float>(s7_number_to_real(sc, s7_cadr(rest)));
-        } else if (std::strcmp(tag, "nodraw") == 0) {
-            face.nodraw = true;
-        } else if (std::strcmp(tag, "uv-lock") == 0) {
-            face.uvLock = true;
-        } else if (std::strcmp(tag, "uv-axes") == 0) {
-            readUvAxes(sc, rest, face);
-        } else if (std::strcmp(tag, "on-use") == 0 && s7_is_pair(rest)) {
-            if (parseHandlerBinding(sc, rest, face.onUse)) {
-                mapHandlerRegistry().refineBinding(face.onUse, MapHandlerKind::Use);
-            }
-        } else if (std::strcmp(tag, "on-touch") == 0 && s7_is_pair(rest)) {
-            if (parseHandlerBinding(sc, rest, face.onTouch)) {
-                mapHandlerRegistry().refineBinding(face.onTouch, MapHandlerKind::Touch);
-            }
-        } else if (std::strcmp(tag, "verts") == 0) {
+        if (applyFaceClause(sc, tag, rest, face)) {
+            continue;
+        }
+        if (std::strcmp(tag, "verts") == 0) {
             for (s7_pointer vertCursor = rest; s7_is_pair(vertCursor); vertCursor = s7_cdr(vertCursor)) {
                 s7_pointer vert = s7_car(vertCursor);
                 if (!s7_is_pair(vert) || !s7_is_symbol(s7_car(vert))) {
@@ -1053,12 +708,8 @@ bool parseConvexFace(s7_scheme* sc, s7_pointer form, BrushFace& face) {
                 if (std::strcmp(s7_symbol_name(s7_car(vert)), "v") != 0) {
                     continue;
                 }
-                s7_pointer coords = s7_cdr(vert);
-                if (!s7_is_pair(coords) || !s7_is_pair(s7_cdr(coords)) || !s7_is_pair(s7_cddr(coords))) {
-                    continue;
-                }
                 Vector3 point{};
-                if (readVec3(sc, s7_car(coords), s7_cadr(coords), s7_caddr(coords), point)) {
+                if (readVec3List(sc, s7_cdr(vert), point)) {
                     face.vertices.push_back(point);
                 }
             }
@@ -1093,12 +744,12 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
         const char* tag = s7_symbol_name(s7_car(clause));
         s7_pointer rest = s7_cdr(clause);
         if (std::strcmp(tag, "id") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), id);
+            readName(s7_car(rest), id);
         } else if (std::strcmp(tag, "material") == 0 && s7_is_pair(rest)) {
-            readString(sc, s7_car(rest), defaultMaterial);
+            readName(s7_car(rest), defaultMaterial);
         } else if (std::strcmp(tag, "role") == 0 && s7_is_pair(rest)) {
             std::string roleName;
-            if (readString(sc, s7_car(rest), roleName)) {
+            if (readName(s7_car(rest), roleName)) {
                 BrushRole parsed = BrushRole::Hull;
                 if (parseBrushRoleName(roleName, parsed)) {
                     role = parsed;
@@ -1151,63 +802,15 @@ s7_pointer g_brush_convex(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+constexpr SchemeBinding kCsgBindings[] = {
+    {"brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)"},
+    {"brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)"},
+    {"prefab", g_prefab, 1, 0, true, "(prefab path clauses...)"},
+};
+
 void bindCsgApi(s7_scheme* sc) {
-    s7_define_function(sc, "id", g_id, 1, 0, false, "(id value)");
-    s7_define_function(sc, "mins", g_mins, 3, 0, false, "(mins x y z)");
-    s7_define_function(sc, "maxs", g_maxs, 3, 0, false, "(maxs x y z)");
-    s7_define_function(sc, "material", g_material, 1, 0, false, "(material name)");
-    s7_define_function(sc, "role", g_role, 1, 0, false, "(role hull|detail|door|hint|trigger|water|window)");
-    s7_define_function(sc, "uv-shift", g_uv_shift, 2, 0, false, "(uv-shift x y)");
-    s7_define_function(sc, "uv-scale", g_uv_scale, 2, 0, false, "(uv-scale sx sy)");
-    s7_define_function(sc, "nodraw", g_nodraw, 0, 0, false, "(nodraw)");
-    s7_define_function(sc, "on-use", g_on_use, 1, 0, true, "(on-use handler arg-clause...)");
-    s7_define_function(sc, "on-touch", g_on_touch, 1, 0, true, "(on-touch handler arg-clause...)");
-    s7_define_function(sc, "can-use", g_can_use, 1, 0, true, "(can-use handler arg-clause...)");
-    s7_define_function(sc, "motion", g_motion, 1, 0, false, "(motion raise|slide|swing)");
-    s7_define_function(sc, "travel", g_travel, 1, 0, false, "(travel distance)");
-    s7_define_function(sc, "angle", g_angle, 1, 0, false, "(angle radians)");
-    s7_define_function(sc, "axis", g_axis, 1, 0, false, "(axis pitch|yaw|roll)");
-    s7_define_function(sc, "hinge", g_hinge, 1, 0, false, "(hinge thing-id)");
-    s7_define_function(sc, "group", g_group, 1, 0, false, "(group id)");
-    s7_define_function(sc, "prompt", g_prompt, 1, 0, false, "(prompt string)");
-    s7_define_function(sc, "duration", g_duration, 1, 0, false, "(duration seconds)");
-    s7_define_function(sc, "auto-close", g_auto_close, 1, 0, false, "(auto-close seconds)");
-    s7_define_function(sc, "open-sound", g_open_sound, 1, 0, false, "(open-sound path)");
-    s7_define_function(sc, "close-sound", g_close_sound, 1, 0, false, "(close-sound path)");
-    s7_define_function(sc, "sound-volume", g_sound_volume, 1, 0, false, "(sound-volume volume)");
-    s7_define_function(sc, "door", g_door, 0, 0, true, "(door clauses...)");
-    s7_define_function(sc, "tint", g_tint, 3, 0, false, "(tint r g b)");
-    s7_define_function(sc, "wobble", g_wobble, 1, 0, false, "(wobble amount)");
-    s7_define_function(sc, "vignette", g_vignette, 1, 0, false, "(vignette amount)");
-    s7_define_function(sc, "water", g_water, 0, 0, true, "(water clauses...)");
-    s7_define_function(sc, "uv-lock", g_uv_lock, 0, 0, false, "(uv-lock)");
-    s7_define_function(sc, "uv-axes", g_uv_axes, 6, 0, false, "(uv-axes ux uy uz vx vy vz)");
-    s7_define_function(sc, "nocollide", g_nocollide, 0, 0, false, "(nocollide)");
-    s7_define_function(sc, "no-block-los", g_no_block_los, 0, 0, false, "(no-block-los)");
-    s7_define_function(sc, "no-block-linescan", g_no_block_linescan, 0, 0, false, "(no-block-linescan)");
-    s7_define_function(sc, "no-block-projectile", g_no_block_projectile, 0, 0, false, "(no-block-projectile)");
-    s7_define_function(sc, "no-block-player", g_no_block_player, 0, 0, false, "(no-block-player)");
-    s7_define_function(sc, "no-block-actor", g_no_block_actor, 0, 0, false, "(no-block-actor)");
-    s7_define_function(sc, "block-los", g_block_los, 0, 0, false, "(block-los)");
-    s7_define_function(sc, "block-linescan", g_block_linescan, 0, 0, false, "(block-linescan)");
-    s7_define_function(sc, "block-projectile", g_block_projectile, 0, 0, false, "(block-projectile)");
-    s7_define_function(sc, "block-player", g_block_player, 0, 0, false, "(block-player)");
-    s7_define_function(sc, "block-actor", g_block_actor, 0, 0, false, "(block-actor)");
-    s7_define_function(sc, "at", g_at, 3, 0, false, "(at x y z)");
-    s7_define_function(sc, "angles", g_angles, 3, 0, false, "(angles pitch yaw roll)");
-    s7_define_function(sc, "faces", g_faces, 0, 0, true, "(faces face...)");
-    s7_define_function(sc, "face", g_face, 0, 0, true, "(face props...)");
-    s7_define_function(sc, "verts", g_verts, 0, 0, true, "(verts (v x y z)...)");
-    s7_define_function(sc, "v", g_v, 3, 0, false, "(v x y z)");
-    s7_define_function(sc, "top", g_top, 0, 0, true, "(top props...)");
-    s7_define_function(sc, "bottom", g_bottom, 0, 0, true, "(bottom props...)");
-    s7_define_function(sc, "north", g_north, 0, 0, true, "(north props...)");
-    s7_define_function(sc, "south", g_south, 0, 0, true, "(south props...)");
-    s7_define_function(sc, "east", g_east, 0, 0, true, "(east props...)");
-    s7_define_function(sc, "west", g_west, 0, 0, true, "(west props...)");
-    s7_define_function(sc, "brush-box", g_brush_box, 0, 0, true, "(brush-box clauses...)");
-    s7_define_function(sc, "brush-convex", g_brush_convex, 0, 0, true, "(brush-convex clauses...)");
-    s7_define_function(sc, "prefab", g_prefab, 1, 0, true, "(prefab path clauses...)");
+    registerClauseBuilders(sc, kCsgClauses);
+    registerBindings(sc, kCsgBindings);
     bindMapHandlerArgClauses(sc);
 }
 

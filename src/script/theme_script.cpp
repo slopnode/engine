@@ -1,4 +1,5 @@
 #include "script/theme_script.hpp"
+#include "script/s7_read.hpp"
 
 #include "ui/slopui_theme.hpp"
 
@@ -19,39 +20,31 @@ const SlopUiTheme* currentTheme() {
     return &g_themeWorld->get<SlopUiTheme>();
 }
 
-bool readSlot(s7_scheme* sc, s7_pointer args, const char* fn, ThemeFontSlot& slot) {
-    const s7_pointer cell = s7_car(args);
-    const char* name = nullptr;
-    if (s7_is_symbol(cell)) {
-        name = s7_symbol_name(cell);
-    } else if (s7_is_string(cell)) {
-        name = s7_string(cell);
+bool readSlot(ArgReader& in, ThemeFontSlot& slot) {
+    const char* descr = "font slot normal|bold|heading|mono";
+    const s7_pointer cell = in.peek();
+    const char* name = in.name(descr);
+    if (!in.ok()) {
+        return false;
     }
-    if (name == nullptr || !parseThemeFontSlot(name, slot)) {
-        s7_wrong_type_arg_error(sc, fn, 1, cell, "font slot normal|bold|heading|mono");
+    if (!parseThemeFontSlot(name, slot)) {
+        in.wrongTypeAt(1, cell, descr);
         return false;
     }
     return true;
 }
 
 s7_pointer g_theme_color(s7_scheme* sc, s7_pointer args) {
-    const s7_pointer cell = s7_car(args);
-    const char* name = nullptr;
-    if (s7_is_symbol(cell)) {
-        name = s7_symbol_name(cell);
-    } else if (s7_is_string(cell)) {
-        name = s7_string(cell);
-    }
-    if (name == nullptr) {
-        return s7_wrong_type_arg_error(sc, "theme-color", 1, cell, "palette token symbol");
-    }
+    ArgReader in(sc, "theme-color", args);
+    const s7_pointer cell = in.peek();
+    const char* name = in.name("palette token symbol");
     const SlopUiTheme* theme = currentTheme();
     if (theme == nullptr) {
         return s7_f(sc);
     }
     ThemeColor color;
     if (!theme->paletteColor(name, color)) {
-        return s7_wrong_type_arg_error(sc, "theme-color", 1, cell, "known palette token");
+        return in.wrongTypeAt(1, cell, "known palette token");
     }
     return s7_list(
         sc,
@@ -63,8 +56,9 @@ s7_pointer g_theme_color(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_theme_font(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "theme-font", args);
     ThemeFontSlot slot;
-    if (!readSlot(sc, args, "theme-font", slot)) {
+    if (!readSlot(in, slot)) {
         return s7_f(sc);
     }
     const SlopUiTheme* theme = currentTheme();
@@ -79,8 +73,9 @@ s7_pointer g_theme_font(s7_scheme* sc, s7_pointer args) {
 }
 
 s7_pointer g_theme_font_size(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "theme-font-size", args);
     ThemeFontSlot slot;
-    if (!readSlot(sc, args, "theme-font-size", slot)) {
+    if (!readSlot(in, slot)) {
         return s7_f(sc);
     }
     const SlopUiTheme* theme = currentTheme();
@@ -94,6 +89,12 @@ s7_pointer g_theme_font_size(s7_scheme* sc, s7_pointer args) {
     return s7_make_real(sc, size);
 }
 
+constexpr SchemeBinding kThemeBindings[] = {
+    {"theme-color", g_theme_color, 1, 0, false, "(theme-color token)"},
+    {"theme-font", g_theme_font, 1, 0, false, "(theme-font slot)"},
+    {"theme-font-size", g_theme_font_size, 1, 0, false, "(theme-font-size slot)"},
+};
+
 } // namespace
 
 void bindThemeApi(flecs::world& world, s7_scheme* scheme) {
@@ -101,10 +102,7 @@ void bindThemeApi(flecs::world& world, s7_scheme* scheme) {
     if (scheme == nullptr) {
         return;
     }
-    s7_define_function(scheme, "theme-color", g_theme_color, 1, 0, false, "(theme-color token)");
-    s7_define_function(scheme, "theme-font", g_theme_font, 1, 0, false, "(theme-font slot)");
-    s7_define_function(
-        scheme, "theme-font-size", g_theme_font_size, 1, 0, false, "(theme-font-size slot)");
+    registerBindings(scheme, kThemeBindings);
 }
 
 }
