@@ -111,7 +111,7 @@ std::optional<NavMacroLink> validateMacroChain(
         CharacterStep step{};
         step.id = id;
         step.motor = &motor;
-        physics.update(kSweepFixedDt, {step});
+        physics.step({step});
 
         const float dx = pos.x - lastPos.x;
         const float dy = pos.y - lastPos.y;

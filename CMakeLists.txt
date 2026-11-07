@@ -125,6 +125,7 @@ set(SLOPLIB_SOURCES
     src/core/package_search.cpp
     src/core/process_launch.cpp
     src/core/semver.cpp
+    src/core/sim_clock.cpp
     src/core/sexpr.cpp
     src/core/user_paths.cpp
     src/core/vfs.cpp
@@ -231,6 +232,8 @@ add_executable(slopengine
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
+    src/game/sim_pipeline.cpp
+    src/game/sim_interpolation.cpp
     src/game/game_state.cpp
     src/game/package_cli.cpp
     src/input/action_registry.cpp

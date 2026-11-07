@@ -9,6 +9,8 @@
 #include "game/loading_session.hpp"
 #include "game/package_cli.hpp"
 #include "game/script_boot.hpp"
+#include "game/sim_interpolation.hpp"
+#include "game/sim_pipeline.hpp"
 #include "script/hook_registry.hpp"
 #include "script/proc_role.hpp"
 #include "input/action_registry.hpp"
@@ -85,6 +87,8 @@ App::App(AppConfig config)
     }
     world_.component<UserSettings>();
     world_.set<UserSettings>(userSettings_);
+    registerSimPipelines(world_);
+    registerSimInterpolation(world_);
     registerInputModule(world_);
     registerUiModule(world_, config_.debug, config_.profile);
     registerPhysicsModule(world_, physicsWorld_.get());
@@ -113,14 +117,16 @@ int App::run() {
     while (running_ && !WindowShouldClose()) {
         if (hasActiveLoadingSession(world_)) {
             advanceLoadingSession(world_, assetStore_, scheme_);
+            resetSimClock(world_);
         } else if (auto pendingMap = takeRequestedMapLoad()) {
             if (shouldShowLoadingScreen(pendingMap->reason)) {
                 beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
             } else {
                 changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
             }
+            resetSimClock(world_);
         }
-        world_.progress();
+        runFramePipelines(world_);
         if (world_.get<QuitRequest>().requested) {
             break;
         }

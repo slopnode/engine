@@ -11,11 +11,14 @@ struct AnimationPlayer {
     std::string animBankPath;
     std::string clipName;
     float time = 0.0f;
+    float prevTime = 0.0f;
     float speed = 1.0f;
     bool loop = true;
     bool playing = false;
     bool justStarted = false;
     bool justFinished = false;
+    bool wrappedLastTick = false;
+    bool poseStale = false;
     float lastFrame = -1.0f;
 
     /** Starts playback of @p clip at @p playbackSpeed, optionally looping. */
@@ -24,5 +27,7 @@ struct AnimationPlayer {
     /** Stops playback and clears transition flags. */
     void stop();
 };
+
+float blendAnimationTime(float prevTime, float time, float duration, bool wrapped, float alpha);
 
 }

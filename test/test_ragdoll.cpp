@@ -132,7 +132,7 @@ void runRagdollTests() {
             CharacterStep step{};
             step.id = 99;
             step.motor = &motor;
-            physics.update(1.0f / 60.0f, {step});
+            physics.step({step});
         }
         std::vector<Matrix> parts;
         CHECK(physics.ragdollPartTransforms(7, parts));

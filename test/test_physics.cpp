@@ -31,12 +31,12 @@ bool aabbSane(Vector3 mn, Vector3 mx) {
         std::fabs(mx.y) < kSaneCoord && std::fabs(mx.z) < kSaneCoord;
 }
 
-void stepWithCharacter(PhysicsWorld& world, std::uint64_t characterId, CharacterMotor& motor, float dt) {
+void stepWithCharacter(PhysicsWorld& world, std::uint64_t characterId, CharacterMotor& motor) {
     CharacterStep step{};
     step.id = characterId;
     step.motor = &motor;
     step.noclip = false;
-    world.update(dt, {step});
+    world.step({step});
 }
 
 void runAutoCloseTests() {
@@ -132,7 +132,7 @@ void runKinematicTests() {
         const float dts[] = {kFixedDt, 2.0f, 1.0e-5f};
         for (float poseDt : dts) {
             world.setKinematicPose(kDoorId, doorCenter, identity, poseDt);
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
 
             Vector3 mn{};
             Vector3 mx{};
@@ -175,7 +175,7 @@ void runKinematicTests() {
 
         const Vector3 farPos = {0.0f, 8.0f, 0.0f};
         world.setKinematicPose(kDoorId, farPos, identity, kFixedDt);
-        stepWithCharacter(world, kCharId, motor, kFixedDt);
+        stepWithCharacter(world, kCharId, motor);
 
         Vector3 mn{};
         Vector3 mx{};
@@ -197,7 +197,7 @@ void runKinematicTests() {
                 doorCenter.z,
             };
             world.setKinematicPose(kDoorId, pos, identity, kFixedDt);
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
 
             Vector3 mn{};
             Vector3 mx{};
@@ -222,7 +222,7 @@ void runKinematicTests() {
 
         for (int i = 0; i < 30; ++i) {
             world.setKinematicPose(kDoorId, doorCenter, identity, kFixedDt);
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
 
             Vector3 mn{};
             Vector3 mx{};
@@ -403,14 +403,14 @@ void runMoverPushSlideTests() {
             world.createCharacter(kCharId, 0.0f, 0.6f, 0.0f, motor);
             for (int i = 0; i < 30; ++i) {
                 world.setKinematicPose(kPlatId, platCenter, identity, kFixedDt);
-                stepWithCharacter(world, kCharId, motor, kFixedDt);
+                stepWithCharacter(world, kCharId, motor);
             }
             CHECK(world.characterSupported(kCharId));
             const float startX = static_cast<float>(world.characterPosition(kCharId).GetX());
             for (int i = 0; i < 45; ++i) {
                 platCenter.x += 0.05f;
                 world.setKinematicPose(kPlatId, platCenter, identity, kFixedDt);
-                stepWithCharacter(world, kCharId, motor, kFixedDt);
+                stepWithCharacter(world, kCharId, motor);
             }
             const float endX = static_cast<float>(world.characterPosition(kCharId).GetX());
             return endX - startX;
@@ -453,7 +453,7 @@ void runBrushBlockFilterTests() {
         motor.wishZ = 6.0f;
         world.createCharacter(kCharId, 0.0f, 0.1f, 0.0f, motor);
         for (int i = 0; i < 120; ++i) {
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
         }
         CHECK(static_cast<float>(world.characterPosition(kCharId).GetZ()) > 3.0f);
     }
@@ -487,7 +487,7 @@ void runBrushBlockFilterTests() {
         motor.wishZ = 6.0f;
         world.createCharacter(kCharId, 0.0f, 0.1f, 0.0f, motor);
         for (int i = 0; i < 120; ++i) {
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
         }
         CHECK(static_cast<float>(world.characterPosition(kCharId).GetZ()) < 1.85f);
     }
@@ -543,14 +543,14 @@ void runFlightTests() {
 
         motor.wishY = 1.0f;
         for (int i = 0; i < 30; ++i) {
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
         }
         const float yUp = static_cast<float>(world.characterPosition(kCharId).GetY());
         CHECK(yUp > 2.1f);
 
         motor.wishY = -1.0f;
         for (int i = 0; i < 30; ++i) {
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
         }
         const float yDown = static_cast<float>(world.characterPosition(kCharId).GetY());
         CHECK(yDown < yUp);
@@ -611,7 +611,7 @@ void runFlightTests() {
 
         motor.wishY = 1.0f;
         for (int i = 0; i < 120; ++i) {
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
         }
         const float feetY = static_cast<float>(world.characterPosition(kCharId).GetY());
         CHECK(feetY > 0.6f);
@@ -673,7 +673,7 @@ void runSwimClimbTests() {
             step.motor = &motor;
             step.submersion = submersionAt(feetY);
             step.nearWaterSurface = nearSurfaceAt(motor, feetY);
-            world.update(kFixedDt, {step});
+            world.step({step});
         }
     };
 
@@ -736,7 +736,7 @@ void runSwimClimbTests() {
             step.motor = &slowMotor;
             step.submersion = submersionAt(feetY);
             step.nearWaterSurface = nearSurfaceAt(slowMotor, feetY);
-            slowWorld.update(kFixedDt, {step});
+            slowWorld.step({step});
 
             const JPH::RVec3 p = slowWorld.characterPosition(kCharId);
             if (static_cast<float>(p.GetZ()) > 3.3f) {
@@ -773,7 +773,7 @@ void runSwimClimbTests() {
             step.motor = &deepMotor;
             step.submersion = 1.0f; // fully submerged the whole time -- a genuinely deep pool
             step.nearWaterSurface = false; // no real surface within waterExitReach
-            deepWorld.update(kFixedDt, {step});
+            deepWorld.step({step});
         }
         const JPH::RVec3 p = deepWorld.characterPosition(kCharId);
         CHECK(static_cast<float>(p.GetZ()) <= 3.3f);
@@ -805,7 +805,7 @@ void runSwimClimbTests() {
             step.motor = &speedMotor;
             step.submersion = submersionAt(feetY);
             step.nearWaterSurface = nearSurfaceAt(speedMotor, feetY);
-            speedWorld.update(kFixedDt, {step});
+            speedWorld.step({step});
 
             const JPH::RVec3 p = speedWorld.characterPosition(kCharId);
             const float newY = static_cast<float>(p.GetY());
@@ -826,7 +826,7 @@ void runResizeCharacterTests() {
         CharacterMotor motor{};
         world.createCharacter(kCharId, 0.0f, 5.0f, 0.0f, motor);
         for (int i = 0; i < 30; ++i) {
-            stepWithCharacter(world, kCharId, motor, kFixedDt);
+            stepWithCharacter(world, kCharId, motor);
         }
         const float fallingVelocity = static_cast<float>(world.characterVelocity(kCharId).GetY());
         CHECK(fallingVelocity < -0.5f);
@@ -913,7 +913,7 @@ void runPropCollisionTests() {
         CharacterStep away{};
         away.id = kControlId;
         away.motor = &control;
-        world.update(kFixedDt, {seated, away});
+        world.step({seated, away});
     }
 
     Vector3 center{};
@@ -1002,7 +1002,7 @@ void runBlastTests() {
 
     CHECK_EQ(world.blast({0.0f, 0.5f, 0.0f}, 6.0f, 10.0f, 4.0f), 1);
     for (int i = 0; i < 6; ++i) {
-        world.update(kFixedDt, {parked});
+        world.step({parked});
     }
     Vector3 center{};
     Quaternion rotation{};

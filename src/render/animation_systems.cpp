@@ -4,13 +4,14 @@
 #include "assets/asset_services.hpp"
 #include "assets/skeleton_loader.hpp"
 #include "core/frame_counters.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "render/animation_player.hpp"
 #include "render/attachment_path.hpp"
 #include "render/bone_attachment.hpp"
+#include "render/components.hpp"
 #include "render/gpu_skinning.hpp"
 #include "render/model_hitboxes.hpp"
-#include "render/components.hpp"
 #include "render/transform.hpp"
 #include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
@@ -55,9 +56,9 @@ void registerSchemeTickSystem(flecs::world& world) {
             callHook1Real(
                 world.get<ScriptContext>().scheme,
                 "tick",
-                static_cast<double>(GetFrameTime()),
+                static_cast<double>(kSimTickDt),
                 ScriptScope::World);
-        });
+        }).add<SimSystem>();
 }
 
 namespace {
@@ -124,10 +125,106 @@ const BoneScale* resolveBoneScales(BoneScales& scales, const Model& model) {
     return scales.resolved.data();
 }
 
+struct ResolvedClip {
+    const AnimClip* meta = nullptr;
+    const ModelAnimation* clip = nullptr;
+    const std::vector<Matrix>* bindMatrices = nullptr;
+    const AnimClipMatrices* matrixClip = nullptr;
+    float duration = 0.0f;
+};
+
+ResolvedClip resolveClip(flecs::world world, const AnimationPlayer& player) {
+    ResolvedClip out{};
+    if (player.clipName.empty() || player.animBankPath.empty()) {
+        return out;
+    }
+    AssetServices& services = world.get_mut<AssetServices>();
+    if (services.store == nullptr) {
+        return out;
+    }
+    const AnimBank* bank = services.store->getAnimBank(player.animBankPath);
+    if (bank == nullptr) {
+        return out;
+    }
+    const auto clipIndex = bank->clipIndexByName.find(player.clipName);
+    if (clipIndex == bank->clipIndexByName.end()) {
+        return out;
+    }
+    const std::size_t index = clipIndex->second;
+    if (index >= bank->clips.size() || index >= bank->clipMeta.size()) {
+        return out;
+    }
+    const AnimClip& clipMeta = bank->clipMeta[index];
+    const ModelAnimation& clip = bank->clips[index];
+    if (clip.keyframeCount <= 0 || clipMeta.fps <= 0.0f) {
+        return out;
+    }
+
+    float clipDuration = clipMeta.duration;
+    if (clipDuration <= 0.0f) {
+        const int lastFrameIndex = clip.keyframeCount - 1;
+        clipDuration = static_cast<float>(lastFrameIndex > 0 ? lastFrameIndex : 1) / clipMeta.fps;
+    }
+
+    std::string skeletonPath = bank->skeletonId;
+    if (skeletonPath.empty()) {
+        const auto slash = player.animBankPath.find_last_of('/');
+        skeletonPath = slash == std::string::npos ? player.animBankPath
+                                                  : player.animBankPath.substr(0, slash);
+    }
+    out.meta = &clipMeta;
+    out.clip = &clip;
+    out.bindMatrices = services.store->getSkeletonBindMatrices(skeletonPath);
+    out.matrixClip = index < bank->matrixClips.size() ? &bank->matrixClips[index] : nullptr;
+    out.duration = clipDuration;
+    return out;
+}
+
 } // namespace
 
 void registerAnimationSystems(flecs::world& world) {
-    world.system<Model3D, AnimationPlayer>("AdvanceAnimationPlayer")
+    world.system<Model3D, AnimationPlayer>("AdvanceAnimationClock")
+        .kind(flecs::OnUpdate)
+        .each([](flecs::iter& it, size_t index_, Model3D&, AnimationPlayer& player) {
+            if (isSimulationPaused(it.world())) {
+                return;
+            }
+            player.justFinished = false;
+            if (!player.playing) {
+                return;
+            }
+            const ResolvedClip resolved = resolveClip(it.world(), player);
+            if (resolved.meta == nullptr) {
+                return;
+            }
+
+            player.prevTime = player.time;
+            player.time += kSimTickDt * player.speed;
+            player.wrappedLastTick = false;
+            if (resolved.duration > 0.0f && player.time >= resolved.duration) {
+                if (player.loop) {
+                    player.time = std::fmod(player.time, resolved.duration);
+                    player.wrappedLastTick = true;
+                } else {
+                    player.time = resolved.duration;
+                    player.playing = false;
+                    player.justFinished = true;
+                }
+            }
+            player.poseStale = true;
+
+            const float frame = player.time * resolved.meta->fps;
+            if (!resolved.meta->events.empty()) {
+                std::vector<const AnimEvent*> fired;
+                collectAnimEvents(*resolved.meta, player.lastFrame, frame, player.wrappedLastTick, fired);
+                if (!fired.empty()) {
+                    fireAnimEvents(it.world(), it.entity(index_), resolved.meta->name, fired);
+                }
+            }
+            player.lastFrame = frame;
+        }).add<SimSystem>();
+
+    world.system<Model3D, AnimationPlayer>("SampleAnimationPose")
         .kind(flecs::OnUpdate)
         .each([](flecs::iter& it, size_t index_, Model3D& model3d, AnimationPlayer& player) {
             if (isSimulationPaused(it.world())) {
@@ -136,15 +233,17 @@ void registerAnimationSystems(flecs::world& world) {
 
             const bool startedThisFrame = player.justStarted;
             player.justStarted = false;
-            player.justFinished = false;
 
             flecs::entity entity = it.entity(index_);
             BoneScales* boneScales = entity.has<BoneScales>() ? &entity.get_mut<BoneScales>() : nullptr;
             HiddenBones* hiddenBones = entity.has<HiddenBones>() ? &entity.get_mut<HiddenBones>() : nullptr;
-            const bool advancing = player.playing;
             const bool rescaled = (boneScales != nullptr && boneScales->dirty) ||
                 (hiddenBones != nullptr && hiddenBones->dirty);
-            if ((!advancing && !rescaled) || player.clipName.empty() || player.animBankPath.empty()) {
+            if (!player.playing && !player.poseStale && !rescaled && !startedThisFrame) {
+                return;
+            }
+            const ResolvedClip resolved = resolveClip(it.world(), player);
+            if (resolved.meta == nullptr) {
                 return;
             }
             const BoneScale* scales =
@@ -154,111 +253,47 @@ void registerAnimationSystems(flecs::world& world) {
                 ? hiddenBones->mask.data()
                 : nullptr;
 
-            AssetServices& services = it.world().get_mut<AssetServices>();
-            if (services.store == nullptr) {
-                return;
-            }
-
-            const AnimBank* bank = services.store->getAnimBank(player.animBankPath);
-            if (bank == nullptr) {
-                return;
-            }
-
-            const auto clipIndex = bank->clipIndexByName.find(player.clipName);
-            if (clipIndex == bank->clipIndexByName.end()) {
-                return;
-            }
-
-            const std::size_t index = clipIndex->second;
-            if (index >= bank->clips.size() || index >= bank->clipMeta.size()) {
-                return;
-            }
-
-            const AnimClip& clipMeta = bank->clipMeta[index];
-            const ModelAnimation& clip = bank->clips[index];
-            if (clip.keyframeCount <= 0 || clipMeta.fps <= 0.0f) {
-                return;
-            }
-
-            float clipDuration = clipMeta.duration;
-            if (clipDuration <= 0.0f) {
-                const int lastFrameIndex = clip.keyframeCount - 1;
-                clipDuration =
-                    static_cast<float>(lastFrameIndex > 0 ? lastFrameIndex : 1) / clipMeta.fps;
-            }
-
-            std::string skeletonPath = bank->skeletonId;
-            if (skeletonPath.empty() && !player.animBankPath.empty()) {
-                const auto slash = player.animBankPath.find_last_of('/');
-                skeletonPath = slash == std::string::npos ? player.animBankPath
-                                                          : player.animBankPath.substr(0, slash);
-            }
-            const std::vector<Matrix>* bindMatrices = services.store->getSkeletonBindMatrices(skeletonPath);
-            const AnimClipMatrices* matrixClip =
-                index < bank->matrixClips.size() ? &bank->matrixClips[index] : nullptr;
-
             if (startedThisFrame && model3d.model.boneMatrices != nullptr) {
                 updateRiggedModelAnimation(
                     model3d.model,
-                    clip,
+                    *resolved.clip,
                     0.0f,
-                    bindMatrices,
-                    matrixClip,
+                    resolved.bindMatrices,
+                    resolved.matrixClip,
                     !modelUsesGpuSkinning(model3d.model),
                     scales,
                     hidden);
             }
 
-            if (advancing) {
-                player.time += GetFrameTime() * player.speed;
-            }
-            bool wrapped = false;
-            if (advancing && clipDuration > 0.0f && player.time >= clipDuration) {
-                if (player.loop) {
-                    player.time = std::fmod(player.time, clipDuration);
-                    wrapped = true;
-                } else {
-                    player.time = clipDuration;
-                    player.playing = false;
-                    player.justFinished = true;
-                }
-            }
-
-            const float frame = player.time * clipMeta.fps;
+            const float alpha = simBlendAlpha(it.world().get<SimClock>());
+            const float renderTime = player.playing
+                ? blendAnimationTime(player.prevTime, player.time, resolved.duration, player.wrappedLastTick, alpha)
+                : player.time;
+            const float frame = renderTime * resolved.meta->fps;
             const std::uint32_t interval = poseUpdateInterval(entity, model3d);
             const bool poseDue = startedThisFrame || rescaled || interval <= 1 ||
                 (renderFrameSerial() + static_cast<std::uint32_t>(entity.id())) % interval == 0;
-            if (poseDue) {
-                const PoseScaleResult scaleResult = updateRiggedModelAnimation(
-                    model3d.model,
-                    clip,
-                    frame,
-                    bindMatrices,
-                    matrixClip,
-                    !modelUsesGpuSkinning(model3d.model),
-                    scales,
-                    hidden);
-                model3d.boundsSpread = scaleResult.spread;
-                model3d.boundsLift = scaleResult.lift;
-                if (boneScales != nullptr) {
-                    boneScales->dirty = false;
-                }
-                if (hiddenBones != nullptr) {
-                    hiddenBones->dirty = false;
-                }
-            }
-            if (!advancing) {
+            if (!poseDue) {
                 return;
             }
-
-            if (!clipMeta.events.empty()) {
-                std::vector<const AnimEvent*> fired;
-                collectAnimEvents(clipMeta, player.lastFrame, frame, wrapped, fired);
-                if (!fired.empty()) {
-                    fireAnimEvents(it.world(), it.entity(index_), clipMeta.name, fired);
-                }
+            const PoseScaleResult scaleResult = updateRiggedModelAnimation(
+                model3d.model,
+                *resolved.clip,
+                frame,
+                resolved.bindMatrices,
+                resolved.matrixClip,
+                !modelUsesGpuSkinning(model3d.model),
+                scales,
+                hidden);
+            model3d.boundsSpread = scaleResult.spread;
+            model3d.boundsLift = scaleResult.lift;
+            if (boneScales != nullptr) {
+                boneScales->dirty = false;
             }
-            player.lastFrame = frame;
+            if (hiddenBones != nullptr) {
+                hiddenBones->dirty = false;
+            }
+            player.poseStale = false;
         });
 
     world.system<BoneAttachment, LocalTransformation>("ApplyBoneAttachments")
@@ -298,26 +333,36 @@ void registerAnimationClipFlipTestSystem(flecs::world& world) {
             } else {
                 player.play(controller.clipA, false);
             }
-        });
+        }).add<SimSystem>();
 }
 
+namespace {
+
+void updateRootTransforms(flecs::iter& it) {
+    it.world().each([](flecs::entity entity) {
+        if (entity.has(flecs::ChildOf)) {
+            return;
+        }
+        if (!entity.has<LocalTransformation>() || !entity.has<GlobalTransformation>()) {
+            return;
+        }
+        updateTransform(
+            entity,
+            entity.get_mut<LocalTransformation>(),
+            entity.get_mut<GlobalTransformation>());
+    });
+}
+
+} // namespace
+
 void registerTransformSystems(flecs::world& world) {
+    world.system("UpdateGlobalTransformsSim")
+        .kind(flecs::OnUpdate)
+        .run(updateRootTransforms)
+        .add<SimSystem>();
     world.system("UpdateGlobalTransforms")
         .kind(flecs::OnUpdate)
-        .run([](flecs::iter& it) {
-            it.world().each([](flecs::entity entity) {
-                if (entity.has(flecs::ChildOf)) {
-                    return;
-                }
-                if (!entity.has<LocalTransformation>() || !entity.has<GlobalTransformation>()) {
-                    return;
-                }
-                updateTransform(
-                    entity,
-                    entity.get_mut<LocalTransformation>(),
-                    entity.get_mut<GlobalTransformation>());
-            });
-        });
+        .run(updateRootTransforms);
 }
 
 }

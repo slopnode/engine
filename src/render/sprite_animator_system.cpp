@@ -5,14 +5,15 @@
 #include "audio/audio_module.hpp"
 #include "audio/components.hpp"
 #include "camera/components.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
+#include "particles/particle_module.hpp"
 #include "render/components.hpp"
 #include "script/first_person_script.hpp"
 #include "script/hook_registry.hpp"
 #include "script/scheme_call.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
-#include "particles/particle_module.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -211,7 +212,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
 
             const bool useLoop = animator.loop;
             if (!startedThisFrame) {
-                animator.time += GetFrameTime() * animator.speed;
+                animator.time += kSimTickDt * animator.speed;
             }
 
             auto clearTween = [&]() {
@@ -543,7 +544,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             animator.time = clipDuration;
             sprite.frame = clip.frames.back().id;
             clearTween();
-        });
+        }).add<SimSystem>();
 
     world.system<SpriteOverlay, ViewSprite>("SyncSpriteOverlayViewOffset")
         .kind(flecs::OnUpdate)
@@ -581,7 +582,7 @@ void registerSpriteAnimatorSystem(flecs::world& world) {
             if (animator.justFinished && !animator.loop) {
                 entity.destruct();
             }
-        });
+        }).add<SimSystem>();
 }
 
 }

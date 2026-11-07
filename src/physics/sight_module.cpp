@@ -1,10 +1,11 @@
 #include "physics/sight_module.hpp"
 
 #include "camera/components.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
+#include "map/area_gate_runtime.hpp"
 #include "map/bsp.hpp"
 #include "map/pvs.hpp"
-#include "map/area_gate_runtime.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/sight_components.hpp"
@@ -280,7 +281,7 @@ void registerSightModule(flecs::world& world) {
                 scanObserver(world, scheme, physics, observer, sight, losBudget);
             }
             state.cursor = (state.cursor + 1) % count;
-        });
+        }).add<SimSystem>();
 }
 
 bool actorCanSee(flecs::world& world, std::string_view fromId, std::string_view toId) {

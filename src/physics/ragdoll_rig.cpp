@@ -1,6 +1,7 @@
 #include "physics/ragdoll_rig.hpp"
 
 #include "assets/skeleton_loader.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "physics/physics_module.hpp"
 #include "render/components.hpp"
@@ -76,7 +77,7 @@ void registerRagdollSystems(flecs::world& world) {
             if (physics == nullptr) {
                 return;
             }
-            const float dt = GetFrameTime();
+            const float dt = kSimTickDt;
             std::vector<Matrix> parts;
             world.each([&](flecs::entity entity,
                            RagdollRig& rig,
@@ -110,7 +111,7 @@ void registerRagdollSystems(flecs::world& world) {
                     rig.frozen = true;
                 }
             });
-        });
+        }).add<SimSystem>();
 }
 
 }

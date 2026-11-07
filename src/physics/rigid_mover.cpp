@@ -1,6 +1,7 @@
 #include "physics/rigid_mover.hpp"
 
 #include "audio/audio_module.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "map/bsp.hpp"
 #include "physics/components.hpp"
@@ -319,7 +320,7 @@ void registerRigidMoverSystem(flecs::world& world) {
                 physics = world.get_mut<PhysicsContext>().world;
             }
 
-            const float dt = GetFrameTime();
+            const float dt = kSimTickDt;
             const float prevTarget = mover.lastTarget;
             tickRigidMover(mover, dt);
 
@@ -340,7 +341,7 @@ void registerRigidMoverSystem(flecs::world& world) {
 
             const float physDt = (dt > 1.0e-4f && dt <= 0.25f) ? dt : (1.0f / 60.0f);
             syncKinematic(physics, entity, mover, physDt);
-        });
+        }).add<SimSystem>();
 
     world.system("RigidMoverCharacterResolve")
         .kind(flecs::OnUpdate)
@@ -431,7 +432,7 @@ void registerRigidMoverSystem(flecs::world& world) {
                 }
                 mover.crushing = std::move(stillCrushing);
             });
-        });
+        }).add<SimSystem>();
 
     world.system<RigidMover, Model3D, GlobalTransformation>("RigidMoverRadTint")
         .without<BakedLightmapModel>()

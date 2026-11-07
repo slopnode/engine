@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/sim_clock.hpp"
 #include "map/brush.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/prop_box.hpp"
@@ -138,7 +139,7 @@ struct PhysicsWorld {
 
     void setCharacterPosition(std::uint64_t id, float x, float y, float z);
 
-    void update(float frameDt, const std::vector<CharacterStep>& steps);
+    void step(const std::vector<CharacterStep>& steps);
 
     std::optional<SphereCastHit> castSphere(
         Vector3 origin,
@@ -247,8 +248,7 @@ private:
         JPH::Vec3 wishDir) const;
     void applyCharacterSoftSeparation(const std::vector<CharacterStep>& steps);
 
-    static constexpr float kFixedDt = 1.0f / 60.0f;
-    static constexpr int kMaxSubsteps = 4;
+    static constexpr float kFixedDt = kSimTickDt;
 
     std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator_;
     std::unique_ptr<JPH::JobSystemThreadPool> jobSystem_;
@@ -266,7 +266,6 @@ private:
     std::uint64_t playerId_ = 0;
     std::vector<JPH::BodyID> staticBodies_;
     std::unordered_map<JPH::uint32, std::uint8_t> staticBodyBlocks_;
-    float accumulator_ = 0.0f;
     bool factoryInitialized_ = false;
 };
 

@@ -17,6 +17,7 @@ void runTextureGraphTests();
 void runScriptScopeTests();
 void runSchemeHardenTests();
 void runProcRoleTests();
+void runSimClockTests();
 void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
@@ -80,6 +81,7 @@ const Suite kSuites[] = {
     {"script_scope", slopengine::runScriptScopeTests},
     {"scheme_harden", slopengine::runSchemeHardenTests},
     {"proc_role", slopengine::runProcRoleTests},
+    {"sim_clock", slopengine::runSimClockTests},
     {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},

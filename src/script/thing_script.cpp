@@ -1,4 +1,5 @@
 #include "script/thing_script.hpp"
+#include "core/sim_clock.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -207,7 +208,7 @@ void registerFlushThingDespawns(flecs::world& world) {
                 }
             }
             queue.ids.clear();
-        });
+        }).add<SimSystem>();
 }
 
 void registerTimedDespawnSystem(flecs::world& world) {
@@ -219,15 +220,12 @@ void registerTimedDespawnSystem(flecs::world& world) {
             if (isSimulationPaused(world)) {
                 return;
             }
-            const float dt = GetFrameTime();
-            if (dt <= 0.0f) {
-                return;
-            }
+            const float dt = kSimTickDt;
             timed.age += dt;
             if (timed.lifetime > 0.0f && timed.age >= timed.lifetime) {
                 queueThingDespawn(world, entityIdString(entity));
             }
-        });
+        }).add<SimSystem>();
 }
 
 s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {

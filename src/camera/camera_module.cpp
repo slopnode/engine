@@ -1,6 +1,7 @@
 #include "camera/camera_module.hpp"
 
 #include "camera/camera_path_player.hpp"
+#include "camera/camera_math.hpp"
 #include "camera/components.hpp"
 #include "camera/view_recoil.hpp"
 #include "input/actions.hpp"
@@ -19,15 +20,6 @@
 namespace slopengine {
 
 namespace {
-
-Vector3 forwardFromYawPitch(float yaw, float pitch) {
-    const float cosPitch = std::cos(pitch);
-    return Vector3Normalize({
-        std::sin(yaw) * cosPitch,
-        std::sin(pitch),
-        std::cos(yaw) * cosPitch,
-    });
-}
 
 void registerComponents(flecs::world& world) {
     world.component<PlayerCamera>();

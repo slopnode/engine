@@ -1,5 +1,6 @@
 #include "physics/motored_body.hpp"
 
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "physics/components.hpp"
 #include "physics/motored_sweep.hpp"
@@ -136,10 +137,7 @@ void registerMotoredBodySystem(flecs::world& world) {
                 return;
             }
 
-            const float dt = GetFrameTime();
-            if (dt <= 0.0f) {
-                return;
-            }
+            const float dt = kSimTickDt;
 
             body.age += dt;
             if (body.lifetime > 0.0f && body.age >= body.lifetime) {
@@ -210,7 +208,7 @@ void registerMotoredBodySystem(flecs::world& world) {
                     entity.get_mut<LocalTransformation>(),
                     entity.get_mut<GlobalTransformation>());
             }
-        });
+        }).add<SimSystem>();
 }
 
 }

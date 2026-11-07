@@ -1,5 +1,6 @@
 #include "input/input_module.hpp"
 
+#include "core/sim_clock.hpp"
 #include "game/user_settings.hpp"
 #include "input/action_registry.hpp"
 #include "input/actions.hpp"
@@ -62,16 +63,23 @@ void registerComponents(flecs::world& world) {
     world.component<InputState>();
     world.component<InputContextStack>();
     world.component<InputCommand>();
+    world.component<SimInput>();
 }
 
 void registerSystems(flecs::world& world) {
     world.system("PollInput")
         .kind(flecs::PreUpdate)
         .run([](flecs::iter& it) {
-            pollInput(
-                it.world().get_mut<InputState>(),
-                it.world().get<UserSettings>().controls);
+            InputState& input = it.world().get_mut<InputState>();
+            pollInput(input, it.world().get<UserSettings>().controls);
+            input.latchPresses();
         });
+
+    world.system("BeginSimTick")
+        .kind(flecs::PreUpdate)
+        .run([](flecs::iter& it) {
+            takeTickPresses(it.world().get_mut<InputState>(), it.world().get_mut<SimInput>());
+        }).add<SimSystem>();
 
     world.system("CaptureInputCommand")
         .kind(flecs::PreUpdate)
@@ -93,7 +101,7 @@ void registerSystems(flecs::world& world) {
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
             flecs::world world = it.world();
-            InputState& input = world.get_mut<InputState>();
+            const SimInput& input = world.get<SimInput>();
             InputContextStack& contexts = world.get_mut<InputContextStack>();
 
             if (!contexts.allowsGameplay()) {
@@ -112,7 +120,7 @@ void registerSystems(flecs::world& world) {
                 const std::string procName = std::string("on-action-") + registry.at(i).id;
                 tryCallSchemeProc(scheme, procName, ScriptScope::World);
             }
-        });
+        }).add<SimSystem>();
 }
 
 }
@@ -151,6 +159,7 @@ void registerInputModule(flecs::world& world) {
     world.set<InputState>(std::move(input));
     world.set<InputContextStack>({});
     world.set<InputCommand>({});
+    world.set<SimInput>({});
     registerSystems(world);
 }
 

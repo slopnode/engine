@@ -1878,45 +1878,31 @@ void PhysicsWorld::applyCharacterSoftSeparation(const std::vector<CharacterStep>
     }
 }
 
-void PhysicsWorld::update(float frameDt, const std::vector<CharacterStep>& steps) {
+void PhysicsWorld::step(const std::vector<CharacterStep>& steps) {
     if (characters_.empty() || steps.empty()) {
         return;
     }
 
-    constexpr float kMaxFrameDt = 0.25f;
-    if (frameDt > kMaxFrameDt) {
-        frameDt = kMaxFrameDt;
-    } else if (frameDt < 0.0f) {
-        frameDt = 0.0f;
-    }
+    applyCharacterSoftSeparation(steps);
 
-    accumulator_ += frameDt;
-    int count = 0;
-    while (accumulator_ >= kFixedDt && count < kMaxSubsteps) {
-        applyCharacterSoftSeparation(steps);
-
-        for (const CharacterStep& step : steps) {
-            if (step.motor == nullptr) {
-                continue;
-            }
-            auto it = characters_.find(step.id);
-            if (it == characters_.end() || it->second.character == nullptr) {
-                continue;
-            }
-            stepCharacter(
-                *it->second.character,
-                *step.motor,
-                step.noclip,
-                step.id,
-                step.submersion,
-                step.nearWaterSurface);
+    for (const CharacterStep& step : steps) {
+        if (step.motor == nullptr) {
+            continue;
         }
-
-        system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
-
-        accumulator_ -= kFixedDt;
-        ++count;
+        auto it = characters_.find(step.id);
+        if (it == characters_.end() || it->second.character == nullptr) {
+            continue;
+        }
+        stepCharacter(
+            *it->second.character,
+            *step.motor,
+            step.noclip,
+            step.id,
+            step.submersion,
+            step.nearWaterSurface);
     }
+
+    system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
 }
 
 bool PhysicsWorld::hasCharacter(std::uint64_t id) const {

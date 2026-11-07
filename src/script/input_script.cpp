@@ -37,7 +37,13 @@ s7_pointer queryAction(s7_scheme* sc, s7_pointer args, const char* proc, ActionQ
         return s7_f(sc);
     }
     const InputState& input = g_inputWorld->get<InputState>();
-    const bool active = (query == ActionQuery::Pressed) ? input.pressed(index) : input.down(index);
+    if (query == ActionQuery::Down) {
+        return s7_make_boolean(sc, input.down(index));
+    }
+    if (currentScriptScope() == ScriptScope::World && g_inputWorld->has<SimInput>()) {
+        return s7_make_boolean(sc, g_inputWorld->get<SimInput>().pressed(index));
+    }
+    const bool active = input.pressed(index);
     return s7_make_boolean(sc, active);
 }
 

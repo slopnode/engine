@@ -1,7 +1,9 @@
 #include "physics/physics_module.hpp"
 
+#include "camera/camera_math.hpp"
 #include "camera/components.hpp"
 #include "core/frame_perf.hpp"
+#include "core/sim_clock.hpp"
 #include "game/game_state.hpp"
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
@@ -80,15 +82,6 @@ bool computeNearWaterSurface(const BspTree& tree, JPH::RVec3 feetPos, const Char
         wasWet = wet;
     }
     return false;
-}
-
-Vector3 forwardFromYawPitch(float yaw, float pitch) {
-    const float cosPitch = std::cos(pitch);
-    return Vector3Normalize({
-        std::sin(yaw) * cosPitch,
-        std::sin(pitch),
-        std::cos(yaw) * cosPitch,
-    });
 }
 
 struct Aabb {
@@ -271,7 +264,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             motor.wishX = wish.x;
             motor.wishZ = wish.z;
             motor.wishY = command.moveUp;
-        });
+        }).add<SimSystem>();
 
     world.system("PhysicsStep")
         .kind(flecs::OnUpdate)
@@ -329,7 +322,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             }
 
             const double physicsStart = perfNow();
-            physics.world->update(GetFrameTime(), steps);
+            physics.world->step(steps);
             if (perf != nullptr) {
                 perf->physicsMs = perfElapsedMs(physicsStart);
             }
@@ -372,7 +365,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                         std::atan2(vel.GetX(), vel.GetZ());
                 }
             });
-        });
+        }).add<SimSystem>();
 
     world.system("DebrisSync")
         .kind(flecs::OnUpdate)
@@ -385,7 +378,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             if (physics == nullptr) {
                 return;
             }
-            const float dt = GetFrameTime();
+            const float dt = kSimTickDt;
             std::vector<flecs::entity> expired;
             world.each([&](flecs::entity entity, DebrisBody& debris, LocalTransformation& local) {
                 debris.age += dt;
@@ -406,7 +399,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 physics->destroyRagdoll(static_cast<std::uint64_t>(entity.id()));
                 destroyAttachmentTree(entity);
             }
-        });
+        }).add<SimSystem>();
 
     registerRagdollSystems(world);
 
@@ -483,7 +476,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
 
                 volume.inside = std::move(currentlyInside);
             });
-        });
+        }).add<SimSystem>();
 
     world.system("UpdateFaceTouch")
         .kind(flecs::OnUpdate)
@@ -535,7 +528,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 }
                 touch.inside = std::move(currentlyInside);
             });
-        });
+        }).add<SimSystem>();
 
 }
 
