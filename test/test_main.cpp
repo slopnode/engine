@@ -20,6 +20,7 @@ void runProcRoleTests();
 void runSimClockTests();
 void runNetTests();
 void runTransportTests();
+void runEnetTransportTests();
 void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
@@ -86,6 +87,7 @@ const Suite kSuites[] = {
     {"sim_clock", slopengine::runSimClockTests},
     {"net", slopengine::runNetTests},
     {"transport", slopengine::runTransportTests},
+    {"enet_transport", slopengine::runEnetTransportTests},
     {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},

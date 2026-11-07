@@ -26,6 +26,12 @@ Navigation mesh generation. Voxelizes level geometry into a walkable mesh used f
 
 https://github.com/recastnavigation/recastnavigation
 
+# ENet {#enet}
+
+UDP networking with connections, reliable ordered and unreliable messages. Used by the socket backend of the network transport.
+
+http://enet.bespin.org/
+
 # Imgui {#imgui}
 
 User interface framework. 

@@ -12,6 +12,7 @@ add_executable(sloptests
     test_sim_clock.cpp
     test_net.cpp
     test_transport.cpp
+    test_enet_transport.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -103,6 +104,7 @@ add_test(NAME sloptests.proc_role COMMAND sloptests proc_role)
 add_test(NAME sloptests.sim_clock COMMAND sloptests sim_clock)
 add_test(NAME sloptests.net COMMAND sloptests net)
 add_test(NAME sloptests.transport COMMAND sloptests transport)
+add_test(NAME sloptests.enet_transport COMMAND sloptests enet_transport)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)
