@@ -17,8 +17,6 @@ if(NOT EXISTS "${STEAM_AUDIO_ROOT}")
     message(FATAL_ERROR "STEAM_AUDIO_ROOT does not exist: ${STEAM_AUDIO_ROOT}")
 endif()
 
-# A source checkout whose core was built and installed (cmake --install into core/bin)
-# has the same include/ + lib/<platform>/ layout as the binary SDK.
 set(_steam_audio_sdk_root "${STEAM_AUDIO_ROOT}")
 if(NOT EXISTS "${STEAM_AUDIO_ROOT}/include/phonon.h" AND EXISTS "${STEAM_AUDIO_ROOT}/core/bin/include/phonon.h")
     set(_steam_audio_sdk_root "${STEAM_AUDIO_ROOT}/core/bin")

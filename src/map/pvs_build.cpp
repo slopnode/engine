@@ -360,7 +360,6 @@ struct PassageTable {
 
 void intersectWithWords(std::vector<std::uint32_t>& might, const std::uint32_t* words) {
     for (std::size_t w = 0; w < might.size(); ++w) {
-        // atomic_ref<const T> is C++26; the backing storage is mutable, so a load through a non-const ref is fine.
         std::atomic_ref<std::uint32_t> word(const_cast<std::uint32_t&>(words[w]));
         might[w] &= word.load(std::memory_order_relaxed);
     }
