@@ -148,6 +148,7 @@ public:
             return false;
         }
         peer->accepted = true;
+        settle(peer->peer);
         sendFrame(*peer, Frame::Accept, {}, kReliableChannel, ENET_PACKET_FLAG_RELIABLE);
         local_.push_back(NetEvent{NetEventKind::Connected, connection, {}, {}});
         return true;
@@ -199,6 +200,8 @@ public:
             case ENET_EVENT_TYPE_CONNECT:
                 if (peerId(event.peer) == kNoNetConnection) {
                     out.push_back(NetEvent{NetEventKind::Incoming, track(event.peer, true), {}, {}});
+                } else {
+                    settle(event.peer);
                 }
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
@@ -297,6 +300,11 @@ private:
             peer->reason.assign(reinterpret_cast<const char*>(payload), std::min(size, kMaxReasonBytes));
             break;
         }
+    }
+
+    void settle(ENetPeer* peer) const {
+        const auto stall = static_cast<enet_uint32>(std::max(options_.connectTimeoutMs, options_.stallTimeoutMs));
+        enet_peer_timeout(peer, kTimeoutLimit, stall, stall);
     }
 
     void disconnected(NetConnectionId connection, std::vector<NetEvent>& out) {

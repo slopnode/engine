@@ -49,6 +49,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --net-loss    Drop this fraction, 0 to 1, of the unreliable messages it sends\n"
               << "  --net-stats   Log network statistics every this many seconds\n"
               << "  --net-max-rewind With --listen, move targets back at most this many milliseconds for a hit, 0 for never\n"
+              << "  --net-peers-per-address With --listen, allow this many connections from one address, 4 by default\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -117,7 +118,7 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             continue;
         }
 
-        if (arg == "--max-players") {
+        if (arg == "--max-players" || arg == "--net-peers-per-address") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
@@ -126,7 +127,8 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             if (end == nullptr || *end != '\0' || value < 1) {
                 return std::nullopt;
             }
-            config.maxPlayers = static_cast<int>(std::min<long>(value, 1 << 20));
+            int& target = arg == "--max-players" ? config.maxPlayers : config.netPeersPerAddress;
+            target = static_cast<int>(std::min<long>(value, 1 << 20));
             continue;
         }
 

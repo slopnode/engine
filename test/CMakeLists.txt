@@ -24,6 +24,7 @@ add_executable(sloptests
     test_motor_rules.cpp
     test_net_spawn.cpp
     test_net_predicted_events.cpp
+    test_net_audience.cpp
     test_net_host_standins.cpp
     test_net_rewind.cpp
     test_headless_assets.cpp
@@ -141,6 +142,7 @@ add_test(NAME sloptests.bot_script COMMAND sloptests bot_script)
 add_test(NAME sloptests.motor_rules COMMAND sloptests motor_rules)
 add_test(NAME sloptests.net_spawn COMMAND sloptests net_spawn)
 add_test(NAME sloptests.net_predicted_events COMMAND sloptests net_predicted_events)
+add_test(NAME sloptests.net_audience COMMAND sloptests net_audience)
 add_test(NAME sloptests.net_host_standins COMMAND sloptests net_host_standins)
 add_test(NAME sloptests.net_rewind COMMAND sloptests net_rewind)
 add_test(NAME sloptests.headless_assets COMMAND sloptests headless_assets)

@@ -103,7 +103,7 @@ void registerRagdollSystems(flecs::world& world) {
                 const Matrix entityWorld = applyRagdollPose(rig, parts, model3d.model, hidden);
                 MatrixDecompose(entityWorld, &local.position, &local.rotation, &local.scale);
                 global.matrix = entityWorld;
-                if (!modelUsesGpuSkinning(model3d.model)) {
+                if (modelNeedsCpuSkinning(model3d.model)) {
                     updateSkinnedMeshVertexBuffers(model3d.model);
                 }
                 if (rig.age >= rig.lifetime) {

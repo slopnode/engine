@@ -140,6 +140,8 @@ private:
         std::map<std::uint32_t, std::uint64_t> lastRelevant;
         Vector3 lastEye{};
         bool hadEye = false;
+        std::int32_t eyeLeaf = -1;
+        flecs::entity_t body = 0;
         bool loggedKnown = false;
         std::map<std::uint32_t, ClientEntity> entities;
         std::deque<SentSnapshot> sent;
@@ -181,6 +183,12 @@ private:
         bool always = false;
     };
 
+    struct EventPlace {
+        Vector3 at{};
+        std::int32_t leaf = -1;
+        bool located = false;
+    };
+
     void serverReceive(const NetEvent& event);
     void serverHello(ServerClient& client, const std::vector<std::byte>& data);
     void serverApplyCommands();
@@ -188,7 +196,8 @@ private:
     void serverAfterTick();
     void serverPresentStandIns();
     void serverSendMap(ServerClient& client);
-    void serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events);
+    void serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events,
+                          const std::vector<EventPlace>& places);
     void serverSendEventBatch(NetConnectionId connection, std::span<const NetEventMessage> events,
                               const std::vector<NetEventDef>& defs, NetSendMode mode);
     void serverUpdateKnown(ServerClient& client);
@@ -207,7 +216,8 @@ private:
     bool serverVisibleTo(const ServerClient& client, flecs::entity entity) const;
     void serverAssignIds();
     void serverPlaceEntities();
-    std::int32_t serverEyeLeaf(ServerClient& client, Vector3& eye, bool& haveEye) const;
+    void serverRefreshView(ServerClient& client) const;
+    void serverListVisiblePlayers();
     bool serverEventPoint(const NetEventMessage& event, Vector3& at) const;
 
     void clientReceive(const NetEvent& event);
@@ -257,6 +267,7 @@ private:
     int nextPlayerNumber_ = 2;
     std::map<std::uint32_t, flecs::entity_t> serverEntities_;
     std::map<std::uint32_t, EntityPlace> places_;
+    std::vector<flecs::entity_t> visiblePlayers_;
     std::map<std::uint32_t, EntityMotion> motion_;
     std::uint64_t serverTick_ = 0;
 
@@ -280,6 +291,10 @@ private:
     std::uint64_t serverStatTicks_ = 0;
     std::chrono::steady_clock::time_point serverLastTick_{};
     double serverWorstGapMs_ = 0.0;
+    std::chrono::steady_clock::time_point serverTickStart_{};
+    double serverTickMs_ = 0.0;
+    double serverWorstTickMs_ = 0.0;
+    double serverNetMs_ = 0.0;
     float clientStatSeconds_ = 0.0f;
     std::uint64_t statSnapshots_ = 0;
     std::uint64_t statBytes_ = 0;

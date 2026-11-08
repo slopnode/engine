@@ -1695,7 +1695,7 @@ flecs::entity severActorPartImpl(flecs::entity entity, const std::string& boneNa
                 static_cast<std::uint64_t>(pieceEntity.id()), center, half, QuaternionIdentity(), velocity, angular);
         }
     }
-    if (!modelUsesGpuSkinning(piece)) {
+    if (modelNeedsCpuSkinning(piece)) {
         updateSkinnedMeshVertexBuffers(piece);
     }
     return pieceEntity;
@@ -1902,7 +1902,7 @@ bool applyCorpsePoseImpl(flecs::entity entity, const std::vector<NetPose>& bones
             QuaternionToMatrix(QuaternionNormalize({turn[0], turn[1], turn[2], turn[3]})),
             MatrixTranslate(position[0], position[1], position[2]));
     }
-    if (!modelUsesGpuSkinning(model)) {
+    if (modelNeedsCpuSkinning(model)) {
         updateSkinnedMeshVertexBuffers(model);
     }
     if (PhysicsWorld* physics = physicsWorld()) {

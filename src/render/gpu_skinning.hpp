@@ -10,6 +10,8 @@ struct ShaderParams;
 
 bool modelUsesGpuSkinning(const Model& model);
 
+bool modelNeedsCpuSkinning(const Model& model);
+
 void setActiveShaderParams(const ShaderParams* params);
 
 void beginModelDraw(const Model& model);

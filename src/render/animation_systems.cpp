@@ -236,7 +236,7 @@ void sampleTickPose(flecs::entity entity) {
         player->time * resolved.meta->fps,
         resolved.bindMatrices,
         resolved.matrixClip,
-        !modelUsesGpuSkinning(model3d->model),
+        modelNeedsCpuSkinning(model3d->model),
         scales,
         hidden);
     player->poseSampledTick = tick;
@@ -342,7 +342,7 @@ void registerAnimationSystems(flecs::world& world) {
                     0.0f,
                     resolved.bindMatrices,
                     resolved.matrixClip,
-                    !modelUsesGpuSkinning(model3d.model),
+                    modelNeedsCpuSkinning(model3d.model),
                     scales,
                     hidden);
             }
@@ -364,7 +364,7 @@ void registerAnimationSystems(flecs::world& world) {
                 frame,
                 resolved.bindMatrices,
                 resolved.matrixClip,
-                !modelUsesGpuSkinning(model3d.model),
+                modelNeedsCpuSkinning(model3d.model),
                 scales,
                 hidden);
             model3d.boundsSpread = scaleResult.spread;

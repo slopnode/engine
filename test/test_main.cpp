@@ -32,6 +32,7 @@ void runBotScriptTests();
 void runMotorRulesTests();
 void runNetSpawnTests();
 void runNetPredictedEventTests();
+void runNetAudienceTests();
 void runNetHostStandInTests();
 void runNetRewindTests();
 void runHeadlessAssetTests();
@@ -114,6 +115,7 @@ const Suite kSuites[] = {
     {"motor_rules", slopengine::runMotorRulesTests},
     {"net_spawn", slopengine::runNetSpawnTests},
     {"net_predicted_events", slopengine::runNetPredictedEventTests},
+    {"net_audience", slopengine::runNetAudienceTests},
     {"net_host_standins", slopengine::runNetHostStandInTests},
     {"net_rewind", slopengine::runNetRewindTests},
     {"headless_assets", slopengine::runHeadlessAssetTests},

@@ -3,6 +3,8 @@
 #include "net/enet_transport.hpp"
 #include "net/secure_transport.hpp"
 
+#include <enet/enet.h>
+
 #include <chrono>
 #include <cstring>
 #include <string>
@@ -158,6 +160,54 @@ void runEnetTransportTests() {
         }));
         const NetEvent* lost = first(clientEvents, NetEventKind::Disconnected);
         CHECK(lost != nullptr && lost->connection == toServer);
+    }
+
+    {
+        auto server = createEnetTransport();
+        auto client = createEnetTransport();
+        const int port = listenSomewhere(*server);
+        const NetConnectionId toServer = client->connect("127.0.0.1:" + std::to_string(port));
+        std::vector<NetEvent> serverEvents;
+        std::vector<NetEvent> clientEvents;
+        CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+            if (const NetEvent* incoming = first(serverEvents, NetEventKind::Incoming)) {
+                server->accept(incoming->connection);
+                serverEvents.clear();
+            }
+            return first(serverEvents, NetEventKind::Connected) && first(clientEvents, NetEventKind::Connected);
+        }));
+        serverEvents.clear();
+        clientEvents.clear();
+        CHECK(client->send(toServer, bytes("after a long load"), NetSendMode::Reliable));
+        client->poll(clientEvents);
+        enet_time_set(enet_time_get() + 6000);
+        CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+            return first(serverEvents, NetEventKind::Message) != nullptr || first(clientEvents, NetEventKind::Disconnected);
+        }));
+        CHECK(first(clientEvents, NetEventKind::Disconnected) == nullptr);
+        const NetEvent* late = first(serverEvents, NetEventKind::Message);
+        CHECK(late != nullptr && text(late->data) == "after a long load");
+
+        serverEvents.clear();
+        clientEvents.clear();
+        const NetConnectionId toClient = late != nullptr ? late->connection : kNoNetConnection;
+        for (int i = 0; i < 100; ++i) {
+            CHECK(server->send(toClient, bytes("warm"), NetSendMode::Reliable));
+            pumpUntil(*server, *client, serverEvents, clientEvents, [&] { return !clientEvents.empty(); });
+            clientEvents.clear();
+        }
+        CHECK(server->send(toClient, bytes("while you load"), NetSendMode::Reliable));
+        for (int i = 0; i < 48; ++i) {
+            server->poll(serverEvents);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            enet_time_set(enet_time_get() + 250);
+        }
+        CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+            return first(clientEvents, NetEventKind::Message) != nullptr || first(serverEvents, NetEventKind::Disconnected);
+        }));
+        CHECK(first(serverEvents, NetEventKind::Disconnected) == nullptr);
+        const NetEvent* loaded = first(clientEvents, NetEventKind::Message);
+        CHECK(loaded != nullptr && text(loaded->data) == "while you load");
     }
 
     {

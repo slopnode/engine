@@ -2,6 +2,7 @@
 
 #include "core/frame_counters.hpp"
 #include "render/components.hpp"
+#include "render/gpu_ready.hpp"
 
 #include <raymath.h>
 #include <rlgl.h>
@@ -278,6 +279,10 @@ bool modelUsesGpuSkinning(const Model& model) {
         }
     }
     return false;
+}
+
+bool modelNeedsCpuSkinning(const Model& model) {
+    return gpuReady() && !modelUsesGpuSkinning(model);
 }
 
 void drawModelMesh(

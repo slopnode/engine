@@ -287,6 +287,7 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     };
     EnetTransportOptions transport;
     transport.maxPeers = static_cast<std::size_t>(net.playerCeiling) + net.maxPendingClients;
+    transport.maxPeersPerAddress = static_cast<std::size_t>(config_.netPeersPerAddress);
     net.statsSeconds = config_.netStatsSeconds;
     net.maxRewindTicks = static_cast<std::uint64_t>(std::lround(config_.netMaxRewindMs / 1000.0f / kSimTickDt));
     std::unique_ptr<NetTransport> wire = createEnetTransport(transport);

@@ -63,6 +63,10 @@ constexpr std::uint64_t kPredictWindowTicks = 12;
 
 constexpr const char* kAvatarPrefix = "player:";
 
+double msSince(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+
 bool safeNetName(std::string_view name) {
     if (name.empty() || name.size() > 128) {
         return false;
@@ -240,7 +244,9 @@ void NetSession::registerSystems() {
         .kind(flecs::PreUpdate)
         .run([this](flecs::iter&) {
             if (role_ == NetRole::Server) {
+                serverTickStart_ = std::chrono::steady_clock::now();
                 serverApplyCommands();
+                serverNetMs_ += msSince(serverTickStart_);
             }
         }).add<SimSystem>();
     world_.system("NetSendSnapshots")
@@ -284,11 +290,13 @@ void NetSession::callHook(const char* name, const std::string& argument) {
 }
 
 void NetSession::serverPoll() {
+    const auto start = std::chrono::steady_clock::now();
     std::vector<NetEvent> events;
     transport_->poll(events);
     for (const NetEvent& event : events) {
         serverReceive(event);
     }
+    serverNetMs_ += msSince(start);
 }
 
 void NetSession::serverReceive(const NetEvent& event) {
@@ -419,6 +427,7 @@ void NetSession::serverSendMap(ServerClient& client) {
         client.connection,
         encodeNetMapChange({world_.get<CurrentMap>().id, "fresh", client.player}),
         NetSendMode::Reliable);
+    serverRefreshView(client);
     serverUpdateKnown(client);
 }
 
@@ -609,16 +618,25 @@ bool NetSession::serverVisibleTo(const ServerClient& client, flecs::entity entit
     if (!entity.has<PlayerBody>()) {
         return true;
     }
-    const std::string name = entity.name().c_str();
-    if (name == client.player) {
+    if (entity.id() == client.body) {
         return false;
     }
-    if (name == kLocalNetPlayerId && config_.hostPlayerVisible) {
-        return true;
+    return std::binary_search(visiblePlayers_.begin(), visiblePlayers_.end(), entity.id());
+}
+
+void NetSession::serverListVisiblePlayers() {
+    visiblePlayers_.clear();
+    if (config_.hostPlayerVisible) {
+        if (const flecs::entity host = playerBody(world_, kLocalNetPlayerId); host.is_valid()) {
+            visiblePlayers_.push_back(host.id());
+        }
     }
-    return std::any_of(clients_.begin(), clients_.end(), [&](const auto& entry) {
-        return entry.second.ready && entry.second.player == name;
-    });
+    for (const auto& [connection, client] : clients_) {
+        if (client.ready && client.body != 0) {
+            visiblePlayers_.push_back(client.body);
+        }
+    }
+    std::sort(visiblePlayers_.begin(), visiblePlayers_.end());
 }
 
 void NetSession::serverAssignIds() {
@@ -664,18 +682,16 @@ void NetSession::serverPlaceEntities() {
     }
 }
 
-std::int32_t NetSession::serverEyeLeaf(ServerClient& client, Vector3& eye, bool& haveEye) const {
+void NetSession::serverRefreshView(ServerClient& client) const {
     const flecs::entity body = playerBody(world_, client.player);
+    client.body = body.is_valid() ? body.id() : 0;
     if (body.is_valid() && body.has<Lens>()) {
         client.lastEye = body.get<Lens>().camera.position;
         client.hadEye = true;
     }
-    haveEye = client.hadEye;
-    eye = client.lastEye;
-    if (!haveEye || !world_.has<MapBsp>() || !world_.has<MapPvs>()) {
-        return -1;
-    }
-    return pvsSampleLeaf(world_.get<MapBsp>().tree, eye);
+    client.eyeLeaf = client.hadEye && world_.has<MapBsp>() && world_.has<MapPvs>()
+        ? pvsSampleLeaf(world_.get<MapBsp>().tree, client.lastEye)
+        : -1;
 }
 
 bool NetSession::serverEventPoint(const NetEventMessage& event, Vector3& at) const {
@@ -704,9 +720,9 @@ bool NetSession::serverEventPoint(const NetEventMessage& event, Vector3& at) con
 void NetSession::serverUpdateKnown(ServerClient& client) {
     std::vector<NetIntroduction> added;
     std::vector<std::uint32_t> gone;
-    Vector3 eye{};
-    bool haveEye = false;
-    const std::int32_t eyeLeaf = serverEyeLeaf(client, eye, haveEye);
+    const Vector3 eye = client.lastEye;
+    const bool haveEye = client.hadEye;
+    const std::int32_t eyeLeaf = client.eyeLeaf;
     const PvsFile* pvs = world_.has<MapPvs>() ? &world_.get<MapPvs>().pvs : nullptr;
     const float nearSq = config_.nearRadius * config_.nearRadius;
     std::vector<std::pair<float, std::uint32_t>> wanted;
@@ -738,17 +754,19 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
         Log::info(LogCategory::General, "NET: %s sees %zu of %zu entities", client.player.c_str(), wanted.size(),
                   serverEntities_.size());
     }
-    std::set<std::uint32_t> desired;
+    std::vector<std::uint32_t> desired;
+    desired.reserve(wanted.size());
     for (const auto& entry : wanted) {
-        desired.insert(entry.second);
+        desired.push_back(entry.second);
     }
+    std::sort(desired.begin(), desired.end());
     for (std::uint32_t netId : desired) {
         if (client.known.insert(netId).second) {
             added.push_back(serverIntroduction(netId, world_.entity(serverEntities_.at(netId))));
         }
     }
     for (auto it = client.known.begin(); it != client.known.end();) {
-        if (desired.count(*it) == 0) {
+        if (!std::binary_search(desired.begin(), desired.end(), *it)) {
             gone.push_back(*it);
             it = client.known.erase(it);
         } else {
@@ -771,18 +789,20 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
     }
 }
 
-void NetSession::serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events) {
+void NetSession::serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events,
+                                  const std::vector<EventPlace>& places) {
     if (events.empty()) {
         return;
     }
     const std::vector<NetEventDef>& defs = netSchema().events();
-    Vector3 eye{};
-    bool haveEye = false;
-    const std::int32_t eyeLeaf = serverEyeLeaf(client, eye, haveEye);
-    const BspTree* tree = world_.has<MapBsp>() && world_.has<MapPvs>() ? &world_.get<MapBsp>().tree : nullptr;
+    const Vector3 eye = client.lastEye;
+    const bool haveEye = client.hadEye;
+    const PvsFile* pvs = world_.has<MapBsp>() && world_.has<MapPvs>() ? &world_.get<MapPvs>().pvs : nullptr;
     std::vector<NetEventMessage> reliable;
     std::vector<NetEventMessage> unreliable;
-    for (const NetEventMessage& event : events) {
+    for (std::size_t index = 0; index < events.size(); ++index) {
+        const NetEventMessage& event = events[index];
+        const EventPlace& place = places[index];
         if (event.eventId >= defs.size()) {
             continue;
         }
@@ -792,16 +812,14 @@ void NetSession::serverSendEvents(ServerClient& client, const std::vector<NetEve
         if (def.to == NetEventAudience::Owner) {
             send = aimedAtClient;
         } else if (def.to == NetEventAudience::Near || def.to == NetEventAudience::Pvs) {
-            Vector3 at{};
-            const bool located = serverEventPoint(event, at);
             if (aimedAtClient) {
                 send = true;
-            } else if (!located || !haveEye) {
+            } else if (!place.located || !haveEye) {
                 send = false;
             } else if (def.to == NetEventAudience::Near) {
-                send = Vector3DistanceSqr(at, eye) <= def.nearRadius * def.nearRadius;
-            } else if (tree != nullptr) {
-                send = pvsVisiblePointFromLeaf(*tree, world_.get<MapPvs>().pvs, eyeLeaf, {at.x, at.y + 0.1f, at.z});
+                send = Vector3DistanceSqr(place.at, eye) <= def.nearRadius * def.nearRadius;
+            } else if (pvs != nullptr) {
+                send = client.eyeLeaf < 0 || place.leaf < 0 || pvsCanSee(*pvs, client.eyeLeaf, place.leaf);
             }
         }
         if (send) {
@@ -898,9 +916,8 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
     std::size_t used = encodeNetSnapshot(header, fields).size() + 4;
     const std::size_t budget =
         std::clamp(config_.snapshotBudgetBytes, static_cast<std::size_t>(256), kMaxNetMessageBytes / 2);
-    Vector3 eye{};
-    bool haveEye = false;
-    serverEyeLeaf(client, eye, haveEye);
+    const Vector3 eye = client.lastEye;
+    const bool haveEye = client.hadEye;
     const float nearRadius = std::max(1.0f, config_.nearRadius);
     struct Candidate {
         std::uint32_t netId = 0;
@@ -1309,6 +1326,7 @@ void NetSession::serverPresentStandIns() {
 }
 
 void NetSession::serverAfterTick() {
+    const auto start = std::chrono::steady_clock::now();
     ++serverTick_;
     serverDropLate();
     serverAssignIds();
@@ -1319,20 +1337,41 @@ void NetSession::serverAfterTick() {
     if (world_.has<NetEventQueue>()) {
         events.swap(world_.get_mut<NetEventQueue>().pending);
     }
+    const BspTree* tree = world_.has<MapBsp>() && world_.has<MapPvs>() ? &world_.get<MapBsp>().tree : nullptr;
+    std::vector<EventPlace> eventPlaces(events.size());
+    for (std::size_t index = 0; index < events.size(); ++index) {
+        EventPlace& place = eventPlaces[index];
+        place.located = serverEventPoint(events[index], place.at);
+        if (place.located && tree != nullptr) {
+            place.leaf = pvsSampleLeaf(*tree, {place.at.x, place.at.y + 0.1f, place.at.z});
+        }
+    }
+    for (auto& entry : clients_) {
+        if (entry.second.ready) {
+            serverRefreshView(entry.second);
+        }
+    }
+    serverListVisiblePlayers();
     const std::uint64_t interval = std::max<std::uint64_t>(1, config_.snapshotIntervalTicks);
     for (auto& entry : clients_) {
         ServerClient& client = entry.second;
         if (!client.ready) {
             continue;
         }
-        serverUpdateKnown(client);
-        serverSendEvents(client, events);
+        serverSendEvents(client, events, eventPlaces);
         if ((serverTick_ + client.connection) % interval == 0) {
+            serverUpdateKnown(client);
             serverSendSnapshot(client);
         }
     }
     serverSendEffects();
     serverPresentStandIns();
+    serverNetMs_ += msSince(start);
+    if (serverTickStart_ != std::chrono::steady_clock::time_point{}) {
+        const double tickMs = msSince(serverTickStart_);
+        serverTickMs_ += tickMs;
+        serverWorstTickMs_ = std::max(serverWorstTickMs_, tickMs);
+    }
     serverLogStats();
 }
 
@@ -1351,10 +1390,17 @@ void NetSession::serverLogStats() {
         return;
     }
     const double seconds = static_cast<double>(serverStatTicks_) * kSimTickDt;
+    const double ticks = static_cast<double>(serverStatTicks_);
     serverStatTicks_ = 0;
-    Log::info(LogCategory::General, "NET STATS server: %zu players, longest gap between ticks %.1f ms",
-              static_cast<std::size_t>(serverPlayerCount()), serverWorstGapMs_);
+    Log::info(LogCategory::General,
+              "NET STATS server: %zu players, tick %.2f ms average and %.1f ms worst, %.2f ms of it net, "
+              "longest gap between ticks %.1f ms",
+              static_cast<std::size_t>(serverPlayerCount()), serverTickMs_ / ticks, serverWorstTickMs_,
+              serverNetMs_ / ticks, serverWorstGapMs_);
     serverWorstGapMs_ = 0.0;
+    serverTickMs_ = 0.0;
+    serverWorstTickMs_ = 0.0;
+    serverNetMs_ = 0.0;
     for (auto& [connection, client] : clients_) {
         if (!client.ready) {
             continue;
