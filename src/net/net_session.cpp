@@ -43,6 +43,8 @@ namespace {
 
 constexpr std::size_t kRedundantCommands = 4;
 constexpr std::size_t kCommandBacklog = 4;
+constexpr std::uint64_t kCommandWindowTicks = 60;
+constexpr std::size_t kMaxQueuedCommands = 64;
 constexpr std::size_t kMaxPredictedMoves = 128;
 constexpr std::uint64_t kRelevanceLinger = 60;
 constexpr float kPlaceLift = 0.9f;
@@ -348,7 +350,7 @@ void NetSession::serverReceive(const NetEvent& event) {
         }
     }
     std::sort(client.pending.begin(), client.pending.end(), [](const auto& a, const auto& b) { return a.tick < b.tick; });
-    while (client.pending.size() > 64) {
+    while (client.pending.size() > kMaxQueuedCommands) {
         client.pending.pop_front();
     }
 }
@@ -489,7 +491,17 @@ void NetSession::serverApplyCommands() {
         NetCommandFrame& latest = client.latest;
         std::vector<char> pressed;
         bool moved = false;
-        while (!client.pending.empty() && (!moved || client.pending.size() > kCommandBacklog)) {
+        client.leastPending = std::min(client.leastPending, client.pending.size());
+        std::size_t surplus = 0;
+        if (++client.pendingWindow >= kCommandWindowTicks) {
+            surplus = client.leastPending > 1 ? client.leastPending - 1 : 0;
+            client.pendingWindow = 0;
+            client.leastPending = kMaxQueuedCommands;
+        }
+        while (!client.pending.empty() && (!moved || client.pending.size() > kCommandBacklog || surplus > 0)) {
+            if (moved && surplus > 0) {
+                --surplus;
+            }
             NetCommandFrame frame = std::move(client.pending.front());
             client.pending.pop_front();
             if (pressed.size() < frame.pressed.size()) {
@@ -497,6 +509,9 @@ void NetSession::serverApplyCommands() {
             }
             for (std::size_t i = 0; i < frame.pressed.size(); ++i) {
                 pressed[i] = static_cast<char>(pressed[i] | frame.pressed[i]);
+            }
+            if (moved) {
+                serverStepAhead(body, latest);
             }
             client.lastCommandTick = frame.tick;
             latest = std::move(frame);
@@ -523,11 +538,35 @@ void NetSession::serverApplyCommands() {
             command.actionPressed[i] = pressed[i];
         }
         if (FirstPersonController* controller = body.try_get_mut<FirstPersonController>()) {
-            controller->yaw = command.yaw;
-            controller->pitch = command.pitch;
+            if (controller->allowLook) {
+                controller->yaw = command.yaw;
+                controller->pitch = command.pitch;
+            } else {
+                command.yaw = controller->yaw;
+                command.pitch = controller->pitch;
+            }
         }
         body.set<PlayerCommand>(std::move(command));
     }
+}
+
+void NetSession::serverStepAhead(flecs::entity body, const NetCommandFrame& frame) {
+    if (!world_.has<PhysicsContext>() || world_.get<PhysicsContext>().world == nullptr) {
+        return;
+    }
+    PhysicsWorld& physics = *world_.get_mut<PhysicsContext>().world;
+    const std::uint64_t id = static_cast<std::uint64_t>(body.id());
+    CharacterMotor* motor = body.try_get_mut<CharacterMotor>();
+    const FirstPersonController* controller = body.try_get<FirstPersonController>();
+    if (motor == nullptr || !physics.hasCharacter(id) || (controller != nullptr && !controller->allowMove)) {
+        return;
+    }
+    applyMoveWish(*motor, std::clamp(frame.moveForward, -1.0f, 1.0f), std::clamp(frame.moveStrafe, -1.0f, 1.0f),
+                  std::clamp(frame.moveUp, -1.0f, 1.0f), frame.yaw);
+    CharacterStep step{};
+    step.id = id;
+    step.motor = motor;
+    physics.stepCharacterAlone(step);
 }
 
 bool NetSession::serverVisibleTo(const ServerClient& client, flecs::entity entity) const {
@@ -801,6 +840,7 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
             self.height = motor->height;
             const FirstPersonController* controller = body.try_get<FirstPersonController>();
             self.allowMove = controller == nullptr || controller->allowMove;
+            self.allowLook = controller == nullptr || controller->allowLook;
         }
     }
     const std::vector<const NetField*> fields = netSchema().fieldsIn(NetScope{NetScopeKind::Player, {}});
@@ -1161,13 +1201,17 @@ void NetSession::clientLogStats() {
     }
     Log::info(LogCategory::General,
               "NET STATS client %s: %.1f snapshots/s, %.1f KB/s, %.1f entities per snapshot, %zu at most, "
-              "%llu missed, %zu of %zu bound, %llu of %llu frames starved, %llu corrections, worst %.3f m",
+              "%llu missed, %zu of %zu bound, %llu of %llu frames starved, %llu corrections, worst %.3f m, "
+              "%.1f events/s, %.1f commands in flight, %zu at most",
               yourPlayer_.c_str(), static_cast<double>(statSnapshots_) / seconds,
               static_cast<double>(statBytes_) / seconds / 1024.0,
               static_cast<double>(statEntities_) / static_cast<double>(std::max<std::uint64_t>(1, statSnapshots_)),
               statMostEntities_, static_cast<unsigned long long>(statMissed_), bound, names_.size(),
               static_cast<unsigned long long>(statStarved_), static_cast<unsigned long long>(statFrames_),
-              static_cast<unsigned long long>(statCorrections_), static_cast<double>(statWorstCorrection_));
+              static_cast<unsigned long long>(statCorrections_), static_cast<double>(statWorstCorrection_),
+              static_cast<double>(statEvents_) / seconds,
+              static_cast<double>(statInFlight_) / static_cast<double>(std::max<std::uint64_t>(1, statReconciles_)),
+              statMostInFlight_);
     clientStatSeconds_ = 0.0f;
     statSnapshots_ = 0;
     statBytes_ = 0;
@@ -1178,6 +1222,10 @@ void NetSession::clientLogStats() {
     statStarved_ = 0;
     statCorrections_ = 0;
     statWorstCorrection_ = 0.0f;
+    statEvents_ = 0;
+    statReconciles_ = 0;
+    statInFlight_ = 0;
+    statMostInFlight_ = 0;
 }
 
 void NetSession::clientFrame(float frameDt) {
@@ -1290,6 +1338,7 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
     }
     if (FirstPersonController* controller = player.try_get_mut<FirstPersonController>()) {
         controller->allowMove = self.allowMove;
+        controller->allowLook = self.allowLook;
         controller->eyeHeight = self.eyeHeight;
     }
     const SimEyePose* shown = player.try_get<SimEyePose>();
@@ -1302,6 +1351,9 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
     while (!predicted_.empty() && predicted_.front().tick <= snapshot.ackedCommand) {
         predicted_.pop_front();
     }
+    ++statReconciles_;
+    statInFlight_ += predicted_.size();
+    statMostInFlight_ = std::max(statMostInFlight_, predicted_.size());
     for (const PredictedMove& move : predicted_) {
         clientPredictMove(move);
     }
@@ -1429,6 +1481,7 @@ void NetSession::clientReceive(const NetEvent& event) {
         if (decodeNetEvents(event.data, netSchema().events(), events) && world_.has<ScriptContext>()) {
             s7_scheme* scheme = world_.get<ScriptContext>().scheme;
             for (const NetEventMessage& message : events) {
+                ++statEvents_;
                 deliverNetEvent(scheme, message);
             }
         }

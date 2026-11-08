@@ -186,6 +186,15 @@ void runNetSessionTests() {
     CHECK(serverPlayer.has<PlayerCommand>() && serverPlayer.get<PlayerCommand>().moveForward == 1.0f);
     CHECK(serverPlayer.get<PlayerCommand>().down(Action::MoveForward));
     CHECK(std::fabs(serverPlayer.get<FirstPersonController>().yaw - 1.25f) < 1.0e-6f);
+    serverPlayer.get_mut<FirstPersonController>().allowLook = false;
+    client.world.lookup("Player").get_mut<FirstPersonController>().yaw = 2.0f;
+    frames(network, server, {&client}, 5);
+    CHECK(std::fabs(serverPlayer.get<FirstPersonController>().yaw - 1.25f) < 1.0e-6f);
+    CHECK(std::fabs(serverPlayer.get<PlayerCommand>().yaw - 1.25f) < 1.0e-6f);
+    serverPlayer.get_mut<FirstPersonController>().allowLook = true;
+    frames(network, server, {&client}, 5);
+    CHECK(std::fabs(serverPlayer.get<FirstPersonController>().yaw - 2.0f) < 1.0e-6f);
+    client.world.lookup("Player").get_mut<FirstPersonController>().yaw = 1.25f;
     CHECK_EQ(server.pressTicks, 1);
     const std::vector<NetValue>& clientValues = client.world.get<NetStore>().players.front().values;
     CHECK(clientValues[static_cast<std::size_t>(health->slot)].integer == 77);

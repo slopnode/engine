@@ -14,7 +14,8 @@ REPO = Path(__file__).resolve().parents[2]
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 CLIENT_STATS = re.compile(
     r"NET STATS client (\S+): ([\d.]+) snapshots/s, ([\d.]+) KB/s, ([\d.]+) entities per snapshot, (\d+) at most, "
-    r"(\d+) missed, (\d+) of (\d+) bound, (\d+) of (\d+) frames starved, (\d+) corrections, worst ([\d.]+) m")
+    r"(\d+) missed, (\d+) of (\d+) bound, (\d+) of (\d+) frames starved, (\d+) corrections, worst ([\d.]+) m, "
+    r"([\d.]+) events/s")
 SERVER_STATS = re.compile(
     r"NET STATS server to (\S+): ([\d.]+) snapshots/s, ([\d.]+) KB/s, ([\d.]+) entities and ([\d.]+) deferred per snapshot, "
     r"(\d+) known, ack lag ([-\d.]+) ticks, ping ([\d.]+) ms")

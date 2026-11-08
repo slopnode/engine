@@ -85,6 +85,7 @@ public:
     void serverMapLoaded();
     void clientFrame(float frameDt);
     std::vector<std::pair<std::string, bool>> clientKnownEntities() const;
+    std::size_t clientCommandsInFlight() const { return predicted_.size(); }
     float clientSecondsUntilCommand() const { return kSimTickDt - commandClock_.accumulator; }
 
 private:
@@ -123,6 +124,8 @@ private:
         bool ownBody = false;
         std::uint64_t lastCommandTick = 0;
         std::deque<NetCommandFrame> pending;
+        std::size_t leastPending = 64;
+        std::uint64_t pendingWindow = 0;
         NetCommandFrame latest;
         std::set<std::uint32_t> known;
         std::map<std::uint32_t, std::uint64_t> lastRelevant;
@@ -170,6 +173,7 @@ private:
     void serverReceive(const NetEvent& event);
     void serverHello(ServerClient& client, const std::vector<std::byte>& data);
     void serverApplyCommands();
+    void serverStepAhead(flecs::entity body, const NetCommandFrame& frame);
     void serverAfterTick();
     void serverSendMap(ServerClient& client);
     void serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events);
@@ -263,6 +267,10 @@ private:
     std::uint64_t statStarved_ = 0;
     std::uint64_t statCorrections_ = 0;
     float statWorstCorrection_ = 0.0f;
+    std::uint64_t statEvents_ = 0;
+    std::uint64_t statReconciles_ = 0;
+    std::uint64_t statInFlight_ = 0;
+    std::size_t statMostInFlight_ = 0;
     bool loggedSnapshots_ = false;
     SimClock commandClock_{};
     std::uint64_t commandTick_ = 0;

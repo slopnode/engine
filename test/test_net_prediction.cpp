@@ -141,6 +141,15 @@ void runNetPredictionTests() {
     client.world.get_mut<InputCommand>().moveForward = 0.0f;
     frame(30);
     CHECK(std::fabs(feetZ(client) - feetZ(server)) < 1.0e-3f);
+    for (int i = 0; i < 4; ++i) {
+        client.session->clientFrame(kSimTickDt);
+        network.advance(kSimTickDt);
+    }
+    frame(10);
+    const std::size_t backlogged = client.session->clientCommandsInFlight();
+    frame(150);
+    CHECK(backlogged >= client.session->clientCommandsInFlight() + 2);
+    CHECK(std::fabs(feetZ(client) - feetZ(server)) < 1.0e-3f);
     CHECK(feetZ(server) > startZ + 5.0f);
 
     network.setConditions(MemoryLinkConditions{40.0f, 15.0f, 0.05f});
