@@ -164,6 +164,11 @@ void runSlotTests(std::uint64_t hash) {
     hello.engineVersion = "test";
     hello.schemaHash = hash;
     hello.packages = {{"game", "1.0.0"}};
+    NetCommandFrame early;
+    early.tick = 1;
+    CHECK(flood->send(floodId, encodeNetCommands({early}, 0), NetSendMode::Unreliable));
+    tick(2);
+    CHECK_EQ(server.session->serverPendingCount(), std::size_t{1});
     CHECK(flood->send(floodId, encodeNetHello(hello), NetSendMode::Reliable));
     tick(5);
     CHECK_EQ(server.session->serverClientCount(), std::size_t{2});

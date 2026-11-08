@@ -136,6 +136,7 @@ set(SLOPLIB_SOURCES
     src/net/net_schema.cpp
     src/net/memory_transport.cpp
     src/net/enet_transport.cpp
+    src/net/conditioned_transport.cpp
     src/net/secure_random.cpp
     src/net/secure_transport.cpp
     src/net/net_message.cpp
@@ -242,6 +243,7 @@ add_executable(slopengine
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
+    src/game/net_bot.cpp
     src/game/sim_pipeline.cpp
     src/game/sim_interpolation.cpp
     src/net/net_state.cpp

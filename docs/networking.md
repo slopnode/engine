@@ -68,6 +68,22 @@ The client predicts its own movement. Each command it sends also moves its own c
 
 A server spawns no stand-ins, so a listen-server host doesn't see the clients' bodies yet.
 
+## Testing with bots
+
+`--bot` makes a dedicated client play by itself. `still` sends no input, `walk` wanders, turning and changing direction every few seconds and sometimes sprinting, and `fight` also jumps, fires in bursts and switches weapon slots. The bot presses actions by their id, so `fight` assumes the game declares `attack`, `sprint` and `slot-1` to `slot-7`, as slopdemo does, and skips any it doesn't find.
+
+`--net-lag`, `--net-jitter` and `--net-loss` make the process treat its own outgoing traffic like a bad link. Each message waits the lag plus or minus the jitter, reliable messages keep their order, and the given fraction of unreliable messages is dropped. Give the flags to the server and to each client to affect both directions. ENet's own ping doesn't see the added lag, since it is measured underneath.
+
+`--net-stats seconds` logs a line per interval. The server's line, one per client, gives snapshots and kilobytes per second, how many entities a snapshot carried and how many changed ones waited for a later one, and how many ticks old a snapshot was when the client acknowledged it, which is roughly the round trip. The client's line gives what it received, snapshots it missed, how many introduced entities it has a match for, frames where the jitter buffer ran dry, and how often and how far a snapshot moved its predicted view. An introduced entity without a match is one only the server created, such as a rocket.
+
+`tools/netsoak/net_soak.py` runs a dedicated server and a number of bots, waits, stops them and summarizes the statistics. Each process runs under an address space limit of 8000 megabytes, and the bots use the profiles `soak-bot-1` and up.
+
+```
+tools/netsoak/net_soak.py --map readit --bots 3 --seconds 30 --lag 40 --jitter 10 --loss 0.02
+```
+
+It exits with an error when a process crashes or logs an error, when a bot never receives a snapshot, or when a player leaves for a reason other than quitting. `--behavior` takes a comma list that cycles over the bots, and `--out` keeps the logs in a chosen directory instead of a new temporary one.
+
 # Principles
 
 State is declared, not discovered. The engine never inspects Scheme values to work out what to send. A base package lists every replicated field with a type and a size, so the server knows the layout of every message before the first client connects, and a client with the same packages builds the same layout.

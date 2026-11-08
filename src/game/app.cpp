@@ -27,6 +27,7 @@
 #include "physics/sight_module.hpp"
 #include "navigation/nav_module.hpp"
 #include "net/net_schema.hpp"
+#include "net/conditioned_transport.hpp"
 #include "net/enet_transport.hpp"
 #include "net/net_state.hpp"
 #include "particles/particle_module.hpp"
@@ -65,6 +66,10 @@ volatile std::sig_atomic_t g_dedicatedStop = 0;
 
 void requestDedicatedStop(int) {
     g_dedicatedStop = 1;
+}
+
+std::uint32_t botSeed() {
+    return static_cast<std::uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count());
 }
 
 }
@@ -198,6 +203,16 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     if (!config_.listenAddress.empty() && !config_.connectAddress.empty()) {
         throw std::invalid_argument("--listen and --connect can't be used together");
     }
+    if (!config_.bot.empty()) {
+        NetBotKind kind{};
+        if (!parseNetBotKind(config_.bot, kind)) {
+            throw std::invalid_argument("--bot takes still, walk or fight");
+        }
+        if (!config_.dedicated || config_.connectAddress.empty()) {
+            throw std::invalid_argument("--bot needs --dedicated and --connect");
+        }
+        bot_ = std::make_unique<NetBot>(kind, botSeed());
+    }
     NetSessionConfig net;
     net.listenAddress = config_.listenAddress;
     net.connectAddress = config_.connectAddress;
@@ -239,7 +254,15 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     };
     EnetTransportOptions transport;
     transport.maxPeers = static_cast<std::size_t>(net.playerCeiling) + net.maxPendingClients;
-    net_ = std::make_unique<NetSession>(world_, std::move(net), createEnetTransport(transport));
+    net.statsSeconds = config_.netStatsSeconds;
+    std::unique_ptr<NetTransport> wire = createEnetTransport(transport);
+    const NetConditions conditions{config_.netLagMs, config_.netJitterMs, config_.netLoss};
+    if (conditions.active()) {
+        TraceLog(LOG_INFO, "NET: simulating %.0f ms lag, %.0f ms jitter, %.0f%% loss on what this process sends",
+            conditions.lagMs, conditions.jitterMs, conditions.lossFraction * 100.0f);
+        wire = createConditionedTransport(std::move(wire), conditions, botSeed());
+    }
+    net_ = std::make_unique<NetSession>(world_, std::move(net), std::move(wire));
     net_->registerSystems();
     if (!net_->start()) {
         throw std::runtime_error("network could not start");
@@ -256,6 +279,9 @@ int App::runDedicated() {
         const float frameDt = static_cast<float>(now - last);
         last = now;
         if (net_ && net_->role() == NetRole::Client) {
+            if (bot_) {
+                bot_->drive(world_, frameDt);
+            }
             net_->clientFrame(frameDt);
         } else {
             if (net_ && net_->role() == NetRole::Server) {
@@ -266,7 +292,9 @@ int App::runDedicated() {
         if (world_.get<QuitRequest>().requested) {
             break;
         }
-        const double untilNextTick = kSimTickDt - world_.get<SimClock>().accumulator;
+        const double untilNextTick = net_ && net_->role() == NetRole::Client
+            ? net_->clientSecondsUntilCommand()
+            : kSimTickDt - world_.get<SimClock>().accumulator;
         if (untilNextTick > 0.0) {
             std::this_thread::sleep_for(std::chrono::duration<double>(untilNextTick));
         }

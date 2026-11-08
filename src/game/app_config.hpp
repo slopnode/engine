@@ -36,6 +36,11 @@ struct AppConfig {
     std::string serverKey;
     std::string sessionKind;
     int maxPlayers = 0;
+    std::string bot;
+    float netLagMs = 0.0f;
+    float netJitterMs = 0.0f;
+    float netLoss = 0.0f;
+    float netStatsSeconds = 0.0f;
     bool perfViewLock = false;
     float perfView[5]{};
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */

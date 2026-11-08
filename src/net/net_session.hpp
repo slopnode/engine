@@ -49,6 +49,7 @@ struct NetSessionConfig {
     std::uint64_t snapshotIntervalTicks = 2;
     std::size_t snapshotBudgetBytes = 1200;
     std::uint64_t interpolationDelayTicks = 6;
+    float statsSeconds = 0.0f;
     bool hostPlayerVisible = false;
     bool firstClientTakesMapPlayer = true;
     std::function<void(const std::string& mapId, const std::string& reason)> loadMap;
@@ -83,6 +84,7 @@ public:
     void serverPoll();
     void serverMapLoaded();
     void clientFrame(float frameDt);
+    float clientSecondsUntilCommand() const { return kSimTickDt - commandClock_.accumulator; }
 
 private:
     struct SentState {
@@ -131,6 +133,12 @@ private:
         std::map<std::string, std::uint32_t> clipIds;
         std::set<std::uint32_t> ackedClips;
         std::uint64_t ackedSnapshot = 0;
+        std::uint64_t statSnapshots = 0;
+        std::uint64_t statBytes = 0;
+        std::uint64_t statEntities = 0;
+        std::uint64_t statDeferred = 0;
+        std::uint64_t statAcks = 0;
+        std::uint64_t statAckLag = 0;
     };
 
     struct EntityMotion {
@@ -210,6 +218,8 @@ private:
     void clientHideUnintroduced();
 
     void callHook(const char* name, const std::string& argument);
+    void serverLogStats();
+    void clientLogStats();
 
     flecs::world& world_;
     NetSessionConfig config_;
@@ -238,6 +248,18 @@ private:
     std::map<std::uint32_t, std::deque<ClientSample>> history_;
     std::deque<std::pair<std::uint64_t, Vector3>> eyeHistory_;
     std::map<std::uint32_t, std::string> clipNames_;
+    std::uint64_t serverStatTicks_ = 0;
+    float clientStatSeconds_ = 0.0f;
+    std::uint64_t statSnapshots_ = 0;
+    std::uint64_t statBytes_ = 0;
+    std::uint64_t statEntities_ = 0;
+    std::size_t statMostEntities_ = 0;
+    std::uint64_t statMissed_ = 0;
+    std::uint64_t statInterval_ = 0;
+    std::uint64_t statFrames_ = 0;
+    std::uint64_t statStarved_ = 0;
+    std::uint64_t statCorrections_ = 0;
+    float statWorstCorrection_ = 0.0f;
     bool loggedSnapshots_ = false;
     SimClock commandClock_{};
     std::uint64_t commandTick_ = 0;

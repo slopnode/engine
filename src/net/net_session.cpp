@@ -318,7 +318,7 @@ void NetSession::serverReceive(const NetEvent& event) {
     if (!client.ready) {
         if (kind == NetMessageKind::Hello) {
             serverHello(client, event.data);
-        } else {
+        } else if (kind != NetMessageKind::Commands) {
             serverDrop(event.connection, "expected hello");
         }
         return;
@@ -334,6 +334,8 @@ void NetSession::serverReceive(const NetEvent& event) {
         return;
     }
     if (ackedSnapshot > client.ackedSnapshot && ackedSnapshot <= serverTick_) {
+        ++client.statAcks;
+        client.statAckLag += serverTick_ - ackedSnapshot;
         serverAcknowledge(client, ackedSnapshot);
     }
     for (NetCommandFrame& frame : frames) {
@@ -918,7 +920,12 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
     while (client.sent.size() > kSentSnapshotsKept) {
         client.sent.pop_front();
     }
-    transport_->send(client.connection, encodeNetSnapshot(snapshot, fields), NetSendMode::Unreliable);
+    const std::vector<std::byte> encoded = encodeNetSnapshot(snapshot, fields);
+    ++client.statSnapshots;
+    client.statBytes += encoded.size();
+    client.statEntities += snapshot.entities.size();
+    client.statDeferred += candidates.size() - snapshot.entities.size();
+    transport_->send(client.connection, encoded, NetSendMode::Unreliable);
 }
 
 bool NetSession::serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const {
@@ -1083,6 +1090,71 @@ void NetSession::serverAfterTick() {
             serverSendSnapshot(client);
         }
     }
+    serverLogStats();
+}
+
+void NetSession::serverLogStats() {
+    if (config_.statsSeconds <= 0.0f) {
+        return;
+    }
+    const auto every = static_cast<std::uint64_t>(std::max(1.0f, config_.statsSeconds / kSimTickDt));
+    if (++serverStatTicks_ < every) {
+        return;
+    }
+    const double seconds = static_cast<double>(serverStatTicks_) * kSimTickDt;
+    serverStatTicks_ = 0;
+    for (auto& [connection, client] : clients_) {
+        if (!client.ready) {
+            continue;
+        }
+        const double snapshots = static_cast<double>(std::max<std::uint64_t>(1, client.statSnapshots));
+        Log::info(LogCategory::General,
+                  "NET STATS server to %s: %.1f snapshots/s, %.1f KB/s, %.1f entities and %.1f deferred per snapshot, "
+                  "%zu known, ack lag %.1f ticks, ping %.0f ms",
+                  client.player.c_str(), static_cast<double>(client.statSnapshots) / seconds,
+                  static_cast<double>(client.statBytes) / seconds / 1024.0,
+                  static_cast<double>(client.statEntities) / snapshots,
+                  static_cast<double>(client.statDeferred) / snapshots, client.known.size(),
+                  client.statAcks == 0 ? -1.0
+                                       : static_cast<double>(client.statAckLag) / static_cast<double>(client.statAcks),
+                  static_cast<double>(transport_->stats(connection).pingMs));
+        client.statSnapshots = 0;
+        client.statBytes = 0;
+        client.statEntities = 0;
+        client.statDeferred = 0;
+        client.statAcks = 0;
+        client.statAckLag = 0;
+    }
+}
+
+void NetSession::clientLogStats() {
+    if (config_.statsSeconds <= 0.0f || clientStatSeconds_ < config_.statsSeconds) {
+        return;
+    }
+    const double seconds = clientStatSeconds_;
+    std::size_t bound = 0;
+    for (const auto& entry : names_) {
+        bound += bound_.count(entry.first);
+    }
+    Log::info(LogCategory::General,
+              "NET STATS client %s: %.1f snapshots/s, %.1f KB/s, %.1f entities per snapshot, %zu at most, "
+              "%llu missed, %zu of %zu bound, %llu of %llu frames starved, %llu corrections, worst %.3f m",
+              yourPlayer_.c_str(), static_cast<double>(statSnapshots_) / seconds,
+              static_cast<double>(statBytes_) / seconds / 1024.0,
+              static_cast<double>(statEntities_) / static_cast<double>(std::max<std::uint64_t>(1, statSnapshots_)),
+              statMostEntities_, static_cast<unsigned long long>(statMissed_), bound, names_.size(),
+              static_cast<unsigned long long>(statStarved_), static_cast<unsigned long long>(statFrames_),
+              static_cast<unsigned long long>(statCorrections_), static_cast<double>(statWorstCorrection_));
+    clientStatSeconds_ = 0.0f;
+    statSnapshots_ = 0;
+    statBytes_ = 0;
+    statEntities_ = 0;
+    statMostEntities_ = 0;
+    statMissed_ = 0;
+    statFrames_ = 0;
+    statStarved_ = 0;
+    statCorrections_ = 0;
+    statWorstCorrection_ = 0.0f;
 }
 
 void NetSession::clientFrame(float frameDt) {
@@ -1092,6 +1164,15 @@ void NetSession::clientFrame(float frameDt) {
         clientReceive(event);
     }
     clientPresentTimeline(frameDt);
+    if (connected_ && haveClock_) {
+        clientStatSeconds_ += std::max(0.0f, frameDt);
+        ++statFrames_;
+        if (config_.interpolationDelayTicks > 0 &&
+            clock_ - static_cast<double>(config_.interpolationDelayTicks) > static_cast<double>(lastSnapshotTick_)) {
+            ++statStarved_;
+        }
+        clientLogStats();
+    }
     const int ticks = advanceSimClock(commandClock_, frameDt);
     for (int i = 0; i < ticks; ++i) {
         clientSendCommands();
@@ -1188,6 +1269,9 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
         controller->allowMove = self.allowMove;
         controller->eyeHeight = self.eyeHeight;
     }
+    const SimEyePose* shown = player.try_get<SimEyePose>();
+    const Vector3 before = shown != nullptr ? shown->cur : Vector3{};
+    const bool wasPredicting = predicting_ && shown != nullptr;
     physics.resetCharacterState(
         id,
         JPH::RVec3(self.feet[0], self.feet[1], self.feet[2]),
@@ -1199,6 +1283,15 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
         clientPredictMove(move);
     }
     clientPresentPrediction(false);
+    if (wasPredicting) {
+        if (const SimEyePose* after = player.try_get<SimEyePose>()) {
+            const float moved = Vector3Distance(before, after->cur);
+            if (moved > 0.01f) {
+                ++statCorrections_;
+                statWorstCorrection_ = std::max(statWorstCorrection_, moved);
+            }
+        }
+    }
     predicting_ = true;
 }
 
@@ -1321,6 +1414,15 @@ void NetSession::clientReceive(const NetEvent& event) {
                 clientRefuse("server sent an impossible player state");
                 return;
             }
+            if (lastSnapshotTick_ != 0) {
+                const std::uint64_t step = snapshot.serverTick - lastSnapshotTick_;
+                statInterval_ = statInterval_ == 0 ? step : std::min(statInterval_, step);
+                statMissed_ += step / std::max<std::uint64_t>(1, statInterval_) - 1;
+            }
+            ++statSnapshots_;
+            statBytes_ += event.data.size();
+            statEntities_ += snapshot.entities.size();
+            statMostEntities_ = std::max(statMostEntities_, snapshot.entities.size());
             lastSnapshotTick_ = snapshot.serverTick;
             clientSnapshot(snapshot);
         }
@@ -1745,7 +1847,8 @@ void NetSession::clientPresentEntity(flecs::entity entity, std::deque<ClientSamp
 }
 
 void NetSession::clientSendCommands() {
-    if (!connected_ || server_ == kNoNetConnection || !world_.has<InputState>() || !world_.has<InputCommand>()) {
+    if (!connected_ || server_ == kNoNetConnection || yourPlayer_.empty() || !world_.has<InputState>() ||
+        !world_.has<InputCommand>()) {
         return;
     }
     const flecs::entity player = localPlayer(world_);

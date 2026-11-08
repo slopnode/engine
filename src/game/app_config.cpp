@@ -43,6 +43,11 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --server-key  With --connect, refuse servers whose key isn't this 64-digit hex key\n"
               << "  --session     With --listen, the session kind from data/net.s7 to host\n"
               << "  --max-players With --listen, allow fewer players than the session kind does\n"
+              << "  --bot         With --dedicated --connect, play with synthetic input: still, walk or fight\n"
+              << "  --net-lag     Delay everything this process sends by this many milliseconds\n"
+              << "  --net-jitter  Vary that delay by up to this many milliseconds either way\n"
+              << "  --net-loss    Drop this fraction, 0 to 1, of the unreliable messages it sends\n"
+              << "  --net-stats   Log network statistics every this many seconds\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -124,13 +129,32 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             continue;
         }
 
-        if (arg == "--listen" || arg == "--connect" || arg == "--server-key" || arg == "--session") {
+        if (arg == "--net-lag" || arg == "--net-jitter" || arg == "--net-loss" || arg == "--net-stats") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            char* end = nullptr;
+            const float value = std::strtof(argv[++i], &end);
+            const float limit = arg == "--net-loss" ? 1.0f : 10000.0f;
+            if (end == nullptr || *end != '\0' || !(value >= 0.0f) || value > limit) {
+                return std::nullopt;
+            }
+            float& target = arg == "--net-lag" ? config.netLagMs
+                : arg == "--net-jitter"        ? config.netJitterMs
+                : arg == "--net-loss"          ? config.netLoss
+                                               : config.netStatsSeconds;
+            target = value;
+            continue;
+        }
+
+        if (arg == "--listen" || arg == "--connect" || arg == "--server-key" || arg == "--session" || arg == "--bot") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
             std::string& target = arg == "--listen" ? config.listenAddress
                 : arg == "--connect"                ? config.connectAddress
                 : arg == "--session"                ? config.sessionKind
+                : arg == "--bot"                    ? config.bot
                                                     : config.serverKey;
             target = argv[++i];
             continue;
