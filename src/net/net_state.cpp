@@ -85,6 +85,7 @@ void registerNetState(flecs::world& world) {
     world.set<NetEffectQueue>({});
     world.component<NetSpawnRecipe>();
     world.component<NetSevered>();
+    world.component<NetAttachments>();
     world.component<NetSpawned>();
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});

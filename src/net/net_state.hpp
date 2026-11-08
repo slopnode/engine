@@ -49,6 +49,10 @@ struct NetSevered {
     std::vector<std::string> hidden;
 };
 
+struct NetAttachments {
+    std::vector<NetAttachment> list;
+};
+
 struct NetEffectQueue {
     bool forward = false;
     std::vector<std::pair<flecs::entity_t, NetEffect>> pending;

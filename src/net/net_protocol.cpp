@@ -113,9 +113,31 @@ constexpr std::uint8_t kIntroSevered = 2;
 constexpr std::uint8_t kIntroRagdolled = 4;
 constexpr std::uint8_t kIntroCorpse = 8;
 constexpr std::uint8_t kIntroHidden = 16;
+constexpr std::uint8_t kIntroAttachments = 32;
 constexpr std::size_t kMaxAssetPathBytes = 128;
 constexpr std::size_t kMaxTagBytes = 32;
 constexpr std::size_t kMaxBoneBytes = 64;
+
+void writeAttachment(NetWriter& writer, const NetAttachment& attachment) {
+    writer.string(attachment.slot);
+    writer.string(attachment.bone);
+    writer.string(attachment.geo);
+    writeFloats(writer, attachment.place, 7);
+}
+
+bool readAttachment(NetReader& reader, NetAttachment& attachment) {
+    if (!reader.string(attachment.slot, kMaxBoneBytes) || attachment.slot.empty() ||
+        !reader.string(attachment.bone, kMaxBoneBytes) || attachment.bone.empty() ||
+        !reader.string(attachment.geo, kMaxAssetPathBytes) || attachment.geo.empty()) {
+        return false;
+    }
+    for (float& value : attachment.place) {
+        if (!readFinite(reader, value, 1.0e3f)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 void writeEntity(NetWriter& writer, const NetEntityState& entity, const std::vector<const NetField*>& playerFields) {
     const bool speed = entity.hasAnimation && entity.speed != 1.0f;
@@ -332,6 +354,7 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
         flags |= entry.ragdolled ? kIntroRagdolled : 0;
         flags |= entry.corpse.empty() ? 0 : kIntroCorpse;
         flags |= entry.hidden.empty() ? 0 : kIntroHidden;
+        flags |= entry.attachments.empty() ? 0 : kIntroAttachments;
         writer.u8(flags);
         if (entry.spawn.kind != NetSpawnKind::None) {
             writer.u8(static_cast<std::uint8_t>(entry.spawn.kind));
@@ -353,6 +376,12 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
             writer.varint(entry.hidden.size());
             for (const std::string& bone : entry.hidden) {
                 writer.string(bone);
+            }
+        }
+        if (!entry.attachments.empty()) {
+            writer.varint(entry.attachments.size());
+            for (const NetAttachment& attachment : entry.attachments) {
+                writeAttachment(writer, attachment);
             }
         }
         if (!entry.corpse.empty()) {
@@ -380,7 +409,7 @@ bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduc
         }
         entry.kind = static_cast<NetEntityKind>(kind);
         std::uint8_t flags = 0;
-        if (!reader.u8(flags) || (flags & ~(kIntroSpawn | kIntroSevered | kIntroRagdolled | kIntroCorpse | kIntroHidden)) != 0) {
+        if (!reader.u8(flags) || (flags & ~(kIntroSpawn | kIntroSevered | kIntroRagdolled | kIntroCorpse | kIntroHidden | kIntroAttachments)) != 0) {
             return false;
         }
         if ((flags & kIntroSpawn) != 0) {
@@ -429,6 +458,18 @@ bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduc
                     return false;
                 }
                 entry.hidden.push_back(std::move(bone));
+            }
+        }
+        if ((flags & kIntroAttachments) != 0) {
+            std::size_t count = 0;
+            if (!reader.count(count, kMaxNetAttachments) || count == 0) {
+                return false;
+            }
+            entry.attachments.resize(count);
+            for (NetAttachment& attachment : entry.attachments) {
+                if (!readAttachment(reader, attachment)) {
+                    return false;
+                }
             }
         }
         if ((flags & kIntroCorpse) != 0) {
@@ -717,6 +758,11 @@ std::vector<std::byte> encodeNetEffects(const std::vector<NetEffect>& effects) {
         writer.f32(effect.speed);
         writer.f32(effect.spin);
         writer.f32(effect.lifetime);
+        if (effect.kind == NetEffectKind::Attach) {
+            writeAttachment(writer, effect.attachment);
+        } else if (effect.kind == NetEffectKind::Detach) {
+            writer.string(effect.attachment.slot);
+        }
     }
     return writer.data();
 }
@@ -731,12 +777,13 @@ bool decodeNetEffects(std::span<const std::byte> data, std::vector<NetEffect>& o
     for (std::size_t i = 0; i < count; ++i) {
         NetEffect effect;
         std::uint8_t kind = 0;
-        if (!reader.u8(kind) || kind < 1 || kind > 3 || !readU32(reader, effect.netId) ||
+        if (!reader.u8(kind) || kind < 1 || kind > 5 || !readU32(reader, effect.netId) ||
             !reader.string(effect.bone, kMaxBoneBytes)) {
             return false;
         }
         effect.kind = static_cast<NetEffectKind>(kind);
-        if (effect.kind != NetEffectKind::Ragdoll && effect.bone.empty()) {
+        const bool needsBone = effect.kind == NetEffectKind::Sever || effect.kind == NetEffectKind::Hide;
+        if (needsBone && effect.bone.empty()) {
             return false;
         }
         for (float& axis : effect.push) {
@@ -746,6 +793,13 @@ bool decodeNetEffects(std::span<const std::byte> data, std::vector<NetEffect>& o
         }
         if (!readFinite(reader, effect.speed, 1.0e3f) || !readFinite(reader, effect.spin, 1.0e3f) ||
             !readFinite(reader, effect.lifetime, 1.0e4f)) {
+            return false;
+        }
+        if (effect.kind == NetEffectKind::Attach && !readAttachment(reader, effect.attachment)) {
+            return false;
+        }
+        if (effect.kind == NetEffectKind::Detach &&
+            (!reader.string(effect.attachment.slot, kMaxBoneBytes) || effect.attachment.slot.empty())) {
             return false;
         }
         out.push_back(std::move(effect));

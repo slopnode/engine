@@ -117,6 +117,10 @@ bool saneSelfState(const NetSelfState& self) {
                                   within(self.standHeight, 0.0f, 16.0f)));
 }
 
+bool safeNetAttachment(const NetAttachment& attachment) {
+    return safeNetName(attachment.slot) && safeNetAssetPath(attachment.bone) && safeNetAssetPath(attachment.geo);
+}
+
 bool replicated(flecs::entity entity) {
     if (entity.parent().is_valid() || !entity.has<LocalTransformation>() || entity.name() == nullptr ||
         !safeNetName(entity.name().c_str())) {
@@ -1009,6 +1013,9 @@ NetIntroduction NetSession::serverIntroduction(std::uint32_t netId, flecs::entit
             }
         }
     }
+    if (const NetAttachments* attachments = entity.try_get<NetAttachments>()) {
+        entry.attachments = attachments->list;
+    }
     if (const NetSevered* severed = entity.try_get<NetSevered>()) {
         entry.severed = severed->bones;
         if (entry.severed.size() > kMaxNetSeveredBones) {
@@ -1584,8 +1591,15 @@ void NetSession::clientReceive(const NetEvent& event) {
             return;
         }
         for (const NetEffect& effect : effects) {
+            const bool attaching = effect.kind == NetEffectKind::Attach || effect.kind == NetEffectKind::Detach;
+            if ((effect.kind == NetEffectKind::Attach && !safeNetAttachment(effect.attachment)) ||
+                (effect.kind == NetEffectKind::Detach && !safeNetName(effect.attachment.slot)) ||
+                (!effect.bone.empty() && !safeNetAssetPath(effect.bone))) {
+                clientRefuse("server sent a bad effect");
+                return;
+            }
             const flecs::entity entity = clientEntity(effect.netId);
-            if (entity.is_valid() && config_.applyEffect) {
+            if (entity.is_valid() && config_.applyEffect && !(attaching && entity.has<NetStandIn>())) {
                 config_.applyEffect(entity, effect, true);
             }
         }
@@ -1711,6 +1725,11 @@ bool NetSession::clientAcceptIntroduction(const NetIntroduction& entry) {
             return false;
         }
     }
+    for (const NetAttachment& attachment : entry.attachments) {
+        if (!safeNetAttachment(attachment)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1723,6 +1742,13 @@ void NetSession::clientApplyCutState(flecs::entity entity, const NetIntroduction
         effect.kind = NetEffectKind::Sever;
         effect.netId = entry.netId;
         effect.bone = bone;
+        config_.applyEffect(entity, effect, false);
+    }
+    for (const NetAttachment& attachment : entry.attachments) {
+        NetEffect effect;
+        effect.kind = NetEffectKind::Attach;
+        effect.netId = entry.netId;
+        effect.attachment = attachment;
         config_.applyEffect(entity, effect, false);
     }
     for (const std::string& bone : entry.hidden) {

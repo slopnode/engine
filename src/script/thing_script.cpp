@@ -2147,6 +2147,71 @@ s7_pointer g_actor_water_exit_dir(s7_scheme* sc, s7_pointer args) {
     return s7_list(sc, 2, s7_make_real(sc, dirX), s7_make_real(sc, dirZ));
 }
 
+bool attachActorGeoImpl(flecs::entity host, const std::string& slot, const std::string& bone, const std::string& geo,
+                        const float place[7]) {
+    if (!host.is_valid() || !host.has<Model3D>()) {
+        return false;
+    }
+    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
+        return false;
+    }
+    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    const Model& hostModel = host.get<Model3D>().model;
+    const GeoAsset* hostGeo =
+        host.has<GeoSource>() ? assets.getGeoAsset(host.get<GeoSource>().path) : nullptr;
+    BoneAttachment attachment{};
+    if (!resolveBoneAttachment(
+            hostModel,
+            hostGeo,
+            bone,
+            {place[0], place[1], place[2]},
+            {place[3], place[4], place[5]},
+            place[6],
+            attachment)) {
+        TraceLog(LOG_WARNING, "actor-attach-geo: '%s' has no bone or attachment '%s'", host.name().c_str(), bone.c_str());
+        return false;
+    }
+    if (!assets.hasGeo(geo)) {
+        TraceLog(LOG_WARNING, "actor-attach-geo: missing geo '%s'", geo.c_str());
+        return false;
+    }
+    const Model source = assets.getGeoModel(geo);
+    Model model = cloneGeoModelInstance(source);
+    if (model.meshCount <= 0) {
+        return false;
+    }
+
+    destroyAttachmentTree(host.lookup(slot.c_str()));
+
+    LocalTransformation local{};
+    local.scale = attachment.scale;
+    flecs::entity child = g_thingWorld->entity().child_of(host);
+    child.set_name(slot.c_str());
+    child.add<WorldSpace>()
+        .add<MapOwned>()
+        .set<LocalTransformation>(local)
+        .set<GlobalTransformation>(GlobalTransformation{})
+        .set<Model3D>({model, WHITE})
+        .set<GeoSource>({geo})
+        .set<BoneAttachment>(attachment);
+    if (model.skeleton.boneCount > 0) {
+        attachGeoAnimationPlayer(child, assets, geo, {}, {}, true);
+    }
+    return true;
+}
+
+bool detachActorGeoImpl(flecs::entity host, const std::string& slot) {
+    if (!host.is_valid()) {
+        return false;
+    }
+    flecs::entity child = findAttachmentChild(host, slot);
+    if (!child.is_valid()) {
+        return false;
+    }
+    destroyAttachmentTree(child);
+    return true;
+}
+
 s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "actor-attach-geo", args);
     const char* names[4] = {"id", "name", "bone", "geo"};
@@ -2161,59 +2226,26 @@ s7_pointer g_actor_attach_geo(s7_scheme* sc, s7_pointer args) {
         }
         value = in.realf();
     }
-
     flecs::entity host = resolveActorPath(values[0]);
-    if (!host.is_valid() || !host.has<Model3D>()) {
+    if (!attachActorGeoImpl(host, values[1], values[2], values[3], numbers)) {
         return s7_f(sc);
     }
-    if (!g_thingWorld->has<AssetServices>() || g_thingWorld->get<AssetServices>().store == nullptr) {
-        return s7_f(sc);
-    }
-    AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
-    const Model& hostModel = host.get<Model3D>().model;
-    const GeoAsset* hostGeo =
-        host.has<GeoSource>() ? assets.getGeoAsset(host.get<GeoSource>().path) : nullptr;
-    BoneAttachment attachment{};
-    if (!resolveBoneAttachment(
-            hostModel,
-            hostGeo,
-            values[2],
-            {numbers[0], numbers[1], numbers[2]},
-            {numbers[3], numbers[4], numbers[5]},
-            numbers[6],
-            attachment)) {
-        TraceLog(
-            LOG_WARNING,
-            "actor-attach-geo: '%s' has no bone or attachment '%s'",
-            values[0].c_str(),
-            values[2].c_str());
-        return s7_f(sc);
-    }
-    if (!assets.hasGeo(values[3])) {
-        TraceLog(LOG_WARNING, "actor-attach-geo: missing geo '%s'", values[3].c_str());
-        return s7_f(sc);
-    }
-    const Model source = assets.getGeoModel(values[3]);
-    Model model = cloneGeoModelInstance(source);
-    if (model.meshCount <= 0) {
-        return s7_f(sc);
-    }
-
-    destroyAttachmentTree(host.lookup(values[1].c_str()));
-
-    LocalTransformation local{};
-    local.scale = attachment.scale;
-    flecs::entity child = g_thingWorld->entity().child_of(host);
-    child.set_name(values[1].c_str());
-    child.add<WorldSpace>()
-        .add<MapOwned>()
-        .set<LocalTransformation>(local)
-        .set<GlobalTransformation>(GlobalTransformation{})
-        .set<Model3D>({model, WHITE})
-        .set<GeoSource>({values[3]})
-        .set<BoneAttachment>(attachment);
-    if (model.skeleton.boneCount > 0) {
-        attachGeoAnimationPlayer(child, assets, values[3], {}, {}, true);
+    if (!host.parent().is_valid()) {
+        NetAttachment record;
+        record.slot = values[1];
+        record.bone = values[2];
+        record.geo = values[3];
+        std::copy(std::begin(numbers), std::end(numbers), std::begin(record.place));
+        NetAttachments attachments = host.has<NetAttachments>() ? host.get<NetAttachments>() : NetAttachments{};
+        std::erase_if(attachments.list, [&](const NetAttachment& other) { return other.slot == record.slot; });
+        if (attachments.list.size() < kMaxNetAttachments) {
+            attachments.list.push_back(record);
+        }
+        host.set<NetAttachments>(std::move(attachments));
+        NetEffect effect;
+        effect.kind = NetEffectKind::Attach;
+        effect.attachment = std::move(record);
+        queueNetEffect(*g_thingWorld, host, std::move(effect));
     }
     return s7_t(sc);
 }
@@ -2222,15 +2254,24 @@ s7_pointer g_actor_detach(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "actor-detach", args);
     const char* id = in.string("id string");
     const char* name = in.string("name string");
+    if (!in.ok()) {
+        return in.error();
+    }
     flecs::entity host = resolveActorPath(id);
-    if (!host.is_valid()) {
+    if (!detachActorGeoImpl(host, name)) {
         return s7_f(sc);
     }
-    flecs::entity child = findAttachmentChild(host, name);
-    if (!child.is_valid()) {
-        return s7_f(sc);
+    if (!host.parent().is_valid()) {
+        if (host.has<NetAttachments>()) {
+            NetAttachments attachments = host.get<NetAttachments>();
+            std::erase_if(attachments.list, [&](const NetAttachment& other) { return other.slot == name; });
+            host.set<NetAttachments>(std::move(attachments));
+        }
+        NetEffect effect;
+        effect.kind = NetEffectKind::Detach;
+        effect.attachment.slot = name;
+        queueNetEffect(*g_thingWorld, host, std::move(effect));
     }
-    destroyAttachmentTree(child);
     return s7_t(sc);
 }
 
@@ -3403,6 +3444,14 @@ bool applyCorpsePose(flecs::entity entity, const std::vector<NetPose>& bones) {
 
 bool hideActorBone(flecs::entity entity, const std::string& boneName) {
     return hideActorBoneImpl(entity, boneName);
+}
+
+bool attachActorGeo(flecs::entity host, const NetAttachment& attachment) {
+    return attachActorGeoImpl(host, attachment.slot, attachment.bone, attachment.geo, attachment.place);
+}
+
+bool detachActorGeo(flecs::entity host, const std::string& slot) {
+    return detachActorGeoImpl(host, slot);
 }
 
 void queueThingDespawn(flecs::world& world, std::string_view id) {

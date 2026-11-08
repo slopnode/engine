@@ -145,6 +145,15 @@ void runNetSpawnTests() {
 
     const flecs::entity serverWalker = server.world.lookup("walker");
     serverWalker.set<NetSevered>({{"arm.L"}, {"vote_up"}});
+    NetAttachment gun;
+    gun.slot = "held";
+    gun.bone = "hand.R";
+    gun.geo = "weapons/m4_lod";
+    serverWalker.set<NetAttachments>({{gun}});
+    NetEffect attach;
+    attach.kind = NetEffectKind::Attach;
+    attach.attachment = gun;
+    queueNetEffect(server.world, serverWalker, attach);
     NetEffect sever;
     sever.kind = NetEffectKind::Sever;
     sever.bone = "arm.L";
@@ -152,8 +161,10 @@ void runNetSpawnTests() {
     sever.speed = 3.0f;
     queueNetEffect(server.world, serverWalker, sever);
     frames(3);
-    CHECK(client.effects.size() == 1 && client.effects[0].second && client.effects[0].first.bone == "arm.L");
-    CHECK(client.effects.size() == 1 && client.effects[0].first.push[0] == 1.0f);
+    CHECK(client.effects.size() == 2 && client.effects[1].second && client.effects[1].first.bone == "arm.L");
+    CHECK(client.effects.size() == 2 && client.effects[1].first.push[0] == 1.0f);
+    CHECK(client.effects.size() == 2 && client.effects[0].first.kind == NetEffectKind::Attach &&
+          client.effects[0].first.attachment.geo == "weapons/m4_lod");
     serverWalker.get_mut<LocalTransformation>().position.x = 2.0f;
     frames(3);
     const flecs::entity clientWalker = client.world.lookup("walker");
@@ -200,6 +211,11 @@ void runNetSpawnTests() {
         hiddenOnJoin = hiddenOnJoin || (effect.kind == NetEffectKind::Hide && effect.bone == "vote_up");
     }
     CHECK(hiddenOnJoin);
+    bool armedOnJoin = false;
+    for (const auto& [effect, makePiece] : late.effects) {
+        armedOnJoin = armedOnJoin || (effect.kind == NetEffectKind::Attach && effect.attachment.slot == "held");
+    }
+    CHECK(armedOnJoin);
     bool ragdolledOnJoin = false;
     for (const auto& [effect, makePiece] : late.effects) {
         ragdolledOnJoin = ragdolledOnJoin || effect.kind == NetEffectKind::Ragdoll;

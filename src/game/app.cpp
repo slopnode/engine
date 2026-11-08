@@ -258,6 +258,10 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
             severActorPart(entity, effect.bone, push, effect.speed, effect.spin, effect.lifetime, makePiece);
         } else if (effect.kind == NetEffectKind::Hide) {
             hideActorBone(entity, effect.bone);
+        } else if (effect.kind == NetEffectKind::Attach) {
+            attachActorGeo(entity, effect.attachment);
+        } else if (effect.kind == NetEffectKind::Detach) {
+            detachActorGeo(entity, effect.attachment.slot);
         } else {
             ragdollActorBody(entity, push, effect.speed, effect.bone, effect.lifetime);
         }

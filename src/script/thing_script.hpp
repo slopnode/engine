@@ -22,5 +22,7 @@ flecs::entity spawnNetPresentation(flecs::world& world, const std::string& name,
 std::vector<NetPose> captureCorpsePose(flecs::entity entity);
 bool applyCorpsePose(flecs::entity entity, const std::vector<NetPose>& bones);
 bool hideActorBone(flecs::entity entity, const std::string& boneName);
+bool attachActorGeo(flecs::entity host, const NetAttachment& attachment);
+bool detachActorGeo(flecs::entity host, const std::string& slot);
 
 }

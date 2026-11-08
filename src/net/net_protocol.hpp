@@ -14,7 +14,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 11;
+inline constexpr std::uint32_t kNetProtocolVersion = 12;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
@@ -22,6 +22,7 @@ inline constexpr std::size_t kMaxNetClips = 1024;
 inline constexpr std::size_t kMaxNetSpawnTags = 8;
 inline constexpr std::size_t kMaxNetSeveredBones = 64;
 inline constexpr std::size_t kMaxNetCorpseBones = 256;
+inline constexpr std::size_t kMaxNetAttachments = 16;
 inline constexpr std::size_t kMaxNetEffectsPerMessage = 256;
 inline constexpr float kNetPositionScale = 512.0f;
 inline constexpr float kMaxNetCoordinate = 1.0e6f;
@@ -114,6 +115,13 @@ struct NetSpawnRecipe {
     NetPose pose;
 };
 
+struct NetAttachment {
+    std::string slot;
+    std::string bone;
+    std::string geo;
+    float place[7]{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+};
+
 struct NetIntroduction {
     std::uint32_t netId = 0;
     std::string name;
@@ -123,12 +131,15 @@ struct NetIntroduction {
     std::vector<std::string> hidden;
     bool ragdolled = false;
     std::vector<NetPose> corpse;
+    std::vector<NetAttachment> attachments;
 };
 
 enum class NetEffectKind : std::uint8_t {
     Sever = 1,
     Ragdoll = 2,
     Hide = 3,
+    Attach = 4,
+    Detach = 5,
 };
 
 struct NetEffect {
@@ -139,6 +150,7 @@ struct NetEffect {
     float speed = 0.0f;
     float spin = 0.0f;
     float lifetime = 0.0f;
+    NetAttachment attachment;
 };
 
 struct NetEntityState {
