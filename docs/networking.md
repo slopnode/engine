@@ -221,7 +221,7 @@ The server raises the same event in `tick` as before. When it raises a predicted
 
 `net-command-tick` gives the command the hook runs for and `net-acked-command` the newest command the server's snapshot accounts for. A hook that predicts something a field counts, such as rounds left, takes the field and subtracts what it predicted for later commands. The client's stats line counts predicted events the server confirmed, ones it didn't, and the server's events the client didn't predict.
 
-slopdemo predicts its weapons this way. The `predict` hook runs the trigger from the weapon's rate, the player's `weapon-state` and `loaded-rounds` fields and the rounds it fired since the last acknowledged command, and raises `weapon-fx` for the kick and sound and `tracer` from the view model's muzzle.
+slopdemo predicts its weapons this way. The `predict` hook runs the trigger from the weapon's rate, the player's `weapon-state` and `loaded-rounds` fields and the rounds it fired since the last acknowledged command, and raises `weapon-fx` for the kick and sound and `tracer` from the view model's muzzle. Other players hear and see a shot through a separate `gunfire` event with a `near` audience, aimed at the shooter. A client that has a stand-in for the shooter plays the shot's sound, a muzzle flash and a short light at the stand-in's hand. The shooter's own client has no stand-in for itself, so it skips the event and keeps its predicted feedback.
 
 ## Hooks
 
