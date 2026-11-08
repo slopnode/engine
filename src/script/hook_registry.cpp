@@ -36,6 +36,7 @@ const char* kEngineHooks[] = {
     "on-map-ready",
     "tick",
     "present",
+    "predict",
     "draw-hud",
     "draw-title",
     "draw-file-menu",

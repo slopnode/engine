@@ -23,6 +23,7 @@ present|First-person presentation every frame, on clients too|`fp-present`,`audi
 ui|UI (non-hud) rendering|`ui-draw`,`save-io`,`map-control`,`package-load`,`read-world`,`startup-query`
 mapauthor|Loading map files|none
 bot|A bot script on a dedicated client, see @ref bots|`bot-input`,`input-query`,`read-world`
+predict|A network client's own command, once per command it sends, see @ref predict|`fp-present`,`audio`,`input-query`,`read-world`
 
 ## Roles {#roles}
 
@@ -348,11 +349,21 @@ Applies a list from `net-save-state`. Unknown fields and values that no longer f
 </code></pre>
 
 ### net-event! {#net-event}
-Raises a declared event. Runs `(on-event-NAME where arg ...)` here, and on a server also sends the event to the client its audience allows. Raises a `net` error for an undeclared event, a wrong or non-finite `where`, arguments that don't match the declaration, or a mod raising an event the base package declared.
+Raises a declared event. Runs `(on-event-NAME where arg ...)` here, and on a server also sends the event to the client its audience allows. Raises a `net` error for an undeclared event, a wrong or non-finite `where`, arguments that don't match the declaration, or a mod raising an event the base package declared. In `predict` scope it only raises events declared `(predict \#t)`, runs the handler on this client and sends nothing, and an `owner` event has to name `(script-player)`. The server's own copy of the event for the same command is then dropped when it arrives. Outside `predict` it needs `world-mutate`.
 <pre><code class="language-scheme">(net-event!
   event : symbol?
   where : (or (list real? real? real?) string? \#f)
   arg : any? ...) ↵ boolean?
+</code></pre>
+
+### net-command-tick {#net-command-tick}
+Returns the number of the command `predict` is running for, or `#f` outside `predict`.
+<pre><code class="language-scheme">(net-command-tick) ↵ (or integer? #f)
+</code></pre>
+
+### net-acked-command {#net-acked-command}
+Returns the newest command of this client's that the server had applied when it sent the latest snapshot, so the player fields read with `net-get` are from after that command. Returns `#f` outside `predict`. A script that predicts something counted in a field, such as rounds fired, subtracts what it predicted for later commands.
+<pre><code class="language-scheme">(net-acked-command) ↵ (or integer? #f)
 </code></pre>
 
 ### net-schema-hash {#net-schema-hash}
@@ -2335,6 +2346,12 @@ Called every update frame, with the frame delta time in seconds.
 ### present {#present}
 Called every drawn frame in `present` scope, with the frame delta time in seconds. It runs on a network client, which runs no `tick`.
 <pre><code class="language-scheme">(present
+  dt : real?)
+</code></pre>
+
+### predict {#predict}
+Called on a network client in `predict` scope once for every command it sends, after its own movement for that command was predicted, with the tick length in seconds. `action-down?` and `action-pressed?` read that command, so the hook sees the same input the server will apply. It is the place to play a player's own feedback at once, such as a shot's kick and sound, by raising events declared `(predict \#t)`. It doesn't run on a server or in single-player, where `tick` raises the same events.
+<pre><code class="language-scheme">(predict
   dt : real?)
 </code></pre>
 

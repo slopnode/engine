@@ -14,6 +14,8 @@
 #include "game/sim_interpolation.hpp"
 #include "game/sim_pipeline.hpp"
 #include "script/hook_registry.hpp"
+#include "script/input_script.hpp"
+#include "script/script_context.hpp"
 #include "script/proc_role.hpp"
 #include "input/action_registry.hpp"
 #include "input/input_module.hpp"
@@ -268,6 +270,14 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     };
     net.corpsePose = [](flecs::entity entity) { return captureCorpsePose(entity); };
     net.applyCorpse = [](flecs::entity entity, const std::vector<NetPose>& bones) { applyCorpsePose(entity, bones); };
+    net.predict = [this](const PlayerCommand& command) {
+        if (!world_.has<ScriptContext>() || world_.get<ScriptContext>().scheme == nullptr) {
+            return;
+        }
+        PredictedCommandGuard guard(command);
+        callHook1Real(world_.get<ScriptContext>().scheme, "predict", static_cast<double>(kSimTickDt),
+                      ScriptScope::Predict);
+    };
     net.clipDuration = [](flecs::entity entity) {
         const AnimationPlayer* animation = entity.try_get<AnimationPlayer>();
         return animation != nullptr ? animationClipDuration(entity.world(), *animation) : 0.0f;

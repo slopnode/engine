@@ -16,6 +16,7 @@ namespace slopengine {
 namespace {
 
 flecs::world* g_inputWorld = nullptr;
+thread_local const PlayerCommand* g_predictedCommand = nullptr;
 
 enum class ActionQuery {
     Down,
@@ -39,6 +40,13 @@ s7_pointer queryAction(s7_scheme* sc, s7_pointer args, const char* proc, ActionQ
     if (index < 0) {
         return s7_f(sc);
     }
+    if (currentScriptScope() == ScriptScope::Predict && local) {
+        if (g_predictedCommand == nullptr) {
+            return s7_f(sc);
+        }
+        return s7_make_boolean(
+            sc, query == ActionQuery::Pressed ? g_predictedCommand->pressed(index) : g_predictedCommand->down(index));
+    }
     if (currentScriptScope() == ScriptScope::World || !local) {
         const flecs::entity player = scriptPlayer(*g_inputWorld);
         const PlayerCommand* command = player.is_valid() ? player.try_get<PlayerCommand>() : nullptr;
@@ -55,6 +63,18 @@ s7_pointer queryAction(s7_scheme* sc, s7_pointer args, const char* proc, ActionQ
     return s7_make_boolean(
         sc, query == ActionQuery::Pressed ? input.pressed(index) : input.down(index));
 }
+
+}
+
+PredictedCommandGuard::PredictedCommandGuard(const PlayerCommand& command) : previous_(g_predictedCommand) {
+    g_predictedCommand = &command;
+}
+
+PredictedCommandGuard::~PredictedCommandGuard() {
+    g_predictedCommand = previous_;
+}
+
+namespace {
 
 s7_pointer g_action_down(s7_scheme* sc, s7_pointer args) {
     return queryAction(sc, args, "action-down?", ActionQuery::Down);

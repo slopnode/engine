@@ -101,6 +101,7 @@ struct NetEventDef {
     NetEventAudience to = NetEventAudience::All;
     float nearRadius = 0.0f;
     bool reliable = false;
+    bool predict = false;
     int id = -1;
 };
 

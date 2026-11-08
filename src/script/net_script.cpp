@@ -238,6 +238,25 @@ bool readWhere(s7_scheme* sc, s7_pointer value, NetEventMessage& out) {
     return s7_is_null(sc, cursor);
 }
 
+s7_pointer predictNetEvent(s7_scheme* sc, const NetEventDef& def, const NetEventMessage& event) {
+    if (!def.predict) {
+        return netError(sc, "net-event!: " + def.name + " isn't declared (predict #t), so predict can't raise it");
+    }
+    if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
+        return s7_f(sc);
+    }
+    if (def.to == NetEventAudience::Owner && (event.where != NetEventWhere::Player || event.player != kLocalNetPlayerId)) {
+        return netError(sc, "net-event!: predict can only raise " + def.name + " for its own player");
+    }
+    NetPrediction& prediction = g_netWorld->get_mut<NetPrediction>();
+    if (prediction.raised.size() >= kMaxPredictedEvents) {
+        prediction.raised.erase(prediction.raised.begin());
+    }
+    prediction.raised.push_back(NetPredictedEvent{event.eventId, prediction.tick, false});
+    deliverNetEvent(sc, event);
+    return s7_t(sc);
+}
+
 s7_pointer g_net_event(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "net-event!", args);
     const char* name = in.name("event symbol");
@@ -273,6 +292,12 @@ s7_pointer g_net_event(s7_scheme* sc, s7_pointer args) {
     if (!s7_is_null(sc, cursor)) {
         return netError(sc, "net-event!: " + def->name + " takes " + std::to_string(def->args.size()) + " arguments");
     }
+    if (currentScriptScope() == ScriptScope::Predict) {
+        return predictNetEvent(sc, *def, event);
+    }
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_f(sc);
+    }
     const bool localPlayerHere = g_netWorld == nullptr || !g_netWorld->has<NetEventQueue>() ||
         g_netWorld->get<NetEventQueue>().localPlayerHere;
     if (def->to != NetEventAudience::Owner || event.where != NetEventWhere::Player ||
@@ -282,10 +307,28 @@ s7_pointer g_net_event(s7_scheme* sc, s7_pointer args) {
     if (g_netWorld != nullptr && g_netWorld->has<NetEventQueue>()) {
         NetEventQueue& queue = g_netWorld->get_mut<NetEventQueue>();
         if (queue.forward) {
+            const ScriptPlayerStack& players = scriptPlayerStack();
+            if (def->predict && players.saved.size() > players.floor) {
+                event.cause = players.current;
+            }
             queue.pending.push_back(std::move(event));
         }
     }
     return s7_t(sc);
+}
+
+s7_pointer g_net_command_tick(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, static_cast<s7_int>(g_netWorld->get<NetPrediction>().tick));
+}
+
+s7_pointer g_net_acked_command(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
+        return s7_f(sc);
+    }
+    return s7_make_integer(sc, static_cast<s7_int>(g_netWorld->get<NetPrediction>().ackedTick));
 }
 
 s7_pointer g_net_schema_hash(s7_scheme* sc, s7_pointer) {
@@ -322,7 +365,9 @@ constexpr SchemeBinding kNetBindings[] = {
     {"net-save-state", g_net_save_state, 0, 0, false, "(net-save-state)", ScriptCap::ReadWorld},
     {"net-restore-state!", g_net_restore_state, 1, 0, false, "(net-restore-state! state)", ScriptCap::WorldMutate},
     {"net-schema-hash", g_net_schema_hash, 0, 0, false, "(net-schema-hash)", ScriptCap::ReadWorld},
-    {"net-event!", g_net_event, 2, 0, true, "(net-event! event where arg ...)", ScriptCap::WorldMutate},
+    {"net-event!", g_net_event, 2, 0, true, "(net-event! event where arg ...)", ScriptCap::ReadWorld},
+    {"net-command-tick", g_net_command_tick, 0, 0, false, "(net-command-tick)", ScriptCap::ReadWorld},
+    {"net-acked-command", g_net_acked_command, 0, 0, false, "(net-acked-command)", ScriptCap::ReadWorld},
     {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
     {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
 };

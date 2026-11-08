@@ -213,7 +213,7 @@ Net state declares the game state the engine stores for each player, for the ses
 
 Player fields not marked `travel` go back to their defaults on every map load. Session fields and travel fields keep their values until a script changes them or calls `net-reset!`.
 
-`*net-events*` declares one-shot events such as sounds and effects. Each has typed arguments, an audience and a reliable flag. Scripts raise them with `net-event!` and handle them in `on-event-NAME` procedures. `*net-extension*` can give mods an `(events (count n) (bytes n))` budget.
+`*net-events*` declares one-shot events such as sounds and effects. Each has typed arguments, an audience, a reliable flag and a predict flag. Scripts raise them with `net-event!` and handle them in `on-event-NAME` procedures. An event with `(predict \#t)` can also be raised by a client's `predict` hook for its own player, see @ref networking. `*net-extension*` can give mods an `(events (count n) (bytes n))` budget.
 
 <pre><code class="language-scheme">(define *net-events*
   '((sound-3d (args (path (string 64))) (to (near 80)))

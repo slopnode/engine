@@ -83,6 +83,8 @@ void registerNetState(flecs::world& world) {
     world.set<NetEventQueue>({});
     world.component<NetEffectQueue>();
     world.set<NetEffectQueue>({});
+    world.component<NetPrediction>();
+    world.set<NetPrediction>({});
     world.component<NetSpawnRecipe>();
     world.component<NetSevered>();
     world.component<NetAttachments>();

@@ -570,6 +570,9 @@ std::vector<std::byte> encodeNetEvents(const std::vector<NetEventMessage>& event
         for (std::size_t i = 0; i < def.args.size(); ++i) {
             writer.value(event.args[i], def.args[i].type);
         }
+        if (def.predict) {
+            writer.varint(event.causeTick);
+        }
     }
     return writer.data();
 }
@@ -603,6 +606,9 @@ bool decodeNetEvents(
                 return false;
             }
             event.args.push_back(std::move(value));
+        }
+        if (defs[event.eventId].predict && !reader.varint(event.causeTick)) {
+            return false;
         }
         out.push_back(std::move(event));
     }

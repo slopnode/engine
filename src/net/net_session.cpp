@@ -59,6 +59,7 @@ constexpr float kFreshPriority = 8.0f;
 constexpr double kClockSnapTicks = 30.0;
 constexpr double kClockPull = 0.1;
 constexpr float kCorrectionDecay = 0.85f;
+constexpr std::uint64_t kPredictWindowTicks = 12;
 
 constexpr const char* kAvatarPrefix = "player:";
 
@@ -793,7 +794,11 @@ void NetSession::serverSendEvents(ServerClient& client, const std::vector<NetEve
             }
         }
         if (send) {
-            (def.reliable ? reliable : unreliable).push_back(event);
+            std::vector<NetEventMessage>& out = def.reliable ? reliable : unreliable;
+            out.push_back(event);
+            if (def.predict && !event.cause.empty() && event.cause == client.player) {
+                out.back().causeTick = client.lastCommandTick;
+            }
         }
     }
     serverSendEventBatch(client.connection, reliable, defs, NetSendMode::Reliable);
@@ -1312,14 +1317,16 @@ void NetSession::clientLogStats() {
     Log::info(LogCategory::General,
               "NET STATS client %s: %.1f snapshots/s, %.1f KB/s, %.1f entities per snapshot, %zu at most, "
               "%llu missed, %zu of %zu bound, %llu of %llu frames starved, %llu corrections, worst %.3f m, "
-              "%.1f events/s, %.1f commands in flight, %zu at most",
+              "%.1f events/s, %llu predicted events confirmed, %llu not, %llu unpredicted, "
+              "%.1f commands in flight, %zu at most",
               yourPlayer_.c_str(), static_cast<double>(statSnapshots_) / seconds,
               static_cast<double>(statBytes_) / seconds / 1024.0,
               static_cast<double>(statEntities_) / static_cast<double>(std::max<std::uint64_t>(1, statSnapshots_)),
               statMostEntities_, static_cast<unsigned long long>(statMissed_), bound, names_.size(),
               static_cast<unsigned long long>(statStarved_), static_cast<unsigned long long>(statFrames_),
               static_cast<unsigned long long>(statCorrections_), static_cast<double>(statWorstCorrection_),
-              static_cast<double>(statEvents_) / seconds,
+              static_cast<double>(statEvents_) / seconds, static_cast<unsigned long long>(statPredictedHit_),
+              static_cast<unsigned long long>(statPredictedMiss_), static_cast<unsigned long long>(statUnpredicted_),
               static_cast<double>(statInFlight_) / static_cast<double>(std::max<std::uint64_t>(1, statReconciles_)),
               statMostInFlight_);
     clientStatSeconds_ = 0.0f;
@@ -1333,6 +1340,9 @@ void NetSession::clientLogStats() {
     statCorrections_ = 0;
     statWorstCorrection_ = 0.0f;
     statEvents_ = 0;
+    statPredictedHit_ = 0;
+    statPredictedMiss_ = 0;
+    statUnpredicted_ = 0;
     statReconciles_ = 0;
     statInFlight_ = 0;
     statMostInFlight_ = 0;
@@ -1473,6 +1483,7 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
     while (!predicted_.empty() && predicted_.front().tick <= snapshot.ackedCommand) {
         predicted_.pop_front();
     }
+    clientPrunePredicted(snapshot.ackedCommand);
     ++statReconciles_;
     statInFlight_ += predicted_.size();
     statMostInFlight_ = std::max(statMostInFlight_, predicted_.size());
@@ -1493,6 +1504,49 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
     }
     clientPresentPrediction(false);
     predicting_ = true;
+}
+
+bool NetSession::clientPredicted(const NetEventMessage& event) {
+    const std::vector<NetEventDef>& defs = netSchema().events();
+    if (event.causeTick == 0 || event.eventId >= defs.size() || !defs[event.eventId].predict ||
+        !world_.has<NetPrediction>()) {
+        return false;
+    }
+    NetPrediction& prediction = world_.get_mut<NetPrediction>();
+    auto best = prediction.raised.end();
+    std::uint64_t bestGap = kPredictWindowTicks + 1;
+    for (auto it = prediction.raised.begin(); it != prediction.raised.end(); ++it) {
+        if (it->matched || it->eventId != event.eventId) {
+            continue;
+        }
+        const std::uint64_t gap = it->tick > event.causeTick ? it->tick - event.causeTick : event.causeTick - it->tick;
+        if (gap < bestGap) {
+            bestGap = gap;
+            best = it;
+        }
+    }
+    if (best == prediction.raised.end()) {
+        ++statUnpredicted_;
+        return false;
+    }
+    best->matched = true;
+    ++statPredictedHit_;
+    return true;
+}
+
+void NetSession::clientPrunePredicted(std::uint64_t acked) {
+    if (!world_.has<NetPrediction>()) {
+        return;
+    }
+    NetPrediction& prediction = world_.get_mut<NetPrediction>();
+    prediction.ackedTick = std::max(prediction.ackedTick, acked);
+    std::erase_if(prediction.raised, [&](const NetPredictedEvent& raised) {
+        if (raised.tick + kPredictWindowTicks >= prediction.ackedTick) {
+            return false;
+        }
+        statPredictedMiss_ += raised.matched ? 0 : 1;
+        return true;
+    });
 }
 
 void NetSession::clientReceive(const NetEvent& event) {
@@ -1634,7 +1688,9 @@ void NetSession::clientReceive(const NetEvent& event) {
             s7_scheme* scheme = world_.get<ScriptContext>().scheme;
             for (const NetEventMessage& message : events) {
                 ++statEvents_;
-                deliverNetEvent(scheme, message);
+                if (!clientPredicted(message)) {
+                    deliverNetEvent(scheme, message);
+                }
             }
         }
     } else if (kind == NetMessageKind::Snapshot) {
@@ -1839,6 +1895,9 @@ void NetSession::clientResetView(bool reenable) {
     predicted_.clear();
     predicting_ = false;
     correction_ = {};
+    if (world_.has<NetPrediction>()) {
+        world_.set<NetPrediction>({});
+    }
     hidden_.clear();
     hidOnLoad_ = false;
     lastSnapshotTick_ = 0;
@@ -2226,6 +2285,15 @@ void NetSession::clientSendCommands() {
                 correction_ = {};
             }
             clientPresentPrediction(true);
+            if (config_.predict && world_.has<NetPrediction>()) {
+                NetPrediction& prediction = world_.get_mut<NetPrediction>();
+                prediction.active = true;
+                prediction.tick = command.tick;
+                config_.predict(command);
+                if (world_.has<NetPrediction>()) {
+                    world_.get_mut<NetPrediction>().active = false;
+                }
+            }
         }
     }
     recentCommands_.push_back(std::move(frame));

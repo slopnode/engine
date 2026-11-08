@@ -14,7 +14,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 12;
+inline constexpr std::uint32_t kNetProtocolVersion = 13;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
@@ -51,6 +51,8 @@ struct NetEventMessage {
     float point[3]{};
     std::string player;
     std::vector<NetValue> args;
+    std::string cause;
+    std::uint64_t causeTick = 0;
 };
 
 struct NetPackageVersion {

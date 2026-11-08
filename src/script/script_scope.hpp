@@ -18,6 +18,7 @@ enum class ScriptScope {
     Ui,
     MapAuthor,
     Bot,
+    Predict,
 };
 
 enum class ScriptCap : uint32_t {

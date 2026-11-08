@@ -24,6 +24,8 @@
 
 namespace slopengine {
 
+struct PlayerCommand;
+
 enum class NetRole {
     None,
     Server,
@@ -59,6 +61,7 @@ struct NetSessionConfig {
     std::function<void(flecs::entity entity, const NetEffect& effect, bool makePiece)> applyEffect;
     std::function<std::vector<NetPose>(flecs::entity entity)> corpsePose;
     std::function<void(flecs::entity entity, const std::vector<NetPose>& bones)> applyCorpse;
+    std::function<void(const PlayerCommand& command)> predict;
 };
 
 struct NetId {
@@ -219,6 +222,8 @@ private:
     void clientSendCommands();
     bool clientPredictMove(const PredictedMove& move);
     void clientReconcile(const NetSnapshot& snapshot);
+    bool clientPredicted(const NetEventMessage& event);
+    void clientPrunePredicted(std::uint64_t acked);
     void clientPresentPrediction(bool advance);
     flecs::entity clientEntity(std::uint32_t netId);
     void applyStandInFields(const NetEntityState& state);
@@ -279,6 +284,9 @@ private:
     std::uint64_t statCorrections_ = 0;
     float statWorstCorrection_ = 0.0f;
     std::uint64_t statEvents_ = 0;
+    std::uint64_t statPredictedHit_ = 0;
+    std::uint64_t statPredictedMiss_ = 0;
+    std::uint64_t statUnpredicted_ = 0;
     std::uint64_t statReconciles_ = 0;
     std::uint64_t statInFlight_ = 0;
     std::size_t statMostInFlight_ = 0;

@@ -6,6 +6,7 @@
 #include <flecs.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -14,6 +15,7 @@
 namespace slopengine {
 
 inline constexpr const char* kLocalNetPlayerId = "Player";
+inline constexpr std::size_t kMaxPredictedEvents = 512;
 
 struct NetStandIn {};
 
@@ -51,6 +53,19 @@ struct NetSevered {
 
 struct NetAttachments {
     std::vector<NetAttachment> list;
+};
+
+struct NetPredictedEvent {
+    std::uint32_t eventId = 0;
+    std::uint64_t tick = 0;
+    bool matched = false;
+};
+
+struct NetPrediction {
+    bool active = false;
+    std::uint64_t tick = 0;
+    std::uint64_t ackedTick = 0;
+    std::vector<NetPredictedEvent> raised;
 };
 
 struct NetEffectQueue {

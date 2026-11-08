@@ -633,7 +633,7 @@ bool NetSchema::addPackageEvents(
         for (s7_pointer cursor = s7_cdr(entry); error.empty() && s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
             const s7_pointer option = s7_car(cursor);
             if (!s7_is_pair(option) || !s7_is_symbol(s7_car(option))) {
-                error = "options look like (args ...), (to all), (reliable #t)";
+                error = "options look like (args ...), (to all), (reliable #t), (predict #t)";
                 break;
             }
             const std::string key = s7_symbol_name(s7_car(option));
@@ -675,6 +675,12 @@ bool NetSchema::addPackageEvents(
                     error = "reliable is #t or #f";
                 } else {
                     def.reliable = s7_boolean(sc, s7_car(rest));
+                }
+            } else if (key == "predict") {
+                if (!s7_is_pair(rest) || !s7_is_boolean(s7_car(rest))) {
+                    error = "predict is #t or #f";
+                } else {
+                    def.predict = s7_boolean(sc, s7_car(rest));
                 }
             } else {
                 error = "unknown option " + key;
@@ -756,7 +762,7 @@ void NetSchema::finalize() {
         NetEventDef& def = events_[i];
         def.id = static_cast<int>(i);
         canonical += "event|" + def.packageId + "|" + def.name + "|" + std::to_string(static_cast<int>(def.to)) + "|" +
-                     formatReal(def.nearRadius) + "|" + (def.reliable ? "r" : "u");
+                     formatReal(def.nearRadius) + "|" + (def.reliable ? "r" : "u") + (def.predict ? "p" : "");
         for (const NetEventArg& arg : def.args) {
             canonical += "|" + arg.name + ":" + netTypeText(arg.type);
         }
