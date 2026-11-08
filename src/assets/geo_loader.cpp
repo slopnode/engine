@@ -1,5 +1,7 @@
 #include "assets/geo_loader.hpp"
 
+#include "render/gpu_ready.hpp"
+
 #include <charconv>
 #include <cstring>
 #include <optional>
@@ -507,7 +509,7 @@ Mesh buildPrimitiveMesh(
         }
     }
 
-    UploadMesh(&mesh, false);
+    uploadMeshIfGpu(&mesh, false);
     return mesh;
 }
 

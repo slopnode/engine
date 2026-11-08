@@ -1,6 +1,7 @@
 #include "assets/skeleton_loader.hpp"
 
 #include "assets/anim_loader.hpp"
+#include "render/gpu_ready.hpp"
 #include "render/model_hitboxes.hpp"
 
 #include <algorithm>
@@ -512,7 +513,7 @@ Mesh cloneSkinnedMesh(const Mesh& source) {
     mesh.boneWeights = cloneArray(source.boneWeights, vertexCount * 4);
     mesh.animVertices = cloneArray(source.vertices, vertexCount * 3);
     mesh.animNormals = cloneArray(source.normals, vertexCount * 3);
-    UploadMesh(&mesh, true);
+    uploadMeshIfGpu(&mesh, true);
     return mesh;
 }
 

@@ -7,6 +7,7 @@
 #include "core/semver.hpp"
 #include "core/user_paths.hpp"
 #include "map/map_meta.hpp"
+#include "render/gpu_ready.hpp"
 #include "script/package_load_context.hpp"
 #include "script/proc_role.hpp"
 
@@ -541,7 +542,7 @@ const IconAtlas* AssetStore::getIconAtlas(std::string_view set) {
         return nullptr;
     }
 
-    atlas.texture = LoadTexture(resolved->string().c_str());
+    atlas.texture = loadTextureIfGpu(resolved->string().c_str());
     if (atlas.texture.id == 0) {
         TraceLog(LOG_WARNING, "Failed to load icon atlas texture: %s", atlasVirtual.c_str());
         return nullptr;
@@ -589,8 +590,8 @@ Texture2D AssetStore::getTexture(std::string_view path) {
         return {};
     }
 
-    const Texture2D texture = LoadTexture(resolved->string().c_str());
-    if (texture.id == 0) {
+    const Texture2D texture = loadTextureIfGpu(resolved->string().c_str());
+    if (texture.id == 0 && (gpuReady() || texture.width == 0)) {
         return {};
     }
 
@@ -865,9 +866,11 @@ Shader AssetStore::getSkinningShader() {
 
     const std::string vertexSource = getModelShaderSource("default/skinning_vert");
     const std::string fragmentSource = getShaderSource("default/skinning_frag");
-    skinningShader_ = LoadShaderFromMemory(vertexSource.c_str(), fragmentSource.c_str());
+    skinningShader_ = loadShaderFromMemoryIfGpu(vertexSource.c_str(), fragmentSource.c_str());
     if (skinningShader_.id == 0) {
-        TraceLog(LOG_WARNING, "Failed to compile skinning shader");
+        if (gpuReady()) {
+            TraceLog(LOG_WARNING, "Failed to compile skinning shader");
+        }
         return {};
     }
     skinningShader_.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(skinningShader_, "deformMask");
@@ -1272,7 +1275,7 @@ Texture2D AssetStore::resolveTextureGraphOutput(std::string_view path, std::stri
         TraceLog(LOG_WARNING, "Texture graph %s output '%s': %s", std::string(path).c_str(), std::string(outputName).c_str(), error.c_str());
         return {};
     }
-    const Texture2D texture = LoadTextureFromImage(image);
+    const Texture2D texture = loadTextureFromImageIfGpu(image);
     UnloadImage(image);
     if (texture.id == 0) {
         return {};

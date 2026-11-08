@@ -5,6 +5,7 @@
 
 #include <rlgl.h>
 #include "external/glad.h"
+#include "render/gpu_ready.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -854,9 +855,11 @@ Shader loadLightmapShader(AssetStore& assets, int& useLightmapLoc, int& emission
         TraceLog(LOG_WARNING, "MAP: missing lightmap shaders");
         return {};
     }
-    Shader shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    Shader shader = loadShaderFromMemoryIfGpu(vert.c_str(), frag.c_str());
     if (shader.id == 0) {
-        TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
+        if (gpuReady()) {
+            TraceLog(LOG_WARNING, "MAP: failed to compile lightmap shaders");
+        }
         return {};
     }
     shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(shader, "texture0");
@@ -931,7 +934,7 @@ Shader loadSkyShader(AssetStore& assets, const char* vertPath, const char* fragP
     if (vert.empty() || frag.empty()) {
         return {};
     }
-    return LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    return loadShaderFromMemoryIfGpu(vert.c_str(), frag.c_str());
 }
 
 } // namespace

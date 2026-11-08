@@ -107,8 +107,10 @@ App::App(AppConfig config)
     } else if (const BusConfig* busConfig = assetStore_.getBusConfig()) {
         audioWorld_->loadBusConfig(*busConfig);
     }
-    setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true, "slopengine");
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    if (!config_.dedicated) {
+        setupImGuiWithUiFont(assetStore_, kDefaultUiFontPath, true, "slopengine");
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    }
     init_script();
     registerNetState(world_);
     installSlopUiTheme(world_, assetStore_, scheme_, userSettings_.ui.theme);
@@ -333,11 +335,11 @@ void App::startBot() {
 int App::runDedicated() {
     std::signal(SIGINT, requestDedicatedStop);
     std::signal(SIGTERM, requestDedicatedStop);
-    double last = GetTime();
+    auto last = std::chrono::steady_clock::now();
     while (running_ && g_dedicatedStop == 0) {
         takePendingMapLoad();
-        const double now = GetTime();
-        const float frameDt = static_cast<float>(now - last);
+        const auto now = std::chrono::steady_clock::now();
+        const float frameDt = std::chrono::duration<float>(now - last).count();
         last = now;
         if (net_ && net_->role() == NetRole::Client) {
             if (bot_) {
@@ -371,9 +373,6 @@ void App::init_window() {
     Log::init(config_.verbose ? LogLevel::Debug : LogLevel::Info);
     Log::addDefaultConsoleSink();
     if (config_.dedicated) {
-        SetConfigFlags(FLAG_WINDOW_HIDDEN);
-        InitWindow(320, 240, "slopengine dedicated");
-        SetExitKey(KEY_NULL);
         return;
     }
     prepareGraphicsInit(userSettings_.graphics);

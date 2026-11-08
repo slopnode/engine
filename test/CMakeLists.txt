@@ -26,6 +26,7 @@ add_executable(sloptests
     test_net_predicted_events.cpp
     test_net_host_standins.cpp
     test_net_rewind.cpp
+    test_headless_assets.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -140,6 +141,7 @@ add_test(NAME sloptests.net_spawn COMMAND sloptests net_spawn)
 add_test(NAME sloptests.net_predicted_events COMMAND sloptests net_predicted_events)
 add_test(NAME sloptests.net_host_standins COMMAND sloptests net_host_standins)
 add_test(NAME sloptests.net_rewind COMMAND sloptests net_rewind)
+add_test(NAME sloptests.headless_assets COMMAND sloptests headless_assets)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

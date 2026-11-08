@@ -1,6 +1,7 @@
 #include "map/light_occlusion.hpp"
 
 #include "map/uv_math.hpp"
+#include "render/gpu_ready.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -575,7 +576,7 @@ bool buildRadGpuOcclusionResources(
     }
     UnloadImage(atlasLayers[0].second);
 
-    out.alphaAtlas = LoadTextureFromImage(out.alphaAtlasImage);
+    out.alphaAtlas = loadTextureFromImageIfGpu(out.alphaAtlasImage);
     if (out.alphaAtlas.id != 0) {
         SetTextureFilter(out.alphaAtlas, TEXTURE_FILTER_POINT);
         SetTextureWrap(out.alphaAtlas, TEXTURE_WRAP_CLAMP);

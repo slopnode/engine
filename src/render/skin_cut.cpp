@@ -1,6 +1,7 @@
 #include "render/skin_cut.hpp"
 
 #include "assets/skeleton_loader.hpp"
+#include "render/gpu_ready.hpp"
 
 #include <raymath.h>
 
@@ -531,11 +532,11 @@ bool cutSkinnedModel(
             continue;
         }
         UnloadMesh(mesh);
-        UploadMesh(&kept, true);
+        uploadMeshIfGpu(&kept, true);
         mesh = kept;
         changed = true;
         if (cap.vertexCount > 0) {
-            UploadMesh(&cap, true);
+            uploadMeshIfGpu(&cap, true);
             caps.push_back(cap);
         }
     }

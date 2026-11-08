@@ -36,7 +36,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --verbose     Raise the trace log level to show DEBUG messages\n"
               << "  --perf-log    Log averaged frame timings and counters every two seconds\n"
               << "  --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements\n"
-              << "  --dedicated   Run the simulation only, in a hidden window with no audio,\n"
+              << "  --dedicated   Run the simulation only, with no window, GPU, audio,\n"
               << "                drawing or local input\n"
               << "  --listen      Host a game on port or host:port\n"
               << "  --connect     Join a game at host:port, or with --dedicated join without a window\n"

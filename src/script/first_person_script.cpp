@@ -1,5 +1,6 @@
 #include "script/first_person_script.hpp"
 #include "map/player_bodies.hpp"
+#include "render/gpu_ready.hpp"
 #include "script/player_target.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
@@ -1559,9 +1560,11 @@ FirstPersonViewShader createFirstPersonViewShader(AssetStore& assets) {
         TraceLog(LOG_WARNING, "FP: missing viewmodel shaders");
         return state;
     }
-    state.shader = LoadShaderFromMemory(vert.c_str(), frag.c_str());
+    state.shader = loadShaderFromMemoryIfGpu(vert.c_str(), frag.c_str());
     if (state.shader.id == 0) {
-        TraceLog(LOG_WARNING, "FP: failed to compile viewmodel shaders");
+        if (gpuReady()) {
+            TraceLog(LOG_WARNING, "FP: failed to compile viewmodel shaders");
+        }
         return state;
     }
     state.shader.locs[SHADER_LOC_MAP_ALBEDO] = GetShaderLocation(state.shader, "texture0");

@@ -1,5 +1,6 @@
 #include "map/map_script.hpp"
 
+#include "render/gpu_ready.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
 
@@ -1362,7 +1363,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     }
 
     result.skyShader = loadSkyFaceShader(assets);
-    if (result.skyShader.id == 0) {
+    if (result.skyShader.id == 0 && gpuReady()) {
         TraceLog(LOG_WARNING, "MAP: failed to load sky face shader for '%s'", virtualPath.c_str());
     }
 
@@ -1375,7 +1376,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
             Texture2D texture{};
             Image image{};
             if (resolved) {
-                texture = LoadTexture(resolved->string().c_str());
+                texture = loadTextureIfGpu(resolved->string().c_str());
                 if (texture.id != 0) {
                     const int filter = atlas.encoding == LightmapEncoding::Rgbe
                         ? TEXTURE_FILTER_POINT

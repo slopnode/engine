@@ -4,6 +4,7 @@
 #include "game/game_state.hpp"
 #include "game/loading_session.hpp"
 #include "map/bsp.hpp"
+#include "render/gpu_ready.hpp"
 #include "render/hud.hpp"
 #include "script/hook_registry.hpp"
 #include "script/hud_script.hpp"
@@ -272,12 +273,12 @@ void applyMenuBackground(flecs::world& world, AssetStore& assets) {
     releaseImage(bg);
     if (!bg.imagePath.empty()) {
         const Texture2D texture = assets.getTexture(bg.imagePath);
-        if (texture.id == 0) {
+        if (texture.id == 0 && gpuReady()) {
             TraceLog(
                 LOG_WARNING,
                 "TITLE: failed to load image '%s'",
                 bg.imagePath.c_str());
-        } else {
+        } else if (texture.id != 0) {
             bg.image = texture;
         }
     }

@@ -23,7 +23,7 @@ slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [--debug
 - `--net-lag ms`, `--net-jitter ms`, `--net-loss fraction` -- delay what this process sends, vary the delay, and drop a fraction of its unreliable messages, to try a game over a bad link.
 - `--net-stats seconds` -- logs network statistics at this interval on a server or a client.
 - `--net-max-rewind ms` -- with `--listen`, how far back in time `with-lag-compensation` may move targets to match what a client saw, 500 by default. 0 turns lag compensation off. See @ref net-lag-compensation.
-- `--dedicated` -- runs only the simulation, at 60 ticks per second, until interrupted with Ctrl-C or SIGTERM. No audio device opens, nothing is drawn, the local input device is ignored, and maps load without a loading screen. Pick the map with the base package's own flag, for example `--map test` for the bundled games. The engine still opens a hidden window, because loading a map uploads meshes and textures and needs a graphics context, so a display is still required. The map's player entity is created as usual and stands idle.
+- `--dedicated` -- runs only the simulation, at 60 ticks per second, until interrupted with Ctrl-C or SIGTERM. No audio device opens, nothing is drawn, the local input device is ignored, and maps load without a loading screen. Pick the map with the base package's own flag, for example `--map test` for the bundled games. Nothing is uploaded to a GPU, so no display, GPU or X server is needed, though the binary still links the X11 and OpenGL libraries, which have to be installed. Maps load their brushes, collision, BSP, PVS and navigation, models keep their meshes, skeletons and hitboxes on the CPU, and textures keep their sizes without their pixels reaching a GPU. Lightmaps and shaders aren't loaded. The map's player entity is created as usual and stands idle.
 
 Where a `--game`/`--mod` value resolves to on disk is covered in @ref packages, since it's the same search path logic package dependency resolution uses.
 
@@ -41,7 +41,7 @@ Usage: slopengine --game <path|name> [--mod <path|name>]... [--profile <name>] [
   --verbose     Raise the trace log level to show DEBUG messages
   --perf-log    Log averaged frame timings and counters every two seconds
   --perf-view   Lock the camera at x,y,z,yaw,pitch for repeatable measurements
-  --dedicated   Run the simulation only, in a hidden window with no audio,
+  --dedicated   Run the simulation only, with no window, GPU, audio,
                 drawing or local input
   --listen      Host a game on port or host:port
   --connect     Join a game at host:port, or with --dedicated join without a window

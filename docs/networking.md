@@ -338,7 +338,7 @@ A mod adding stamina declares only its own field, which the loader names `stamin
 
 # Planned
 
-A dedicated server that needs no GPU and no display. Today `--dedicated` opens a hidden window, because loading a map uploads its meshes, textures, lightmaps and shaders. A dedicated server only needs what the simulation reads: brushes and collision, the BSP and PVS, navigation, thing definitions, and the skeletons and hitboxes of models, with bones posed on the CPU. The plan is a load path that reads those and skips every upload, so a server runs on a headless machine without Xvfb or a GPU, and draw calls on a dedicated server have nothing to draw.
+A `slopserver` build of the same sources without the render, audio and UI modules, so a server binary links no X11, OpenGL or audio libraries. `--dedicated` already needs no display or GPU, but the `slopengine` binary still links those libraries.
 
 # Open questions
 
