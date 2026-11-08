@@ -112,6 +112,7 @@ constexpr std::uint8_t kIntroSpawn = 1;
 constexpr std::uint8_t kIntroSevered = 2;
 constexpr std::uint8_t kIntroRagdolled = 4;
 constexpr std::uint8_t kIntroCorpse = 8;
+constexpr std::uint8_t kIntroHidden = 16;
 constexpr std::size_t kMaxAssetPathBytes = 128;
 constexpr std::size_t kMaxTagBytes = 32;
 constexpr std::size_t kMaxBoneBytes = 64;
@@ -330,6 +331,7 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
         flags |= entry.severed.empty() ? 0 : kIntroSevered;
         flags |= entry.ragdolled ? kIntroRagdolled : 0;
         flags |= entry.corpse.empty() ? 0 : kIntroCorpse;
+        flags |= entry.hidden.empty() ? 0 : kIntroHidden;
         writer.u8(flags);
         if (entry.spawn.kind != NetSpawnKind::None) {
             writer.u8(static_cast<std::uint8_t>(entry.spawn.kind));
@@ -344,6 +346,12 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
         if (!entry.severed.empty()) {
             writer.varint(entry.severed.size());
             for (const std::string& bone : entry.severed) {
+                writer.string(bone);
+            }
+        }
+        if (!entry.hidden.empty()) {
+            writer.varint(entry.hidden.size());
+            for (const std::string& bone : entry.hidden) {
                 writer.string(bone);
             }
         }
@@ -372,7 +380,7 @@ bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduc
         }
         entry.kind = static_cast<NetEntityKind>(kind);
         std::uint8_t flags = 0;
-        if (!reader.u8(flags) || (flags & ~(kIntroSpawn | kIntroSevered | kIntroRagdolled | kIntroCorpse)) != 0) {
+        if (!reader.u8(flags) || (flags & ~(kIntroSpawn | kIntroSevered | kIntroRagdolled | kIntroCorpse | kIntroHidden)) != 0) {
             return false;
         }
         if ((flags & kIntroSpawn) != 0) {
@@ -410,6 +418,19 @@ bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduc
             }
         }
         entry.ragdolled = (flags & kIntroRagdolled) != 0;
+        if ((flags & kIntroHidden) != 0) {
+            std::size_t bones = 0;
+            if (!reader.count(bones, kMaxNetSeveredBones) || bones == 0) {
+                return false;
+            }
+            for (std::size_t b = 0; b < bones; ++b) {
+                std::string bone;
+                if (!reader.string(bone, kMaxBoneBytes) || bone.empty()) {
+                    return false;
+                }
+                entry.hidden.push_back(std::move(bone));
+            }
+        }
         if ((flags & kIntroCorpse) != 0) {
             std::size_t bones = 0;
             if (!entry.ragdolled || !reader.count(bones, kMaxNetCorpseBones) || bones == 0) {
@@ -710,12 +731,12 @@ bool decodeNetEffects(std::span<const std::byte> data, std::vector<NetEffect>& o
     for (std::size_t i = 0; i < count; ++i) {
         NetEffect effect;
         std::uint8_t kind = 0;
-        if (!reader.u8(kind) || kind < 1 || kind > 2 || !readU32(reader, effect.netId) ||
+        if (!reader.u8(kind) || kind < 1 || kind > 3 || !readU32(reader, effect.netId) ||
             !reader.string(effect.bone, kMaxBoneBytes)) {
             return false;
         }
         effect.kind = static_cast<NetEffectKind>(kind);
-        if (effect.kind == NetEffectKind::Sever && effect.bone.empty()) {
+        if (effect.kind != NetEffectKind::Ragdoll && effect.bone.empty()) {
             return false;
         }
         for (float& axis : effect.push) {

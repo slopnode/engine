@@ -256,6 +256,8 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
         const Vector3 push{effect.push[0], effect.push[1], effect.push[2]};
         if (effect.kind == NetEffectKind::Sever) {
             severActorPart(entity, effect.bone, push, effect.speed, effect.spin, effect.lifetime, makePiece);
+        } else if (effect.kind == NetEffectKind::Hide) {
+            hideActorBone(entity, effect.bone);
         } else {
             ragdollActorBody(entity, push, effect.speed, effect.bone, effect.lifetime);
         }

@@ -144,7 +144,7 @@ void runNetSpawnTests() {
     CHECK(client.world.lookup("zombie-1").is_valid() && client.world.lookup("zombie-1").has<Actor>());
 
     const flecs::entity serverWalker = server.world.lookup("walker");
-    serverWalker.set<NetSevered>({{"arm.L"}});
+    serverWalker.set<NetSevered>({{"arm.L"}, {"vote_up"}});
     NetEffect sever;
     sever.kind = NetEffectKind::Sever;
     sever.bone = "arm.L";
@@ -195,6 +195,11 @@ void runNetSpawnTests() {
         cutOnJoin = cutOnJoin || (effect.kind == NetEffectKind::Sever && effect.bone == "arm.L" && !makePiece);
     }
     CHECK(cutOnJoin);
+    bool hiddenOnJoin = false;
+    for (const auto& [effect, makePiece] : late.effects) {
+        hiddenOnJoin = hiddenOnJoin || (effect.kind == NetEffectKind::Hide && effect.bone == "vote_up");
+    }
+    CHECK(hiddenOnJoin);
     bool ragdolledOnJoin = false;
     for (const auto& [effect, makePiece] : late.effects) {
         ragdolledOnJoin = ragdolledOnJoin || effect.kind == NetEffectKind::Ragdoll;

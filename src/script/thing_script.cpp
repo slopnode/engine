@@ -1704,6 +1704,23 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
     return s7_make_string(sc, piece.name().c_str());
 }
 
+bool hideActorBoneImpl(flecs::entity entity, const std::string& boneName) {
+    if (!entity.is_valid() || !entity.has<Model3D>()) {
+        return false;
+    }
+    const Model& model = entity.get<Model3D>().model;
+    const int boneIndex = findModelBoneIndex(model, boneName);
+    HiddenBones* hidden = actorHiddenBones(entity, model.skeleton.boneCount);
+    if (boneIndex < 0 || hidden == nullptr || hidden->mask[static_cast<std::size_t>(boneIndex)] != 0) {
+        return false;
+    }
+    for (int bone : boneSubtree(model, boneIndex)) {
+        hidden->mask[static_cast<std::size_t>(bone)] = 1;
+    }
+    hidden->dirty = true;
+    return true;
+}
+
 s7_pointer g_actor_hide_bone(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "actor-hide-bone!", args);
     std::string boneName;
@@ -1711,19 +1728,13 @@ s7_pointer g_actor_hide_bone(s7_scheme* sc, s7_pointer args) {
     if (!in.ok()) {
         return in.error();
     }
-    if (!entity.is_valid()) {
+    if (!hideActorBoneImpl(entity, boneName)) {
         return s7_f(sc);
     }
-    const Model& model = entity.get<Model3D>().model;
-    const int boneIndex = findModelBoneIndex(model, boneName);
-    HiddenBones* hidden = actorHiddenBones(entity, model.skeleton.boneCount);
-    if (boneIndex < 0 || hidden == nullptr || hidden->mask[static_cast<std::size_t>(boneIndex)] != 0) {
-        return s7_f(sc);
-    }
-    for (int bone : boneSubtree(model, boneIndex)) {
-        hidden->mask[static_cast<std::size_t>(bone)] = 1;
-    }
-    hidden->dirty = true;
+    NetSevered severed = entity.has<NetSevered>() ? entity.get<NetSevered>() : NetSevered{};
+    severed.hidden.push_back(boneName);
+    entity.set<NetSevered>(std::move(severed));
+    queueNetEffect(*g_thingWorld, entity, NetEffect{NetEffectKind::Hide, 0, boneName, {}, 0.0f, 0.0f, 0.0f});
     return s7_t(sc);
 }
 
@@ -3388,6 +3399,10 @@ std::vector<NetPose> captureCorpsePose(flecs::entity entity) {
 
 bool applyCorpsePose(flecs::entity entity, const std::vector<NetPose>& bones) {
     return applyCorpsePoseImpl(entity, bones);
+}
+
+bool hideActorBone(flecs::entity entity, const std::string& boneName) {
+    return hideActorBoneImpl(entity, boneName);
 }
 
 void queueThingDespawn(flecs::world& world, std::string_view id) {

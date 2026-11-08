@@ -14,7 +14,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 10;
+inline constexpr std::uint32_t kNetProtocolVersion = 11;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
@@ -120,6 +120,7 @@ struct NetIntroduction {
     NetEntityKind kind = NetEntityKind::Thing;
     NetSpawnRecipe spawn;
     std::vector<std::string> severed;
+    std::vector<std::string> hidden;
     bool ragdolled = false;
     std::vector<NetPose> corpse;
 };
@@ -127,6 +128,7 @@ struct NetIntroduction {
 enum class NetEffectKind : std::uint8_t {
     Sever = 1,
     Ragdoll = 2,
+    Hide = 3,
 };
 
 struct NetEffect {

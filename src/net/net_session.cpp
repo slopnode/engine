@@ -1014,6 +1014,10 @@ NetIntroduction NetSession::serverIntroduction(std::uint32_t netId, flecs::entit
         if (entry.severed.size() > kMaxNetSeveredBones) {
             entry.severed.resize(kMaxNetSeveredBones);
         }
+        entry.hidden = severed->hidden;
+        if (entry.hidden.size() > kMaxNetSeveredBones) {
+            entry.hidden.resize(kMaxNetSeveredBones);
+        }
     }
     entry.ragdolled = entity.has<RagdollRig>();
     if (entry.ragdolled && config_.corpsePose) {
@@ -1702,6 +1706,11 @@ bool NetSession::clientAcceptIntroduction(const NetIntroduction& entry) {
             return false;
         }
     }
+    for (const std::string& bone : entry.hidden) {
+        if (!safeNetAssetPath(bone)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1712,6 +1721,13 @@ void NetSession::clientApplyCutState(flecs::entity entity, const NetIntroduction
     for (const std::string& bone : entry.severed) {
         NetEffect effect;
         effect.kind = NetEffectKind::Sever;
+        effect.netId = entry.netId;
+        effect.bone = bone;
+        config_.applyEffect(entity, effect, false);
+    }
+    for (const std::string& bone : entry.hidden) {
+        NetEffect effect;
+        effect.kind = NetEffectKind::Hide;
         effect.netId = entry.netId;
         effect.bone = bone;
         config_.applyEffect(entity, effect, false);

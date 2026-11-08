@@ -21,5 +21,6 @@ bool ragdollActorBody(flecs::entity entity, Vector3 push, float speed, const std
 flecs::entity spawnNetPresentation(flecs::world& world, const std::string& name, const NetSpawnRecipe& recipe);
 std::vector<NetPose> captureCorpsePose(flecs::entity entity);
 bool applyCorpsePose(flecs::entity entity, const std::vector<NetPose>& bones);
+bool hideActorBone(flecs::entity entity, const std::string& boneName);
 
 }

@@ -46,6 +46,7 @@ struct NetEventQueue {
 
 struct NetSevered {
     std::vector<std::string> bones;
+    std::vector<std::string> hidden;
 };
 
 struct NetEffectQueue {
