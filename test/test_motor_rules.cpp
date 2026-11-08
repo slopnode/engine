@@ -44,6 +44,9 @@ void runMotorRulesTests() {
     CHECK_FALSE(parses(sc, "'((a (action \"Jump\") (press)) (a (action \"Jump\") (hold)))", rules));
     CHECK_FALSE(parses(sc, "'((a (action \"Jump\") (press) (hold)))", rules));
     CHECK_FALSE(parses(sc, "'((a (action \"Jump\") (press) (when grounded) (when airborne)))", rules));
+    CHECK_FALSE(parses(sc, "'((a (action \"Jump\") (hold) (shape 0.3 0.5)))", rules));
+    CHECK_FALSE(parses(sc, "'((a (action \"Jump\") (hold) (shape 0.3 0.5 1.0 2.0)))", rules));
+    CHECK_FALSE(parses(sc, "'((a (action \"Jump\") (hold) (shape 0.3 -0.5 1.0)))", rules));
     CHECK(parses(sc, "'()", rules) && rules.empty());
 
     CHECK(parses(sc,
@@ -96,6 +99,49 @@ void runMotorRulesTests() {
     state.enabled = ~1u;
     stepMotorRules(physics, id, motor, state, MotorInput{1.0f, &down, &pressed}, true);
     CHECK(state.active == 0 && motor.speedScale == 1.0f);
+
+    CHECK(parses(sc, "'((crouch (action \"Descend\") (hold) (when (or active grounded)) (shape 0.3 0.4 1.0)))", rules));
+    motorRules() = rules;
+    PhysicsWorld low;
+    low.addStaticBrushes({makeBrushBox("floor", {-20.0f, -0.25f, -20.0f}, {20.0f, 0.0f, 20.0f}, "mat/a", {}),
+                          makeBrushBox("roof", {3.0f, 1.3f, -2.0f}, {7.0f, 1.6f, 2.0f}, "mat/a", {})});
+    CharacterMotor body{};
+    body.radius = 0.3f;
+    body.height = 1.2f;
+    body.eyeHeight = 1.65f;
+    const std::uint64_t who = 9;
+    low.createCharacter(who, 0.0f, 0.05f, 0.0f, body);
+    CharacterStep stand{};
+    stand.id = who;
+    stand.motor = &body;
+    for (int i = 0; i < 10; ++i) {
+        low.stepCharacterAlone(stand);
+    }
+    std::vector<char> held(down.size(), 0);
+    std::vector<char> none(down.size(), 0);
+    held[static_cast<std::size_t>(Action::Descend)] = 1;
+    MotorRuleState crouch{};
+    stepMotorRules(low, who, body, crouch, MotorInput{0.0f, &held, &none}, true);
+    CHECK(crouch.shapedRule == 0 && crouch.active == 1u);
+    CHECK(body.height == 0.4f && body.eyeHeight == 1.0f && crouch.standHeight == 1.2f && crouch.standEye == 1.65f);
+    stepMotorRules(low, who, body, crouch, MotorInput{0.0f, &none, &none}, false);
+    CHECK(crouch.shapedRule == 0 && body.height == 0.4f);
+    stepMotorRules(low, who, body, crouch, MotorInput{0.0f, &none, &none}, true);
+    CHECK(crouch.shapedRule == -1 && crouch.active == 0 && body.height == 1.2f && body.eyeHeight == 1.65f);
+    stepMotorRules(low, who, body, crouch, MotorInput{0.0f, &held, &none}, true);
+    CHECK(crouch.shapedRule == 0 && body.height == 0.4f);
+    low.setCharacterPosition(who, 5.0f, 0.0f, 0.0f);
+    for (int i = 0; i < 5; ++i) {
+        low.stepCharacterAlone(stand);
+    }
+    stepMotorRules(low, who, body, crouch, MotorInput{0.0f, &none, &none}, true);
+    CHECK(crouch.shapedRule == 0 && crouch.active == 1u && body.height == 0.4f);
+    low.setCharacterPosition(who, -5.0f, 0.0f, 0.0f);
+    for (int i = 0; i < 5; ++i) {
+        low.stepCharacterAlone(stand);
+    }
+    stepMotorRules(low, who, body, crouch, MotorInput{0.0f, &none, &none}, true);
+    CHECK(crouch.shapedRule == -1 && body.height == 1.2f);
 
     motorRules().clear();
     s7_quit(sc);

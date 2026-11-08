@@ -98,11 +98,32 @@ std::uint64_t motorRulesHash() {
         hashBytes(hash, &rule.speed, sizeof(rule.speed));
         hashBytes(hash, &rule.launch, sizeof(rule.launch));
         hashBytes(hash, &rule.launchSpeed, sizeof(rule.launchSpeed));
+        hashBytes(hash, &rule.shape, sizeof(rule.shape));
+        hashBytes(hash, &rule.shapeRadius, sizeof(rule.shapeRadius));
+        hashBytes(hash, &rule.shapeHeight, sizeof(rule.shapeHeight));
+        hashBytes(hash, &rule.shapeEye, sizeof(rule.shapeEye));
         for (const MotorCond& cond : rule.when) {
             hashCond(hash, cond);
         }
     }
     return hash;
+}
+
+namespace {
+
+bool reshape(PhysicsWorld& physics, std::uint64_t id, CharacterMotor& motor, float radius, float height, float eye) {
+    CharacterMotor resized = motor;
+    resized.radius = radius;
+    resized.height = height;
+    if (!physics.resizeCharacter(id, resized)) {
+        return false;
+    }
+    motor.radius = radius;
+    motor.height = height;
+    motor.eyeHeight = eye;
+    return true;
+}
+
 }
 
 void stepMotorRules(PhysicsWorld& physics, std::uint64_t id, CharacterMotor& motor, MotorRuleState& state,
@@ -112,8 +133,7 @@ void stepMotorRules(PhysicsWorld& physics, std::uint64_t id, CharacterMotor& mot
     context.grounded = physics.characterSupported(id);
     context.forward = input.forward;
     context.previous = state.active;
-    std::uint32_t active = 0;
-    float scale = 1.0f;
+    std::uint32_t wanted = 0;
     for (std::size_t i = 0; i < rules.size() && i < kMaxMotorRules; ++i) {
         const MotorRule& rule = rules[i];
         if (!allowMove || (state.enabled & (1u << i)) == 0) {
@@ -132,16 +152,55 @@ void stepMotorRules(PhysicsWorld& physics, std::uint64_t id, CharacterMotor& mot
                 break;
             }
         }
-        if (!pass) {
-            continue;
-        }
-        active |= 1u << i;
-        scale *= rule.speed;
-        if (rule.launch) {
-            physics.launchCharacter(id, rule.launchSpeed);
+        if (pass) {
+            wanted |= 1u << i;
         }
     }
-    state.active = active;
+    if (state.shapedRule >= 0 && static_cast<std::size_t>(state.shapedRule) >= rules.size()) {
+        state.shapedRule = -1;
+    }
+    if (state.shapedRule >= 0) {
+        const std::uint32_t bit = 1u << state.shapedRule;
+        if ((wanted & bit) == 0) {
+            if (allowMove && reshape(physics, id, motor, state.standRadius, state.standHeight, state.standEye)) {
+                state.shapedRule = -1;
+            } else {
+                wanted |= bit;
+            }
+        }
+    }
+    for (std::size_t i = 0; i < rules.size() && i < kMaxMotorRules; ++i) {
+        const std::uint32_t bit = 1u << i;
+        if ((wanted & bit) == 0 || !rules[i].shape || static_cast<int>(i) == state.shapedRule) {
+            continue;
+        }
+        if (state.shapedRule >= 0) {
+            wanted &= ~bit;
+            continue;
+        }
+        const float radius = motor.radius;
+        const float height = motor.height;
+        const float eye = motor.eyeHeight;
+        if (reshape(physics, id, motor, rules[i].shapeRadius, rules[i].shapeHeight, rules[i].shapeEye)) {
+            state.shapedRule = static_cast<int>(i);
+            state.standRadius = radius;
+            state.standHeight = height;
+            state.standEye = eye;
+        } else {
+            wanted &= ~bit;
+        }
+    }
+    float scale = 1.0f;
+    for (std::size_t i = 0; i < rules.size() && i < kMaxMotorRules; ++i) {
+        if ((wanted & (1u << i)) == 0) {
+            continue;
+        }
+        scale *= rules[i].speed;
+        if (rules[i].launch && (state.active & (1u << i)) == 0) {
+            physics.launchCharacter(id, rules[i].launchSpeed);
+        }
+    }
+    state.active = wanted;
     motor.speedScale = scale;
 }
 

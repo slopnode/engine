@@ -253,6 +253,32 @@ void runNetPredictionTests() {
     frame(40);
     CHECK(std::fabs(feetZ(client) - feetZ(server)) < 1.0e-3f);
     CHECK(std::fabs(feetZ(server) - sprintStart) > 8.0f);
+
+    MotorRule crouch;
+    crouch.name = "crouch";
+    crouch.action = "Descend";
+    crouch.actionIndex = static_cast<int>(Action::Descend);
+    crouch.when.push_back(MotorCond{MotorCondKind::Grounded, -1, {}});
+    crouch.shape = true;
+    crouch.shapeRadius = 0.3f;
+    crouch.shapeHeight = 0.4f;
+    crouch.shapeEye = 1.0f;
+    motorRules() = {jump, sprint, crouch};
+    frame(10);
+    const flecs::entity serverBody = server.world.lookup("Player");
+    client.world.get_mut<InputState>().actionDown[static_cast<std::size_t>(Action::Descend)] = 1;
+    frame(2);
+    CHECK(clientPlayer.get<CharacterMotor>().eyeHeight == 1.0f && clientPlayer.get<CharacterMotor>().height == 0.4f);
+    CHECK(serverBody.get<CharacterMotor>().eyeHeight > 1.5f);
+    CHECK(std::fabs(clientPlayer.get<SimEyePose>().cur.y - (feetY(client) + 1.0f)) < 1.0e-3f);
+    frame(30);
+    CHECK(serverBody.get<CharacterMotor>().eyeHeight == 1.0f && serverBody.get<MotorRuleState>().shapedRule == 2);
+    client.world.get_mut<InputState>().actionDown[static_cast<std::size_t>(Action::Descend)] = 0;
+    frame(2);
+    CHECK(clientPlayer.get<CharacterMotor>().eyeHeight > 1.5f);
+    frame(30);
+    CHECK(serverBody.get<CharacterMotor>().eyeHeight > 1.5f && serverBody.get<MotorRuleState>().shapedRule == -1);
+    CHECK(std::fabs(feetY(client) - feetY(server)) < 1.0e-3f);
     motorRules().clear();
     actionRegistry().clear();
 }

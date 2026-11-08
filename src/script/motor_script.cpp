@@ -147,6 +147,15 @@ bool parseRule(s7_scheme* sc, s7_pointer form, MotorRule& rule, std::vector<Pend
                 return false;
             }
             rule.launch = true;
+        } else if (key == "shape") {
+            if (!s7_is_pair(args) || !s7_is_pair(s7_cdr(args)) || !s7_is_pair(s7_cddr(args)) ||
+                !s7_is_null(sc, s7_cdddr(args)) || !finiteReal(s7_car(args), 0.0f, 5.0f, rule.shapeRadius) ||
+                !finiteReal(s7_cadr(args), 0.0f, 10.0f, rule.shapeHeight) ||
+                !finiteReal(s7_caddr(args), 0.0f, 10.0f, rule.shapeEye)) {
+                error = rule.name + ": (shape radius height eye) takes three numbers above 0";
+                return false;
+            }
+            rule.shape = true;
         } else {
             error = rule.name + ": unknown property " + key;
             return false;

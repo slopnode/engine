@@ -230,8 +230,9 @@ Symbol `*motor-rules*`
 Motor rules change a player's movement from their input, such as a sprint that speeds them up while a key is held or a jump that launches them when a key is pressed on the ground. The engine runs them every tick as part of movement, on the server and in a client's prediction alike, so a client sees its own sprint or jump at once instead of a round trip later. Only the base package's file is read, and the rules count toward the declared state, so a client with different rules is turned away at connect. The engine knows no rule by name.
 
 <pre><code class="language-scheme">(define *motor-rules*
-  '((sprint (action "sprint") (hold) (when forward (or active grounded)) (speed 1.6))
-    (jump (action "Jump") (press) (when grounded) (launch 7.7))))
+  '((crouch (action "Descend") (hold) (when (or active grounded)) (shape 0.3 0.55 1.0))
+    (sprint (action "sprint") (hold) (when forward (or active grounded) (not (rule crouch))) (speed 1.6))
+    (jump (action "Jump") (press) (when grounded (not (rule crouch))) (launch 7.7))))
 </code></pre>
 
 Each rule has a name and these properties.
@@ -244,5 +245,8 @@ Property|Meaning
 `(when condition ...)`|Every condition must hold
 `(speed scale)`|Multiplies move speed while the rule is active, above 0 and at most 10
 `(launch speed)`|Sets the upward speed on the tick the rule becomes active, above 0 and at most 100
+`(shape radius height eye)`|Gives the player this collider and eye height while the rule is active
 
-A condition is `grounded`, `airborne`, `forward` for moving forward, `active` for this rule having been active on the previous tick, `(rule name)` for another rule having been active then, or `(not c)`, `(and c ...)` and `(or c ...)`. A game holds at most 32 rules. No rule is active while the player can't move. Scripts switch rules off and on with `motor-rule-enable!`, for example while crouching or dead, and check them with `motor-rule-active?` (see @ref motor-rule-api).
+A condition is `grounded`, `airborne`, `forward` for moving forward, `active` for this rule having been active on the previous tick, `(rule name)` for another rule having been active then, or `(not c)`, `(and c ...)` and `(or c ...)`. A game holds at most 32 rules. No rule is active while the player can't move, except that a rule with a shape keeps it until the player can move again.
+
+When a rule with a shape becomes active the engine remembers the collider and eye height the player had, and gives them back when the rule ends. A rule whose shape doesn't fit where the player stands doesn't become active, and one that ends where the remembered shape doesn't fit, such as under a low ceiling, stays active until there is room. Only one rule with a shape is active at a time. Scripts switch rules off and on with `motor-rule-enable!`, for example while crouching or dead, and check them with `motor-rule-active?` (see @ref motor-rule-api).

@@ -240,15 +240,19 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             world.each([&](flecs::entity entity,
                            const PlayerCommand& command,
                            CharacterMotor& motor,
-                           const FirstPersonController& controller) {
+                           FirstPersonController& controller) {
                 if (!physics.world->hasCharacter(static_cast<std::uint64_t>(entity.id()))) {
                     return;
                 }
                 const bool frozen = !controller.allowMove || (freeCamera && entity.has<LocalPlayer>());
                 MotorRuleState rules = entity.has<MotorRuleState>() ? entity.get<MotorRuleState>() : MotorRuleState{};
+                const float eye = motor.eyeHeight;
                 stepMotorRules(*physics.world, static_cast<std::uint64_t>(entity.id()), motor, rules,
                                MotorInput{command.moveForward, &command.actionDown, &command.actionPressed}, !frozen);
                 entity.set<MotorRuleState>(rules);
+                if (motor.eyeHeight != eye) {
+                    controller.eyeHeight = motor.eyeHeight;
+                }
                 if (frozen) {
                     motor.wishX = 0.0f;
                     motor.wishZ = 0.0f;

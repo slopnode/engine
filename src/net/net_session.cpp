@@ -110,7 +110,9 @@ bool saneSelfState(const NetSelfState& self) {
         }
     }
     return within(self.moveSpeed, 0.0f, 1000.0f) && within(self.gravity, -1000.0f, 1000.0f) &&
-        within(self.eyeHeight, -16.0f, 16.0f) && within(self.radius, 0.0f, 8.0f) && within(self.height, 0.0f, 16.0f);
+        within(self.eyeHeight, -16.0f, 16.0f) && within(self.radius, 0.0f, 8.0f) && within(self.height, 0.0f, 16.0f) &&
+        (self.motorShaped < 0 || (within(self.standEye, -16.0f, 16.0f) && within(self.standRadius, 0.0f, 8.0f) &&
+                                  within(self.standHeight, 0.0f, 16.0f)));
 }
 
 bool replicated(flecs::entity entity) {
@@ -567,6 +569,7 @@ void NetSession::serverStepAhead(flecs::entity body, const NetCommandFrame& fram
     stepMotorRules(physics, id, *motor, rules,
                    MotorInput{std::clamp(frame.moveForward, -1.0f, 1.0f), &frame.down, &frame.pressed}, allowMove);
     body.set<MotorRuleState>(rules);
+    motor = body.try_get_mut<CharacterMotor>();
     if (!allowMove) {
         return;
     }
@@ -853,6 +856,10 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
             if (const MotorRuleState* rules = body.try_get<MotorRuleState>()) {
                 self.motorEnabled = rules->enabled;
                 self.motorActive = rules->active;
+                self.motorShaped = rules->shapedRule;
+                self.standRadius = rules->standRadius;
+                self.standHeight = rules->standHeight;
+                self.standEye = rules->standEye;
             }
         }
     }
@@ -1282,7 +1289,12 @@ bool NetSession::clientPredictMove(const PredictedMove& move) {
     const bool allowMove = controller == nullptr || controller->allowMove;
     MotorRuleState rules = player.has<MotorRuleState>() ? player.get<MotorRuleState>() : MotorRuleState{};
     stepMotorRules(physics, id, *motor, rules, MotorInput{move.moveForward, &move.down, &move.pressed}, allowMove);
+    const float eyeHeight = motor->eyeHeight;
     player.set<MotorRuleState>(rules);
+    motor = player.try_get_mut<CharacterMotor>();
+    if (FirstPersonController* view = player.try_get_mut<FirstPersonController>()) {
+        view->eyeHeight = eyeHeight;
+    }
     if (allowMove) {
         applyMoveWish(*motor, move.moveForward, move.moveStrafe, move.moveUp, move.yaw);
     } else {
@@ -1358,7 +1370,9 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
         controller->allowLook = self.allowLook;
         controller->eyeHeight = self.eyeHeight;
     }
-    player.set<MotorRuleState>({self.motorEnabled, self.motorActive});
+    player.set<MotorRuleState>(
+        {self.motorEnabled, self.motorActive, self.motorShaped, self.standRadius, self.standHeight, self.standEye});
+    motor = player.try_get_mut<CharacterMotor>();
     const SimEyePose* shown = player.try_get<SimEyePose>();
     const Vector3 before = shown != nullptr ? shown->cur : Vector3{};
     const bool wasPredicting = predicting_ && shown != nullptr;

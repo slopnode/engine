@@ -45,11 +45,19 @@ struct MotorRule {
     float speed = 1.0f;
     bool launch = false;
     float launchSpeed = 0.0f;
+    bool shape = false;
+    float shapeRadius = 0.0f;
+    float shapeHeight = 0.0f;
+    float shapeEye = 0.0f;
 };
 
 struct MotorRuleState {
     std::uint32_t enabled = 0xffffffffu;
     std::uint32_t active = 0;
+    int shapedRule = -1;
+    float standRadius = 0.0f;
+    float standHeight = 0.0f;
+    float standEye = 0.0f;
 };
 
 struct MotorInput {

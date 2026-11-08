@@ -466,6 +466,12 @@ std::vector<std::byte> encodeNetSnapshot(const NetSnapshot& snapshot, const std:
         writer.u8(static_cast<std::uint8_t>((self.allowMove ? 1 : 0) | (self.allowLook ? 2 : 0)));
         writer.varint(self.motorEnabled);
         writer.varint(self.motorActive);
+        writer.varint(static_cast<std::uint64_t>(self.motorShaped + 1));
+        if (self.motorShaped >= 0) {
+            writer.f32(self.standRadius);
+            writer.f32(self.standHeight);
+            writer.f32(self.standEye);
+        }
     }
     writer.varint(snapshot.playerFields.size());
     for (const auto& [slot, value] : snapshot.playerFields) {
@@ -511,6 +517,15 @@ bool decodeNetSnapshot(
             !reader.f32(self.gravity) || !reader.f32(self.eyeHeight) || !reader.f32(self.radius) ||
             !reader.f32(self.height) || !reader.u8(allowMove) || allowMove > 3 ||
             !readU32(reader, self.motorEnabled) || !readU32(reader, self.motorActive)) {
+            return false;
+        }
+        std::uint32_t shaped = 0;
+        if (!readU32(reader, shaped) || shaped > 32) {
+            return false;
+        }
+        self.motorShaped = static_cast<int>(shaped) - 1;
+        if (self.motorShaped >= 0 &&
+            (!reader.f32(self.standRadius) || !reader.f32(self.standHeight) || !reader.f32(self.standEye))) {
             return false;
         }
         self.allowMove = (allowMove & 1) != 0;
