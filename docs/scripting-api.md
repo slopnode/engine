@@ -267,6 +267,12 @@ Returns the player's physics velocity as `(vx vy vz)`, in world units per second
   [id : string? = (script-player)]) ↵ (list real? real? real?)
 </code></pre>
 
+### player-command-time {#player-command-time}
+Returns how many seconds of the player's input the last tick applied. Single-player and a host's own player get one tick. A network client's body gets one tick per command the server applied, so two when the server caught up on a late command and 0 when none arrived. Timers that follow a player's input, such as a weapon's fire rate and reload, run on this instead of `dt` so they keep step with what the client predicts. In `predict` scope it is one tick.
+<pre><code class="language-scheme">(player-command-time
+  [id : string? = (script-player)]) ↵ real?
+</code></pre>
+
 ### player-grounded? {#player-grounded}
 Checks whether the player's character motor is on the ground.
 <pre><code class="language-scheme">(player-grounded?

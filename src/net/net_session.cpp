@@ -504,6 +504,7 @@ void NetSession::serverApplyCommands() {
         NetCommandFrame& latest = client.latest;
         std::vector<char> pressed;
         bool moved = false;
+        std::uint32_t applied = 0;
         client.leastPending = std::min(client.leastPending, client.pending.size());
         std::size_t surplus = 0;
         if (++client.pendingWindow >= kCommandWindowTicks) {
@@ -529,6 +530,7 @@ void NetSession::serverApplyCommands() {
             client.lastCommandTick = frame.tick;
             latest = std::move(frame);
             moved = true;
+            ++applied;
         }
         if (!moved) {
             latest.moveForward = 0.0f;
@@ -537,6 +539,7 @@ void NetSession::serverApplyCommands() {
         }
         PlayerCommand command{};
         command.tick = world_.get<SimClock>().tick;
+        command.commands = applied;
         command.moveForward = std::clamp(latest.moveForward, -1.0f, 1.0f);
         command.moveStrafe = std::clamp(latest.moveStrafe, -1.0f, 1.0f);
         command.moveUp = std::clamp(latest.moveUp, -1.0f, 1.0f);

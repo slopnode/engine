@@ -17,6 +17,7 @@
 #include "camera/components.hpp"
 #include "camera/view_recoil.hpp"
 #include "core/sim_clock.hpp"
+#include "input/player_command.hpp"
 #include "game/sim_interpolation.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
@@ -1309,6 +1310,16 @@ s7_pointer g_player_velocity(s7_scheme* sc, s7_pointer args) {
     return makeVec3List(sc, vel.GetX(), vel.GetY(), vel.GetZ());
 }
 
+s7_pointer g_player_command_time(s7_scheme* sc, s7_pointer args) {
+    if (g_fpWorld == nullptr || currentScriptScope() == ScriptScope::Predict) {
+        return s7_make_real(sc, kSimTickDt);
+    }
+    const flecs::entity player = scriptPlayer(*g_fpWorld, args);
+    const PlayerCommand* command = player.is_valid() ? player.try_get<PlayerCommand>() : nullptr;
+    const std::uint32_t commands = command != nullptr ? command->commands : 1;
+    return s7_make_real(sc, static_cast<double>(commands) * kSimTickDt);
+}
+
 s7_pointer g_player_grounded(s7_scheme* sc, s7_pointer args) {
     if (g_fpWorld == nullptr || !g_fpWorld->has<PhysicsContext>()) {
         return s7_f(sc);
@@ -1424,6 +1435,7 @@ constexpr SchemeBinding kPlayerBindings[] = {
     {"player-speed", g_player_speed, 0, 0, false, "(player-speed)", ScriptCap::ReadWorld},
     {"player-velocity", g_player_velocity, 0, 1, false, "(player-velocity [id])", ScriptCap::ReadWorld},
     {"player-grounded?", g_player_grounded, 0, 1, false, "(player-grounded? [id])", ScriptCap::ReadWorld},
+    {"player-command-time", g_player_command_time, 0, 1, false, "(player-command-time [id])", ScriptCap::ReadWorld},
     {"players", g_players, 0, 0, false, "(players)", ScriptCap::ReadWorld},
     {"player-jump!", g_player_jump, 1, 0, false, "(player-jump! speed)", ScriptCap::WorldMutate},
     {"player-set-gravity!", g_player_set_gravity, 1, 0, false, "(player-set-gravity! gravity)", ScriptCap::WorldMutate},

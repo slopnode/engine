@@ -15,6 +15,7 @@ struct LocalPlayer {};
 
 struct PlayerCommand {
     std::uint64_t tick = 0;
+    std::uint32_t commands = 1;
     float moveForward = 0.0f;
     float moveStrafe = 0.0f;
     float moveUp = 0.0f;

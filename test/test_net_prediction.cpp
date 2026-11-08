@@ -93,10 +93,14 @@ void runNetPredictionTests() {
     PredictSide server;
     preparePredictSide(server);
     bool launch = false;
+    std::uint64_t appliedCommands = 0;
+    std::uint32_t mostCommands = 0;
     server.world.system("StepBodies")
         .kind(flecs::OnUpdate)
-        .run([&server, &launch](flecs::iter& it) {
+        .run([&server, &launch, &appliedCommands, &mostCommands](flecs::iter& it) {
             it.world().each([&](flecs::entity entity, PlayerBody, const PlayerCommand& command, CharacterMotor& motor) {
+                appliedCommands += command.commands;
+                mostCommands = std::max(mostCommands, command.commands);
                 const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
                 if (launch) {
                     launch = !server.physics.launchCharacter(id, 7.7f);
@@ -159,6 +163,7 @@ void runNetPredictionTests() {
     const std::size_t backlogged = client.session->clientCommandsInFlight();
     frame(150);
     CHECK(backlogged >= client.session->clientCommandsInFlight() + 2);
+    CHECK(mostCommands >= 2);
     CHECK(std::fabs(feetZ(client) - feetZ(server)) < 1.0e-3f);
     CHECK(feetZ(server) > startZ + 5.0f);
 
@@ -168,6 +173,8 @@ void runNetPredictionTests() {
     client.world.get_mut<InputCommand>().moveStrafe = 0.0f;
     network.setConditions(MemoryLinkConditions{40.0f, 0.0f, 0.0f});
     frame(40);
+    const std::uint64_t acked = client.world.get<NetPrediction>().ackedTick;
+    CHECK(appliedCommands + 8 >= acked && appliedCommands <= acked + 8);
     const flecs::entity clientPlayer = client.world.lookup("Player");
     const flecs::entity serverPlayer = server.world.lookup("Player");
     const JPH::RVec3 clientFeet = client.physics.characterPosition(static_cast<std::uint64_t>(clientPlayer.id()));
