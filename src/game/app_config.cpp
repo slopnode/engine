@@ -48,6 +48,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --net-jitter  Vary that delay by up to this many milliseconds either way\n"
               << "  --net-loss    Drop this fraction, 0 to 1, of the unreliable messages it sends\n"
               << "  --net-stats   Log network statistics every this many seconds\n"
+              << "  --net-max-rewind With --listen, move targets back at most this many milliseconds for a hit, 0 for never\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
         std::cerr << "\nPackage flags are declared in the base game's data/cli.s7.\n";
@@ -129,7 +130,8 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             continue;
         }
 
-        if (arg == "--net-lag" || arg == "--net-jitter" || arg == "--net-loss" || arg == "--net-stats") {
+        if (arg == "--net-lag" || arg == "--net-jitter" || arg == "--net-loss" || arg == "--net-stats" ||
+            arg == "--net-max-rewind") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
@@ -142,6 +144,7 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             float& target = arg == "--net-lag" ? config.netLagMs
                 : arg == "--net-jitter"        ? config.netJitterMs
                 : arg == "--net-loss"          ? config.netLoss
+                : arg == "--net-max-rewind"    ? config.netMaxRewindMs
                                                : config.netStatsSeconds;
             target = value;
             continue;

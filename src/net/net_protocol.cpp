@@ -525,6 +525,9 @@ std::vector<std::byte> encodeNetCommands(const std::vector<NetCommandFrame>& fra
         writeFloats(writer, axes, 5);
         writer.bits(frame.down);
         writer.bits(frame.pressed);
+        const std::int64_t view = std::llround(std::max(0.0, frame.viewTick) * kNetViewTickSteps);
+        const std::int64_t behind = static_cast<std::int64_t>(ackedSnapshot) * kNetViewTickSteps - view;
+        writer.varint(behind >= 0 ? static_cast<std::uint64_t>(behind) << 1 : (static_cast<std::uint64_t>(-behind) << 1) | 1);
     }
     return writer.data();
 }
@@ -541,10 +544,13 @@ bool decodeNetCommands(std::span<const std::byte> data, std::vector<NetCommandFr
     for (std::size_t i = 0; i < frames; ++i) {
         NetCommandFrame frame;
         float axes[5]{};
+        std::uint64_t behind = 0;
         if (!reader.varint(frame.tick) || !readFloats(reader, axes, 5) || !reader.bits(frame.down, kMaxNetActions) ||
-            !reader.bits(frame.pressed, kMaxNetActions)) {
+            !reader.bits(frame.pressed, kMaxNetActions) || !reader.varint(behind) || (behind >> 1) > kMaxNetViewBehind) {
             return false;
         }
+        const double steps = static_cast<double>(behind >> 1) * ((behind & 1) != 0 ? -1.0 : 1.0);
+        frame.viewTick = std::max(0.0, static_cast<double>(ackedSnapshot) - steps / kNetViewTickSteps);
         frame.moveForward = axes[0];
         frame.moveStrafe = axes[1];
         frame.moveUp = axes[2];

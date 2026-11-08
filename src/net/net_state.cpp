@@ -89,6 +89,10 @@ void registerNetState(flecs::world& world) {
     world.component<NetSevered>();
     world.component<NetAttachments>();
     world.component<NetSpawned>();
+    world.component<NetStandIn>();
+    world.component<NetHostStandIn>();
+    world.component<NetIdentity>();
+    world.set<NetIdentity>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});

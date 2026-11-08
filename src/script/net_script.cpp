@@ -1,7 +1,9 @@
 #include "script/net_script.hpp"
 
 #include "core/log.hpp"
+#include "net/net_rewind.hpp"
 #include "net/net_state.hpp"
+#include "script/player_target.hpp"
 #include "script/proc_role.hpp"
 #include "script/s7_read.hpp"
 #include "script/script_scope.hpp"
@@ -324,6 +326,13 @@ s7_pointer g_net_command_tick(s7_scheme* sc, s7_pointer) {
     return s7_make_integer(sc, static_cast<s7_int>(g_netWorld->get<NetPrediction>().tick));
 }
 
+s7_pointer g_net_player_name(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetIdentity>()) {
+        return s7_make_string(sc, kLocalNetPlayerId);
+    }
+    return s7_make_string(sc, g_netWorld->get<NetIdentity>().player.c_str());
+}
+
 s7_pointer g_net_acked_command(s7_scheme* sc, s7_pointer) {
     if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
         return s7_f(sc);
@@ -358,8 +367,30 @@ s7_pointer g_session_set_max_players(s7_scheme* sc, s7_pointer args) {
     return s7_make_integer(sc, limits.maxPlayers);
 }
 
+s7_pointer g_enter_lag_compensation(s7_scheme* sc, s7_pointer) {
+    if (!requireCap(sc, ScriptCap::WorldMutate)) {
+        return s7_error(sc, s7_make_symbol(sc, "with-lag-compensation"),
+                        s7_list(sc, 1, s7_make_string(sc, "with-lag-compensation: not allowed here")));
+    }
+    beginNetRewind(*g_netWorld, scriptPlayer(*g_netWorld));
+    return s7_t(sc);
+}
+
+s7_pointer g_leave_lag_compensation(s7_scheme* sc, s7_pointer) {
+    endNetRewind(*g_netWorld);
+    return s7_unspecified(sc);
+}
+
+s7_pointer g_net_rewound_tick(s7_scheme* sc, s7_pointer) {
+    if (!g_netWorld->has<NetRewind>() || g_netWorld->get<NetRewind>().rewoundTo < 0.0) {
+        return s7_f(sc);
+    }
+    return s7_make_real(sc, g_netWorld->get<NetRewind>().rewoundTo);
+}
+
 constexpr SchemeBinding kNetBindings[] = {
     {"net-get", g_net_get, 2, 0, false, "(net-get id field)", ScriptCap::ReadWorld},
+    {"net-rewound-tick", g_net_rewound_tick, 0, 0, false, "(net-rewound-tick)", ScriptCap::ReadWorld},
     {"net-set!", g_net_set, 3, 0, false, "(net-set! id field value)", ScriptCap::WorldMutate},
     {"net-reset!", g_net_reset, 0, 0, false, "(net-reset!)", ScriptCap::WorldMutate},
     {"net-save-state", g_net_save_state, 0, 0, false, "(net-save-state)", ScriptCap::ReadWorld},
@@ -368,6 +399,7 @@ constexpr SchemeBinding kNetBindings[] = {
     {"net-event!", g_net_event, 2, 0, true, "(net-event! event where arg ...)", ScriptCap::ReadWorld},
     {"net-command-tick", g_net_command_tick, 0, 0, false, "(net-command-tick)", ScriptCap::ReadWorld},
     {"net-acked-command", g_net_acked_command, 0, 0, false, "(net-acked-command)", ScriptCap::ReadWorld},
+    {"net-player-name", g_net_player_name, 0, 0, false, "(net-player-name)", ScriptCap::ReadWorld},
     {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
     {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
 };
@@ -406,6 +438,21 @@ void bindNetApi(flecs::world& world, s7_scheme* scheme) {
         return;
     }
     registerBindings(scheme, kNetBindings);
+    const s7_pointer env = s7_inlet(
+        scheme,
+        s7_list(
+            scheme,
+            6,
+            s7_make_symbol(scheme, "enter"),
+            s7_make_function(scheme, "with-lag-compensation", g_enter_lag_compensation, 0, 0, false, ""),
+            s7_make_symbol(scheme, "leave"),
+            s7_make_function(scheme, "with-lag-compensation", g_leave_lag_compensation, 0, 0, false, ""),
+            s7_make_symbol(scheme, "wind"),
+            s7_name_to_value(scheme, "dynamic-wind")));
+    s7_define_variable(
+        scheme,
+        "with-lag-compensation",
+        s7_eval_c_string_with_environment(scheme, "(lambda (thunk) (wind enter thunk leave))", env));
 }
 
 }

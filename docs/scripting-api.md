@@ -367,9 +367,25 @@ Returns the number of the command `predict` is running for, or `#f` outside `pre
 <pre><code class="language-scheme">(net-command-tick) ↵ (or integer? #f)
 </code></pre>
 
+### net-player-name {#net-player-name}
+Returns the name the server uses for this process's own player, such as `"player-2"` on a client. Single-player, a host and a server return `"Player"`. Events aimed at a player carry the server's name, so a handler compares it with this to tell its own player from another.
+<pre><code class="language-scheme">(net-player-name) ↵ string?
+</code></pre>
+
 ### net-acked-command {#net-acked-command}
 Returns the newest command of this client's that the server had applied when it sent the latest snapshot, so the player fields read with `net-get` are from after that command. Returns `#f` outside `predict`. A script that predicts something counted in a field, such as rounds fired, subtracts what it predicted for later commands.
 <pre><code class="language-scheme">(net-acked-command) ↵ (or integer? #f)
+</code></pre>
+
+### with-lag-compensation {#with-lag-compensation}
+Runs `thunk` with every actor and player body other than the script player's moved back to where they were on that player's screen when they sent their latest command, and puts them back afterwards, even when `thunk` raises an error. A hitscan inside it hits what the player saw. Only does anything on a server, for a player whose client has sent commands. Elsewhere it just runs `thunk`. Needs world mutation, so it works in `tick`. Returns what `thunk` returns. See @ref net-lag-compensation.
+<pre><code class="language-scheme">(with-lag-compensation
+  thunk : procedure?) ↵ any?
+</code></pre>
+
+### net-rewound-tick {#net-rewound-tick}
+Returns the server tick `with-lag-compensation` moved everything back to, as a real number, or `#f` when nothing was moved.
+<pre><code class="language-scheme">(net-rewound-tick) ↵ (or real? #f)
 </code></pre>
 
 ### net-schema-hash {#net-schema-hash}
@@ -1487,7 +1503,7 @@ Spawns a world-space billboard sprite.
 </code></pre>
 
 ### particle-spawn {#particle-spawn}
-Spawns a particle system, aimed by either a yaw angle or an explicit direction vector. A system that doesn't loop despawns once its emitters stop and its last particle dies. A process started with `--dedicated` draws nothing, so there this and the other `particle-spawn` functions spawn nothing and return `#t`.
+Spawns a particle system, aimed by either a yaw angle or an explicit direction vector. A system that doesn't loop despawns once its emitters stop and its last particle dies. A process started with `--dedicated` draws nothing, so there this and the other `particle-spawn` functions, the FX and dynamic light functions, `tracer-spawn` and the trail functions spawn nothing and return `#t`.
 <pre><code class="language-scheme">(particle-spawn
   id : string?
   x, y, z : real?
@@ -1913,8 +1929,32 @@ Removes an attachment made by `actor-attach-geo`, along with anything attached t
 </code></pre>
 
 ### avatars {#avatars}
-Returns the ids of the stand-ins a network client spawned from `on-player-appear` for other players. Empty anywhere else.
+Returns the ids of the stand-ins spawned from `on-player-appear` for other players, on a network client or a listen-server host. Empty anywhere else.
 <pre><code class="language-scheme">(avatars) ↵ (listof string?)
+</code></pre>
+
+### avatar-nudge! {#avatar-nudge}
+Moves geo hung on a stand-in by an offset on top of where its attachment places it, in the geo's own frame, with an optional rotation in radians. The offset stays until the next call, and `(avatar-nudge! path 0 0 0)` removes it, so a script can kick a held weapon back on a shot and ease it home over a few frames. `path` names the attachment, such as `"player:player-2/held"`. Allowed in `present` scope. Returns `#f` for anything that isn't geo attached to a stand-in.
+<pre><code class="language-scheme">(avatar-nudge!
+  path : string?
+  x, y, z : real?
+  [pitch, yaw, roll : real?])
+  ↵ boolean?
+</code></pre>
+
+### avatar-ragdoll! {#avatar-ragdoll}
+Turns a stand-in into a ragdoll on this process only, pushed along `dx dy dz` at `speed` metres per second. Nothing is sent to other processes, so each one drops its own copy of a dead player. The stand-in keeps its geo and attachments, and the engine stops moving it from snapshots until `avatar-revive!`. Allowed in `present` scope. Returns `#f` when `id` isn't a stand-in, is already a ragdoll, or has no skinned geo.
+<pre><code class="language-scheme">(avatar-ragdoll!
+  id : string?
+  [dx, dy, dz : real? = 0]
+  [speed : real? = 3])
+  ↵ boolean?
+</code></pre>
+
+### avatar-revive! {#avatar-revive}
+Ends a stand-in's ragdoll and gives back the animation it was playing, so the engine moves it from snapshots again, such as when the player respawns. Allowed in `present` scope. Returns `#f` when `id` isn't a ragdolled stand-in.
+<pre><code class="language-scheme">(avatar-revive!
+  id : string?) ↵ boolean?
 </code></pre>
 
 ### avatar-velocity {#avatar-velocity}

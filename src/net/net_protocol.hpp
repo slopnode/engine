@@ -14,8 +14,10 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 13;
+inline constexpr std::uint32_t kNetProtocolVersion = 14;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
+inline constexpr std::int64_t kNetViewTickSteps = 256;
+inline constexpr std::uint64_t kMaxNetViewBehind = std::uint64_t{1} << 40;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
 inline constexpr std::size_t kMaxNetClips = 1024;
@@ -91,6 +93,7 @@ struct NetCommandFrame {
     float pitch = 0.0f;
     std::vector<char> down;
     std::vector<char> pressed;
+    double viewTick = 0.0;
 };
 
 struct NetPose {

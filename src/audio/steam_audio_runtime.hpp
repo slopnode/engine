@@ -39,7 +39,7 @@ class SteamAudioSpatializeFilter;
 
 class SteamAudioRuntime {
 public:
-    static constexpr int kMaxSlots = 64;
+    static constexpr int kMaxSlots = 128;
     static constexpr int kSlotParam = 0;
     static constexpr int kReflectionOrder = 1;
     static constexpr float kMaxReflectionDuration = 1.5f;

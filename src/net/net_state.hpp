@@ -19,6 +19,12 @@ inline constexpr std::size_t kMaxPredictedEvents = 512;
 
 struct NetStandIn {};
 
+struct NetHostStandIn {};
+
+struct NetIdentity {
+    std::string player = kLocalNetPlayerId;
+};
+
 struct NetSessionLimits {
     std::string kind;
     int maxPlayers = 8;

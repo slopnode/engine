@@ -32,6 +32,8 @@ void runBotScriptTests();
 void runMotorRulesTests();
 void runNetSpawnTests();
 void runNetPredictedEventTests();
+void runNetHostStandInTests();
+void runNetRewindTests();
 void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
@@ -110,6 +112,8 @@ const Suite kSuites[] = {
     {"motor_rules", slopengine::runMotorRulesTests},
     {"net_spawn", slopengine::runNetSpawnTests},
     {"net_predicted_events", slopengine::runNetPredictedEventTests},
+    {"net_host_standins", slopengine::runNetHostStandInTests},
+    {"net_rewind", slopengine::runNetRewindTests},
     {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},

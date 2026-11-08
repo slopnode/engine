@@ -20,6 +20,8 @@ struct BoneAttachment {
     Vector3 offset{0.0f, 0.0f, 0.0f};
     Quaternion rotation{0.0f, 0.0f, 0.0f, 1.0f};
     Vector3 scale{1.0f, 1.0f, 1.0f};
+    Vector3 nudge{0.0f, 0.0f, 0.0f};
+    Quaternion nudgeRotation{0.0f, 0.0f, 0.0f, 1.0f};
 };
 
 /** Returns the index of the bone named @p name in @p model's skeleton, or -1. */

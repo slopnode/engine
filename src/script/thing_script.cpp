@@ -377,6 +377,9 @@ s7_pointer g_fx_light_attach(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "fx-light-attach", args);
     const std::string id = in.string("id string");
     const LightArgs light = readLightArgs(in);
@@ -446,6 +449,9 @@ s7_pointer g_dyn_light_spawn(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "dyn-light-spawn", args);
     const std::string id = in.string("id string");
     const Vector3 at = in.vec3("x y z numbers");
@@ -479,6 +485,9 @@ s7_pointer g_dyn_light_spawn(s7_scheme* sc, s7_pointer args) {
 s7_pointer g_fx_light_spawn(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
+    }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
     }
     ArgReader in(sc, "fx-light-spawn", args);
     const std::string id = in.string("id string");
@@ -811,6 +820,9 @@ s7_pointer g_trail_spawn(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "trail-spawn", args);
     const std::string id = in.string("id string");
     const Vector3 start = in.vec3("sx sy sz numbers");
@@ -899,6 +911,9 @@ s7_pointer g_tracer_spawn(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "tracer-spawn", args);
     const Vector3 start = in.vec3("sx sy sz numbers");
     const Vector3 end = in.vec3("ex ey ez numbers");
@@ -920,6 +935,9 @@ s7_pointer g_tracer_spawn(s7_scheme* sc, s7_pointer args) {
 s7_pointer g_trail_spawn_fp(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
+    }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
     }
     ArgReader in(sc, "trail-spawn-fp", args);
     const std::string id = in.string("id string");
@@ -2379,7 +2397,7 @@ s7_pointer g_actors_with_tag(s7_scheme* sc, s7_pointer args) {
     const std::string tag = in.string("tag string");
     s7_pointer list = s7_nil(sc);
     g_thingWorld->each([&](flecs::entity entity, Actor, const CollisionTags& tags) {
-        if (!actorHasTag(tags, tag)) {
+        if (entity.has<NetHostStandIn>() || !actorHasTag(tags, tag)) {
             return;
         }
         list = s7_cons(sc, s7_make_string(sc, entityIdString(entity).c_str()), list);
@@ -2399,6 +2417,9 @@ s7_pointer g_actors_in_radius(s7_scheme* sc, s7_pointer args) {
     const float radiusSq = radius * radius;
     s7_pointer list = s7_nil(sc);
     g_thingWorld->each([&](flecs::entity entity, Actor, const LocalTransformation& local) {
+        if (entity.has<NetHostStandIn>()) {
+            return;
+        }
         if (!tagFilter.empty()) {
             if (!entity.has<CollisionTags>() || !actorHasTag(entity.get<CollisionTags>(), tagFilter)) {
                 return;
@@ -2435,6 +2456,90 @@ s7_pointer g_avatar_attach_geo(s7_scheme* sc, s7_pointer args) {
 
 s7_pointer g_avatar_detach(s7_scheme* sc, s7_pointer args) {
     return standInArg(args) ? g_actor_detach(sc, args) : s7_f(sc);
+}
+
+s7_pointer g_avatar_nudge(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "avatar-nudge!", args);
+    const flecs::entity entity = resolveActorPath(in.string("path string"));
+    const Vector3 offset = in.vec3("x y z numbers");
+    float euler[3] = {0.0f, 0.0f, 0.0f};
+    for (float& value : euler) {
+        if (!in.nextIsNumber()) {
+            break;
+        }
+        value = in.realf();
+    }
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (!isStandIn(entity) || !entity.has<BoneAttachment>()) {
+        return s7_f(sc);
+    }
+    BoneAttachment& attachment = entity.get_mut<BoneAttachment>();
+    attachment.nudge = offset;
+    attachment.nudgeRotation = QuaternionFromEuler(euler[0], euler[1], euler[2]);
+    return s7_t(sc);
+}
+
+struct AvatarDowned {
+    AnimationPlayer animation;
+};
+
+s7_pointer g_avatar_ragdoll(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "avatar-ragdoll!", args);
+    const flecs::entity entity = resolveActorPath(in.string("id string"));
+    Vector3 push{0.0f, 0.0f, 0.0f};
+    float speed = 3.0f;
+    if (in.more()) {
+        push = in.vec3("dx dy dz numbers");
+    }
+    if (in.more()) {
+        speed = in.realf("speed number");
+    }
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (!isStandIn(entity) || entity.has<RagdollRig>()) {
+        return s7_f(sc);
+    }
+    const AnimationPlayer* animation = entity.try_get<AnimationPlayer>();
+    const AnimationPlayer saved = animation != nullptr ? *animation : AnimationPlayer{};
+    const bool animated = animation != nullptr;
+    if (!ragdollActorBodyImpl(entity, push, speed, "", 30.0f)) {
+        return s7_f(sc);
+    }
+    if (animated) {
+        entity.set<AvatarDowned>({saved});
+    }
+    return s7_t(sc);
+}
+
+s7_pointer g_avatar_revive(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "avatar-revive!", args);
+    flecs::entity entity = resolveActorPath(in.string("id string"));
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (!isStandIn(entity) || !entity.has<RagdollRig>()) {
+        return s7_f(sc);
+    }
+    const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+    PhysicsWorld* physics = physicsWorld();
+    if (physics != nullptr) {
+        physics->destroyRagdoll(id);
+    }
+    entity.remove<RagdollRig>();
+    entity.remove<ActorCorpse>();
+    if (const AvatarDowned* downed = entity.try_get<AvatarDowned>()) {
+        entity.set<AnimationPlayer>(downed->animation);
+        entity.remove<AvatarDowned>();
+    }
+    LocalTransformation& local = entity.get_mut<LocalTransformation>();
+    local.rotation = QuaternionIdentity();
+    if (physics != nullptr && entity.has<CharacterMotor>() && !physics->hasCharacter(id)) {
+        physics->createCharacter(id, local.position.x, local.position.y, local.position.z, entity.get<CharacterMotor>());
+    }
+    return s7_t(sc);
 }
 
 s7_pointer g_avatar_velocity(s7_scheme* sc, s7_pointer args) {
@@ -2504,6 +2609,9 @@ constexpr SchemeBinding kActorBindings[] = {
     {"avatar-play-anim", g_avatar_play_anim, 2, 1, false, "(avatar-play-anim path clip [loop])", ScriptCap::FpPresent},
     {"avatar-attach-geo", g_avatar_attach_geo, 4, 7, false, "(avatar-attach-geo path name point geo [x y z] [pitch yaw roll] [scale])", ScriptCap::FpPresent},
     {"avatar-detach", g_avatar_detach, 2, 0, false, "(avatar-detach path name)", ScriptCap::FpPresent},
+    {"avatar-nudge!", g_avatar_nudge, 4, 3, false, "(avatar-nudge! path x y z [pitch yaw roll])", ScriptCap::FpPresent},
+    {"avatar-ragdoll!", g_avatar_ragdoll, 1, 4, false, "(avatar-ragdoll! id [dx dy dz] [speed])", ScriptCap::FpPresent},
+    {"avatar-revive!", g_avatar_revive, 1, 0, false, "(avatar-revive! id)", ScriptCap::FpPresent},
     {"actor-tags", g_actor_tags, 1, 0, false, "(actor-tags id)", ScriptCap::ReadWorld},
     {"actors-with-tag", g_actors_with_tag, 1, 0, false, "(actors-with-tag tag)", ScriptCap::ReadWorld},
     {"actors-in-radius", g_actors_in_radius, 4, 1, false, "(actors-in-radius x y z r [tag])", ScriptCap::ReadWorld},
@@ -2716,7 +2824,8 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
                            Actor,
                            SpriteInstance& sprite,
                            GlobalTransformation& global) {
-        if (!entity.has<WorldSpace>() || entity.has<ViewSprite>() || entity.has<ActorCorpse>()) {
+        if (!entity.has<WorldSpace>() || entity.has<ViewSprite>() || entity.has<ActorCorpse>() ||
+            entity.has<NetHostStandIn>()) {
             return;
         }
         if (!tagFilter.empty()) {
@@ -2768,7 +2877,7 @@ s7_pointer g_hitscan_actors(s7_scheme* sc, s7_pointer args) {
     });
 
     g_thingWorld->each([&](flecs::entity entity, Actor, Model3D& model3d, GlobalTransformation& global) {
-        if (!entity.has<WorldSpace>() || entity.has<ActorCorpse>()) {
+        if (!entity.has<WorldSpace>() || entity.has<ActorCorpse>() || entity.has<NetHostStandIn>()) {
             return;
         }
         const Model& model = model3d.model;
@@ -2895,6 +3004,9 @@ s7_pointer g_sound_emit(s7_scheme* sc, s7_pointer args) {
 
     s7_pointer list = s7_nil(sc);
     g_thingWorld->each([&](flecs::entity entity, Actor, const LocalTransformation& local) {
+        if (entity.has<NetHostStandIn>()) {
+            return;
+        }
         const std::int32_t leaf = sampleNavLeaf(nav, tree, local.position);
         if (leaf < 0 || leaf >= static_cast<std::int32_t>(perceived.size())) {
             return;

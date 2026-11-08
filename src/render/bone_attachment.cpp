@@ -31,6 +31,8 @@ Transform composeBoneAttachment(const Transform& bone, const BoneAttachment& att
     Transform out{};
     out.translation = Vector3Add(bone.translation, Vector3RotateByQuaternion(scaledOffset, bone.rotation));
     out.rotation = QuaternionNormalize(QuaternionMultiply(bone.rotation, attachment.rotation));
+    out.translation = Vector3Add(out.translation, Vector3RotateByQuaternion(attachment.nudge, out.rotation));
+    out.rotation = QuaternionNormalize(QuaternionMultiply(out.rotation, attachment.nudgeRotation));
     out.scale = {
         attachment.scale.x * bone.scale.x,
         attachment.scale.y * bone.scale.y,

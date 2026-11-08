@@ -2,6 +2,7 @@
 
 #include "core/sim_clock.hpp"
 #include "net/net_protocol.hpp"
+#include "net/net_rewind.hpp"
 #include "net/secure_transport.hpp"
 
 #include <flecs.h>
@@ -51,6 +52,7 @@ struct NetSessionConfig {
     std::uint64_t snapshotIntervalTicks = 2;
     std::size_t snapshotBudgetBytes = 1200;
     std::uint64_t interpolationDelayTicks = 6;
+    std::uint64_t maxRewindTicks = kDefaultMaxRewindTicks;
     float statsSeconds = 0.0f;
     bool hostPlayerVisible = false;
     bool firstClientTakesMapPlayer = true;
@@ -150,6 +152,8 @@ private:
         std::uint64_t statDeferred = 0;
         std::uint64_t statAcks = 0;
         std::uint64_t statAckLag = 0;
+        double statViewAge = 0.0;
+        std::uint64_t statViews = 0;
     };
 
     struct EntityMotion {
@@ -182,6 +186,7 @@ private:
     void serverApplyCommands();
     void serverStepAhead(flecs::entity body, const NetCommandFrame& frame);
     void serverAfterTick();
+    void serverPresentStandIns();
     void serverSendMap(ServerClient& client);
     void serverSendEvents(ServerClient& client, const std::vector<NetEventMessage>& events);
     void serverSendEventBatch(NetConnectionId connection, std::span<const NetEventMessage> events,
@@ -262,9 +267,12 @@ private:
     std::map<std::uint32_t, NetIntroduction> names_;
     std::map<std::uint32_t, flecs::entity_t> bound_;
     std::set<std::uint32_t> appeared_;
+    std::set<std::string> hostAppeared_;
+    std::set<std::string> hostSpawned_;
     std::uint64_t lastSnapshotTick_ = 0;
     std::uint64_t ackSnapshot_ = 0;
     double clock_ = 0.0;
+    double viewTick_ = 0.0;
     bool haveClock_ = false;
     std::map<std::uint32_t, std::deque<ClientSample>> history_;
     std::deque<std::pair<std::uint64_t, Vector3>> eyeHistory_;

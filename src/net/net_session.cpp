@@ -213,6 +213,7 @@ bool NetSession::start() {
             world_.get_mut<NetEffectQueue>().forward = true;
         }
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
+        world_.ensure<NetRewind>().maxTicks = config_.maxRewindTicks;
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
                   secureKeyFingerprint(transport_->publicKey()).c_str());
         Log::info(LogCategory::General, "NET: session %s, up to %d players",
@@ -466,14 +467,33 @@ void NetSession::serverRemove(NetConnectionId connection, const std::string& rea
         despawnPlayerBody(world_, playerBody(world_, client.player));
         removeNetPlayer(world_, client.player);
     } else if (!config_.hostPlayerVisible) {
+        if (const flecs::entity body = playerBody(world_, client.player); body.is_valid()) {
+            body.remove<NetView>();
+        }
         resetPlayerBody(world_, playerBody(world_, client.player));
         resetNetPlayer(world_, client.player);
     }
 }
 
 void NetSession::serverMapLoaded() {
+    serverLastTick_ = {};
+    clearNetRewind(world_);
+    for (const std::string& player : hostAppeared_) {
+        const std::string name = netAvatarName(player);
+        if (world_.lookup(name.c_str()).is_valid()) {
+            callHook("on-player-vanish", name);
+        }
+        removeNetPlayer(world_, name);
+    }
+    hostAppeared_.clear();
+    hostSpawned_.clear();
     serverEntities_.clear();
     nextNetId_ = 1;
+    std::vector<flecs::entity> numbered;
+    world_.each([&](flecs::entity entity, const NetId&) { numbered.push_back(entity); });
+    for (flecs::entity entity : numbered) {
+        entity.remove<NetId>();
+    }
     int index = 2;
     for (auto& entry : clients_) {
         ServerClient& client = entry.second;
@@ -536,6 +556,12 @@ void NetSession::serverApplyCommands() {
             latest.moveForward = 0.0f;
             latest.moveStrafe = 0.0f;
             latest.moveUp = 0.0f;
+        }
+        if (moved && latest.viewTick > 0.0) {
+            const double view = std::min(latest.viewTick, static_cast<double>(serverTick_));
+            body.set<NetView>({view, latest.tick});
+            client.statViewAge += static_cast<double>(serverTick_) - view;
+            ++client.statViews;
         }
         PlayerCommand command{};
         command.tick = world_.get<SimClock>().tick;
@@ -1226,12 +1252,87 @@ void NetSession::serverTrackMotion() {
     }
 }
 
+void NetSession::serverPresentStandIns() {
+    if (!config_.hostPlayerVisible || !world_.has<CurrentMap>() || world_.get<CurrentMap>().id.empty()) {
+        return;
+    }
+    std::set<std::string> present;
+    for (const auto& entry : clients_) {
+        const ServerClient& client = entry.second;
+        if (!client.ready || client.player == kLocalNetPlayerId) {
+            continue;
+        }
+        const flecs::entity body = playerBody(world_, client.player);
+        if (!body.is_valid() || !body.has<LocalTransformation>()) {
+            continue;
+        }
+        const std::string name = netAvatarName(client.player);
+        present.insert(client.player);
+        flecs::entity standIn = world_.lookup(name.c_str());
+        if (standIn.is_valid() && standIn.has<NetHostStandIn>()) {
+            hostAppeared_.insert(client.player);
+            hostSpawned_.insert(client.player);
+        } else if (!standIn.is_valid() && hostSpawned_.erase(client.player) != 0) {
+            hostAppeared_.erase(client.player);
+        }
+        if (!standIn.is_valid() && hostAppeared_.size() < kMaxNetPlayers && hostAppeared_.insert(client.player).second) {
+            addNetPlayer(world_, name);
+            callHook("on-player-appear", name);
+            standIn = world_.lookup(name.c_str());
+            if (standIn.is_valid()) {
+                hostSpawned_.insert(client.player);
+                standIn.add<NetStandIn>().add<NetHostStandIn>();
+                if (world_.has<PhysicsContext>() && world_.get<PhysicsContext>().world != nullptr) {
+                    world_.get_mut<PhysicsContext>().world->destroyCharacter(static_cast<std::uint64_t>(standIn.id()));
+                }
+                standIn.remove<CharacterMotor>();
+            }
+        }
+        if (!standIn.is_valid() || !standIn.has<NetHostStandIn>()) {
+            continue;
+        }
+        if (!standIn.has<RagdollRig>()) {
+            LocalTransformation& local = standIn.get_mut<LocalTransformation>();
+            local.position = body.get<LocalTransformation>().position;
+            local.rotation = body.get<LocalTransformation>().rotation;
+            if (SimPose* pose = standIn.try_get_mut<SimPose>()) {
+                pose->cur.position = local.position;
+                pose->cur.rotation = local.rotation;
+                pose->presented = local;
+            }
+        }
+        const NetPlayerRecord* from = findNetPlayer(world_, client.player);
+        if (world_.has<NetStore>() && from != nullptr) {
+            const std::vector<NetValue> values = from->values;
+            for (NetPlayerRecord& record : world_.get_mut<NetStore>().players) {
+                if (record.id == name) {
+                    record.values = values;
+                }
+            }
+        }
+    }
+    for (auto it = hostAppeared_.begin(); it != hostAppeared_.end();) {
+        if (present.count(*it) != 0) {
+            ++it;
+            continue;
+        }
+        const std::string name = netAvatarName(*it);
+        if (world_.lookup(name.c_str()).is_valid()) {
+            callHook("on-player-vanish", name);
+        }
+        removeNetPlayer(world_, name);
+        hostSpawned_.erase(*it);
+        it = hostAppeared_.erase(it);
+    }
+}
+
 void NetSession::serverAfterTick() {
     ++serverTick_;
     serverDropLate();
     serverAssignIds();
     serverPlaceEntities();
     serverTrackMotion();
+    recordNetRewind(world_, serverTick_);
     std::vector<NetEventMessage> events;
     if (world_.has<NetEventQueue>()) {
         events.swap(world_.get_mut<NetEventQueue>().pending);
@@ -1249,6 +1350,7 @@ void NetSession::serverAfterTick() {
         }
     }
     serverSendEffects();
+    serverPresentStandIns();
     serverLogStats();
 }
 
@@ -1278,13 +1380,15 @@ void NetSession::serverLogStats() {
         const double snapshots = static_cast<double>(std::max<std::uint64_t>(1, client.statSnapshots));
         Log::info(LogCategory::General,
                   "NET STATS server to %s: %.1f snapshots/s, %.1f KB/s, %.1f entities and %.1f deferred per snapshot, "
-                  "%zu known, ack lag %.1f ticks, ping %.0f ms",
+                  "%zu known, ack lag %.1f ticks, aims %.0f ms back, ping %.0f ms",
                   client.player.c_str(), static_cast<double>(client.statSnapshots) / seconds,
                   static_cast<double>(client.statBytes) / seconds / 1024.0,
                   static_cast<double>(client.statEntities) / snapshots,
                   static_cast<double>(client.statDeferred) / snapshots, client.known.size(),
                   client.statAcks == 0 ? -1.0
                                        : static_cast<double>(client.statAckLag) / static_cast<double>(client.statAcks),
+                  client.statViews == 0 ? -1.0
+                                        : client.statViewAge / static_cast<double>(client.statViews) * kSimTickDt * 1000.0,
                   static_cast<double>(transport_->stats(connection).pingMs));
         client.statSnapshots = 0;
         client.statBytes = 0;
@@ -1292,6 +1396,8 @@ void NetSession::serverLogStats() {
         client.statDeferred = 0;
         client.statAcks = 0;
         client.statAckLag = 0;
+        client.statViewAge = 0.0;
+        client.statViews = 0;
     }
 }
 
@@ -1611,6 +1717,9 @@ void NetSession::clientReceive(const NetEvent& event) {
         }
         clientResetView(false);
         yourPlayer_ = change.yourPlayer;
+        if (world_.has<NetIdentity>() && !yourPlayer_.empty()) {
+            world_.get_mut<NetIdentity>().player = yourPlayer_;
+        }
         expectedMap_ = change.mapId;
         if (config_.loadMap) {
             config_.loadMap(change.mapId, change.reason);
@@ -1907,6 +2016,7 @@ void NetSession::clientResetView(bool reenable) {
     loggedSnapshots_ = false;
     ackSnapshot_ = 0;
     haveClock_ = false;
+    viewTick_ = 0.0;
     history_.clear();
     eyeHistory_.clear();
     clipNames_.clear();
@@ -2132,6 +2242,7 @@ void NetSession::clientPresentTimeline(float frameDt) {
     const double renderTick = config_.interpolationDelayTicks == 0
         ? static_cast<double>(lastSnapshotTick_)
         : clock_ - static_cast<double>(config_.interpolationDelayTicks);
+    viewTick_ = std::max(0.0, std::min(renderTick, static_cast<double>(lastSnapshotTick_)));
     for (auto& [netId, samples] : history_) {
         const auto bound = bound_.find(netId);
         if (bound != bound_.end() && world_.is_alive(bound->second)) {
@@ -2273,6 +2384,7 @@ void NetSession::clientSendCommands() {
     frame.pitch = command.pitch;
     frame.down = command.actionDown;
     frame.pressed = command.actionPressed;
+    frame.viewTick = viewTick_;
     frame.down.resize(std::min(frame.down.size(), kMaxNetActions));
     frame.pressed.resize(std::min(frame.pressed.size(), kMaxNetActions));
     if (predicting_) {

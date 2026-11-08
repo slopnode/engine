@@ -41,6 +41,7 @@ struct AppConfig {
     float netJitterMs = 0.0f;
     float netLoss = 0.0f;
     float netStatsSeconds = 0.0f;
+    float netMaxRewindMs = 500.0f;
     bool perfViewLock = false;
     float perfView[5]{};
     /** Tool-facing map id (`slopbsp` / `slopvis` / `sloprad` / editors). Not used by the game runtime. */

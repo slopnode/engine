@@ -139,6 +139,7 @@ struct PhysicsWorld {
     }
 
     void setCharacterPosition(std::uint64_t id, float x, float y, float z);
+    void placeCharacter(std::uint64_t id, float x, float y, float z);
     void resetCharacterState(std::uint64_t id, const JPH::RVec3& position, const JPH::Vec3& velocity);
     void stepCharacterAlone(const CharacterStep& step);
     void markPlayerCharacter(std::uint64_t id);
