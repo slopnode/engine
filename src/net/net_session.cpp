@@ -36,6 +36,7 @@
 #endif
 
 #include <algorithm>
+#include <iterator>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -50,6 +51,7 @@ constexpr std::uint64_t kCommandWindowTicks = 60;
 constexpr std::size_t kMaxQueuedCommands = 64;
 constexpr std::size_t kMaxPredictedMoves = 128;
 constexpr std::uint64_t kRelevanceLinger = 60;
+constexpr std::size_t kRelevanceSlack = 256;
 constexpr float kPlaceLift = 0.9f;
 constexpr std::size_t kEventsPerMessage = 256;
 constexpr std::size_t kSentSnapshotsKept = 64;
@@ -287,6 +289,12 @@ void NetSession::callHook(const char* name, const std::string& argument) {
     ScriptScopeGuard scope(ScriptScope::World);
     ScriptCallGuard guard(scheme, roleForProc(name));
     s7_call(scheme, proc, s7_list(scheme, 1, s7_make_string(scheme, argument.c_str())));
+}
+
+void NetSession::keepAlive() {
+    if (transport_) {
+        transport_->keepAlive();
+    }
 }
 
 void NetSession::serverPoll() {
@@ -665,21 +673,35 @@ void NetSession::serverAssignIds() {
 
 void NetSession::serverPlaceEntities() {
     places_.clear();
+    places_.reserve(serverEntities_.size());
     const BspTree* tree = world_.has<MapBsp>() && world_.has<MapPvs>() ? &world_.get<MapBsp>().tree : nullptr;
+    const std::vector<const NetField*> fields = netSchema().fieldsIn(NetScope{NetScopeKind::Player, {}});
     for (const auto& [netId, raw] : serverEntities_) {
         const flecs::entity entity = world_.entity(raw);
         const LocalTransformation* local = entity.try_get<LocalTransformation>();
         if (local == nullptr) {
             continue;
         }
-        EntityPlace place;
+        EntityPlace& place = places_.emplace_back();
+        place.netId = netId;
+        place.raw = raw;
         place.at = local->position;
         place.always = entity.has<RigidMover>();
+        place.player = entity.has<PlayerBody>();
         if (tree != nullptr && !place.always) {
             place.leaf = pvsSampleLeaf(*tree, {place.at.x, place.at.y + kPlaceLift, place.at.z});
         }
-        places_[netId] = place;
+        place.hasState = serverEntityState(entity, fields, place.state);
+        if (place.hasState && place.state.hasAnimation && place.state.playing && config_.clipDuration) {
+            place.clipDuration = config_.clipDuration(entity);
+        }
     }
+}
+
+const NetSession::EntityPlace* NetSession::serverPlace(std::uint32_t netId) const {
+    const auto found = std::lower_bound(places_.begin(), places_.end(), netId,
+                                        [](const EntityPlace& place, std::uint32_t id) { return place.netId < id; });
+    return found != places_.end() && found->netId == netId ? &*found : nullptr;
 }
 
 void NetSession::serverRefreshView(ServerClient& client) const {
@@ -726,23 +748,22 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
     const PvsFile* pvs = world_.has<MapPvs>() ? &world_.get<MapPvs>().pvs : nullptr;
     const float nearSq = config_.nearRadius * config_.nearRadius;
     std::vector<std::pair<float, std::uint32_t>> wanted;
-    for (const auto& [netId, raw] : serverEntities_) {
-        const flecs::entity entity = world_.entity(raw);
-        const auto place = places_.find(netId);
-        if (place == places_.end() || !serverVisibleTo(client, entity)) {
+    wanted.reserve(places_.size());
+    for (const EntityPlace& place : places_) {
+        if (place.player && !serverVisibleTo(client, world_.entity(place.raw))) {
             continue;
         }
-        const float distSq = haveEye ? Vector3DistanceSqr(place->second.at, eye) : 0.0f;
-        bool relevant = place->second.always || pvs == nullptr ||
-            (haveEye && (distSq <= nearSq || pvsCanSee(*pvs, eyeLeaf, place->second.leaf)));
+        const float distSq = haveEye ? Vector3DistanceSqr(place.at, eye) : 0.0f;
+        bool relevant = place.always || pvs == nullptr ||
+            (haveEye && (distSq <= nearSq || pvsCanSee(*pvs, eyeLeaf, place.leaf)));
         if (relevant) {
-            client.lastRelevant[netId] = serverTick_;
+            client.lastRelevant[place.netId] = serverTick_;
         } else {
-            const auto last = client.lastRelevant.find(netId);
+            const auto last = client.lastRelevant.find(place.netId);
             relevant = last != client.lastRelevant.end() && serverTick_ - last->second <= kRelevanceLinger;
         }
         if (relevant) {
-            wanted.emplace_back(place->second.always ? -1.0f : distSq, netId);
+            wanted.emplace_back(place.always ? -1.0f : distSq, place.netId);
         }
     }
     std::sort(wanted.begin(), wanted.end());
@@ -760,25 +781,20 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
         desired.push_back(entry.second);
     }
     std::sort(desired.begin(), desired.end());
-    for (std::uint32_t netId : desired) {
-        if (client.known.insert(netId).second) {
-            added.push_back(serverIntroduction(netId, world_.entity(serverEntities_.at(netId))));
-        }
+    std::vector<std::uint32_t> fresh;
+    std::set_difference(desired.begin(), desired.end(), client.known.begin(), client.known.end(),
+                        std::back_inserter(fresh));
+    std::set_difference(client.known.begin(), client.known.end(), desired.begin(), desired.end(),
+                        std::back_inserter(gone));
+    for (std::uint32_t netId : fresh) {
+        client.known.insert(netId);
+        added.push_back(serverIntroduction(netId, world_.entity(serverEntities_.at(netId))));
     }
-    for (auto it = client.known.begin(); it != client.known.end();) {
-        if (!std::binary_search(desired.begin(), desired.end(), *it)) {
-            gone.push_back(*it);
-            it = client.known.erase(it);
-        } else {
-            ++it;
-        }
+    for (std::uint32_t netId : gone) {
+        client.known.erase(netId);
     }
-    for (auto it = client.lastRelevant.begin(); it != client.lastRelevant.end();) {
-        if (serverEntities_.count(it->first) == 0) {
-            it = client.lastRelevant.erase(it);
-        } else {
-            ++it;
-        }
+    if (client.lastRelevant.size() > places_.size() + kRelevanceSlack) {
+        std::erase_if(client.lastRelevant, [this](const auto& entry) { return serverEntities_.count(entry.first) == 0; });
     }
     if (!added.empty()) {
         transport_->send(client.connection, encodeNetIntroduce(added), NetSendMode::Reliable);
@@ -921,39 +937,35 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
     const float nearRadius = std::max(1.0f, config_.nearRadius);
     struct Candidate {
         std::uint32_t netId = 0;
-        SentState state;
+        const SentState* state = nullptr;
+        ClientEntity* known = nullptr;
     };
     std::vector<Candidate> candidates;
+    candidates.reserve(client.known.size());
     for (std::uint32_t netId : client.known) {
-        const auto raw = serverEntities_.find(netId);
-        if (raw == serverEntities_.end()) {
-            continue;
-        }
-        const flecs::entity entity = world_.entity(raw->second);
-        SentState state;
-        if (!serverEntityState(entity, fields, state)) {
+        const EntityPlace* place = serverPlace(netId);
+        if (place == nullptr || !place->hasState) {
             continue;
         }
         ClientEntity& known = client.entities[netId];
-        if (!serverStateChanged(known, state, entity)) {
+        if (!serverStateChanged(known, place->state, place->clipDuration)) {
             known.priority = 0.0f;
             continue;
         }
-        const auto place = places_.find(netId);
-        const float distance = haveEye && place != places_.end() ? Vector3Distance(place->second.at, eye) : 0.0f;
+        const float distance = haveEye ? Vector3Distance(place->at, eye) : 0.0f;
         float weight = std::clamp(nearRadius / std::max(distance, nearRadius * 0.25f), 0.05f, 4.0f);
-        if (entity.has<PlayerBody>()) {
+        if (place->player) {
             weight *= 2.0f;
         }
         if (!known.acked && known.lastSentTick == 0) {
             weight += kFreshPriority;
         }
         known.priority += weight;
-        candidates.push_back({netId, std::move(state)});
+        candidates.push_back({netId, &place->state, &known});
     }
-    std::sort(candidates.begin(), candidates.end(), [&client](const Candidate& a, const Candidate& b) {
-        const float pa = client.entities[a.netId].priority;
-        const float pb = client.entities[b.netId].priority;
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+        const float pa = a.known->priority;
+        const float pb = b.known->priority;
         return pa != pb ? pa > pb : a.netId < b.netId;
     });
     SentSnapshot record;
@@ -963,8 +975,8 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
         if (snapshot.entities.size() >= kMaxNetEntities) {
             break;
         }
-        ClientEntity& known = client.entities[candidate.netId];
-        const SentState& state = candidate.state;
+        ClientEntity& known = *candidate.known;
+        const SentState& state = *candidate.state;
         NetEntityState out;
         out.netId = candidate.netId;
         out.pose = state.pose;
@@ -1015,7 +1027,7 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
         known.priority = 0.0f;
         known.lastSentTick = serverTick_;
         snapshot.entities.push_back(std::move(out));
-        record.entities.emplace_back(candidate.netId, std::move(candidate.state));
+        record.entities.emplace_back(candidate.netId, state);
     }
     client.sent.push_back(std::move(record));
     while (client.sent.size() > kSentSnapshotsKept) {
@@ -1145,7 +1157,7 @@ bool NetSession::serverEntityState(flecs::entity entity, const std::vector<const
     return true;
 }
 
-bool NetSession::serverStateChanged(const ClientEntity& known, const SentState& now, flecs::entity entity) const {
+bool NetSession::serverStateChanged(const ClientEntity& known, const SentState& now, float clipDuration) const {
     if (!known.acked) {
         return true;
     }
@@ -1162,7 +1174,7 @@ bool NetSession::serverStateChanged(const ClientEntity& known, const SentState& 
     if (!now.playing) {
         return std::fabs(was.time - now.time) > 0.001f;
     }
-    const float duration = config_.clipDuration ? config_.clipDuration(entity) : 0.0f;
+    const float duration = clipDuration;
     float expected = was.time + static_cast<float>(now.tick - was.tick) * kSimTickDt * now.speed;
     if (duration > 0.0f && now.loop) {
         expected = std::fmod(expected, duration);

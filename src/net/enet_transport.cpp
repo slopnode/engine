@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <string>
 
 namespace slopengine {
@@ -108,6 +109,7 @@ public:
     }
 
     bool listen(std::string_view address) override {
+        const std::lock_guard lock(mutex_);
         ENetAddress local{};
         if (!ready_ || host_ != nullptr || !parseAddress(address, true, local)) {
             return false;
@@ -122,6 +124,7 @@ public:
     }
 
     NetConnectionId connect(std::string_view address) override {
+        const std::lock_guard lock(mutex_);
         ENetAddress remote{};
         if (!ready_ || !parseAddress(address, false, remote)) {
             return kNoNetConnection;
@@ -143,6 +146,7 @@ public:
     }
 
     bool accept(NetConnectionId connection) override {
+        const std::lock_guard lock(mutex_);
         Peer* peer = find(connection);
         if (peer == nullptr || !peer->incoming || peer->accepted || peer->closing) {
             return false;
@@ -155,6 +159,7 @@ public:
     }
 
     bool send(NetConnectionId connection, std::span<const std::byte> data, NetSendMode mode) override {
+        const std::lock_guard lock(mutex_);
         Peer* peer = find(connection);
         if (peer == nullptr || !peer->accepted || peer->closing || data.size() > kMaxNetMessageBytes) {
             return false;
@@ -173,6 +178,7 @@ public:
     }
 
     void close(NetConnectionId connection, std::string_view reason) override {
+        const std::lock_guard lock(mutex_);
         Peer* peer = find(connection);
         if (peer == nullptr || peer->closing) {
             return;
@@ -187,10 +193,34 @@ public:
     }
 
     void poll(std::vector<NetEvent>& out) override {
+        const std::lock_guard lock(mutex_);
         for (NetEvent& event : local_) {
             out.push_back(std::move(event));
         }
         local_.clear();
+        service(out);
+    }
+
+    void keepAlive() override {
+        const std::lock_guard lock(mutex_);
+        service(local_);
+    }
+
+    NetConnectionStats stats(NetConnectionId connection) const override {
+        const std::lock_guard lock(mutex_);
+        const auto found = peers_.find(connection);
+        if (found == peers_.end()) {
+            return {};
+        }
+        NetConnectionStats out = found->second.stats;
+        out.pingMs = static_cast<float>(found->second.peer->roundTripTime);
+        out.lossFraction =
+            static_cast<float>(found->second.peer->packetLoss) / static_cast<float>(ENET_PEER_PACKET_LOSS_SCALE);
+        return out;
+    }
+
+private:
+    void service(std::vector<NetEvent>& out) {
         if (host_ == nullptr) {
             return;
         }
@@ -218,19 +248,6 @@ public:
         enet_host_flush(host_);
     }
 
-    NetConnectionStats stats(NetConnectionId connection) const override {
-        const auto found = peers_.find(connection);
-        if (found == peers_.end()) {
-            return {};
-        }
-        NetConnectionStats out = found->second.stats;
-        out.pingMs = static_cast<float>(found->second.peer->roundTripTime);
-        out.lossFraction =
-            static_cast<float>(found->second.peer->packetLoss) / static_cast<float>(ENET_PEER_PACKET_LOSS_SCALE);
-        return out;
-    }
-
-private:
     struct Peer {
         ENetPeer* peer = nullptr;
         bool incoming = false;
@@ -330,6 +347,7 @@ private:
     NetConnectionId nextId_ = 1;
     std::map<NetConnectionId, Peer> peers_;
     std::vector<NetEvent> local_;
+    mutable std::mutex mutex_;
 };
 
 } // namespace

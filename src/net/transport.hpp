@@ -51,6 +51,7 @@ public:
     virtual void close(NetConnectionId connection, std::string_view reason) = 0;
     virtual void poll(std::vector<NetEvent>& out) = 0;
     virtual NetConnectionStats stats(NetConnectionId connection) const = 0;
+    virtual void keepAlive() {}
 };
 
 }

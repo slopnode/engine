@@ -115,6 +115,10 @@ void runNetInterestTests() {
     CHECK(!hidden(far) && !hidden(client.world.lookup("actor-3::held")));
     CHECK(far.has<SimPose>() && far.get<SimPose>().cur.position.x == 5.0f);
     CHECK(hidden(middle) && !hidden(near));
+
+    server.world.lookup("actor-3").get_mut<LocalTransformation>().position = {30.0f, 0.0f, 0.0f};
+    frame(10);
+    CHECK(!hidden(middle) && !hidden(near) && hidden(far));
 }
 
 }

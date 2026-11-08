@@ -39,6 +39,7 @@ public:
     bool send(NetConnectionId connection, std::span<const std::byte> data, NetSendMode mode) override;
     void close(NetConnectionId connection, std::string_view reason) override;
     void poll(std::vector<NetEvent>& out) override;
+    void keepAlive() override { inner_->keepAlive(); }
     NetConnectionStats stats(NetConnectionId connection) const override;
 
     const SecureKey& publicKey() const { return staticPublic_; }

@@ -55,6 +55,7 @@ public:
     }
 
     NetConnectionStats stats(NetConnectionId connection) const override { return inner_->stats(connection); }
+    void keepAlive() override { inner_->keepAlive(); }
 
 private:
     struct Pending {

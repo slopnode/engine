@@ -211,6 +211,38 @@ void runEnetTransportTests() {
     }
 
     {
+        auto server = createEnetTransport();
+        auto client = createEnetTransport();
+        const int port = listenSomewhere(*server);
+        const NetConnectionId toServer = client->connect("127.0.0.1:" + std::to_string(port));
+        std::vector<NetEvent> serverEvents;
+        std::vector<NetEvent> clientEvents;
+        CHECK(pumpUntil(*server, *client, serverEvents, clientEvents, [&] {
+            if (const NetEvent* incoming = first(serverEvents, NetEventKind::Incoming)) {
+                server->accept(incoming->connection);
+                serverEvents.clear();
+            }
+            return first(serverEvents, NetEventKind::Connected) && first(clientEvents, NetEventKind::Connected);
+        }));
+        const NetEvent* joined = first(serverEvents, NetEventKind::Connected);
+        const NetConnectionId toClient = joined != nullptr ? joined->connection : kNoNetConnection;
+        serverEvents.clear();
+        clientEvents.clear();
+        CHECK(server->send(toClient, bytes("new map"), NetSendMode::Reliable));
+        for (int i = 0; i < 200; ++i) {
+            server->poll(serverEvents);
+            client->keepAlive();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            enet_time_set(enet_time_get() + 250);
+        }
+        CHECK(first(serverEvents, NetEventKind::Disconnected) == nullptr);
+        client->poll(clientEvents);
+        CHECK(first(clientEvents, NetEventKind::Disconnected) == nullptr);
+        const NetEvent* held = first(clientEvents, NetEventKind::Message);
+        CHECK(held != nullptr && held->connection == toServer && text(held->data) == "new map");
+    }
+
+    {
         auto server = createSecureTransport(createEnetTransport());
         auto client = createSecureTransport(createEnetTransport());
         const int port = listenSomewhere(*server);

@@ -20,6 +20,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -91,6 +92,7 @@ public:
 
     void registerSystems();
     void serverPoll();
+    void keepAlive();
     void serverMapLoaded();
     void clientFrame(float frameDt);
     std::vector<std::pair<std::string, bool>> clientKnownEntities() const;
@@ -137,7 +139,7 @@ private:
         std::uint64_t pendingWindow = 0;
         NetCommandFrame latest;
         std::set<std::uint32_t> known;
-        std::map<std::uint32_t, std::uint64_t> lastRelevant;
+        std::unordered_map<std::uint32_t, std::uint64_t> lastRelevant;
         Vector3 lastEye{};
         bool hadEye = false;
         std::int32_t eyeLeaf = -1;
@@ -178,9 +180,15 @@ private:
     };
 
     struct EntityPlace {
+        std::uint32_t netId = 0;
+        flecs::entity_t raw = 0;
         Vector3 at{};
         std::int32_t leaf = -1;
         bool always = false;
+        bool player = false;
+        bool hasState = false;
+        SentState state;
+        float clipDuration = 0.0f;
     };
 
     struct EventPlace {
@@ -208,7 +216,8 @@ private:
     void serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone);
     void serverTrackMotion();
     bool serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const;
-    bool serverStateChanged(const ClientEntity& known, const SentState& now, flecs::entity entity) const;
+    bool serverStateChanged(const ClientEntity& known, const SentState& now, float clipDuration) const;
+    const EntityPlace* serverPlace(std::uint32_t netId) const;
     void serverDrop(NetConnectionId connection, const std::string& reason);
     void serverRemove(NetConnectionId connection, const std::string& reason);
     bool serverWithinRate(ServerClient& client);
@@ -266,7 +275,7 @@ private:
     std::uint32_t nextNetId_ = 1;
     int nextPlayerNumber_ = 2;
     std::map<std::uint32_t, flecs::entity_t> serverEntities_;
-    std::map<std::uint32_t, EntityPlace> places_;
+    std::vector<EntityPlace> places_;
     std::vector<flecs::entity_t> visiblePlayers_;
     std::map<std::uint32_t, EntityMotion> motion_;
     std::uint64_t serverTick_ = 0;

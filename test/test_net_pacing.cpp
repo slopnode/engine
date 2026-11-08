@@ -105,7 +105,7 @@ struct PacingRun {
     std::vector<std::size_t> sent;
     std::function<void(flecs::world&)> step;
 
-    PacingRun(int crates, bool animated, std::uint64_t hash) {
+    PacingRun(int crates, bool animated, std::uint64_t hash, std::function<float(flecs::entity)> clipDuration = {}) {
         preparePacingSide(server, crates, animated);
         preparePacingSide(client, crates, animated);
         server.world.system("StepCrates")
@@ -116,8 +116,10 @@ struct PacingRun {
                     step(world);
                 }
             }).add<SimSystem>();
+        NetSessionConfig serverConfig = pacingConfig("server", "", hash);
+        serverConfig.clipDuration = std::move(clipDuration);
         server.session = std::make_unique<NetSession>(
-            server.world, pacingConfig("server", "", hash), std::make_unique<CountingTransport>(network.endpoint(), sent));
+            server.world, std::move(serverConfig), std::make_unique<CountingTransport>(network.endpoint(), sent));
         server.session->registerSystems();
         CHECK(server.session->start());
         server.session->serverMapLoaded();
@@ -284,6 +286,23 @@ void runNetPacingTests() {
         CHECK(std::fabs(after - before - 30.0f * kSimTickDt) < 0.01f);
         const float serverTime = run.server.world.lookup("crate-7").get<AnimationPlayer>().time;
         CHECK(std::fabs(serverTime - after - static_cast<float>(defaults.interpolationDelayTicks) * kSimTickDt) < 0.1f);
+    }
+
+    {
+        PacingRun run(50, true, hash, [](flecs::entity) { return 0.5f; });
+        run.step = [](flecs::world& world) {
+            for (int i = 0; i < 50; ++i) {
+                AnimationPlayer& animation =
+                    world.lookup(("crate-" + std::to_string(i)).c_str()).get_mut<AnimationPlayer>();
+                animation.clipName = "Idle";
+                animation.playing = true;
+                animation.loop = true;
+                animation.time = std::fmod(animation.time + kSimTickDt, 0.5f);
+            }
+        };
+        run.frames(120);
+        const std::size_t quiet = *std::max_element(run.sent.end() - 20, run.sent.end());
+        CHECK(quiet < 160);
     }
 
     netSchema().clear();

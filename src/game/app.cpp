@@ -58,9 +58,11 @@
 #include <s7.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -74,6 +76,40 @@ volatile std::sig_atomic_t g_dedicatedStop = 0;
 void requestDedicatedStop(int) {
     g_dedicatedStop = 1;
 }
+
+class NetKeepAlive {
+public:
+    explicit NetKeepAlive(NetSession* net) {
+        if (net != nullptr) {
+            thread_ = std::thread([this, net] {
+                std::unique_lock lock(mutex_);
+                while (!wake_.wait_for(lock, std::chrono::milliseconds(20), [this] { return stop_; })) {
+                    net->keepAlive();
+                }
+            });
+        }
+    }
+
+    ~NetKeepAlive() {
+        {
+            const std::lock_guard lock(mutex_);
+            stop_ = true;
+        }
+        wake_.notify_one();
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+    }
+
+    NetKeepAlive(const NetKeepAlive&) = delete;
+    NetKeepAlive& operator=(const NetKeepAlive&) = delete;
+
+private:
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    bool stop_ = false;
+    std::thread thread_;
+};
 
 std::uint32_t botSeed() {
     return static_cast<std::uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count());
@@ -158,7 +194,10 @@ int App::run() {
     }
     while (running_ && !WindowShouldClose()) {
         if (hasActiveLoadingSession(world_)) {
-            advanceLoadingSession(world_, assetStore_, scheme_);
+            {
+                const NetKeepAlive keepAlive(net_.get());
+                advanceLoadingSession(world_, assetStore_, scheme_);
+            }
             resetSimClock(world_);
             if (!hasActiveLoadingSession(world_) && net_ && net_->role() == NetRole::Server) {
                 net_->serverMapLoaded();
@@ -193,7 +232,10 @@ void App::takePendingMapLoad() {
     if (!config_.dedicated && shouldShowLoadingScreen(pendingMap->reason)) {
         beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
     } else {
-        changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+        {
+            const NetKeepAlive keepAlive(net_.get());
+            changeMap(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
+        }
         if (net_ && net_->role() == NetRole::Server) {
             net_->serverMapLoaded();
         }
