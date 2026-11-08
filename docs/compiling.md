@@ -216,7 +216,7 @@ Once you have it extracted, point CMake at the extract and turn the option on:
 --   library: /path/to/steamaudio/lib/linux-x64/libphonon.so
 ```
 
-The SDK extract needs to have `include/phonon.h` and a platform library directory (`lib/linux-x64`, `lib/windows-x64`, `lib/osx`, and so on depending on what you're building for) containing `phonon`. A plain source checkout of Steam Audio will satisfy the header lookup but won't have a prebuilt library, so unless you build `phonon` yourself, use the prebuilt binary SDK download rather than a source checkout.
+The SDK extract needs to have `include/phonon.h` and a platform library directory (`lib/linux-x64`, `lib/windows-x64`, `lib/osx`, and so on depending on what you're building for) containing `phonon`. A plain source checkout of Steam Audio will satisfy the header lookup but won't have a prebuilt library, so unless you build `phonon` yourself, use the prebuilt binary SDK download rather than a source checkout. If you do build it, install the core into `core/bin` (`cmake --install` with `-DCMAKE_INSTALL_PREFIX=<checkout>/core/bin`) and point `STEAM_AUDIO_ROOT` at the checkout root; the installed `core/bin` is picked up automatically.
 
 From here `cmake --build build` proceeds the same as any other build, just with spatial audio linked in.
 
