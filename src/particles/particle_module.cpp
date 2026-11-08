@@ -445,9 +445,16 @@ void updateParticleSystems(
         };
     }
 
-    world.each([&](ParticleSystemInstance& instance, GlobalTransformation& global) {
+    std::vector<flecs::entity> finished;
+    world.each([&](flecs::entity entity, ParticleSystemInstance& instance, GlobalTransformation& global) {
         tickParticleSystemInstance(instance, assets, global.matrix, dt, raycast);
+        if (!instance.playing && entity.has<ParticleOneShot>()) {
+            finished.push_back(entity);
+        }
     });
+    for (flecs::entity entity : finished) {
+        entity.destruct();
+    }
 }
 
 void lightParticleSystems(flecs::world& world, const Frustum& frustum, bool unlit) {
@@ -529,6 +536,7 @@ void registerParticleModule(flecs::world& world, AssetStore& assets) {
     world.component<ParticleFollowWorldAttachPoint>();
     world.component<ParticleFollowBone>();
     world.component<ParticleFollowEntity>();
+    world.component<ParticleOneShot>();
 
     world.system("ParticleSystemUpdate")
         .kind(flecs::OnUpdate)

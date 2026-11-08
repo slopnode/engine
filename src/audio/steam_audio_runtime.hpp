@@ -46,6 +46,7 @@ public:
     static constexpr float kWetMix = 0.55f;
     static constexpr float kDirectSmoothingTime = 0.1f;
     static constexpr float kReverbSmoothingTime = 0.25f;
+    static constexpr float kReflectionInterval = 0.1f;
 
     SteamAudioRuntime();
     ~SteamAudioRuntime();
@@ -138,6 +139,10 @@ private:
     std::array<SteamAudioSlotRenderParams, kMaxSlots> renderParams_{};
     mutable std::mutex renderMutex_;
     std::mutex playMutex_;
+
+    IPLSource reverbSource_ = nullptr;
+    float reverbTimes_[3]{};
+    float reflectionTimer_ = 0.0f;
 
     std::chrono::steady_clock::time_point lastUpdateTime_{};
     bool hasLastUpdateTime_ = false;

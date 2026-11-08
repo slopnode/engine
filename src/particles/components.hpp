@@ -75,6 +75,8 @@ struct ParticleFollowEntity {
     bool placed = false;
 };
 
+struct ParticleOneShot {};
+
 struct ParticleFollowBone {
     std::uint64_t host = 0;
     int bone = -1;

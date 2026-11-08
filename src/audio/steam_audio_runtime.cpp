@@ -99,6 +99,16 @@ bool SteamAudioRuntime::init(int samplingRate, int frameSize) {
         return false;
     }
 
+    IPLSourceSettings reverbSettings{};
+    reverbSettings.flags = IPL_SIMULATIONFLAGS_REFLECTIONS;
+    if (iplSourceCreate(simulator_, &reverbSettings, &reverbSource_) != IPL_STATUS_SUCCESS) {
+        TraceLog(LOG_ERROR, "STEAM AUDIO: iplSourceCreate failed for the listener reverb");
+        shutdown();
+        return false;
+    }
+    iplSourceAdd(reverbSource_, simulator_);
+    iplSimulatorCommit(simulator_);
+
     spatializeFilter_ = std::make_unique<SteamAudioSpatializeFilter>(this);
     ready_ = true;
     TraceLog(
@@ -120,6 +130,12 @@ void SteamAudioRuntime::shutdown() {
     }
 
     spatializeFilter_.reset();
+
+    if (reverbSource_ != nullptr) {
+        iplSourceRemove(reverbSource_, simulator_);
+        iplSimulatorCommit(simulator_);
+        iplSourceRelease(&reverbSource_);
+    }
 
     if (simulator_ != nullptr) {
         iplSimulatorRelease(&simulator_);
@@ -149,6 +165,7 @@ bool SteamAudioRuntime::setSceneFromBrushes(
     const bool ok = createSteamAudioScene(
         context_, simulator_, brushes, excludeBrushIds, assets, &scene_, &staticMesh_);
     sceneReady_ = ok;
+    reflectionTimer_ = kReflectionInterval;
     if (ok) {
         TraceLog(LOG_INFO, "STEAM AUDIO: scene built from brushes");
     } else {
@@ -194,8 +211,7 @@ int SteamAudioRuntime::trackVoice(
     s.baseVolume = baseVolume;
 
     IPLSourceSettings sourceSettings{};
-    sourceSettings.flags = static_cast<IPLSimulationFlags>(
-        IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
+    sourceSettings.flags = IPL_SIMULATIONFLAGS_DIRECT;
     if (iplSourceCreate(simulator_, &sourceSettings, &s.source) != IPL_STATUS_SUCCESS) {
         TraceLog(LOG_WARNING, "STEAM AUDIO: iplSourceCreate failed");
         freeSlotUnlocked(slot);
@@ -334,29 +350,36 @@ void SteamAudioRuntime::update(
         }
 
         IPLSimulationInputs inputs{};
-        inputs.flags = static_cast<IPLSimulationFlags>(
-            IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS);
+        inputs.flags = IPL_SIMULATIONFLAGS_DIRECT;
         inputs.directFlags = static_cast<IPLDirectSimulationFlags>(
             IPL_DIRECTSIMULATIONFLAGS_OCCLUSION | IPL_DIRECTSIMULATIONFLAGS_TRANSMISSION);
         inputs.source = makeCoords(slot.x, slot.y, slot.z, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
         inputs.occlusionType = IPL_OCCLUSIONTYPE_RAYCAST;
         inputs.numTransmissionRays = 1;
-        inputs.reverbScale[0] = 1.0f;
-        inputs.reverbScale[1] = 1.0f;
-        inputs.reverbScale[2] = 1.0f;
-        inputs.hybridReverbTransitionTime = 0.0f;
-        inputs.hybridReverbOverlapPercent = 0.0f;
         inputs.baked = IPL_FALSE;
-        iplSourceSetInputs(
-            slot.source,
-            static_cast<IPLSimulationFlags>(
-                IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS),
-            &inputs);
+        iplSourceSetInputs(slot.source, IPL_SIMULATIONFLAGS_DIRECT, &inputs);
     }
 
     iplSimulatorRunDirect(simulator_);
-    if (sceneReady_) {
+    reflectionTimer_ += dt;
+    if (sceneReady_ && reverbSource_ != nullptr && (snap || reflectionTimer_ >= kReflectionInterval)) {
+        reflectionTimer_ = 0.0f;
+        IPLSimulationInputs reverbInputs{};
+        reverbInputs.flags = IPL_SIMULATIONFLAGS_REFLECTIONS;
+        reverbInputs.source = listenerCoords;
+        reverbInputs.reverbScale[0] = 1.0f;
+        reverbInputs.reverbScale[1] = 1.0f;
+        reverbInputs.reverbScale[2] = 1.0f;
+        reverbInputs.hybridReverbTransitionTime = 0.0f;
+        reverbInputs.hybridReverbOverlapPercent = 0.0f;
+        reverbInputs.baked = IPL_FALSE;
+        iplSourceSetInputs(reverbSource_, IPL_SIMULATIONFLAGS_REFLECTIONS, &reverbInputs);
         iplSimulatorRunReflections(simulator_);
+        IPLSimulationOutputs reverbOutputs{};
+        iplSourceGetOutputs(reverbSource_, IPL_SIMULATIONFLAGS_REFLECTIONS, &reverbOutputs);
+        for (int band = 0; band < 3; ++band) {
+            reverbTimes_[band] = reverbOutputs.reflections.reverbTimes[band];
+        }
     }
 
     const IPLVector3 listenerPos{listener.posX, listener.posY, listener.posZ};
@@ -380,11 +403,7 @@ void SteamAudioRuntime::update(
         }
 
         IPLSimulationOutputs outputs{};
-        iplSourceGetOutputs(
-            slot.source,
-            static_cast<IPLSimulationFlags>(
-                IPL_SIMULATIONFLAGS_DIRECT | IPL_SIMULATIONFLAGS_REFLECTIONS),
-            &outputs);
+        iplSourceGetOutputs(slot.source, IPL_SIMULATIONFLAGS_DIRECT, &outputs);
 
         const IPLVector3 sourcePos{slot.x, slot.y, slot.z};
         const IPLVector3 relativeDir = iplCalculateRelativeDirection(
@@ -410,9 +429,9 @@ void SteamAudioRuntime::update(
             outputs.direct.transmission[2],
         };
         const float rawReverbTimes[3] = {
-            sceneReady_ ? outputs.reflections.reverbTimes[0] : 0.0f,
-            sceneReady_ ? outputs.reflections.reverbTimes[1] : 0.0f,
-            sceneReady_ ? outputs.reflections.reverbTimes[2] : 0.0f,
+            sceneReady_ ? reverbTimes_[0] : 0.0f,
+            sceneReady_ ? reverbTimes_[1] : 0.0f,
+            sceneReady_ ? reverbTimes_[2] : 0.0f,
         };
 
         // Raw simulation outputs are recomputed from scratch every call: raycast occlusion can

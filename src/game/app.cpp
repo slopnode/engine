@@ -100,6 +100,7 @@ App::App(AppConfig config)
     userSettings_.ui = loadUiSettings(settingsFilePath);
     init_window();
     if (config_.dedicated) {
+        world_.add<Headless>();
         TraceLog(LOG_INFO, "DEDICATED: audio, drawing and local input disabled");
     } else if (!audioWorld_->init()) {
         TraceLog(LOG_WARNING, "AUDIO: continuing without audio device");

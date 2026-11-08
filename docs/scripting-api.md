@@ -1487,7 +1487,7 @@ Spawns a world-space billboard sprite.
 </code></pre>
 
 ### particle-spawn {#particle-spawn}
-Spawns a particle system, aimed by either a yaw angle or an explicit direction vector.
+Spawns a particle system, aimed by either a yaw angle or an explicit direction vector. A system that doesn't loop despawns once its emitters stop and its last particle dies. A process started with `--dedicated` draws nothing, so there this and the other `particle-spawn` functions spawn nothing and return `#t`.
 <pre><code class="language-scheme">(particle-spawn
   id : string?
   x, y, z : real?
@@ -1603,7 +1603,7 @@ Destroys a particle system entity.
 </code></pre>
 
 ### fx-light-spawn {#fx-light-spawn}
-Spawns a receiver-only FX light (tints dynamic receivers, not the baked map lightmap).
+Spawns a receiver-only FX light (tints dynamic receivers, not the baked map lightmap). With a `lifetime` the light despawns after that many seconds, on a network client too.
 <pre><code class="language-scheme">(fx-light-spawn
   id : string?
   x, y, z : real?

@@ -12,6 +12,8 @@ struct SimSystem {};
 
 struct SimRemote {};
 
+struct Headless {};
+
 struct CosmeticSystem {};
 
 struct CosmeticClock {

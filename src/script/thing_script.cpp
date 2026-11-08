@@ -211,7 +211,7 @@ void registerFlushThingDespawns(flecs::world& world) {
                 }
             }
             queue.ids.clear();
-        }).add<SimSystem>();
+        }).add<SimSystem>().add<CosmeticSystem>();
 }
 
 void registerTimedDespawnSystem(flecs::world& world) {
@@ -228,7 +228,7 @@ void registerTimedDespawnSystem(flecs::world& world) {
             if (timed.lifetime > 0.0f && timed.age >= timed.lifetime) {
                 queueThingDespawn(world, entityIdString(entity));
             }
-        }).add<SimSystem>();
+        }).add<SimSystem>().add<CosmeticSystem>();
 }
 
 s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
@@ -562,6 +562,9 @@ s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "particle-spawn", args);
     const std::string id = in.string("id string");
     const Vector3 at = in.vec3("x y z numbers");
@@ -624,6 +627,9 @@ s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
     if (!entity.is_valid()) {
         return s7_f(sc);
     }
+    if (const ParticleSystemAsset* asset = assets.getParticleAsset(path); asset != nullptr && !asset->loop) {
+        entity.add<ParticleOneShot>();
+    }
     if (entity.has<ParticleSystemInstance>() && entity.has<GlobalTransformation>()) {
         ParticleSystemInstance& instance = entity.get_mut<ParticleSystemInstance>();
         tickParticleSystemInstance(
@@ -635,6 +641,9 @@ s7_pointer g_particle_spawn(s7_scheme* sc, s7_pointer args) {
 s7_pointer g_particle_spawn_fp(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
+    }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
     }
     ArgReader in(sc, "particle-spawn-fp", args);
     const std::string id = in.string("id string");
@@ -680,6 +689,9 @@ s7_pointer g_particle_spawn_attach(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "particle-spawn-attach", args);
     const std::string id = in.string("id string");
     const std::string target = in.string("target string");
@@ -722,6 +734,9 @@ s7_pointer g_particle_spawn_follow(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
     }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
+    }
     ArgReader in(sc, "particle-spawn-follow", args);
     std::string fields[3];
     const char* expected[3] = {"id string", "target string", "path string"};
@@ -755,6 +770,9 @@ s7_pointer g_particle_spawn_follow(s7_scheme* sc, s7_pointer args) {
 s7_pointer g_particle_spawn_bone(s7_scheme* sc, s7_pointer args) {
     if (g_thingWorld == nullptr) {
         return s7_f(sc);
+    }
+    if (g_thingWorld->has<Headless>()) {
+        return s7_t(sc);
     }
     ArgReader in(sc, "particle-spawn-bone", args);
     std::string fields[4];
