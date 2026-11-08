@@ -21,6 +21,7 @@ add_executable(sloptests
     test_net_hardening.cpp
     test_net_pacing.cpp
     test_bot_script.cpp
+    test_motor_rules.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -65,6 +66,7 @@ add_executable(sloptests
     test_slopui_theme.cpp
     test_tracer.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/motor_rules.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/motored_sweep.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/rigid_mover_motion.cpp
     ${CMAKE_SOURCE_DIR}/src/map/nav_macro_links.cpp
@@ -80,6 +82,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/script/net_script.cpp
     ${CMAKE_SOURCE_DIR}/src/script/player_target.cpp
     ${CMAKE_SOURCE_DIR}/src/script/bot_script.cpp
+    ${CMAKE_SOURCE_DIR}/src/script/motor_script.cpp
     ${CMAKE_SOURCE_DIR}/src/input/action_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/input/bind_code.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
@@ -127,6 +130,7 @@ add_test(NAME sloptests.net_interest COMMAND sloptests net_interest)
 add_test(NAME sloptests.net_hardening COMMAND sloptests net_hardening)
 add_test(NAME sloptests.net_pacing COMMAND sloptests net_pacing)
 add_test(NAME sloptests.bot_script COMMAND sloptests bot_script)
+add_test(NAME sloptests.motor_rules COMMAND sloptests motor_rules)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

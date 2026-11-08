@@ -1141,7 +1141,7 @@ void PhysicsWorld::applyCharacterInput(
     bool noclip) {
     JPH::Vec3 wish(wishX, 0.0f, wishZ);
     if (wish.LengthSq() > 1.0e-6f) {
-        wish = wish.Normalized() * motor.moveSpeed;
+        wish = wish.Normalized() * (motor.moveSpeed * motor.speedScale);
     } else {
         wish = JPH::Vec3::sZero();
     }
@@ -1194,7 +1194,7 @@ void PhysicsWorld::stepCharacterTryMove(
     JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
     const bool hasWish = wish.LengthSq() > 1.0e-6f;
     if (hasWish) {
-        wish = wish.Normalized() * motor.moveSpeed;
+        wish = wish.Normalized() * (motor.moveSpeed * motor.speedScale);
     }
 
     const JPH::Vec3 fullVel = character.GetLinearVelocity();
@@ -1230,7 +1230,7 @@ void PhysicsWorld::stepCharacterTryMove(
     delta -= delta.Dot(up) * up;
     const JPH::Vec3 wishDir = wish.Normalized();
     const float forward = delta.Dot(wishDir);
-    const float desired = motor.moveSpeed * kFixedDt;
+    const float desired = (motor.moveSpeed * motor.speedScale) * kFixedDt;
     constexpr float kAcceptFraction = 0.92f;
     if (forward + 1.0e-4f >= desired * kAcceptFraction) {
         character.StickToFloor(
@@ -1329,7 +1329,7 @@ void PhysicsWorld::applyFlightInput(
     float dt) {
     JPH::Vec3 horiz(motor.wishX, 0.0f, motor.wishZ);
     if (horiz.LengthSq() > 1.0e-6f) {
-        horiz = horiz.Normalized() * motor.moveSpeed;
+        horiz = horiz.Normalized() * (motor.moveSpeed * motor.speedScale);
     } else {
         horiz = JPH::Vec3::sZero();
     }
@@ -1587,7 +1587,7 @@ void removeInwardWish3D(float& wishX, float& wishY, float& wishZ, float nx, floa
 JPH::Vec3 wishVelocity(const CharacterMotor& motor) {
     JPH::Vec3 wish(motor.wishX, 0.0f, motor.wishZ);
     if (wish.LengthSq() > 1.0e-6f) {
-        return wish.Normalized() * motor.moveSpeed;
+        return wish.Normalized() * (motor.moveSpeed * motor.speedScale);
     }
     return JPH::Vec3::sZero();
 }
@@ -1595,7 +1595,7 @@ JPH::Vec3 wishVelocity(const CharacterMotor& motor) {
 JPH::Vec3 wishVelocityFly(const CharacterMotor& motor) {
     JPH::Vec3 horiz(motor.wishX, 0.0f, motor.wishZ);
     if (horiz.LengthSq() > 1.0e-6f) {
-        horiz = horiz.Normalized() * motor.moveSpeed;
+        horiz = horiz.Normalized() * (motor.moveSpeed * motor.speedScale);
     } else {
         horiz = JPH::Vec3::sZero();
     }

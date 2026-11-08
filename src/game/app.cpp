@@ -39,6 +39,7 @@
 #include "render/render_module.hpp"
 #include "render/underwater_effect.hpp"
 #include "script/bot_script.hpp"
+#include "script/motor_script.hpp"
 #include "script/save_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/scheme_harden.hpp"
@@ -222,7 +223,7 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
         net.pinnedServerKey = pinned;
     }
     net.hello.engineVersion = kSlopengineVersion;
-    net.hello.schemaHash = netSchema().hash();
+    net.hello.schemaHash = netSchema().hash() ^ (motorRulesHash() * 0x9e3779b97f4a7c15ull);
     for (const Package& package : assetStore_.packages()) {
         net.hello.packages.push_back({package.meta().id, package.meta().version});
     }
@@ -402,6 +403,7 @@ void App::init_script() {
     loadPackageThings(scheme_, assetStore_);
     loadPackageNavProfiles(scheme_, assetStore_);
     loadPackageNetSchema(scheme_, assetStore_);
+    loadPackageMotorRules(scheme_, assetStore_);
     if (!assetStore_.loadDataFromPackage(scheme_, baseId, "items")) {
         TraceLog(LOG_WARNING, "SCRIPT: data/items.s7 not loaded");
     }

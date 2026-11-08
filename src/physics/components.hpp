@@ -23,6 +23,7 @@ struct CharacterMotor {
     float radius = 0.3f;   /**< Capsule radius, or box half-width/depth. */
     float height = 0.88f;   /**< Cylinder height between hemispheres (capsule), or box body height. */
     float moveSpeed = 6.0f;
+    float speedScale = 1.0f;
     float gravity = 9.81f;
     float eyeHeight = 0.8f; /**< Camera offset above physics feet. */
     float wishX = 0.0f;     /**< Horizontal wish in world X (filled from input). */

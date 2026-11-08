@@ -3,6 +3,7 @@
 #include "camera/components.hpp"
 #include "game/sim_interpolation.hpp"
 #include "game/sim_pipeline.hpp"
+#include "input/action_registry.hpp"
 #include "input/input_command.hpp"
 #include "input/input_context.hpp"
 #include "input/input_state.hpp"
@@ -14,6 +15,7 @@
 #include "net/net_state.hpp"
 #include "physics/character_wish.hpp"
 #include "physics/components.hpp"
+#include "physics/motor_rules.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
 #include "render/components.hpp"
@@ -37,7 +39,7 @@ void preparePredictSide(PredictSide& side) {
     registerSimPipelines(side.world);
     registerSimInterpolation(side.world);
     InputState input{};
-    input.resize(8);
+    input.resize(actionRegistry().size());
     side.world.set<InputState>(std::move(input));
     side.world.set<InputCommand>({});
     side.world.set<InputContextStack>({});
@@ -79,6 +81,10 @@ float feetZ(PredictSide& side) {
 } // namespace
 
 void runNetPredictionTests() {
+    actionRegistry().clear();
+    actionRegistry().registerCoreActions();
+    actionRegistry().registerPackageAction("sprint", "Sprint", 0);
+    motorRules().clear();
     netSchema().clear();
     netSchema().finalize();
     const std::uint64_t hash = netSchema().hash();
@@ -95,6 +101,10 @@ void runNetPredictionTests() {
                 if (launch) {
                     launch = !server.physics.launchCharacter(id, 7.7f);
                 }
+                MotorRuleState rules = entity.has<MotorRuleState>() ? entity.get<MotorRuleState>() : MotorRuleState{};
+                stepMotorRules(server.physics, id, motor, rules,
+                               MotorInput{command.moveForward, &command.actionDown, &command.actionPressed}, true);
+                entity.set<MotorRuleState>(rules);
                 applyMoveWish(motor, command.moveForward, command.moveStrafe, command.moveUp, command.yaw);
                 CharacterStep step{};
                 step.id = id;
@@ -196,6 +206,55 @@ void runNetPredictionTests() {
     CHECK(std::fabs(lastY - floorY) < 1.0e-3f);
     const SimEyePose& eye = client.world.lookup("Player").get<SimEyePose>();
     CHECK(std::fabs(eye.cur.z - feetZ(client)) < 1.0e-3f && eye.cur.y > 1.5f && eye.cur.y < 1.8f);
+
+    MotorRule jump;
+    jump.name = "jump";
+    jump.action = "Jump";
+    jump.actionIndex = actionRegistry().indexOf("Jump");
+    jump.trigger = MotorTrigger::Press;
+    jump.when.push_back(MotorCond{MotorCondKind::Grounded, -1, {}});
+    jump.launch = true;
+    jump.launchSpeed = 7.7f;
+    MotorRule sprint;
+    sprint.name = "sprint";
+    sprint.action = "sprint";
+    sprint.actionIndex = actionRegistry().indexOf("sprint");
+    sprint.when.push_back(MotorCond{MotorCondKind::Forward, -1, {}});
+    sprint.speed = 1.6f;
+    motorRules() = {jump, sprint};
+    const auto feetY = [](PredictSide& side) {
+        const flecs::entity player = side.world.lookup("Player");
+        return static_cast<float>(side.physics.characterPosition(static_cast<std::uint64_t>(player.id())).GetY());
+    };
+    frame(30);
+    client.world.get_mut<InputState>().actionPressedPending[static_cast<std::size_t>(Action::Jump)] = 1;
+    frame(2);
+    CHECK(feetY(client) > floorY + 0.1f);
+    CHECK(feetY(server) < floorY + 1.0e-3f);
+    float worstJumpStep = 0.0f;
+    float lastJumpEye = clientPlayer.get<SimEyePose>().cur.y;
+    for (int i = 0; i < 150; ++i) {
+        frame(1);
+        const float eyeY = clientPlayer.get<SimEyePose>().cur.y;
+        worstJumpStep = std::max(worstJumpStep, std::fabs(eyeY - lastJumpEye));
+        lastJumpEye = eyeY;
+    }
+    CHECK(worstJumpStep < 0.16f);
+    CHECK(std::fabs(feetY(client) - feetY(server)) < 1.0e-3f);
+
+    const float sprintStart = feetZ(server);
+    InputState& sprintInput = client.world.get_mut<InputState>();
+    sprintInput.actionDown[static_cast<std::size_t>(actionRegistry().indexOf("sprint"))] = 1;
+    client.world.get_mut<InputCommand>().moveForward = 1.0f;
+    client.world.lookup("Player").get_mut<FirstPersonController>().yaw = 0.0f;
+    frame(60);
+    client.world.get_mut<InputCommand>().moveForward = 0.0f;
+    client.world.get_mut<InputState>().actionDown[static_cast<std::size_t>(actionRegistry().indexOf("sprint"))] = 0;
+    frame(40);
+    CHECK(std::fabs(feetZ(client) - feetZ(server)) < 1.0e-3f);
+    CHECK(std::fabs(feetZ(server) - sprintStart) > 8.0f);
+    motorRules().clear();
+    actionRegistry().clear();
 }
 
 }

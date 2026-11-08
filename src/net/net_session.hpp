@@ -206,6 +206,8 @@ private:
         float moveStrafe = 0.0f;
         float moveUp = 0.0f;
         float yaw = 0.0f;
+        std::vector<char> down;
+        std::vector<char> pressed;
     };
 
     void clientSendCommands();

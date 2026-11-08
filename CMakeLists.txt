@@ -269,6 +269,7 @@ add_executable(slopengine
     src/ui/slopui_editor.cpp
     src/physics/physics_world.cpp
     src/physics/physics_module.cpp
+    src/physics/motor_rules.cpp
     src/physics/ragdoll_pose.cpp
     src/physics/ragdoll_rig.cpp
     src/physics/sight_module.cpp
@@ -335,6 +336,7 @@ add_executable(slopengine
     src/script/post_script.cpp
     src/script/input_script.cpp
     src/script/bot_script.cpp
+    src/script/motor_script.cpp
     src/script/audio_script.cpp
     src/script/thing_script.cpp
     src/script/save_script.cpp

@@ -14,6 +14,7 @@
 #include "net/net_state.hpp"
 #include "physics/character_wish.hpp"
 #include "physics/components.hpp"
+#include "physics/motor_rules.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
@@ -558,7 +559,15 @@ void NetSession::serverStepAhead(flecs::entity body, const NetCommandFrame& fram
     const std::uint64_t id = static_cast<std::uint64_t>(body.id());
     CharacterMotor* motor = body.try_get_mut<CharacterMotor>();
     const FirstPersonController* controller = body.try_get<FirstPersonController>();
-    if (motor == nullptr || !physics.hasCharacter(id) || (controller != nullptr && !controller->allowMove)) {
+    if (motor == nullptr || !physics.hasCharacter(id)) {
+        return;
+    }
+    const bool allowMove = controller == nullptr || controller->allowMove;
+    MotorRuleState rules = body.has<MotorRuleState>() ? body.get<MotorRuleState>() : MotorRuleState{};
+    stepMotorRules(physics, id, *motor, rules,
+                   MotorInput{std::clamp(frame.moveForward, -1.0f, 1.0f), &frame.down, &frame.pressed}, allowMove);
+    body.set<MotorRuleState>(rules);
+    if (!allowMove) {
         return;
     }
     applyMoveWish(*motor, std::clamp(frame.moveForward, -1.0f, 1.0f), std::clamp(frame.moveStrafe, -1.0f, 1.0f),
@@ -841,6 +850,10 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
             const FirstPersonController* controller = body.try_get<FirstPersonController>();
             self.allowMove = controller == nullptr || controller->allowMove;
             self.allowLook = controller == nullptr || controller->allowLook;
+            if (const MotorRuleState* rules = body.try_get<MotorRuleState>()) {
+                self.motorEnabled = rules->enabled;
+                self.motorActive = rules->active;
+            }
         }
     }
     const std::vector<const NetField*> fields = netSchema().fieldsIn(NetScope{NetScopeKind::Player, {}});
@@ -1266,7 +1279,11 @@ bool NetSession::clientPredictMove(const PredictedMove& move) {
         return false;
     }
     const FirstPersonController* controller = player.try_get<FirstPersonController>();
-    if (controller == nullptr || controller->allowMove) {
+    const bool allowMove = controller == nullptr || controller->allowMove;
+    MotorRuleState rules = player.has<MotorRuleState>() ? player.get<MotorRuleState>() : MotorRuleState{};
+    stepMotorRules(physics, id, *motor, rules, MotorInput{move.moveForward, &move.down, &move.pressed}, allowMove);
+    player.set<MotorRuleState>(rules);
+    if (allowMove) {
         applyMoveWish(*motor, move.moveForward, move.moveStrafe, move.moveUp, move.yaw);
     } else {
         motor->wishX = 0.0f;
@@ -1341,6 +1358,7 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
         controller->allowLook = self.allowLook;
         controller->eyeHeight = self.eyeHeight;
     }
+    player.set<MotorRuleState>({self.motorEnabled, self.motorActive});
     const SimEyePose* shown = player.try_get<SimEyePose>();
     const Vector3 before = shown != nullptr ? shown->cur : Vector3{};
     const bool wasPredicting = predicting_ && shown != nullptr;
@@ -1961,7 +1979,8 @@ void NetSession::clientSendCommands() {
     frame.down.resize(std::min(frame.down.size(), kMaxNetActions));
     frame.pressed.resize(std::min(frame.pressed.size(), kMaxNetActions));
     if (predicting_) {
-        const PredictedMove move{frame.tick, frame.moveForward, frame.moveStrafe, frame.moveUp, frame.yaw};
+        const PredictedMove move{frame.tick, frame.moveForward, frame.moveStrafe, frame.moveUp, frame.yaw,
+                                 frame.down, frame.pressed};
         if (clientPredictMove(move)) {
             predicted_.push_back(move);
             while (predicted_.size() > kMaxPredictedMoves) {

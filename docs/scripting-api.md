@@ -385,6 +385,32 @@ Checks whether a package-defined input action was pressed this frame.
   id : string?) ↵ boolean?
 </code></pre>
 
+## Motor rules {#motor-rule-api}
+
+Functions for the movement rules a game declares in `data/motor.s7`, see @ref motor-rules. They act on `(script-player)` unless given a player id. A rule's state travels with the player's own snapshot, so a client predicts it the same way.
+
+### motor-rule-enable! {#motor-rule-enable}
+Switches a rule on or off for a player. A rule that is off is never active. Every rule starts on.
+<pre><code class="language-scheme">(motor-rule-enable!
+  rule : (or symbol? string?)
+  on : boolean?
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
+### motor-rule-active? {#motor-rule-active}
+Checks whether a rule was active on the player's latest tick.
+<pre><code class="language-scheme">(motor-rule-active?
+  rule : (or symbol? string?)
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
+### motor-rule-enabled? {#motor-rule-enabled}
+Checks whether a rule is switched on for a player.
+<pre><code class="language-scheme">(motor-rule-enabled?
+  rule : (or symbol? string?)
+  [id : string? = (script-player)]) ↵ boolean?
+</code></pre>
+
 ## Bots {#bots}
 
 A bot script plays a dedicated client started with `--bot`. The engine looks for `scripts/bots/NAME.s7` in the mounted packages, so a game or a mod can ship bots, or takes a path to a `.s7` file. The engine package has `still` and `walk`, and slopdemo adds `fight`, which aims at the nearest actor it can see and fires. The script is evaluated in an environment of its own with the Mod role, so its definitions don't touch the game's, and it must define `bot-tick`, which the engine calls every frame before the client builds its command. It runs in `bot` scope, so it reads what the client knows through the usual read functions, such as `player-pose`, `player-eye`, `actors-in-radius`, `los?` and `net-get`, and acts only through the functions below. A bot has the same view of the game as a player on that client and nothing more.

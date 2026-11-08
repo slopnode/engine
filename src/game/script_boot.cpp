@@ -8,6 +8,7 @@
 #include "script/hook_registry.hpp"
 #include "script/hud_script.hpp"
 #include "script/input_script.hpp"
+#include "script/motor_script.hpp"
 #include "script/net_script.hpp"
 #include "script/player_target.hpp"
 #include "script/post_script.hpp"
@@ -31,6 +32,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
     bindHudApi(world, scheme);
     bindPostProcessApi(world, scheme);
     bindInputApi(world, scheme);
+    bindMotorRuleApi(world, scheme);
     bindThingRuntimeApi(world, scheme);
     bindNavApi(world, scheme);
     bindSaveApi(world, assets, scheme);

@@ -12,6 +12,7 @@
 #include "map/bsp.hpp"
 #include "physics/character_wish.hpp"
 #include "physics/components.hpp"
+#include "physics/motor_rules.hpp"
 #include "physics/motored_body.hpp"
 #include "physics/ragdoll_rig.hpp"
 #include "physics/rigid_mover.hpp"
@@ -243,7 +244,12 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 if (!physics.world->hasCharacter(static_cast<std::uint64_t>(entity.id()))) {
                     return;
                 }
-                if (!controller.allowMove || (freeCamera && entity.has<LocalPlayer>())) {
+                const bool frozen = !controller.allowMove || (freeCamera && entity.has<LocalPlayer>());
+                MotorRuleState rules = entity.has<MotorRuleState>() ? entity.get<MotorRuleState>() : MotorRuleState{};
+                stepMotorRules(*physics.world, static_cast<std::uint64_t>(entity.id()), motor, rules,
+                               MotorInput{command.moveForward, &command.actionDown, &command.actionPressed}, !frozen);
+                entity.set<MotorRuleState>(rules);
+                if (frozen) {
                     motor.wishX = 0.0f;
                     motor.wishZ = 0.0f;
                     motor.wishY = 0.0f;

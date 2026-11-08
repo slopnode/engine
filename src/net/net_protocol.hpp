@@ -13,7 +13,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 6;
+inline constexpr std::uint32_t kNetProtocolVersion = 7;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
@@ -121,6 +121,8 @@ struct NetSelfState {
     float height = 0.0f;
     bool allowMove = true;
     bool allowLook = true;
+    std::uint32_t motorEnabled = 0xffffffffu;
+    std::uint32_t motorActive = 0;
 };
 
 struct NetSnapshot {

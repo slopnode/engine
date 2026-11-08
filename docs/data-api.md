@@ -16,6 +16,7 @@ All package data files should be placed in the `data/` directory of your package
 - `cli.s7` - CLI flags
 - `title.s7` - Title screen layers
 - `net.s7` - Declared player, session and thing state
+- `motor.s7` - Movement rules that clients predict
 
 # Actions {#actions}
 
@@ -221,3 +222,27 @@ Player fields not marked `travel` go back to their defaults on every map load. S
 (define (on-event-blast where radius)
   (particle-spawn "blast" (car where) (cadr where) (caddr where) "fx/explosion"))
 </code></pre>
+
+# Motor rules {#motor-rules}
+
+Symbol `*motor-rules*`
+
+Motor rules change a player's movement from their input, such as a sprint that speeds them up while a key is held or a jump that launches them when a key is pressed on the ground. The engine runs them every tick as part of movement, on the server and in a client's prediction alike, so a client sees its own sprint or jump at once instead of a round trip later. Only the base package's file is read, and the rules count toward the declared state, so a client with different rules is turned away at connect. The engine knows no rule by name.
+
+<pre><code class="language-scheme">(define *motor-rules*
+  '((sprint (action "sprint") (hold) (when forward (or active grounded)) (speed 1.6))
+    (jump (action "Jump") (press) (when grounded) (launch 7.7))))
+</code></pre>
+
+Each rule has a name and these properties.
+
+Property|Meaning
+-|-
+`(action id)`|The action that drives the rule, a core one such as `"Jump"` or one from `*package-actions*`
+`(hold)`|The rule is active on every tick the action is held, the default
+`(press)`|The rule is active on the tick the action is pressed
+`(when condition ...)`|Every condition must hold
+`(speed scale)`|Multiplies move speed while the rule is active, above 0 and at most 10
+`(launch speed)`|Sets the upward speed on the tick the rule becomes active, above 0 and at most 100
+
+A condition is `grounded`, `airborne`, `forward` for moving forward, `active` for this rule having been active on the previous tick, `(rule name)` for another rule having been active then, or `(not c)`, `(and c ...)` and `(or c ...)`. A game holds at most 32 rules. No rule is active while the player can't move. Scripts switch rules off and on with `motor-rule-enable!`, for example while crouching or dead, and check them with `motor-rule-active?` (see @ref motor-rule-api).
