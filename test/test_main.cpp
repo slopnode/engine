@@ -35,6 +35,7 @@ void runNetPredictedEventTests();
 void runNetHostStandInTests();
 void runNetRewindTests();
 void runHeadlessAssetTests();
+void runNetGuardTests();
 void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
@@ -116,6 +117,7 @@ const Suite kSuites[] = {
     {"net_host_standins", slopengine::runNetHostStandInTests},
     {"net_rewind", slopengine::runNetRewindTests},
     {"headless_assets", slopengine::runHeadlessAssetTests},
+    {"net_guards", slopengine::runNetGuardTests},
     {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},

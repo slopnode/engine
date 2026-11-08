@@ -1,5 +1,6 @@
 #include "test_assert.hpp"
 
+#include "core/sim_clock.hpp"
 #include "map/thing.hpp"
 #include "map/thing_def_registry.hpp"
 #include "net/net_schema.hpp"
@@ -268,6 +269,12 @@ void runNetTests() {
             CHECK(evalTrue(sc, "(catch #t (lambda () (net-set! \"Player\" 'health 1) #f) (lambda args #t))"));
         }
         CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'health)"), 150);
+        world.add<SimRemote>();
+        CHECK(evalTrue(sc, "(not (net-set! \"Player\" 'health 3))"));
+        CHECK(evalTrue(sc, "(not (net-reset!))"));
+        CHECK(evalTrue(sc, "(not (net-restore-state! saved))"));
+        CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'health)"), 150);
+        world.remove<SimRemote>();
 
         evalForm(sc, "(define boom-seen #f)");
         evalForm(sc, "(define (on-event-boom where power scale) (set! boom-seen (list where power scale)))");

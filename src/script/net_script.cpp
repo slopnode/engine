@@ -1,6 +1,7 @@
 #include "script/net_script.hpp"
 
 #include "core/log.hpp"
+#include "core/sim_clock.hpp"
 #include "net/net_rewind.hpp"
 #include "net/net_state.hpp"
 #include "script/player_target.hpp"
@@ -98,6 +99,10 @@ s7_pointer g_net_get(s7_scheme* sc, s7_pointer args) {
     return netValueToScheme(sc, *value);
 }
 
+bool netClientWorld() {
+    return g_netWorld != nullptr && g_netWorld->has<SimRemote>();
+}
+
 s7_pointer g_net_set(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "net-set!", args);
     const s7_pointer id = in.any("player id, thing id or 'session");
@@ -107,7 +112,7 @@ s7_pointer g_net_set(s7_scheme* sc, s7_pointer args) {
         return in.error();
     }
     NetTarget target;
-    if (g_netWorld == nullptr || !readTarget(id, target)) {
+    if (g_netWorld == nullptr || netClientWorld() || !readTarget(id, target)) {
         return s7_f(sc);
     }
     const NetField* field = nullptr;
@@ -131,9 +136,10 @@ s7_pointer g_net_reset(s7_scheme* sc, s7_pointer) {
     if (callerRole() == PackageRole::Mod) {
         return netError(sc, "net-reset!: mods can't reset declared state");
     }
-    if (g_netWorld != nullptr) {
-        resetNetState(*g_netWorld);
+    if (g_netWorld == nullptr || netClientWorld()) {
+        return s7_f(sc);
     }
+    resetNetState(*g_netWorld);
     return s7_t(sc);
 }
 
@@ -172,7 +178,7 @@ s7_pointer g_net_restore_state(s7_scheme* sc, s7_pointer args) {
     if (callerRole() == PackageRole::Mod) {
         return netError(sc, "net-restore-state!: mods can't restore declared state");
     }
-    if (g_netWorld == nullptr) {
+    if (g_netWorld == nullptr || netClientWorld()) {
         return s7_f(sc);
     }
     int applied = 0;

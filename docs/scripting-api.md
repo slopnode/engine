@@ -332,7 +332,7 @@ Returns a declared field's value. Raises a `net` error for a field the target do
 </code></pre>
 
 ### net-set! {#net-set}
-Stores a value in a declared field. Raises a `net` error when the value doesn't fit the field's type, including NaN and infinity, or when a mod sets a field the base package declared. Integer fields round real values, and real fields snap to their step.
+Stores a value in a declared field. Raises a `net` error when the value doesn't fit the field's type, including NaN and infinity, or when a mod sets a field the base package declared. Integer fields round real values, and real fields snap to their step. On a network client it changes nothing and returns `#f`, since only the server writes declared state.
 <pre><code class="language-scheme">(net-set!
   id : (or string? 'session)
   field : symbol?
@@ -340,7 +340,7 @@ Stores a value in a declared field. Raises a `net` error when the value doesn't 
 </code></pre>
 
 ### net-reset! {#net-reset}
-Resets every player and session field to its default, for a new game. Raises a `net` error when a mod calls it.
+Resets every player and session field to its default, for a new game. Raises a `net` error when a mod calls it. On a network client it changes nothing and returns `#f`.
 <pre><code class="language-scheme">(net-reset!) ↵ boolean?
 </code></pre>
 
@@ -350,7 +350,7 @@ Returns every field marked `save` as `((session (field . value) ...) (player "Pl
 </code></pre>
 
 ### net-restore-state! {#net-restore-state}
-Applies a list from `net-save-state`. Unknown fields and values that no longer fit are skipped. Returns how many fields were applied. Raises a `net` error when a mod calls it.
+Applies a list from `net-save-state`. Unknown fields and values that no longer fit are skipped. Returns how many fields were applied. Raises a `net` error when a mod calls it. On a network client it changes nothing and returns `#f`.
 <pre><code class="language-scheme">(net-restore-state!
   state : list?) ↵ integer?
 </code></pre>

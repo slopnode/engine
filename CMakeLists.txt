@@ -245,6 +245,7 @@ add_executable(slopengine
     src/game/app.cpp
     src/game/sim_pipeline.cpp
     src/game/sim_interpolation.cpp
+    src/net/command_move.cpp
     src/net/net_rewind.cpp
     src/net/net_state.cpp
     src/net/net_session.cpp

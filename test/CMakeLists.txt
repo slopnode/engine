@@ -27,6 +27,7 @@ add_executable(sloptests
     test_net_host_standins.cpp
     test_net_rewind.cpp
     test_headless_assets.cpp
+    test_net_guards.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -81,6 +82,7 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/script/hook_registry.cpp
     ${CMAKE_SOURCE_DIR}/src/game/sim_pipeline.cpp
     ${CMAKE_SOURCE_DIR}/src/game/sim_interpolation.cpp
+    ${CMAKE_SOURCE_DIR}/src/net/command_move.cpp
     ${CMAKE_SOURCE_DIR}/src/net/net_rewind.cpp
     ${CMAKE_SOURCE_DIR}/src/net/net_state.cpp
     ${CMAKE_SOURCE_DIR}/src/net/net_session.cpp
@@ -142,6 +144,7 @@ add_test(NAME sloptests.net_predicted_events COMMAND sloptests net_predicted_eve
 add_test(NAME sloptests.net_host_standins COMMAND sloptests net_host_standins)
 add_test(NAME sloptests.net_rewind COMMAND sloptests net_rewind)
 add_test(NAME sloptests.headless_assets COMMAND sloptests headless_assets)
+add_test(NAME sloptests.net_guards COMMAND sloptests net_guards)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

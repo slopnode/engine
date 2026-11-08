@@ -11,8 +11,8 @@
 #include "map/pvs.hpp"
 #include "map/player_bodies.hpp"
 #include "map/thing.hpp"
+#include "net/command_move.hpp"
 #include "net/net_state.hpp"
-#include "physics/character_wish.hpp"
 #include "physics/components.hpp"
 #include "physics/motor_rules.hpp"
 #include "physics/motored_body.hpp"
@@ -199,19 +199,19 @@ NetSession::~NetSession() {
 }
 
 bool NetSession::start() {
+    if (!world_.has<NetEventQueue>() || !world_.has<NetEffectQueue>() || !world_.has<NetStore>()) {
+        Log::error(LogCategory::General, "NET: register the net state before starting a session");
+        return false;
+    }
     if (!config_.listenAddress.empty()) {
         if (!transport_->listen(config_.listenAddress)) {
             Log::error(LogCategory::General, "NET: cannot listen on %s", config_.listenAddress.c_str());
             return false;
         }
         role_ = NetRole::Server;
-        if (world_.has<NetEventQueue>()) {
-            world_.get_mut<NetEventQueue>().forward = true;
-            world_.get_mut<NetEventQueue>().localPlayerHere = config_.hostPlayerVisible;
-        }
-        if (world_.has<NetEffectQueue>()) {
-            world_.get_mut<NetEffectQueue>().forward = true;
-        }
+        world_.get_mut<NetEventQueue>().forward = true;
+        world_.get_mut<NetEventQueue>().localPlayerHere = config_.hostPlayerVisible;
+        world_.get_mut<NetEffectQueue>().forward = true;
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
         world_.ensure<NetRewind>().maxTicks = config_.maxRewindTicks;
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
@@ -488,6 +488,8 @@ void NetSession::serverMapLoaded() {
     hostAppeared_.clear();
     hostSpawned_.clear();
     serverEntities_.clear();
+    places_.clear();
+    motion_.clear();
     nextNetId_ = 1;
     std::vector<flecs::entity> numbered;
     world_.each([&](flecs::entity entity, const NetId&) { numbered.push_back(entity); });
@@ -596,28 +598,8 @@ void NetSession::serverStepAhead(flecs::entity body, const NetCommandFrame& fram
     if (!world_.has<PhysicsContext>() || world_.get<PhysicsContext>().world == nullptr) {
         return;
     }
-    PhysicsWorld& physics = *world_.get_mut<PhysicsContext>().world;
-    const std::uint64_t id = static_cast<std::uint64_t>(body.id());
-    CharacterMotor* motor = body.try_get_mut<CharacterMotor>();
-    const FirstPersonController* controller = body.try_get<FirstPersonController>();
-    if (motor == nullptr || !physics.hasCharacter(id)) {
-        return;
-    }
-    const bool allowMove = controller == nullptr || controller->allowMove;
-    MotorRuleState rules = body.has<MotorRuleState>() ? body.get<MotorRuleState>() : MotorRuleState{};
-    stepMotorRules(physics, id, *motor, rules,
-                   MotorInput{std::clamp(frame.moveForward, -1.0f, 1.0f), &frame.down, &frame.pressed}, allowMove);
-    body.set<MotorRuleState>(rules);
-    motor = body.try_get_mut<CharacterMotor>();
-    if (!allowMove) {
-        return;
-    }
-    applyMoveWish(*motor, std::clamp(frame.moveForward, -1.0f, 1.0f), std::clamp(frame.moveStrafe, -1.0f, 1.0f),
-                  std::clamp(frame.moveUp, -1.0f, 1.0f), frame.yaw);
-    CharacterStep step{};
-    step.id = id;
-    step.motor = motor;
-    physics.stepCharacterAlone(step);
+    stepCommandMove(*world_.get_mut<PhysicsContext>().world, body,
+                    CommandMove{frame.moveForward, frame.moveStrafe, frame.moveUp, frame.yaw, &frame.down, &frame.pressed});
 }
 
 bool NetSession::serverVisibleTo(const ServerClient& client, flecs::entity entity) const {
@@ -1488,34 +1470,8 @@ bool NetSession::clientPredictMove(const PredictedMove& move) {
     if (!player.is_valid() || !world_.has<PhysicsContext>() || world_.get<PhysicsContext>().world == nullptr) {
         return false;
     }
-    PhysicsWorld& physics = *world_.get_mut<PhysicsContext>().world;
-    const std::uint64_t id = static_cast<std::uint64_t>(player.id());
-    CharacterMotor* motor = player.try_get_mut<CharacterMotor>();
-    if (motor == nullptr || !physics.hasCharacter(id)) {
-        return false;
-    }
-    const FirstPersonController* controller = player.try_get<FirstPersonController>();
-    const bool allowMove = controller == nullptr || controller->allowMove;
-    MotorRuleState rules = player.has<MotorRuleState>() ? player.get<MotorRuleState>() : MotorRuleState{};
-    stepMotorRules(physics, id, *motor, rules, MotorInput{move.moveForward, &move.down, &move.pressed}, allowMove);
-    const float eyeHeight = motor->eyeHeight;
-    player.set<MotorRuleState>(rules);
-    motor = player.try_get_mut<CharacterMotor>();
-    if (FirstPersonController* view = player.try_get_mut<FirstPersonController>()) {
-        view->eyeHeight = eyeHeight;
-    }
-    if (allowMove) {
-        applyMoveWish(*motor, move.moveForward, move.moveStrafe, move.moveUp, move.yaw);
-    } else {
-        motor->wishX = 0.0f;
-        motor->wishY = 0.0f;
-        motor->wishZ = 0.0f;
-    }
-    CharacterStep step{};
-    step.id = id;
-    step.motor = motor;
-    physics.stepCharacterAlone(step);
-    return true;
+    return stepCommandMove(*world_.get_mut<PhysicsContext>().world, player,
+                           CommandMove{move.moveForward, move.moveStrafe, move.moveUp, move.yaw, &move.down, &move.pressed});
 }
 
 void NetSession::clientPresentPrediction(bool advance) {
@@ -1771,32 +1727,38 @@ void NetSession::clientReceive(const NetEvent& event) {
         }
     } else if (kind == NetMessageKind::Forget) {
         std::vector<std::uint32_t> ids;
-        if (decodeNetForget(event.data, ids)) {
-            for (std::uint32_t netId : ids) {
-                const auto name = names_.find(netId);
-                if (name != names_.end() && appeared_.erase(netId) != 0) {
-                    removeNetPlayer(world_, netAvatarName(name->second.name));
-                    callHook("on-player-vanish", netAvatarName(name->second.name));
-                }
-                const auto boundEntity = bound_.find(netId);
-                const flecs::entity spawned = boundEntity != bound_.end() && world_.is_alive(boundEntity->second)
-                    ? world_.entity(boundEntity->second)
-                    : flecs::entity{};
-                if (spawned.is_valid() && spawned.has<NetSpawned>()) {
-                    destroyAttachmentTree(spawned);
-                } else if (name != names_.end() && name->second.kind == NetEntityKind::Thing) {
-                    clientHide(name->second.name);
-                }
-                if (name != names_.end()) {
-                    names_.erase(name);
-                }
-                bound_.erase(netId);
-                history_.erase(netId);
+        if (!decodeNetForget(event.data, ids)) {
+            clientRefuse("server sent a bad forget");
+            return;
+        }
+        for (std::uint32_t netId : ids) {
+            const auto name = names_.find(netId);
+            if (name != names_.end() && appeared_.erase(netId) != 0) {
+                removeNetPlayer(world_, netAvatarName(name->second.name));
+                callHook("on-player-vanish", netAvatarName(name->second.name));
             }
+            const auto boundEntity = bound_.find(netId);
+            const flecs::entity spawned = boundEntity != bound_.end() && world_.is_alive(boundEntity->second)
+                ? world_.entity(boundEntity->second)
+                : flecs::entity{};
+            if (spawned.is_valid() && spawned.has<NetSpawned>()) {
+                destroyAttachmentTree(spawned);
+            } else if (name != names_.end() && name->second.kind == NetEntityKind::Thing) {
+                clientHide(name->second.name);
+            }
+            if (name != names_.end()) {
+                names_.erase(name);
+            }
+            bound_.erase(netId);
+            history_.erase(netId);
         }
     } else if (kind == NetMessageKind::Events) {
         std::vector<NetEventMessage> events;
-        if (decodeNetEvents(event.data, netSchema().events(), events) && world_.has<ScriptContext>()) {
+        if (!decodeNetEvents(event.data, netSchema().events(), events)) {
+            clientRefuse("server sent bad events");
+            return;
+        }
+        if (world_.has<ScriptContext>()) {
             s7_scheme* scheme = world_.get<ScriptContext>().scheme;
             for (const NetEventMessage& message : events) {
                 ++statEvents_;
