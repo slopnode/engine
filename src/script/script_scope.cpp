@@ -24,6 +24,7 @@ uint32_t capsForScope(ScriptScope scope) {
                static_cast<uint32_t>(ScriptCap::UiDraw);
     case ScriptScope::World:
         return static_cast<uint32_t>(ScriptCap::WorldMutate) |
+               static_cast<uint32_t>(ScriptCap::Effects) |
                static_cast<uint32_t>(ScriptCap::FpPresent) |
                static_cast<uint32_t>(ScriptCap::Audio) |
                static_cast<uint32_t>(ScriptCap::InputQuery) |
@@ -37,6 +38,7 @@ uint32_t capsForScope(ScriptScope scope) {
     case ScriptScope::Present:
     case ScriptScope::Predict:
         return static_cast<uint32_t>(ScriptCap::FpPresent) |
+               static_cast<uint32_t>(ScriptCap::Effects) |
                static_cast<uint32_t>(ScriptCap::Audio) |
                static_cast<uint32_t>(ScriptCap::InputQuery) |
                static_cast<uint32_t>(ScriptCap::ReadWorld);
@@ -68,7 +70,8 @@ uint32_t capsForRole(PackageRole role) {
                             static_cast<uint32_t>(ScriptCap::PackageLoad) |
                             static_cast<uint32_t>(ScriptCap::StartupQuery) |
                             static_cast<uint32_t>(ScriptCap::ReadWorld) |
-                            static_cast<uint32_t>(ScriptCap::BotInput);
+                            static_cast<uint32_t>(ScriptCap::BotInput) |
+                            static_cast<uint32_t>(ScriptCap::Effects);
     switch (role) {
     case PackageRole::Engine:
     case PackageRole::Base:
@@ -108,6 +111,8 @@ const char* capName(ScriptCap cap) {
         return "read-world";
     case ScriptCap::BotInput:
         return "bot-input";
+    case ScriptCap::Effects:
+        return "effects";
     }
     return "unknown";
 }

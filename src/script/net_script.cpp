@@ -426,7 +426,7 @@ void deliverNetEvent(s7_scheme* scheme, const NetEventMessage& event) {
         list = s7_cons(scheme, whereValue(scheme, event), list);
         protectedAt = s7_gc_protect(scheme, list);
     }
-    ScriptScopeGuard scope(ScriptScope::World);
+    ScriptScopeGuard scope(ScriptScope::Present);
     ScriptCallGuard guard(scheme, roleForProc(procName));
     s7_call(scheme, proc, list);
     s7_gc_unprotect_at(scheme, protectedAt);

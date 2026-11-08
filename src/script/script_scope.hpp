@@ -35,6 +35,7 @@ enum class ScriptCap : uint32_t {
     StartupQuery = 1u << 9,
     ReadWorld = 1u << 10,
     BotInput = 1u << 11,
+    Effects = 1u << 12,
 };
 
 class ScriptScopeGuard {

@@ -8,6 +8,7 @@
 #include "script/net_script.hpp"
 #include "script/proc_role.hpp"
 #include "script/script_scope.hpp"
+#include "script/s7_read.hpp"
 
 #include <flecs.h>
 #include <s7.h>
@@ -275,6 +276,21 @@ void runNetTests() {
         CHECK(evalTrue(sc, "(net-event! 'boom \"Player\" 1 2)"));
         CHECK(evalTrue(sc, "(equal? (car boom-seen) \"Player\")"));
         CHECK(evalTrue(sc, "(net-event! 'quiet #f)"));
+        CHECK(scriptScopeAllows(ScriptScope::Present, ScriptCap::Effects));
+        CHECK(scriptScopeAllows(ScriptScope::World, ScriptCap::Effects));
+        CHECK_FALSE(scriptScopeAllows(ScriptScope::Present, ScriptCap::WorldMutate));
+        CHECK(scriptRoleAllows(PackageRole::Mod, ScriptCap::Effects));
+        static constexpr SchemeBinding kEffectBinding[] = {
+            {"test-effect", [](s7_scheme* scheme, s7_pointer) { return s7_t(scheme); }, 0, 0, false, "", ScriptCap::Effects},
+        };
+        registerBindings(sc, kEffectBinding);
+        evalForm(sc, "(define quiet-tried '())");
+        evalForm(sc, "(define (quiet-try tag thunk) (set! quiet-tried (cons (catch 'capability (lambda () (thunk) tag) (lambda args 'denied)) quiet-tried)))");
+        evalForm(sc, "(define (on-event-quiet where) (quiet-try 'set (lambda () (net-set! \"Player\" 'health 1))) (quiet-try 'effect test-effect) (quiet-try 'sound (lambda () (net-get \"Player\" 'health))))");
+        CHECK(evalTrue(sc, "(net-event! 'quiet #f)"));
+        CHECK(evalTrue(sc, "(equal? quiet-tried '(sound effect denied))"));
+        CHECK_EQ(evalInt(sc, "(net-get \"Player\" 'health)"), 150);
+        evalForm(sc, "(define (on-event-quiet where) #t)");
         CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'boom #f 99 1) #f) (lambda args #t))"));
         CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'boom #f 1) #f) (lambda args #t))"));
         CHECK(evalTrue(sc, "(catch 'net (lambda () (net-event! 'nothing #f) #f) (lambda args #t))"));

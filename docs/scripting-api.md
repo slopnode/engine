@@ -17,13 +17,13 @@ Scope|Description|Caps
 -|-|-
 boot|Initial package loading and setup|`package-load`
 startup|After packages load and game starts|`startup-query`,`package-load`,`map-control`,`save-io`,`read-world`,`ui-draw`
-world|Main gameplay loop|`world-mutate`,`fp-present`,`audio`,`input-query`,`read-world`,`map-control`,`save-io`
+world|Main gameplay loop|`world-mutate`,`effects`,`fp-present`,`audio`,`input-query`,`read-world`,`map-control`,`save-io`
 hud|HUD rendering|`hud-draw`,`input-query`,`read-world`
-present|First-person presentation every frame, on clients too|`fp-present`,`audio`,`input-query`,`read-world`
+present|First-person presentation every frame, on clients too, and `on-event-*` handlers everywhere|`fp-present`,`effects`,`audio`,`input-query`,`read-world`
 ui|UI (non-hud) rendering|`ui-draw`,`save-io`,`map-control`,`package-load`,`read-world`,`startup-query`
 mapauthor|Loading map files|none
 bot|A bot script on a dedicated client, see @ref bots|`bot-input`,`input-query`,`read-world`
-predict|A network client's own command, once per command it sends, see @ref predict|`fp-present`,`audio`,`input-query`,`read-world`
+predict|A network client's own command, once per command it sends, see @ref predict|`fp-present`,`effects`,`audio`,`input-query`,`read-world`
 
 ## Roles {#roles}
 
@@ -50,6 +50,7 @@ Capability|Description
 `save-io`| Reading/writing save files
 `map-control`| Loading/saving maps, controlling map flow
 `world-mutate`| Modifying game world state
+`effects`| Spawning and controlling cosmetic effects: particles, trails, tracers, debug lines and FX and dynamic lights, including lights hung on an entity. Moving an entity is `world-mutate`, even with `dyn-light-set-pos!`
 `fp-present`| First-person presentation (weapon attachments, etc.)
 `audio`| Playing audio and music
 `input-query`| Querying input state
@@ -1503,7 +1504,7 @@ Spawns a world-space billboard sprite.
 </code></pre>
 
 ### particle-spawn {#particle-spawn}
-Spawns a particle system, aimed by either a yaw angle or an explicit direction vector. A system that doesn't loop despawns once its emitters stop and its last particle dies. A process started with `--dedicated` draws nothing, so there this and the other `particle-spawn` functions, the FX and dynamic light functions, `tracer-spawn` and the trail functions spawn nothing and return `#t`.
+Spawns a particle system, aimed by either a yaw angle or an explicit direction vector. A system that doesn't loop despawns once its emitters stop and its last particle dies. A process started with `--dedicated` draws nothing, so there this and the other `particle-spawn` functions, the FX and dynamic light functions, `tracer-spawn` and the trail functions spawn nothing and return `#t`. These need `effects`, so `present` and event handlers can use them, and they refuse an id that is already taken.
 <pre><code class="language-scheme">(particle-spawn
   id : string?
   x, y, z : real?
