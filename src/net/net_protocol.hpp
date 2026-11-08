@@ -13,10 +13,14 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 4;
+inline constexpr std::uint32_t kNetProtocolVersion = 5;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
+inline constexpr std::size_t kMaxNetClips = 1024;
+inline constexpr float kNetPositionScale = 512.0f;
+inline constexpr float kMaxNetCoordinate = 1.0e6f;
+inline constexpr std::uint32_t kMaxNetHoldTicks = 1u << 20;
 
 enum class NetMessageKind : std::uint8_t {
     Hello = 1,
@@ -84,12 +88,22 @@ struct NetCommandFrame {
     std::vector<char> pressed;
 };
 
+struct NetPose {
+    std::int64_t position[3]{};
+    std::uint32_t rotation = 0;
+
+    bool operator==(const NetPose&) const = default;
+};
+
+bool packNetPose(const float position[3], const float rotation[4], NetPose& out);
+void unpackNetPose(const NetPose& pose, float position[3], float rotation[4]);
+
 struct NetEntityState {
     std::uint32_t netId = 0;
-    float position[3]{};
-    float rotation[4]{0.0f, 0.0f, 0.0f, 1.0f};
+    NetPose pose;
+    std::uint32_t hold = 0;
     bool hasAnimation = false;
-    std::string clip;
+    std::uint32_t clipId = 0;
     float time = 0.0f;
     float speed = 1.0f;
     bool playing = false;
@@ -116,6 +130,7 @@ struct NetSnapshot {
     bool hasSelf = false;
     NetSelfState self;
     std::vector<std::pair<int, NetValue>> playerFields;
+    std::vector<std::pair<std::uint32_t, std::string>> clipNames;
     std::vector<NetEntityState> entities;
 };
 
@@ -129,8 +144,8 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
 bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduction>& out);
 std::vector<std::byte> encodeNetForget(const std::vector<std::uint32_t>& netIds);
 bool decodeNetForget(std::span<const std::byte> data, std::vector<std::uint32_t>& out);
-std::vector<std::byte> encodeNetCommands(const std::vector<NetCommandFrame>& frames);
-bool decodeNetCommands(std::span<const std::byte> data, std::vector<NetCommandFrame>& out);
+std::vector<std::byte> encodeNetCommands(const std::vector<NetCommandFrame>& frames, std::uint64_t ackedSnapshot);
+bool decodeNetCommands(std::span<const std::byte> data, std::vector<NetCommandFrame>& out, std::uint64_t& ackedSnapshot);
 std::vector<std::byte> encodeNetEvents(const std::vector<NetEventMessage>& events, const std::vector<NetEventDef>& defs);
 bool decodeNetEvents(
     std::span<const std::byte> data,
@@ -141,5 +156,7 @@ bool decodeNetSnapshot(
     std::span<const std::byte> data,
     const std::vector<const NetField*>& playerFields,
     NetSnapshot& out);
+std::size_t netEntityStateBytes(const NetEntityState& entity, const std::vector<const NetField*>& playerFields);
+std::size_t netClipNameBytes(std::uint32_t clipId, const std::string& name);
 
 }

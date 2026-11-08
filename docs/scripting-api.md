@@ -1804,7 +1804,7 @@ Returns the ids of the stand-ins a network client spawned from `on-player-appear
 </code></pre>
 
 ### avatar-velocity {#avatar-velocity}
-Returns a stand-in's velocity from its last two snapshots as `(x y z)`, or `#f` when `id` isn't a stand-in.
+Returns a stand-in's velocity over the last tick of what the client draws, as `(x y z)`, or `#f` when `id` isn't a stand-in.
 <pre><code class="language-scheme">(avatar-velocity
   id : string?) ↵ (or (list real? real? real?) #f)
 </code></pre>

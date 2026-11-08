@@ -33,6 +33,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 
@@ -46,6 +47,12 @@ constexpr std::size_t kMaxPredictedMoves = 128;
 constexpr std::uint64_t kRelevanceLinger = 60;
 constexpr float kPlaceLift = 0.9f;
 constexpr std::size_t kEventsPerMessage = 256;
+constexpr std::size_t kSentSnapshotsKept = 64;
+constexpr std::size_t kSamplesKept = 32;
+constexpr float kClipTimeSlack = 0.05f;
+constexpr float kFreshPriority = 8.0f;
+constexpr double kClockSnapTicks = 30.0;
+constexpr double kClockPull = 0.1;
 
 constexpr const char* kAvatarPrefix = "player:";
 
@@ -321,9 +328,13 @@ void NetSession::serverReceive(const NetEvent& event) {
         return;
     }
     std::vector<NetCommandFrame> frames;
-    if (!decodeNetCommands(event.data, frames)) {
+    std::uint64_t ackedSnapshot = 0;
+    if (!decodeNetCommands(event.data, frames, ackedSnapshot)) {
         serverDrop(event.connection, "malformed commands");
         return;
+    }
+    if (ackedSnapshot > client.ackedSnapshot && ackedSnapshot <= serverTick_) {
+        serverAcknowledge(client, ackedSnapshot);
     }
     for (NetCommandFrame& frame : frames) {
         const bool queued = std::any_of(client.pending.begin(), client.pending.end(), [&](const NetCommandFrame& other) {
@@ -378,6 +389,10 @@ void NetSession::serverSendMap(ServerClient& client) {
     client.known.clear();
     client.lastRelevant.clear();
     client.hadEye = false;
+    client.entities.clear();
+    client.sent.clear();
+    client.clipIds.clear();
+    client.ackedClips.clear();
     if (!world_.has<CurrentMap>()) {
         return;
     }
@@ -678,6 +693,7 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
         transport_->send(client.connection, encodeNetIntroduce(added), NetSendMode::Reliable);
     }
     if (!gone.empty()) {
+        serverForgetSent(client, gone);
         transport_->send(client.connection, encodeNetForget(gone), NetSendMode::Reliable);
     }
 }
@@ -792,47 +808,257 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
             }
         }
     }
+    const NetSnapshot header = snapshot;
+    std::size_t used = encodeNetSnapshot(header, fields).size() + 4;
+    const std::size_t budget =
+        std::clamp(config_.snapshotBudgetBytes, static_cast<std::size_t>(256), kMaxNetMessageBytes / 2);
+    Vector3 eye{};
+    bool haveEye = false;
+    serverEyeLeaf(client, eye, haveEye);
+    const float nearRadius = std::max(1.0f, config_.nearRadius);
+    struct Candidate {
+        std::uint32_t netId = 0;
+        SentState state;
+    };
+    std::vector<Candidate> candidates;
     for (std::uint32_t netId : client.known) {
         const auto raw = serverEntities_.find(netId);
         if (raw == serverEntities_.end()) {
             continue;
         }
         const flecs::entity entity = world_.entity(raw->second);
-        const LocalTransformation* local = entity.try_get<LocalTransformation>();
-        if (local == nullptr || snapshot.entities.size() >= kMaxNetEntities) {
+        SentState state;
+        if (!serverEntityState(entity, fields, state)) {
             continue;
         }
-        NetEntityState state;
-        state.netId = netId;
-        state.position[0] = local->position.x;
-        state.position[1] = local->position.y;
-        state.position[2] = local->position.z;
-        state.rotation[0] = local->rotation.x;
-        state.rotation[1] = local->rotation.y;
-        state.rotation[2] = local->rotation.z;
-        state.rotation[3] = local->rotation.w;
-        if (const AnimationPlayer* animation = entity.try_get<AnimationPlayer>()) {
-            if (!animation->clipName.empty() && animation->clipName.size() <= 64) {
-                state.hasAnimation = true;
-                state.clip = animation->clipName;
-                state.time = animation->time;
-                state.speed = animation->speed;
-                state.playing = animation->playing;
-                state.loop = animation->loop;
-            }
+        ClientEntity& known = client.entities[netId];
+        if (!serverStateChanged(known, state, entity)) {
+            known.priority = 0.0f;
+            continue;
         }
+        const auto place = places_.find(netId);
+        const float distance = haveEye && place != places_.end() ? Vector3Distance(place->second.at, eye) : 0.0f;
+        float weight = std::clamp(nearRadius / std::max(distance, nearRadius * 0.25f), 0.05f, 4.0f);
         if (entity.has<PlayerBody>()) {
-            if (const NetPlayerRecord* other = findNetPlayer(world_, entity.name().c_str())) {
-                for (std::size_t i = 0; i < fields.size() && i < other->values.size(); ++i) {
-                    if (fields[i]->send == NetAudience::All) {
-                        state.fields.emplace_back(static_cast<int>(i), other->values[i]);
-                    }
+            weight *= 2.0f;
+        }
+        if (!known.acked && known.lastSentTick == 0) {
+            weight += kFreshPriority;
+        }
+        known.priority += weight;
+        candidates.push_back({netId, std::move(state)});
+    }
+    std::sort(candidates.begin(), candidates.end(), [&client](const Candidate& a, const Candidate& b) {
+        const float pa = client.entities[a.netId].priority;
+        const float pb = client.entities[b.netId].priority;
+        return pa != pb ? pa > pb : a.netId < b.netId;
+    });
+    SentSnapshot record;
+    record.tick = serverTick_;
+    std::set<std::uint32_t> named;
+    for (Candidate& candidate : candidates) {
+        if (snapshot.entities.size() >= kMaxNetEntities) {
+            break;
+        }
+        ClientEntity& known = client.entities[candidate.netId];
+        const SentState& state = candidate.state;
+        NetEntityState out;
+        out.netId = candidate.netId;
+        out.pose = state.pose;
+        out.fields = state.fields;
+        const auto motion = motion_.find(candidate.netId);
+        if (motion != motion_.end() && motion->second.moveStart > 0 && known.lastSentTick > 0 &&
+            known.lastSentTick >= motion->second.restFrom &&
+            known.lastSentTick + 1 < motion->second.moveStart && serverTick_ + 1 >= motion->second.moveStart) {
+            out.hold = static_cast<std::uint32_t>(
+                std::min<std::uint64_t>(serverTick_ + 1 - motion->second.moveStart, kMaxNetHoldTicks));
+        }
+        std::size_t clipBytes = 0;
+        std::uint32_t clipId = 0;
+        bool newName = false;
+        if (state.hasAnimation) {
+            const auto found = client.clipIds.find(state.clip);
+            if (found != client.clipIds.end()) {
+                clipId = found->second;
+            } else if (client.clipIds.size() < kMaxNetClips) {
+                clipId = static_cast<std::uint32_t>(client.clipIds.size());
+                client.clipIds.emplace(state.clip, clipId);
+            } else {
+                clipId = kMaxNetClips;
+            }
+            if (clipId < kMaxNetClips) {
+                out.hasAnimation = true;
+                out.clipId = clipId;
+                out.time = state.time;
+                out.speed = state.speed;
+                out.playing = state.playing;
+                out.loop = state.loop;
+                newName = client.ackedClips.count(clipId) == 0 && named.count(clipId) == 0;
+                if (newName) {
+                    clipBytes = netClipNameBytes(clipId, state.clip);
                 }
             }
         }
-        snapshot.entities.push_back(std::move(state));
+        const std::size_t bytes = netEntityStateBytes(out, fields) + clipBytes;
+        if (used + bytes > budget && !snapshot.entities.empty()) {
+            continue;
+        }
+        used += bytes;
+        if (newName) {
+            named.insert(clipId);
+            snapshot.clipNames.emplace_back(clipId, state.clip);
+            record.clips.push_back(clipId);
+        }
+        known.priority = 0.0f;
+        known.lastSentTick = serverTick_;
+        snapshot.entities.push_back(std::move(out));
+        record.entities.emplace_back(candidate.netId, std::move(candidate.state));
+    }
+    client.sent.push_back(std::move(record));
+    while (client.sent.size() > kSentSnapshotsKept) {
+        client.sent.pop_front();
     }
     transport_->send(client.connection, encodeNetSnapshot(snapshot, fields), NetSendMode::Unreliable);
+}
+
+bool NetSession::serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const {
+    const LocalTransformation* local = entity.try_get<LocalTransformation>();
+    if (local == nullptr) {
+        return false;
+    }
+    const float position[3]{local->position.x, local->position.y, local->position.z};
+    const float rotation[4]{local->rotation.x, local->rotation.y, local->rotation.z, local->rotation.w};
+    if (!packNetPose(position, rotation, out.pose)) {
+        return false;
+    }
+    out.tick = serverTick_;
+    if (const AnimationPlayer* animation = entity.try_get<AnimationPlayer>()) {
+        if (!animation->clipName.empty() && animation->clipName.size() <= 64 && std::isfinite(animation->speed) &&
+            std::fabs(animation->speed) <= 1000.0f) {
+            out.hasAnimation = true;
+            out.clip = animation->clipName;
+            out.time = animation->time;
+            out.speed = animation->speed;
+            out.playing = animation->playing;
+            out.loop = animation->loop;
+        }
+    }
+    if (entity.has<PlayerBody>()) {
+        if (const NetPlayerRecord* other = findNetPlayer(world_, entity.name().c_str())) {
+            for (std::size_t i = 0; i < fields.size() && i < other->values.size(); ++i) {
+                if (fields[i]->send == NetAudience::All) {
+                    out.fields.emplace_back(static_cast<int>(i), other->values[i]);
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool NetSession::serverStateChanged(const ClientEntity& known, const SentState& now, flecs::entity entity) const {
+    if (!known.acked) {
+        return true;
+    }
+    const SentState& was = known.ackedState;
+    if (!(was.pose == now.pose) || was.hasAnimation != now.hasAnimation || was.fields != now.fields) {
+        return true;
+    }
+    if (!now.hasAnimation) {
+        return false;
+    }
+    if (was.clip != now.clip || was.playing != now.playing || was.loop != now.loop || was.speed != now.speed) {
+        return true;
+    }
+    if (!now.playing) {
+        return std::fabs(was.time - now.time) > 0.001f;
+    }
+    const float duration = config_.clipDuration ? config_.clipDuration(entity) : 0.0f;
+    float expected = was.time + static_cast<float>(now.tick - was.tick) * kSimTickDt * now.speed;
+    if (duration > 0.0f && now.loop) {
+        expected = std::fmod(expected, duration);
+        if (expected < 0.0f) {
+            expected += duration;
+        }
+    } else if (duration > 0.0f) {
+        expected = std::min(expected, duration);
+    }
+    float drift = std::fabs(expected - now.time);
+    if (duration > 0.0f && now.loop) {
+        drift = std::min(drift, duration - drift);
+    }
+    return drift > kClipTimeSlack;
+}
+
+void NetSession::serverAcknowledge(ServerClient& client, std::uint64_t tick) {
+    client.ackedSnapshot = tick;
+    while (!client.sent.empty() && client.sent.front().tick < tick) {
+        client.sent.pop_front();
+    }
+    if (client.sent.empty() || client.sent.front().tick != tick) {
+        return;
+    }
+    SentSnapshot record = std::move(client.sent.front());
+    client.sent.pop_front();
+    for (auto& [netId, state] : record.entities) {
+        if (client.known.count(netId) == 0) {
+            continue;
+        }
+        ClientEntity& known = client.entities[netId];
+        if (!known.acked || state.tick > known.ackedState.tick) {
+            known.acked = true;
+            known.ackedState = std::move(state);
+        }
+    }
+    for (std::uint32_t clipId : record.clips) {
+        client.ackedClips.insert(clipId);
+    }
+}
+
+void NetSession::serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone) {
+    const std::set<std::uint32_t> ids(gone.begin(), gone.end());
+    for (std::uint32_t netId : ids) {
+        client.entities.erase(netId);
+    }
+    for (SentSnapshot& record : client.sent) {
+        std::erase_if(record.entities, [&ids](const auto& entry) { return ids.count(entry.first) != 0; });
+    }
+}
+
+void NetSession::serverTrackMotion() {
+    for (auto it = motion_.begin(); it != motion_.end();) {
+        if (serverEntities_.count(it->first) == 0) {
+            it = motion_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (const auto& [netId, raw] : serverEntities_) {
+        const LocalTransformation* local = world_.entity(raw).try_get<LocalTransformation>();
+        if (local == nullptr) {
+            continue;
+        }
+        const float position[3]{local->position.x, local->position.y, local->position.z};
+        const float rotation[4]{local->rotation.x, local->rotation.y, local->rotation.z, local->rotation.w};
+        NetPose pose;
+        if (!packNetPose(position, rotation, pose)) {
+            continue;
+        }
+        const auto found = motion_.find(netId);
+        if (found == motion_.end()) {
+            motion_[netId] = EntityMotion{pose, serverTick_, 0, 0};
+            continue;
+        }
+        EntityMotion& motion = found->second;
+        if (motion.pose == pose) {
+            continue;
+        }
+        if (serverTick_ > motion.changed + 1) {
+            motion.restFrom = motion.changed;
+            motion.moveStart = serverTick_;
+        }
+        motion.changed = serverTick_;
+        motion.pose = pose;
+    }
 }
 
 void NetSession::serverAfterTick() {
@@ -840,10 +1066,12 @@ void NetSession::serverAfterTick() {
     serverDropLate();
     serverAssignIds();
     serverPlaceEntities();
+    serverTrackMotion();
     std::vector<NetEventMessage> events;
     if (world_.has<NetEventQueue>()) {
         events.swap(world_.get_mut<NetEventQueue>().pending);
     }
+    const std::uint64_t interval = std::max<std::uint64_t>(1, config_.snapshotIntervalTicks);
     for (auto& entry : clients_) {
         ServerClient& client = entry.second;
         if (!client.ready) {
@@ -851,7 +1079,9 @@ void NetSession::serverAfterTick() {
         }
         serverUpdateKnown(client);
         serverSendEvents(client, events);
-        serverSendSnapshot(client);
+        if ((serverTick_ + client.connection) % interval == 0) {
+            serverSendSnapshot(client);
+        }
     }
 }
 
@@ -861,10 +1091,7 @@ void NetSession::clientFrame(float frameDt) {
     for (const NetEvent& event : events) {
         clientReceive(event);
     }
-    if (world_.has<SimClock>()) {
-        SimClock& clock = world_.get_mut<SimClock>();
-        clock.accumulator = std::min(kSimTickDt, clock.accumulator + std::max(0.0f, frameDt));
-    }
+    clientPresentTimeline(frameDt);
     const int ticks = advanceSimClock(commandClock_, frameDt);
     for (int i = 0; i < ticks; ++i) {
         clientSendCommands();
@@ -1075,6 +1302,7 @@ void NetSession::clientReceive(const NetEvent& event) {
                     names_.erase(name);
                 }
                 bound_.erase(netId);
+                history_.erase(netId);
             }
         }
     } else if (kind == NetMessageKind::Events) {
@@ -1195,6 +1423,11 @@ void NetSession::clientResetView(bool reenable) {
     hidOnLoad_ = false;
     lastSnapshotTick_ = 0;
     loggedSnapshots_ = false;
+    ackSnapshot_ = 0;
+    haveClock_ = false;
+    history_.clear();
+    eyeHistory_.clear();
+    clipNames_.clear();
 }
 
 void NetSession::clientHide(const std::string& name) {
@@ -1269,8 +1502,17 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
         hidOnLoad_ = true;
         clientHideUnintroduced();
     }
+    for (const auto& [clipId, name] : snapshot.clipNames) {
+        clipNames_[clipId] = name;
+    }
+    const bool mapReady = hidOnLoad_ && world_.has<CurrentMap>() && world_.get<CurrentMap>().id == expectedMap_;
+    bool complete = mapReady;
     std::size_t boundCount = 0;
     for (const NetEntityState& state : snapshot.entities) {
+        if (names_.count(state.netId) == 0) {
+            complete = false;
+            continue;
+        }
         const flecs::entity entity = clientEntity(state.netId);
         if (!entity.is_valid()) {
             continue;
@@ -1279,50 +1521,69 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
         if (!state.fields.empty()) {
             applyStandInFields(state);
         }
-        LocalTransformation target = entity.get<LocalTransformation>();
-        target.position = {state.position[0], state.position[1], state.position[2]};
-        target.rotation = QuaternionNormalize({state.rotation[0], state.rotation[1], state.rotation[2], state.rotation[3]});
-        if (SimPose* pose = entity.try_get_mut<SimPose>()) {
-            pose->prev = pose->cur;
-            pose->cur = target;
-            if (Vector3DistanceSqr(pose->prev.position, pose->cur.position) > kSimPoseSnapDistance * kSimPoseSnapDistance) {
-                pose->prev = pose->cur;
-            }
-        } else {
-            entity.set<SimPose>({target, target, target});
-        }
+        ClientSample sample;
+        sample.tick = snapshot.serverTick;
+        float position[3]{};
+        float rotation[4]{};
+        unpackNetPose(state.pose, position, rotation);
+        sample.position = {position[0], position[1], position[2]};
+        sample.rotation = QuaternionNormalize({rotation[0], rotation[1], rotation[2], rotation[3]});
+        std::deque<ClientSample>& samples = history_[state.netId];
         if (state.hasAnimation) {
-            if (AnimationPlayer* animation = entity.try_get_mut<AnimationPlayer>()) {
-                if (animation->clipName != state.clip) {
-                    animation->play(state.clip, state.loop, state.speed);
-                    animation->prevTime = state.time;
-                } else {
-                    animation->prevTime = animation->time;
-                }
-                animation->time = state.time;
-                animation->speed = state.speed;
-                animation->loop = state.loop;
-                animation->playing = state.playing;
-                animation->wrappedLastTick = state.loop && state.time < animation->prevTime;
-                animation->poseStale = true;
+            const auto clip = clipNames_.find(state.clipId);
+            if (clip != clipNames_.end()) {
+                sample.hasAnimation = true;
+                sample.clip = clip->second;
+                sample.time = state.time;
+                sample.speed = state.speed;
+                sample.playing = state.playing;
+                sample.loop = state.loop;
+            } else if (!samples.empty()) {
+                const ClientSample& last = samples.back();
+                sample.hasAnimation = last.hasAnimation;
+                sample.clip = last.clip;
+                sample.time = last.time;
+                sample.speed = last.speed;
+                sample.playing = last.playing;
+                sample.loop = last.loop;
+                complete = false;
             }
         }
+        if (state.hold != 0 && !samples.empty() && state.hold < sample.tick &&
+            samples.back().tick < sample.tick - state.hold) {
+            ClientSample held = samples.back();
+            if (held.hasAnimation && held.playing) {
+                held.time += static_cast<float>(sample.tick - state.hold - held.tick) * kSimTickDt * held.speed;
+            }
+            held.tick = sample.tick - state.hold;
+            samples.push_back(std::move(held));
+        }
+        samples.push_back(std::move(sample));
+        while (samples.size() > kSamplesKept) {
+            samples.pop_front();
+        }
+    }
+    if (complete) {
+        ackSnapshot_ = snapshot.serverTick;
+    }
+    const double tick = static_cast<double>(snapshot.serverTick);
+    if (!haveClock_ || std::fabs(tick - clock_) > kClockSnapTicks) {
+        clock_ = tick;
+        haveClock_ = true;
+    } else {
+        clock_ += (tick - clock_) * kClockPull;
     }
     const flecs::entity player = localPlayer(world_);
     if (snapshot.hasSelf) {
         clientReconcile(snapshot);
     }
     if (snapshot.hasEye && player.is_valid() && !predicting_) {
-        const Vector3 eye{snapshot.eye[0], snapshot.eye[1], snapshot.eye[2]};
-        if (SimEyePose* pose = player.try_get_mut<SimEyePose>()) {
-            pose->prev = pose->cur;
-            pose->cur = eye;
-            if (Vector3DistanceSqr(pose->prev, pose->cur) > kSimPoseSnapDistance * kSimPoseSnapDistance) {
-                pose->prev = pose->cur;
-            }
-        } else {
-            player.set<SimEyePose>({eye, eye, eye});
+        eyeHistory_.emplace_back(snapshot.serverTick, Vector3{snapshot.eye[0], snapshot.eye[1], snapshot.eye[2]});
+        while (eyeHistory_.size() > kSamplesKept) {
+            eyeHistory_.pop_front();
         }
+    } else if (predicting_) {
+        eyeHistory_.clear();
     }
     if (world_.has<NetStore>() && !world_.get<NetStore>().players.empty()) {
         std::vector<NetValue>& values = world_.get_mut<NetStore>().players.front().values;
@@ -1332,15 +1593,155 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
             }
         }
     }
-    if (world_.has<SimClock>()) {
-        world_.get_mut<SimClock>().accumulator = 0.0f;
-    }
-    if (!loggedSnapshots_) {
+    if (!loggedSnapshots_ && mapReady) {
         loggedSnapshots_ = true;
         Log::info(LogCategory::General, "NET: receiving snapshots as %s, %zu of %zu entities bound, eye at %.2f %.2f %.2f",
                   yourPlayer_.c_str(), boundCount, snapshot.entities.size(), snapshot.eye[0], snapshot.eye[1],
                   snapshot.eye[2]);
     }
+}
+
+namespace {
+
+struct TimelinePose {
+    Vector3 position{};
+    Quaternion rotation{0.0f, 0.0f, 0.0f, 1.0f};
+};
+
+template <typename Sample, typename Blend>
+auto sampleTimeline(const std::deque<Sample>& samples, double tick, Blend blend) {
+    std::size_t from = 0;
+    while (from + 1 < samples.size() && static_cast<double>(samples[from + 1].tick) <= tick) {
+        ++from;
+    }
+    const Sample& a = samples[from];
+    if (from + 1 >= samples.size() || tick <= static_cast<double>(a.tick)) {
+        return blend(a, a, 0.0f);
+    }
+    const Sample& b = samples[from + 1];
+    const float alpha = static_cast<float>(
+        std::clamp((tick - static_cast<double>(a.tick)) / static_cast<double>(b.tick - a.tick), 0.0, 1.0));
+    return blend(a, b, alpha);
+}
+
+template <typename Sample>
+void pruneTimeline(std::deque<Sample>& samples, double tick) {
+    while (samples.size() >= 2 && static_cast<double>(samples[1].tick) <= tick) {
+        samples.pop_front();
+    }
+}
+
+struct EyeSample {
+    std::uint64_t tick = 0;
+    Vector3 eye{};
+};
+
+}
+
+void NetSession::clientPresentTimeline(float frameDt) {
+    if (!haveClock_) {
+        return;
+    }
+    clock_ += std::max(0.0f, frameDt) / kSimTickDt;
+    if (world_.has<SimClock>()) {
+        world_.get_mut<SimClock>().accumulator = kSimTickDt;
+    }
+    const double renderTick = config_.interpolationDelayTicks == 0
+        ? static_cast<double>(lastSnapshotTick_)
+        : clock_ - static_cast<double>(config_.interpolationDelayTicks);
+    for (auto& [netId, samples] : history_) {
+        const auto bound = bound_.find(netId);
+        if (bound != bound_.end() && world_.is_alive(bound->second)) {
+            clientPresentEntity(world_.entity(bound->second), samples, renderTick);
+        }
+    }
+    const flecs::entity player = localPlayer(world_);
+    if (eyeHistory_.empty() || !player.is_valid() || predicting_) {
+        return;
+    }
+    std::deque<EyeSample> eyes;
+    for (const auto& [tick, eye] : eyeHistory_) {
+        eyes.push_back({tick, eye});
+    }
+    const auto blendEye = [](const EyeSample& a, const EyeSample& b, float alpha) {
+        if (Vector3DistanceSqr(a.eye, b.eye) > kSimPoseSnapDistance * kSimPoseSnapDistance) {
+            return alpha >= 1.0f ? b.eye : a.eye;
+        }
+        return Vector3Lerp(a.eye, b.eye, alpha);
+    };
+    const Vector3 previous = sampleTimeline(eyes, renderTick - 1.0, blendEye);
+    const Vector3 current = sampleTimeline(eyes, renderTick, blendEye);
+    player.set<SimEyePose>({previous, current, current});
+    while (eyeHistory_.size() >= 2 && static_cast<double>(eyeHistory_[1].first) <= renderTick - 1.0) {
+        eyeHistory_.pop_front();
+    }
+}
+
+void NetSession::clientPresentEntity(flecs::entity entity, std::deque<ClientSample>& samples, double renderTick) {
+    pruneTimeline(samples, renderTick - 1.0);
+    if (samples.empty()) {
+        return;
+    }
+    const auto blendPose = [](const ClientSample& a, const ClientSample& b, float alpha) {
+        if (Vector3DistanceSqr(a.position, b.position) > kSimPoseSnapDistance * kSimPoseSnapDistance) {
+            return alpha >= 1.0f ? TimelinePose{b.position, b.rotation} : TimelinePose{a.position, a.rotation};
+        }
+        return TimelinePose{Vector3Lerp(a.position, b.position, alpha), QuaternionSlerp(a.rotation, b.rotation, alpha)};
+    };
+    const TimelinePose before = sampleTimeline(samples, renderTick - 1.0, blendPose);
+    const TimelinePose now = sampleTimeline(samples, renderTick, blendPose);
+    LocalTransformation previous = entity.get<LocalTransformation>();
+    previous.position = before.position;
+    previous.rotation = before.rotation;
+    LocalTransformation current = previous;
+    current.position = now.position;
+    current.rotation = now.rotation;
+    entity.set<SimPose>({previous, current, current});
+    entity.set<LocalTransformation>(current);
+    AnimationPlayer* animation = entity.try_get_mut<AnimationPlayer>();
+    if (animation == nullptr) {
+        return;
+    }
+    std::size_t index = 0;
+    while (index + 1 < samples.size() && static_cast<double>(samples[index + 1].tick) <= renderTick) {
+        ++index;
+    }
+    const ClientSample& from = samples[index];
+    const ClientSample* to = index + 1 < samples.size() && renderTick > static_cast<double>(from.tick)
+        ? &samples[index + 1]
+        : nullptr;
+    if (!from.hasAnimation) {
+        return;
+    }
+    if (animation->clipName != from.clip) {
+        animation->play(from.clip, from.loop, from.speed);
+    }
+    animation->speed = from.speed;
+    animation->loop = from.loop;
+    animation->playing = from.playing;
+    const float duration = config_.clipDuration ? config_.clipDuration(entity) : 0.0f;
+    float time = from.time;
+    if (to != nullptr && to->hasAnimation && to->clip == from.clip && from.playing && to->playing) {
+        const float alpha = static_cast<float>(std::clamp(
+            (renderTick - static_cast<double>(from.tick)) / static_cast<double>(to->tick - from.tick), 0.0, 1.0));
+        time = blendAnimationTime(from.time, to->time, duration, from.loop && to->time < from.time, alpha);
+    } else if (from.playing) {
+        time += static_cast<float>(renderTick - static_cast<double>(from.tick)) * kSimTickDt * from.speed;
+        if (duration > 0.0f && from.loop) {
+            time = std::fmod(time, duration);
+            if (time < 0.0f) {
+                time += duration;
+            }
+        } else if (duration > 0.0f) {
+            time = std::clamp(time, 0.0f, duration);
+        }
+    }
+    if (time != animation->time || from.playing) {
+        animation->poseStale = true;
+    }
+    animation->time = time;
+    animation->prevTime = time;
+    animation->wrappedLastTick = false;
 }
 
 void NetSession::clientSendCommands() {
@@ -1392,7 +1793,7 @@ void NetSession::clientSendCommands() {
     }
     transport_->send(
         server_,
-        encodeNetCommands(std::vector<NetCommandFrame>(recentCommands_.begin(), recentCommands_.end())),
+        encodeNetCommands(std::vector<NetCommandFrame>(recentCommands_.begin(), recentCommands_.end()), ackSnapshot_),
         NetSendMode::Unreliable);
 }
 

@@ -19,6 +19,7 @@ add_executable(sloptests
     test_net_prediction.cpp
     test_net_interest.cpp
     test_net_hardening.cpp
+    test_net_pacing.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -120,6 +121,7 @@ add_test(NAME sloptests.net_session COMMAND sloptests net_session)
 add_test(NAME sloptests.net_prediction COMMAND sloptests net_prediction)
 add_test(NAME sloptests.net_interest COMMAND sloptests net_interest)
 add_test(NAME sloptests.net_hardening COMMAND sloptests net_hardening)
+add_test(NAME sloptests.net_pacing COMMAND sloptests net_pacing)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

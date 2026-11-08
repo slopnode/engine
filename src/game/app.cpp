@@ -32,6 +32,8 @@
 #include "particles/particle_module.hpp"
 #include "fx/trail.hpp"
 #include "fx/tracer.hpp"
+#include "render/animation_player.hpp"
+#include "render/animation_systems.hpp"
 #include "render/components.hpp"
 #include "render/render_module.hpp"
 #include "render/underwater_effect.hpp"
@@ -231,6 +233,10 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     net.firstClientTakesMapPlayer = config_.dedicated;
     net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
     net.disconnected = [this](const std::string&) { enterMenu(world_); };
+    net.clipDuration = [](flecs::entity entity) {
+        const AnimationPlayer* animation = entity.try_get<AnimationPlayer>();
+        return animation != nullptr ? animationClipDuration(entity.world(), *animation) : 0.0f;
+    };
     EnetTransportOptions transport;
     transport.maxPeers = static_cast<std::size_t>(net.playerCeiling) + net.maxPendingClients;
     net_ = std::make_unique<NetSession>(world_, std::move(net), createEnetTransport(transport));

@@ -75,6 +75,8 @@ NetSessionConfig config(Side& side, std::string listen, std::string connect, std
     out.hello.packages = {{"engine", "1.0.0"}, {"game", "1.0.0"}};
     out.loadMap = [&side](const std::string& mapId, const std::string&) { side.loadedMap = mapId; };
     out.disconnected = [&side](const std::string& reason) { side.droppedReason = reason; };
+    out.snapshotIntervalTicks = 1;
+    out.interpolationDelayTicks = 0;
     return out;
 }
 
@@ -161,7 +163,7 @@ void runNetSessionTests() {
     const flecs::entity serverWalker = server.world.lookup("walker");
     CHECK(clientWalker.has<SimPose>());
     const float serverX = serverWalker.get<LocalTransformation>().position.x;
-    CHECK(clientWalker.has<SimPose>() && std::fabs(clientWalker.get<SimPose>().cur.position.x - serverX) < 1.0e-4f);
+    CHECK(clientWalker.has<SimPose>() && std::fabs(clientWalker.get<SimPose>().cur.position.x - serverX) <= 1.0f / kNetPositionScale);
     CHECK(clientWalker.get<AnimationPlayer>().clipName == "Walk" && clientWalker.get<AnimationPlayer>().playing);
 
     server.world.lookup("Player").get_mut<Lens>().camera.position = {1.0f, 2.0f, 3.0f};

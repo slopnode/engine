@@ -4,6 +4,8 @@
 
 #include <s7.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <random>
 
@@ -84,14 +86,19 @@ void runNetProtocolTests() {
         frame.yaw = -2.5f;
         frame.down = {1, 0, 0, 1, 0, 0, 0, 0, 1, 1};
         frame.pressed = {0, 0, 1};
-        const std::vector<std::byte> data = encodeNetCommands({frame, frame});
+        const std::vector<std::byte> data = encodeNetCommands({frame, frame}, 777);
         std::vector<NetCommandFrame> back;
-        CHECK(decodeNetCommands(data, back) && back.size() == 2);
+        std::uint64_t acked = 0;
+        CHECK(decodeNetCommands(data, back, acked) && back.size() == 2 && acked == 777);
         CHECK(!back.empty() && back[0].tick == 1234 && back[0].yaw == -2.5f && back[0].down == frame.down &&
               back[0].pressed == frame.pressed);
-        CHECK(rejectsEveryTruncation(data, [](auto span) { std::vector<NetCommandFrame> v; return decodeNetCommands(span, v); }));
+        CHECK(rejectsEveryTruncation(data, [](auto span) {
+            std::vector<NetCommandFrame> v;
+            std::uint64_t a = 0;
+            return decodeNetCommands(span, v, a);
+        }));
         std::vector<NetCommandFrame> tooMany(kMaxNetCommandsPerMessage + 1, frame);
-        CHECK_FALSE(decodeNetCommands(encodeNetCommands(tooMany), back));
+        CHECK_FALSE(decodeNetCommands(encodeNetCommands(tooMany, 0), back, acked));
     }
 
     {
@@ -126,12 +133,17 @@ void runNetProtocolTests() {
         }
         NetEntityState actor;
         actor.netId = 42;
-        actor.position[0] = 3.0f;
+        const float at[3]{3.0f, -1.25f, 2000.5f};
+        const float facing[4]{0.0f, 0.38268343f, 0.0f, 0.92387953f};
+        CHECK(packNetPose(at, facing, actor.pose));
+        actor.hold = 12;
         actor.hasAnimation = true;
-        actor.clip = "Walk";
+        actor.clipId = 3;
         actor.time = 0.5f;
+        actor.speed = 1.5f;
         actor.playing = true;
         actor.loop = true;
+        snapshot.clipNames = {{3, "Walk"}};
         snapshot.entities = {actor, NetEntityState{}};
         const std::vector<std::byte> data = encodeNetSnapshot(snapshot, fields);
         NetSnapshot back;
@@ -140,13 +152,54 @@ void runNetProtocolTests() {
         CHECK(back.hasSelf && back.self.feet[2] == -4.0f && back.self.velocity[1] == 7.7f);
         CHECK(back.self.moveSpeed == 9.6f && back.self.height == 0.55f && !back.self.allowMove);
         CHECK(back.playerFields.size() == 2 && back.entities.size() == 2);
-        CHECK(!back.entities.empty() && back.entities[0].clip == "Walk" && back.entities[0].playing && back.entities[0].loop);
+        CHECK(back.clipNames.size() == 1 && back.clipNames[0].first == 3 && back.clipNames[0].second == "Walk");
+        CHECK(!back.entities.empty() && back.entities[0].clipId == 3 && back.entities[0].playing && back.entities[0].loop);
+        CHECK(!back.entities.empty() && back.entities[0].hold == 12 && back.entities[0].speed == 1.5f);
+        CHECK(!back.entities.empty() && back.entities[0].pose == actor.pose && std::fabs(back.entities[0].time - 0.5f) < 1.0e-3f);
+        CHECK(back.entities.size() == 2 && !back.entities[1].hasAnimation && back.entities[1].hold == 0);
+        CHECK(netEntityStateBytes(actor, fields) <= 24);
         bool sameFields = back.playerFields.size() == snapshot.playerFields.size();
         for (std::size_t i = 0; sameFields && i < back.playerFields.size(); ++i) {
             sameFields = back.playerFields[i] == snapshot.playerFields[i];
         }
         CHECK(sameFields);
         CHECK(rejectsEveryTruncation(data, [&](auto span) { NetSnapshot s; return decodeNetSnapshot(span, fields, s); }));
+        NetSnapshot badClip = snapshot;
+        badClip.entities[0].clipId = static_cast<std::uint32_t>(kMaxNetClips);
+        CHECK_FALSE(decodeNetSnapshot(encodeNetSnapshot(badClip, fields), fields, back));
+    }
+
+    {
+        std::mt19937 random(9);
+        std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
+        float worstPosition = 0.0f;
+        float worstAngle = 0.0f;
+        for (int i = 0; i < 2000; ++i) {
+            const float at[3]{unit(random) * 3000.0f, unit(random) * 50.0f, unit(random) * 3000.0f};
+            float q[4]{unit(random), unit(random), unit(random), unit(random)};
+            const float length = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+            for (float& c : q) {
+                c /= length;
+            }
+            NetPose pose;
+            CHECK(packNetPose(at, q, pose));
+            float backAt[3]{};
+            float backQ[4]{};
+            unpackNetPose(pose, backAt, backQ);
+            for (int a = 0; a < 3; ++a) {
+                worstPosition = std::max(worstPosition, std::fabs(backAt[a] - at[a]));
+            }
+            const float dot = std::fabs(q[0] * backQ[0] + q[1] * backQ[1] + q[2] * backQ[2] + q[3] * backQ[3]);
+            worstAngle = std::max(worstAngle, 2.0f * std::acos(std::min(1.0f, dot)));
+        }
+        CHECK(worstPosition <= 0.5f / kNetPositionScale + 1.0e-4f);
+        CHECK(worstAngle < 0.005f);
+        const float nan[3]{std::nanf(""), 0.0f, 0.0f};
+        const float identity[4]{0.0f, 0.0f, 0.0f, 1.0f};
+        NetPose pose;
+        CHECK_FALSE(packNetPose(nan, identity, pose));
+        const float far[3]{2.0e6f, 0.0f, 0.0f};
+        CHECK_FALSE(packNetPose(far, identity, pose));
     }
 
     {
@@ -203,9 +256,10 @@ void runNetProtocolTests() {
             NetMapChange change;
             std::vector<NetIntroduction> intro;
             std::vector<NetCommandFrame> commands;
+            std::uint64_t acked = 0;
             NetSnapshot snapshot;
             accepted += decodeNetHello(noise, hello) + decodeNetMapChange(noise, change) +
-                decodeNetIntroduce(noise, intro) + decodeNetCommands(noise, commands) +
+                decodeNetIntroduce(noise, intro) + decodeNetCommands(noise, commands, acked) +
                 decodeNetSnapshot(noise, fields, snapshot);
         }
         CHECK(accepted < 40);

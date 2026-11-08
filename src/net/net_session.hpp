@@ -19,6 +19,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace slopengine {
@@ -45,10 +46,14 @@ struct NetSessionConfig {
     double messageBurst = 2400.0;
     std::size_t maxKnownEntities = 512;
     float nearRadius = 16.0f;
+    std::uint64_t snapshotIntervalTicks = 2;
+    std::size_t snapshotBudgetBytes = 1200;
+    std::uint64_t interpolationDelayTicks = 6;
     bool hostPlayerVisible = false;
     bool firstClientTakesMapPlayer = true;
     std::function<void(const std::string& mapId, const std::string& reason)> loadMap;
     std::function<void(const std::string& reason)> disconnected;
+    std::function<float(flecs::entity entity)> clipDuration;
 };
 
 struct NetId {
@@ -80,6 +85,31 @@ public:
     void clientFrame(float frameDt);
 
 private:
+    struct SentState {
+        NetPose pose;
+        bool hasAnimation = false;
+        std::string clip;
+        float time = 0.0f;
+        float speed = 1.0f;
+        bool playing = false;
+        bool loop = false;
+        std::uint64_t tick = 0;
+        std::vector<std::pair<int, NetValue>> fields;
+    };
+
+    struct ClientEntity {
+        bool acked = false;
+        SentState ackedState;
+        std::uint64_t lastSentTick = 0;
+        float priority = 0.0f;
+    };
+
+    struct SentSnapshot {
+        std::uint64_t tick = 0;
+        std::vector<std::pair<std::uint32_t, SentState>> entities;
+        std::vector<std::uint32_t> clips;
+    };
+
     struct ServerClient {
         NetConnectionId connection = kNoNetConnection;
         bool ready = false;
@@ -96,6 +126,30 @@ private:
         Vector3 lastEye{};
         bool hadEye = false;
         bool loggedKnown = false;
+        std::map<std::uint32_t, ClientEntity> entities;
+        std::deque<SentSnapshot> sent;
+        std::map<std::string, std::uint32_t> clipIds;
+        std::set<std::uint32_t> ackedClips;
+        std::uint64_t ackedSnapshot = 0;
+    };
+
+    struct EntityMotion {
+        NetPose pose;
+        std::uint64_t changed = 0;
+        std::uint64_t restFrom = 0;
+        std::uint64_t moveStart = 0;
+    };
+
+    struct ClientSample {
+        std::uint64_t tick = 0;
+        Vector3 position{};
+        Quaternion rotation{0.0f, 0.0f, 0.0f, 1.0f};
+        bool hasAnimation = false;
+        std::string clip;
+        float time = 0.0f;
+        float speed = 1.0f;
+        bool playing = false;
+        bool loop = false;
     };
 
     struct EntityPlace {
@@ -114,6 +168,11 @@ private:
                               const std::vector<NetEventDef>& defs, NetSendMode mode);
     void serverUpdateKnown(ServerClient& client);
     void serverSendSnapshot(ServerClient& client);
+    void serverAcknowledge(ServerClient& client, std::uint64_t tick);
+    void serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone);
+    void serverTrackMotion();
+    bool serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const;
+    bool serverStateChanged(const ClientEntity& known, const SentState& now, flecs::entity entity) const;
     void serverDrop(NetConnectionId connection, const std::string& reason);
     void serverRemove(NetConnectionId connection, const std::string& reason);
     bool serverWithinRate(ServerClient& client);
@@ -126,6 +185,8 @@ private:
 
     void clientReceive(const NetEvent& event);
     void clientSnapshot(const NetSnapshot& snapshot);
+    void clientPresentTimeline(float frameDt);
+    void clientPresentEntity(flecs::entity entity, std::deque<ClientSample>& samples, double renderTick);
     struct PredictedMove {
         std::uint64_t tick = 0;
         float moveForward = 0.0f;
@@ -160,6 +221,7 @@ private:
     int nextPlayerNumber_ = 2;
     std::map<std::uint32_t, flecs::entity_t> serverEntities_;
     std::map<std::uint32_t, EntityPlace> places_;
+    std::map<std::uint32_t, EntityMotion> motion_;
     std::uint64_t serverTick_ = 0;
 
     NetConnectionId server_ = kNoNetConnection;
@@ -170,6 +232,12 @@ private:
     std::map<std::uint32_t, flecs::entity_t> bound_;
     std::set<std::uint32_t> appeared_;
     std::uint64_t lastSnapshotTick_ = 0;
+    std::uint64_t ackSnapshot_ = 0;
+    double clock_ = 0.0;
+    bool haveClock_ = false;
+    std::map<std::uint32_t, std::deque<ClientSample>> history_;
+    std::deque<std::pair<std::uint64_t, Vector3>> eyeHistory_;
+    std::map<std::uint32_t, std::string> clipNames_;
     bool loggedSnapshots_ = false;
     SimClock commandClock_{};
     std::uint64_t commandTick_ = 0;

@@ -199,6 +199,14 @@ ResolvedClip resolveClip(flecs::world world, const AnimationPlayer& player) {
 
 } // namespace
 
+float animationClipDuration(flecs::world world, const AnimationPlayer& player) {
+    if (!world.has<AssetServices>()) {
+        return 0.0f;
+    }
+    return resolveClip(world, player).duration;
+}
+
+
 void sampleTickPose(flecs::entity entity) {
     AnimationPlayer* player = entity.try_get_mut<AnimationPlayer>();
     Model3D* model3d = entity.try_get_mut<Model3D>();

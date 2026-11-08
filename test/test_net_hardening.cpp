@@ -170,7 +170,7 @@ void runSlotTests(std::uint64_t hash) {
     for (std::uint64_t i = 1; i <= 3000; ++i) {
         NetCommandFrame frame;
         frame.tick = i;
-        flood->send(floodId, encodeNetCommands({frame}), NetSendMode::Reliable);
+        flood->send(floodId, encodeNetCommands({frame}, 0), NetSendMode::Reliable);
     }
     tick(5);
     CHECK_EQ(server.session->serverClientCount(), std::size_t{1});
