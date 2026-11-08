@@ -20,6 +20,7 @@ add_executable(sloptests
     test_net_interest.cpp
     test_net_hardening.cpp
     test_net_pacing.cpp
+    test_bot_script.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -78,6 +79,9 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/map/player_bodies.cpp
     ${CMAKE_SOURCE_DIR}/src/script/net_script.cpp
     ${CMAKE_SOURCE_DIR}/src/script/player_target.cpp
+    ${CMAKE_SOURCE_DIR}/src/script/bot_script.cpp
+    ${CMAKE_SOURCE_DIR}/src/input/action_registry.cpp
+    ${CMAKE_SOURCE_DIR}/src/input/bind_code.cpp
     ${CMAKE_SOURCE_DIR}/src/render/transform.cpp
     ${CMAKE_SOURCE_DIR}/src/render/animation_player.cpp
     ${CMAKE_SOURCE_DIR}/src/camera/view_recoil.cpp
@@ -122,6 +126,7 @@ add_test(NAME sloptests.net_prediction COMMAND sloptests net_prediction)
 add_test(NAME sloptests.net_interest COMMAND sloptests net_interest)
 add_test(NAME sloptests.net_hardening COMMAND sloptests net_hardening)
 add_test(NAME sloptests.net_pacing COMMAND sloptests net_pacing)
+add_test(NAME sloptests.bot_script COMMAND sloptests bot_script)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)

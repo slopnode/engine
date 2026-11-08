@@ -71,7 +71,7 @@ def main():
     parser.add_argument("--game", default="slopdemo")
     parser.add_argument("--map", default="demoroom")
     parser.add_argument("--bots", type=int, default=3)
-    parser.add_argument("--behavior", default="fight", help="still, walk or fight, or a comma list cycled over the bots")
+    parser.add_argument("--behavior", default="fight", help="bot script names or .s7 files, a comma list cycled over the bots")
     parser.add_argument("--seconds", type=float, default=30.0)
     parser.add_argument("--lag", type=float, default=0.0, help="milliseconds added to everything each process sends")
     parser.add_argument("--jitter", type=float, default=0.0)

@@ -46,6 +46,10 @@ uint32_t capsForScope(ScriptScope scope) {
                static_cast<uint32_t>(ScriptCap::PackageLoad) |
                static_cast<uint32_t>(ScriptCap::ReadWorld) |
                static_cast<uint32_t>(ScriptCap::StartupQuery);
+    case ScriptScope::Bot:
+        return static_cast<uint32_t>(ScriptCap::BotInput) |
+               static_cast<uint32_t>(ScriptCap::InputQuery) |
+               static_cast<uint32_t>(ScriptCap::ReadWorld);
     case ScriptScope::MapAuthor:
     case ScriptScope::None:
         return 0;
@@ -62,7 +66,8 @@ uint32_t capsForRole(PackageRole role) {
                             static_cast<uint32_t>(ScriptCap::InputQuery) |
                             static_cast<uint32_t>(ScriptCap::PackageLoad) |
                             static_cast<uint32_t>(ScriptCap::StartupQuery) |
-                            static_cast<uint32_t>(ScriptCap::ReadWorld);
+                            static_cast<uint32_t>(ScriptCap::ReadWorld) |
+                            static_cast<uint32_t>(ScriptCap::BotInput);
     switch (role) {
     case PackageRole::Engine:
     case PackageRole::Base:
@@ -100,6 +105,8 @@ const char* capName(ScriptCap cap) {
         return "startup-query";
     case ScriptCap::ReadWorld:
         return "read-world";
+    case ScriptCap::BotInput:
+        return "bot-input";
     }
     return "unknown";
 }

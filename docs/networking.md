@@ -70,7 +70,7 @@ A server spawns no stand-ins, so a listen-server host doesn't see the clients' b
 
 ## Testing with bots
 
-`--bot` makes a dedicated client play by itself. `still` sends no input, `walk` wanders, turning and changing direction every few seconds and sometimes sprinting, and `fight` also jumps, fires in bursts and switches weapon slots. The bot presses actions by their id, so `fight` assumes the game declares `attack`, `sprint` and `slot-1` to `slot-7`, as slopdemo does, and skips any it doesn't find.
+`--bot NAME` makes a dedicated client play by itself, running the bot script `scripts/bots/NAME.s7` from the mounted packages or a `.s7` file. A bot reads what its client knows and writes the input a player would, so it plays by the same rules, and it can run on any machine that can join. The engine ships `still` and `walk`, and slopdemo ships `fight`. See @ref bots for writing one.
 
 `--net-lag`, `--net-jitter` and `--net-loss` make the process treat its own outgoing traffic like a bad link. Each message waits the lag plus or minus the jitter, reliable messages keep their order, and the given fraction of unreliable messages is dropped. Give the flags to the server and to each client to affect both directions. ENet's own ping doesn't see the added lag, since it is measured underneath.
 
@@ -82,7 +82,7 @@ A server spawns no stand-ins, so a listen-server host doesn't see the clients' b
 tools/netsoak/net_soak.py --map readit --bots 3 --seconds 30 --lag 40 --jitter 10 --loss 0.02
 ```
 
-It exits with an error when a process crashes or logs an error, when a bot never receives a snapshot, or when a player leaves for a reason other than quitting. `--behavior` takes a comma list that cycles over the bots, and `--out` keeps the logs in a chosen directory instead of a new temporary one.
+It exits with an error when a process crashes or logs an error, when a bot never receives a snapshot, or when a player leaves for a reason other than quitting. `--behavior` takes bot names or files as a comma list that cycles over the bots, and `--out` keeps the logs in a chosen directory instead of a new temporary one.
 
 # Principles
 

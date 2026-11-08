@@ -38,6 +38,7 @@
 #include "render/components.hpp"
 #include "render/render_module.hpp"
 #include "render/underwater_effect.hpp"
+#include "script/bot_script.hpp"
 #include "script/save_script.hpp"
 #include "script/scheme_call.hpp"
 #include "script/scheme_harden.hpp"
@@ -54,6 +55,8 @@
 
 #include <chrono>
 #include <csignal>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -203,15 +206,8 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     if (!config_.listenAddress.empty() && !config_.connectAddress.empty()) {
         throw std::invalid_argument("--listen and --connect can't be used together");
     }
-    if (!config_.bot.empty()) {
-        NetBotKind kind{};
-        if (!parseNetBotKind(config_.bot, kind)) {
-            throw std::invalid_argument("--bot takes still, walk or fight");
-        }
-        if (!config_.dedicated || config_.connectAddress.empty()) {
-            throw std::invalid_argument("--bot needs --dedicated and --connect");
-        }
-        bot_ = std::make_unique<NetBot>(kind, botSeed());
+    if (!config_.bot.empty() && (!config_.dedicated || config_.connectAddress.empty())) {
+        throw std::invalid_argument("--bot needs --dedicated and --connect");
     }
     NetSessionConfig net;
     net.listenAddress = config_.listenAddress;
@@ -267,6 +263,35 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     if (!net_->start()) {
         throw std::runtime_error("network could not start");
     }
+    if (!config_.bot.empty()) {
+        startBot();
+    }
+}
+
+void App::startBot() {
+    std::string source;
+    const std::filesystem::path file(config_.bot);
+    std::error_code error;
+    if (file.has_extension() && std::filesystem::is_regular_file(file, error)) {
+        std::ifstream in(file, std::ios::binary);
+        source.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    } else if (config_.bot.find_first_of("/\\.") == std::string::npos) {
+        source = assetStore_.getScriptSource("bots/" + config_.bot);
+    }
+    if (source.empty()) {
+        throw std::invalid_argument("--bot " + config_.bot + " names no scripts/bots/*.s7 in the mounted packages and no file");
+    }
+    bot_ = std::make_unique<BotScript>(world_, scheme_, botSeed(), [this]() {
+        std::vector<BotKnownEntity> out;
+        for (auto& [name, player] : net_->clientKnownEntities()) {
+            out.push_back({std::move(name), player});
+        }
+        return out;
+    });
+    if (!bot_->load(source, config_.bot)) {
+        throw std::invalid_argument("--bot " + config_.bot + " doesn't define bot-tick");
+    }
+    TraceLog(LOG_INFO, "NET: playing as bot %s", config_.bot.c_str());
 }
 
 int App::runDedicated() {
@@ -280,9 +305,10 @@ int App::runDedicated() {
         last = now;
         if (net_ && net_->role() == NetRole::Client) {
             if (bot_) {
-                bot_->drive(world_, frameDt);
+                bot_->tick(frameDt);
             }
             net_->clientFrame(frameDt);
+            presentSimEye(world_);
         } else {
             if (net_ && net_->role() == NetRole::Server) {
                 net_->serverPoll();

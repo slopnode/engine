@@ -243,7 +243,6 @@ add_executable(slopengine
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
-    src/game/net_bot.cpp
     src/game/sim_pipeline.cpp
     src/game/sim_interpolation.cpp
     src/net/net_state.cpp
@@ -335,6 +334,7 @@ add_executable(slopengine
     src/script/hud_script.cpp
     src/script/post_script.cpp
     src/script/input_script.cpp
+    src/script/bot_script.cpp
     src/script/audio_script.cpp
     src/script/thing_script.cpp
     src/script/save_script.cpp

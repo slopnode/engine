@@ -22,6 +22,7 @@ hud|HUD rendering|`hud-draw`,`input-query`,`read-world`
 present|First-person presentation every frame, on clients too|`fp-present`,`audio`,`input-query`,`read-world`
 ui|UI (non-hud) rendering|`ui-draw`,`save-io`,`map-control`,`package-load`,`read-world`,`startup-query`
 mapauthor|Loading map files|none
+bot|A bot script on a dedicated client, see @ref bots|`bot-input`,`input-query`,`read-world`
 
 ## Roles {#roles}
 
@@ -54,6 +55,7 @@ Capability|Description
 `package-load`| Loading package data
 `startup-query`| Querying startup arguments
 `read-world`| Reading world state information
+`bot-input`| Writing a bot's input
 
 # Functions {#functions}
 
@@ -381,6 +383,75 @@ Checks whether a package-defined input action is currently held down.
 Checks whether a package-defined input action was pressed this frame.
 <pre><code class="language-scheme">(action-pressed?
   id : string?) ↵ boolean?
+</code></pre>
+
+## Bots {#bots}
+
+A bot script plays a dedicated client started with `--bot`. The engine looks for `scripts/bots/NAME.s7` in the mounted packages, so a game or a mod can ship bots, or takes a path to a `.s7` file. The engine package has `still` and `walk`, and slopdemo adds `fight`, which aims at the nearest actor it can see and fires. The script is evaluated in an environment of its own with the Mod role, so its definitions don't touch the game's, and it must define `bot-tick`, which the engine calls every frame before the client builds its command. It runs in `bot` scope, so it reads what the client knows through the usual read functions, such as `player-pose`, `player-eye`, `actors-in-radius`, `los?` and `net-get`, and acts only through the functions below. A bot has the same view of the game as a player on that client and nothing more.
+
+<pre><code class="language-scheme">(define (bot-tick dt)
+  (bot-move! 1.0 0.0)
+  (let ((view (bot-view)))
+    (bot-look! (+ (car view) (* 0.5 dt)) 0.0)))
+</code></pre>
+
+### bot-tick {#bot-tick}
+Defined by the bot script. Called every frame with the frame time in seconds.
+<pre><code class="language-scheme">(bot-tick
+  dt : real?)
+</code></pre>
+
+### bot-move! {#bot-move}
+Sets the movement input, each axis from -1 to 1, and holds the matching movement actions.
+<pre><code class="language-scheme">(bot-move!
+  forward : real?
+  strafe : real?
+  [up : real? = 0]) ↵ boolean?
+</code></pre>
+
+### bot-look! {#bot-look}
+Turns the view to a yaw and pitch in radians. Yaw 0 looks along +z and pitch is kept within 1.55 of level.
+<pre><code class="language-scheme">(bot-look!
+  yaw : real?
+  pitch : real?) ↵ boolean?
+</code></pre>
+
+### bot-view {#bot-view}
+Returns the view's `(yaw pitch)`.
+<pre><code class="language-scheme">(bot-view) ↵ (or (list real? real?) #f)
+</code></pre>
+
+### bot-hold! {#bot-hold}
+Holds or releases an action by its id, a core one such as `"Jump"` or one from the game's `*package-actions*`. Returns `#f` for an id nobody declared.
+<pre><code class="language-scheme">(bot-hold!
+  action : string?
+  down : boolean?) ↵ boolean?
+</code></pre>
+
+### bot-press! {#bot-press}
+Presses an action once, as a key going down would.
+<pre><code class="language-scheme">(bot-press!
+  action : string?) ↵ boolean?
+</code></pre>
+
+### bot-release-all! {#bot-release-all}
+Releases every action and stops moving.
+<pre><code class="language-scheme">(bot-release-all!) ↵ boolean?
+</code></pre>
+
+### bot-actions {#bot-actions}
+Returns the ids of every declared action.
+<pre><code class="language-scheme">(bot-actions) ↵ (listof string?)
+</code></pre>
+
+### bot-known {#bot-known}
+Returns the entities the server has introduced to this client and that it shows, as `(name . kind)` pairs where kind is `thing` or `player`. Other players appear by their stand-in names.
+<pre><code class="language-scheme">(bot-known) ↵ (listof (cons string? symbol?))
+</code></pre>
+
+### bot-seed {#bot-seed}
+Returns a number picked when the bot started, for `(random-state (bot-seed))`, so bots started together don't move alike.
+<pre><code class="language-scheme">(bot-seed) ↵ integer?
 </code></pre>
 
 ## UI (ImGui) {#ui-imgui}

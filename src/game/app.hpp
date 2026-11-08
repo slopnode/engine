@@ -3,7 +3,6 @@
 #include "assets/asset_store.hpp"
 #include "audio/audio_world.hpp"
 #include "game/app_config.hpp"
-#include "game/net_bot.hpp"
 #include "game/user_settings.hpp"
 #include "net/net_session.hpp"
 #include "physics/physics_world.hpp"
@@ -15,6 +14,8 @@
 struct s7_scheme;
 
 namespace slopengine {
+
+class BotScript;
 
 /** Top-level application entry point. */
 class App {
@@ -42,6 +43,7 @@ private:
     void shutdown();
     void takePendingMapLoad();
     void startNetwork(const std::filesystem::path& settingsFilePath);
+    void startBot();
     int runDedicated();
 
     AppConfig config_;
@@ -52,7 +54,7 @@ private:
     std::unique_ptr<AudioWorld> audioWorld_;
     s7_scheme* scheme_ = nullptr;
     std::unique_ptr<NetSession> net_;
-    std::unique_ptr<NetBot> bot_;
+    std::unique_ptr<BotScript> bot_;
     bool running_ = false;
 };
 

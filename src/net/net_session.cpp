@@ -1098,12 +1098,21 @@ void NetSession::serverLogStats() {
     if (config_.statsSeconds <= 0.0f) {
         return;
     }
+    const auto now = std::chrono::steady_clock::now();
+    if (serverLastTick_ != std::chrono::steady_clock::time_point{}) {
+        serverWorstGapMs_ =
+            std::max(serverWorstGapMs_, std::chrono::duration<double, std::milli>(now - serverLastTick_).count());
+    }
+    serverLastTick_ = now;
     const auto every = static_cast<std::uint64_t>(std::max(1.0f, config_.statsSeconds / kSimTickDt));
     if (++serverStatTicks_ < every) {
         return;
     }
     const double seconds = static_cast<double>(serverStatTicks_) * kSimTickDt;
     serverStatTicks_ = 0;
+    Log::info(LogCategory::General, "NET STATS server: %zu players, longest gap between ticks %.1f ms",
+              static_cast<std::size_t>(serverPlayerCount()), serverWorstGapMs_);
+    serverWorstGapMs_ = 0.0;
     for (auto& [connection, client] : clients_) {
         if (!client.ready) {
             continue;
@@ -1126,6 +1135,19 @@ void NetSession::serverLogStats() {
         client.statAcks = 0;
         client.statAckLag = 0;
     }
+}
+
+std::vector<std::pair<std::string, bool>> NetSession::clientKnownEntities() const {
+    std::vector<std::pair<std::string, bool>> out;
+    for (const auto& [netId, introduction] : names_) {
+        const auto bound = bound_.find(netId);
+        if (bound == bound_.end() || !world_.is_alive(bound->second)) {
+            continue;
+        }
+        const bool player = introduction.kind == NetEntityKind::Player;
+        out.emplace_back(player ? netAvatarName(introduction.name) : introduction.name, player);
+    }
+    return out;
 }
 
 void NetSession::clientLogStats() {

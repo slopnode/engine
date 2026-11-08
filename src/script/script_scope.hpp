@@ -17,6 +17,7 @@ enum class ScriptScope {
     Present,
     Ui,
     MapAuthor,
+    Bot,
 };
 
 enum class ScriptCap : uint32_t {
@@ -32,6 +33,7 @@ enum class ScriptCap : uint32_t {
     PackageLoad = 1u << 8,
     StartupQuery = 1u << 9,
     ReadWorld = 1u << 10,
+    BotInput = 1u << 11,
 };
 
 class ScriptScopeGuard {

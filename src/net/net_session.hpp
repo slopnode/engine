@@ -84,6 +84,7 @@ public:
     void serverPoll();
     void serverMapLoaded();
     void clientFrame(float frameDt);
+    std::vector<std::pair<std::string, bool>> clientKnownEntities() const;
     float clientSecondsUntilCommand() const { return kSimTickDt - commandClock_.accumulator; }
 
 private:
@@ -249,6 +250,8 @@ private:
     std::deque<std::pair<std::uint64_t, Vector3>> eyeHistory_;
     std::map<std::uint32_t, std::string> clipNames_;
     std::uint64_t serverStatTicks_ = 0;
+    std::chrono::steady_clock::time_point serverLastTick_{};
+    double serverWorstGapMs_ = 0.0;
     float clientStatSeconds_ = 0.0f;
     std::uint64_t statSnapshots_ = 0;
     std::uint64_t statBytes_ = 0;

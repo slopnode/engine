@@ -43,7 +43,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --server-key  With --connect, refuse servers whose key isn't this 64-digit hex key\n"
               << "  --session     With --listen, the session kind from data/net.s7 to host\n"
               << "  --max-players With --listen, allow fewer players than the session kind does\n"
-              << "  --bot         With --dedicated --connect, play with synthetic input: still, walk or fight\n"
+              << "  --bot         With --dedicated --connect, play by running scripts/bots/NAME.s7 or a .s7 file\n"
               << "  --net-lag     Delay everything this process sends by this many milliseconds\n"
               << "  --net-jitter  Vary that delay by up to this many milliseconds either way\n"
               << "  --net-loss    Drop this fraction, 0 to 1, of the unreliable messages it sends\n"

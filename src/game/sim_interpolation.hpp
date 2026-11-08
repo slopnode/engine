@@ -40,5 +40,6 @@ inline constexpr float kSimPoseSnapDistance = 4.0f;
 LocalTransformation blendSimPose(const SimPose& pose, float alpha);
 bool sameSimPose(const LocalTransformation& a, const LocalTransformation& b, bool compareRotation);
 void registerSimInterpolation(flecs::world& world);
+void presentSimEye(flecs::world& world);
 
 }

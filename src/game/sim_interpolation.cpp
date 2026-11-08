@@ -277,6 +277,12 @@ bool sameSimPose(const LocalTransformation& a, const LocalTransformation& b, boo
                                 a.rotation.z == b.rotation.z && a.rotation.w == b.rotation.w);
 }
 
+void presentSimEye(flecs::world& world) {
+    if (world.has<SimClock>()) {
+        blendEye(world, simBlendAlpha(world.get<SimClock>()));
+    }
+}
+
 void registerSimInterpolation(flecs::world& world) {
     world.component<SimPose>();
     world.component<SimEyePose>();
