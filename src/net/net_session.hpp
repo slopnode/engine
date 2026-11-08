@@ -268,6 +268,7 @@ private:
     std::map<std::string, std::vector<flecs::entity_t>> hidden_;
     bool hidOnLoad_ = false;
     bool predicting_ = false;
+    Vector3 correction_{};
 };
 
 enum class KnownServer {

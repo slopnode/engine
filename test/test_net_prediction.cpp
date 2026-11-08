@@ -163,8 +163,13 @@ void runNetPredictionTests() {
     int bounces = 0;
     float lastY = floorY;
     float peak = floorY;
+    float lastEye = clientPlayer.get<SimEyePose>().cur.y;
+    float worstEyeStep = 0.0f;
     for (int i = 0; i < 200; ++i) {
         frame(1);
+        const float eyeY = clientPlayer.get<SimEyePose>().cur.y;
+        worstEyeStep = std::max(worstEyeStep, std::fabs(eyeY - lastEye));
+        lastEye = eyeY;
         const float y = static_cast<float>(client.physics.characterPosition(static_cast<std::uint64_t>(clientPlayer.id())).GetY());
         peak = std::max(peak, y);
         if (y < lastY - 1.0e-4f) {
@@ -178,6 +183,7 @@ void runNetPredictionTests() {
     }
     CHECK(rose && peak > floorY + 1.2f);
     CHECK_EQ(bounces, 0);
+    CHECK(worstEyeStep < 0.4f);
     CHECK(std::fabs(lastY - floorY) < 1.0e-3f);
     const SimEyePose& eye = client.world.lookup("Player").get<SimEyePose>();
     CHECK(std::fabs(eye.cur.z - feetZ(client)) < 1.0e-3f && eye.cur.y > 1.5f && eye.cur.y < 1.8f);

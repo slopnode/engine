@@ -53,6 +53,7 @@ constexpr float kClipTimeSlack = 0.05f;
 constexpr float kFreshPriority = 8.0f;
 constexpr double kClockSnapTicks = 30.0;
 constexpr double kClockPull = 0.1;
+constexpr float kCorrectionDecay = 0.85f;
 
 constexpr const char* kAvatarPrefix = "player:";
 
@@ -1222,7 +1223,7 @@ void NetSession::clientPresentPrediction(bool advance) {
     }
     const JPH::RVec3 feet = physics.characterPosition(id);
     const Vector3 feetAt{static_cast<float>(feet.GetX()), static_cast<float>(feet.GetY()), static_cast<float>(feet.GetZ())};
-    const Vector3 eye{feetAt.x, feetAt.y + motor->eyeHeight, feetAt.z};
+    const Vector3 eye = Vector3Add({feetAt.x, feetAt.y + motor->eyeHeight, feetAt.z}, correction_);
     if (SimEyePose* pose = player.try_get_mut<SimEyePose>()) {
         if (advance) {
             pose->prev = pose->cur;
@@ -1282,16 +1283,19 @@ void NetSession::clientReconcile(const NetSnapshot& snapshot) {
     for (const PredictedMove& move : predicted_) {
         clientPredictMove(move);
     }
-    clientPresentPrediction(false);
-    if (wasPredicting) {
-        if (const SimEyePose* after = player.try_get<SimEyePose>()) {
-            const float moved = Vector3Distance(before, after->cur);
-            if (moved > 0.01f) {
-                ++statCorrections_;
-                statWorstCorrection_ = std::max(statWorstCorrection_, moved);
-            }
-        }
+    const JPH::RVec3 feet = physics.characterPosition(id);
+    const Vector3 truth{static_cast<float>(feet.GetX()), static_cast<float>(feet.GetY()) + motor->eyeHeight,
+                        static_cast<float>(feet.GetZ())};
+    const float moved = Vector3Distance(Vector3Subtract(before, correction_), truth);
+    correction_ = wasPredicting ? Vector3Subtract(before, truth) : Vector3{};
+    if (wasPredicting && moved > 0.01f) {
+        ++statCorrections_;
+        statWorstCorrection_ = std::max(statWorstCorrection_, moved);
     }
+    if (Vector3Length(correction_) > kSimPoseSnapDistance) {
+        correction_ = {};
+    }
+    clientPresentPrediction(false);
     predicting_ = true;
 }
 
@@ -1521,6 +1525,7 @@ void NetSession::clientResetView(bool reenable) {
     appeared_.clear();
     predicted_.clear();
     predicting_ = false;
+    correction_ = {};
     hidden_.clear();
     hidOnLoad_ = false;
     lastSnapshotTick_ = 0;
@@ -1886,6 +1891,10 @@ void NetSession::clientSendCommands() {
             predicted_.push_back(move);
             while (predicted_.size() > kMaxPredictedMoves) {
                 predicted_.pop_front();
+            }
+            correction_ = Vector3Scale(correction_, kCorrectionDecay);
+            if (Vector3LengthSqr(correction_) < 1.0e-8f) {
+                correction_ = {};
             }
             clientPresentPrediction(true);
         }
