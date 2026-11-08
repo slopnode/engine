@@ -30,6 +30,7 @@ void runNetHardeningTests();
 void runNetPacingTests();
 void runBotScriptTests();
 void runMotorRulesTests();
+void runNetSpawnTests();
 void runS7ReadTests();
 void runBspBuildTests();
 void runBspAnalyzeTests();
@@ -106,6 +107,7 @@ const Suite kSuites[] = {
     {"net_pacing", slopengine::runNetPacingTests},
     {"bot_script", slopengine::runBotScriptTests},
     {"motor_rules", slopengine::runMotorRulesTests},
+    {"net_spawn", slopengine::runNetSpawnTests},
     {"s7_read", slopengine::runS7ReadTests},
     {"bsp_build", slopengine::runBspBuildTests},
     {"bsp_analyze", slopengine::runBspAnalyzeTests},

@@ -72,6 +72,50 @@ std::uint64_t clipMillis(float time) {
     return static_cast<std::uint64_t>(std::lround(std::min(time, kMaxNetClipSeconds) * 1000.0f));
 }
 
+void writePose(NetWriter& writer, const NetPose& pose) {
+    for (std::int64_t axis : pose.position) {
+        writer.varint(zigzag(axis));
+    }
+    for (int shift = 24; shift >= 0; shift -= 8) {
+        writer.u8(static_cast<std::uint8_t>((pose.rotation >> shift) & 0xffu));
+    }
+}
+
+bool readPose(NetReader& reader, NetPose& pose) {
+    const auto limit = static_cast<std::int64_t>(kMaxNetCoordinate * kNetPositionScale);
+    for (std::int64_t& axis : pose.position) {
+        std::uint64_t raw = 0;
+        if (!reader.varint(raw)) {
+            return false;
+        }
+        axis = unzigzag(raw);
+        if (axis > limit || axis < -limit) {
+            return false;
+        }
+    }
+    pose.rotation = 0;
+    for (int i = 0; i < 4; ++i) {
+        std::uint8_t byte = 0;
+        if (!reader.u8(byte)) {
+            return false;
+        }
+        pose.rotation = (pose.rotation << 8) | byte;
+    }
+    return true;
+}
+
+bool readFinite(NetReader& reader, float& out, float limit) {
+    return reader.f32(out) && std::isfinite(out) && std::fabs(out) <= limit;
+}
+
+constexpr std::uint8_t kIntroSpawn = 1;
+constexpr std::uint8_t kIntroSevered = 2;
+constexpr std::uint8_t kIntroRagdolled = 4;
+constexpr std::uint8_t kIntroCorpse = 8;
+constexpr std::size_t kMaxAssetPathBytes = 128;
+constexpr std::size_t kMaxTagBytes = 32;
+constexpr std::size_t kMaxBoneBytes = 64;
+
 void writeEntity(NetWriter& writer, const NetEntityState& entity, const std::vector<const NetField*>& playerFields) {
     const bool speed = entity.hasAnimation && entity.speed != 1.0f;
     std::uint8_t flags = 0;
@@ -83,12 +127,7 @@ void writeEntity(NetWriter& writer, const NetEntityState& entity, const std::vec
     flags |= speed ? kEntitySpeed : 0;
     writer.varint(entity.netId);
     writer.u8(flags);
-    for (std::int64_t axis : entity.pose.position) {
-        writer.varint(zigzag(axis));
-    }
-    for (int shift = 24; shift >= 0; shift -= 8) {
-        writer.u8(static_cast<std::uint8_t>((entity.pose.rotation >> shift) & 0xffu));
-    }
+    writePose(writer, entity.pose);
     if (entity.hold != 0) {
         writer.varint(entity.hold);
     }
@@ -116,24 +155,8 @@ bool readEntity(NetReader& reader, const std::vector<const NetField*>& playerFie
     if ((flags & kEntityAnimation) == 0 && (flags & (kEntityPlaying | kEntityLoop | kEntitySpeed)) != 0) {
         return false;
     }
-    const auto limit = static_cast<std::int64_t>(kMaxNetCoordinate * kNetPositionScale);
-    for (std::int64_t& axis : entity.pose.position) {
-        std::uint64_t raw = 0;
-        if (!reader.varint(raw)) {
-            return false;
-        }
-        axis = unzigzag(raw);
-        if (axis > limit || axis < -limit) {
-            return false;
-        }
-    }
-    entity.pose.rotation = 0;
-    for (int i = 0; i < 4; ++i) {
-        std::uint8_t byte = 0;
-        if (!reader.u8(byte)) {
-            return false;
-        }
-        entity.pose.rotation = (entity.pose.rotation << 8) | byte;
+    if (!readPose(reader, entity.pose)) {
+        return false;
     }
     if ((flags & kEntityHold) != 0 && (!readU32(reader, entity.hold) || entity.hold == 0 || entity.hold > kMaxNetHoldTicks)) {
         return false;
@@ -242,7 +265,7 @@ std::optional<NetMessageKind> netMessageKind(std::span<const std::byte> data) {
         return std::nullopt;
     }
     const auto raw = static_cast<std::uint8_t>(data[0]);
-    if (raw < static_cast<std::uint8_t>(NetMessageKind::Hello) || raw > static_cast<std::uint8_t>(NetMessageKind::Events)) {
+    if (raw < static_cast<std::uint8_t>(NetMessageKind::Hello) || raw > static_cast<std::uint8_t>(NetMessageKind::Effects)) {
         return std::nullopt;
     }
     return static_cast<NetMessageKind>(raw);
@@ -302,6 +325,34 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
         writer.varint(entry.netId);
         writer.string(entry.name);
         writer.u8(static_cast<std::uint8_t>(entry.kind));
+        std::uint8_t flags = 0;
+        flags |= entry.spawn.kind != NetSpawnKind::None ? kIntroSpawn : 0;
+        flags |= entry.severed.empty() ? 0 : kIntroSevered;
+        flags |= entry.ragdolled ? kIntroRagdolled : 0;
+        flags |= entry.corpse.empty() ? 0 : kIntroCorpse;
+        writer.u8(flags);
+        if (entry.spawn.kind != NetSpawnKind::None) {
+            writer.u8(static_cast<std::uint8_t>(entry.spawn.kind));
+            writer.u8(entry.spawn.sprite ? 1 : 0);
+            writer.string(entry.spawn.path);
+            writer.varint(entry.spawn.tags.size());
+            for (const std::string& tag : entry.spawn.tags) {
+                writer.string(tag);
+            }
+            writePose(writer, entry.spawn.pose);
+        }
+        if (!entry.severed.empty()) {
+            writer.varint(entry.severed.size());
+            for (const std::string& bone : entry.severed) {
+                writer.string(bone);
+            }
+        }
+        if (!entry.corpse.empty()) {
+            writer.varint(entry.corpse.size());
+            for (const NetPose& pose : entry.corpse) {
+                writePose(writer, pose);
+            }
+        }
     }
     return writer.data();
 }
@@ -320,6 +371,57 @@ bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduc
             return false;
         }
         entry.kind = static_cast<NetEntityKind>(kind);
+        std::uint8_t flags = 0;
+        if (!reader.u8(flags) || (flags & ~(kIntroSpawn | kIntroSevered | kIntroRagdolled | kIntroCorpse)) != 0) {
+            return false;
+        }
+        if ((flags & kIntroSpawn) != 0) {
+            std::uint8_t spawnKind = 0;
+            std::uint8_t sprite = 0;
+            std::size_t tags = 0;
+            if (!reader.u8(spawnKind) || spawnKind < 1 || spawnKind > 2 || !reader.u8(sprite) || sprite > 1 ||
+                !reader.string(entry.spawn.path, kMaxAssetPathBytes) || !reader.count(tags, kMaxNetSpawnTags)) {
+                return false;
+            }
+            entry.spawn.kind = static_cast<NetSpawnKind>(spawnKind);
+            entry.spawn.sprite = sprite == 1;
+            for (std::size_t t = 0; t < tags; ++t) {
+                std::string tag;
+                if (!reader.string(tag, kMaxTagBytes)) {
+                    return false;
+                }
+                entry.spawn.tags.push_back(std::move(tag));
+            }
+            if (!readPose(reader, entry.spawn.pose)) {
+                return false;
+            }
+        }
+        if ((flags & kIntroSevered) != 0) {
+            std::size_t bones = 0;
+            if (!reader.count(bones, kMaxNetSeveredBones) || bones == 0) {
+                return false;
+            }
+            for (std::size_t b = 0; b < bones; ++b) {
+                std::string bone;
+                if (!reader.string(bone, kMaxBoneBytes) || bone.empty()) {
+                    return false;
+                }
+                entry.severed.push_back(std::move(bone));
+            }
+        }
+        entry.ragdolled = (flags & kIntroRagdolled) != 0;
+        if ((flags & kIntroCorpse) != 0) {
+            std::size_t bones = 0;
+            if (!entry.ragdolled || !reader.count(bones, kMaxNetCorpseBones) || bones == 0) {
+                return false;
+            }
+            entry.corpse.resize(bones);
+            for (NetPose& pose : entry.corpse) {
+                if (!readPose(reader, pose)) {
+                    return false;
+                }
+            }
+        }
         out.push_back(std::move(entry));
     }
     return reader.atEnd();
@@ -581,6 +683,76 @@ std::size_t netClipNameBytes(std::uint32_t clipId, const std::string& name) {
     writer.varint(clipId);
     writer.string(name);
     return writer.data().size();
+}
+
+std::vector<std::byte> encodeNetEffects(const std::vector<NetEffect>& effects) {
+    NetWriter writer = begin(NetMessageKind::Effects);
+    writer.varint(effects.size());
+    for (const NetEffect& effect : effects) {
+        writer.u8(static_cast<std::uint8_t>(effect.kind));
+        writer.varint(effect.netId);
+        writer.string(effect.bone);
+        writeFloats(writer, effect.push, 3);
+        writer.f32(effect.speed);
+        writer.f32(effect.spin);
+        writer.f32(effect.lifetime);
+    }
+    return writer.data();
+}
+
+bool decodeNetEffects(std::span<const std::byte> data, std::vector<NetEffect>& out) {
+    NetReader reader(data);
+    out.clear();
+    std::size_t count = 0;
+    if (!expect(reader, NetMessageKind::Effects) || !reader.count(count, kMaxNetEffectsPerMessage)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        NetEffect effect;
+        std::uint8_t kind = 0;
+        if (!reader.u8(kind) || kind < 1 || kind > 2 || !readU32(reader, effect.netId) ||
+            !reader.string(effect.bone, kMaxBoneBytes)) {
+            return false;
+        }
+        effect.kind = static_cast<NetEffectKind>(kind);
+        if (effect.kind == NetEffectKind::Sever && effect.bone.empty()) {
+            return false;
+        }
+        for (float& axis : effect.push) {
+            if (!readFinite(reader, axis, 1.0e3f)) {
+                return false;
+            }
+        }
+        if (!readFinite(reader, effect.speed, 1.0e3f) || !readFinite(reader, effect.spin, 1.0e3f) ||
+            !readFinite(reader, effect.lifetime, 1.0e4f)) {
+            return false;
+        }
+        out.push_back(std::move(effect));
+    }
+    return reader.atEnd();
+}
+
+bool safeNetAssetPath(std::string_view path) {
+    if (path.empty() || path.size() > kMaxAssetPathBytes || path.front() == '/') {
+        return false;
+    }
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        const std::size_t end = std::min(path.find('/', start), path.size());
+        const std::string_view segment = path.substr(start, end - start);
+        if (segment.empty() || segment == "." || segment == "..") {
+            return false;
+        }
+        for (char c : segment) {
+            const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ||
+                c == '-' || c == '.';
+            if (!ok) {
+                return false;
+            }
+        }
+        start = end + 1;
+    }
+    return true;
 }
 
 }

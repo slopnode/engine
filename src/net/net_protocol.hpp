@@ -8,16 +8,21 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 8;
+inline constexpr std::uint32_t kNetProtocolVersion = 10;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::size_t kMaxNetActions = 256;
 inline constexpr std::size_t kMaxNetEntities = 4096;
 inline constexpr std::size_t kMaxNetClips = 1024;
+inline constexpr std::size_t kMaxNetSpawnTags = 8;
+inline constexpr std::size_t kMaxNetSeveredBones = 64;
+inline constexpr std::size_t kMaxNetCorpseBones = 256;
+inline constexpr std::size_t kMaxNetEffectsPerMessage = 256;
 inline constexpr float kNetPositionScale = 512.0f;
 inline constexpr float kMaxNetCoordinate = 1.0e6f;
 inline constexpr std::uint32_t kMaxNetHoldTicks = 1u << 20;
@@ -30,6 +35,7 @@ enum class NetMessageKind : std::uint8_t {
     Commands = 5,
     Snapshot = 6,
     Events = 7,
+    Effects = 8,
 };
 
 enum class NetEventWhere : std::uint8_t {
@@ -71,11 +77,7 @@ enum class NetEntityKind : std::uint8_t {
     Player = 1,
 };
 
-struct NetIntroduction {
-    std::uint32_t netId = 0;
-    std::string name;
-    NetEntityKind kind = NetEntityKind::Thing;
-};
+
 
 struct NetCommandFrame {
     std::uint64_t tick = 0;
@@ -97,6 +99,45 @@ struct NetPose {
 
 bool packNetPose(const float position[3], const float rotation[4], NetPose& out);
 void unpackNetPose(const NetPose& pose, float position[3], float rotation[4]);
+
+enum class NetSpawnKind : std::uint8_t {
+    None = 0,
+    Actor = 1,
+    Motored = 2,
+};
+
+struct NetSpawnRecipe {
+    NetSpawnKind kind = NetSpawnKind::None;
+    bool sprite = false;
+    std::string path;
+    std::vector<std::string> tags;
+    NetPose pose;
+};
+
+struct NetIntroduction {
+    std::uint32_t netId = 0;
+    std::string name;
+    NetEntityKind kind = NetEntityKind::Thing;
+    NetSpawnRecipe spawn;
+    std::vector<std::string> severed;
+    bool ragdolled = false;
+    std::vector<NetPose> corpse;
+};
+
+enum class NetEffectKind : std::uint8_t {
+    Sever = 1,
+    Ragdoll = 2,
+};
+
+struct NetEffect {
+    NetEffectKind kind = NetEffectKind::Sever;
+    std::uint32_t netId = 0;
+    std::string bone;
+    float push[3]{};
+    float speed = 0.0f;
+    float spin = 0.0f;
+    float lifetime = 0.0f;
+};
 
 struct NetEntityState {
     std::uint32_t netId = 0;
@@ -151,6 +192,9 @@ std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& en
 bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduction>& out);
 std::vector<std::byte> encodeNetForget(const std::vector<std::uint32_t>& netIds);
 bool decodeNetForget(std::span<const std::byte> data, std::vector<std::uint32_t>& out);
+std::vector<std::byte> encodeNetEffects(const std::vector<NetEffect>& effects);
+bool decodeNetEffects(std::span<const std::byte> data, std::vector<NetEffect>& out);
+bool safeNetAssetPath(std::string_view path);
 std::vector<std::byte> encodeNetCommands(const std::vector<NetCommandFrame>& frames, std::uint64_t ackedSnapshot);
 bool decodeNetCommands(std::span<const std::byte> data, std::vector<NetCommandFrame>& out, std::uint64_t& ackedSnapshot);
 std::vector<std::byte> encodeNetEvents(const std::vector<NetEventMessage>& events, const std::vector<NetEventDef>& defs);

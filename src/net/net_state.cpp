@@ -81,10 +81,25 @@ void registerNetState(flecs::world& world) {
     world.component<NetThingFields>();
     world.component<NetEventQueue>();
     world.set<NetEventQueue>({});
+    world.component<NetEffectQueue>();
+    world.set<NetEffectQueue>({});
+    world.component<NetSpawnRecipe>();
+    world.component<NetSevered>();
+    world.component<NetSpawned>();
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
     world.set<NetStore>(std::move(store));
+}
+
+void queueNetEffect(flecs::world& world, flecs::entity entity, NetEffect effect) {
+    if (!world.has<NetEffectQueue>() || !entity.is_valid()) {
+        return;
+    }
+    NetEffectQueue& queue = world.get_mut<NetEffectQueue>();
+    if (queue.forward && queue.pending.size() < kMaxNetEffectsPerMessage * 4) {
+        queue.pending.emplace_back(entity.id(), std::move(effect));
+    }
 }
 
 void resetNetState(flecs::world& world) {

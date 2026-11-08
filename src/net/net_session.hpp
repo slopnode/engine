@@ -55,6 +55,10 @@ struct NetSessionConfig {
     std::function<void(const std::string& mapId, const std::string& reason)> loadMap;
     std::function<void(const std::string& reason)> disconnected;
     std::function<float(flecs::entity entity)> clipDuration;
+    std::function<flecs::entity(const std::string& name, const NetSpawnRecipe& recipe)> spawnPresentation;
+    std::function<void(flecs::entity entity, const NetEffect& effect, bool makePiece)> applyEffect;
+    std::function<std::vector<NetPose>(flecs::entity entity)> corpsePose;
+    std::function<void(flecs::entity entity, const std::vector<NetPose>& bones)> applyCorpse;
 };
 
 struct NetId {
@@ -182,6 +186,8 @@ private:
     void serverUpdateKnown(ServerClient& client);
     void serverSendSnapshot(ServerClient& client);
     void serverAcknowledge(ServerClient& client, std::uint64_t tick);
+    NetIntroduction serverIntroduction(std::uint32_t netId, flecs::entity entity) const;
+    void serverSendEffects();
     void serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone);
     void serverTrackMotion();
     bool serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const;
@@ -223,6 +229,9 @@ private:
     void clientHide(const std::string& name);
     void clientShow(flecs::entity entity);
     void clientHideUnintroduced();
+    bool clientAcceptIntroduction(const NetIntroduction& entry);
+    void clientApplyCutState(flecs::entity entity, const NetIntroduction& entry);
+    void clientSpawnIntroduced();
 
     void callHook(const char* name, const std::string& argument);
     void serverLogStats();

@@ -145,6 +145,7 @@ struct PhysicsWorld {
     std::uint8_t characterBlockMask(std::uint64_t id) const;
 
     void step(const std::vector<CharacterStep>& steps);
+    void stepBodies();
 
     std::optional<SphereCastHit> castSphere(
         Vector3 origin,

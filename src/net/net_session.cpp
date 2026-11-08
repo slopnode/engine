@@ -18,8 +18,10 @@
 #include "physics/motored_body.hpp"
 #include "physics/physics_module.hpp"
 #include "physics/physics_world.hpp"
+#include "physics/ragdoll_rig.hpp"
 #include "physics/rigid_mover.hpp"
 #include "render/animation_player.hpp"
+#include "render/attachment_path.hpp"
 #include "render/components.hpp"
 #include "script/proc_role.hpp"
 #include "script/net_script.hpp"
@@ -121,7 +123,7 @@ bool replicated(flecs::entity entity) {
         return false;
     }
     return entity.has<Actor>() || entity.has<ThingTypeRef>() || entity.has<RigidMover>() ||
-        entity.has<MotoredBody>() || entity.has<DebrisBody>() || entity.has<PlayerBody>();
+        entity.has<MotoredBody>() || entity.has<PlayerBody>();
 }
 
 std::string packageText(const std::vector<NetPackageVersion>& packages) {
@@ -201,6 +203,9 @@ bool NetSession::start() {
         if (world_.has<NetEventQueue>()) {
             world_.get_mut<NetEventQueue>().forward = true;
             world_.get_mut<NetEventQueue>().localPlayerHere = config_.hostPlayerVisible;
+        }
+        if (world_.has<NetEffectQueue>()) {
+            world_.get_mut<NetEffectQueue>().forward = true;
         }
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
@@ -723,9 +728,7 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
     }
     for (std::uint32_t netId : desired) {
         if (client.known.insert(netId).second) {
-            const flecs::entity entity = world_.entity(serverEntities_.at(netId));
-            added.push_back({netId, entity.name().c_str(),
-                             entity.has<PlayerBody>() ? NetEntityKind::Player : NetEntityKind::Thing});
+            added.push_back(serverIntroduction(netId, world_.entity(serverEntities_.at(netId))));
         }
     }
     for (auto it = client.known.begin(); it != client.known.end();) {
@@ -989,6 +992,81 @@ void NetSession::serverSendSnapshot(ServerClient& client) {
     transport_->send(client.connection, encoded, NetSendMode::Unreliable);
 }
 
+NetIntroduction NetSession::serverIntroduction(std::uint32_t netId, flecs::entity entity) const {
+    NetIntroduction entry;
+    entry.netId = netId;
+    entry.name = entity.name().c_str();
+    entry.kind = entity.has<PlayerBody>() ? NetEntityKind::Player : NetEntityKind::Thing;
+    if (const NetSpawnRecipe* recipe = entity.try_get<NetSpawnRecipe>()) {
+        if (const LocalTransformation* local = entity.try_get<LocalTransformation>()) {
+            const float position[3]{local->position.x, local->position.y, local->position.z};
+            const float rotation[4]{local->rotation.x, local->rotation.y, local->rotation.z, local->rotation.w};
+            if (packNetPose(position, rotation, entry.spawn.pose)) {
+                entry.spawn.kind = recipe->kind;
+                entry.spawn.sprite = recipe->sprite;
+                entry.spawn.path = recipe->path;
+                entry.spawn.tags = recipe->tags;
+            }
+        }
+    }
+    if (const NetSevered* severed = entity.try_get<NetSevered>()) {
+        entry.severed = severed->bones;
+        if (entry.severed.size() > kMaxNetSeveredBones) {
+            entry.severed.resize(kMaxNetSeveredBones);
+        }
+    }
+    entry.ragdolled = entity.has<RagdollRig>();
+    if (entry.ragdolled && config_.corpsePose) {
+        entry.corpse = config_.corpsePose(entity);
+        if (entry.corpse.size() > kMaxNetCorpseBones) {
+            entry.corpse.clear();
+        }
+    }
+    return entry;
+}
+
+void NetSession::serverSendEffects() {
+    if (!world_.has<NetEffectQueue>()) {
+        return;
+    }
+    std::vector<std::pair<flecs::entity_t, NetEffect>> pending;
+    pending.swap(world_.get_mut<NetEffectQueue>().pending);
+    if (pending.empty()) {
+        return;
+    }
+    std::map<flecs::entity_t, std::uint32_t> netIds;
+    for (const auto& [netId, raw] : serverEntities_) {
+        netIds[raw] = netId;
+    }
+    std::vector<NetEffect> resolved;
+    for (auto& [raw, effect] : pending) {
+        const auto found = netIds.find(raw);
+        if (found != netIds.end()) {
+            effect.netId = found->second;
+            resolved.push_back(std::move(effect));
+        }
+    }
+    for (auto& entry : clients_) {
+        ServerClient& client = entry.second;
+        if (!client.ready) {
+            continue;
+        }
+        std::vector<NetEffect> mine;
+        for (const NetEffect& effect : resolved) {
+            if (client.known.count(effect.netId) != 0) {
+                mine.push_back(effect);
+            }
+        }
+        for (std::size_t start = 0; start < mine.size(); start += kMaxNetEffectsPerMessage) {
+            const std::size_t end = std::min(mine.size(), start + kMaxNetEffectsPerMessage);
+            transport_->send(client.connection,
+                             encodeNetEffects(std::vector<NetEffect>(mine.begin() + static_cast<std::ptrdiff_t>(start),
+                                                                     mine.begin() + static_cast<std::ptrdiff_t>(end))),
+                             NetSendMode::Reliable);
+        }
+    }
+}
+
 bool NetSession::serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const {
     const LocalTransformation* local = entity.try_get<LocalTransformation>();
     if (local == nullptr) {
@@ -1151,6 +1229,7 @@ void NetSession::serverAfterTick() {
             serverSendSnapshot(client);
         }
     }
+    serverSendEffects();
     serverLogStats();
 }
 
@@ -1479,6 +1558,10 @@ void NetSession::clientReceive(const NetEvent& event) {
                 clientRefuse("server sent a bad entity name");
                 return;
             }
+            if (!clientAcceptIntroduction(entry)) {
+                clientRefuse("server sent a bad spawn for " + entry.name);
+                return;
+            }
             if (entry.kind == NetEntityKind::Player && entry.name == yourPlayer_) {
                 continue;
             }
@@ -1489,6 +1572,19 @@ void NetSession::clientReceive(const NetEvent& event) {
             bound_.erase(entry.netId);
             names_[entry.netId] = std::move(entry);
         }
+        clientSpawnIntroduced();
+    } else if (kind == NetMessageKind::Effects) {
+        std::vector<NetEffect> effects;
+        if (!decodeNetEffects(event.data, effects)) {
+            clientRefuse("server sent bad effects");
+            return;
+        }
+        for (const NetEffect& effect : effects) {
+            const flecs::entity entity = clientEntity(effect.netId);
+            if (entity.is_valid() && config_.applyEffect) {
+                config_.applyEffect(entity, effect, true);
+            }
+        }
     } else if (kind == NetMessageKind::Forget) {
         std::vector<std::uint32_t> ids;
         if (decodeNetForget(event.data, ids)) {
@@ -1498,7 +1594,13 @@ void NetSession::clientReceive(const NetEvent& event) {
                     removeNetPlayer(world_, netAvatarName(name->second.name));
                     callHook("on-player-vanish", netAvatarName(name->second.name));
                 }
-                if (name != names_.end() && name->second.kind == NetEntityKind::Thing) {
+                const auto boundEntity = bound_.find(netId);
+                const flecs::entity spawned = boundEntity != bound_.end() && world_.is_alive(boundEntity->second)
+                    ? world_.entity(boundEntity->second)
+                    : flecs::entity{};
+                if (spawned.is_valid() && spawned.has<NetSpawned>()) {
+                    destroyAttachmentTree(spawned);
+                } else if (name != names_.end() && name->second.kind == NetEntityKind::Thing) {
                     clientHide(name->second.name);
                 }
                 if (name != names_.end()) {
@@ -1566,7 +1668,11 @@ flecs::entity NetSession::clientEntity(std::uint32_t netId) {
             entity.add<NetStandIn>();
         }
     }
-    if (entity.is_valid() && !clientMayBind(entity, player)) {
+    if (!entity.is_valid() && !player && mapReady && name->second.spawn.kind != NetSpawnKind::None &&
+        config_.spawnPresentation) {
+        entity = config_.spawnPresentation(local, name->second.spawn);
+    }
+    if (entity.is_valid() && !clientMayBind(entity, player) && !entity.has<NetSpawned>()) {
         return {};
     }
     if (!player && entity.is_valid()) {
@@ -1576,7 +1682,60 @@ flecs::entity NetSession::clientEntity(std::uint32_t netId) {
         return {};
     }
     bound_[netId] = entity.id();
+    clientApplyCutState(entity, name->second);
     return entity;
+}
+
+bool NetSession::clientAcceptIntroduction(const NetIntroduction& entry) {
+    if (entry.spawn.kind != NetSpawnKind::None) {
+        if (entry.kind == NetEntityKind::Player || !safeNetAssetPath(entry.spawn.path)) {
+            return false;
+        }
+        for (const std::string& tag : entry.spawn.tags) {
+            if (!safeNetName(tag)) {
+                return false;
+            }
+        }
+    }
+    for (const std::string& bone : entry.severed) {
+        if (!safeNetAssetPath(bone)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void NetSession::clientApplyCutState(flecs::entity entity, const NetIntroduction& entry) {
+    if (!config_.applyEffect || entry.kind == NetEntityKind::Player) {
+        return;
+    }
+    for (const std::string& bone : entry.severed) {
+        NetEffect effect;
+        effect.kind = NetEffectKind::Sever;
+        effect.netId = entry.netId;
+        effect.bone = bone;
+        config_.applyEffect(entity, effect, false);
+    }
+    if (!entry.corpse.empty() && config_.applyCorpse) {
+        config_.applyCorpse(entity, entry.corpse);
+    } else if (entry.ragdolled) {
+        NetEffect effect;
+        effect.kind = NetEffectKind::Ragdoll;
+        effect.netId = entry.netId;
+        effect.lifetime = 30.0f;
+        config_.applyEffect(entity, effect, false);
+    }
+}
+
+void NetSession::clientSpawnIntroduced() {
+    if (!hidOnLoad_ || !world_.has<CurrentMap>() || world_.get<CurrentMap>().id != expectedMap_) {
+        return;
+    }
+    for (const auto& [netId, entry] : names_) {
+        if (entry.spawn.kind != NetSpawnKind::None && bound_.count(netId) == 0) {
+            clientEntity(netId);
+        }
+    }
 }
 
 void NetSession::applyStandInFields(const NetEntityState& state) {
@@ -1627,6 +1786,11 @@ void NetSession::clientResetView(bool reenable) {
         }
     }
     clearStandInRecords();
+    for (const auto& [netId, raw] : bound_) {
+        if (world_.is_alive(raw) && world_.entity(raw).has<NetSpawned>()) {
+            destroyAttachmentTree(world_.entity(raw));
+        }
+    }
     names_.clear();
     bound_.clear();
     appeared_.clear();
@@ -1715,6 +1879,7 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
     if (!hidOnLoad_ && world_.has<CurrentMap>() && world_.get<CurrentMap>().id == expectedMap_) {
         hidOnLoad_ = true;
         clientHideUnintroduced();
+        clientSpawnIntroduced();
     }
     for (const auto& [clipId, name] : snapshot.clipNames) {
         clipNames_[clipId] = name;
@@ -1893,6 +2058,12 @@ void NetSession::clientPresentTimeline(float frameDt) {
 
 void NetSession::clientPresentEntity(flecs::entity entity, std::deque<ClientSample>& samples, double renderTick) {
     pruneTimeline(samples, renderTick - 1.0);
+    if (entity.has<RagdollRig>()) {
+        if (entity.has<SimPose>()) {
+            entity.remove<SimPose>();
+        }
+        return;
+    }
     if (samples.empty()) {
         return;
     }
@@ -1912,6 +2083,14 @@ void NetSession::clientPresentEntity(flecs::entity entity, std::deque<ClientSamp
     current.rotation = now.rotation;
     entity.set<SimPose>({previous, current, current});
     entity.set<LocalTransformation>(current);
+    if (world_.has<PhysicsContext>() && !entity.has<LocalPlayer>()) {
+        if (PhysicsWorld* physics = world_.get_mut<PhysicsContext>().world) {
+            const std::uint64_t id = static_cast<std::uint64_t>(entity.id());
+            if (physics->hasCharacter(id)) {
+                physics->setCharacterPosition(id, current.position.x, current.position.y, current.position.z);
+            }
+        }
+    }
     AnimationPlayer* animation = entity.try_get_mut<AnimationPlayer>();
     if (animation == nullptr) {
         return;

@@ -44,6 +44,7 @@
 #include "script/scheme_call.hpp"
 #include "script/scheme_harden.hpp"
 #include "script/script_scope.hpp"
+#include "script/thing_script.hpp"
 #include "ui/imgui_fonts.hpp"
 #include "ui/slopui_world.hpp"
 #include "ui/ui_module.hpp"
@@ -161,7 +162,10 @@ int App::run() {
             takePendingMapLoad();
         }
         if (net_ && net_->role() == NetRole::Client) {
-            runFrameWithoutTicks(world_, GetFrameTime(), [this](float frameDt) { net_->clientFrame(frameDt); });
+            runFrameWithoutTicks(world_, GetFrameTime(), [this](float frameDt) {
+                net_->clientFrame(frameDt);
+                runCosmeticTicks(world_, frameDt);
+            });
         } else {
             if (net_ && net_->role() == NetRole::Server) {
                 net_->serverPoll();
@@ -245,6 +249,19 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     net.firstClientTakesMapPlayer = config_.dedicated;
     net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
     net.disconnected = [this](const std::string&) { enterMenu(world_); };
+    net.spawnPresentation = [this](const std::string& name, const NetSpawnRecipe& recipe) {
+        return spawnNetPresentation(world_, name, recipe);
+    };
+    net.applyEffect = [](flecs::entity entity, const NetEffect& effect, bool makePiece) {
+        const Vector3 push{effect.push[0], effect.push[1], effect.push[2]};
+        if (effect.kind == NetEffectKind::Sever) {
+            severActorPart(entity, effect.bone, push, effect.speed, effect.spin, effect.lifetime, makePiece);
+        } else {
+            ragdollActorBody(entity, push, effect.speed, effect.bone, effect.lifetime);
+        }
+    };
+    net.corpsePose = [](flecs::entity entity) { return captureCorpsePose(entity); };
+    net.applyCorpse = [](flecs::entity entity, const std::vector<NetPose>& bones) { applyCorpsePose(entity, bones); };
     net.clipDuration = [](flecs::entity entity) {
         const AnimationPlayer* animation = entity.try_get<AnimationPlayer>();
         return animation != nullptr ? animationClipDuration(entity.world(), *animation) : 0.0f;
@@ -309,6 +326,7 @@ int App::runDedicated() {
                 bot_->tick(frameDt);
             }
             net_->clientFrame(frameDt);
+            runCosmeticTicks(world_, frameDt);
             presentSimEye(world_);
         } else {
             if (net_ && net_->role() == NetRole::Server) {

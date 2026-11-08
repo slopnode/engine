@@ -1906,6 +1906,10 @@ void PhysicsWorld::step(const std::vector<CharacterStep>& steps) {
     system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
 }
 
+void PhysicsWorld::stepBodies() {
+    system_->Update(kFixedDt, 1, tempAllocator_.get(), jobSystem_.get());
+}
+
 void PhysicsWorld::stepCharacterAlone(const CharacterStep& step) {
     if (step.motor == nullptr) {
         return;

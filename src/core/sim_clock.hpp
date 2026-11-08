@@ -12,6 +12,12 @@ struct SimSystem {};
 
 struct SimRemote {};
 
+struct CosmeticSystem {};
+
+struct CosmeticClock {
+    float accumulator = 0.0f;
+};
+
 struct SimClock {
     std::uint64_t tick = 0;
     float accumulator = 0.0f;

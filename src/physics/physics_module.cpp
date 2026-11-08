@@ -367,6 +367,18 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
             });
         }).add<SimSystem>();
 
+    world.system("CosmeticPhysicsStep")
+        .kind(flecs::OnUpdate)
+        .run([](flecs::iter& it) {
+            flecs::world world = it.world();
+            if (!world.has<SimRemote>() || !world.has<PhysicsContext>()) {
+                return;
+            }
+            if (PhysicsWorld* physics = world.get_mut<PhysicsContext>().world) {
+                physics->stepBodies();
+            }
+        }).add<CosmeticSystem>();
+
     world.system("DebrisSync")
         .kind(flecs::OnUpdate)
         .run([](flecs::iter& it) {
@@ -399,7 +411,7 @@ void registerPhysicsModule(flecs::world& world, PhysicsWorld* physics) {
                 physics->destroyRagdoll(static_cast<std::uint64_t>(entity.id()));
                 destroyAttachmentTree(entity);
             }
-        }).add<SimSystem>();
+        }).add<SimSystem>().add<CosmeticSystem>();
 
     registerRagdollSystems(world);
 

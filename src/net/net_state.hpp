@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace slopengine {
@@ -42,6 +43,19 @@ struct NetEventQueue {
     bool localPlayerHere = true;
     std::vector<NetEventMessage> pending;
 };
+
+struct NetSevered {
+    std::vector<std::string> bones;
+};
+
+struct NetEffectQueue {
+    bool forward = false;
+    std::vector<std::pair<flecs::entity_t, NetEffect>> pending;
+};
+
+struct NetSpawned {};
+
+void queueNetEffect(flecs::world& world, flecs::entity entity, NetEffect effect);
 
 struct NetTarget {
     NetScopeKind kind = NetScopeKind::Session;

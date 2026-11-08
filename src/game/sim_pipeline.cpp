@@ -5,6 +5,7 @@
 #include "game/game_state.hpp"
 #include "input/input_state.hpp"
 
+#include <algorithm>
 #include <string>
 
 namespace slopengine {
@@ -30,11 +31,11 @@ bool inPipeline(flecs::entity system, PipelineKind kind) {
     const bool sim = system.has<SimSystem>();
     switch (kind) {
     case PipelineKind::Input:
-        return !sim && system.has(flecs::DependsOn, flecs::PreUpdate);
+        return !sim && !system.has<CosmeticSystem>() && system.has(flecs::DependsOn, flecs::PreUpdate);
     case PipelineKind::Sim:
         return sim;
     case PipelineKind::Present:
-        return !sim && !system.has(flecs::DependsOn, flecs::PreUpdate);
+        return !sim && !system.has<CosmeticSystem>() && !system.has(flecs::DependsOn, flecs::PreUpdate);
     }
     return false;
 }
@@ -58,17 +59,23 @@ void registerSimPipelines(flecs::world& world) {
     world.set<SimClock>({});
 
     FramePipelines pipelines{};
+    world.component<CosmeticSystem>();
+    world.component<CosmeticClock>();
+    world.set<CosmeticClock>({});
     pipelines.input = systemPipeline(world)
                           .without<SimSystem>()
+                          .without<CosmeticSystem>()
                           .with(flecs::DependsOn, flecs::PreUpdate)
                           .build()
                           .set_name("InputPipeline");
     pipelines.sim = systemPipeline(world).with<SimSystem>().build().set_name("SimPipeline");
     pipelines.present = systemPipeline(world)
                             .without<SimSystem>()
+                            .without<CosmeticSystem>()
                             .without(flecs::DependsOn, flecs::PreUpdate)
                             .build()
                             .set_name("PresentPipeline");
+    pipelines.cosmetic = systemPipeline(world).with<CosmeticSystem>().build().set_name("CosmeticPipeline");
     world.set_pipeline(pipelines.present);
     world.component<FramePipelines>();
     world.set<FramePipelines>(pipelines);
@@ -99,6 +106,19 @@ void runSimulationTicks(flecs::world& world, float frameDt) {
     for (int i = 0; i < ticks; ++i) {
         world.get_mut<SimClock>().tick += 1;
         world.run_pipeline(sim, kSimTickDt);
+    }
+}
+
+void runCosmeticTicks(flecs::world& world, float frameDt) {
+    if (!world.has<CosmeticClock>() || !world.has<FramePipelines>() || isSimulationPaused(world)) {
+        return;
+    }
+    CosmeticClock& clock = world.get_mut<CosmeticClock>();
+    clock.accumulator = std::min(clock.accumulator + std::max(0.0f, frameDt), kSimTickDt * kMaxSimTicksPerFrame);
+    const flecs::entity cosmetic = world.get<FramePipelines>().cosmetic;
+    while (clock.accumulator >= kSimTickDt) {
+        clock.accumulator -= kSimTickDt;
+        world.run_pipeline(cosmetic, kSimTickDt);
     }
 }
 

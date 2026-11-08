@@ -168,6 +168,25 @@ void runSimClockTests() {
         world.run_pipeline(pipelines.sim, kSimTickDt);
         CHECK(std::fabs(seenInTick - 11.0f) < 1.0e-5f);
     }
+
+    {
+        flecs::world world;
+        registerSimPipelines(world);
+        world.set<InputState>({});
+        int both = 0;
+        int cosmeticOnly = 0;
+        world.system("Both").kind(flecs::OnUpdate).run([&both](flecs::iter&) { ++both; }).add<SimSystem>().add<CosmeticSystem>();
+        world.system("CosmeticOnly").kind(flecs::OnUpdate).run([&cosmeticOnly](flecs::iter&) { ++cosmeticOnly; }).add<CosmeticSystem>();
+        runSimulationTicks(world, kSimTickDt);
+        CHECK_EQ(both, 1);
+        CHECK_EQ(cosmeticOnly, 0);
+        world.progress(kSimTickDt);
+        CHECK_EQ(both, 1);
+        CHECK_EQ(cosmeticOnly, 0);
+        runCosmeticTicks(world, kSimTickDt);
+        CHECK_EQ(both, 2);
+        CHECK_EQ(cosmeticOnly, 1);
+    }
 }
 
 }

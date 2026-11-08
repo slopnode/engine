@@ -314,6 +314,7 @@ s7_pointer g_motored_spawn(s7_scheme* sc, s7_pointer args) {
     }
 
     rememberSpawnedThing(id, entity);
+    entity.set<NetSpawnRecipe>({NetSpawnKind::Motored, isSprite, path, {}, {}});
 
     MotoredBody body{};
     body.velocity = velocity;
@@ -1102,6 +1103,7 @@ s7_pointer g_actor_spawn(s7_scheme* sc, s7_pointer args) {
     motor.height = height > 0.0f ? height : 1.1f;
     motor.moveSpeed = speed;
     motor.gravity = gravity;
+    entity.set<NetSpawnRecipe>({NetSpawnKind::Actor, isSprite, path, tags, {}});
     entity.add<Actor>().set<CharacterMotor>(motor).set<NavigationAgent>(NavigationAgent{}).set<CollisionTags>(CollisionTags{std::move(tags)});
 
     PhysicsWorld* physics = physicsWorld();
@@ -1409,7 +1411,6 @@ s7_pointer g_actor_clear_shader_params(s7_scheme* sc, s7_pointer args) {
 }
 
 constexpr int kMaxSeveredPieces = 48;
-std::uint64_t g_severedPieceCounter = 0;
 
 Matrix poseTransformMatrix(const Transform& pose) {
     return MatrixMultiply(
@@ -1504,42 +1505,29 @@ float randomSigned() {
     return static_cast<float>(GetRandomValue(-1000, 1000)) / 1000.0f;
 }
 
-s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
-    ArgReader in(sc, "actor-sever-bone!", args);
-    std::string boneName;
-    flecs::entity entity = riggedActor(in, boneName);
-    if (!in.ok()) {
-        return in.error();
-    }
-    Vector3 push{0.0f, 0.0f, 0.0f};
-    float speed = 3.0f;
-    float spin = 6.0f;
-    float lifetime = 20.0f;
-    if (in.more()) {
-        push = in.vec3("dx dy dz numbers");
-    }
-    if (in.more()) {
-        speed = in.realf("speed number");
-    }
-    if (in.more()) {
-        spin = in.realf("spin number");
-    }
-    if (in.more()) {
-        lifetime = in.realf("lifetime number");
-    }
-    if (!entity.is_valid() || !entity.has<GeoSource>() || !g_thingWorld->has<AssetServices>() ||
+flecs::entity severActorPartImpl(flecs::entity entity, const std::string& boneName, Vector3 push, float speed, float spin,
+                             float lifetime, bool makePiece) {
+    if (g_thingWorld == nullptr || !entity.is_valid() || !entity.has<GeoSource>() || !entity.has<Model3D>() ||
+        !entity.has<GlobalTransformation>() || !g_thingWorld->has<AssetServices>() ||
         g_thingWorld->get<AssetServices>().store == nullptr) {
-        return s7_f(sc);
+        return {};
     }
+    {
+        const Model& rig = entity.get<Model3D>().model;
+        if (rig.skeleton.boneCount <= 0 || rig.boneMatrices == nullptr || rig.currentPose == nullptr) {
+            return {};
+        }
+    }
+    sampleTickPose(entity);
     const Model& model = entity.get<Model3D>().model;
     const int boneCount = model.skeleton.boneCount;
     const int boneIndex = findModelBoneIndex(model, boneName);
     if (boneIndex < 0) {
-        return s7_f(sc);
+        return {};
     }
     HiddenBones* hiddenPtr = actorHiddenBones(entity, boneCount);
     if (hiddenPtr == nullptr || hiddenPtr->mask[static_cast<std::size_t>(boneIndex)] != 0) {
-        return s7_f(sc);
+        return {};
     }
     HiddenBones& hidden = *hiddenPtr;
     std::vector<int> subtree;
@@ -1553,21 +1541,34 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
     const Matrix world = refreshedGlobal(entity);
     BoundingBox bounds{};
     if (!posedBonesBounds(model, boxes, world, subtree, bounds)) {
-        return s7_f(sc);
+        return {};
     }
     const Vector3 center = Vector3Scale(Vector3Add(bounds.min, bounds.max), 0.5f);
     const Vector3 half = Vector3Scale(Vector3Subtract(bounds.max, bounds.min), 0.5f);
 
     AssetStore& assets = *g_thingWorld->get_mut<AssetServices>().store;
+    std::vector<std::uint8_t> inside(static_cast<std::size_t>(boneCount), 0);
+    for (int bone : subtree) {
+        inside[static_cast<std::size_t>(bone)] = 1;
+    }
+    if (!makePiece) {
+        for (int bone : subtree) {
+            hidden.mask[static_cast<std::size_t>(bone)] = 1;
+        }
+        hidden.dirty = true;
+        cutSkinnedModel(
+            entity.get_mut<Model3D>().model,
+            inside,
+            false,
+            std::max(model.skeleton.bones[boneIndex].parent, 0),
+            stumpMaterial(assets));
+        return entity;
+    }
     const std::string geoPath = entity.get<GeoSource>().path;
     Model piece = cloneGeoModelInstance(model);
     if (piece.meshCount <= 0 || static_cast<int>(piece.skeleton.boneCount) != boneCount || piece.boneMatrices == nullptr) {
         unloadClonedGeoModelInstance(piece);
-        return s7_f(sc);
-    }
-    std::vector<std::uint8_t> inside(static_cast<std::size_t>(boneCount), 0);
-    for (int bone : subtree) {
-        inside[static_cast<std::size_t>(bone)] = 1;
+        return {};
     }
     cutSkinnedModel(piece, inside, true, boneIndex, stumpMaterial(assets));
     const Vector3 cutJoint = model.currentPose[boneIndex].translation;
@@ -1596,7 +1597,7 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
     PhysicsWorld* physics = physicsWorld();
     trimSeveredPieces(physics);
 
-    const std::string pieceName = "severed-" + std::to_string(++g_severedPieceCounter);
+    const std::string pieceName = "severed-" + std::string(entity.name().c_str()) + "-" + boneName;
     LocalTransformation local{};
     MatrixDecompose(world, &local.position, &local.rotation, &local.scale);
     GlobalTransformation global{};
@@ -1661,7 +1662,46 @@ s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
     if (!modelUsesGpuSkinning(piece)) {
         updateSkinnedMeshVertexBuffers(piece);
     }
-    return s7_make_string(sc, pieceName.c_str());
+    return pieceEntity;
+}
+
+
+s7_pointer g_actor_sever_bone(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "actor-sever-bone!", args);
+    std::string boneName;
+    flecs::entity entity = riggedActor(in, boneName);
+    if (!in.ok()) {
+        return in.error();
+    }
+    Vector3 push{0.0f, 0.0f, 0.0f};
+    float speed = 3.0f;
+    float spin = 6.0f;
+    float lifetime = 20.0f;
+    if (in.more()) {
+        push = in.vec3("dx dy dz numbers");
+    }
+    if (in.more()) {
+        speed = in.realf("speed number");
+    }
+    if (in.more()) {
+        spin = in.realf("spin number");
+    }
+    if (in.more()) {
+        lifetime = in.realf("lifetime number");
+    }
+    if (!in.ok()) {
+        return in.error();
+    }
+    const flecs::entity piece = severActorPartImpl(entity, boneName, push, speed, spin, lifetime, true);
+    if (!piece.is_valid()) {
+        return s7_f(sc);
+    }
+    NetSevered severed = entity.has<NetSevered>() ? entity.get<NetSevered>() : NetSevered{};
+    severed.bones.push_back(boneName);
+    entity.set<NetSevered>(std::move(severed));
+    queueNetEffect(*g_thingWorld, entity,
+                   NetEffect{NetEffectKind::Sever, 0, boneName, {push.x, push.y, push.z}, speed, spin, lifetime});
+    return s7_make_string(sc, piece.name().c_str());
 }
 
 s7_pointer g_actor_hide_bone(s7_scheme* sc, s7_pointer args) {
@@ -1686,6 +1726,56 @@ s7_pointer g_actor_hide_bone(s7_scheme* sc, s7_pointer args) {
     hidden->dirty = true;
     return s7_t(sc);
 }
+
+bool ragdollActorBodyImpl(flecs::entity entity, Vector3 push, float speed, const std::string& hitBoneName, float lifetime) {
+    PhysicsWorld* physics = physicsWorld();
+    if (!entity.is_valid() || physics == nullptr || !entity.has<Model3D>() || !entity.has<GlobalTransformation>() ||
+        entity.has<RagdollRig>()) {
+        return false;
+    }
+    const Model& model = entity.get<Model3D>().model;
+    const int boneCount = model.skeleton.boneCount;
+    if (boneCount <= 0 || model.boneMatrices == nullptr || model.currentPose == nullptr) {
+        return false;
+    }
+    std::vector<std::uint8_t> physical(static_cast<std::size_t>(boneCount), 1);
+    if (const HiddenBones* hidden = actorHiddenBones(entity, boneCount)) {
+        for (int bone = 0; bone < boneCount; ++bone) {
+            physical[static_cast<std::size_t>(bone)] = hidden->mask[static_cast<std::size_t>(bone)] == 0 ? 1 : 0;
+        }
+    }
+    const std::vector<std::uint8_t> follow(static_cast<std::size_t>(boneCount), 1);
+    std::vector<BoneHitbox> scratch;
+    const std::vector<BoneHitbox>& boxes = actorHitboxes(entity, model, scratch);
+    const Matrix world = refreshedGlobal(entity);
+
+    Vector3 direction = push;
+    if (Vector3LengthSqr(direction) > 1e-8f) {
+        direction = Vector3Normalize(direction);
+    }
+    const Vector3 velocity = Vector3Add(Vector3Scale(direction, speed * 0.35f), Vector3{0.0f, speed * 0.1f, 0.0f});
+    const Vector3 hitVelocity = Vector3Scale(direction, speed);
+    const int hitBone = hitBoneName.empty() ? -1 : findModelBoneIndex(model, hitBoneName);
+    if (!startEntityRagdoll(
+            entity, model, world, *physics, boxes, physical, follow, velocity, {0.0f, 0.0f, 0.0f}, hitBone,
+            hitVelocity, lifetime)) {
+        return false;
+    }
+    physics->destroyCharacter(static_cast<std::uint64_t>(entity.id()));
+    if (entity.has<AnimationPlayer>()) {
+        entity.remove<AnimationPlayer>();
+    }
+    if (entity.has<CharacterMotor>()) {
+        CharacterMotor& motor = entity.get_mut<CharacterMotor>();
+        motor.wishX = 0.0f;
+        motor.wishZ = 0.0f;
+    }
+    if (!entity.has<ActorCorpse>()) {
+        entity.add<ActorCorpse>();
+    }
+    return true;
+}
+
 
 s7_pointer g_actor_ragdoll(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "actor-ragdoll!", args);
@@ -1712,52 +1802,128 @@ s7_pointer g_actor_ragdoll(s7_scheme* sc, s7_pointer args) {
     if (in.more()) {
         lifetime = in.realf("lifetime number");
     }
-    PhysicsWorld* physics = physicsWorld();
-    if (!entity.is_valid() || physics == nullptr || !entity.has<Model3D>() || !entity.has<GlobalTransformation>() ||
-        entity.has<RagdollRig>()) {
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (!ragdollActorBodyImpl(entity, push, speed, hitBoneName, lifetime)) {
         return s7_f(sc);
+    }
+    queueNetEffect(*g_thingWorld, entity,
+                   NetEffect{NetEffectKind::Ragdoll, 0, hitBoneName, {push.x, push.y, push.z}, speed, 0.0f, lifetime});
+    return s7_t(sc);
+}
+
+std::vector<NetPose> captureCorpsePoseImpl(flecs::entity entity) {
+    std::vector<NetPose> out;
+    if (!entity.is_valid() || !entity.has<Model3D>()) {
+        return out;
     }
     const Model& model = entity.get<Model3D>().model;
-    const int boneCount = model.skeleton.boneCount;
-    if (boneCount <= 0 || model.boneMatrices == nullptr || model.currentPose == nullptr) {
-        return s7_f(sc);
+    if (model.skeleton.boneCount <= 0 || model.boneMatrices == nullptr) {
+        return out;
     }
-    std::vector<std::uint8_t> physical(static_cast<std::size_t>(boneCount), 1);
-    if (const HiddenBones* hidden = actorHiddenBones(entity, boneCount)) {
-        for (int bone = 0; bone < boneCount; ++bone) {
-            physical[static_cast<std::size_t>(bone)] = hidden->mask[static_cast<std::size_t>(bone)] == 0 ? 1 : 0;
+    out.reserve(static_cast<std::size_t>(model.skeleton.boneCount));
+    for (int bone = 0; bone < model.skeleton.boneCount; ++bone) {
+        Vector3 translation{};
+        Quaternion rotation{};
+        Vector3 scale{};
+        MatrixDecompose(model.boneMatrices[bone], &translation, &rotation, &scale);
+        const float position[3]{translation.x, translation.y, translation.z};
+        const float turn[4]{rotation.x, rotation.y, rotation.z, rotation.w};
+        NetPose pose;
+        if (!packNetPose(position, turn, pose)) {
+            return {};
         }
+        out.push_back(pose);
     }
-    const std::vector<std::uint8_t> follow(static_cast<std::size_t>(boneCount), 1);
-    std::vector<BoneHitbox> scratch;
-    const std::vector<BoneHitbox>& boxes = actorHitboxes(entity, model, scratch);
-    const Matrix world = refreshedGlobal(entity);
+    return out;
+}
 
-    Vector3 direction = push;
-    if (Vector3LengthSqr(direction) > 1e-8f) {
-        direction = Vector3Normalize(direction);
+bool applyCorpsePoseImpl(flecs::entity entity, const std::vector<NetPose>& bones) {
+    if (!entity.is_valid() || !entity.has<Model3D>()) {
+        return false;
     }
-    const Vector3 velocity = Vector3Add(Vector3Scale(direction, speed * 0.35f), Vector3{0.0f, speed * 0.1f, 0.0f});
-    const Vector3 hitVelocity = Vector3Scale(direction, speed);
-    const int hitBone = hitBoneName.empty() ? -1 : findModelBoneIndex(model, hitBoneName);
-    if (!startEntityRagdoll(
-            entity, model, world, *physics, boxes, physical, follow, velocity, {0.0f, 0.0f, 0.0f}, hitBone,
-            hitVelocity, lifetime)) {
-        return s7_f(sc);
+    Model& model = entity.get_mut<Model3D>().model;
+    if (model.boneMatrices == nullptr || static_cast<std::size_t>(model.skeleton.boneCount) != bones.size()) {
+        return false;
     }
-    physics->destroyCharacter(static_cast<std::uint64_t>(entity.id()));
+    for (std::size_t bone = 0; bone < bones.size(); ++bone) {
+        float position[3]{};
+        float turn[4]{};
+        unpackNetPose(bones[bone], position, turn);
+        model.boneMatrices[bone] = MatrixMultiply(
+            QuaternionToMatrix(QuaternionNormalize({turn[0], turn[1], turn[2], turn[3]})),
+            MatrixTranslate(position[0], position[1], position[2]));
+    }
+    if (!modelUsesGpuSkinning(model)) {
+        updateSkinnedMeshVertexBuffers(model);
+    }
+    if (PhysicsWorld* physics = physicsWorld()) {
+        physics->destroyCharacter(static_cast<std::uint64_t>(entity.id()));
+    }
     if (entity.has<AnimationPlayer>()) {
         entity.remove<AnimationPlayer>();
-    }
-    if (entity.has<CharacterMotor>()) {
-        CharacterMotor& motor = entity.get_mut<CharacterMotor>();
-        motor.wishX = 0.0f;
-        motor.wishZ = 0.0f;
     }
     if (!entity.has<ActorCorpse>()) {
         entity.add<ActorCorpse>();
     }
-    return s7_t(sc);
+    return true;
+}
+
+flecs::entity spawnNetPresentationImpl(flecs::world& world, const std::string& name, const NetSpawnRecipe& recipe) {
+    if (!world.has<AssetServices>() || world.get<AssetServices>().store == nullptr || name.empty() ||
+        world.lookup(name.c_str()).is_valid() || recipe.kind == NetSpawnKind::None) {
+        return {};
+    }
+    AssetStore& assets = *world.get_mut<AssetServices>().store;
+    if (recipe.sprite ? !assets.hasSprite(recipe.path) : !assets.hasGeo(recipe.path)) {
+        return {};
+    }
+    float position[3]{};
+    float rotation[4]{};
+    unpackNetPose(recipe.pose, position, rotation);
+    LocalTransformation local{};
+    local.position = {position[0], position[1], position[2]};
+    local.rotation = QuaternionNormalize({rotation[0], rotation[1], rotation[2], rotation[3]});
+    local.scale = {1.0f, 1.0f, 1.0f};
+    const float yaw = QuaternionToEuler(local.rotation).y;
+    flecs::entity entity = world.entity(name.c_str());
+    entity.add<WorldSpace>().add<MapOwned>().add<NetSpawned>().set<LocalTransformation>(local).set<GlobalTransformation>({});
+    if (recipe.sprite) {
+        SpriteInstance sprite{.sprite = recipe.path, .frame = "A", .facingYaw = yaw};
+        const SpriteAnimBank* bank =
+            recipe.kind == NetSpawnKind::Motored && assets.hasSpriteAnim(recipe.path) ? assets.getSpriteAnimBank(recipe.path) : nullptr;
+        if (bank != nullptr && bank->clipIndexByName.contains("fly")) {
+            SpriteAnimator animator{};
+            animator.animPath = recipe.path;
+            playSpriteAnim(animator, sprite, bank, "fly", true);
+            entity.set<SpriteAnimator>(animator);
+        }
+        entity.set<SpriteInstance>(sprite);
+    } else {
+        Model model = cloneGeoModelInstance(assets.getGeoModel(recipe.path));
+        if (model.meshCount <= 0) {
+            entity.destruct();
+            return {};
+        }
+        entity.set<Model3D>({model, WHITE});
+        entity.set<GeoSource>({recipe.path});
+        if (recipe.kind == NetSpawnKind::Actor && model.skeleton.boneCount > 0) {
+            attachGeoAnimationPlayer(entity, assets, recipe.path, {}, {}, true);
+            entity.set<HiddenBones>(
+                {std::vector<std::uint8_t>(static_cast<std::size_t>(model.skeleton.boneCount), 0), false});
+            entity.set<ModelHitboxes>({});
+        }
+    }
+    if (recipe.kind == NetSpawnKind::Actor) {
+        std::vector<std::string> tags = recipe.tags;
+        if (tags.empty()) {
+            tags.emplace_back("actor");
+        }
+        entity.add<Actor>().set<CollisionTags>(CollisionTags{std::move(tags)});
+    }
+    updateTransform(entity, entity.get_mut<LocalTransformation>(), entity.get_mut<GlobalTransformation>());
+    return entity;
 }
 
 s7_pointer g_physics_blast(s7_scheme* sc, s7_pointer args) {
@@ -3202,6 +3368,27 @@ constexpr SchemeBinding kThingDefBindings[] = {
 };
 
 } // namespace
+
+flecs::entity severActorPart(flecs::entity entity, const std::string& boneName, Vector3 push, float speed, float spin,
+                             float lifetime, bool makePiece) {
+    return severActorPartImpl(entity, boneName, push, speed, spin, lifetime, makePiece);
+}
+
+bool ragdollActorBody(flecs::entity entity, Vector3 push, float speed, const std::string& hitBoneName, float lifetime) {
+    return ragdollActorBodyImpl(entity, push, speed, hitBoneName, lifetime);
+}
+
+flecs::entity spawnNetPresentation(flecs::world& world, const std::string& name, const NetSpawnRecipe& recipe) {
+    return spawnNetPresentationImpl(world, name, recipe);
+}
+
+std::vector<NetPose> captureCorpsePose(flecs::entity entity) {
+    return captureCorpsePoseImpl(entity);
+}
+
+bool applyCorpsePose(flecs::entity entity, const std::vector<NetPose>& bones) {
+    return applyCorpsePoseImpl(entity, bones);
+}
 
 void queueThingDespawn(flecs::world& world, std::string_view id) {
     if (id.empty() || isProtectedThingId(id)) {

@@ -111,7 +111,7 @@ void registerRagdollSystems(flecs::world& world) {
                     rig.frozen = true;
                 }
             });
-        }).add<SimSystem>();
+        }).add<SimSystem>().add<CosmeticSystem>();
 }
 
 }

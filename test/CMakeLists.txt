@@ -22,6 +22,7 @@ add_executable(sloptests
     test_net_pacing.cpp
     test_bot_script.cpp
     test_motor_rules.cpp
+    test_net_spawn.cpp
     test_s7_read.cpp
     test_bsp_build.cpp
     test_bsp_analyze.cpp
@@ -131,6 +132,7 @@ add_test(NAME sloptests.net_hardening COMMAND sloptests net_hardening)
 add_test(NAME sloptests.net_pacing COMMAND sloptests net_pacing)
 add_test(NAME sloptests.bot_script COMMAND sloptests bot_script)
 add_test(NAME sloptests.motor_rules COMMAND sloptests motor_rules)
+add_test(NAME sloptests.net_spawn COMMAND sloptests net_spawn)
 add_test(NAME sloptests.scheme_harden COMMAND sloptests scheme_harden)
 add_test(NAME sloptests.bsp_build COMMAND sloptests bsp_build)
 add_test(NAME sloptests.light_probe_cube COMMAND sloptests light_probe_cube)
