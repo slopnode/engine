@@ -1040,7 +1040,8 @@ ViewRecoil* playerViewRecoil() {
     if (!player.has<ViewRecoil>()) {
         player.set<ViewRecoil>({});
     }
-    return &player.get_mut<ViewRecoil>();
+    // Inside a system the set above is deferred, so the component may not exist until the next merge.
+    return player.try_get_mut<ViewRecoil>();
 }
 
 bool readAlistReal(s7_scheme* sc, s7_pointer value, float& out) {

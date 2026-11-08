@@ -7,6 +7,7 @@
 #include "fx/tracer.hpp"
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
+#include "camera/view_recoil.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
 #include "game/user_settings.hpp"
@@ -420,6 +421,7 @@ bool assembleMapScene(
         .add<WorldSpace>()
         .set<FirstPersonController>(controller)
         .set<ViewEyeOffset>(ViewEyeOffset{})
+        .set<ViewRecoil>(ViewRecoil{})
         .set<AudioListener>(AudioListener{});
 
     if (titleCamera) {
