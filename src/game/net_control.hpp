@@ -11,6 +11,7 @@ enum class NetControlKind {
     Host,
     Join,
     Leave,
+    Bots,
 };
 
 struct NetControlRequest {
@@ -19,6 +20,8 @@ struct NetControlRequest {
     std::string session;
     std::string map;
     int maxPlayers = 0;
+    int bots = 0;
+    std::string botBehavior;
 };
 
 enum class NetStatusKind {
@@ -35,6 +38,8 @@ struct NetStatus {
     std::string error;
     int players = 0;
     int maxPlayers = 0;
+    int bots = 0;
+    bool botsSupported = false;
 };
 
 void requestNetControl(NetControlRequest request);

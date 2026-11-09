@@ -243,6 +243,7 @@ add_executable(slopengine
     src/core/frame_perf.cpp
     src/game/user_settings.cpp
     src/game/app.cpp
+    src/game/host_bots.cpp
     src/game/sim_pipeline.cpp
     src/game/sim_interpolation.cpp
     src/net/command_move.cpp

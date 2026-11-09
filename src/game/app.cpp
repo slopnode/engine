@@ -265,11 +265,16 @@ void App::startNetwork(const std::filesystem::path& settingsFilePath) {
     if (!config_.listenAddress.empty() && !config_.connectAddress.empty()) {
         throw std::invalid_argument("--listen and --connect can't be used together");
     }
-    if (!config_.bot.empty() && (!config_.dedicated || config_.connectAddress.empty())) {
-        throw std::invalid_argument("--bot needs --dedicated and --connect");
+    if (config_.bots > 0 && config_.listenAddress.empty()) {
+        throw std::invalid_argument("--bots needs --listen");
+    }
+    if (!config_.bot.empty() && config_.bots == 0 && (!config_.dedicated || config_.connectAddress.empty())) {
+        throw std::invalid_argument("--bot needs --dedicated and --connect, or --listen and --bots");
     }
     openNetSession(config_.listenAddress, config_.connectAddress, config_.sessionKind, config_.maxPlayers);
-    if (!config_.bot.empty()) {
+    if (!config_.listenAddress.empty()) {
+        startHostBots(config_.bots, config_.bot);
+    } else if (!config_.bot.empty()) {
         startBot();
     }
     updateNetStatus();
@@ -327,6 +332,10 @@ void App::openNetSession(
     net.firstClientTakesMapPlayer = config_.dedicated;
     net.loadMap = [](const std::string& mapId, const std::string& reason) { requestMapLoad(mapId, reason); };
     net.disconnected = [this](const std::string& reason) {
+        if (bot_ && config_.quitOnDisconnect) {
+            world_.get_mut<QuitRequest>().requested = true;
+            return;
+        }
         if (bot_) {
             enterMenu(world_);
             return;
@@ -399,6 +408,7 @@ void App::closeNetSession() {
         return;
     }
     bot_.reset();
+    hostBots_.stopAll();
     net_.reset();
     netAddress_.clear();
     resetNetSessionState(world_);
@@ -447,6 +457,7 @@ void App::takeNetControl() {
             } else {
                 try {
                     openNetSession(request->address, "", request->session, request->maxPlayers);
+                    startHostBots(request->bots, request->botBehavior);
                     requestMapLoad(map, "fresh");
                 } catch (const std::exception& error) {
                     netError_ = error.what();
@@ -455,6 +466,10 @@ void App::takeNetControl() {
             }
             if (!net_ && wasOnline) {
                 requestMapLoad("", "menu");
+            }
+        } else if (request->kind == NetControlKind::Bots) {
+            if (net_ && net_->role() == NetRole::Server) {
+                hostBots_.setCount(std::clamp(request->bots, 0, std::max(0, net_->serverPlayerLimit() - 1)));
             }
         } else {
             const bool wasOnline = net_ != nullptr;
@@ -471,6 +486,7 @@ void App::takeNetControl() {
             }
         }
     }
+    hostBots_.reap();
     if (net_) {
         NetProfile profile = localProfile();
         if (!(profile == netProfileApplied_)) {
@@ -484,7 +500,7 @@ void App::takeNetControl() {
 NetProfile App::localProfile() const {
     const UiSettings& ui = world_.has<UserSettings>() ? world_.get<UserSettings>().ui : userSettings_.ui;
     NetProfile profile;
-    profile.name = sanitizeNetDisplayName(ui.playerName);
+    profile.name = sanitizeNetDisplayName(config_.playerName.empty() ? ui.playerName : config_.playerName);
     if (profile.name.empty()) {
         profile.name = kLocalNetPlayerId;
     }
@@ -514,6 +530,8 @@ void App::reportNetFailure(const std::string& title, const std::string& message,
 void App::updateNetStatus() {
     NetStatus status{};
     status.error = netError_;
+    status.bots = hostBots_.count();
+    status.botsSupported = HostBots::supported();
     if (net_) {
         status.address = netAddress_;
         if (net_->role() == NetRole::Server) {
@@ -565,6 +583,23 @@ void App::startBot() {
         throw std::invalid_argument("--bot " + config_.bot + " doesn't define bot-tick");
     }
     TraceLog(LOG_INFO, "NET: playing as bot %s", config_.bot.c_str());
+}
+
+void App::startHostBots(int count, std::string behavior) {
+    if (behavior.empty()) {
+        const std::vector<std::string> scripts = assetStore_.listBotScripts();
+        behavior = scripts.empty() ? std::string() : scripts.front();
+    }
+    const std::size_t colon = netAddress_.rfind(':');
+    HostBotLaunch launch;
+    launch.game = config_.game;
+    launch.mods = config_.mods;
+    launch.profile = config_.profile;
+    launch.profilesDir = settingsFilePath_.parent_path().parent_path();
+    launch.port = colon == std::string::npos ? netAddress_ : netAddress_.substr(colon + 1);
+    launch.behavior = std::move(behavior);
+    hostBots_.configure(std::move(launch));
+    hostBots_.setCount(net_ ? std::clamp(count, 0, std::max(0, net_->serverPlayerLimit() - 1)) : 0);
 }
 
 int App::runDedicated() {

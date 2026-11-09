@@ -57,6 +57,8 @@ struct SettingsUiState {
     int hostMap = 0;
     int hostPort = 27960;
     int hostMaxPlayers = 0;
+    int hostBots = 0;
+    int hostBotBehavior = 0;
     bool joinOpen = false;
     bool joinPending = false;
     char joinAddress[128] = {};

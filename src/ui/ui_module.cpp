@@ -195,7 +195,8 @@ std::string netStatusLine(const NetStatus& status) {
         const NetSessionKind* kind = netSchema().findSessionKind(status.session);
         const std::string title = kind != nullptr ? kind->title : status.session;
         return "Hosting " + title + " on " + status.address + ", " + std::to_string(status.players) + " of " +
-            std::to_string(status.maxPlayers) + " players";
+            std::to_string(status.maxPlayers) + " players" +
+            (status.bots > 0 ? ", " + std::to_string(status.bots) + (status.bots == 1 ? " bot" : " bots") : "");
     }
     case NetStatusKind::Connecting:
         return "Connecting to " + status.address;
@@ -380,6 +381,22 @@ void drawHostGame(
         ImGui::SliderInt("Max Players", &settingsUi.hostMaxPlayers, std::max(2, kind.minPlayers), kind.maxPlayers);
     }
     settingsUi.hostMaxPlayers = std::clamp(settingsUi.hostMaxPlayers, kind.minPlayers, kind.maxPlayers);
+    const std::vector<std::string> behaviors = assets.listBotScripts();
+    const bool botsSupported = currentNetStatus(world).botsSupported && !behaviors.empty();
+    if (botsSupported) {
+        ImGui::SliderInt("Bots", &settingsUi.hostBots, 0, std::max(0, settingsUi.hostMaxPlayers - 1));
+        settingsUi.hostBots = std::clamp(settingsUi.hostBots, 0, std::max(0, settingsUi.hostMaxPlayers - 1));
+        settingsUi.hostBotBehavior = std::clamp(settingsUi.hostBotBehavior, 0, static_cast<int>(behaviors.size()) - 1);
+        if (settingsUi.hostBots > 0 && behaviors.size() > 1 &&
+            ImGui::BeginCombo("Bot", behaviors[static_cast<std::size_t>(settingsUi.hostBotBehavior)].c_str())) {
+            for (int i = 0; i < static_cast<int>(behaviors.size()); ++i) {
+                if (ImGui::Selectable(behaviors[static_cast<std::size_t>(i)].c_str(), i == settingsUi.hostBotBehavior)) {
+                    settingsUi.hostBotBehavior = i;
+                }
+            }
+            ImGui::EndCombo();
+        }
+    }
 
     ImGui::Separator();
     if (maps.empty()) {
@@ -392,6 +409,10 @@ void drawHostGame(
         request.session = kind.name;
         request.map = maps[static_cast<std::size_t>(settingsUi.hostMap)].id;
         request.maxPlayers = settingsUi.hostMaxPlayers;
+        if (botsSupported) {
+            request.bots = settingsUi.hostBots;
+            request.botBehavior = behaviors[static_cast<std::size_t>(settingsUi.hostBotBehavior)];
+        }
         requestNetControl(std::move(request));
         settingsUi.hostPending = true;
         playUiSound(world, UiSoundKind::Confirm);
@@ -1174,6 +1195,23 @@ void drawMainMenuBar(
         }
         if (itemState("disconnect", "Leave Game", false, status.kind != NetStatusKind::Offline)) {
             requestNetControl(NetControlRequest{});
+        }
+        if (status.kind == NetStatusKind::Hosting && status.botsSupported) {
+            ImGui::Separator();
+            NetControlRequest bots;
+            bots.kind = NetControlKind::Bots;
+            if (itemState("user_add", "Add Bot", false, status.players < status.maxPlayers)) {
+                bots.bots = status.bots + 1;
+                requestNetControl(bots);
+            }
+            if (itemState("user_delete", "Remove Bot", false, status.bots > 0)) {
+                bots.bots = status.bots - 1;
+                requestNetControl(bots);
+            }
+            if (itemState("user_delete", "Remove All Bots", false, status.bots > 0)) {
+                bots.bots = 0;
+                requestNetControl(bots);
+            }
         }
         ImGui::Separator();
         if (item("user_edit", "Profile...")) {

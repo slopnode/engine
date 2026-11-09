@@ -3,6 +3,7 @@
 #include "assets/asset_store.hpp"
 #include "audio/audio_world.hpp"
 #include "game/app_config.hpp"
+#include "game/host_bots.hpp"
 #include "game/net_control.hpp"
 #include "game/user_settings.hpp"
 #include "net/net_session.hpp"
@@ -59,6 +60,7 @@ private:
     void reportNetFailure(const std::string& title, const std::string& message, const std::string& reason);
     NetProfile localProfile() const;
     void startBot();
+    void startHostBots(int count, std::string behavior);
     int runDedicated();
 
     AppConfig config_;
@@ -70,6 +72,7 @@ private:
     s7_scheme* scheme_ = nullptr;
     std::unique_ptr<NetSession> net_;
     std::unique_ptr<BotScript> bot_;
+    HostBots hostBots_;
     std::filesystem::path settingsFilePath_;
     std::string netAddress_;
     std::string netError_;

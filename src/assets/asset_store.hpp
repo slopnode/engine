@@ -145,6 +145,8 @@ public:
 
     /** Lists maps with map.meta under mounted packages' maps/ folders. */
     std::vector<MapListEntry> listMaps() const;
+    /** Names of the bot scripts under mounted packages' scripts/bots/, the base game's first. */
+    std::vector<std::string> listBotScripts() const;
 
     /** Returns true when a compiled map BSP exists at @p path. */
     bool hasMapBsp(std::string_view path) const;

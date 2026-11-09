@@ -43,7 +43,11 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --server-key  With --connect, refuse servers whose key isn't this 64-digit hex key\n"
               << "  --session     With --listen, the session kind from data/net.s7 to host\n"
               << "  --max-players With --listen, allow fewer players than the session kind does\n"
-              << "  --bot         With --dedicated --connect, play by running scripts/bots/NAME.s7 or a .s7 file\n"
+              << "  --bot         With --dedicated --connect, play by running scripts/bots/NAME.s7 or a .s7 file.\n"
+              << "                With --listen and --bots, the script the bots run\n"
+              << "  --bots        With --listen, start this many bot players on this machine\n"
+              << "  --player-name Join with this name instead of the profile's\n"
+              << "  --quit-on-disconnect With --bot, exit when the connection ends instead of going to the menu\n"
               << "  --net-lag     Delay everything this process sends by this many milliseconds\n"
               << "  --net-jitter  Vary that delay by up to this many milliseconds either way\n"
               << "  --net-loss    Drop this fraction, 0 to 1, of the unreliable messages it sends\n"
@@ -119,6 +123,24 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             continue;
         }
 
+        if (arg == "--quit-on-disconnect") {
+            config.quitOnDisconnect = true;
+            continue;
+        }
+
+        if (arg == "--bots") {
+            if (i + 1 >= argc) {
+                return std::nullopt;
+            }
+            char* end = nullptr;
+            const long value = std::strtol(argv[++i], &end, 10);
+            if (end == nullptr || *end != '\0' || value < 0 || value > 255) {
+                return std::nullopt;
+            }
+            config.bots = static_cast<int>(value);
+            continue;
+        }
+
         if (arg == "--max-players" || arg == "--net-peers-per-address") {
             if (i + 1 >= argc) {
                 return std::nullopt;
@@ -154,7 +176,8 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
             continue;
         }
 
-        if (arg == "--listen" || arg == "--connect" || arg == "--server-key" || arg == "--session" || arg == "--bot") {
+        if (arg == "--listen" || arg == "--connect" || arg == "--server-key" || arg == "--session" || arg == "--bot" ||
+            arg == "--player-name") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
@@ -162,6 +185,7 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
                 : arg == "--connect"                ? config.connectAddress
                 : arg == "--session"                ? config.sessionKind
                 : arg == "--bot"                    ? config.bot
+                : arg == "--player-name"            ? config.playerName
                                                     : config.serverKey;
             target = argv[++i];
             continue;

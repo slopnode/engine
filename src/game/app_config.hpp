@@ -37,6 +37,9 @@ struct AppConfig {
     std::string sessionKind;
     int maxPlayers = 0;
     std::string bot;
+    int bots = 0;
+    std::string playerName;
+    bool quitOnDisconnect = false;
     float netLagMs = 0.0f;
     float netJitterMs = 0.0f;
     float netLoss = 0.0f;

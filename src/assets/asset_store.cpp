@@ -444,6 +444,35 @@ std::vector<AssetStore::MapListEntry> AssetStore::listMaps() const {
     return maps;
 }
 
+std::vector<std::string> AssetStore::listBotScripts() const {
+    std::vector<std::string> names;
+    std::vector<const Package*> order;
+    for (const Package& package : vfs_.packages()) {
+        if (package.meta().id == basePackageId()) {
+            order.insert(order.begin(), &package);
+        } else {
+            order.push_back(&package);
+        }
+    }
+    for (const Package* package : order) {
+        std::vector<std::string> found;
+        std::error_code ec;
+        for (std::filesystem::directory_iterator it(package->root() / "scripts" / "bots", ec), end; it != end && !ec;
+             it.increment(ec)) {
+            if (it->is_regular_file() && it->path().extension() == ".s7") {
+                found.push_back(it->path().stem().string());
+            }
+        }
+        std::sort(found.begin(), found.end());
+        for (std::string& name : found) {
+            if (std::find(names.begin(), names.end(), name) == names.end()) {
+                names.push_back(std::move(name));
+            }
+        }
+    }
+    return names;
+}
+
 bool AssetStore::hasMapBsp(std::string_view path) const {
     return vfs_.exists(AssetKind::MapBsp, path);
 }
