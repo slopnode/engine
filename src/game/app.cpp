@@ -277,6 +277,8 @@ void App::openNetSession(
     const std::string& connectAddress,
     const std::string& sessionKind,
     int maxPlayers) {
+    netLogMark_ = Log::mark();
+    netWasConnected_ = false;
     NetSessionConfig net;
     net.listenAddress = listenAddress;
     net.connectAddress = connectAddress;
@@ -320,6 +322,11 @@ void App::openNetSession(
         netError_ = reason;
         netStopPending_ = true;
         requestMapLoad("", "menu");
+        if (netWasConnected_) {
+            reportNetFailure("Disconnected", "Disconnected from '" + netAddress_ + "'.", reason);
+        } else {
+            reportNetFailure("Connection Failed", "Failed to connect to '" + netAddress_ + "'.", reason);
+        }
     };
     net.spawnPresentation = [this](const std::string& name, const NetSpawnRecipe& recipe) {
         return spawnNetPresentation(world_, name, recipe);
@@ -423,12 +430,14 @@ void App::takeNetControl() {
             netError_.clear();
             if (map.empty()) {
                 netError_ = "there is no map to host";
+                reportNetFailure("Host Failed", "Failed to host a game.", netError_);
             } else {
                 try {
                     openNetSession(request->address, "", request->session, request->maxPlayers);
                     requestMapLoad(map, "fresh");
                 } catch (const std::exception& error) {
                     netError_ = error.what();
+                    reportNetFailure("Host Failed", "Failed to host a game.", netError_);
                 }
             }
             if (!net_ && wasOnline) {
@@ -442,6 +451,7 @@ void App::takeNetControl() {
                 openNetSession("", request->address, "", 0);
             } catch (const std::exception& error) {
                 netError_ = error.what();
+                reportNetFailure("Connection Failed", "Failed to connect to '" + request->address + "'.", netError_);
             }
             if (!net_ && wasOnline) {
                 requestMapLoad("", "menu");
@@ -480,6 +490,14 @@ NetProfile App::localProfile() const {
     return profile;
 }
 
+void App::reportNetFailure(const std::string& title, const std::string& message, const std::string& reason) {
+    if (config_.dedicated) {
+        return;
+    }
+    reportError(world_, title, message, reason.empty() ? std::string() : "Reason: " + reason,
+                Log::warningsSince(netLogMark_));
+}
+
 void App::updateNetStatus() {
     NetStatus status{};
     status.error = netError_;
@@ -491,6 +509,7 @@ void App::updateNetStatus() {
             status.maxPlayers = net_->serverPlayerLimit();
         } else if (net_->role() == NetRole::Client) {
             status.kind = net_->clientConnected() ? NetStatusKind::Connected : NetStatusKind::Connecting;
+            netWasConnected_ = netWasConnected_ || net_->clientConnected();
         }
         if (world_.has<NetSessionLimits>()) {
             status.session = world_.get<NetSessionLimits>().kind;

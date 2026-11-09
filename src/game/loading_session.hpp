@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assets/asset_store.hpp"
+#include "core/log.hpp"
 #include "map/map_script.hpp"
 
 #include <flecs.h>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct s7_scheme;
 
@@ -31,6 +33,7 @@ struct LoadingSession {
     float crossfadeDurationSeconds = 0.5f;
     MapLoadWork work;
     std::optional<LoadedMap> loadedMap;
+    std::vector<LogEntry> details;
 };
 
 void registerLoadingSessionModule(flecs::world& world);

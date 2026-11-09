@@ -327,17 +327,10 @@ std::vector<HostMapChoice> hostMapChoices(AssetStore& assets, const NetSessionKi
     return out;
 }
 
-void drawNetError(const std::string& error) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{1.0f, 0.45f, 0.4f, 1.0f});
-    ImGui::TextWrapped("%s", error.c_str());
-    ImGui::PopStyleColor();
-}
-
 void drawHostGame(
     flecs::world world,
     AssetStore& assets,
     SettingsUiState& settingsUi,
-    const NetStatus& status,
     const SlopUiTheme& theme,
     const SlopUiFonts& fonts) {
     const std::vector<NetSessionKind>& kinds = netSchema().sessionKinds();
@@ -388,9 +381,6 @@ void drawHostGame(
     }
     settingsUi.hostMaxPlayers = std::clamp(settingsUi.hostMaxPlayers, kind.minPlayers, kind.maxPlayers);
 
-    if (settingsUi.hostPending && status.kind == NetStatusKind::Offline && !status.error.empty()) {
-        drawNetError(status.error);
-    }
     ImGui::Separator();
     if (maps.empty()) {
         ImGui::BeginDisabled();
@@ -439,8 +429,6 @@ void drawJoinGame(
     }
     if (connecting) {
         ImGui::TextUnformatted(netStatusLine(status).c_str());
-    } else if (settingsUi.joinPending && status.kind == NetStatusKind::Offline && !status.error.empty()) {
-        drawNetError(status.error);
     }
     ImGui::Separator();
     if (connecting) {
@@ -744,6 +732,75 @@ void drawAbout(
             ImGui::TextWrapped("%s", package.root().string().c_str());
         }
         ImGui::EndTable();
+    }
+    ImGui::End();
+}
+
+void drawErrorReport(
+    flecs::world world,
+    AssetStore& assets,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!world.has<ErrorReport>()) {
+        return;
+    }
+    ErrorReport& report = world.get_mut<ErrorReport>();
+    if (!report.open) {
+        return;
+    }
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos({display.x * 0.5f, display.y * 0.5f}, ImGuiCond_Appearing, {0.5f, 0.5f});
+    ImGui::SetNextWindowSize({560.0f, 0.0f}, ImGuiCond_Appearing);
+    const std::string windowName = report.title + "###ErrorReport";
+    if (!beginThemedWindow(theme, fonts, &assets, windowName.c_str(), &report.open, ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+    }
+    drawIconImGui(assets, kDefaultIconSet, "error", 32.0f);
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    ImGui::PushStyleColor(ImGuiCol_Text, theme.danger.vec());
+    ImGui::TextWrapped("%s", report.message.c_str());
+    ImGui::PopStyleColor();
+    if (!report.context.empty()) {
+        ImGui::TextColored(theme.textDim.vec(), "%s", report.context.c_str());
+    }
+    ImGui::EndGroup();
+    ImGui::Spacing();
+
+    if (ImGui::CollapsingHeader("Details", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const float height = std::min(240.0f, ImGui::GetTextLineHeightWithSpacing() * 12.0f);
+        if (ImGui::BeginChild("ErrorReportDetails", {0.0f, height}, ImGuiChildFlags_Borders)) {
+            if (report.details.empty()) {
+                ImGui::TextColored(theme.textDim.vec(), "No messages were logged.");
+            }
+            for (const LogEntry& entry : report.details) {
+                const ImVec4 color = entry.level >= LogLevel::Error ? theme.danger.vec() : theme.text.vec();
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextWrapped("[%s] %s", Log::levelLabel(entry.level), entry.text.c_str());
+                ImGui::PopStyleColor();
+            }
+        }
+        ImGui::EndChild();
+    }
+
+    ImGui::Spacing();
+    if (themedButton(theme, fonts, &assets, "Copy", {}, false, kDefaultIconSet, "page_copy")) {
+        std::string text = report.message + "\n";
+        if (!report.context.empty()) {
+            text += report.context + "\n";
+        }
+        for (const LogEntry& entry : report.details) {
+            text += std::string("[") + Log::levelLabel(entry.level) + "] " + entry.text + "\n";
+        }
+        ImGui::SetClipboardText(text.c_str());
+    }
+    ImGui::SameLine();
+    if (themedButton(theme, fonts, &assets, "OK", {}, true, kDefaultIconSet, "accept")) {
+        report.open = false;
     }
     ImGui::End();
 }
@@ -2287,7 +2344,7 @@ void drawUi(flecs::world world) {
         const bool controlsWasOpen = settingsUi.controlsOpen;
         drawGraphicsSettings(world, *assets, settingsUi, settings, theme, fonts);
         drawControlsSettings(world, *assets, settingsUi, settings, theme, fonts);
-        drawHostGame(world, *assets, settingsUi, netStatus, theme, fonts);
+        drawHostGame(world, *assets, settingsUi, theme, fonts);
         drawJoinGame(world, *assets, settingsUi, settings, netStatus, theme, fonts);
         drawProfile(world, *assets, settingsUi, settings, theme, fonts);
         drawAbout(*assets, settingsUi, theme, fonts);
@@ -2297,6 +2354,10 @@ void drawUi(flecs::world world) {
         }
         drawEntityList(world, debugUi);
         drawEntityDetail(debugUi);
+    }
+
+    if (assets != nullptr) {
+        drawErrorReport(world, *assets, theme, fonts);
     }
 
     if (world.has<DebugUiState>()) {

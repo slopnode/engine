@@ -4,7 +4,11 @@
 #include "game/menu_background.hpp"
 #include "map/map_scene.hpp"
 
+#include "core/log.hpp"
+
 #include <raylib.h>
+
+#include <iterator>
 
 namespace slopengine {
 
@@ -19,10 +23,15 @@ constexpr const char* kStageLabels[6] = {
     "Assembling scene",
 };
 
-void finishLoadingSessionFailure(flecs::world& world, const std::string& mapName) {
+void finishLoadingSessionFailure(
+    flecs::world& world,
+    std::string mapName,
+    std::string stage,
+    std::vector<LogEntry> details) {
     TraceLog(LOG_WARNING, "MAP: staged load failed for '%s'", mapName.c_str());
     world.remove<LoadingSession>();
     enterMenu(world);
+    reportMapLoadFailure(world, mapName, stage, std::move(details));
 }
 
 void finishLoadingSessionSuccess(flecs::world& world) {
@@ -90,6 +99,7 @@ void advanceLoadingSession(flecs::world& world, AssetStore& assets, s7_scheme* s
 
     if (session.phase == LoadingPhase::Stages) {
         bool ok = true;
+        Log::beginCapture();
         switch (session.stageIndex) {
         case 0:
             ok = loadMapStageBsp(scheme, assets, session.mapName, session.work);
@@ -121,8 +131,15 @@ void advanceLoadingSession(flecs::world& world, AssetStore& assets, s7_scheme* s
             break;
         }
 
+        std::vector<LogEntry> captured = Log::endCapture();
+        session.details.insert(
+            session.details.end(),
+            std::make_move_iterator(captured.begin()),
+            std::make_move_iterator(captured.end()));
+
         if (!ok) {
-            finishLoadingSessionFailure(world, session.mapName);
+            finishLoadingSessionFailure(
+                world, session.mapName, session.stageLabel, std::move(session.details));
             return;
         }
 

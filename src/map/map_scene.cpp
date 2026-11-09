@@ -8,6 +8,7 @@
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
 #include "camera/view_recoil.hpp"
+#include "core/log.hpp"
 #include "game/game_state.hpp"
 #include "game/menu_background.hpp"
 #include "game/user_settings.hpp"
@@ -512,7 +513,10 @@ void changeMap(
         enterMenu(world);
         return;
     }
-    if (registerMapScene(world, assets, scheme, mapName, reason)) {
+    Log::beginCapture();
+    const bool loaded = registerMapScene(world, assets, scheme, mapName, reason);
+    std::vector<LogEntry> details = Log::endCapture();
+    if (loaded) {
         if (reason == "title") {
             markTitleMapActive(world, true);
             world.set<GameState>(GameState{GameStateKind::Menu});
@@ -534,6 +538,9 @@ void changeMap(
         }
     } else {
         enterMenu(world);
+    }
+    if (!loaded) {
+        reportMapLoadFailure(world, mapName, "Loading map", std::move(details));
     }
 }
 

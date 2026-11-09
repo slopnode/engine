@@ -10,6 +10,7 @@
 
 #include <flecs.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -55,6 +56,7 @@ private:
     std::string hostMapFor(const NetControlRequest& request) const;
     void takeNetControl();
     void updateNetStatus();
+    void reportNetFailure(const std::string& title, const std::string& message, const std::string& reason);
     NetProfile localProfile() const;
     void startBot();
     int runDedicated();
@@ -73,6 +75,8 @@ private:
     std::string netError_;
     NetProfile netProfileApplied_;
     bool netStopPending_ = false;
+    bool netWasConnected_ = false;
+    std::uint64_t netLogMark_ = 0;
     bool running_ = false;
 };
 
