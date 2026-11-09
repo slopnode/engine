@@ -60,6 +60,8 @@ struct SettingsUiState {
     bool joinOpen = false;
     bool joinPending = false;
     char joinAddress[128] = {};
+    bool profileOpen = false;
+    char profileName[64] = {};
     bool aboutOpen = false;
     bool creditsOpen = false;
 };

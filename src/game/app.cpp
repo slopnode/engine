@@ -290,6 +290,8 @@ void App::openNetSession(
         net.pinnedServerKey = pinned;
     }
     net.hello.engineVersion = kSlopengineVersion;
+    netNameApplied_ = playerName();
+    net.hello.name = sanitizeNetDisplayName(netNameApplied_);
     net.hello.schemaHash = netSchema().hash() ^ (motorRulesHash() * 0x9e3779b97f4a7c15ull);
     for (const Package& package : assetStore_.packages()) {
         net.hello.packages.push_back({package.meta().id, package.meta().version});
@@ -416,6 +418,7 @@ void App::takeNetControl() {
             }
         } else if (request->kind == NetControlKind::Host) {
             const std::string map = hostMapFor(*request);
+            const bool wasOnline = net_ != nullptr;
             closeNetSession();
             netError_.clear();
             if (map.empty()) {
@@ -428,7 +431,11 @@ void App::takeNetControl() {
                     netError_ = error.what();
                 }
             }
+            if (!net_ && wasOnline) {
+                requestMapLoad("", "menu");
+            }
         } else {
+            const bool wasOnline = net_ != nullptr;
             closeNetSession();
             netError_.clear();
             try {
@@ -436,9 +443,20 @@ void App::takeNetControl() {
             } catch (const std::exception& error) {
                 netError_ = error.what();
             }
+            if (!net_ && wasOnline) {
+                requestMapLoad("", "menu");
+            }
         }
     }
+    if (net_ && netNameApplied_ != playerName()) {
+        netNameApplied_ = playerName();
+        net_->setLocalName(netNameApplied_);
+    }
     updateNetStatus();
+}
+
+std::string App::playerName() const {
+    return world_.has<UserSettings>() ? world_.get<UserSettings>().ui.playerName : userSettings_.ui.playerName;
 }
 
 void App::updateNetStatus() {
@@ -458,6 +476,13 @@ void App::updateNetStatus() {
         }
     }
     world_.set<NetStatus>(std::move(status));
+    if (!net_) {
+        std::string name = sanitizeNetDisplayName(playerName());
+        NetRoster roster{{{kLocalNetPlayerId, name.empty() ? std::string(kLocalNetPlayerId) : name}}};
+        if (!world_.has<NetRoster>() || !(world_.get<NetRoster>().entries == roster.entries)) {
+            world_.set<NetRoster>(std::move(roster));
+        }
+    }
 }
 
 

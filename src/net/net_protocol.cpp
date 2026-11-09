@@ -288,7 +288,7 @@ std::optional<NetMessageKind> netMessageKind(std::span<const std::byte> data) {
         return std::nullopt;
     }
     const auto raw = static_cast<std::uint8_t>(data[0]);
-    if (raw < static_cast<std::uint8_t>(NetMessageKind::Hello) || raw > static_cast<std::uint8_t>(NetMessageKind::Session)) {
+    if (raw < static_cast<std::uint8_t>(NetMessageKind::Hello) || raw > static_cast<std::uint8_t>(NetMessageKind::Roster)) {
         return std::nullopt;
     }
     return static_cast<NetMessageKind>(raw);
@@ -304,6 +304,7 @@ std::vector<std::byte> encodeNetHello(const NetHello& hello) {
         writer.string(package.id);
         writer.string(package.version);
     }
+    writer.string(hello.name);
     return writer.data();
 }
 
@@ -322,6 +323,66 @@ bool decodeNetHello(std::span<const std::byte> data, NetHello& out) {
             return false;
         }
         out.packages.push_back(std::move(package));
+    }
+    if (!reader.string(out.name, kMaxNameBytes)) {
+        return false;
+    }
+    return reader.atEnd();
+}
+
+std::string sanitizeNetDisplayName(std::string_view name) {
+    std::string out;
+    for (const char ch : name) {
+        const bool printable = ch >= 0x20 && ch <= 0x7e;
+        if (!printable || (ch == ' ' && (out.empty() || out.back() == ' '))) {
+            continue;
+        }
+        if (out.size() >= kMaxNetDisplayNameBytes) {
+            break;
+        }
+        out.push_back(ch);
+    }
+    while (!out.empty() && out.back() == ' ') {
+        out.pop_back();
+    }
+    return out;
+}
+
+std::vector<std::byte> encodeNetProfile(const std::string& name) {
+    NetWriter writer = begin(NetMessageKind::Profile);
+    writer.string(name);
+    return writer.data();
+}
+
+bool decodeNetProfile(std::span<const std::byte> data, std::string& out) {
+    NetReader reader(data);
+    out.clear();
+    return expect(reader, NetMessageKind::Profile) && reader.string(out, kMaxNameBytes) && reader.atEnd();
+}
+
+std::vector<std::byte> encodeNetRoster(const std::vector<NetRosterEntry>& roster) {
+    NetWriter writer = begin(NetMessageKind::Roster);
+    writer.varint(roster.size());
+    for (const NetRosterEntry& entry : roster) {
+        writer.string(entry.player);
+        writer.string(entry.name);
+    }
+    return writer.data();
+}
+
+bool decodeNetRoster(std::span<const std::byte> data, std::vector<NetRosterEntry>& out) {
+    NetReader reader(data);
+    out.clear();
+    std::size_t entries = 0;
+    if (!expect(reader, NetMessageKind::Roster) || !reader.count(entries, kMaxNetRoster)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < entries; ++i) {
+        NetRosterEntry entry;
+        if (!reader.string(entry.player, kMaxNameBytes) || !reader.string(entry.name, kMaxNameBytes)) {
+            return false;
+        }
+        out.push_back(std::move(entry));
     }
     return reader.atEnd();
 }
@@ -579,7 +640,9 @@ bool decodeNetCommands(std::span<const std::byte> data, std::vector<NetCommandFr
         NetCommandFrame frame;
         float axes[5]{};
         std::uint64_t behind = 0;
-        if (!reader.varint(frame.tick) || !readFloats(reader, axes, 5) || !reader.bits(frame.down, kMaxNetActions) ||
+        if (!reader.varint(frame.tick) || !readFinite(reader, axes[0], 1.0e3f) || !readFinite(reader, axes[1], 1.0e3f) ||
+            !readFinite(reader, axes[2], 1.0e3f) || !readFinite(reader, axes[3], 1.0e6f) ||
+            !readFinite(reader, axes[4], 1.0e3f) || !reader.bits(frame.down, kMaxNetActions) ||
             !reader.bits(frame.pressed, kMaxNetActions) || !reader.varint(behind) || (behind >> 1) > kMaxNetViewBehind) {
             return false;
         }

@@ -88,6 +88,8 @@ public:
     std::size_t serverPendingCount() const;
     int serverPlayerLimit() const;
     bool serverHasClient() const { return serverClientCount() > 0; }
+    const std::string& localName() const { return config_.hello.name; }
+    void setLocalName(const std::string& name);
     const SecureKey& publicKey() const { return transport_->publicKey(); }
 
     void registerSystems();
@@ -133,9 +135,11 @@ private:
         std::chrono::steady_clock::time_point refilled{};
         double tokens = 0.0;
         std::string player;
+        std::string name;
         bool ownBody = false;
         std::uint64_t lastCommandTick = 0;
         std::deque<NetCommandFrame> pending;
+        double commandCredit = 0.0;
         std::size_t leastPending = 64;
         std::uint64_t pendingWindow = 0;
         NetCommandFrame latest;
@@ -215,6 +219,8 @@ private:
     NetIntroduction serverIntroduction(std::uint32_t netId, flecs::entity entity) const;
     void serverSendEffects();
     void serverSendSession(ServerClient* only);
+    std::string serverUniqueName(const std::string& wanted, const std::string& player) const;
+    void serverRefreshRoster();
     void serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone);
     void serverTrackMotion();
     bool serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const;

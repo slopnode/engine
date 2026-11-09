@@ -14,7 +14,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 14;
+inline constexpr std::uint32_t kNetProtocolVersion = 15;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::int64_t kNetViewTickSteps = 256;
 inline constexpr std::uint64_t kMaxNetViewBehind = std::uint64_t{1} << 40;
@@ -29,6 +29,8 @@ inline constexpr std::size_t kMaxNetEffectsPerMessage = 256;
 inline constexpr float kNetPositionScale = 512.0f;
 inline constexpr float kMaxNetCoordinate = 1.0e6f;
 inline constexpr std::uint32_t kMaxNetHoldTicks = 1u << 20;
+inline constexpr std::size_t kMaxNetDisplayNameBytes = 24;
+inline constexpr std::size_t kMaxNetRoster = 256;
 
 enum class NetMessageKind : std::uint8_t {
     Hello = 1,
@@ -40,6 +42,8 @@ enum class NetMessageKind : std::uint8_t {
     Events = 7,
     Effects = 8,
     Session = 9,
+    Profile = 10,
+    Roster = 11,
 };
 
 enum class NetEventWhere : std::uint8_t {
@@ -70,6 +74,14 @@ struct NetHello {
     std::string engineVersion;
     std::uint64_t schemaHash = 0;
     std::vector<NetPackageVersion> packages;
+    std::string name;
+};
+
+struct NetRosterEntry {
+    std::string player;
+    std::string name;
+
+    bool operator==(const NetRosterEntry&) const = default;
 };
 
 struct NetMapChange {
@@ -206,6 +218,11 @@ std::optional<NetMessageKind> netMessageKind(std::span<const std::byte> data);
 
 std::vector<std::byte> encodeNetHello(const NetHello& hello);
 bool decodeNetHello(std::span<const std::byte> data, NetHello& out);
+std::string sanitizeNetDisplayName(std::string_view name);
+std::vector<std::byte> encodeNetProfile(const std::string& name);
+bool decodeNetProfile(std::span<const std::byte> data, std::string& out);
+std::vector<std::byte> encodeNetRoster(const std::vector<NetRosterEntry>& roster);
+bool decodeNetRoster(std::span<const std::byte> data, std::vector<NetRosterEntry>& out);
 std::vector<std::byte> encodeNetMapChange(const NetMapChange& change);
 bool decodeNetMapChange(std::span<const std::byte> data, NetMapChange& out);
 std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& entries);

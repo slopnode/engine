@@ -340,6 +340,24 @@ s7_pointer g_net_player_name(s7_scheme* sc, s7_pointer) {
     return s7_make_string(sc, g_netWorld->get<NetIdentity>().player.c_str());
 }
 
+s7_pointer g_player_display_name(s7_scheme* sc, s7_pointer args) {
+    std::string id = kLocalNetPlayerId;
+    if (g_netWorld != nullptr && g_netWorld->has<NetIdentity>()) {
+        id = g_netWorld->get<NetIdentity>().player;
+    }
+    if (s7_is_pair(args)) {
+        const s7_pointer arg = s7_car(args);
+        if (!s7_is_string(arg)) {
+            return s7_wrong_type_arg_error(sc, "player-display-name", 1, arg, "a player id string");
+        }
+        id = s7_string(arg);
+    }
+    if (g_netWorld == nullptr) {
+        return s7_make_string(sc, id.c_str());
+    }
+    return s7_make_string(sc, netDisplayName(*g_netWorld, id).c_str());
+}
+
 s7_pointer g_net_acked_command(s7_scheme* sc, s7_pointer) {
     if (g_netWorld == nullptr || !g_netWorld->has<NetPrediction>() || !g_netWorld->get<NetPrediction>().active) {
         return s7_f(sc);
@@ -511,6 +529,7 @@ constexpr SchemeBinding kNetBindings[] = {
     {"net-command-tick", g_net_command_tick, 0, 0, false, "(net-command-tick)", ScriptCap::ReadWorld},
     {"net-acked-command", g_net_acked_command, 0, 0, false, "(net-acked-command)", ScriptCap::ReadWorld},
     {"net-player-name", g_net_player_name, 0, 0, false, "(net-player-name)", ScriptCap::ReadWorld},
+    {"player-display-name", g_player_display_name, 0, 1, false, "(player-display-name [player-id])", ScriptCap::ReadWorld},
     {"session-kind", g_session_kind, 0, 0, false, "(session-kind)", ScriptCap::ReadWorld},
     {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
     {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},

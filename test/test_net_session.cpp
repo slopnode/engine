@@ -274,6 +274,19 @@ void runNetSessionTests() {
     CHECK(secondBody.has<CharacterMotor>() && secondBody.get<CharacterMotor>().eyeHeight == 1.65f);
     CHECK(secondBody.get<FirstPersonController>().eyeHeight == 1.65f);
     CHECK(findNetPlayer(server.world, "player-2") != nullptr);
+    CHECK(netDisplayName(server.world, "Player") == "Player");
+    CHECK(netDisplayName(server.world, "player-2") == "Player 2");
+    late.session->setLocalName("  Alice ");
+    frames(network, server, {&client, &late}, 5);
+    CHECK(netDisplayName(server.world, "player-2") == "Alice");
+    CHECK(netDisplayName(client.world, "player-2") == "Alice");
+    CHECK(netDisplayName(late.world, "Player") == "Player");
+    client.session->setLocalName("Alice");
+    frames(network, server, {&client, &late}, 5);
+    CHECK(netDisplayName(client.world, "Player") == "Alice 2");
+    client.session->setLocalName("Player");
+    frames(network, server, {&client, &late}, 5);
+    CHECK(netDisplayName(late.world, "Player") == "Player");
     CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (member \"player:player-2\" appeared) #t)")));
 
     bindScriptPlayerApi(server.world, sc);

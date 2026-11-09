@@ -94,6 +94,8 @@ void registerNetState(flecs::world& world) {
     world.component<NetHostStandIn>();
     world.component<NetIdentity>();
     world.set<NetIdentity>({});
+    world.component<NetRoster>();
+    world.set<NetRoster>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
@@ -129,10 +131,22 @@ void resetNetSessionState(flecs::world& world) {
     world.set<NetEffectQueue>({});
     world.set<NetPrediction>({});
     world.set<NetIdentity>({});
+    world.set<NetRoster>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
     world.set<NetStore>(std::move(store));
+}
+
+std::string netDisplayName(const flecs::world& world, std::string_view id) {
+    if (world.has<NetRoster>()) {
+        for (const NetRosterEntry& entry : world.get<NetRoster>().entries) {
+            if (entry.player == id) {
+                return entry.name;
+            }
+        }
+    }
+    return std::string(id);
 }
 
 void addNetPlayer(flecs::world& world, std::string_view id) {

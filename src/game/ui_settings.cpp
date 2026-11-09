@@ -48,6 +48,8 @@ UiSettings loadUiSettings(const std::filesystem::path& settingsFilePath) {
             ui.theme = value;
         } else if (key == "join_address" && !value.empty()) {
             ui.joinAddress = value;
+        } else if (key == "player_name" && !value.empty()) {
+            ui.playerName = value;
         }
     }
     return ui;

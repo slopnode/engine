@@ -49,6 +49,7 @@ constexpr std::size_t kRedundantCommands = 4;
 constexpr std::size_t kCommandBacklog = 4;
 constexpr std::uint64_t kCommandWindowTicks = 60;
 constexpr std::size_t kMaxQueuedCommands = 64;
+constexpr double kCommandCreditCap = 30.0;
 constexpr std::size_t kMaxPredictedMoves = 128;
 constexpr std::uint64_t kRelevanceLinger = 60;
 constexpr std::size_t kRelevanceSlack = 256;
@@ -221,6 +222,11 @@ bool NetSession::start() {
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
         world_.add<SimShared>();
         world_.ensure<NetRewind>().maxTicks = config_.maxRewindTicks;
+        config_.hello.name = sanitizeNetDisplayName(config_.hello.name);
+        if (config_.hello.name.empty()) {
+            config_.hello.name = kLocalNetPlayerId;
+        }
+        serverRefreshRoster();
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
                   secureKeyFingerprint(transport_->publicKey()).c_str());
         Log::info(LogCategory::General, "NET: session %s, up to %d players",
@@ -363,6 +369,20 @@ void NetSession::serverReceive(const NetEvent& event) {
         }
         return;
     }
+    if (kind == NetMessageKind::Profile) {
+        std::string name;
+        if (!decodeNetProfile(event.data, name)) {
+            serverDrop(event.connection, "malformed profile");
+            return;
+        }
+        const std::string unique = serverUniqueName(name, client.player);
+        if (unique != client.name) {
+            Log::info(LogCategory::General, "NET: %s renamed to %s", client.player.c_str(), unique.c_str());
+            client.name = unique;
+            serverRefreshRoster();
+        }
+        return;
+    }
     if (kind != NetMessageKind::Commands) {
         serverDrop(event.connection, "unexpected message");
         return;
@@ -421,10 +441,79 @@ void NetSession::serverHello(ServerClient& client, const std::vector<std::byte>&
         spawnPlayerBody(world_, client.player, nextPlayerNumber_);
         addNetPlayer(world_, client.player);
     }
+    client.name = serverUniqueName(hello.name, client.player);
     client.ready = true;
-    Log::info(LogCategory::General, "NET: client ready as %s", client.player.c_str());
+    Log::info(LogCategory::General, "NET: client ready as %s (%s)", client.player.c_str(), client.name.c_str());
+    serverRefreshRoster();
     callHook("on-player-join", client.player);
     serverSendMap(client);
+}
+
+std::string NetSession::serverUniqueName(const std::string& wanted, const std::string& player) const {
+    std::string base = sanitizeNetDisplayName(wanted);
+    if (base.empty()) {
+        base = kLocalNetPlayerId;
+    }
+    const auto taken = [&](const std::string& name) {
+        if (config_.hostPlayerVisible && player != kLocalNetPlayerId && name == config_.hello.name) {
+            return true;
+        }
+        return std::any_of(clients_.begin(), clients_.end(), [&](const auto& entry) {
+            return entry.second.ready && entry.second.player != player && entry.second.name == name;
+        });
+    };
+    std::string name = base;
+    for (int suffix = 2; taken(name); ++suffix) {
+        const std::string tail = " " + std::to_string(suffix);
+        name = base.substr(0, std::min(base.size(), kMaxNetDisplayNameBytes - tail.size())) + tail;
+    }
+    return name;
+}
+
+void NetSession::serverRefreshRoster() {
+    std::vector<NetRosterEntry> roster;
+    if (config_.hostPlayerVisible) {
+        roster.push_back({kLocalNetPlayerId, config_.hello.name});
+    }
+    for (const auto& entry : clients_) {
+        if (entry.second.ready) {
+            roster.push_back({entry.second.player, entry.second.name});
+        }
+    }
+    std::sort(roster.begin(), roster.end(), [](const auto& a, const auto& b) { return a.player < b.player; });
+    if (world_.has<NetRoster>() && world_.get<NetRoster>().entries == roster) {
+        return;
+    }
+    world_.set<NetRoster>({roster});
+    const std::vector<std::byte> message = encodeNetRoster(roster);
+    for (auto& entry : clients_) {
+        if (entry.second.ready) {
+            transport_->send(entry.second.connection, message, NetSendMode::Reliable);
+        }
+    }
+}
+
+void NetSession::setLocalName(const std::string& name) {
+    std::string clean = sanitizeNetDisplayName(name);
+    if (clean.empty()) {
+        clean = kLocalNetPlayerId;
+    }
+    if (role_ == NetRole::Server) {
+        if (config_.hostPlayerVisible) {
+            config_.hello.name = serverUniqueName(clean, kLocalNetPlayerId);
+            serverRefreshRoster();
+        } else {
+            config_.hello.name = clean;
+        }
+        return;
+    }
+    if (clean == config_.hello.name) {
+        return;
+    }
+    config_.hello.name = clean;
+    if (role_ == NetRole::Client && connected_ && server_ != kNoNetConnection) {
+        transport_->send(server_, encodeNetProfile(clean), NetSendMode::Reliable);
+    }
 }
 
 void NetSession::serverSendMap(ServerClient& client) {
@@ -487,6 +576,7 @@ void NetSession::serverRemove(NetConnectionId connection, const std::string& rea
         return;
     }
     Log::info(LogCategory::General, "NET: %s left: %s", client.player.c_str(), reason.c_str());
+    serverRefreshRoster();
     callHook("on-player-leave", client.player);
     if (client.ownBody) {
         despawnPlayerBody(world_, playerBody(world_, client.player));
@@ -524,6 +614,11 @@ void NetSession::serverMapLoaded() {
     int index = 2;
     for (auto& entry : clients_) {
         ServerClient& client = entry.second;
+        client.pending.clear();
+        client.latest = {};
+        client.commandCredit = 0.0;
+        client.leastPending = kMaxQueuedCommands;
+        client.pendingWindow = 0;
         if (client.ready && client.ownBody) {
             spawnPlayerBody(world_, client.player, index++);
         }
@@ -552,6 +647,7 @@ void NetSession::serverApplyCommands() {
         std::vector<char> pressed;
         bool moved = false;
         std::uint32_t applied = 0;
+        client.commandCredit = std::min(kCommandCreditCap, client.commandCredit + 1.0);
         client.leastPending = std::min(client.leastPending, client.pending.size());
         std::size_t surplus = 0;
         if (++client.pendingWindow >= kCommandWindowTicks) {
@@ -559,7 +655,9 @@ void NetSession::serverApplyCommands() {
             client.pendingWindow = 0;
             client.leastPending = kMaxQueuedCommands;
         }
-        while (!client.pending.empty() && (!moved || client.pending.size() > kCommandBacklog || surplus > 0)) {
+        while (!client.pending.empty() && client.commandCredit >= 1.0 &&
+               (!moved || client.pending.size() > kCommandBacklog || surplus > 0)) {
+            client.commandCredit -= 1.0;
             if (moved && surplus > 0) {
                 --surplus;
             }
@@ -1828,6 +1926,19 @@ void NetSession::clientReceive(const NetEvent& event) {
                 config_.applyEffect(entity, effect, true);
             }
         }
+    } else if (kind == NetMessageKind::Roster) {
+        std::vector<NetRosterEntry> roster;
+        if (!decodeNetRoster(event.data, roster)) {
+            clientRefuse("server sent a bad roster");
+            return;
+        }
+        for (const NetRosterEntry& entry : roster) {
+            if (!safeNetName(entry.player) || entry.name.empty() || sanitizeNetDisplayName(entry.name) != entry.name) {
+                clientRefuse("server sent a bad roster");
+                return;
+            }
+        }
+        world_.set<NetRoster>({std::move(roster)});
     } else if (kind == NetMessageKind::Session) {
         std::vector<std::pair<int, NetValue>> fields;
         if (!decodeNetSession(event.data, netSchema().fieldsIn(NetScope{NetScopeKind::Session, {}}), fields)) {

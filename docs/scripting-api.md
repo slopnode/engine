@@ -373,6 +373,11 @@ Returns the name the server uses for this process's own player, such as `"player
 <pre><code class="language-scheme">(net-player-name) ↵ string?
 </code></pre>
 
+### player-display-name {#player-display-name}
+Returns the name a player chose in Multiplayer > Profile, for a player id such as `"player-2"`, or for this process's own player without an argument. Names are up to 24 printable characters, and the server adds a number when two players pick the same one. Returns the id itself for an id the server doesn't list. Use it for anything shown to players, and the id for everything else, since names can change during a session.
+<pre><code class="language-scheme">(player-display-name [player-id]) ↵ string?
+</code></pre>
+
 ### net-acked-command {#net-acked-command}
 Returns the newest command of this client's that the server had applied when it sent the latest snapshot, so the player fields read with `net-get` are from after that command. Returns `#f` outside `predict`. A script that predicts something counted in a field, such as rounds fired, subtracts what it predicted for later commands.
 <pre><code class="language-scheme">(net-acked-command) ↵ (or integer? #f)

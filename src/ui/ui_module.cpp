@@ -23,6 +23,7 @@
 #include "map/light_sample.hpp"
 #include "map/nav_graph.hpp"
 #include "map/pvs.hpp"
+#include "net/net_protocol.hpp"
 #include "net/net_schema.hpp"
 #include "physics/components.hpp"
 #include "physics/physics_module.hpp"
@@ -222,6 +223,11 @@ void openJoinGame(SettingsUiState& settingsUi, const UserSettings& settings) {
     std::snprintf(settingsUi.joinAddress, sizeof(settingsUi.joinAddress), "%s", settings.ui.joinAddress.c_str());
 }
 
+void openProfile(SettingsUiState& settingsUi, const UserSettings& settings) {
+    settingsUi.profileOpen = true;
+    std::snprintf(settingsUi.profileName, sizeof(settingsUi.profileName), "%s", settings.ui.playerName.c_str());
+}
+
 void settleNetWindows(SettingsUiState& settingsUi, const NetStatus& status) {
     if (settingsUi.hostPending && status.kind == NetStatusKind::Hosting) {
         settingsUi.hostOpen = false;
@@ -405,6 +411,44 @@ void drawJoinGame(
             settingsUi.joinPending = true;
             playUiSound(world, UiSoundKind::Confirm);
         }
+    }
+    ImGui::End();
+}
+
+void drawProfile(
+    flecs::world world,
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    UserSettings& settings,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.profileOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({420.0f, 0.0f}, ImGuiCond_Always);
+    if (!beginThemedWindow(theme, fonts, &assets, "Profile", &settingsUi.profileOpen, ImGuiWindowFlags_NoResize)) {
+        ImGui::End();
+        return;
+    }
+    const bool entered = ImGui::InputText(
+        "Name", settingsUi.profileName, sizeof(settingsUi.profileName), ImGuiInputTextFlags_EnterReturnsTrue);
+    const std::string name = sanitizeNetDisplayName(settingsUi.profileName);
+    ImGui::TextDisabled("Shown to other players, up to %d characters", static_cast<int>(kMaxNetDisplayNameBytes));
+    ImGui::Separator();
+    if (name.empty()) {
+        ImGui::BeginDisabled();
+    }
+    const bool clicked = themedButton(theme, fonts, &assets, "Save", {}, true, kDefaultIconSet, "accept");
+    if (name.empty()) {
+        ImGui::EndDisabled();
+    }
+    if ((clicked || entered) && !name.empty()) {
+        if (settings.ui.playerName != name) {
+            settings.ui.playerName = name;
+            settings.save();
+        }
+        settingsUi.profileOpen = false;
+        playUiSound(world, UiSoundKind::Confirm);
     }
     ImGui::End();
 }
@@ -963,6 +1007,10 @@ void drawMainMenuBar(
         }
         if (itemState("disconnect", "Leave Game", false, status.kind != NetStatusKind::Offline)) {
             requestNetControl(NetControlRequest{});
+        }
+        ImGui::Separator();
+        if (item("user_edit", "Profile...")) {
+            openProfile(settingsUi, settings);
         }
         if (status.kind != NetStatusKind::Offline) {
             ImGui::Separator();
@@ -2131,6 +2179,7 @@ void drawUi(flecs::world world) {
         drawControlsSettings(world, *assets, settingsUi, settings, theme, fonts);
         drawHostGame(world, *assets, settingsUi, netStatus, theme, fonts);
         drawJoinGame(world, *assets, settingsUi, settings, netStatus, theme, fonts);
+        drawProfile(world, *assets, settingsUi, settings, theme, fonts);
         drawAbout(*assets, settingsUi, theme, fonts);
         drawCredits(*assets, settingsUi, theme, fonts);
         if ((graphicsWasOpen && !settingsUi.graphicsOpen) || (controlsWasOpen && !settingsUi.controlsOpen)) {

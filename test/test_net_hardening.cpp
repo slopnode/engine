@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -179,6 +180,79 @@ void runSlotTests(std::uint64_t hash) {
     }
     tick(5);
     CHECK_EQ(server.session->serverClientCount(), std::size_t{1});
+}
+
+void runCommandFloodTests(std::uint64_t hash) {
+    MemoryNetwork network;
+    HardenSide server;
+    prepareHardenSide(server);
+    server.session = std::make_unique<NetSession>(server.world, hardenConfig("server", "", hash), network.endpoint());
+    server.session->registerSystems();
+    CHECK(server.session->start());
+    server.session->serverMapLoaded();
+
+    std::uint64_t applied = 0;
+    auto tick = [&](int count) {
+        for (int i = 0; i < count; ++i) {
+            server.session->serverPoll();
+            server.world.get_mut<SimClock>().tick += 1;
+            server.world.run_pipeline(server.world.get<FramePipelines>().sim, kSimTickDt);
+            network.advance(kSimTickDt);
+            const flecs::entity body = server.world.lookup("Player");
+            if (body.has<PlayerCommand>()) {
+                applied += body.get<PlayerCommand>().commands;
+            }
+        }
+    };
+
+    std::unique_ptr<SecureTransport> cheat = createSecureTransport(network.endpoint());
+    const NetConnectionId cheatId = cheat->connect("server");
+    for (int i = 0; i < 10; ++i) {
+        tick(1);
+        std::vector<NetEvent> events;
+        cheat->poll(events);
+    }
+    NetHello hello;
+    hello.engineVersion = "test";
+    hello.schemaHash = hash;
+    hello.packages = {{"game", "1.0.0"}};
+    hello.name = "  Speedy\tGonzales  ";
+    CHECK(cheat->send(cheatId, encodeNetHello(hello), NetSendMode::Reliable));
+    tick(5);
+    CHECK_EQ(server.session->serverClientCount(), std::size_t{1});
+    CHECK(netDisplayName(server.world, "Player") == "SpeedyGonzales");
+
+    applied = 0;
+    std::uint64_t nextTick = 1;
+    constexpr int kFloodTicks = 120;
+    for (int i = 0; i < kFloodTicks; ++i) {
+        std::vector<NetCommandFrame> burst;
+        for (std::size_t f = 0; f < kMaxNetCommandsPerMessage; ++f) {
+            NetCommandFrame frame;
+            frame.tick = nextTick++;
+            frame.moveForward = 1.0f;
+            burst.push_back(frame);
+        }
+        cheat->send(cheatId, encodeNetCommands(burst, 0), NetSendMode::Unreliable);
+        tick(1);
+    }
+    CHECK(applied <= static_cast<std::uint64_t>(kFloodTicks) + 31);
+    CHECK(applied >= static_cast<std::uint64_t>(kFloodTicks) - 5);
+
+    server.session->serverMapLoaded();
+    applied = 0;
+    tick(3);
+    CHECK_EQ(applied, std::uint64_t{0});
+
+    NetCommandFrame broken;
+    broken.tick = nextTick++;
+    broken.yaw = std::numeric_limits<float>::quiet_NaN();
+    std::vector<NetCommandFrame> decoded;
+    std::uint64_t acked = 0;
+    CHECK_FALSE(decodeNetCommands(encodeNetCommands({broken}, 0), decoded, acked));
+    cheat->send(cheatId, encodeNetCommands({broken}, 0), NetSendMode::Reliable);
+    tick(3);
+    CHECK_EQ(server.session->serverClientCount(), std::size_t{0});
 }
 
 void runEvilServerTests(std::uint64_t hash) {
@@ -351,6 +425,7 @@ void runNetHardeningTests() {
     netSchema().finalize();
     const std::uint64_t hash = netSchema().hash();
     runSlotTests(hash);
+    runCommandFloodTests(hash);
     runEvilServerTests(hash);
     runKnownServerTests();
 

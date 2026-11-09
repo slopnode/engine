@@ -250,7 +250,8 @@ bool UserSettings::save() const {
            << "shadow_map_resolution=" << graphics.shadowMapResolution << "\n\n"
            << "[ui]\n"
            << "theme=" << ui.theme << '\n'
-           << "join_address=" << ui.joinAddress << "\n\n"
+           << "join_address=" << ui.joinAddress << '\n'
+           << "player_name=" << ui.playerName << "\n\n"
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

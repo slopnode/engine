@@ -25,6 +25,10 @@ struct NetIdentity {
     std::string player = kLocalNetPlayerId;
 };
 
+struct NetRoster {
+    std::vector<NetRosterEntry> entries;
+};
+
 struct NetSessionLimits {
     std::string kind;
     int maxPlayers = 8;
@@ -96,6 +100,7 @@ void addNetPlayer(flecs::world& world, std::string_view id);
 void removeNetPlayer(flecs::world& world, std::string_view id);
 void resetNetPlayer(flecs::world& world, std::string_view id);
 const NetPlayerRecord* findNetPlayer(const flecs::world& world, std::string_view id);
+std::string netDisplayName(const flecs::world& world, std::string_view id);
 void resetNetMapFields(flecs::world& world);
 bool resolveNetTarget(const flecs::world& world, std::string_view id, NetTarget& out);
 NetValue* findNetValue(flecs::world& world, const NetTarget& target, std::string_view field, const NetField** fieldOut);
