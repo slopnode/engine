@@ -60,6 +60,8 @@ struct SettingsUiState {
     bool joinOpen = false;
     bool joinPending = false;
     char joinAddress[128] = {};
+    bool aboutOpen = false;
+    bool creditsOpen = false;
 };
 
 /** Debug overlay toggles and entity inspector selection.

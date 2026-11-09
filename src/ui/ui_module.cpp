@@ -3,6 +3,7 @@
 #include "assets/asset_services.hpp"
 #include "camera/camera_path_player.hpp"
 #include "camera/components.hpp"
+#include "core/engine_version.hpp"
 #include "core/frame_perf.hpp"
 #include "render/system_perf.hpp"
 #include "core/log.hpp"
@@ -51,6 +52,8 @@
 #include <cstdio>
 #include <cstring>
 #include <raylib.h>
+#include <rlgl.h>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -402,6 +405,223 @@ void drawJoinGame(
             settingsUi.joinPending = true;
             playUiSound(world, UiSoundKind::Confirm);
         }
+    }
+    ImGui::End();
+}
+
+struct CreditEntry {
+    const char* name;
+    const char* copyright;
+    const char* license;
+    const char* url;
+};
+
+constexpr CreditEntry kLibraryCredits[] = {
+    {"flecs", "Sander Mertens", "MIT", "https://github.com/SanderMertens/flecs"},
+    {"raylib", "Ramon Santamaria", "zlib", "https://www.raylib.com"},
+    {"GLFW", "Marcus Geelnard, Camilla Lowy", "zlib", "https://www.glfw.org"},
+    {"Dear ImGui", "Omar Cornut", "MIT", "https://github.com/ocornut/imgui"},
+    {"rlImGui", "Jeffery Myers", "zlib", "https://github.com/raylib-extras/rlImGui"},
+    {"Jolt Physics", "Jorrit Rouwe", "MIT", "https://github.com/jrouwe/JoltPhysics"},
+    {"Recast & Detour", "Mikko Mononen", "zlib", "https://github.com/recastnavigation/recastnavigation"},
+    {"s7 Scheme", "Bill Schottstaedt, CCRMA", "BSD-style (Snd)", "https://ccrma.stanford.edu/software/snd/snd/s7.html"},
+    {"SoLoud", "Jari Komppa", "zlib", "https://solhsa.com/soloud/"},
+    {"miniaudio", "David Reid", "MIT-0 or public domain", "https://miniaud.io"},
+    {"dr_libs", "David Reid", "MIT-0 or public domain", "https://github.com/mackron/dr_libs"},
+    {"stb", "Sean Barrett", "MIT or public domain", "https://github.com/nothings/stb"},
+    {"TinySoundFont", "Bernhard Schelling", "MIT", "https://github.com/schellingb/TinySoundFont"},
+    {"ENet", "Lee Salzman", "MIT", "http://enet.bespin.org"},
+    {"Monocypher", "Loup Vaillant, Michael Savage, Fabio Scotoni", "BSD-2-Clause or CC0", "https://monocypher.org"},
+#if defined(SLOPENGINE_HAS_STEAM_AUDIO)
+    {"Steam Audio", "Valve Corporation", "Apache 2.0", "https://valvesoftware.github.io/steam-audio/"},
+#endif
+};
+
+constexpr CreditEntry kAssetCredits[] = {
+    {"Fira Sans", "Mozilla Foundation, Carrois Corporate", "SIL OFL 1.1", "https://github.com/mozilla/Fira"},
+    {"JetBrains Mono", "JetBrains", "SIL OFL 1.1", "https://www.jetbrains.com/lp/mono/"},
+    {"Silk icons", "Mark James", "CC BY 2.5", "http://www.famfamfam.com/lab/icons/silk/"},
+};
+
+void drawCreditTable(const char* id, std::span<const CreditEntry> entries) {
+    constexpr ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
+    if (!ImGui::BeginTable(id, 3, flags)) {
+        return;
+    }
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_None, 1.0f);
+    ImGui::TableSetupColumn("Copyright", ImGuiTableColumnFlags_None, 1.8f);
+    ImGui::TableSetupColumn("License", ImGuiTableColumnFlags_None, 1.2f);
+    ImGui::TableHeadersRow();
+    for (const CreditEntry& entry : entries) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::PushID(entry.name);
+        ImGui::TextLinkOpenURL(entry.name, entry.url);
+        ImGui::SetItemTooltip("%s", entry.url);
+        ImGui::PopID();
+        ImGui::TableNextColumn();
+        ImGui::TextWrapped("%s", entry.copyright);
+        ImGui::TableNextColumn();
+        ImGui::TextWrapped("%s", entry.license);
+    }
+    ImGui::EndTable();
+}
+
+void drawCredits(
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.creditsOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({640.0f, 520.0f}, ImGuiCond_FirstUseEver);
+    if (!beginThemedWindow(theme, fonts, &assets, "Credits", &settingsUi.creditsOpen, 0)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("slopengine");
+    ImGui::TextDisabled("MIT License, Copyright (c) 2026 Slopnode");
+    ImGui::Separator();
+    ImGui::TextUnformatted("Libraries");
+    drawCreditTable("LibraryCredits", kLibraryCredits);
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Fonts and icons");
+    drawCreditTable("AssetCredits", kAssetCredits);
+    ImGui::End();
+}
+
+const char* packageRoleName(PackageRole role) {
+    switch (role) {
+    case PackageRole::Engine:
+        return "engine";
+    case PackageRole::Base:
+        return "base";
+    case PackageRole::Mod:
+        return "mod";
+    }
+    return "";
+}
+
+const char* glVersionName(int version) {
+    switch (version) {
+    case RL_OPENGL_SOFTWARE:
+        return "software";
+    case RL_OPENGL_11:
+        return "OpenGL 1.1";
+    case RL_OPENGL_21:
+        return "OpenGL 2.1";
+    case RL_OPENGL_33:
+        return "OpenGL 3.3";
+    case RL_OPENGL_43:
+        return "OpenGL 4.3";
+    case RL_OPENGL_ES_20:
+        return "OpenGL ES 2.0";
+    case RL_OPENGL_ES_30:
+        return "OpenGL ES 3.0";
+    default:
+        return "unknown";
+    }
+}
+
+std::string compilerName() {
+#if defined(__clang__)
+    return "Clang " __clang_version__;
+#elif defined(__GNUC__)
+    return "GCC " __VERSION__;
+#elif defined(_MSC_VER)
+    return "MSVC " + std::to_string(_MSC_VER);
+#else
+    return "unknown";
+#endif
+}
+
+const char* platformName() {
+#if defined(_WIN32)
+    return "Windows";
+#elif defined(__APPLE__)
+    return "macOS";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "unknown";
+#endif
+}
+
+void infoRow(const char* label, const std::string& value) {
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextDisabled("%s", label);
+    ImGui::TableNextColumn();
+    ImGui::TextWrapped("%s", value.c_str());
+}
+
+bool beginInfoTable(const char* id) {
+    if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchProp)) {
+        return false;
+    }
+    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_None, 1.0f);
+    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_None, 3.0f);
+    return true;
+}
+
+void drawAbout(
+    AssetStore& assets,
+    SettingsUiState& settingsUi,
+    const SlopUiTheme& theme,
+    const SlopUiFonts& fonts) {
+    if (!settingsUi.aboutOpen) {
+        return;
+    }
+    ImGui::SetNextWindowSize({600.0f, 520.0f}, ImGuiCond_FirstUseEver);
+    if (!beginThemedWindow(theme, fonts, &assets, "About", &settingsUi.aboutOpen, 0)) {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("Build");
+    if (beginInfoTable("AboutBuild")) {
+        infoRow("Engine", std::string("slopengine ") + kSlopengineVersion);
+        infoRow("Build type", *kSlopengineBuildType != '\0' ? kSlopengineBuildType : "unspecified");
+        infoRow("Compiled", std::string(__DATE__) + " " + __TIME__);
+        infoRow("Compiler", compilerName());
+        infoRow("Platform", platformName());
+        infoRow("Renderer", glVersionName(rlGetVersion()));
+        infoRow("raylib", RAYLIB_VERSION);
+        infoRow("Dear ImGui", ImGui::GetVersion());
+#if defined(SLOPENGINE_HAS_STEAM_AUDIO)
+        infoRow("Steam Audio", "enabled");
+#else
+        infoRow("Steam Audio", "not built");
+#endif
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Loaded packages");
+    constexpr ImGuiTableFlags flags =
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("AboutPackages", 4, flags)) {
+        ImGui::TableSetupColumn("Package", ImGuiTableColumnFlags_None, 1.4f);
+        ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_None, 0.6f);
+        ImGui::TableSetupColumn("Role", ImGuiTableColumnFlags_None, 0.5f);
+        ImGui::TableSetupColumn("Path", ImGuiTableColumnFlags_None, 2.5f);
+        ImGui::TableHeadersRow();
+        for (const Package& package : assets.packages()) {
+            const PackageMeta& meta = package.meta();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(meta.name.empty() ? meta.id.c_str() : meta.name.c_str());
+            if (!meta.name.empty()) {
+                ImGui::SetItemTooltip("%s", meta.id.c_str());
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(meta.version.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(packageRoleName(package.role()));
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", package.root().string().c_str());
+        }
+        ImGui::EndTable();
     }
     ImGui::End();
 }
@@ -854,7 +1074,12 @@ void drawMainMenuBar(
     }
 
     if (menu("information", "Help", true)) {
-        itemState("information", "About", false, false);
+        if (itemState("information", "About", false, true)) {
+            settingsUi.aboutOpen = true;
+        }
+        if (itemState("award_star_gold_1", "Credits", false, true)) {
+            settingsUi.creditsOpen = true;
+        }
         ImGui::EndMenu();
     }
 
@@ -1906,6 +2131,8 @@ void drawUi(flecs::world world) {
         drawControlsSettings(world, *assets, settingsUi, settings, theme, fonts);
         drawHostGame(world, *assets, settingsUi, netStatus, theme, fonts);
         drawJoinGame(world, *assets, settingsUi, settings, netStatus, theme, fonts);
+        drawAbout(*assets, settingsUi, theme, fonts);
+        drawCredits(*assets, settingsUi, theme, fonts);
         if ((graphicsWasOpen && !settingsUi.graphicsOpen) || (controlsWasOpen && !settingsUi.controlsOpen)) {
             playUiSound(world, UiSoundKind::Back);
         }
