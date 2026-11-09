@@ -86,6 +86,7 @@ bool AudioWorld::init() {
         TraceLog(LOG_ERROR, "AUDIO: SoLoud init failed (%d)", static_cast<int>(result));
         return false;
     }
+    soloud_.setMaxActiveVoiceCount(kMaxActiveVoices);
 
     for (std::size_t i = 0; i < kBusCount; ++i) {
         busHandles_[i] = soloud_.play(buses_[i]);
@@ -123,6 +124,7 @@ void AudioWorld::deinit() {
     stereoClips_.clear();
 #endif
     listenerAttached_.clear();
+    oneShots_.clear();
 
     clips_.clear();
     clipsByDef_.clear();
@@ -516,10 +518,12 @@ SoLoud::handle AudioWorld::playSfxrDef(
                 ? target.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume)
                 : soloud_.play3d(*sfxr, x, y, z, 0.0f, 0.0f, 0.0f, volume);
             applyDefFilterParams(voice, def);
+            trackOneShot(voice, def.loop || def.bus == AudioDefBus::Music);
         }
     } else {
         voice = viaBus ? target.play(*sfxr, volume) : soloud_.play(*sfxr, volume);
         applyDefFilterParams(voice, def);
+        trackOneShot(voice, def.loop || def.bus == AudioDefBus::Music);
     }
 
     if (def.bus == AudioDefBus::Music) {
@@ -670,6 +674,7 @@ SoLoud::handle AudioWorld::playMidiDef(
         voice = viaBus ? target.play(midi, volume) : soloud_.play(midi, volume);
     }
     applyDefFilterParams(voice, def);
+    trackOneShot(voice, def.loop || def.bus == AudioDefBus::Music);
 
     if (def.bus == AudioDefBus::Music) {
         musicVoice_ = voice;
@@ -691,7 +696,9 @@ SoLoud::handle AudioWorld::playSound(
         return 0;
     }
     clip->setLooping(loop);
-    return viaBus ? bus(AudioBusKind::Sfx).play(*clip, volume) : soloud_.play(*clip, volume);
+    return trackOneShot(
+        viaBus ? bus(AudioBusKind::Sfx).play(*clip, volume) : soloud_.play(*clip, volume),
+        loop);
 }
 
 SoLoud::handle AudioWorld::playSound3d(
@@ -738,7 +745,7 @@ SoLoud::handle AudioWorld::playSound3d(
     if (followListener && voice != 0) {
         trackListenerAttached(voice, followForwardOffset);
     }
-    return voice;
+    return trackOneShot(voice, loop);
 }
 
 SoLoud::handle AudioWorld::playAudioDef(
@@ -813,12 +820,12 @@ SoLoud::handle AudioWorld::playAudioDef(
             ? bus(busKind).play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume)
             : soloud_.play3d(*clip, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, volume);
         applyDefFilterParams(voice, def);
-        return voice;
+        return trackOneShot(voice, def.loop);
     }
     const SoLoud::handle voice =
         viaBus ? bus(busKind).play(*clip, volume) : soloud_.play(*clip, volume);
     applyDefFilterParams(voice, def);
-    return voice;
+    return trackOneShot(voice, def.loop);
 }
 
 SoLoud::handle AudioWorld::playProcedural(
@@ -902,7 +909,7 @@ SoLoud::handle AudioWorld::playAudioDef3d(
     clip->set3dMinMaxDistance(def.minDistance, def.maxDistance);
     const SoLoud::handle voice = bus(busKind).play3d(*clip, x, y, z, 0.0f, 0.0f, 0.0f, volume);
     applyDefFilterParams(voice, def);
-    return voice;
+    return trackOneShot(voice, def.loop);
 }
 
 void AudioWorld::stop(SoLoud::handle voice) {
@@ -1017,6 +1024,23 @@ void AudioWorld::update3d() {
         return;
     }
     soloud_.update3dAudio();
+}
+
+SoLoud::handle AudioWorld::trackOneShot(SoLoud::handle voice, bool looping) {
+    if (voice == 0 || looping) {
+        return voice;
+    }
+    std::erase_if(oneShots_, [this](SoLoud::handle tracked) {
+        return !soloud_.isValidVoiceHandle(tracked);
+    });
+    while (oneShots_.size() >= kMaxOneShotVoices) {
+        const SoLoud::handle oldest = oneShots_.front();
+        soloud_.fadeVolume(oldest, 0.0f, kVoiceStealFade);
+        soloud_.scheduleStop(oldest, kVoiceStealFade);
+        oneShots_.erase(oneShots_.begin());
+    }
+    oneShots_.push_back(voice);
+    return voice;
 }
 
 void AudioWorld::trackListenerAttached(SoLoud::handle voice, float forwardOffset) {
@@ -1372,14 +1396,20 @@ SoLoud::handle AudioWorld::playSpatialSteam(
         return 0;
     }
 
+    const bool looping = (source.mFlags & SoLoud::AudioSource::SHOULD_LOOP) != 0;
+    if (!steamAudio_->admitVoice(soloud_, x, y, z, minDistance, volume, looping)) {
+        return 0;
+    }
+
     source.setFilter(0, &steamAudio_->spatializeFilter());
-    const SoLoud::handle voice = bus(busKind).play(source, volume);
+    const SoLoud::handle voice = bus(busKind).play(source, volume, 0.0f, true);
     if (voice == 0) {
         return 0;
     }
 
-    const int slot =
-        steamAudio_->trackVoice(voice, x, y, z, minDistance, maxDistance, volume);
+    const float dryLength = looping ? 0.0f : static_cast<float>(source.getLength());
+    const int slot = steamAudio_->trackVoice(
+        voice, x, y, z, minDistance, maxDistance, volume, looping, dryLength);
     if (slot >= 0) {
         soloud_.setFilterParameter(
             voice,
@@ -1387,6 +1417,22 @@ SoLoud::handle AudioWorld::playSpatialSteam(
             static_cast<unsigned int>(SteamAudioRuntime::kSlotParam),
             static_cast<float>(slot));
     }
+    if (!looping) {
+        const float tail = steamAudio_->tailSeconds();
+        soloud_.setFilterParameter(
+            voice,
+            0,
+            static_cast<unsigned int>(SteamAudioRuntime::kDrySamplesParam),
+            static_cast<float>(source.mSampleCount));
+        soloud_.setFilterParameter(
+            voice,
+            0,
+            static_cast<unsigned int>(SteamAudioRuntime::kTailSamplesParam),
+            tail * source.mBaseSamplerate);
+        soloud_.setAutoStop(voice, false);
+        soloud_.scheduleStop(voice, dryLength + tail + kSpatialStopMargin);
+    }
+    soloud_.setPause(voice, false);
     if (followListener) {
         trackListenerAttached(voice, followForwardOffset);
     }

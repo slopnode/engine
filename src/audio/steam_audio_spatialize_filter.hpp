@@ -8,12 +8,14 @@
 #include <soloud.h>
 #include <soloud_filter.h>
 
-#include <deque>
+#include <cstdint>
+#include <memory>
 
 namespace slopengine {
 
 class SteamAudioRuntime;
 struct SteamAudioSlotRenderParams;
+struct SteamAudioVoiceEffects;
 
 class SteamAudioSpatializeFilterInstance : public SoLoud::FilterInstance {
 public:
@@ -29,26 +31,12 @@ public:
         SoLoud::time aTime) override;
 
 private:
-    bool ensureEffects();
-    void releaseEffects();
     void processFrame(const SteamAudioSlotRenderParams& params);
-    void pushMono(float sample);
-    bool popStereo(float& left, float& right);
 
     SteamAudioRuntime* runtime_ = nullptr;
-    IPLDirectEffect direct_ = nullptr;
-    IPLBinauralEffect binaural_ = nullptr;
-    IPLReflectionEffect reflection_ = nullptr;
-    IPLAudioBuffer monoIn_{};
-    IPLAudioBuffer monoDirect_{};
-    IPLAudioBuffer monoWet_{};
-    IPLAudioBuffer stereoOut_{};
+    std::unique_ptr<SteamAudioVoiceEffects> effects_;
     int frameSize_ = 0;
-    bool buffersReady_ = false;
-
-    std::deque<float> inQueue_;
-    std::deque<float> outQueueL_;
-    std::deque<float> outQueueR_;
+    std::uint64_t processedSamples_ = 0;
 };
 
 class SteamAudioSpatializeFilter : public SoLoud::Filter {

@@ -220,6 +220,7 @@ private:
     static void applySaudioParams(SoLoud::Sfxr& sfxr, const SaudioParams& params);
 
     void trackListenerAttached(SoLoud::handle voice, float forwardOffset);
+    SoLoud::handle trackOneShot(SoLoud::handle voice, bool looping);
 
 #ifdef SLOPENGINE_HAS_STEAM_AUDIO
     SoLoud::Wav* ensureStereoClip(SoLoud::Wav* clip, std::string_view cacheKey);
@@ -252,6 +253,10 @@ private:
     };
 
     static constexpr std::size_t kBusCount = static_cast<std::size_t>(AudioBusKind::Count);
+    static constexpr unsigned int kMaxActiveVoices = 160;
+    static constexpr std::size_t kMaxOneShotVoices = 48;
+    static constexpr float kVoiceStealFade = 0.02f;
+    static constexpr float kSpatialStopMargin = 0.05f;
 
     SoLoud::Soloud soloud_;
     std::array<SoLoud::Bus, kBusCount> buses_;
@@ -272,6 +277,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<MidiSource>> midiByDef_;
     std::vector<std::unique_ptr<SoLoud::Filter>> filters_;
     std::vector<ListenerAttachedVoice> listenerAttached_;
+    std::vector<SoLoud::handle> oneShots_;
     int underwaterFilterSlot_ = -1;
     std::unordered_map<std::string, void*> schemeFilters_;
     unsigned int globalFilterCount_ = 0;
