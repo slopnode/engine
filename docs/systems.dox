@@ -181,10 +181,6 @@
  * Phase: `OnUpdate`. Skins @ref slopengine::Model3D at a clip time blended between the last two ticks.
  * Defined in `render/animation_systems.cpp`.
  *
- * @section sys_AnimationClipFlipTest AnimationClipFlipTest
- * Phase: `PostUpdate`, once per simulation tick. Demo helper that flips clips via @ref slopengine::AnimationClipFlipTest.
- * Defined in `render/animation_systems.cpp`.
- *
  * @section sys_AdvanceMaterialAnim AdvanceMaterialAnim
  * Phase: `OnUpdate`. Advances material animation clocks and applies the resulting texture frames.
  * Defined in `render/material_anim.cpp`.

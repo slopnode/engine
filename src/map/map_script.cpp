@@ -1018,7 +1018,7 @@ std::optional<std::vector<Brush>> loadMapBrushes(
     }
     const std::string virtualPath = std::string(mapName) + "/brushes";
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "MAP: loaded brushes '%s' total=%d hull=%d detail=%d other=%d box=%d nocollide=%d instances=%d",
         virtualPath.c_str(),
         static_cast<int>(brushes.size()),
@@ -1152,7 +1152,7 @@ bool loadMapStageBsp(
     }
 
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "MAP: meta id='%s' name='%s' author='%s' package='%s' depends=%d ambient=(%.3f %.3f %.3f) sun=%s",
         mapMeta->id.c_str(),
         mapMeta->name.c_str(),
@@ -1210,7 +1210,7 @@ bool loadMapStageVis(AssetStore& assets, MapLoadWork& work) {
             if (auto loadedPvs = readPvsFile(*pvsPath)) {
                 pvs = std::move(*loadedPvs);
                 TraceLog(
-                    LOG_INFO,
+                    LOG_DEBUG,
                     "MAP: loaded pvs leaves=%d",
                     pvs.leafCount);
             } else {
@@ -1279,7 +1279,7 @@ bool loadMapStageNav(AssetStore& assets, MapLoadWork& work) {
             continue;
         }
         TraceLog(
-            LOG_INFO,
+            LOG_DEBUG,
             "MAP: loaded baked navmesh profile='%s' polys=%d",
             profile.name.c_str(),
             loadedNav->leafCount);
@@ -1294,7 +1294,7 @@ bool loadMapStageNav(AssetStore& assets, MapLoadWork& work) {
     }
 
     if (primary == nullptr) {
-        TraceLog(LOG_INFO, "MAP: no baked navmesh present (run slopnav)");
+        TraceLog(LOG_DEBUG, "MAP: no baked navmesh present (run slopnav)");
         return true;
     }
     work.nav = work.navProfiles[primary->name];
@@ -1337,7 +1337,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     }
 
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "MAP: BSP hull=%d detail=%d box=%d nocollide=%d nodes=%d emptyLeaves=%d solidLeaves=%d portals=%d surfaceFaces=%d charts=%d",
         hullCount,
         detailCount,
@@ -1490,7 +1490,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
             }
         }
         TraceLog(
-            LOG_INFO,
+            LOG_DEBUG,
             "MAP: model meshes=%d noVertices=%d degenerateBounds=%d bufferNormals=%d positions=%d",
             model.meshCount,
             noVertices,
@@ -1559,7 +1559,7 @@ std::optional<LoadedMap> loadMapStageTextures(AssetStore& assets, MapLoadWork&& 
     result.brushes = std::move(work.brushes);
     result.moverBrushIds = std::move(work.moverBrushIds);
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "MAP: opaque cull lists meshes=%d withoutLeaves=%d leavesTotal=%d transparent=%d",
         static_cast<int>(result.opaqueMeshes.size()),
         meshesWithoutLeaves,

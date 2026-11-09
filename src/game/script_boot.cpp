@@ -48,7 +48,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
                 TraceLog(LOG_WARNING, "SCRIPT: player.s7 not loaded");
             }
             if (!assets.loadScriptFromPackage(scheme, baseId, "menus")) {
-                TraceLog(LOG_INFO, "SCRIPT: menus.s7 not loaded");
+                TraceLog(LOG_DEBUG, "SCRIPT: menus.s7 not loaded");
             }
             captureHookOwners(scheme);
         } else if (scheme != nullptr) {
@@ -62,7 +62,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
                 }
                 if (assets.loadScriptFromPackage(scheme, package.meta().id, "contrib")) {
                     TraceLog(
-                        LOG_INFO,
+                        LOG_DEBUG,
                         "SCRIPT: loaded contrib.s7 from mod '%s'",
                         package.meta().id.c_str());
                 }
@@ -72,7 +72,7 @@ void registerScriptBoot(flecs::world& world, AssetStore& assets, s7_scheme* sche
 
     loadMenuBackgroundConfig(world, assets, scheme);
 
-    TraceLog(LOG_INFO, "RENDER: entering menu (package on-startup / Debug → Map)");
+    TraceLog(LOG_DEBUG, "RENDER: entering menu (package on-startup / Debug → Map)");
     enterMenu(world);
 }
 

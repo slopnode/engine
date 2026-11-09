@@ -896,7 +896,7 @@ void NetSession::serverUpdateKnown(ServerClient& client) {
     }
     if (!client.loggedKnown && haveEye) {
         client.loggedKnown = true;
-        Log::info(LogCategory::General, "NET: %s sees %zu of %zu entities", client.player.c_str(), wanted.size(),
+        Log::debug(LogCategory::General, "NET: %s sees %zu of %zu entities", client.player.c_str(), wanted.size(),
                   serverEntities_.size());
     }
     std::vector<std::uint32_t> desired;
@@ -2397,7 +2397,7 @@ void NetSession::clientSnapshot(const NetSnapshot& snapshot) {
     }
     if (!loggedSnapshots_ && mapReady) {
         loggedSnapshots_ = true;
-        Log::info(LogCategory::General, "NET: receiving snapshots as %s, %zu of %zu entities bound, eye at %.2f %.2f %.2f",
+        Log::debug(LogCategory::General, "NET: receiving snapshots as %s, %zu of %zu entities bound, eye at %.2f %.2f %.2f",
                   yourPlayer_.c_str(), boundCount, snapshot.entities.size(), snapshot.eye[0], snapshot.eye[1],
                   snapshot.eye[2]);
     }

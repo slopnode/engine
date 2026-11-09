@@ -112,7 +112,7 @@ bool SteamAudioRuntime::init(int samplingRate, int frameSize) {
     spatializeFilter_ = std::make_unique<SteamAudioSpatializeFilter>(this);
     ready_ = true;
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "STEAM AUDIO: ready (rate=%d frame=%d reflections=parametric)",
         audioSettings_.samplingRate,
         audioSettings_.frameSize);
@@ -167,7 +167,7 @@ bool SteamAudioRuntime::setSceneFromBrushes(
     sceneReady_ = ok;
     reflectionTimer_ = kReflectionInterval;
     if (ok) {
-        TraceLog(LOG_INFO, "STEAM AUDIO: scene built from brushes");
+        TraceLog(LOG_DEBUG, "STEAM AUDIO: scene built from brushes");
     } else {
         TraceLog(LOG_WARNING, "STEAM AUDIO: failed to build scene from brushes");
     }

@@ -658,7 +658,7 @@ void App::init_script() {
     if (assetStore_.loadDataFromPackage(scheme_, baseId, "cli")) {
         cliSchema = parsePackageCliFromScheme(scheme_);
     } else {
-        TraceLog(LOG_INFO, "SCRIPT: data/cli.s7 not loaded (no package CLI flags)");
+        TraceLog(LOG_DEBUG, "SCRIPT: data/cli.s7 not loaded (no package CLI flags)");
     }
 
     std::string cliError;

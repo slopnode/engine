@@ -288,7 +288,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
     }
 
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "BSP: analyze start leaves=%d surfaces=%d brushes=%d duplicateFaceIds=%d",
         static_cast<int>(tree.leaves.size()),
         static_cast<int>(tree.surfaceFaces.size()),
@@ -316,7 +316,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
     analysis.sealed = anyInteriorEmpty;
 
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "BSP: flood exteriorEmpty=%d interiorEmpty=%d blocked=%d portals=%d sealed=%s",
         exteriorEmpty,
         interiorEmpty,
@@ -341,7 +341,7 @@ MapHullAnalysis analyzeMapHull(const BspTree& tree, const std::vector<Brush>& br
     }
 
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "BSP: analyze done detailWarnings=%d",
         static_cast<int>(analysis.detailOutsideWarnings.size()));
     return analysis;

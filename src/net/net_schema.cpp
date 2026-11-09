@@ -1201,7 +1201,7 @@ void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets) {
     }
     schema.finalize();
     if (!schema.fields().empty() || !schema.events().empty()) {
-        Log::info(
+        Log::debug(
             LogCategory::Script,
             "NET: %zu declared fields, %zu events, schema %016llx",
             schema.fields().size(),

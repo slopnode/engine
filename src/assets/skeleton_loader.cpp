@@ -885,7 +885,7 @@ PoseScaleResult updateRiggedModelAnimation(
         static bool loggedMatrixSkinning = false;
         if (!loggedMatrixSkinning) {
             TraceLog(
-                LOG_INFO,
+                LOG_DEBUG,
                 "RIG: using matrix skinning (%s bind source)",
                 bindGlobalMatrices != nullptr ? ".bind file" : "clip frame 0");
             loggedMatrixSkinning = true;

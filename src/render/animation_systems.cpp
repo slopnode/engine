@@ -402,22 +402,6 @@ void registerAnimationSystems(flecs::world& world) {
         });
 }
 
-void registerAnimationClipFlipTestSystem(flecs::world& world) {
-    world.system<AnimationPlayer, AnimationClipFlipTest>("AnimationClipFlipTest")
-        .kind(flecs::PostUpdate)
-        .each([](AnimationPlayer& player, AnimationClipFlipTest& controller) {
-            if (!player.justFinished) {
-                return;
-            }
-
-            if (player.clipName == controller.clipA) {
-                player.play(controller.clipB, false);
-            } else {
-                player.play(controller.clipA, false);
-            }
-        }).add<SimSystem>();
-}
-
 namespace {
 
 void updateRootTransforms(flecs::iter& it) {

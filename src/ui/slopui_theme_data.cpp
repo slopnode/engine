@@ -723,7 +723,7 @@ SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor, 
     if (!themeId.empty()) {
         if (loadNamedTheme(assets, scheme, themeId)) {
             overlayPackageThemeFromScheme(scheme, theme, editor);
-            TraceLog(LOG_INFO, "THEME: applied data/themes/%.*s.s7", static_cast<int>(themeId.size()), themeId.data());
+            TraceLog(LOG_DEBUG, "THEME: applied data/themes/%.*s.s7", static_cast<int>(themeId.size()), themeId.data());
         } else if (themeId != kDefaultSlopUiThemeId) {
             TraceLog(LOG_WARNING, "THEME: theme '%.*s' not found, using '%s'",
                 static_cast<int>(themeId.size()), themeId.data(), kDefaultSlopUiThemeId);
@@ -737,7 +737,7 @@ SlopUiTheme loadSlopUiTheme(AssetStore& assets, s7_scheme* scheme, bool editor, 
             continue;
         }
         overlayPackageThemeFromScheme(scheme, theme, editor);
-        TraceLog(LOG_INFO, "THEME: applied data/theme.s7 from '%s'", id.c_str());
+        TraceLog(LOG_DEBUG, "THEME: applied data/theme.s7 from '%s'", id.c_str());
     }
     return theme;
 }

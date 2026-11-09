@@ -91,7 +91,6 @@ void registerComponents(flecs::world& world) {
     world.component<SpriteAnimator>();
     world.component<AnimationPlayer>();
     world.component<BoneAttachment>();
-    world.component<AnimationClipFlipTest>();
     world.component<MaterialAnimTargets>();
     world.component<MaterialAnimClocks>();
     world.component<PointLight>();
@@ -524,7 +523,6 @@ void registerRenderModule(
     registerSpinSystem(world);
     registerSchemeTickSystem(world);
     registerAnimationSystems(world);
-    registerAnimationClipFlipTestSystem(world);
     registerTransformSystems(world);
     registerBoneSpringSystem(world);
     registerSpriteAnimatorSystem(world);

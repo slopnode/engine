@@ -307,7 +307,7 @@ void loadPackageMotorRules(s7_scheme* sc, AssetStore& assets) {
     std::vector<MotorRule> rules;
     if (parseMotorRules(sc, s7_name_to_value(sc, "*motor-rules*"), rules, messages)) {
         motorRules() = std::move(rules);
-        Log::info(LogCategory::Script, "MOTOR: %zu rules", motorRules().size());
+        Log::debug(LogCategory::Script, "MOTOR: %zu rules", motorRules().size());
     }
     for (const std::string& message : messages) {
         Log::warning(LogCategory::Script, "MOTOR: %s", message.c_str());

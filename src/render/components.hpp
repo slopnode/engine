@@ -203,14 +203,6 @@ struct Spin {
     float speed = 1.0f;
 };
 
-/** Demo helper that flips between two animation clips.
- *  @ingroup render_components
- */
-struct AnimationClipFlipTest {
-    std::string clipA = "bob";
-    std::string clipB = "default";
-};
-
 /** Billboard sprite presentation: asset path, frame id, and facing yaw.
  *  @ingroup render_components
  */

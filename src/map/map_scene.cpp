@@ -306,7 +306,7 @@ bool assembleMapScene(
     {
         MapAreas areas = buildMapAreas(world.get<MapBsp>().tree);
         TraceLog(
-            LOG_INFO,
+            LOG_DEBUG,
             "MAP: areas=%d areaPortals=%d",
             areas.areaCount,
             static_cast<int>(areas.portals.size()));
@@ -322,7 +322,7 @@ bool assembleMapScene(
             // that haven't been re-baked yet (loaded.nav empty) fall back to building
             // the BSP leaf/portal graph at runtime exactly as before, so this cutover
             // doesn't break any existing map until someone runs slopnav on it.
-            TraceLog(LOG_INFO, "MAP: using baked navmesh graph (polys=%d)", loaded.nav.leafCount);
+            TraceLog(LOG_DEBUG, "MAP: using baked navmesh graph (polys=%d)", loaded.nav.leafCount);
             world.set<MapNavigation>(std::move(loaded.nav));
         } else {
             TraceLog(

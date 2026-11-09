@@ -385,7 +385,7 @@ void PhysicsWorld::addStaticBrushes(const std::vector<Brush>& brushes) {
 
     system_->OptimizeBroadPhase();
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "PHYSICS: added %d static chunk bodies from %d brushes (box=%d hull=%d skipped %d no-blocks)",
         static_cast<int>(staticBodies_.size()),
         boxCount + hullShapeCount,
@@ -498,7 +498,7 @@ void PhysicsWorld::createKinematicBox(
     kinematicBodies_[id] = bodyId;
     kinematicBodyToEntity_[bodyId.GetIndexAndSequenceNumber()] = id;
     kinematicSlide_[id] = slide;
-    TraceLog(LOG_INFO, "PHYSICS: kinematic box %llu at (%.3f %.3f %.3f) he=(%.3f %.3f %.3f)",
+    TraceLog(LOG_DEBUG, "PHYSICS: kinematic box %llu at (%.3f %.3f %.3f) he=(%.3f %.3f %.3f)",
         static_cast<unsigned long long>(id),
         center.x,
         center.y,
@@ -1055,7 +1055,7 @@ void PhysicsWorld::createCharacter(
 
     characters_[id] = std::move(entry);
     TraceLog(
-        LOG_INFO,
+        LOG_DEBUG,
         "PHYSICS: character %llu at (%.2f, %.2f, %.2f) hull=%s move=%s",
         static_cast<unsigned long long>(id),
         x,
