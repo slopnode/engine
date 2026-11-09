@@ -325,6 +325,7 @@ add_executable(slopengine
     src/render/system_perf.cpp
     src/render/render_pass_fp.cpp
     src/render/render_pass_extra_eye.cpp
+    src/render/anti_alias.cpp
     src/render/post_process.cpp
     src/render/underwater_effect.cpp
     src/render/skybox_world.cpp

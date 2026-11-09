@@ -227,7 +227,9 @@ PostProcessState::PostProcessState(PostProcessState&& other) noexcept
     , scenePasses(std::move(other.scenePasses))
     , hudPasses(std::move(other.hudPasses))
     , bothPasses(std::move(other.bothPasses))
-    , nextHandle(other.nextHandle) {
+    , nextHandle(other.nextHandle)
+    , antiAliasMode(std::exchange(other.antiAliasMode, AntiAliasMode::Off))
+    , antiAlias(std::move(other.antiAlias)) {
 }
 
 PostProcessState& PostProcessState::operator=(PostProcessState&& other) noexcept {
@@ -257,6 +259,8 @@ PostProcessState& PostProcessState::operator=(PostProcessState&& other) noexcept
     hudPasses = std::move(other.hudPasses);
     bothPasses = std::move(other.bothPasses);
     nextHandle = other.nextHandle;
+    antiAliasMode = std::exchange(other.antiAliasMode, AntiAliasMode::Off);
+    antiAlias = std::move(other.antiAlias);
     return *this;
 }
 
@@ -265,6 +269,8 @@ PostProcessState::~PostProcessState() {
 }
 
 void PostProcessState::unload() {
+    antiAlias.reset();
+    antiAliasMode = AntiAliasMode::Off;
     for (auto* list : {&scenePasses, &hudPasses, &bothPasses}) {
         for (auto& pass : *list) {
             if (pass.shader.id != 0) {
@@ -373,6 +379,29 @@ bool ensurePostProcessHud(PostProcessState& state, int width, int height) {
     return true;
 }
 
+void setPostProcessAntiAlias(PostProcessState& state, AssetStore& assets, AntiAliasMode mode) {
+    const bool wasActive = state.antiAliasMode != AntiAliasMode::Off;
+    if (mode == AntiAliasMode::Off || state.scene.id == 0) {
+        if (wasActive) {
+            SetTextureFilter(state.scene.texture, TEXTURE_FILTER_POINT);
+            for (const RenderTexture2D& scratch : state.sceneScratch) {
+                if (scratch.id != 0) {
+                    SetTextureFilter(scratch.texture, TEXTURE_FILTER_POINT);
+                }
+            }
+        }
+        state.antiAliasMode = AntiAliasMode::Off;
+        return;
+    }
+    if (!state.antiAlias) {
+        state.antiAlias = std::make_unique<AntiAliasState>();
+    }
+    state.antiAliasMode =
+        prepareAntiAlias(*state.antiAlias, assets, mode, state.sceneW, state.sceneH)
+            ? mode
+            : AntiAliasMode::Off;
+}
+
 bool postProcessNeedsCompositePipeline(const PostProcessState& state) {
     return hasActivePasses(state.hudPasses) || hasActivePasses(state.bothPasses);
 }
@@ -468,7 +497,8 @@ void presentPostProcessSceneOnly(PostProcessState& state) {
     if (state.scene.id == 0) {
         return;
     }
-    runShaderChain(
+    const bool antiAliased = state.antiAliasMode != AntiAliasMode::Off && state.antiAlias;
+    const Texture2D sceneFinal = runShaderChain(
         state.scenePasses,
         state.scene.texture,
         state.sceneScratch,
@@ -477,8 +507,11 @@ void presentPostProcessSceneOnly(PostProcessState& state) {
         state.sceneW,
         state.sceneH,
         /*firstTargetIndex=*/0,
-        /*lastWritesToScreen=*/true,
+        /*lastWritesToScreen=*/!antiAliased,
         BLACK);
+    if (antiAliased) {
+        runAntiAlias(*state.antiAlias, state.antiAliasMode, sceneFinal, true);
+    }
 }
 
 void beginHudCapture(PostProcessState& state) {
@@ -500,7 +533,7 @@ void presentPostProcessComposite(PostProcessState& state) {
         return;
     }
 
-    const Texture2D sceneFinal = runShaderChain(
+    Texture2D sceneFinal = runShaderChain(
         state.scenePasses,
         state.scene.texture,
         state.sceneScratch,
@@ -511,6 +544,9 @@ void presentPostProcessComposite(PostProcessState& state) {
         0,
         false,
         BLACK);
+    if (state.antiAliasMode != AntiAliasMode::Off && state.antiAlias) {
+        sceneFinal = runAntiAlias(*state.antiAlias, state.antiAliasMode, sceneFinal, false);
+    }
 
     const bool hasHud = state.hud.id != 0;
     const Texture2D hudFinal = hasHud

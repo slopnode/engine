@@ -2,6 +2,7 @@
 
 #include "game/ui_settings.hpp"
 #include "input/actions.hpp"
+#include "render/anti_alias.hpp"
 
 #include <filesystem>
 #include <string>
@@ -22,6 +23,7 @@ struct GraphicsSettings {
     int height = 720;
     WindowMode mode = WindowMode::Windowed;
     bool vsync = true;
+    AntiAliasMode antiAliasing = AntiAliasMode::Off;
     bool dynamicLights = true;
     bool dynamicLightShadows = true;
     int maxDynamicLights = 32;

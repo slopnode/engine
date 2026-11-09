@@ -151,6 +151,10 @@ GraphicsSettings UserSettings::loadGraphicsOrDefault(const std::filesystem::path
             }
         } else if (key == "vsync") {
             parseBool(value, graphics.vsync);
+        } else if (key == "anti_aliasing") {
+            if (const auto mode = antiAliasFromId(value)) {
+                graphics.antiAliasing = *mode;
+            }
         } else if (key == "dynamic_lights") {
             parseBool(value, graphics.dynamicLights);
         } else if (key == "dynamic_light_shadows") {
@@ -243,6 +247,7 @@ bool UserSettings::save() const {
            << "height=" << graphics.height << '\n'
            << "mode=" << windowModeId(graphics.mode) << '\n'
            << "vsync=" << (graphics.vsync ? "1" : "0") << '\n'
+           << "anti_aliasing=" << antiAliasId(graphics.antiAliasing) << '\n'
            << "dynamic_lights=" << (graphics.dynamicLights ? "1" : "0") << '\n'
            << "dynamic_light_shadows=" << (graphics.dynamicLightShadows ? "1" : "0") << '\n'
            << "max_dynamic_lights=" << graphics.maxDynamicLights << '\n'

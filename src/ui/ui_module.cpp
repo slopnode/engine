@@ -550,6 +550,8 @@ constexpr CreditEntry kLibraryCredits[] = {
     {"stb", "Sean Barrett", "MIT or public domain", "https://github.com/nothings/stb"},
     {"TinySoundFont", "Bernhard Schelling", "MIT", "https://github.com/schellingb/TinySoundFont"},
     {"ENet", "Lee Salzman", "MIT", "http://enet.bespin.org"},
+    {"SMAA", "Jorge Jimenez, Jose I. Echevarria, Tiago Sousa, Diego Gutierrez", "MIT", "https://github.com/iryoku/smaa"},
+    {"FXAA", "Timothy Lottes, NVIDIA", "Public domain", "https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/FXAA_WhitePaper.pdf"},
     {"Monocypher", "Loup Vaillant, Michael Savage, Fabio Scotoni", "BSD-2-Clause or CC0", "https://monocypher.org"},
 #if defined(SLOPENGINE_HAS_STEAM_AUDIO)
     {"Steam Audio", "Valve Corporation", "Apache 2.0", "https://valvesoftware.github.io/steam-audio/"},
@@ -852,6 +854,21 @@ void drawGraphicsSettings(
     }
 
     ImGui::Checkbox("VSync", &draft.vsync);
+
+    constexpr AntiAliasMode kAntiAliasModes[] = {AntiAliasMode::Off, AntiAliasMode::Fxaa, AntiAliasMode::Smaa};
+    if (ImGui::BeginCombo("Anti-Aliasing", antiAliasLabel(draft.antiAliasing))) {
+        for (const AntiAliasMode mode : kAntiAliasModes) {
+            const bool selected = mode == draft.antiAliasing;
+            if (ImGui::Selectable(antiAliasLabel(mode), selected)) {
+                draft.antiAliasing = mode;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
     ImGui::Checkbox("Dynamic Lights", &draft.dynamicLights);
     if (!draft.dynamicLights) {
         ImGui::BeginDisabled();

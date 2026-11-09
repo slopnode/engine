@@ -38,6 +38,12 @@ Small cryptography library: X25519 key exchange, BLAKE2b hashing and XChaCha20-P
 
 https://monocypher.org/
 
+# SMAA and FXAA {#smaa-fxaa}
+
+The two screen-space anti-aliasing options under Graphics. SMAA is the reference algorithm by Jorge Jimenez, Jose I. Echevarria, Tiago Sousa and Diego Gutierrez, used with its precomputed area and search textures and ported to GLSL by three.js. FXAA is the NVIDIA algorithm by Timothy Lottes.
+
+https://github.com/iryoku/smaa
+
 # Imgui {#imgui}
 
 User interface framework. 

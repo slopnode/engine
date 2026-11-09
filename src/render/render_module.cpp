@@ -285,6 +285,10 @@ void registerRenderSystems(flecs::world& world) {
                     GetRenderWidth(),
                     GetRenderHeight());
                 if (sceneToTexture) {
+                    if (world.has<AssetServices>() && world.get<AssetServices>().store != nullptr) {
+                        setPostProcessAntiAlias(
+                            *postState, *world.get<AssetServices>().store, graphics.antiAliasing);
+                    }
                     BeginTextureMode(postState->scene);
                     ClearBackground(BLACK);
                 }
