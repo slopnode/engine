@@ -213,6 +213,7 @@ private:
     void serverAcknowledge(ServerClient& client, std::uint64_t tick);
     NetIntroduction serverIntroduction(std::uint32_t netId, flecs::entity entity) const;
     void serverSendEffects();
+    void serverSendSession(ServerClient* only);
     void serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone);
     void serverTrackMotion();
     bool serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const;
@@ -289,6 +290,7 @@ private:
     std::set<std::uint32_t> appeared_;
     std::set<std::string> hostAppeared_;
     std::set<std::string> hostSpawned_;
+    std::vector<NetValue> sessionSent_;
     std::uint64_t lastSnapshotTick_ = 0;
     std::uint64_t ackSnapshot_ = 0;
     double clock_ = 0.0;

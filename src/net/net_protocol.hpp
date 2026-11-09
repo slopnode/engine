@@ -39,6 +39,7 @@ enum class NetMessageKind : std::uint8_t {
     Snapshot = 6,
     Events = 7,
     Effects = 8,
+    Session = 9,
 };
 
 enum class NetEventWhere : std::uint8_t {
@@ -210,6 +211,13 @@ bool decodeNetMapChange(std::span<const std::byte> data, NetMapChange& out);
 std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& entries);
 bool decodeNetIntroduce(std::span<const std::byte> data, std::vector<NetIntroduction>& out);
 std::vector<std::byte> encodeNetForget(const std::vector<std::uint32_t>& netIds);
+std::vector<std::byte> encodeNetSession(
+    const std::vector<std::pair<int, NetValue>>& fields,
+    const std::vector<const NetField*>& sessionFields);
+bool decodeNetSession(
+    std::span<const std::byte> data,
+    const std::vector<const NetField*>& sessionFields,
+    std::vector<std::pair<int, NetValue>>& out);
 bool decodeNetForget(std::span<const std::byte> data, std::vector<std::uint32_t>& out);
 std::vector<std::byte> encodeNetEffects(const std::vector<NetEffect>& effects);
 bool decodeNetEffects(std::span<const std::byte> data, std::vector<NetEffect>& out);

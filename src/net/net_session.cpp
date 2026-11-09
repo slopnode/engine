@@ -435,6 +435,7 @@ void NetSession::serverSendMap(ServerClient& client) {
         client.connection,
         encodeNetMapChange({world_.get<CurrentMap>().id, "fresh", client.player}),
         NetSendMode::Reliable);
+    serverSendSession(&client);
     serverRefreshView(client);
     serverUpdateKnown(client);
 }
@@ -1081,6 +1082,42 @@ NetIntroduction NetSession::serverIntroduction(std::uint32_t netId, flecs::entit
     return entry;
 }
 
+void NetSession::serverSendSession(ServerClient* only) {
+    if (!world_.has<NetStore>()) {
+        return;
+    }
+    const std::vector<const NetField*> fields = netSchema().fieldsIn(NetScope{NetScopeKind::Session, {}});
+    const std::vector<NetValue>& values = world_.get<NetStore>().session;
+    if (sessionSent_.size() != fields.size()) {
+        sessionSent_.clear();
+        for (const NetField* field : fields) {
+            sessionSent_.push_back(field->defaultValue);
+        }
+    }
+    std::vector<std::pair<int, NetValue>> changed;
+    for (std::size_t i = 0; i < fields.size() && i < values.size(); ++i) {
+        if (fields[i]->send == NetAudience::All && (only != nullptr || !(values[i] == sessionSent_[i]))) {
+            changed.emplace_back(static_cast<int>(i), values[i]);
+        }
+    }
+    if (changed.empty()) {
+        return;
+    }
+    const std::vector<std::byte> message = encodeNetSession(changed, fields);
+    if (only != nullptr) {
+        transport_->send(only->connection, message, NetSendMode::Reliable);
+        return;
+    }
+    for (const auto& [slot, value] : changed) {
+        sessionSent_[static_cast<std::size_t>(slot)] = value;
+    }
+    for (auto& entry : clients_) {
+        if (entry.second.ready) {
+            transport_->send(entry.second.connection, message, NetSendMode::Reliable);
+        }
+    }
+}
+
 void NetSession::serverSendEffects() {
     if (!world_.has<NetEffectQueue>()) {
         return;
@@ -1364,6 +1401,7 @@ void NetSession::serverAfterTick() {
         }
     }
     serverListVisiblePlayers();
+    serverSendSession(nullptr);
     const std::uint64_t interval = std::max<std::uint64_t>(1, config_.snapshotIntervalTicks);
     for (auto& entry : clients_) {
         ServerClient& client = entry.second;
@@ -1781,6 +1819,20 @@ void NetSession::clientReceive(const NetEvent& event) {
             const flecs::entity entity = clientEntity(effect.netId);
             if (entity.is_valid() && config_.applyEffect && !(attaching && entity.has<NetStandIn>())) {
                 config_.applyEffect(entity, effect, true);
+            }
+        }
+    } else if (kind == NetMessageKind::Session) {
+        std::vector<std::pair<int, NetValue>> fields;
+        if (!decodeNetSession(event.data, netSchema().fieldsIn(NetScope{NetScopeKind::Session, {}}), fields)) {
+            clientRefuse("server sent bad session fields");
+            return;
+        }
+        if (world_.has<NetStore>()) {
+            std::vector<NetValue>& values = world_.get_mut<NetStore>().session;
+            for (auto& [slot, value] : fields) {
+                if (static_cast<std::size_t>(slot) < values.size()) {
+                    values[static_cast<std::size_t>(slot)] = std::move(value);
+                }
             }
         }
     } else if (kind == NetMessageKind::Forget) {

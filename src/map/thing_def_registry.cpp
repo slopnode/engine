@@ -113,6 +113,10 @@ bool parseKindName(std::string_view name, ThingKind& out) {
         out = ThingKind::Pickup;
         return true;
     }
+    if (name == "marker") {
+        out = ThingKind::Marker;
+        return true;
+    }
     return false;
 }
 
@@ -430,10 +434,10 @@ bool ThingDefRegistry::registerDef(ThingDef def) {
         return false;
     }
     if (def.kind != ThingKind::Prop && def.kind != ThingKind::Actor &&
-        def.kind != ThingKind::Pickup) {
+        def.kind != ThingKind::Pickup && def.kind != ThingKind::Marker) {
         TraceLog(
             LOG_WARNING,
-            "THINGDEFS: '%s' kind must be prop, actor, or pickup; ignored",
+            "THINGDEFS: '%s' kind must be prop, actor, pickup, or marker; ignored",
             def.id.c_str());
         return false;
     }

@@ -34,18 +34,6 @@ std::string entityIdString(flecs::entity entity) {
     return std::to_string(static_cast<std::uint64_t>(entity.id()));
 }
 
-Vector3 localAxis(MoverRotAxis axis) {
-    switch (axis) {
-    case MoverRotAxis::Pitch:
-        return {1.0f, 0.0f, 0.0f};
-    case MoverRotAxis::Roll:
-        return {0.0f, 0.0f, 1.0f};
-    case MoverRotAxis::Yaw:
-    default:
-        return {0.0f, 1.0f, 0.0f};
-    }
-}
-
 Vector3 rotateVec(Quaternion q, Vector3 v) {
     return Vector3RotateByQuaternion(v, q);
 }
@@ -179,28 +167,6 @@ bool requestTarget(flecs::entity entity, float target) {
 
 } // namespace
 
-void computeMoverPose(
-    const RigidMover& mover,
-    float t,
-    Vector3& outPos,
-    Quaternion& outRot) {
-    t = std::clamp(t, 0.0f, 1.0f);
-    const Vector3 pivotWorld =
-        Vector3Add(mover.closedPos, rotateVec(mover.closedRot, mover.pivotLocal));
-    const float angle = t * mover.openAngleRadians;
-    Quaternion delta = QuaternionIdentity();
-    if (std::fabs(angle) > 1.0e-8f) {
-        const Vector3 axisLocal = localAxis(mover.rotAxis);
-        const Vector3 axisWorld = Vector3Normalize(rotateVec(mover.closedRot, axisLocal));
-        delta = QuaternionFromAxisAngle(axisWorld, angle);
-    }
-    outRot = QuaternionNormalize(QuaternionMultiply(delta, mover.closedRot));
-    const Vector3 slide = rotateVec(mover.closedRot, Vector3Scale(mover.openPosOffset, t));
-    outPos = Vector3Add(
-        Vector3Add(pivotWorld, rotateVec(outRot, Vector3Negate(mover.pivotLocal))),
-        slide);
-}
-
 Matrix moverClosedMatrix(const RigidMover& mover, Vector3 scale) {
     Matrix matrix = MatrixIdentity();
     matrix = MatrixMultiply(matrix, MatrixScale(scale.x, scale.y, scale.z));
@@ -209,10 +175,6 @@ Matrix moverClosedMatrix(const RigidMover& mover, Vector3 scale) {
         matrix,
         MatrixTranslate(mover.closedPos.x, mover.closedPos.y, mover.closedPos.z));
     return matrix;
-}
-
-Vector3 moverCollideWorldCenter(const Vector3& pos, const Quaternion& rot, const RigidMover& mover) {
-    return Vector3Add(pos, rotateVec(rot, mover.collideCenterLocal));
 }
 
 bool moverRequestOpen(flecs::entity entity) {

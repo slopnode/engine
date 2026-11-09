@@ -48,7 +48,7 @@ window.SLOPENGINE_SCHEME_FNS = [
   "thing-def-gravity", "thing-def-health", "thing-def-hover-height",
   "thing-def-idle-anim", "thing-def-move-mode", "thing-def-pain-chance",
   "thing-def-pain-threshold", "thing-def-radius", "thing-def-speed",
-  "thing-def-vertical-speed", "thing-despawn", "thing-pos", "thing-type", "thing-yaw",
+  "thing-def-vertical-speed", "thing-despawn", "thing-respawn", "map-things", "thing-pos", "thing-type", "thing-yaw",
   "tick", "tracer-spawn", "trail-spawn", "trail-spawn-fp", "ui-begin", "ui-begin-child",
   "ui-begin-combo", "ui-button", "ui-center-next-window", "ui-child", "ui-combo-item",
   "ui-end", "ui-end-child", "ui-end-combo", "ui-get", "ui-indent", "ui-input-text",

@@ -8,7 +8,10 @@
 #include <flecs.h>
 #include <raylib.h>
 
+#include <cstddef>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 struct s7_scheme;
@@ -25,6 +28,11 @@ struct PlayerStart {
     float motorRadius = 0.3f;
     float motorHeight = 0.88f;
     float motorEyeHeight = 0.8f;
+};
+
+struct MapThingPlacements {
+    std::vector<Thing> things;
+    std::unordered_map<std::string, std::size_t> byId;
 };
 
 /** Attaches an AnimationPlayer to a skinned geo entity, resolving its clip bank from
@@ -53,5 +61,7 @@ PlayerStart spawnMapThings(
     const RadFile* rad = nullptr,
     const std::vector<Texture2D>* lightmapAtlases = nullptr,
     bool hasLightmaps = false);
+
+bool respawnMapThing(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view id);
 
 }

@@ -179,6 +179,38 @@ s7_pointer g_thing_despawn(s7_scheme* sc, s7_pointer args) {
     return s7_t(sc);
 }
 
+s7_pointer g_thing_respawn(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "thing-respawn", args);
+    const std::string id = in.string("thing-id string");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (g_thingWorld == nullptr || isProtectedThingId(id) || !g_thingWorld->has<AssetServices>() ||
+        g_thingWorld->get<AssetServices>().store == nullptr) {
+        return s7_f(sc);
+    }
+    return s7_make_boolean(sc, respawnMapThing(*g_thingWorld, *g_thingWorld->get_mut<AssetServices>().store, sc, id));
+}
+
+s7_pointer g_map_things(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "map-things", args);
+    const std::string type = in.optString("");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (g_thingWorld == nullptr || !g_thingWorld->has<MapThingPlacements>()) {
+        return s7_nil(sc);
+    }
+    const std::vector<Thing>& things = g_thingWorld->get<MapThingPlacements>().things;
+    s7_pointer out = s7_nil(sc);
+    for (auto it = things.rbegin(); it != things.rend(); ++it) {
+        if (type.empty() || it->type == type) {
+            out = s7_cons(sc, s7_make_string(sc, it->id.c_str()), out);
+        }
+    }
+    return out;
+}
+
 void registerFlushThingDespawns(flecs::world& world) {
     world.system("FlushThingDespawns")
         .kind(flecs::OnUpdate)
@@ -1033,6 +1065,8 @@ s7_pointer g_particle_despawn(s7_scheme* sc, s7_pointer args) {
 
 constexpr SchemeBinding kSpawnBindings[] = {
     {"thing-despawn", g_thing_despawn, 1, 0, false, "(thing-despawn id)", ScriptCap::WorldMutate},
+    {"thing-respawn", g_thing_respawn, 1, 0, false, "(thing-respawn id)", ScriptCap::WorldMutate},
+    {"map-things", g_map_things, 0, 1, false, "(map-things [type])", ScriptCap::ReadWorld},
     {"motored-spawn", g_motored_spawn, 9, 5, false, "(motored-spawn id x y z vx vy vz kind path [radius gravity lifetime on-impact ignore])", ScriptCap::WorldMutate},
     {"sprite-spawn", g_sprite_spawn, 5, 2, false, "(sprite-spawn id x y z path [clip] [lifetime])", ScriptCap::WorldMutate},
     {"particle-spawn", g_particle_spawn, 5, 3, false, "(particle-spawn id x y z path [yaw | dx dy dz])", ScriptCap::Effects},

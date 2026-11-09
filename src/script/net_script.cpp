@@ -359,6 +359,13 @@ s7_pointer g_session_max_players(s7_scheme* sc, s7_pointer) {
     return s7_make_integer(sc, g_netWorld->get<NetSessionLimits>().maxPlayers);
 }
 
+s7_pointer g_session_kind(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>() || g_netWorld->get<NetSessionLimits>().kind.empty()) {
+        return s7_f(sc);
+    }
+    return s7_make_symbol(sc, g_netWorld->get<NetSessionLimits>().kind.c_str());
+}
+
 s7_pointer g_session_set_max_players(s7_scheme* sc, s7_pointer args) {
     ArgReader in(sc, "session-set-max-players!", args);
     const s7_int wanted = in.exactInteger("player count");
@@ -406,6 +413,7 @@ constexpr SchemeBinding kNetBindings[] = {
     {"net-command-tick", g_net_command_tick, 0, 0, false, "(net-command-tick)", ScriptCap::ReadWorld},
     {"net-acked-command", g_net_acked_command, 0, 0, false, "(net-acked-command)", ScriptCap::ReadWorld},
     {"net-player-name", g_net_player_name, 0, 0, false, "(net-player-name)", ScriptCap::ReadWorld},
+    {"session-kind", g_session_kind, 0, 0, false, "(session-kind)", ScriptCap::ReadWorld},
     {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
     {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
 };

@@ -26,6 +26,8 @@ void runNetProtocolTests();
 void runNetSessionTests();
 void runNetPredictionTests();
 void runNetInterestTests();
+void runThingRespawnTests();
+void runNetSessionFieldTests();
 void runNetHardeningTests();
 void runNetPacingTests();
 void runBotScriptTests();
@@ -109,6 +111,8 @@ const Suite kSuites[] = {
     {"net_session", slopengine::runNetSessionTests},
     {"net_prediction", slopengine::runNetPredictionTests},
     {"net_interest", slopengine::runNetInterestTests},
+    {"thing_respawn", slopengine::runThingRespawnTests},
+    {"net_session_fields", slopengine::runNetSessionFieldTests},
     {"net_hardening", slopengine::runNetHardeningTests},
     {"net_pacing", slopengine::runNetPacingTests},
     {"bot_script", slopengine::runBotScriptTests},

@@ -394,6 +394,11 @@ Returns the declared schema's hash as a hex string. Two installs with the same p
 <pre><code class="language-scheme">(net-schema-hash) ↵ string?
 </code></pre>
 
+### session-kind {#session-kind}
+Returns the kind of session this process hosts, as declared in `*net-sessions*`, or `#f` when it isn't hosting or hosts no declared kind. A server knows it before its first `on-map-ready`.
+<pre><code class="language-scheme">(session-kind) ↵ (or symbol? #f)
+</code></pre>
+
 ### session-max-players {#session-max-players}
 Returns how many players the session takes at once, the host included, or `#f` when this process isn't hosting.
 <pre><code class="language-scheme">(session-max-players) ↵ (or integer? #f)
@@ -1367,6 +1372,18 @@ Registers a package-defined DSP filter procedure by name.
 Queues despawn of a thing by its entity name.
 <pre><code class="language-scheme">(thing-despawn
   id : string?) ↵ boolean?
+</code></pre>
+
+### thing-respawn {#thing-respawn}
+Spawns a thing the map placed again, from its placement in the map's `things.s7`, under the same name. Returns `#f` when the map never placed `id`, when a thing of that name still exists, and for movers and brush-bound things. A despawn queued this tick still counts as existing.
+<pre><code class="language-scheme">(thing-respawn
+  id : string?) ↵ boolean?
+</code></pre>
+
+### map-things {#map-things}
+Returns the ids of every thing the current map placed, in map order, including ones despawned since, or only those of catalog type `type`.
+<pre><code class="language-scheme">(map-things
+  [type : string?]) ↵ (listof string?)
 </code></pre>
 
 ### thing-type {#thing-type}

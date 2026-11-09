@@ -64,6 +64,7 @@ struct SpawnContext {
     Vector3 prefabAngles{};
     std::vector<std::string> nestStack;
     std::vector<NavProfileDef> navProfiles;
+    MapThingPlacements* record = nullptr;
 };
 
 MaterialUvInfo resolveThingMaterialUv(AssetStore& assets, std::string_view materialPath) {
@@ -625,6 +626,10 @@ void spawnOne(SpawnContext& ctx, Thing placement) {
     if (!claimId(ctx, placement.id)) {
         return;
     }
+    if (ctx.record != nullptr) {
+        ctx.record->byId.emplace(placement.id, ctx.record->things.size());
+        ctx.record->things.push_back(placement);
+    }
 
     if (placement.kind == ThingKind::Mover && !applyMoverBrushDefaults(placement, ctx)) {
         return;
@@ -995,6 +1000,8 @@ void spawnThings(
     ctx.scheme = scheme;
     ctx.brushes = brushes;
     ctx.navProfiles = navProfileRegistry().defsOrDefault();
+    world.set<MapThingPlacements>({});
+    ctx.record = &world.get_mut<MapThingPlacements>();
     for (const Thing& placement : doc.things) {
         spawnOne(ctx, placement);
     }
@@ -1013,6 +1020,7 @@ PlayerStart spawnMapThings(
     const std::vector<Texture2D>* lightmapAtlases,
     bool hasLightmaps) {
     PlayerStart defaults{};
+    world.set<MapThingPlacements>({});
     if (scheme == nullptr) {
         return defaults;
     }
@@ -1033,6 +1041,7 @@ PlayerStart spawnMapThings(
     }
     ctx.lightmapAtlases = lightmapAtlases;
     ctx.hasLightmaps = hasLightmaps;
+    ctx.record = &world.get_mut<MapThingPlacements>();
 
     std::optional<ThingDocument> doc;
     const std::string virtualPath = std::string(mapName) + "/things";
@@ -1058,6 +1067,29 @@ PlayerStart spawnMapThings(
         return defaults;
     }
     return ctx.playerStart;
+}
+
+bool respawnMapThing(flecs::world& world, AssetStore& assets, s7_scheme* scheme, std::string_view id) {
+    if (!world.has<MapThingPlacements>()) {
+        return false;
+    }
+    const MapThingPlacements& placements = world.get<MapThingPlacements>();
+    const auto found = placements.byId.find(std::string(id));
+    if (found == placements.byId.end()) {
+        return false;
+    }
+    Thing placement = placements.things[found->second];
+    if (!placement.brush.empty() || placement.kind == ThingKind::Mover || world.lookup(placement.id.c_str()).is_valid()) {
+        return false;
+    }
+    const std::string name = placement.id;
+    SpawnContext ctx{};
+    ctx.world = &world;
+    ctx.assets = &assets;
+    ctx.scheme = scheme;
+    ctx.navProfiles = navProfileRegistry().defsOrDefault();
+    spawnOne(ctx, std::move(placement));
+    return world.lookup(name.c_str()).is_valid();
 }
 
 }

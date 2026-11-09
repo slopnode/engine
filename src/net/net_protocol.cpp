@@ -288,7 +288,7 @@ std::optional<NetMessageKind> netMessageKind(std::span<const std::byte> data) {
         return std::nullopt;
     }
     const auto raw = static_cast<std::uint8_t>(data[0]);
-    if (raw < static_cast<std::uint8_t>(NetMessageKind::Hello) || raw > static_cast<std::uint8_t>(NetMessageKind::Effects)) {
+    if (raw < static_cast<std::uint8_t>(NetMessageKind::Hello) || raw > static_cast<std::uint8_t>(NetMessageKind::Session)) {
         return std::nullopt;
     }
     return static_cast<NetMessageKind>(raw);
@@ -511,6 +511,40 @@ bool decodeNetForget(std::span<const std::byte> data, std::vector<std::uint32_t>
             return false;
         }
         out.push_back(netId);
+    }
+    return reader.atEnd();
+}
+
+std::vector<std::byte> encodeNetSession(
+    const std::vector<std::pair<int, NetValue>>& fields,
+    const std::vector<const NetField*>& sessionFields) {
+    NetWriter writer = begin(NetMessageKind::Session);
+    writer.varint(fields.size());
+    for (const auto& [slot, value] : fields) {
+        writer.varint(static_cast<std::uint64_t>(slot));
+        writer.value(value, sessionFields[static_cast<std::size_t>(slot)]->type);
+    }
+    return writer.data();
+}
+
+bool decodeNetSession(
+    std::span<const std::byte> data,
+    const std::vector<const NetField*>& sessionFields,
+    std::vector<std::pair<int, NetValue>>& out) {
+    NetReader reader(data);
+    out.clear();
+    std::size_t count = 0;
+    if (!expect(reader, NetMessageKind::Session) || !reader.count(count, sessionFields.size())) {
+        return false;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        std::size_t slot = 0;
+        NetValue value;
+        if (sessionFields.empty() || !reader.count(slot, sessionFields.size() - 1) ||
+            !reader.value(value, sessionFields[slot]->type)) {
+            return false;
+        }
+        out.emplace_back(static_cast<int>(slot), std::move(value));
     }
     return reader.atEnd();
 }

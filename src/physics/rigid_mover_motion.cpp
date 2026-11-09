@@ -1,5 +1,7 @@
 #include "physics/rigid_mover.hpp"
 
+#include <raymath.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -9,6 +11,48 @@ namespace {
 
 constexpr float kShoveSkin = 0.02f;
 
+Vector3 localAxis(MoverRotAxis axis) {
+    switch (axis) {
+    case MoverRotAxis::Pitch:
+        return {1.0f, 0.0f, 0.0f};
+    case MoverRotAxis::Roll:
+        return {0.0f, 0.0f, 1.0f};
+    case MoverRotAxis::Yaw:
+    default:
+        return {0.0f, 1.0f, 0.0f};
+    }
+}
+
+Vector3 rotateVec(Quaternion q, Vector3 v) {
+    return Vector3RotateByQuaternion(v, q);
+}
+
+}
+
+void computeMoverPose(
+    const RigidMover& mover,
+    float t,
+    Vector3& outPos,
+    Quaternion& outRot) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    const Vector3 pivotWorld =
+        Vector3Add(mover.closedPos, rotateVec(mover.closedRot, mover.pivotLocal));
+    const float angle = t * mover.openAngleRadians;
+    Quaternion delta = QuaternionIdentity();
+    if (std::fabs(angle) > 1.0e-8f) {
+        const Vector3 axisLocal = localAxis(mover.rotAxis);
+        const Vector3 axisWorld = Vector3Normalize(rotateVec(mover.closedRot, axisLocal));
+        delta = QuaternionFromAxisAngle(axisWorld, angle);
+    }
+    outRot = QuaternionNormalize(QuaternionMultiply(delta, mover.closedRot));
+    const Vector3 slide = rotateVec(mover.closedRot, Vector3Scale(mover.openPosOffset, t));
+    outPos = Vector3Add(
+        Vector3Add(pivotWorld, rotateVec(outRot, Vector3Negate(mover.pivotLocal))),
+        slide);
+}
+
+Vector3 moverCollideWorldCenter(const Vector3& pos, const Quaternion& rot, const RigidMover& mover) {
+    return Vector3Add(pos, rotateVec(rot, mover.collideCenterLocal));
 }
 
 bool moverComputeShove(

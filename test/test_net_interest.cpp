@@ -119,6 +119,15 @@ void runNetInterestTests() {
     server.world.lookup("actor-3").get_mut<LocalTransformation>().position = {30.0f, 0.0f, 0.0f};
     frame(10);
     CHECK(!hidden(middle) && !hidden(near) && hidden(far));
+
+    server.world.lookup("actor-1").destruct();
+    frame(10);
+    CHECK(hidden(near));
+    LocalTransformation back{};
+    back.position = {10.0f, 0.0f, 0.0f};
+    server.world.entity("actor-1").add<Actor>().set<LocalTransformation>(back);
+    frame(10);
+    CHECK(client.world.lookup("actor-1") == near && !hidden(near));
 }
 
 }

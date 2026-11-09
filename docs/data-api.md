@@ -55,7 +55,7 @@ Map handlers define event handlers for map interactions. These are used to creat
 
 Symbols `*package-things*` and `*package-thing-folders*`
 
-Thing templates are the props, pickups, and actors that map authors can place from `slopmap` or `slopsprite`. Each entry needs an id and a `kind` of `prop`, `pickup`, or `actor`; which other keys apply depends on the kind.
+Thing templates are the props, pickups, and actors that map authors can place from `slopmap` or `slopsprite`. Each entry needs an id and a `kind` of `prop`, `pickup`, `actor` or `marker`; which other keys apply depends on the kind. A `marker` has no presentation and marks a place, such as a deathmatch start, that scripts find with `map-things`.
 
 - `label`, `icon`, `path` - browser presentation; `path` groups the thing under a folder declared in `*package-thing-folders*`
 - `sprite` or `geo`, `frame`, `anim`, `anims` - the graphic to show; a pickup requires exactly one of `sprite` or `geo`. On a sprite `anim` names a `.spanim` clip. On a skinned geo it names a clip in the animation bank at the geo's skeleton path (`animations/<skeleton>.anim`), and `anims` points at a different bank when the clips live elsewhere

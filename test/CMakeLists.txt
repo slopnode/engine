@@ -18,6 +18,8 @@ add_executable(sloptests
     test_net_session.cpp
     test_net_prediction.cpp
     test_net_interest.cpp
+    test_thing_respawn.cpp
+    test_net_session_fields.cpp
     test_net_hardening.cpp
     test_net_pacing.cpp
     test_bot_script.cpp
@@ -104,6 +106,9 @@ add_executable(sloptests
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_compositing.cpp
     ${CMAKE_SOURCE_DIR}/src/render/dynamic_light_shadow_math.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/slopui_theme_data.cpp
+    ${CMAKE_SOURCE_DIR}/src/map/things_spawn.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/material_anim.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/sprite_animator.cpp
 )
 
 target_include_directories(sloptests PRIVATE
@@ -136,6 +141,8 @@ add_test(NAME sloptests.net_protocol COMMAND sloptests net_protocol)
 add_test(NAME sloptests.net_session COMMAND sloptests net_session)
 add_test(NAME sloptests.net_prediction COMMAND sloptests net_prediction)
 add_test(NAME sloptests.net_interest COMMAND sloptests net_interest)
+add_test(NAME sloptests.thing_respawn COMMAND sloptests thing_respawn)
+add_test(NAME sloptests.net_session_fields COMMAND sloptests net_session_fields)
 add_test(NAME sloptests.net_hardening COMMAND sloptests net_hardening)
 add_test(NAME sloptests.net_pacing COMMAND sloptests net_pacing)
 add_test(NAME sloptests.bot_script COMMAND sloptests bot_script)
