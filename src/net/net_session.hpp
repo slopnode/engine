@@ -3,6 +3,7 @@
 #include "core/sim_clock.hpp"
 #include "net/net_protocol.hpp"
 #include "net/net_rewind.hpp"
+#include "net/net_state.hpp"
 #include "net/secure_transport.hpp"
 
 #include <flecs.h>
@@ -42,6 +43,8 @@ struct NetSessionConfig {
     std::filesystem::path knownServersPath;
     NetHello hello;
     NetProfile profile;
+    std::optional<SecureKey> identitySecret;
+    std::uint64_t rejoinHoldTicks = 18000;
     std::string sessionKind;
     int maxPlayers = 8;
     int playerCeiling = 8;
@@ -97,7 +100,9 @@ public:
     static void registerSystems(flecs::world& world, std::function<NetSession*()> current);
     void serverPoll();
     void keepAlive();
+    void serverMapLoading();
     void serverMapLoaded();
+    std::size_t serverHeldCount() const { return held_.size(); }
     void clientFrame(float frameDt);
     std::vector<std::pair<std::string, bool>> clientKnownEntities() const;
     std::size_t clientCommandsInFlight() const { return predicted_.size(); }
@@ -137,6 +142,8 @@ private:
         double tokens = 0.0;
         std::string player;
         std::string name;
+        std::string identity;
+        std::vector<std::byte> deferredHello;
         bool ownBody = false;
         std::uint64_t lastCommandTick = 0;
         std::deque<NetCommandFrame> pending;
@@ -164,6 +171,13 @@ private:
         std::uint64_t statAckLag = 0;
         double statViewAge = 0.0;
         std::uint64_t statViews = 0;
+    };
+
+    struct HeldPlayer {
+        std::string identity;
+        std::string player;
+        NetTravelRecord record;
+        std::uint64_t until = 0;
     };
 
     struct EntityMotion {
@@ -221,7 +235,8 @@ private:
     void serverSendEffects();
     void serverSendSession(ServerClient* only);
     std::string serverUniqueName(const std::string& wanted, const std::string& player) const;
-    void serverRefreshRoster();
+    void serverRefreshRoster(ServerClient* fresh = nullptr);
+    void serverHold(const ServerClient& client);
     void serverForgetSent(ServerClient& client, const std::vector<std::uint32_t>& gone);
     void serverTrackMotion();
     bool serverEntityState(flecs::entity entity, const std::vector<const NetField*>& fields, SentState& out) const;
@@ -271,7 +286,8 @@ private:
     void clientApplyCutState(flecs::entity entity, const NetIntroduction& entry);
     void clientSpawnIntroduced();
 
-    void callHook(const char* name, const std::string& argument);
+    void callHook(const char* name, const std::string& player);
+    void callHook(const char* name, const std::string& player, const std::string& second, bool symbol);
     void serverLogStats();
     void clientLogStats();
 
@@ -281,6 +297,10 @@ private:
     NetRole role_ = NetRole::None;
 
     std::map<NetConnectionId, ServerClient> clients_;
+    std::vector<HeldPlayer> held_;
+    NetSessionInfo sentInfo_;
+    bool sentAnyInfo_ = false;
+    bool mapLoading_ = false;
     std::uint32_t nextNetId_ = 1;
     int nextPlayerNumber_ = 2;
     std::map<std::uint32_t, flecs::entity_t> serverEntities_;

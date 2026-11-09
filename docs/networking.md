@@ -1,6 +1,6 @@
 @page networking_design Networking design (draft)
 
-@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, declared state and events, and a first pass of playing over the network with several clients, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option decides which player and session fields reach the client. Session kinds and their player limits work. Transfers between sessions and the coordinator are not implemented.
+@note This is a design draft. The transport interface with its in-memory test backend, its ENet socket backend and its encrypted layer, declared state and events, and a first pass of playing over the network with several clients, are implemented. For declared state, `*net-state*` and `*net-extension*` load from `data/net.s7`, the engine stores the fields, and `net-get`, `net-set!`, `net-reset!`, `net-save-state` and `net-restore-state!` read and write them (see @ref dataapi and @ref scriptingapi). The `send` option decides which player and session fields reach the client. Session kinds, their player limits, closing a session to new players and rejoining work. Transfers between sessions, the coordinator, listings and the ways in other than `open` are not implemented.
 
 Multiplayer in slopengine is server-authoritative. A server runs the simulation for a session and clients send it their `PlayerCommand` each tick (see @ref ecs_pipeline). Everything else on this page is about the two questions that sit above the wire format. What state does a game have, and who gets to see it. And how players come together, move between sessions and leave, without the engine deciding on one shape such as a server cycling through a map list.
 
@@ -41,19 +41,23 @@ slopengine --game slopdemo --connect 127.0.0.1:27960
 
 A game that declares session kinds also gets a Multiplayer menu in the main menu bar. Host Game picks a kind by its title, a map from the kind's `maps` or every map when it lists none, a port and a player limit, then loads the map as a listen server. Join Game takes `host:port`, where the port defaults to 27960, and remembers the last address in the profile's settings. Leave Game, also in the pause menu while online, closes the connection and returns to the title. Profile sets the name other players see and every player field declared with `profile`, saved in the profile's settings. A client sends its profile when it joins and again when it changes. The server gives every player the full list of names, read with `player-display-name`, and writes the profile fields into the player's record, where they replicate by their `send` like any other field and are read with `net-get`. The server checks each value against its declared type and drops a client that sends one outside it. Profile values stay through every reset of the record, such as a map change or `net-reset!`, until the player leaves. Single-player, the local player's record has them too. A failed join shows the reason, such as `no response`. Scripts do the same with `net-host`, `net-join` and `net-leave`, and read the state with `net-status` and `net-error`. Leaving resets every declared field to its default. While a session runs, the pause menu and the main menu don't pause the simulation, since other players are still in it.
 
-The client sends a hello with the protocol, the engine version, every mounted package with its version, and the schema hash of the declared state. The server refuses a client whose hello doesn't match and sends the reason, such as `declared state differs`. A server takes as many players as its session allows, see @ref net-sessions, and answers the next with `server full`. Only players who finished their hello count. Connections still in the handshake or waiting to send their hello are capped separately at `NetSessionConfig::maxPendingClients`, 8 by default, past which the server answers `server busy, try again`, and one that hasn't sent its hello within `helloTimeoutTicks`, five seconds, is dropped with `took too long to join`. Each connection gets a budget of 120 messages a second with a burst of 2400, enough for a client catching up after the server paused to load a map, and one that sends more is dropped with `too many messages`. The ENet backend is sized for the session's ceiling plus the pending connections, and takes 4 connections from one address unless `--net-peers-per-address` says otherwise. A connection that isn't answered within 5 seconds fails with `no response`. Once connected, either side drops the other after 20 seconds without an answer and reports `connection lost`. A process loading a map keeps answering in the background, so only one that stopped responding reaches that limit.
+The client sends a hello with the protocol, the engine version, every mounted package with its version, and the schema hash of the declared state. The server refuses a client whose hello doesn't match and sends the reason, such as `declared state differs`. A server takes as many players as its session allows, see @ref net-sessions, and answers the next with `server full`. A session a script closed answers new players with `not taking new players`. Only players who finished their hello count. A hello that arrives while the server loads a map waits until the map is ready, so `on-player-join` always runs in a loaded world. Connections still in the handshake or waiting to send their hello are capped separately at `NetSessionConfig::maxPendingClients`, 8 by default, past which the server answers `server busy, try again`, and one that hasn't sent its hello within `helloTimeoutTicks`, five seconds, is dropped with `took too long to join`. Each connection gets a budget of 120 messages a second with a burst of 2400, enough for a client catching up after the server paused to load a map, and one that sends more is dropped with `too many messages`. The ENet backend is sized for the session's ceiling plus the pending connections, and takes 4 connections from one address unless `--net-peers-per-address` says otherwise. A connection that isn't answered within 5 seconds fails with `no response`. Once connected, either side drops the other after 20 seconds without an answer and reports `connection lost`. A process loading a map keeps answering in the background, so only one that stopped responding reaches that limit.
 
 A client doesn't trust what a server sends either. Entity and player names have to be plain, letters, digits, spaces, dashes and underscores and not all digits, so a name can't be a flecs path or an entity id. A name only binds to a top-level replicated entity of the map or a stand-in, never to the local player. Map ids have to be plain relative paths without `.` or `..` segments, and asset paths anywhere in the engine can't climb out of their package with `..`. The client also refuses more than 4096 entities, more stand-ins than the 256 player ceiling, and a player state with sizes, speeds or positions far outside anything a game uses. Any of these makes the client leave with a reason such as `server sent a bad entity name`.
+
+A client also sends an identity: a hash of a secret kept in `client.key` in its profile directory and the server's key, so every server sees a different identity for the same client and one server can't pass it on to another. When a player leaves, the server keeps their `travel` fields under that identity for five minutes, or what `--net-rejoin-hold` sets in seconds, 0 for never. A client that comes back within that time gets its old player id when it is free and `on-player-join` is called with `rejoin` instead of `open`. Nothing comes back by itself. The script reads what the player left with from `net-rejoin-record` and applies what it wants with `net-apply-travel!`. A closed session still takes back a player within the hold. A second connection with the same identity replaces the first, which is dropped with `joined again`, so a client that crashed gets back in before the server notices the old connection is gone.
 
 Every client drives a player body of its own: an entity with a physics character, a `PlayerCommand`, view angles, an eye and a record of declared player fields. On a dedicated server the first client takes the map's `"Player"`, so a game written for one player keeps working for it, and later clients get bodies named `player-2`, `player-3` and so on, spawned around the map's player start with a copy of the map player's motor, so they share its size, eye height and gravity. `on-player-join` is the place to size a body differently, with `player-set-collider` and `player-set-eye-height` and the body's id. With `--listen` and no `--dedicated` the host keeps `"Player"` and every client gets a body of its own. A body and its record go away when its client leaves, and bodies come back after every map change. When the client driving a dedicated server's `"Player"` leaves, that body goes back to the player start with the start's motor and no command, and its declared fields go back to their defaults, so the next client to take it starts fresh. Script state of its own is the game's to clear in `on-player-leave`. `(players)` lists every body, and `player-pose`, `player-velocity`, `player-grounded?`, `player-eye`, `player-look-dir`, `player-collider`, `player-set-collider` and `player-set-eye-height` take a body's id. Game logic such as weapons and damage still has to loop over `(players)` to treat every body as a player.
 
 Hook|Runs on|When
 -|-|-
-`(on-player-join id)`|server|A client is ready and has its body
-`(on-player-leave id)`|server|A client left or was dropped
+`(on-player-join id how)`|server|A client is ready and has its body. `how` is `open`, or `rejoin` for a player back within the rejoin hold
+`(on-player-leave id reason)`|server|A client left or was dropped. `reason` is the text it was dropped with, such as `connection lost`
 `(on-player-profile id)`|server|A player changed a profile field during the session
 `(on-player-appear id)`|client|Another player's body is in view and needs a stand-in, which the hook spawns under `id`, such as with `actor-spawn`
 `(on-player-vanish id)`|client|That body left. The hook removes the stand-in
+
+Mods add to these with `hook-add`, as they do for the other engine hooks.
 
 A client's own body is never introduced to it. Another player's body arrives named `player:` and the server's name, so the stand-in can't collide with the client's own `"Player"`. Each snapshot carries that player's fields whose `send` is `all` along with the body, and `(net-get "player:NAME" field)` reads them on the client. A stand-in is the client's own presentation, so `present` animates it and hangs things on it with the `avatar-*` functions, which act on nothing else.
 
@@ -191,24 +195,25 @@ The loader adds every mod's fields up against the budget in mount order and refu
 
 # Sessions {#net-sessions}
 
-A session is one authoritative world: one map at a time, the players in it, and its `session` fields. A server process hosts one session at a time, since one process holds one world. A coordinator, which is part of the engine and not of any game, keeps track of sessions, places new ones on server processes and tells clients where to connect. Moving a player between sessions on different machines is the same operation as moving them between two sessions on one.
+A session is one authoritative world: one map at a time, the players in it, and its `session` fields. It has no lifecycle of its own. There is no start, round, lobby or end in the engine. A server runs its world and players come and go, which is what a drop-in server wants. A game with rounds, a lobby or a minimum number of players builds that in its scripts from what the engine gives it: the join and leave hooks, `session-players`, the map hooks and the controls below.
 
-`*net-sessions*` declares the kinds of session a game uses. The engine enforces what is declared here. Everything about when and why is left to scripts. Only the base package declares session kinds. Today a server hosts one session of the kind `--session`, the Host Game menu or `net-host` names, or of the first kind declared, and enforces its `players` maximum, with the host counted on a listen server. The other options are accepted and not acted on yet.
+`*net-sessions*` declares the kinds of session a game uses. Only the base package declares session kinds. A server hosts one session of the kind `--session`, the Host Game menu or `net-host` names, or of the first kind declared. Clients learn the kind, the player limit, whether the session takes new players and who is in it, and read them with `session-kind`, `session-max-players`, `session-joinable` and `session-players`.
 
 How many players a session takes comes from three places. The kind sets the most it can ever take, such as 64 for a hub and 4 for a room. An operator can lower it for one server with `--max-players`. A script can move it anywhere between 1 and that ceiling, the kind's maximum or the operator's lower number, with `(session-set-max-players! n)`, for example from `on-map-ready` on a map built for fewer players. Lowering it turns away new players and leaves the ones already in. A game that declares no kinds takes 8 players, and `--max-players` can set that up to 256.
+
+A script closes the session to new players with `(session-set-joinable! \#f)` and opens it again with `\#t`. A round-based game closes it when a round starts and opens it at the next intermission. A server that never calls it stays open. Closing it leaves the players already in, and a player coming back within the rejoin hold still gets in.
 
 Option|Meaning
 -|-
 `title`|Name shown in the Host Game menu. Defaults to the kind's name with a capital letter
 `maps`|Maps the Host Game menu offers for this kind, the first being the default for `net-host`
-`players`|Minimum and maximum members
-`join`|How new members get in, see below
-`late-join`|Whether members can join after the session started its map
-`roles`|Names of the roles a member can be given. Scripts assign them, see below
-`announce`|`listed` appears in server and lobby lists, `hidden` can be found by matchmaking queries only, `private` by invite only
-`listing`|Fields a listing or a matchmaking query can see, such as the map, the mission or a level range
+`players`|Minimum and maximum members. The engine enforces the maximum. The minimum is the lowest player limit the Host Game menu offers, and a script that wants to wait for players reads it from `session-kinds`
+`join`|How new members get in, see below. Accepted, not acted on yet
+`roles`|Names of the roles a member can be given. Accepted, not acted on yet
+`announce`|`listed` appears in server and lobby lists, `hidden` can be found by matchmaking queries only, `private` by invite only. Accepted, not acted on yet
+`listing`|Fields a listing or a matchmaking query can see, such as the map, the mission or a level range. Accepted, not acted on yet
 
-`join` is a list of ways in, each with a limit.
+`join` is a list of ways in, each with a limit. Today every session is `open`, and the other ways need the coordinator.
 
 Way in|Meaning
 -|-
@@ -217,7 +222,9 @@ Way in|Meaning
 `(summon n)`|The session owner accepts a request from a player who offered to help, up to `n`
 `(invasion n)`|Matchmaking may place an uninvited player, up to `n`, if the owner allows it
 
-A role is a label. A script gives a member one with `session-set-role!`, usually in `on-player-join` based on how they got in, and the engine passes it to hooks and shows counts per role in listings. What a role allows, such as whether it counts as an enemy, is game code.
+A role is a label. A script would give a member one with `session-set-role!`, usually in `on-player-join` based on how they got in, and listings would show counts per role. What a role allows, such as whether it counts as an enemy, is game code.
+
+The coordinator is design. A coordinator, which would be part of the engine and not of any game, would keep track of sessions, place new ones on server processes and tell clients where to connect, so that moving a player between sessions on different machines is the same operation as moving them between two sessions on one. None of that is built, and a server that never uses it never sees it.
 
 ## Predicted events {#net-predicted-events}
 
@@ -243,10 +250,9 @@ slopdemo fires its hitscan weapons inside `with-lag-compensation`, so shots agai
 
 Hook|Called when
 -|-
-`(on-player-join player-id how)`|A member enters. `how` is the way in, such as `invite` or `invasion`. The game gives them a role, spawns them, announces them and decides what they may do
-`(on-player-leave player-id reason)`|A member leaves, disconnects or is moved away. The game decides whether their body stays, turns into an AI or vanishes
-`(on-session-start kind)`|The session's first map is ready
-`(on-transfer-in player-id record from-kind reason)`|A member arrives from another session. `record` is their travel record, already checked against the schema. Nothing in it is applied until the script applies it
+`(on-player-join player-id how)`|A member enters. `how` is `open`, or `rejoin` for a player back within the rejoin hold. Later ways in would pass `invite`, `summon` or `invasion`
+`(on-player-leave player-id reason)`|A member leaves or is dropped. The game decides whether their body stays, turns into an AI or vanishes
+`(on-transfer-in player-id record from-kind reason)`|Planned. A member arrives from another session. `record` is their travel record, already checked against the schema. Nothing in it is applied until the script applies it
 
 Late join and sudden departure are normal events, not special cases. A joiner receives the full current state of every replicated entity and every field it is allowed to see before its first tick. Scripts therefore can't assume the party is fixed at map start, and must handle a member vanishing mid-fight. Join and leave hooks are where that is handled.
 
@@ -254,22 +260,33 @@ Late join and sudden departure are normal events, not special cases. A joiner re
 
 Moving a player to another map in the same session, or to another session anywhere, carries a travel record: the values of their `travel` fields, encoded with the schema. Only servers build and read travel records. A client never sends one, so a client can't arrive somewhere with an inventory it invented. A map change inside one session keeps every `travel` field as it is, since the same server stays in charge. slopdoom's `carry` map loads, which keep health, ammo and inventory between maps today, are this case.
 
+A rejoin works the same way within one server. The server keeps the record a leaving player had and hands it back through `net-rejoin-record` when they return, and the script applies what it wants with `net-apply-travel!`. slopdemo applies the whole record, without the health of a player who left dead.
+
 A transfer between sessions doesn't apply anything by itself. The engine checks the record against the schema and hands it to `on-transfer-in` in the receiving session, and that script decides what to take. It can apply the whole record with `net-apply-travel!`, apply a list of fields, or read values out of it and do something else. The engine guarantees only that the record is well formed and came from a server. Coming back from a visit is a transfer like any other. A player's home session gets the record the visited session built, and its own script decides which of those values to accept.
 
 ## Script functions
-
-These need a new capability, `session-control`, held by engine and base package code only. Mods can read session fields and listings, and can register join and leave hooks with `hook-add`.
 
 Function|Does
 -|-
 `(net-get scope-id field)`|Reads a field. `scope-id` is a player id, a thing id or `'session`
 `(net-set! scope-id field value)`|Writes a field. Server only, checked against the field's type
 `(net-event! name position-or-player args ...)`|Raises an event
+`(session-players)`|Lists the ids of every player in the session
+`(session-set-max-players! n)`|Sets the player limit
+`(session-set-joinable! joinable)`|Opens or closes the session to new players
+`(net-rejoin-record player-id)`|The travel record a returning player left with
+`(net-apply-travel! player-id record [fields])`|Applies a travel record, or only the named fields of it
+`(request-map-load map-id reason)`|On a server, changes the map for every member
+
+The session controls need map control, which engine and base package code hold. Mods can read session fields, the player list and the limits, and register join and leave hooks with `hook-add`.
+
+These are planned with the coordinator, under a new capability, `session-control`, held by engine and base package code only.
+
+Function|Does
+-|-
 `(session-create kind options)`|Asks the coordinator for a new session. Returns its id once it exists
 `(session-transfer player-id session-id reason)`|Moves a member, with their travel record
 `(session-set-role! player-id role)`|Gives a member one of the kind's roles
-`(net-apply-travel! player-id record [fields])`|Applies a travel record, or only the named fields of it
-`(session-change-map map-id reason)`|Changes the current session's map for every member
 `(session-set-listing field value)`|Updates what listings and matchmaking see
 `(session-close reason)`|Ends the session and returns members to wherever the game sends them
 
@@ -277,13 +294,15 @@ Function|Does
 
 The same declarations cover very different games. The engine sees no difference between these, only the scripts do.
 
-A dedicated server with a map rotation is a single `listed` session kind with `(open 16)`. The game script keeps the rotation and calls `session-change-map` at the end of each round.
+A drop-in server is a single kind with `(open 16)` and nothing else. Players come and go, the map runs, and the scripts never touch the session. slopdemo's co-op is this case.
 
-A co-op campaign is a `private` kind with `(invite 3)`. When a mission ends, the host's script calls `session-change-map` for the next map in the mission, or `session-create` plus `session-transfer` for each member to continue on another server, for example one closer to the party.
+A dedicated server with a map rotation is the same kind. The game script keeps the rotation and calls `request-map-load` at the end of each round, and may close the session while a round runs. slopdemo's deathmatch rotates with `--dm-maps`.
+
+A co-op campaign is a `private` kind with `(invite 3)`. When a mission ends, the host's script calls `request-map-load` for the next map in the mission, or `session-create` plus `session-transfer` for each member to continue on another server, for example one closer to the party.
 
 A hub with rooms is a `listed` hub kind with `(open 64)` and a `listed` room kind. Players walk into a room's portal, and the hub script transfers them into the room's session. The room's `listing` fields are what the hub shows on its board.
 
-A drop-in world in the style of Dark Souls is a `hidden` kind per player, owned by that player, with `(summon 2)` and `(invasion 1)` and `late-join \#t`. Its `listing` holds the area and a level range, which is what matchmaking uses to place summoned helpers and invaders. `on-player-join` gives a summoned helper the `phantom` role and an uninvited one the `invader` role, puts them somewhere sensible and announces them. The game's targeting code treats invaders as enemies. `on-player-leave` handles a visitor dying or the owner beating them. When a phantom returns home, the home world's `on-transfer-in` takes the souls out of the record and ignores the rest, so nothing else that happened in someone else's world changes the helper's own game.
+A drop-in world in the style of Dark Souls is a `hidden` kind per player, owned by that player, with `(summon 2)` and `(invasion 1)`. Its `listing` holds the area and a level range, which is what matchmaking uses to place summoned helpers and invaders. `on-player-join` gives a summoned helper the `phantom` role and an uninvited one the `invader` role, puts them somewhere sensible and announces them. The game's targeting code treats invaders as enemies. `on-player-leave` handles a visitor dying or the owner beating them. When a phantom returns home, the home world's `on-transfer-in` takes the souls out of the record and ignores the rest, so nothing else that happened in someone else's world changes the helper's own game.
 
 On Steam these map onto lobbies. `listed` and `hidden` are lobby visibility, listing fields are lobby metadata that lobby searches filter on, `invite` is a Steam invite, and the coordinator's placement uses Steam's dedicated server and relay support. Another backend maps the same declarations onto its own services.
 
@@ -322,14 +341,12 @@ This is what slopdoom's `data/net.s7` could look like. The player fields are the
   '((campaign
      (players 1 4)
      (join (invite 3))
-     (late-join \#t)
      (announce private)
      (roles host guest)
      (listing (mission (string 32)) (difficulty (symbol easy normal hard nightmare))))
     (deathmatch
      (players 2 16)
      (join (open 16))
-     (late-join \#t)
      (announce listed)
      (roles player)
      (listing (map (string 32)) (players (int 0 16))))))

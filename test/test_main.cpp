@@ -24,6 +24,7 @@ void runEnetTransportTests();
 void runSecureTransportTests();
 void runNetProtocolTests();
 void runNetSessionTests();
+void runNetRejoinTests();
 void runNetPredictionTests();
 void runNetInterestTests();
 void runThingRespawnTests();
@@ -109,6 +110,7 @@ const Suite kSuites[] = {
     {"secure_transport", slopengine::runSecureTransportTests},
     {"net_protocol", slopengine::runNetProtocolTests},
     {"net_session", slopengine::runNetSessionTests},
+    {"net_rejoin", slopengine::runNetRejoinTests},
     {"net_prediction", slopengine::runNetPredictionTests},
     {"net_interest", slopengine::runNetInterestTests},
     {"thing_respawn", slopengine::runThingRespawnTests},

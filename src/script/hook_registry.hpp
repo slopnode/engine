@@ -15,6 +15,7 @@ void captureHookOwners(s7_scheme* scheme);
 void clearHookRegistry(s7_scheme* scheme);
 
 void callHook(s7_scheme* scheme, std::string_view name, ScriptScope scope);
+void callHookWith(s7_scheme* scheme, std::string_view name, s7_pointer args, ScriptScope scope);
 void callHook1String(
     s7_scheme* scheme,
     std::string_view name,

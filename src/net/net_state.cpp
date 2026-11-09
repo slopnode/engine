@@ -98,6 +98,8 @@ void registerNetState(flecs::world& world) {
     world.set<NetRoster>({});
     world.component<NetProfiles>();
     world.set<NetProfiles>({});
+    world.component<NetRejoins>();
+    world.set<NetRejoins>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
@@ -156,10 +158,52 @@ void resetNetSessionState(flecs::world& world) {
     world.set<NetIdentity>({});
     world.set<NetRoster>({});
     world.set<NetProfiles>({});
+    world.set<NetRejoins>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
     world.set<NetStore>(std::move(store));
+}
+
+NetTravelRecord netTravelRecord(flecs::world& world, std::string_view id) {
+    NetTravelRecord record;
+    NetTarget target;
+    if (!resolveNetTarget(world, id, target) || target.kind != NetScopeKind::Player) {
+        return record;
+    }
+    for (const auto& [field, value] : netTargetFields(world, target)) {
+        if (field->travel) {
+            record.emplace_back(field->name, *value);
+        }
+    }
+    return record;
+}
+
+const NetTravelRecord* findNetRejoin(const flecs::world& world, std::string_view id) {
+    if (!world.has<NetRejoins>()) {
+        return nullptr;
+    }
+    for (const auto& [player, record] : world.get<NetRejoins>().players) {
+        if (player == id) {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+void setNetRejoin(flecs::world& world, std::string_view id, NetTravelRecord record) {
+    clearNetRejoin(world, id);
+    if (world.has<NetRejoins>()) {
+        world.get_mut<NetRejoins>().players.emplace_back(std::string(id), std::move(record));
+    }
+}
+
+void clearNetRejoin(flecs::world& world, std::string_view id) {
+    if (!world.has<NetRejoins>()) {
+        return;
+    }
+    auto& players = world.get_mut<NetRejoins>().players;
+    std::erase_if(players, [&](const auto& entry) { return entry.first == id; });
 }
 
 std::string netDisplayName(const flecs::world& world, std::string_view id) {

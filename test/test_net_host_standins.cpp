@@ -18,6 +18,7 @@
 #include "physics/physics_world.hpp"
 #include "physics/ragdoll_rig.hpp"
 #include "render/components.hpp"
+#include "script/hook_registry.hpp"
 #include "script/net_script.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
@@ -117,6 +118,7 @@ void runNetHostStandInTests() {
     s7_eval_c_string(sc, "(define appeared '())");
     s7_eval_c_string(sc, "(define (on-player-appear id) (set! appeared (cons id appeared)) (make-stand-in id))");
     s7_eval_c_string(sc, "(define (on-player-vanish id) (drop-stand-in id) (set! appeared (cons (string-append \"gone \" id) appeared)))");
+    captureHookOwners(sc);
     NetSessionConfig serverConfig = hostConfig("server", "", hash);
     serverConfig.hostPlayerVisible = true;
     serverConfig.firstClientTakesMapPlayer = false;
@@ -197,6 +199,7 @@ void runNetHostStandInTests() {
     CHECK(findNetPlayer(server.world, "player:player-2") == nullptr);
 
     server.session.reset();
+    clearHookRegistry(sc);
     netSchema().clear();
 }
 

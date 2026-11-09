@@ -230,6 +230,9 @@ void App::takePendingMapLoad() {
     if (!pendingMap) {
         return;
     }
+    if (net_ && net_->role() == NetRole::Server) {
+        net_->serverMapLoading();
+    }
     if (!config_.dedicated && shouldShowLoadingScreen(pendingMap->reason)) {
         beginLoadingSession(world_, assetStore_, scheme_, pendingMap->mapName, pendingMap->reason);
     } else {
@@ -284,6 +287,15 @@ void App::openNetSession(
     net.connectAddress = connectAddress;
     net.serverKeyPath = settingsFilePath_.parent_path() / "server.key";
     net.knownServersPath = settingsFilePath_.parent_path() / "known_servers";
+    if (!connectAddress.empty()) {
+        SecureKey secret{};
+        if (loadOrCreateServerKey(settingsFilePath_.parent_path() / "client.key", secret)) {
+            net.identitySecret = secret;
+        } else {
+            Log::warning(LogCategory::General, "NET: no client key in %s, servers won't recognise a rejoin",
+                         settingsFilePath_.parent_path().string().c_str());
+        }
+    }
     if (!config_.serverKey.empty()) {
         SecureKey pinned{};
         if (!parseSecureKeyHex(config_.serverKey, pinned)) {
@@ -364,6 +376,7 @@ void App::openNetSession(
     transport.maxPeersPerAddress = static_cast<std::size_t>(config_.netPeersPerAddress);
     net.statsSeconds = config_.netStatsSeconds;
     net.maxRewindTicks = static_cast<std::uint64_t>(std::lround(config_.netMaxRewindMs / 1000.0f / kSimTickDt));
+    net.rejoinHoldTicks = static_cast<std::uint64_t>(std::lround(config_.netRejoinHoldSeconds / kSimTickDt));
     std::unique_ptr<NetTransport> wire = createEnetTransport(transport);
     const NetConditions conditions{config_.netLagMs, config_.netJitterMs, config_.netLoss};
     if (conditions.active()) {

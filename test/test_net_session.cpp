@@ -15,6 +15,7 @@
 #include "physics/components.hpp"
 #include "render/animation_player.hpp"
 #include "render/components.hpp"
+#include "script/hook_registry.hpp"
 #include "script/net_script.hpp"
 #include "script/player_target.hpp"
 #include "script/proc_role.hpp"
@@ -267,6 +268,7 @@ void runNetSessionTests() {
     s7_eval_c_string(sc, "(define appeared '())");
     s7_eval_c_string(sc, "(define (on-player-appear id) (set! appeared (cons id appeared)))");
     s7_eval_c_string(sc, "(define (on-player-vanish id) (set! appeared (cons (string-append \"gone \" id) appeared)))");
+    captureHookOwners(sc);
 
     CharacterMotor tall{};
     tall.eyeHeight = 1.65f;
@@ -420,6 +422,7 @@ void runNetSessionTests() {
     frames(network, server, {&pinned}, 10);
     CHECK(pinned.droppedReason == "server key mismatch");
 
+    clearHookRegistry(sc);
     netSchema().clear();
     s7_quit(sc);
 }

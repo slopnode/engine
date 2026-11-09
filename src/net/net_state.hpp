@@ -37,6 +37,14 @@ struct NetSessionLimits {
     std::string kind;
     int maxPlayers = 8;
     int playerCeiling = 8;
+    bool joinable = true;
+    bool remote = false;
+};
+
+using NetTravelRecord = std::vector<std::pair<std::string, NetValue>>;
+
+struct NetRejoins {
+    std::vector<std::pair<std::string, NetTravelRecord>> players;
 };
 
 struct NetPlayerRecord {
@@ -108,6 +116,10 @@ std::string netDisplayName(const flecs::world& world, std::string_view id);
 bool setNetProfile(flecs::world& world, std::string_view id, const NetProfile& profile);
 void clearNetProfile(flecs::world& world, std::string_view id);
 void resetNetMapFields(flecs::world& world);
+NetTravelRecord netTravelRecord(flecs::world& world, std::string_view id);
+const NetTravelRecord* findNetRejoin(const flecs::world& world, std::string_view id);
+void setNetRejoin(flecs::world& world, std::string_view id, NetTravelRecord record);
+void clearNetRejoin(flecs::world& world, std::string_view id);
 bool resolveNetTarget(const flecs::world& world, std::string_view id, NetTarget& out);
 NetValue* findNetValue(flecs::world& world, const NetTarget& target, std::string_view field, const NetField** fieldOut);
 std::vector<std::pair<const NetField*, const NetValue*>> netTargetFields(flecs::world& world, const NetTarget& target);

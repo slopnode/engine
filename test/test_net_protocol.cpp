@@ -57,6 +57,13 @@ void runNetProtocolTests() {
         CHECK(rejectsEveryTruncation(data, [](auto span) { NetHello h; return decodeNetHello(span, h); }));
         hello.profile = encodeNetProfile(NetProfile{"Alice", {}}, {});
         CHECK(decodeNetHello(encodeNetHello(hello), back) && back.profile == hello.profile);
+        CHECK(back.identity.empty());
+        hello.identity.assign(kNetIdentityBytes, std::byte{0x5a});
+        const std::vector<std::byte> withIdentity = encodeNetHello(hello);
+        CHECK(decodeNetHello(withIdentity, back) && back.identity == hello.identity);
+        CHECK(rejectsEveryTruncation(withIdentity, [](auto span) { NetHello h; return decodeNetHello(span, h); }));
+        hello.identity.resize(8);
+        CHECK_FALSE(decodeNetHello(encodeNetHello(hello), back));
     }
 
     {
@@ -68,12 +75,12 @@ void runNetProtocolTests() {
         CHECK(netMessageKind(data) == NetMessageKind::Profile);
         CHECK(decodeNetProfile(data, {}, profile) && profile.name == "Bob" && profile.fields.empty());
         CHECK(rejectsEveryTruncation(data, [](auto span) { NetProfile p; return decodeNetProfile(span, {}, p); }));
-        const std::vector<NetRosterEntry> roster{{"Player", "Ann"}, {"player-2", "Bob"}};
+        const NetSessionInfo roster{"deathmatch", 12, false, {{"Player", "Ann"}, {"player-2", "Bob"}}};
         const std::vector<std::byte> rosterData = encodeNetRoster(roster);
-        std::vector<NetRosterEntry> rosterBack;
+        NetSessionInfo rosterBack;
         CHECK(netMessageKind(rosterData) == NetMessageKind::Roster);
         CHECK(decodeNetRoster(rosterData, rosterBack) && rosterBack == roster);
-        CHECK(rejectsEveryTruncation(rosterData, [](auto span) { std::vector<NetRosterEntry> r; return decodeNetRoster(span, r); }));
+        CHECK(rejectsEveryTruncation(rosterData, [](auto span) { NetSessionInfo r; return decodeNetRoster(span, r); }));
         CHECK_FALSE(decodeNetProfile(rosterData, {}, profile));
     }
 

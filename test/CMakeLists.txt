@@ -16,6 +16,7 @@ add_executable(sloptests
     test_secure_transport.cpp
     test_net_protocol.cpp
     test_net_session.cpp
+    test_net_rejoin.cpp
     test_net_prediction.cpp
     test_net_interest.cpp
     test_thing_respawn.cpp
@@ -140,6 +141,7 @@ add_test(NAME sloptests.enet_transport COMMAND sloptests enet_transport)
 add_test(NAME sloptests.secure_transport COMMAND sloptests secure_transport)
 add_test(NAME sloptests.net_protocol COMMAND sloptests net_protocol)
 add_test(NAME sloptests.net_session COMMAND sloptests net_session)
+add_test(NAME sloptests.net_rejoin COMMAND sloptests net_rejoin)
 add_test(NAME sloptests.net_prediction COMMAND sloptests net_prediction)
 add_test(NAME sloptests.net_interest COMMAND sloptests net_interest)
 add_test(NAME sloptests.thing_respawn COMMAND sloptests thing_respawn)

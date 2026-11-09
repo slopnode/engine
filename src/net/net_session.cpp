@@ -23,11 +23,13 @@
 #include "render/animation_player.hpp"
 #include "render/attachment_path.hpp"
 #include "render/components.hpp"
+#include "script/hook_registry.hpp"
 #include "script/proc_role.hpp"
 #include "script/net_script.hpp"
 #include "script/script_context.hpp"
 #include "script/script_scope.hpp"
 
+#include <monocypher.h>
 #include <raymath.h>
 
 #ifndef _WIN32
@@ -293,18 +295,21 @@ std::size_t NetSession::serverClientCount() const {
         clients_.begin(), clients_.end(), [](const auto& entry) { return entry.second.ready; }));
 }
 
-void NetSession::callHook(const char* name, const std::string& argument) {
+void NetSession::callHook(const char* name, const std::string& player) {
     if (!world_.has<ScriptContext>() || world_.get<ScriptContext>().scheme == nullptr) {
         return;
     }
     s7_scheme* scheme = world_.get<ScriptContext>().scheme;
-    const s7_pointer proc = s7_name_to_value(scheme, name);
-    if (!s7_is_procedure(proc)) {
+    callHookWith(scheme, name, s7_list(scheme, 1, s7_make_string(scheme, player.c_str())), ScriptScope::World);
+}
+
+void NetSession::callHook(const char* name, const std::string& player, const std::string& second, bool symbol) {
+    if (!world_.has<ScriptContext>() || world_.get<ScriptContext>().scheme == nullptr) {
         return;
     }
-    ScriptScopeGuard scope(ScriptScope::World);
-    ScriptCallGuard guard(scheme, roleForProc(name));
-    s7_call(scheme, proc, s7_list(scheme, 1, s7_make_string(scheme, argument.c_str())));
+    s7_scheme* scheme = world_.get<ScriptContext>().scheme;
+    const s7_pointer extra = symbol ? s7_make_symbol(scheme, second.c_str()) : s7_make_string(scheme, second.c_str());
+    callHookWith(scheme, name, s7_list(scheme, 2, s7_make_string(scheme, player.c_str()), extra), ScriptScope::World);
 }
 
 void NetSession::keepAlive() {
@@ -320,6 +325,7 @@ void NetSession::serverPoll() {
     for (const NetEvent& event : events) {
         serverReceive(event);
     }
+    serverRefreshRoster();
     serverNetMs_ += msSince(start);
 }
 
@@ -365,7 +371,9 @@ void NetSession::serverReceive(const NetEvent& event) {
     }
     const std::optional<NetMessageKind> kind = netMessageKind(event.data);
     if (!client.ready) {
-        if (kind == NetMessageKind::Hello) {
+        if (kind == NetMessageKind::Hello && mapLoading_) {
+            client.deferredHello = event.data;
+        } else if (kind == NetMessageKind::Hello) {
             serverHello(client, event.data);
         } else if (kind != NetMessageKind::Commands) {
             serverDrop(event.connection, "expected hello");
@@ -435,6 +443,25 @@ void NetSession::serverHello(ServerClient& client, const std::vector<std::byte>&
         serverDrop(client.connection, "malformed profile");
         return;
     }
+    const std::string identity(reinterpret_cast<const char*>(hello.identity.data()), hello.identity.size());
+    if (!identity.empty()) {
+        const auto twin = std::find_if(clients_.begin(), clients_.end(), [&](const auto& entry) {
+            return entry.second.ready && entry.second.identity == identity;
+        });
+        if (twin != clients_.end()) {
+            serverDrop(twin->first, "joined again");
+        }
+    }
+    std::erase_if(held_, [&](const HeldPlayer& held) { return held.until <= serverTick_; });
+    const auto held = identity.empty() ? held_.end() : std::find_if(held_.begin(), held_.end(), [&](const HeldPlayer& entry) {
+        return entry.identity == identity;
+    });
+    const bool rejoin = held != held_.end();
+    const bool joinable = !world_.has<NetSessionLimits>() || world_.get<NetSessionLimits>().joinable;
+    if (!rejoin && !joinable) {
+        serverDrop(client.connection, "not taking new players");
+        return;
+    }
     if (serverPlayerCount() >= serverPlayerLimit()) {
         serverDrop(client.connection, "server full");
         return;
@@ -443,22 +470,46 @@ void NetSession::serverHello(ServerClient& client, const std::vector<std::byte>&
         std::any_of(clients_.begin(), clients_.end(), [](const auto& entry) {
             return entry.second.ready && entry.second.player == kLocalNetPlayerId;
         });
+    const bool heldIdFree = rejoin && held->player != kLocalNetPlayerId &&
+        std::none_of(clients_.begin(), clients_.end(), [&](const auto& entry) {
+            return entry.second.ready && entry.second.player == held->player;
+        });
     if (!mapPlayerTaken) {
         client.player = kLocalNetPlayerId;
         client.ownBody = false;
     } else {
-        client.player = "player-" + std::to_string(nextPlayerNumber_++);
+        client.player = heldIdFree ? held->player : "player-" + std::to_string(nextPlayerNumber_++);
         client.ownBody = true;
         spawnPlayerBody(world_, client.player, nextPlayerNumber_);
         addNetPlayer(world_, client.player);
     }
+    client.identity = identity;
     client.name = serverUniqueName(profile.name, client.player);
     setNetProfile(world_, client.player, profile);
+    if (rejoin) {
+        setNetRejoin(world_, client.player, std::move(held->record));
+        held_.erase(held);
+    }
     client.ready = true;
-    Log::info(LogCategory::General, "NET: client ready as %s (%s)", client.player.c_str(), client.name.c_str());
-    serverRefreshRoster();
-    callHook("on-player-join", client.player);
+    Log::info(LogCategory::General, "NET: client %s as %s (%s)", rejoin ? "rejoined" : "ready", client.player.c_str(),
+              client.name.c_str());
+    serverRefreshRoster(&client);
+    callHook("on-player-join", client.player, rejoin ? "rejoin" : "open", true);
     serverSendMap(client);
+}
+
+void NetSession::serverHold(const ServerClient& client) {
+    if (client.identity.empty() || config_.rejoinHoldTicks == 0) {
+        return;
+    }
+    std::erase_if(held_, [&](const HeldPlayer& held) {
+        return held.identity == client.identity || held.until <= serverTick_;
+    });
+    if (held_.size() >= kMaxNetRoster) {
+        held_.erase(held_.begin());
+    }
+    held_.push_back({client.identity, client.player, netTravelRecord(world_, client.player),
+                     serverTick_ + config_.rejoinHoldTicks});
 }
 
 std::string NetSession::serverUniqueName(const std::string& wanted, const std::string& player) const {
@@ -482,24 +533,35 @@ std::string NetSession::serverUniqueName(const std::string& wanted, const std::s
     return name;
 }
 
-void NetSession::serverRefreshRoster() {
-    std::vector<NetRosterEntry> roster;
+void NetSession::serverRefreshRoster(ServerClient* fresh) {
+    NetSessionInfo info;
+    if (world_.has<NetSessionLimits>()) {
+        const NetSessionLimits& limits = world_.get<NetSessionLimits>();
+        info.kind = limits.kind;
+        info.maxPlayers = limits.maxPlayers;
+        info.joinable = limits.joinable;
+    }
     if (config_.hostPlayerVisible) {
-        roster.push_back({kLocalNetPlayerId, config_.profile.name});
+        info.roster.push_back({kLocalNetPlayerId, config_.profile.name});
     }
     for (const auto& entry : clients_) {
         if (entry.second.ready) {
-            roster.push_back({entry.second.player, entry.second.name});
+            info.roster.push_back({entry.second.player, entry.second.name});
         }
     }
-    std::sort(roster.begin(), roster.end(), [](const auto& a, const auto& b) { return a.player < b.player; });
-    if (world_.has<NetRoster>() && world_.get<NetRoster>().entries == roster) {
+    std::sort(info.roster.begin(), info.roster.end(), [](const auto& a, const auto& b) { return a.player < b.player; });
+    const bool changed = !sentAnyInfo_ || !(info == sentInfo_);
+    if (!changed && fresh == nullptr) {
         return;
     }
-    world_.set<NetRoster>({roster});
-    const std::vector<std::byte> message = encodeNetRoster(roster);
+    if (changed) {
+        sentInfo_ = info;
+        sentAnyInfo_ = true;
+        world_.set<NetRoster>({info.roster});
+    }
+    const std::vector<std::byte> message = encodeNetRoster(info);
     for (auto& entry : clients_) {
-        if (entry.second.ready) {
+        if (entry.second.ready && (changed || &entry.second == fresh)) {
             transport_->send(entry.second.connection, message, NetSendMode::Reliable);
         }
     }
@@ -568,7 +630,7 @@ bool NetSession::serverWithinRate(ServerClient& client) {
 void NetSession::serverDropLate() {
     std::vector<NetConnectionId> late;
     for (const auto& [connection, client] : clients_) {
-        if (!client.ready && serverTick_ - client.arrivedTick > config_.helloTimeoutTicks) {
+        if (!client.ready && client.deferredHello.empty() && serverTick_ - client.arrivedTick > config_.helloTimeoutTicks) {
             late.push_back(connection);
         }
     }
@@ -593,9 +655,11 @@ void NetSession::serverRemove(NetConnectionId connection, const std::string& rea
         return;
     }
     Log::info(LogCategory::General, "NET: %s left: %s", client.player.c_str(), reason.c_str());
+    serverHold(client);
     serverRefreshRoster();
-    callHook("on-player-leave", client.player);
+    callHook("on-player-leave", client.player, reason, false);
     clearNetProfile(world_, client.player);
+    clearNetRejoin(world_, client.player);
     if (client.ownBody) {
         despawnPlayerBody(world_, playerBody(world_, client.player));
         removeNetPlayer(world_, client.player);
@@ -608,7 +672,12 @@ void NetSession::serverRemove(NetConnectionId connection, const std::string& rea
     }
 }
 
+void NetSession::serverMapLoading() {
+    mapLoading_ = true;
+}
+
 void NetSession::serverMapLoaded() {
+    mapLoading_ = false;
     serverLastTick_ = {};
     clearNetRewind(world_);
     for (const std::string& player : hostAppeared_) {
@@ -645,6 +714,20 @@ void NetSession::serverMapLoaded() {
     for (auto& entry : clients_) {
         if (entry.second.ready) {
             serverSendMap(entry.second);
+        }
+    }
+    std::vector<NetConnectionId> waiting;
+    for (const auto& [connection, client] : clients_) {
+        if (!client.ready && !client.deferredHello.empty()) {
+            waiting.push_back(connection);
+        }
+    }
+    for (NetConnectionId connection : waiting) {
+        const auto found = clients_.find(connection);
+        if (found != clients_.end()) {
+            const std::vector<std::byte> hello = std::move(found->second.deferredHello);
+            found->second.deferredHello.clear();
+            serverHello(found->second, hello);
         }
     }
 }
@@ -1862,6 +1945,16 @@ void NetSession::clientReceive(const NetEvent& event) {
             }
         }
         config_.hello.profile = encodeNetProfile(config_.profile, netSchema().profileFields());
+        config_.hello.identity.clear();
+        if (config_.identitySecret && key) {
+            std::uint8_t identity[kNetIdentityBytes];
+            crypto_blake2b_keyed(identity, sizeof(identity), config_.identitySecret->data(), config_.identitySecret->size(),
+                                 key->data(), key->size());
+            for (const std::uint8_t byte : identity) {
+                config_.hello.identity.push_back(static_cast<std::byte>(byte));
+            }
+            crypto_wipe(identity, sizeof(identity));
+        }
         transport_->send(server_, encodeNetHello(config_.hello), NetSendMode::Reliable);
         return;
     }
@@ -1946,18 +2039,19 @@ void NetSession::clientReceive(const NetEvent& event) {
             }
         }
     } else if (kind == NetMessageKind::Roster) {
-        std::vector<NetRosterEntry> roster;
-        if (!decodeNetRoster(event.data, roster)) {
+        NetSessionInfo info;
+        if (!decodeNetRoster(event.data, info) || (!info.kind.empty() && !safeNetName(info.kind))) {
             clientRefuse("server sent a bad roster");
             return;
         }
-        for (const NetRosterEntry& entry : roster) {
+        for (const NetRosterEntry& entry : info.roster) {
             if (!safeNetName(entry.player) || entry.name.empty() || sanitizeNetDisplayName(entry.name) != entry.name) {
                 clientRefuse("server sent a bad roster");
                 return;
             }
         }
-        world_.set<NetRoster>({std::move(roster)});
+        world_.set<NetSessionLimits>({info.kind, info.maxPlayers, info.maxPlayers, info.joinable, true});
+        world_.set<NetRoster>({std::move(info.roster)});
     } else if (kind == NetMessageKind::Session) {
         std::vector<std::pair<int, NetValue>> fields;
         if (!decodeNetSession(event.data, netSchema().fieldsIn(NetScope{NetScopeKind::Session, {}}), fields)) {

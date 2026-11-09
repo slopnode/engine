@@ -308,6 +308,10 @@ std::vector<std::byte> encodeNetHello(const NetHello& hello) {
     for (const std::byte byte : hello.profile) {
         writer.u8(static_cast<std::uint8_t>(byte));
     }
+    writer.varint(hello.identity.size());
+    for (const std::byte byte : hello.identity) {
+        writer.u8(static_cast<std::uint8_t>(byte));
+    }
     return writer.data();
 }
 
@@ -337,6 +341,17 @@ bool decodeNetHello(std::span<const std::byte> data, NetHello& out) {
             return false;
         }
         out.profile.push_back(static_cast<std::byte>(byte));
+    }
+    std::size_t identityBytes = 0;
+    if (!reader.count(identityBytes, kNetIdentityBytes) || (identityBytes != 0 && identityBytes != kNetIdentityBytes)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < identityBytes; ++i) {
+        std::uint8_t byte = 0;
+        if (!reader.u8(byte)) {
+            return false;
+        }
+        out.identity.push_back(static_cast<std::byte>(byte));
     }
     return reader.atEnd();
 }
@@ -399,29 +414,38 @@ bool decodeNetProfile(
     return reader.atEnd();
 }
 
-std::vector<std::byte> encodeNetRoster(const std::vector<NetRosterEntry>& roster) {
+std::vector<std::byte> encodeNetRoster(const NetSessionInfo& info) {
     NetWriter writer = begin(NetMessageKind::Roster);
-    writer.varint(roster.size());
-    for (const NetRosterEntry& entry : roster) {
+    writer.string(info.kind);
+    writer.varint(static_cast<std::uint64_t>(std::max(0, info.maxPlayers)));
+    writer.u8(info.joinable ? 1 : 0);
+    writer.varint(info.roster.size());
+    for (const NetRosterEntry& entry : info.roster) {
         writer.string(entry.player);
         writer.string(entry.name);
     }
     return writer.data();
 }
 
-bool decodeNetRoster(std::span<const std::byte> data, std::vector<NetRosterEntry>& out) {
+bool decodeNetRoster(std::span<const std::byte> data, NetSessionInfo& out) {
     NetReader reader(data);
-    out.clear();
+    out = NetSessionInfo{};
+    std::size_t maxPlayers = 0;
+    std::uint8_t joinable = 0;
     std::size_t entries = 0;
-    if (!expect(reader, NetMessageKind::Roster) || !reader.count(entries, kMaxNetRoster)) {
+    if (!expect(reader, NetMessageKind::Roster) || !reader.string(out.kind, kMaxNameBytes) ||
+        !reader.count(maxPlayers, kMaxNetRoster) || !reader.u8(joinable) || joinable > 1 ||
+        !reader.count(entries, kMaxNetRoster)) {
         return false;
     }
+    out.maxPlayers = static_cast<int>(maxPlayers);
+    out.joinable = joinable == 1;
     for (std::size_t i = 0; i < entries; ++i) {
         NetRosterEntry entry;
         if (!reader.string(entry.player, kMaxNameBytes) || !reader.string(entry.name, kMaxNameBytes)) {
             return false;
         }
-        out.push_back(std::move(entry));
+        out.roster.push_back(std::move(entry));
     }
     return reader.atEnd();
 }

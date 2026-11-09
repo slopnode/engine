@@ -567,7 +567,7 @@ bool NetSchema::addSessionKinds(
         messages.push_back(package + ": *net-sessions* must be a list of session kinds");
         return false;
     }
-    static constexpr const char* kLaterOptions[] = {"join", "late-join", "roles", "announce", "listing"};
+    static constexpr const char* kLaterOptions[] = {"join", "roles", "announce", "listing"};
     bool ok = true;
     for (s7_pointer entry : entries) {
         if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {

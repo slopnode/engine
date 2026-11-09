@@ -49,6 +49,11 @@ const char* kEngineHooks[] = {
     "on-sight",
     "on-camera-path-end",
     "sight-filter",
+    "on-player-join",
+    "on-player-leave",
+    "on-player-profile",
+    "on-player-appear",
+    "on-player-vanish",
 };
 
 void callOwnerThenContribs(s7_scheme* scheme, std::string_view name, s7_pointer args) {
@@ -168,6 +173,14 @@ void callHook(s7_scheme* scheme, std::string_view name, ScriptScope scope) {
     }
     ScriptScopeGuard guard(scope);
     callOwnerThenContribs(scheme, name, s7_nil(scheme));
+}
+
+void callHookWith(s7_scheme* scheme, std::string_view name, s7_pointer args, ScriptScope scope) {
+    if (scheme == nullptr) {
+        return;
+    }
+    ScriptScopeGuard guard(scope);
+    callOwnerThenContribs(scheme, name, args);
 }
 
 void callHook1String(

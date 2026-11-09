@@ -400,12 +400,12 @@ Returns the declared schema's hash as a hex string. Two installs with the same p
 </code></pre>
 
 ### session-kind {#session-kind}
-Returns the kind of session this process hosts, as declared in `*net-sessions*`, or `#f` when it isn't hosting or hosts no declared kind. A server knows it before its first `on-map-ready`.
+Returns the kind of session this process hosts or has joined, as declared in `*net-sessions*`, or `#f` offline or for a session of no declared kind. A server knows it before its first `on-map-ready`, a client once it has joined.
 <pre><code class="language-scheme">(session-kind) ↵ (or symbol? #f)
 </code></pre>
 
 ### session-max-players {#session-max-players}
-Returns how many players the session takes at once, the host included, or `#f` when this process isn't hosting.
+Returns how many players the session takes at once, the host included, or `#f` offline. A client gets the server's number and sees it change.
 <pre><code class="language-scheme">(session-max-players) ↵ (or integer? #f)
 </code></pre>
 
@@ -413,6 +413,36 @@ Returns how many players the session takes at once, the host included, or `#f` w
 Sets how many players the session takes, clamped between 1 and the session kind's `players` maximum, or `--max-players` when that is lower, and returns the new value. Players already in stay. Returns `#f` when this process isn't hosting.
 <pre><code class="language-scheme">(session-set-max-players!
   n : integer?) ↵ (or integer? #f)
+</code></pre>
+
+### session-joinable {#session-joinable}
+Returns whether the session takes new players, or `#f` offline. A client gets the server's value.
+<pre><code class="language-scheme">(session-joinable) ↵ boolean?
+</code></pre>
+
+### session-set-joinable! {#session-set-joinable}
+Opens or closes the session to new players and returns the new value. A closed session answers a new player with `not taking new players` and still takes back a player who left within the rejoin hold. Players already in stay. Sessions start open. Returns `#f` when this process isn't hosting. Needs map control.
+<pre><code class="language-scheme">(session-set-joinable!
+  joinable : boolean?) ↵ boolean?
+</code></pre>
+
+### session-players {#session-players}
+Returns the ids of every player in the session, the host included, sorted. Works on clients too. Single-player it is `("Player")`.
+<pre><code class="language-scheme">(session-players) ↵ (listof string?)
+</code></pre>
+
+### net-rejoin-record {#net-rejoin-record}
+Returns the travel record a player left with, as a list of `(field . value)` for every player field declared `(travel \#t)`, when they came back within the rejoin hold and `on-player-join` was called with `rejoin`. Returns `#f` otherwise. Nothing in it is applied until a script applies it. The record stays until the player leaves again.
+<pre><code class="language-scheme">(net-rejoin-record
+  player-id : string?) ↵ (or list? #f)
+</code></pre>
+
+### net-apply-travel! {#net-apply-travel}
+Writes the values of a travel record into a player's fields, or only those named in `fields`, and returns how many it wrote. Every entry has to name a travel field and hold a value of its type. Server and single-player only, returning `#f` on a client. A mod can only write fields mods declare.
+<pre><code class="language-scheme">(net-apply-travel!
+  player-id : string?
+  record : list?
+  [fields : (listof symbol?)]) ↵ (or integer? #f)
 </code></pre>
 
 ### session-kinds {#session-kinds}

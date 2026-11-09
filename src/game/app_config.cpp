@@ -49,6 +49,7 @@ void AppConfig::printUsage(const char* program, const std::vector<PackageCliFlag
               << "  --net-loss    Drop this fraction, 0 to 1, of the unreliable messages it sends\n"
               << "  --net-stats   Log network statistics every this many seconds\n"
               << "  --net-max-rewind With --listen, move targets back at most this many milliseconds for a hit, 0 for never\n"
+              << "  --net-rejoin-hold With --listen, keep a leaver's travel fields for this many seconds, 0 for never\n"
               << "  --net-peers-per-address With --listen, allow this many connections from one address, 4 by default\n"
               << "  --version     Print the engine version and exit\n";
     if (schema.empty()) {
@@ -133,7 +134,7 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
         }
 
         if (arg == "--net-lag" || arg == "--net-jitter" || arg == "--net-loss" || arg == "--net-stats" ||
-            arg == "--net-max-rewind") {
+            arg == "--net-max-rewind" || arg == "--net-rejoin-hold") {
             if (i + 1 >= argc) {
                 return std::nullopt;
             }
@@ -147,6 +148,7 @@ std::optional<AppConfig> AppConfig::parseMount(int argc, char* argv[]) {
                 : arg == "--net-jitter"        ? config.netJitterMs
                 : arg == "--net-loss"          ? config.netLoss
                 : arg == "--net-max-rewind"    ? config.netMaxRewindMs
+                : arg == "--net-rejoin-hold"   ? config.netRejoinHoldSeconds
                                                : config.netStatsSeconds;
             target = value;
             continue;

@@ -14,7 +14,7 @@
 
 namespace slopengine {
 
-inline constexpr std::uint32_t kNetProtocolVersion = 15;
+inline constexpr std::uint32_t kNetProtocolVersion = 16;
 inline constexpr std::size_t kMaxNetCommandsPerMessage = 8;
 inline constexpr std::int64_t kNetViewTickSteps = 256;
 inline constexpr std::uint64_t kMaxNetViewBehind = std::uint64_t{1} << 40;
@@ -32,6 +32,7 @@ inline constexpr std::uint32_t kMaxNetHoldTicks = 1u << 20;
 inline constexpr std::size_t kMaxNetDisplayNameBytes = 24;
 inline constexpr std::size_t kMaxNetRoster = 256;
 inline constexpr std::size_t kMaxNetProfileBytes = 4096;
+inline constexpr std::size_t kNetIdentityBytes = 32;
 
 enum class NetMessageKind : std::uint8_t {
     Hello = 1,
@@ -76,6 +77,7 @@ struct NetHello {
     std::uint64_t schemaHash = 0;
     std::vector<NetPackageVersion> packages;
     std::vector<std::byte> profile;
+    std::vector<std::byte> identity;
 };
 
 struct NetProfile {
@@ -90,6 +92,15 @@ struct NetRosterEntry {
     std::string name;
 
     bool operator==(const NetRosterEntry&) const = default;
+};
+
+struct NetSessionInfo {
+    std::string kind;
+    int maxPlayers = 0;
+    bool joinable = true;
+    std::vector<NetRosterEntry> roster;
+
+    bool operator==(const NetSessionInfo&) const = default;
 };
 
 struct NetMapChange {
@@ -232,8 +243,8 @@ bool decodeNetProfile(
     std::span<const std::byte> data,
     const std::vector<const NetField*>& profileFields,
     NetProfile& out);
-std::vector<std::byte> encodeNetRoster(const std::vector<NetRosterEntry>& roster);
-bool decodeNetRoster(std::span<const std::byte> data, std::vector<NetRosterEntry>& out);
+std::vector<std::byte> encodeNetRoster(const NetSessionInfo& info);
+bool decodeNetRoster(std::span<const std::byte> data, NetSessionInfo& out);
 std::vector<std::byte> encodeNetMapChange(const NetMapChange& change);
 bool decodeNetMapChange(std::span<const std::byte> data, NetMapChange& out);
 std::vector<std::byte> encodeNetIntroduce(const std::vector<NetIntroduction>& entries);

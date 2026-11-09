@@ -391,12 +391,112 @@ s7_pointer g_session_set_max_players(s7_scheme* sc, s7_pointer args) {
     if (!in.ok()) {
         return in.error();
     }
-    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>()) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>() || g_netWorld->get<NetSessionLimits>().remote) {
         return s7_f(sc);
     }
     NetSessionLimits& limits = g_netWorld->get_mut<NetSessionLimits>();
     limits.maxPlayers = static_cast<int>(std::clamp<s7_int>(wanted, 1, limits.playerCeiling));
     return s7_make_integer(sc, limits.maxPlayers);
+}
+
+s7_pointer g_session_joinable(s7_scheme* sc, s7_pointer) {
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>()) {
+        return s7_f(sc);
+    }
+    return s7_make_boolean(sc, g_netWorld->get<NetSessionLimits>().joinable);
+}
+
+s7_pointer g_session_set_joinable(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "session-set-joinable!", args);
+    const bool joinable = in.boolean("#t or #f");
+    if (!in.ok()) {
+        return in.error();
+    }
+    if (g_netWorld == nullptr || !g_netWorld->has<NetSessionLimits>() || g_netWorld->get<NetSessionLimits>().remote) {
+        return s7_f(sc);
+    }
+    g_netWorld->get_mut<NetSessionLimits>().joinable = joinable;
+    return s7_make_boolean(sc, joinable);
+}
+
+s7_pointer g_session_players(s7_scheme* sc, s7_pointer) {
+    s7_pointer out = s7_nil(sc);
+    if (g_netWorld == nullptr || !g_netWorld->has<NetRoster>()) {
+        return out;
+    }
+    const std::vector<NetRosterEntry>& entries = g_netWorld->get<NetRoster>().entries;
+    for (auto entry = entries.rbegin(); entry != entries.rend(); ++entry) {
+        out = s7_cons(sc, s7_make_string(sc, entry->player.c_str()), out);
+    }
+    return out;
+}
+
+s7_pointer g_net_rejoin_record(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-rejoin-record", args);
+    const std::string id = in.string("player id");
+    if (!in.ok()) {
+        return in.error();
+    }
+    const NetTravelRecord* record = g_netWorld != nullptr ? findNetRejoin(*g_netWorld, id) : nullptr;
+    if (record == nullptr) {
+        return s7_f(sc);
+    }
+    s7_pointer out = s7_nil(sc);
+    for (auto it = record->rbegin(); it != record->rend(); ++it) {
+        out = s7_cons(sc, s7_cons(sc, s7_make_symbol(sc, it->first.c_str()), netValueToScheme(sc, it->second)), out);
+    }
+    return out;
+}
+
+bool namedIn(s7_pointer names, std::string_view name) {
+    for (s7_pointer cursor = names; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        if (s7_is_symbol(s7_car(cursor)) && name == s7_symbol_name(s7_car(cursor))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+s7_pointer g_net_apply_travel(s7_scheme* sc, s7_pointer args) {
+    ArgReader in(sc, "net-apply-travel!", args);
+    const std::string id = in.string("player id");
+    const s7_pointer record = in.list("travel record");
+    const s7_pointer only = in.more() ? in.list("field list") : nullptr;
+    if (!in.ok()) {
+        return in.error();
+    }
+    NetTarget target;
+    if (g_netWorld == nullptr || netClientWorld() || !resolveNetTarget(*g_netWorld, id, target) ||
+        target.kind != NetScopeKind::Player) {
+        return s7_f(sc);
+    }
+    int applied = 0;
+    for (s7_pointer cursor = record; s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
+        const s7_pointer entry = s7_car(cursor);
+        if (!s7_is_pair(entry) || !s7_is_symbol(s7_car(entry))) {
+            return netError(sc, "net-apply-travel!: a travel record is a list of (field . value)");
+        }
+        const char* name = s7_symbol_name(s7_car(entry));
+        if (only != nullptr && !namedIn(only, name)) {
+            continue;
+        }
+        const NetField* field = nullptr;
+        NetValue* slot = findNetValue(*g_netWorld, target, name, &field);
+        if (slot == nullptr || !field->travel) {
+            return netError(sc, std::string("net-apply-travel!: ") + name + " isn't a travel field");
+        }
+        if (callerRole() == PackageRole::Mod && field->role != PackageRole::Mod) {
+            return netError(sc, "net-apply-travel!: a mod can only set fields mods declare, not " + field->name);
+        }
+        NetValue value;
+        std::string error;
+        if (!netValueFromScheme(sc, s7_cdr(entry), field->type, value, error)) {
+            return netError(sc, "net-apply-travel!: " + field->name + " " + error);
+        }
+        *slot = std::move(value);
+        ++applied;
+    }
+    return s7_make_integer(sc, applied);
 }
 
 s7_pointer netScriptError(s7_scheme* sc, const char* caller, const std::string& message) {
@@ -533,6 +633,11 @@ constexpr SchemeBinding kNetBindings[] = {
     {"session-kind", g_session_kind, 0, 0, false, "(session-kind)", ScriptCap::ReadWorld},
     {"session-max-players", g_session_max_players, 0, 0, false, "(session-max-players)", ScriptCap::ReadWorld},
     {"session-set-max-players!", g_session_set_max_players, 1, 0, false, "(session-set-max-players! n)", ScriptCap::MapControl},
+    {"session-joinable", g_session_joinable, 0, 0, false, "(session-joinable)", ScriptCap::ReadWorld},
+    {"session-set-joinable!", g_session_set_joinable, 1, 0, false, "(session-set-joinable! joinable)", ScriptCap::MapControl},
+    {"session-players", g_session_players, 0, 0, false, "(session-players)", ScriptCap::ReadWorld},
+    {"net-rejoin-record", g_net_rejoin_record, 1, 0, false, "(net-rejoin-record player-id)", ScriptCap::ReadWorld},
+    {"net-apply-travel!", g_net_apply_travel, 2, 1, false, "(net-apply-travel! player-id record [fields])", ScriptCap::WorldMutate},
     {"session-kinds", g_session_kinds, 0, 0, false, "(session-kinds)", ScriptCap::ReadWorld},
     {"net-host", g_net_host, 0, 3, false, "(net-host [port] [session-kind] [map])", ScriptCap::MapControl},
     {"net-join", g_net_join, 1, 0, false, "(net-join address)", ScriptCap::MapControl},
