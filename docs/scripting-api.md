@@ -176,8 +176,8 @@ Returns the current map's folder id.
 </code></pre>
 
 ### list-maps {#list-maps}
-Lists the available map folder ids.
-<pre><code class="language-scheme">(list-maps) ↵ (listof string?)
+Lists the available maps as `(id . name)` pairs, sorted by name. The map `*package-title*` names for the title screen is left out, so map pickers and the Host Game menu never offer it.
+<pre><code class="language-scheme">(list-maps) ↵ (listof pair?)
 </code></pre>
 
 ### return-to-menu {#return-to-menu}

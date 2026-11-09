@@ -235,6 +235,7 @@ void loadMenuBackgroundConfig(flecs::world& world, AssetStore& assets, s7_scheme
         assets.loadDataFromPackage(scheme, baseId, "title")) {
         bg = parsePackageTitleFromScheme(scheme);
     }
+    assets.setTitleMap(bg.mapName);
     world.set<TitleCanvas>(bg.canvas);
     world.set<MenuBackground>(std::move(bg));
 }

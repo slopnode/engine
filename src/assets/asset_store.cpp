@@ -418,7 +418,7 @@ std::vector<AssetStore::MapListEntry> AssetStore::listMaps() const {
                 continue;
             }
             const std::string id = it->path().filename().generic_string();
-            if (id.empty()) {
+            if (id.empty() || id == titleMap_) {
                 continue;
             }
             MapListEntry entry{};
