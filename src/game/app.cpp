@@ -469,7 +469,7 @@ void App::takeNetControl() {
             }
         } else if (request->kind == NetControlKind::Bots) {
             if (net_ && net_->role() == NetRole::Server) {
-                hostBots_.setCount(std::clamp(request->bots, 0, std::max(0, net_->serverPlayerLimit() - 1)));
+                setHostBotCount(request->bots);
             }
         } else {
             const bool wasOnline = net_ != nullptr;
@@ -486,7 +486,7 @@ void App::takeNetControl() {
             }
         }
     }
-    hostBots_.reap();
+    hostBots_.update();
     if (net_) {
         NetProfile profile = localProfile();
         if (!(profile == netProfileApplied_)) {
@@ -599,7 +599,18 @@ void App::startHostBots(int count, std::string behavior) {
     launch.port = colon == std::string::npos ? netAddress_ : netAddress_.substr(colon + 1);
     launch.behavior = std::move(behavior);
     hostBots_.configure(std::move(launch));
-    hostBots_.setCount(net_ ? std::clamp(count, 0, std::max(0, net_->serverPlayerLimit() - 1)) : 0);
+    setHostBotCount(count);
+}
+
+void App::setHostBotCount(int count) {
+    if (!net_ || net_->role() != NetRole::Server) {
+        hostBots_.setCount(0);
+        return;
+    }
+    count = std::clamp(count, 0, std::max(0, net_->serverPlayerLimit() - 1));
+    net_->setPeersPerAddress(static_cast<std::size_t>(config_.netPeersPerAddress + std::max(count, hostBots_.count())));
+    hostBots_.setCount(count);
+    net_->setPeersPerAddress(static_cast<std::size_t>(config_.netPeersPerAddress + hostBots_.count()));
 }
 
 int App::runDedicated() {

@@ -312,6 +312,12 @@ void NetSession::callHook(const char* name, const std::string& player, const std
     callHookWith(scheme, name, s7_list(scheme, 2, s7_make_string(scheme, player.c_str()), extra), ScriptScope::World);
 }
 
+void NetSession::setPeersPerAddress(std::size_t peers) {
+    if (transport_) {
+        transport_->setPeersPerAddress(peers);
+    }
+}
+
 void NetSession::keepAlive() {
     if (transport_) {
         transport_->keepAlive();

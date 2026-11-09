@@ -52,6 +52,7 @@ public:
     virtual void poll(std::vector<NetEvent>& out) = 0;
     virtual NetConnectionStats stats(NetConnectionId connection) const = 0;
     virtual void keepAlive() {}
+    virtual void setPeersPerAddress(std::size_t) {}
 };
 
 }

@@ -56,6 +56,7 @@ public:
 
     NetConnectionStats stats(NetConnectionId connection) const override { return inner_->stats(connection); }
     void keepAlive() override { inner_->keepAlive(); }
+    void setPeersPerAddress(std::size_t peers) override { inner_->setPeersPerAddress(peers); }
 
 private:
     struct Pending {

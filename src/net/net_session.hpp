@@ -100,6 +100,7 @@ public:
     static void registerSystems(flecs::world& world, std::function<NetSession*()> current);
     void serverPoll();
     void keepAlive();
+    void setPeersPerAddress(std::size_t peers);
     void serverMapLoading();
     void serverMapLoaded();
     std::size_t serverHeldCount() const { return held_.size(); }

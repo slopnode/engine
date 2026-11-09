@@ -40,6 +40,7 @@ public:
     void close(NetConnectionId connection, std::string_view reason) override;
     void poll(std::vector<NetEvent>& out) override;
     void keepAlive() override { inner_->keepAlive(); }
+    void setPeersPerAddress(std::size_t peers) override { inner_->setPeersPerAddress(peers); }
     NetConnectionStats stats(NetConnectionId connection) const override;
 
     const SecureKey& publicKey() const { return staticPublic_; }

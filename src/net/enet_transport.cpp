@@ -201,6 +201,14 @@ public:
         service(out);
     }
 
+    void setPeersPerAddress(std::size_t peers) override {
+        const std::lock_guard lock(mutex_);
+        options_.maxPeersPerAddress = peers;
+        if (host_ != nullptr) {
+            host_->duplicatePeers = peers;
+        }
+    }
+
     void keepAlive() override {
         const std::lock_guard lock(mutex_);
         service(local_);

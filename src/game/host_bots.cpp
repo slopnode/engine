@@ -36,8 +36,8 @@ void HostBots::configure(HostBotLaunch launch) {
 
 void HostBots::setCount(int count) {
     reap();
-    count = std::max(0, count);
-    while (static_cast<int>(bots_.size()) > count) {
+    target_ = std::max(0, count);
+    while (static_cast<int>(bots_.size()) > target_) {
 #ifndef _WIN32
         kill(bots_.back().pid, SIGTERM);
 #endif
@@ -45,15 +45,24 @@ void HostBots::setCount(int count) {
         Log::info(LogCategory::General, "NET: stopping bot %d", bots_.back().slot);
         bots_.pop_back();
     }
-    while (static_cast<int>(bots_.size()) < count) {
-        int slot = 1;
-        while (std::any_of(bots_.begin(), bots_.end(), [&](const Bot& bot) { return bot.slot == slot; })) {
-            ++slot;
-        }
-        if (!spawn(slot)) {
-            return;
-        }
+    update();
+}
+
+void HostBots::update() {
+    reap();
+    const auto now = std::chrono::steady_clock::now();
+    if (static_cast<int>(bots_.size()) >= target_ || now < nextSpawn_) {
+        return;
     }
+    int slot = 1;
+    while (std::any_of(bots_.begin(), bots_.end(), [&](const Bot& bot) { return bot.slot == slot; })) {
+        ++slot;
+    }
+    if (!spawn(slot)) {
+        target_ = static_cast<int>(bots_.size());
+        return;
+    }
+    nextSpawn_ = now + std::chrono::milliseconds(400);
 }
 
 bool HostBots::spawn(int slot) {
@@ -107,12 +116,13 @@ bool HostBots::spawn(int slot) {
 
 void HostBots::reap() {
 #ifndef _WIN32
-    std::erase_if(bots_, [](const Bot& bot) {
+    std::erase_if(bots_, [this](const Bot& bot) {
         int status = 0;
         if (waitpid(bot.pid, &status, WNOHANG) != bot.pid) {
             return false;
         }
-        Log::warning(LogCategory::General, "NET: bot %d exited", bot.slot);
+        Log::warning(LogCategory::General, "NET: bot %d exited, see its bot.log", bot.slot);
+        target_ = std::max(0, target_ - 1);
         return true;
     });
     std::erase_if(stopping_, [](int pid) {
@@ -131,6 +141,7 @@ void HostBots::stopAll() {
         stopping.push_back(bot.pid);
     }
     bots_.clear();
+    target_ = 0;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     for (int pid : stopping) {
         int status = 0;

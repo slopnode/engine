@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -26,8 +27,9 @@ public:
     static bool supported();
     void configure(HostBotLaunch launch);
     void setCount(int count);
-    int count() const { return static_cast<int>(bots_.size()); }
+    int count() const { return target_; }
     const std::string& behavior() const { return launch_.behavior; }
+    void update();
     void reap();
     void stopAll();
 
@@ -42,6 +44,8 @@ private:
     HostBotLaunch launch_;
     std::vector<Bot> bots_;
     std::vector<int> stopping_;
+    int target_ = 0;
+    std::chrono::steady_clock::time_point nextSpawn_{};
 };
 
 }

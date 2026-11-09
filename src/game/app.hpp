@@ -61,6 +61,7 @@ private:
     NetProfile localProfile() const;
     void startBot();
     void startHostBots(int count, std::string behavior);
+    void setHostBotCount(int count);
     int runDedicated();
 
     AppConfig config_;
