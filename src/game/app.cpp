@@ -290,8 +290,8 @@ void App::openNetSession(
         net.pinnedServerKey = pinned;
     }
     net.hello.engineVersion = kSlopengineVersion;
-    netNameApplied_ = playerName();
-    net.hello.name = sanitizeNetDisplayName(netNameApplied_);
+    net.profile = localProfile();
+    netProfileApplied_ = net.profile;
     net.hello.schemaHash = netSchema().hash() ^ (motorRulesHash() * 0x9e3779b97f4a7c15ull);
     for (const Package& package : assetStore_.packages()) {
         net.hello.packages.push_back({package.meta().id, package.meta().version});
@@ -448,15 +448,36 @@ void App::takeNetControl() {
             }
         }
     }
-    if (net_ && netNameApplied_ != playerName()) {
-        netNameApplied_ = playerName();
-        net_->setLocalName(netNameApplied_);
+    if (net_) {
+        NetProfile profile = localProfile();
+        if (!(profile == netProfileApplied_)) {
+            netProfileApplied_ = profile;
+            net_->setLocalProfile(std::move(profile));
+        }
     }
     updateNetStatus();
 }
 
-std::string App::playerName() const {
-    return world_.has<UserSettings>() ? world_.get<UserSettings>().ui.playerName : userSettings_.ui.playerName;
+NetProfile App::localProfile() const {
+    const UiSettings& ui = world_.has<UserSettings>() ? world_.get<UserSettings>().ui : userSettings_.ui;
+    NetProfile profile;
+    profile.name = sanitizeNetDisplayName(ui.playerName);
+    if (profile.name.empty()) {
+        profile.name = kLocalNetPlayerId;
+    }
+    const std::vector<const NetField*> fields = netSchema().profileFields();
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        NetValue value = fields[i]->defaultValue;
+        const auto found = ui.profileValues.find(fields[i]->name);
+        if (found != ui.profileValues.end()) {
+            NetValue parsed;
+            if (netValueFromText(fields[i]->type, found->second, parsed)) {
+                value = std::move(parsed);
+            }
+        }
+        profile.fields.emplace_back(static_cast<int>(i), std::move(value));
+    }
+    return profile;
 }
 
 void App::updateNetStatus() {
@@ -477,11 +498,12 @@ void App::updateNetStatus() {
     }
     world_.set<NetStatus>(std::move(status));
     if (!net_) {
-        std::string name = sanitizeNetDisplayName(playerName());
-        NetRoster roster{{{kLocalNetPlayerId, name.empty() ? std::string(kLocalNetPlayerId) : name}}};
+        const NetProfile profile = localProfile();
+        NetRoster roster{{{kLocalNetPlayerId, profile.name}}};
         if (!world_.has<NetRoster>() || !(world_.get<NetRoster>().entries == roster.entries)) {
             world_.set<NetRoster>(std::move(roster));
         }
+        setNetProfile(world_, kLocalNetPlayerId, profile);
     }
 }
 

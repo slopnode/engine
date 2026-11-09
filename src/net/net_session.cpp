@@ -222,9 +222,12 @@ bool NetSession::start() {
         world_.set<NetSessionLimits>({config_.sessionKind, config_.maxPlayers, config_.playerCeiling});
         world_.add<SimShared>();
         world_.ensure<NetRewind>().maxTicks = config_.maxRewindTicks;
-        config_.hello.name = sanitizeNetDisplayName(config_.hello.name);
-        if (config_.hello.name.empty()) {
-            config_.hello.name = kLocalNetPlayerId;
+        config_.profile.name = sanitizeNetDisplayName(config_.profile.name);
+        if (config_.profile.name.empty()) {
+            config_.profile.name = kLocalNetPlayerId;
+        }
+        if (config_.hostPlayerVisible) {
+            setNetProfile(world_, kLocalNetPlayerId, config_.profile);
         }
         serverRefreshRoster();
         Log::info(LogCategory::General, "NET: listening on %s, server key %s", config_.listenAddress.c_str(),
@@ -370,16 +373,19 @@ void NetSession::serverReceive(const NetEvent& event) {
         return;
     }
     if (kind == NetMessageKind::Profile) {
-        std::string name;
-        if (!decodeNetProfile(event.data, name)) {
+        NetProfile profile;
+        if (!decodeNetProfile(event.data, netSchema().profileFields(), profile)) {
             serverDrop(event.connection, "malformed profile");
             return;
         }
-        const std::string unique = serverUniqueName(name, client.player);
+        const std::string unique = serverUniqueName(profile.name, client.player);
         if (unique != client.name) {
             Log::info(LogCategory::General, "NET: %s renamed to %s", client.player.c_str(), unique.c_str());
             client.name = unique;
             serverRefreshRoster();
+        }
+        if (setNetProfile(world_, client.player, profile)) {
+            callHook("on-player-profile", client.player);
         }
         return;
     }
@@ -424,6 +430,11 @@ void NetSession::serverHello(ServerClient& client, const std::vector<std::byte>&
         serverDrop(client.connection, problem);
         return;
     }
+    NetProfile profile;
+    if (!hello.profile.empty() && !decodeNetProfile(hello.profile, netSchema().profileFields(), profile)) {
+        serverDrop(client.connection, "malformed profile");
+        return;
+    }
     if (serverPlayerCount() >= serverPlayerLimit()) {
         serverDrop(client.connection, "server full");
         return;
@@ -441,7 +452,8 @@ void NetSession::serverHello(ServerClient& client, const std::vector<std::byte>&
         spawnPlayerBody(world_, client.player, nextPlayerNumber_);
         addNetPlayer(world_, client.player);
     }
-    client.name = serverUniqueName(hello.name, client.player);
+    client.name = serverUniqueName(profile.name, client.player);
+    setNetProfile(world_, client.player, profile);
     client.ready = true;
     Log::info(LogCategory::General, "NET: client ready as %s (%s)", client.player.c_str(), client.name.c_str());
     serverRefreshRoster();
@@ -455,7 +467,7 @@ std::string NetSession::serverUniqueName(const std::string& wanted, const std::s
         base = kLocalNetPlayerId;
     }
     const auto taken = [&](const std::string& name) {
-        if (config_.hostPlayerVisible && player != kLocalNetPlayerId && name == config_.hello.name) {
+        if (config_.hostPlayerVisible && player != kLocalNetPlayerId && name == config_.profile.name) {
             return true;
         }
         return std::any_of(clients_.begin(), clients_.end(), [&](const auto& entry) {
@@ -473,7 +485,7 @@ std::string NetSession::serverUniqueName(const std::string& wanted, const std::s
 void NetSession::serverRefreshRoster() {
     std::vector<NetRosterEntry> roster;
     if (config_.hostPlayerVisible) {
-        roster.push_back({kLocalNetPlayerId, config_.hello.name});
+        roster.push_back({kLocalNetPlayerId, config_.profile.name});
     }
     for (const auto& entry : clients_) {
         if (entry.second.ready) {
@@ -493,26 +505,31 @@ void NetSession::serverRefreshRoster() {
     }
 }
 
-void NetSession::setLocalName(const std::string& name) {
-    std::string clean = sanitizeNetDisplayName(name);
-    if (clean.empty()) {
-        clean = kLocalNetPlayerId;
+void NetSession::setLocalProfile(NetProfile profile) {
+    profile.name = sanitizeNetDisplayName(profile.name);
+    if (profile.name.empty()) {
+        profile.name = kLocalNetPlayerId;
     }
     if (role_ == NetRole::Server) {
-        if (config_.hostPlayerVisible) {
-            config_.hello.name = serverUniqueName(clean, kLocalNetPlayerId);
-            serverRefreshRoster();
-        } else {
-            config_.hello.name = clean;
+        if (!config_.hostPlayerVisible) {
+            config_.profile = std::move(profile);
+            return;
+        }
+        profile.name = serverUniqueName(profile.name, kLocalNetPlayerId);
+        const bool changed = setNetProfile(world_, kLocalNetPlayerId, profile);
+        config_.profile = std::move(profile);
+        serverRefreshRoster();
+        if (changed) {
+            callHook("on-player-profile", kLocalNetPlayerId);
         }
         return;
     }
-    if (clean == config_.hello.name) {
+    if (profile == config_.profile) {
         return;
     }
-    config_.hello.name = clean;
+    config_.profile = std::move(profile);
     if (role_ == NetRole::Client && connected_ && server_ != kNoNetConnection) {
-        transport_->send(server_, encodeNetProfile(clean), NetSendMode::Reliable);
+        transport_->send(server_, encodeNetProfile(config_.profile, netSchema().profileFields()), NetSendMode::Reliable);
     }
 }
 
@@ -578,6 +595,7 @@ void NetSession::serverRemove(NetConnectionId connection, const std::string& rea
     Log::info(LogCategory::General, "NET: %s left: %s", client.player.c_str(), reason.c_str());
     serverRefreshRoster();
     callHook("on-player-leave", client.player);
+    clearNetProfile(world_, client.player);
     if (client.ownBody) {
         despawnPlayerBody(world_, playerBody(world_, client.player));
         removeNetPlayer(world_, client.player);
@@ -1843,6 +1861,7 @@ void NetSession::clientReceive(const NetEvent& event) {
                              config_.connectAddress.c_str(), config_.knownServersPath.string().c_str());
             }
         }
+        config_.hello.profile = encodeNetProfile(config_.profile, netSchema().profileFields());
         transport_->send(server_, encodeNetHello(config_.hello), NetSendMode::Reliable);
         return;
     }

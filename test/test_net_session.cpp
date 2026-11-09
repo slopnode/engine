@@ -104,7 +104,8 @@ void runNetSessionTests() {
     netSchema().clear();
     netSchema().addPackageFields(
         sc,
-        s7_eval_c_string(sc, "'((player (health (type int 0 999) (default 100) (send all)) (secret (type int 0 9) (send none))))"),
+        s7_eval_c_string(sc, "'((player (health (type int 0 999) (default 100) (send all)) (secret (type int 0 9) (send none))"
+                         " (colour (type (symbol red blue)) (default red) (send all) (profile \"Colour\"))))"),
         "game",
         PackageRole::Base,
         messages);
@@ -150,7 +151,12 @@ void runNetSessionTests() {
 
     Side client;
     prepare(client);
-    client.session = std::make_unique<NetSession>(client.world, config(client, "", "server", hash), network.endpoint());
+    NetSessionConfig clientConfig = config(client, "", "server", hash);
+    NetValue blue;
+    blue.kind = NetTypeKind::Symbol;
+    blue.text = "blue";
+    clientConfig.profile = NetProfile{"", {{0, blue}}};
+    client.session = std::make_unique<NetSession>(client.world, std::move(clientConfig), network.endpoint());
     client.session->registerSystems();
     CHECK(client.session->start());
     frames(network, server, {&client}, 10);
@@ -158,6 +164,13 @@ void runNetSessionTests() {
     CHECK(server.session->serverHasClient());
     CHECK(client.loadedMap == "testmap");
     CHECK(client.session->clientPlayer() == "Player");
+    const NetField* colour = netSchema().find(NetScope{NetScopeKind::Player, {}}, "colour");
+    CHECK(colour != nullptr && netSchema().profileFields().size() == 1);
+    const auto colourOf = [&](const flecs::world& world, const char* id) {
+        const NetPlayerRecord* record = findNetPlayer(world, id);
+        return record == nullptr ? std::string{} : record->values[static_cast<std::size_t>(colour->slot)].text;
+    };
+    CHECK(colourOf(server.world, "Player") == "blue");
 
     const flecs::entity clientWalker = client.world.lookup("walker");
     const flecs::entity serverWalker = server.world.lookup("walker");
@@ -276,15 +289,19 @@ void runNetSessionTests() {
     CHECK(findNetPlayer(server.world, "player-2") != nullptr);
     CHECK(netDisplayName(server.world, "Player") == "Player");
     CHECK(netDisplayName(server.world, "player-2") == "Player 2");
-    late.session->setLocalName("  Alice ");
+    CHECK(colourOf(server.world, "player-2") == "red");
+    late.session->setLocalProfile(NetProfile{"  Alice ", {{0, blue}}});
     frames(network, server, {&client, &late}, 5);
     CHECK(netDisplayName(server.world, "player-2") == "Alice");
+    CHECK(colourOf(server.world, "player-2") == "blue");
+    resetNetPlayer(server.world, "player-2");
+    CHECK(colourOf(server.world, "player-2") == "blue");
     CHECK(netDisplayName(client.world, "player-2") == "Alice");
     CHECK(netDisplayName(late.world, "Player") == "Player");
-    client.session->setLocalName("Alice");
+    client.session->setLocalProfile(NetProfile{"Alice", {}});
     frames(network, server, {&client, &late}, 5);
     CHECK(netDisplayName(client.world, "Player") == "Alice 2");
-    client.session->setLocalName("Player");
+    client.session->setLocalProfile(NetProfile{"Player", {}});
     frames(network, server, {&client, &late}, 5);
     CHECK(netDisplayName(late.world, "Player") == "Player");
     CHECK(s7_boolean(sc, s7_eval_c_string(sc, "(and (member \"player:player-2\" appeared) #t)")));

@@ -31,6 +31,7 @@ inline constexpr float kMaxNetCoordinate = 1.0e6f;
 inline constexpr std::uint32_t kMaxNetHoldTicks = 1u << 20;
 inline constexpr std::size_t kMaxNetDisplayNameBytes = 24;
 inline constexpr std::size_t kMaxNetRoster = 256;
+inline constexpr std::size_t kMaxNetProfileBytes = 4096;
 
 enum class NetMessageKind : std::uint8_t {
     Hello = 1,
@@ -74,7 +75,14 @@ struct NetHello {
     std::string engineVersion;
     std::uint64_t schemaHash = 0;
     std::vector<NetPackageVersion> packages;
+    std::vector<std::byte> profile;
+};
+
+struct NetProfile {
     std::string name;
+    std::vector<std::pair<int, NetValue>> fields;
+
+    bool operator==(const NetProfile&) const = default;
 };
 
 struct NetRosterEntry {
@@ -219,8 +227,11 @@ std::optional<NetMessageKind> netMessageKind(std::span<const std::byte> data);
 std::vector<std::byte> encodeNetHello(const NetHello& hello);
 bool decodeNetHello(std::span<const std::byte> data, NetHello& out);
 std::string sanitizeNetDisplayName(std::string_view name);
-std::vector<std::byte> encodeNetProfile(const std::string& name);
-bool decodeNetProfile(std::span<const std::byte> data, std::string& out);
+std::vector<std::byte> encodeNetProfile(const NetProfile& profile, const std::vector<const NetField*>& profileFields);
+bool decodeNetProfile(
+    std::span<const std::byte> data,
+    const std::vector<const NetField*>& profileFields,
+    NetProfile& out);
 std::vector<std::byte> encodeNetRoster(const std::vector<NetRosterEntry>& roster);
 bool decodeNetRoster(std::span<const std::byte> data, std::vector<NetRosterEntry>& out);
 std::vector<std::byte> encodeNetMapChange(const NetMapChange& change);

@@ -216,7 +216,7 @@ void runCommandFloodTests(std::uint64_t hash) {
     hello.engineVersion = "test";
     hello.schemaHash = hash;
     hello.packages = {{"game", "1.0.0"}};
-    hello.name = "  Speedy\tGonzales  ";
+    hello.profile = encodeNetProfile(NetProfile{"  Speedy\tGonzales  ", {}}, {});
     CHECK(cheat->send(cheatId, encodeNetHello(hello), NetSendMode::Reliable));
     tick(5);
     CHECK_EQ(server.session->serverClientCount(), std::size_t{1});

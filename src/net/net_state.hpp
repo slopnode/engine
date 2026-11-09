@@ -25,6 +25,10 @@ struct NetIdentity {
     std::string player = kLocalNetPlayerId;
 };
 
+struct NetProfiles {
+    std::vector<std::pair<std::string, std::vector<std::pair<int, NetValue>>>> players;
+};
+
 struct NetRoster {
     std::vector<NetRosterEntry> entries;
 };
@@ -101,6 +105,8 @@ void removeNetPlayer(flecs::world& world, std::string_view id);
 void resetNetPlayer(flecs::world& world, std::string_view id);
 const NetPlayerRecord* findNetPlayer(const flecs::world& world, std::string_view id);
 std::string netDisplayName(const flecs::world& world, std::string_view id);
+bool setNetProfile(flecs::world& world, std::string_view id, const NetProfile& profile);
+void clearNetProfile(flecs::world& world, std::string_view id);
 void resetNetMapFields(flecs::world& world);
 bool resolveNetTarget(const flecs::world& world, std::string_view id, NetTarget& out);
 NetValue* findNetValue(flecs::world& world, const NetTarget& target, std::string_view field, const NetField** fieldOut);

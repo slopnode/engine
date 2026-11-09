@@ -28,6 +28,7 @@ UiSettings loadUiSettings(const std::filesystem::path& settingsFilePath) {
     }
 
     bool inUi = false;
+    bool inProfile = false;
     std::string line;
     while (std::getline(input, line)) {
         const std::string trimmed = trim(line);
@@ -36,14 +37,21 @@ UiSettings loadUiSettings(const std::filesystem::path& settingsFilePath) {
         }
         if (trimmed.front() == '[' && trimmed.back() == ']') {
             inUi = trimmed == "[ui]";
+            inProfile = trimmed == "[profile]";
             continue;
         }
         const std::size_t eq = trimmed.find('=');
-        if (!inUi || eq == std::string::npos) {
+        if ((!inUi && !inProfile) || eq == std::string::npos) {
             continue;
         }
         const std::string key = trim(trimmed.substr(0, eq));
         const std::string value = trim(trimmed.substr(eq + 1));
+        if (inProfile) {
+            if (!key.empty()) {
+                ui.profileValues[key] = value;
+            }
+            continue;
+        }
         if (key == "theme" && !value.empty()) {
             ui.theme = value;
         } else if (key == "join_address" && !value.empty()) {

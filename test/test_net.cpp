@@ -130,6 +130,36 @@ void runNetTests() {
     {
         NetSchema schema;
         std::vector<std::string> messages;
+        schema.setExtension(sc, evalForm(sc, "'((player (fields 2) (bytes 8)))"));
+        CHECK(schema.addPackageFields(
+            sc, evalForm(sc, "'((player (hue (type int 0 359) (profile \"Hue\")) (hp (type int 0 9))))"), "game",
+            PackageRole::Base, messages));
+        CHECK(schema.addPackageFields(
+            sc, evalForm(sc, "'((player (hat (type (symbol none cap)) (profile \"Hat\"))))"), "hats", PackageRole::Mod,
+            messages));
+        CHECK(messages.empty());
+        schema.addPackageFields(
+            sc, evalForm(sc, "'((session (mood (type bool) (profile \"Mood\"))))"), "game", PackageRole::Base, messages);
+        schema.addPackageFields(
+            sc, evalForm(sc, "'((player (tags (type (list (string 8) 4)) (profile \"Tags\"))))"), "game", PackageRole::Base,
+            messages);
+        schema.addPackageFields(
+            sc, evalForm(sc, "'((player (bad (type bool) (profile \"\"))))"), "game", PackageRole::Base, messages);
+        CHECK_EQ(static_cast<int>(messages.size()), 3);
+        schema.finalize();
+        const std::vector<const NetField*> profile = schema.profileFields();
+        CHECK(profile.size() == 2 && profile[0]->name == "hue" && profile[1]->name == "hats/hat");
+        NetValue parsed;
+        CHECK(netValueFromText(profile[0]->type, "200", parsed) && parsed.integer == 200 && netValueText(parsed) == "200");
+        CHECK_FALSE(netValueFromText(profile[0]->type, "400", parsed));
+        CHECK_FALSE(netValueFromText(profile[0]->type, "2x", parsed));
+        CHECK(netValueFromText(profile[1]->type, "cap", parsed) && parsed.text == "cap");
+        CHECK_FALSE(netValueFromText(profile[1]->type, "crown", parsed));
+    }
+
+    {
+        NetSchema schema;
+        std::vector<std::string> messages;
         CHECK_FALSE(schema.addSessionKinds(
             sc,
             evalForm(sc,

@@ -77,6 +77,7 @@ struct NetField {
     NetAudience send = NetAudience::All;
     bool travel = false;
     bool save = false;
+    std::string profile;
     int id = -1;
     int slot = -1;
 };
@@ -146,6 +147,7 @@ public:
     const std::vector<NetField>& fields() const { return fields_; }
     const NetField* find(const NetScope& scope, std::string_view name) const;
     std::vector<const NetField*> fieldsIn(const NetScope& scope) const;
+    std::vector<const NetField*> profileFields() const;
     const std::vector<NetEventDef>& events() const { return events_; }
     const NetEventDef* findEvent(std::string_view name) const;
     const std::vector<NetSessionKind>& sessionKinds() const { return sessionKinds_; }
@@ -189,6 +191,8 @@ int netTypeBits(const NetType& type);
 std::string netTypeText(const NetType& type);
 std::string netScopeText(const NetScope& scope);
 NetValue netZeroValue(const NetType& type);
+bool netValueFromText(const NetType& type, std::string_view text, NetValue& out);
+std::string netValueText(const NetValue& value);
 bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, NetValue& out, std::string& error);
 s7_pointer netValueToScheme(s7_scheme* sc, const NetValue& value);
 void loadPackageNetSchema(s7_scheme* sc, AssetStore& assets);

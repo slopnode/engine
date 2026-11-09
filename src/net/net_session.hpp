@@ -41,6 +41,7 @@ struct NetSessionConfig {
     std::filesystem::path serverKeyPath;
     std::filesystem::path knownServersPath;
     NetHello hello;
+    NetProfile profile;
     std::string sessionKind;
     int maxPlayers = 8;
     int playerCeiling = 8;
@@ -88,8 +89,8 @@ public:
     std::size_t serverPendingCount() const;
     int serverPlayerLimit() const;
     bool serverHasClient() const { return serverClientCount() > 0; }
-    const std::string& localName() const { return config_.hello.name; }
-    void setLocalName(const std::string& name);
+    const NetProfile& localProfile() const { return config_.profile; }
+    void setLocalProfile(NetProfile profile);
     const SecureKey& publicKey() const { return transport_->publicKey(); }
 
     void registerSystems();

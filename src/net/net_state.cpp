@@ -96,6 +96,8 @@ void registerNetState(flecs::world& world) {
     world.set<NetIdentity>({});
     world.component<NetRoster>();
     world.set<NetRoster>({});
+    world.component<NetProfiles>();
+    world.set<NetProfiles>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
@@ -112,6 +114,26 @@ void queueNetEffect(flecs::world& world, flecs::entity entity, NetEffect effect)
     }
 }
 
+namespace {
+
+void overlayNetProfile(const flecs::world& world, NetPlayerRecord& record) {
+    if (!world.has<NetProfiles>()) {
+        return;
+    }
+    for (const auto& [id, values] : world.get<NetProfiles>().players) {
+        if (id != record.id) {
+            continue;
+        }
+        for (const auto& [slot, value] : values) {
+            if (static_cast<std::size_t>(slot) < record.values.size()) {
+                record.values[static_cast<std::size_t>(slot)] = value;
+            }
+        }
+    }
+}
+
+} // namespace
+
 void resetNetState(flecs::world& world) {
     if (!world.has<NetStore>()) {
         return;
@@ -119,6 +141,7 @@ void resetNetState(flecs::world& world) {
     NetStore& store = world.get_mut<NetStore>();
     for (NetPlayerRecord& player : store.players) {
         player.values = defaultsFor(NetScope{NetScopeKind::Player, {}});
+        overlayNetProfile(world, player);
     }
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
 }
@@ -132,6 +155,7 @@ void resetNetSessionState(flecs::world& world) {
     world.set<NetPrediction>({});
     world.set<NetIdentity>({});
     world.set<NetRoster>({});
+    world.set<NetProfiles>({});
     NetStore store{};
     store.players.push_back(NetPlayerRecord{kLocalNetPlayerId, defaultsFor(NetScope{NetScopeKind::Player, {}})});
     store.session = defaultsFor(NetScope{NetScopeKind::Session, {}});
@@ -153,8 +177,50 @@ void addNetPlayer(flecs::world& world, std::string_view id) {
     if (!world.has<NetStore>() || findNetPlayer(world, id) != nullptr) {
         return;
     }
-    world.get_mut<NetStore>().players.push_back(
-        NetPlayerRecord{std::string(id), defaultsFor(NetScope{NetScopeKind::Player, {}})});
+    NetPlayerRecord record{std::string(id), defaultsFor(NetScope{NetScopeKind::Player, {}})};
+    overlayNetProfile(world, record);
+    world.get_mut<NetStore>().players.push_back(std::move(record));
+}
+
+bool setNetProfile(flecs::world& world, std::string_view id, const NetProfile& profile) {
+    if (!world.has<NetProfiles>()) {
+        return false;
+    }
+    const std::vector<const NetField*> fields = netSchema().profileFields();
+    std::vector<std::pair<int, NetValue>> values;
+    for (const auto& [index, value] : profile.fields) {
+        if (index >= 0 && static_cast<std::size_t>(index) < fields.size()) {
+            values.emplace_back(fields[static_cast<std::size_t>(index)]->slot, value);
+        }
+    }
+    auto& players = world.get_mut<NetProfiles>().players;
+    auto found = std::find_if(players.begin(), players.end(), [&](const auto& entry) { return entry.first == id; });
+    if (found == players.end()) {
+        players.emplace_back(std::string(id), std::vector<std::pair<int, NetValue>>{});
+        found = std::prev(players.end());
+    }
+    if (found->second == values) {
+        return false;
+    }
+    found->second = std::move(values);
+    if (world.has<NetStore>()) {
+        for (NetPlayerRecord& record : world.get_mut<NetStore>().players) {
+            if (record.id == id) {
+                overlayNetProfile(world, record);
+            }
+        }
+    }
+    return true;
+}
+
+void clearNetProfile(flecs::world& world, std::string_view id) {
+    if (!world.has<NetProfiles>()) {
+        return;
+    }
+    auto& players = world.get_mut<NetProfiles>().players;
+    players.erase(
+        std::remove_if(players.begin(), players.end(), [&](const auto& entry) { return entry.first == id; }),
+        players.end());
 }
 
 void removeNetPlayer(flecs::world& world, std::string_view id) {
@@ -174,6 +240,7 @@ void resetNetPlayer(flecs::world& world, std::string_view id) {
     for (NetPlayerRecord& record : world.get_mut<NetStore>().players) {
         if (record.id == id) {
             record.values = defaultsFor(NetScope{NetScopeKind::Player, {}});
+            overlayNetProfile(world, record);
         }
     }
 }
@@ -202,6 +269,7 @@ void resetNetMapFields(flecs::world& world) {
                 player.values[static_cast<std::size_t>(field->slot)] = field->defaultValue;
             }
         }
+        overlayNetProfile(world, player);
     }
 }
 

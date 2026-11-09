@@ -55,7 +55,7 @@ private:
     std::string hostMapFor(const NetControlRequest& request) const;
     void takeNetControl();
     void updateNetStatus();
-    std::string playerName() const;
+    NetProfile localProfile() const;
     void startBot();
     int runDedicated();
 
@@ -71,7 +71,7 @@ private:
     std::filesystem::path settingsFilePath_;
     std::string netAddress_;
     std::string netError_;
-    std::string netNameApplied_;
+    NetProfile netProfileApplied_;
     bool netStopPending_ = false;
     bool running_ = false;
 };

@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 
 namespace slopengine {
@@ -245,7 +246,7 @@ bool parseField(s7_scheme* sc, s7_pointer entry, const NetScope& scope, NetField
     for (s7_pointer cursor = s7_cdr(entry); s7_is_pair(cursor); cursor = s7_cdr(cursor)) {
         const s7_pointer option = s7_car(cursor);
         if (!s7_is_pair(option) || !s7_is_symbol(s7_car(option))) {
-            error = out.name + ": options look like (type ...), (default v), (send all), (travel #t), (save #t)";
+            error = out.name + ": options look like (type ...), (default v), (send all), (travel #t), (save #t), (profile \"Label\")";
             return false;
         }
         const std::string key = s7_symbol_name(s7_car(option));
@@ -280,6 +281,16 @@ bool parseField(s7_scheme* sc, s7_pointer entry, const NetScope& scope, NetField
                 out.save = flag;
                 haveSave = true;
             }
+        } else if (key == "profile") {
+            if (!s7_is_pair(rest) || !s7_is_string(s7_car(rest)) || !s7_is_null(sc, s7_cdr(rest))) {
+                error = out.name + ": profile needs one label string";
+                return false;
+            }
+            out.profile = s7_string(s7_car(rest));
+            if (out.profile.empty() || out.profile.size() > 64) {
+                error = out.name + ": profile label is 1 to 64 characters";
+                return false;
+            }
         } else {
             error = out.name + ": unknown option " + key;
             return false;
@@ -288,6 +299,18 @@ bool parseField(s7_scheme* sc, s7_pointer entry, const NetScope& scope, NetField
     if (!haveType) {
         error = out.name + ": missing (type ...)";
         return false;
+    }
+    if (!out.profile.empty()) {
+        if (scope.kind != NetScopeKind::Player) {
+            error = out.name + ": only player fields can be profile fields";
+            return false;
+        }
+        const NetTypeKind kind = out.type.kind;
+        if (kind != NetTypeKind::Bool && kind != NetTypeKind::Int && kind != NetTypeKind::Real &&
+            kind != NetTypeKind::Symbol && kind != NetTypeKind::String) {
+            error = out.name + ": profile fields are bool, int, real, symbol or string";
+            return false;
+        }
     }
     if (!haveSave) {
         out.save = out.travel;
@@ -777,7 +800,7 @@ void NetSchema::finalize() {
         canonical += field.packageId + "|" + netScopeText(field.scope) + "|" + field.name + "|" +
                      netTypeText(field.type) + "|" + canonicalValue(field.defaultValue) + "|" +
                      std::to_string(static_cast<int>(field.send)) + "|" + (field.travel ? "t" : "f") +
-                     (field.save ? "t" : "f") + "\n";
+                     (field.save ? "t" : "f") + "|" + field.profile + "\n";
     }
     std::sort(events_.begin(), events_.end(), [](const NetEventDef& a, const NetEventDef& b) {
         return a.packageId != b.packageId ? a.packageId < b.packageId : a.name < b.name;
@@ -808,6 +831,16 @@ std::vector<const NetField*> NetSchema::fieldsIn(const NetScope& scope) const {
     std::vector<const NetField*> out;
     for (const NetField& field : fields_) {
         if (field.scope == scope) {
+            out.push_back(&field);
+        }
+    }
+    return out;
+}
+
+std::vector<const NetField*> NetSchema::profileFields() const {
+    std::vector<const NetField*> out;
+    for (const NetField& field : fields_) {
+        if (field.scope.kind == NetScopeKind::Player && !field.profile.empty()) {
             out.push_back(&field);
         }
     }
@@ -917,6 +950,72 @@ NetValue netZeroValue(const NetType& type) {
         break;
     }
     return value;
+}
+
+bool netValueFromText(const NetType& type, std::string_view text, NetValue& out) {
+    out = NetValue{};
+    out.kind = type.kind;
+    const std::string copy(text);
+    switch (type.kind) {
+    case NetTypeKind::Bool:
+        if (copy != "0" && copy != "1") {
+            return false;
+        }
+        out.flag = copy == "1";
+        return true;
+    case NetTypeKind::Int: {
+        char* end = nullptr;
+        const long long parsed = std::strtoll(copy.c_str(), &end, 10);
+        if (copy.empty() || end != copy.c_str() + copy.size() || parsed < type.lo || parsed > type.hi) {
+            return false;
+        }
+        out.integer = parsed;
+        return true;
+    }
+    case NetTypeKind::Real: {
+        char* end = nullptr;
+        const double parsed = std::strtod(copy.c_str(), &end);
+        if (copy.empty() || end != copy.c_str() + copy.size() || !std::isfinite(parsed) || parsed < type.realLo ||
+            parsed > type.realHi) {
+            return false;
+        }
+        out.real = quantize(type, parsed);
+        return true;
+    }
+    case NetTypeKind::Symbol:
+        if (std::find(type.symbols.begin(), type.symbols.end(), copy) == type.symbols.end()) {
+            return false;
+        }
+        out.text = copy;
+        return true;
+    case NetTypeKind::String:
+        if (copy.size() > static_cast<std::size_t>(type.maxCount)) {
+            return false;
+        }
+        out.text = copy;
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::string netValueText(const NetValue& value) {
+    switch (value.kind) {
+    case NetTypeKind::Bool:
+        return value.flag ? "1" : "0";
+    case NetTypeKind::Int:
+        return std::to_string(value.integer);
+    case NetTypeKind::Real: {
+        char buffer[64];
+        std::snprintf(buffer, sizeof(buffer), "%.17g", value.real);
+        return buffer;
+    }
+    case NetTypeKind::Symbol:
+    case NetTypeKind::String:
+        return value.text;
+    default:
+        return {};
+    }
 }
 
 bool netValueFromScheme(s7_scheme* sc, s7_pointer value, const NetType& type, NetValue& out, std::string& error) {

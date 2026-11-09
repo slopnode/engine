@@ -251,7 +251,15 @@ bool UserSettings::save() const {
            << "[ui]\n"
            << "theme=" << ui.theme << '\n'
            << "join_address=" << ui.joinAddress << '\n'
-           << "player_name=" << ui.playerName << "\n\n"
+           << "player_name=" << ui.playerName << "\n\n";
+    if (!ui.profileValues.empty()) {
+        output << "[profile]\n";
+        for (const auto& [key, value] : ui.profileValues) {
+            output << key << '=' << value << '\n';
+        }
+        output << '\n';
+    }
+    output
            << "[controls]\n";
 
     for (int i = 0; i < static_cast<int>(controls.binds.size()); ++i) {

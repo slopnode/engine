@@ -55,26 +55,26 @@ void runNetProtocolTests() {
         CHECK(back.schemaHash == hello.schemaHash && back.packages == hello.packages);
         CHECK(netMessageKind(data) == NetMessageKind::Hello);
         CHECK(rejectsEveryTruncation(data, [](auto span) { NetHello h; return decodeNetHello(span, h); }));
-        hello.name = "Alice";
-        CHECK(decodeNetHello(encodeNetHello(hello), back) && back.name == "Alice");
+        hello.profile = encodeNetProfile(NetProfile{"Alice", {}}, {});
+        CHECK(decodeNetHello(encodeNetHello(hello), back) && back.profile == hello.profile);
     }
 
     {
         CHECK(sanitizeNetDisplayName("  Ann   Lee \n") == "Ann Lee");
         CHECK(sanitizeNetDisplayName("\x01\x7f").empty());
         CHECK(sanitizeNetDisplayName(std::string(80, 'x')).size() == kMaxNetDisplayNameBytes);
-        std::string profile;
-        const std::vector<std::byte> data = encodeNetProfile("Bob");
+        NetProfile profile;
+        const std::vector<std::byte> data = encodeNetProfile(NetProfile{"Bob", {}}, {});
         CHECK(netMessageKind(data) == NetMessageKind::Profile);
-        CHECK(decodeNetProfile(data, profile) && profile == "Bob");
-        CHECK(rejectsEveryTruncation(data, [](auto span) { std::string n; return decodeNetProfile(span, n); }));
+        CHECK(decodeNetProfile(data, {}, profile) && profile.name == "Bob" && profile.fields.empty());
+        CHECK(rejectsEveryTruncation(data, [](auto span) { NetProfile p; return decodeNetProfile(span, {}, p); }));
         const std::vector<NetRosterEntry> roster{{"Player", "Ann"}, {"player-2", "Bob"}};
         const std::vector<std::byte> rosterData = encodeNetRoster(roster);
         std::vector<NetRosterEntry> rosterBack;
         CHECK(netMessageKind(rosterData) == NetMessageKind::Roster);
         CHECK(decodeNetRoster(rosterData, rosterBack) && rosterBack == roster);
         CHECK(rejectsEveryTruncation(rosterData, [](auto span) { std::vector<NetRosterEntry> r; return decodeNetRoster(span, r); }));
-        CHECK_FALSE(decodeNetProfile(rosterData, profile));
+        CHECK_FALSE(decodeNetProfile(rosterData, {}, profile));
     }
 
     {

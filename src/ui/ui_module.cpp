@@ -226,6 +226,70 @@ void openJoinGame(SettingsUiState& settingsUi, const UserSettings& settings) {
 void openProfile(SettingsUiState& settingsUi, const UserSettings& settings) {
     settingsUi.profileOpen = true;
     std::snprintf(settingsUi.profileName, sizeof(settingsUi.profileName), "%s", settings.ui.playerName.c_str());
+    settingsUi.profileValues.clear();
+    for (const NetField* field : netSchema().profileFields()) {
+        NetValue value = field->defaultValue;
+        const auto found = settings.ui.profileValues.find(field->name);
+        NetValue parsed;
+        if (found != settings.ui.profileValues.end() && netValueFromText(field->type, found->second, parsed)) {
+            value = std::move(parsed);
+        }
+        settingsUi.profileValues.push_back(netValueText(value));
+    }
+}
+
+void drawProfileField(const NetField& field, std::string& text) {
+    NetValue value;
+    if (!netValueFromText(field.type, text, value)) {
+        value = field.defaultValue;
+    }
+    const NetType& type = field.type;
+    const char* label = field.profile.c_str();
+    switch (type.kind) {
+    case NetTypeKind::Bool:
+        ImGui::Checkbox(label, &value.flag);
+        break;
+    case NetTypeKind::Int:
+        if (type.hi - type.lo <= 1000) {
+            int current = static_cast<int>(value.integer);
+            ImGui::SliderInt(label, &current, static_cast<int>(type.lo), static_cast<int>(type.hi));
+            value.integer = current;
+        } else {
+            int current = static_cast<int>(std::clamp<std::int64_t>(value.integer, INT32_MIN, INT32_MAX));
+            ImGui::InputInt(label, &current);
+            value.integer = std::clamp<std::int64_t>(current, type.lo, type.hi);
+        }
+        break;
+    case NetTypeKind::Real: {
+        float current = static_cast<float>(value.real);
+        ImGui::SliderFloat(label, &current, static_cast<float>(type.realLo), static_cast<float>(type.realHi));
+        value.real = std::clamp(static_cast<double>(current), type.realLo, type.realHi);
+        break;
+    }
+    case NetTypeKind::Symbol: {
+        if (ImGui::BeginCombo(label, value.text.c_str())) {
+            for (const std::string& symbol : type.symbols) {
+                if (ImGui::Selectable(symbol.c_str(), symbol == value.text)) {
+                    value.text = symbol;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        break;
+    }
+    case NetTypeKind::String: {
+        char buffer[256] = {};
+        std::snprintf(buffer, sizeof(buffer), "%s", value.text.c_str());
+        const std::size_t limit = std::min<std::size_t>(sizeof(buffer), static_cast<std::size_t>(type.maxCount) + 1);
+        ImGui::InputText(label, buffer, limit);
+        value.text = buffer;
+        break;
+    }
+    default:
+        break;
+    }
+    NetValue settled;
+    text = netValueFromText(type, netValueText(value), settled) ? netValueText(settled) : netValueText(field.defaultValue);
 }
 
 void settleNetWindows(SettingsUiState& settingsUi, const NetStatus& status) {
@@ -372,7 +436,6 @@ void drawJoinGame(
     if (connecting) {
         ImGui::EndDisabled();
     }
-    ImGui::TextDisabled("host:port, the port defaults to %d", kDefaultNetPort);
     if (connecting) {
         ImGui::TextUnformatted(netStatusLine(status).c_str());
     } else if (settingsUi.joinPending && status.kind == NetStatusKind::Offline && !status.error.empty()) {
@@ -433,7 +496,13 @@ void drawProfile(
     const bool entered = ImGui::InputText(
         "Name", settingsUi.profileName, sizeof(settingsUi.profileName), ImGuiInputTextFlags_EnterReturnsTrue);
     const std::string name = sanitizeNetDisplayName(settingsUi.profileName);
-    ImGui::TextDisabled("Shown to other players, up to %d characters", static_cast<int>(kMaxNetDisplayNameBytes));
+    const std::vector<const NetField*> fields = netSchema().profileFields();
+    settingsUi.profileValues.resize(fields.size());
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        ImGui::PushID(fields[i]->name.c_str());
+        drawProfileField(*fields[i], settingsUi.profileValues[i]);
+        ImGui::PopID();
+    }
     ImGui::Separator();
     if (name.empty()) {
         ImGui::BeginDisabled();
@@ -443,8 +512,14 @@ void drawProfile(
         ImGui::EndDisabled();
     }
     if ((clicked || entered) && !name.empty()) {
-        if (settings.ui.playerName != name) {
-            settings.ui.playerName = name;
+        bool changed = settings.ui.playerName != name;
+        settings.ui.playerName = name;
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            std::string& stored = settings.ui.profileValues[fields[i]->name];
+            changed = changed || stored != settingsUi.profileValues[i];
+            stored = settingsUi.profileValues[i];
+        }
+        if (changed) {
             settings.save();
         }
         settingsUi.profileOpen = false;

@@ -62,6 +62,7 @@ struct SettingsUiState {
     char joinAddress[128] = {};
     bool profileOpen = false;
     char profileName[64] = {};
+    std::vector<std::string> profileValues;
     bool aboutOpen = false;
     bool creditsOpen = false;
 };

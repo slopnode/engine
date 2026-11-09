@@ -304,7 +304,10 @@ std::vector<std::byte> encodeNetHello(const NetHello& hello) {
         writer.string(package.id);
         writer.string(package.version);
     }
-    writer.string(hello.name);
+    writer.varint(hello.profile.size());
+    for (const std::byte byte : hello.profile) {
+        writer.u8(static_cast<std::uint8_t>(byte));
+    }
     return writer.data();
 }
 
@@ -324,8 +327,16 @@ bool decodeNetHello(std::span<const std::byte> data, NetHello& out) {
         }
         out.packages.push_back(std::move(package));
     }
-    if (!reader.string(out.name, kMaxNameBytes)) {
+    std::size_t profileBytes = 0;
+    if (!reader.count(profileBytes, kMaxNetProfileBytes)) {
         return false;
+    }
+    for (std::size_t i = 0; i < profileBytes; ++i) {
+        std::uint8_t byte = 0;
+        if (!reader.u8(byte)) {
+            return false;
+        }
+        out.profile.push_back(static_cast<std::byte>(byte));
     }
     return reader.atEnd();
 }
@@ -348,16 +359,44 @@ std::string sanitizeNetDisplayName(std::string_view name) {
     return out;
 }
 
-std::vector<std::byte> encodeNetProfile(const std::string& name) {
+std::vector<std::byte> encodeNetProfile(const NetProfile& profile, const std::vector<const NetField*>& profileFields) {
     NetWriter writer = begin(NetMessageKind::Profile);
-    writer.string(name);
+    writer.string(profile.name);
+    writer.varint(profile.fields.size());
+    for (const auto& [slot, value] : profile.fields) {
+        writer.varint(static_cast<std::uint64_t>(slot));
+        writer.value(value, profileFields[static_cast<std::size_t>(slot)]->type);
+    }
     return writer.data();
 }
 
-bool decodeNetProfile(std::span<const std::byte> data, std::string& out) {
+bool decodeNetProfile(
+    std::span<const std::byte> data,
+    const std::vector<const NetField*>& profileFields,
+    NetProfile& out) {
     NetReader reader(data);
-    out.clear();
-    return expect(reader, NetMessageKind::Profile) && reader.string(out, kMaxNameBytes) && reader.atEnd();
+    out = NetProfile{};
+    std::size_t count = 0;
+    if (!expect(reader, NetMessageKind::Profile) || !reader.string(out.name, kMaxNameBytes) ||
+        !reader.count(count, profileFields.size())) {
+        return false;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        std::size_t slot = 0;
+        NetValue value;
+        if (profileFields.empty() || !reader.count(slot, profileFields.size() - 1) ||
+            !reader.value(value, profileFields[slot]->type)) {
+            return false;
+        }
+        const bool repeated = std::any_of(out.fields.begin(), out.fields.end(), [&](const auto& entry) {
+            return entry.first == static_cast<int>(slot);
+        });
+        if (repeated) {
+            return false;
+        }
+        out.fields.emplace_back(static_cast<int>(slot), std::move(value));
+    }
+    return reader.atEnd();
 }
 
 std::vector<std::byte> encodeNetRoster(const std::vector<NetRosterEntry>& roster) {
